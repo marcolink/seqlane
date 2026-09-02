@@ -62,3 +62,16 @@ project runtime configuration during the review and receives a read-only tool
 policy. The workflow updates one marked pull-request comment with the report
 and records the report verdict without failing the review job when it is
 `request-changes`.
+
+`all-features.ts` is the compact feature tour. It uses typed input/output,
+shared and exclusive workspaces, isolated/reused/branched sessions, explicit
+dependencies, whole/nested/literal bindings, references, Studio observability
+selections, fan-out/fan-in, mechanical gates, a task-backed repeat
+postcondition, and a one-iteration repeat. The two branch lanes can run
+concurrently, so the example stays small and fast.
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js run examples/all-features.ts \
+  --input '{"topic":"Seqlane","focus":"typed workflows"}' \
+  --runtime http://127.0.0.1:4096
+```
