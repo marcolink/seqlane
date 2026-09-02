@@ -1,12 +1,10 @@
 import type {
   JsonValue,
+  ModelSelection,
   RuntimeProfileReference,
   TaskDefinitionRegistry,
 } from "@seqlane/core";
-import {
-  InteractionRequiredError,
-  plainRecordSchema,
-} from "@seqlane/core";
+import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
 import {
   createOpenCodeExecutor,
   createOpenCodeRun,
@@ -86,20 +84,23 @@ function createOpenCodeSession(
   taskDefinitions: TaskDefinitionRegistry,
   run: Awaited<ReturnType<typeof createOpenCodeRun>>,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
+  effectiveSelection: ModelSelection | undefined,
 ): ResolvedExecutorSession {
   return {
     key: Symbol("opencode-executor-session"),
+    ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: createSessionUiExecutor(
       createOpenCodeExecutor(taskDefinitions, run),
       run.browserUrl,
       onSessionUiAvailable,
     ),
     checkpoint: () => run.checkpoint(),
-    fork: async ({ checkpoint }) =>
+    fork: async ({ checkpoint, effectiveSelection: branchSelection }) =>
       createOpenCodeSession(
         taskDefinitions,
         await run.fork(checkpoint),
         onSessionUiAvailable,
+        branchSelection ?? effectiveSelection,
       ),
   };
 }
@@ -109,6 +110,7 @@ function createLazyOpenCodeSession(
   connection: Parameters<typeof createOpenCodeRun>[0],
   signal: AbortSignal,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
+  effectiveSelection: ModelSelection | undefined,
 ): ResolvedExecutorSession {
   let run: Promise<Awaited<ReturnType<typeof createOpenCodeRun>>> | undefined;
 
@@ -117,6 +119,7 @@ function createLazyOpenCodeSession(
 
   return {
     key: Symbol("isolated-opencode-executor-session"),
+    ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: {
       async execute(request) {
         const resolved = await resolveRun();
@@ -134,11 +137,12 @@ function createLazyOpenCodeSession(
       },
     },
     checkpoint: async () => (await resolveRun()).checkpoint(),
-    fork: async ({ checkpoint }) =>
+    fork: async ({ checkpoint, effectiveSelection: branchSelection }) =>
       createOpenCodeSession(
         taskDefinitions,
         await (await resolveRun()).fork(checkpoint),
         onSessionUiAvailable,
+        branchSelection ?? effectiveSelection,
       ),
   };
 }
@@ -194,12 +198,13 @@ export async function resolveRuntimeProfile(
   );
   const workspaceResources = createWorkspaceResources(workspaceIdentities);
   const sessionResolver: SessionResolver = {
-    resolve: async (): Promise<ResolvedExecutorSession> =>
+    resolve: async ({ effectiveSelection }): Promise<ResolvedExecutorSession> =>
       createLazyOpenCodeSession(
         taskDefinitions,
         connection,
         signal,
         onSessionUiAvailable,
+        effectiveSelection,
       ),
   };
 
@@ -325,9 +330,10 @@ async function createTestFixtureExecution(
   return {
     executors,
     sessionResolver: {
-      resolve: async () => ({
+      resolve: async ({ effectiveSelection }) => ({
         key: Symbol("isolated-fixture-session"),
         executor,
+        ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
       }),
     },
     taskDefinitions,

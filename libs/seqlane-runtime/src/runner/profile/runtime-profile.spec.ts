@@ -116,13 +116,19 @@ describe("resolveRuntimeProfile", () => {
         new AbortController().signal,
         null,
       );
+      const selection = {
+        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        reasoning: "high" as const,
+      };
       const session = await execution.sessionResolver.resolve({
         invocationId: "invocation:source",
         task: source,
+        effectiveSelection: selection,
       });
 
       expect(session.checkpoint).toBeTypeOf("function");
       expect(session.fork).toBeTypeOf("function");
+      expect(session.effectiveSelection).toEqual(selection);
     } finally {
       await server.close();
     }

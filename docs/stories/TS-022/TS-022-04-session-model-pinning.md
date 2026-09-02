@@ -1,6 +1,6 @@
 # TS-022-04 — Pin Effective Selections Across Runtime Sessions
 
-**Status:** planned
+**Status:** implemented
 
 ## User outcome
 

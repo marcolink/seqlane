@@ -1,9 +1,11 @@
 // @test-scope ../compile/compile-plan.ts
+// @test-scope ../execution/model-preflight.ts
 // @test-scope ./session-preflight.ts
 // @test-scope ./shared-session-order.ts
-import type { PlanNode, TaskDefinition } from "@seqlane/core";
+import type { ModelSelection, PlanNode, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { EffectCompiler } from "../compile/compile-plan.js";
+import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import { resolveCompiledWorkflowSessions } from "./session-preflight.js";
 import type {
   ResolvedExecutorSession,
@@ -205,6 +207,160 @@ describe("shared-session order preflight", () => {
     expect(activity.indexOf("fork")).toBeLessThan(
       activity.indexOf("parent:reuse"),
     );
+  });
+
+  it("passes the effective selection to isolated resolution and reuses the exact source session", async () => {
+    const selection: ModelSelection = {
+      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      reasoning: "high",
+    };
+    const resolverSelections: Array<ModelSelection | undefined> = [];
+    const parentSession: ResolvedExecutorSession = {
+      key: Symbol("parent"),
+      executor: { execute: async () => ({}) },
+    };
+    const compiled = new EffectCompiler().compileWorkflow(
+      {
+        workflow: { id: "session-selection-reuse" },
+        nodes: [
+          {
+            ...task("source"),
+            session: { type: "isolated" as const, model: selection },
+          },
+          {
+            ...task("reuse", ["source"]),
+            session: { type: "reuse" as const, from: "source" },
+          },
+        ],
+        output: { type: "ref", nodeId: "reuse", path: [] },
+      },
+      {
+        createInvocationId: (nodeId) => `inv:${nodeId}`,
+        executors: new Map([["test", parentSession.executor]]),
+        sessionResolver: {
+          modelCapabilities: {
+            executor: "test",
+            listModels: async () => [selection.model],
+            resolveDefaultModel: async () => selection,
+          },
+          resolve: async ({ effectiveSelection }) => {
+            resolverSelections.push(effectiveSelection);
+            return parentSession;
+          },
+        },
+        taskDefinitions: new Map([
+          ["source", taskDefinition("source")],
+          ["reuse", taskDefinition("reuse")],
+        ]),
+      },
+    );
+
+    await preflightCompiledWorkflowModels(compiled);
+    await resolveCompiledWorkflowSessions(compiled);
+    await runCompiledWorkflow(compiled);
+
+    expect(resolverSelections).toEqual([selection]);
+    const sourceSession = compiled.context.resolvedSessions.get("inv:source");
+    expect(sourceSession).toBeDefined();
+    expect(compiled.context.resolvedSessions.get("inv:reuse")).toBe(
+      sourceSession,
+    );
+    expect(sourceSession?.effectiveSelection).toEqual(selection);
+  });
+
+  it("pins a changed branch selection without changing the parent session", async () => {
+    const parentSelection: ModelSelection = {
+      model: { provider: "openai", model: "gpt-5.6-sol" },
+      reasoning: "medium",
+    };
+    const branchSelection: ModelSelection = {
+      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      reasoning: "high",
+    };
+    const forkSelections: Array<ModelSelection | undefined> = [];
+    const parentSession: ResolvedExecutorSession = {
+      key: Symbol("parent"),
+      executor: { execute: async () => ({}) },
+      effectiveSelection: parentSelection,
+      checkpoint: async () => "checkpoint",
+      fork: async ({ effectiveSelection }) => {
+        forkSelections.push(effectiveSelection);
+        return {
+          key: Symbol("branch"),
+          executor: { execute: async () => ({}) },
+          effectiveSelection: parentSelection,
+        };
+      },
+    };
+    const compiled = new EffectCompiler().compileWorkflow(
+      {
+        workflow: { id: "session-selection-branch" },
+        nodes: [
+          {
+            ...task("source"),
+            session: { type: "isolated" as const, model: parentSelection },
+          },
+          {
+            ...task("branch", ["source"]),
+            session: {
+              type: "branch" as const,
+              from: "source",
+              model: branchSelection,
+            },
+          },
+          {
+            ...task("reuse", ["source"]),
+            session: { type: "reuse" as const, from: "source" },
+          },
+          {
+            ...task("branch-reuse", ["branch"]),
+            session: { type: "reuse" as const, from: "branch" },
+          },
+        ],
+        output: { type: "ref", nodeId: "branch-reuse", path: [] },
+      },
+      {
+        createInvocationId: (nodeId) => `inv:${nodeId}`,
+        executors: new Map([["test", parentSession.executor]]),
+        sessionResolver: {
+          modelCapabilities: {
+            executor: "test",
+            listModels: async () => [
+              parentSelection.model,
+              branchSelection.model,
+            ],
+            resolveDefaultModel: async () => parentSelection,
+          },
+          resolve: async () => parentSession,
+        },
+        taskDefinitions: new Map([
+          ["source", taskDefinition("source")],
+          ["branch", taskDefinition("branch")],
+          ["reuse", taskDefinition("reuse")],
+          ["branch-reuse", taskDefinition("branch-reuse")],
+        ]),
+      },
+    );
+
+    await preflightCompiledWorkflowModels(compiled);
+    await resolveCompiledWorkflowSessions(compiled);
+    await runCompiledWorkflow(compiled);
+
+    const branchSession = compiled.context.resolvedSessions.get("inv:branch");
+    expect(forkSelections).toEqual([branchSelection]);
+    expect(branchSession).toBeDefined();
+    expect(branchSession).not.toBe(parentSession);
+    expect(branchSession?.effectiveSelection).toEqual(branchSelection);
+    expect(compiled.context.resolvedSessions.get("inv:source")).toBe(
+      parentSession,
+    );
+    expect(compiled.context.resolvedSessions.get("inv:reuse")).toBe(
+      parentSession,
+    );
+    expect(compiled.context.resolvedSessions.get("inv:branch-reuse")).toBe(
+      branchSession,
+    );
+    expect(parentSession.effectiveSelection).toEqual(parentSelection);
   });
 
   it("fails a branch workflow when the source session cannot fork natively", async () => {
