@@ -89,23 +89,23 @@ child-process CLI boundary tests separately when compiled packages are needed:
 pnpm exec nx test:e2e seqlane-cli
 ```
 
-GitHub Actions runs affected lint and unit-test targets for pull requests and
-pushes to `main`. The test workflow always checks test-to-implementation
-mappings before it runs affected unit tests.
+GitHub Actions checks affected formatting, typechecking, lint, and unit-test
+targets for pull requests and pushes to `main`. The test workflow always checks
+test-to-implementation mappings before it runs affected unit tests.
 
 ## Package map
 
-| Package                                                             | Purpose                                                              |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| [`@seqlane/core`](libs/seqlane-core/README.md)         | Public Seqlane contracts, task definitions, Flow DSL, and Plan IR.  |
-| [`examples/`](examples/README.md)                                  | Runnable local workflow examples.                                    |
+| Package                                                | Purpose                                                              |
+| ------------------------------------------------------ | -------------------------------------------------------------------- |
+| [`@seqlane/core`](libs/seqlane-core/README.md)         | Public Seqlane contracts, task definitions, Flow DSL, and Plan IR.   |
+| [`examples/`](examples/README.md)                      | Runnable local workflow examples.                                    |
 | [`@seqlane/fixtures`](libs/seqlane-fixtures/README.md) | Private workflows and schemas for tests.                             |
 | [`@seqlane/runtime`](libs/seqlane-runtime/README.md)   | Private Plan compiler, Effect-based runner, and execution context.   |
 | [`@seqlane/opencode`](libs/seqlane-opencode/README.md) | Private OpenCode adapter for agent execution.                        |
 | [`@seqlane/events`](libs/seqlane-events/README.md)     | Public canonical serialized execution-event contracts and consumers. |
 | [`@seqlane/output`](libs/seqlane-output/README.md)     | Human, CI, and JSON renderers for canonical execution events.        |
 | [`@seqlane/studio`](libs/seqlane-studio/README.md)     | Private local Studio service, registry, protocol, and SSE transport. |
-| [`seqlane`](apps/seqlane-cli/README.md)           | Foreground workflow runner and Studio commands.                      |
+| [`seqlane`](apps/seqlane-cli/README.md)                | Foreground workflow runner and Studio commands.                      |
 | [`@seqlane/studio-app`](apps/seqlane-studio/README.md) | Private React browser client for read-only Studio inspection.        |
 
 ## Package boundaries

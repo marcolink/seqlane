@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   lint:
-    name: Affected lint
+    name: Affected lint, typecheck, and format
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -36,6 +36,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Check formatting
+        run: pnpm exec nx format:check --base="$NX_BASE" --head="$NX_HEAD"
+
+      - name: Typecheck affected projects
+        run: pnpm exec nx affected -t typecheck --output-style=static
 
       - name: Lint affected projects
         run: pnpm exec nx affected -t lint --output-style=static
