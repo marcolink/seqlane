@@ -1,0 +1,33 @@
+{
+  "name": "@seqlane/studio",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/service.js",
+  "types": "./dist/service.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/service.d.ts",
+      "import": "./dist/service.js",
+      "default": "./dist/service.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js",
+      "default": "./dist/protocol.js"
+    }
+  },
+  "dependencies": {
+    "@seqlane/core": "workspace:*",
+    "@seqlane/events": "workspace:*"
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcolink/seqlane.git",
+    "directory": "libs/seqlane-studio"
+  },
+  "packageManager": "pnpm@10.33.0"
+}

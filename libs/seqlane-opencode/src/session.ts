@@ -1,0 +1,513 @@
+import { InteractionRequiredError } from "@seqlane/core";
+import type { Event as OpenCodeEvent } from "@opencode-ai/sdk/v2";
+import { z } from "zod";
+import { OpenCodeExecutorError } from "./errors.js";
+import { parseOpenCodePromptResponse } from "./prompt-response.js";
+import type {
+  OpenCodeConnection,
+  OpenCodeActivity,
+  OpenCodeBackgroundProcess,
+  OpenCodePrompt,
+  OpenCodePromptResult,
+  OpenCodeRun,
+} from "./protocol.js";
+import { createOpenCodeTransport, type OpenCodeSession } from "./transport.js";
+import { createOpenCodeSessionBrowserUrl } from "./session-browser-url.js";
+
+const eventEnvelopeSchema = z.looseObject({
+  type: z.string(),
+  properties: z.record(z.string(), z.unknown()).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+
+const interactionEventTypes = new Set([
+  "permission.asked",
+  "permission.v2.asked",
+  "question.asked",
+  "question.v2.asked",
+]);
+
+const checkpointSchema = z.object({
+  sessionId: z.string().min(1),
+  messageId: z.string().min(1),
+});
+
+function eventDetails(
+  value: unknown,
+):
+  | { readonly type: string; readonly details: Record<string, unknown> }
+  | undefined {
+  const parsed = eventEnvelopeSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  const details = parsed.data.properties ?? parsed.data.data;
+  return details === undefined
+    ? undefined
+    : { type: parsed.data.type, details };
+}
+
+function stringField(
+  details: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = details[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function recordField(
+  details: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | undefined {
+  const value = details[key];
+  const parsed = z.record(z.string(), z.unknown()).safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function finiteNumberField(
+  details: Record<string, unknown> | undefined,
+  key: string,
+): number | undefined {
+  const value = details?.[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+interface ActivityIdentity {
+  readonly kind: OpenCodeActivity["kind"];
+  readonly name: string;
+}
+
+function activityIdentity(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown> | undefined,
+  previous: ActivityIdentity | undefined,
+): ActivityIdentity | undefined {
+  if (tool !== "skill") return { kind: "tool", name: tool };
+  const name =
+    stringField(metadata ?? {}, "name") ??
+    stringField(input ?? {}, "name") ??
+    (previous?.kind === "skill" ? previous.name : undefined);
+  return name === undefined ? undefined : { kind: "skill", name };
+}
+
+function toolActivityFromEvent(
+  value: unknown,
+  sessionID: string,
+  activityIdentities: Map<string, ActivityIdentity>,
+): OpenCodeActivity | undefined {
+  const event = eventDetails(value);
+  if (event === undefined) return undefined;
+  if (stringField(event.details, "sessionID") !== sessionID) return undefined;
+
+  if (event.type === "message.part.updated") {
+    const part = z
+      .looseObject({
+        type: z.literal("tool"),
+        callID: z.string().min(1),
+        tool: z.string().min(1),
+        state: z.looseObject({
+          status: z.enum(["pending", "running", "completed", "error"]),
+          input: z.record(z.string(), z.unknown()).optional(),
+          output: z.string().optional(),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+          time: z
+            .object({
+              start: z.number().finite().optional(),
+              end: z.number().finite().optional(),
+            })
+            .optional(),
+        }),
+      })
+      .safeParse(event.details.part);
+    if (!part.success) return undefined;
+    const identity = activityIdentity(
+      part.data.tool,
+      part.data.state.input,
+      part.data.state.metadata,
+      activityIdentities.get(part.data.callID),
+    );
+    if (
+      identity === undefined ||
+      part.data.callID.length > 256 ||
+      identity.name.length > 256
+    ) {
+      return undefined;
+    }
+    activityIdentities.set(part.data.callID, identity);
+    const state =
+      part.data.state.status === "pending" ||
+      part.data.state.status === "running"
+        ? "started"
+        : part.data.state.status === "completed"
+          ? "succeeded"
+          : "failed";
+    return {
+      activityId: part.data.callID,
+      kind: identity.kind,
+      name: identity.name,
+      state,
+      ...(part.data.state.input === undefined
+        ? {}
+        : { input: part.data.state.input }),
+      ...(part.data.state.output === undefined
+        ? {}
+        : { output: part.data.state.output }),
+      ...(part.data.state.metadata === undefined
+        ? {}
+        : { metadata: part.data.state.metadata }),
+      ...(part.data.state.time?.start === undefined
+        ? {}
+        : { startedAt: part.data.state.time.start }),
+      ...(part.data.state.time?.end === undefined
+        ? {}
+        : { endedAt: part.data.state.time.end }),
+      ...(state === "failed" ? { message: "Tool failed" } : {}),
+    };
+  }
+
+  const callID = stringField(event.details, "callID");
+  const eventTool =
+    stringField(event.details, "tool") ?? stringField(event.details, "name");
+  if (callID === undefined) return undefined;
+  const input = recordField(event.details, "input");
+  const metadata = recordField(event.details, "metadata");
+  const identity =
+    eventTool === undefined
+      ? activityIdentities.get(callID)
+      : activityIdentity(
+          eventTool,
+          input,
+          metadata,
+          activityIdentities.get(callID),
+        );
+  if (
+    identity === undefined ||
+    callID.length > 256 ||
+    identity.name.length > 256
+  ) {
+    return undefined;
+  }
+  activityIdentities.set(callID, identity);
+
+  const state =
+    event.type === "session.next.tool.called" ||
+    event.type === "session.next.tool.input.started" ||
+    event.type === "session.next.tool.input.ended"
+      ? "started"
+      : event.type === "session.next.tool.progress"
+        ? "progress"
+        : event.type === "session.next.tool.success"
+          ? "succeeded"
+          : event.type === "session.next.tool.failed"
+            ? "failed"
+            : undefined;
+  if (state === undefined) return undefined;
+
+  const output =
+    event.details.result ?? event.details.structured ?? event.details.content;
+  return {
+    activityId: callID,
+    kind: identity.kind,
+    name: identity.name,
+    state,
+    ...(input === undefined ? {} : { input }),
+    ...(output === undefined ? {} : { output }),
+    ...(metadata === undefined ? {} : { metadata }),
+    ...(finiteNumberField(event.details, "timestamp") === undefined
+      ? {}
+      : { startedAt: finiteNumberField(event.details, "timestamp") }),
+    ...(state === "failed" ? { message: "Tool failed" } : {}),
+  };
+}
+
+function backgroundProcessFromEvent(
+  value: unknown,
+  sessionID: string,
+): OpenCodeBackgroundProcess | undefined {
+  const event = eventDetails(value);
+  if (
+    event?.type !== "session.next.shell.started" ||
+    stringField(event.details, "sessionID") !== sessionID
+  ) {
+    return undefined;
+  }
+  const command = stringField(event.details, "command");
+  if (
+    command === undefined ||
+    !(
+      /&\s*(?:#.*)?$/.test(command) ||
+      /(?:^|[;&|]\s*)(?:nohup|setsid)\b/.test(command)
+    )
+  ) {
+    return undefined;
+  }
+  return { mutatesWorkspace: true };
+}
+
+async function waitForInteraction(
+  events: AsyncIterable<OpenCodeEvent>,
+  sessionID: string,
+  signal: AbortSignal,
+  onActivity: ((activity: OpenCodeActivity) => void) | undefined,
+  onBackgroundProcess:
+    ((process: OpenCodeBackgroundProcess) => void) | undefined,
+): Promise<void> {
+  const activityIdentities = new Map<string, ActivityIdentity>();
+  for await (const event of events) {
+    const parsed = eventDetails(event);
+    if (
+      parsed !== undefined &&
+      interactionEventTypes.has(parsed.type) &&
+      stringField(parsed.details, "sessionID") === sessionID
+    ) {
+      return;
+    }
+    const backgroundProcess = backgroundProcessFromEvent(event, sessionID);
+    if (backgroundProcess !== undefined) {
+      onBackgroundProcess?.(backgroundProcess);
+    }
+    const activity = toolActivityFromEvent(
+      event,
+      sessionID,
+      activityIdentities,
+    );
+    if (activity !== undefined) onActivity?.(activity);
+  }
+  if (!signal.aborted) {
+    throw new OpenCodeExecutorError(
+      "interaction event stream closed before task completion",
+    );
+  }
+}
+
+export type {
+  OpenCodeConnection,
+  OpenCodeActivity,
+  OpenCodePrompt,
+  OpenCodePromptResult,
+  OpenCodeRun,
+  OpenCodeUncertainActivity,
+} from "./protocol.js";
+
+function executorError(message: string, cause?: unknown): Error {
+  return new OpenCodeExecutorError(message, cause);
+}
+
+export async function createOpenCodeRun(
+  connection: OpenCodeConnection,
+  signal?: AbortSignal,
+): Promise<OpenCodeRun> {
+  return createOpenCodeRunForSession(connection, signal);
+}
+
+async function createOpenCodeRunForSession(
+  connection: OpenCodeConnection,
+  signal?: AbortSignal,
+  existingSession?: OpenCodeSession,
+): Promise<OpenCodeRun> {
+  if (signal?.aborted) {
+    throw executorError("run was cancelled before session creation");
+  }
+
+  const transport = createOpenCodeTransport(connection.url);
+  let sessionID: string;
+  let workspace: string | undefined;
+  let browserUrl: string | undefined;
+  try {
+    const session =
+      existingSession ??
+      (await transport.createSession(connection.workspace, signal));
+    sessionID = session.sessionId;
+    workspace = session.workspace;
+    browserUrl =
+      connection.browserUiUrl === undefined
+        ? undefined
+        : createOpenCodeSessionBrowserUrl(
+            connection.browserUiUrl,
+            session.directory,
+            session.sessionId,
+          );
+    if (signal?.aborted) {
+      throw executorError("run was cancelled during session creation");
+    }
+  } catch (cause) {
+    throw executorError("could not create an external session", cause);
+  }
+
+  let queue = Promise.resolve();
+  let aborted = false;
+  let abortPromise: Promise<void> | undefined;
+  let terminalCheckpoint: z.infer<typeof checkpointSchema> | undefined;
+
+  const prompt = (request: OpenCodePrompt): Promise<OpenCodePromptResult> => {
+    const operation = queue.then(async () => {
+      if (aborted || signal?.aborted || request.signal?.aborted) {
+        throw executorError("run was cancelled before task submission");
+      }
+
+      try {
+        const promptController = new AbortController();
+        const permissionMonitorController = new AbortController();
+        const requestSignal = request.signal;
+        let removeAbortListener = (): void => undefined;
+        const cancellation =
+          requestSignal === undefined
+            ? undefined
+            : new Promise<void>((resolve, reject) => {
+                const onAbort = () => {
+                  requestSignal.removeEventListener("abort", onAbort);
+                  void abort().then(() => {
+                    promptController.abort();
+                    resolve();
+                  }, reject);
+                };
+                removeAbortListener = () => {
+                  requestSignal.removeEventListener("abort", onAbort);
+                };
+                if (requestSignal.aborted) onAbort();
+                else
+                  requestSignal.addEventListener("abort", onAbort, {
+                    once: true,
+                  });
+              });
+        try {
+          let events: AsyncIterable<OpenCodeEvent>;
+          try {
+            events = await transport.subscribeEvents(
+              permissionMonitorController.signal,
+            );
+          } catch (cause) {
+            throw executorError(
+              "could not monitor external interaction requirements",
+              cause,
+            );
+          }
+          const interactionRequest = waitForInteraction(
+            events,
+            sessionID,
+            permissionMonitorController.signal,
+            request.onActivity,
+            request.onBackgroundProcess,
+          )
+            .then(() => ({ type: "interaction" as const }))
+            .catch((cause) => ({ type: "monitor-error" as const, cause }));
+          const promptResponse = transport
+            .prompt(sessionID, request, promptController.signal)
+            .then(
+              (response) => ({ type: "response" as const, response }),
+              (cause: unknown) => ({ type: "transport-error" as const, cause }),
+            );
+          const result = await Promise.race([
+            promptResponse,
+            interactionRequest,
+            ...(cancellation === undefined
+              ? []
+              : [cancellation.then(() => ({ type: "cancelled" as const }))]),
+          ]);
+          if (request.signal?.aborted && cancellation !== undefined) {
+            await cancellation;
+            throw executorError("run was cancelled during task submission");
+          }
+
+          if (result.type === "cancelled") {
+            throw executorError("run was cancelled during task submission");
+          }
+
+          if (result.type === "monitor-error") {
+            promptController.abort();
+            await abort().catch(() => undefined);
+            throw executorError(
+              "could not monitor external interaction requirements",
+              result.cause,
+            );
+          }
+
+          if (result.type === "interaction") {
+            promptController.abort();
+            await abort().catch(() => undefined);
+            await promptResponse.catch(() => undefined);
+            throw new InteractionRequiredError("user-input");
+          }
+
+          if (result.type === "transport-error") {
+            request.onUncertainActivity?.({ reason: "disconnect" });
+            throw executorError("structured task request failed", result.cause);
+          }
+
+          const parsed = parseOpenCodePromptResponse(result.response);
+          if (parsed.checkpoint.sessionId !== sessionID) {
+            throw executorError("prompt response belonged to another session");
+          }
+          terminalCheckpoint = parsed.checkpoint;
+          return {
+            structured: parsed.structured,
+            ...(parsed.metrics === undefined
+              ? {}
+              : { metrics: parsed.metrics }),
+          };
+        } finally {
+          permissionMonitorController.abort();
+          removeAbortListener();
+        }
+      } catch (cause) {
+        if (cause instanceof InteractionRequiredError) throw cause;
+        if (cause instanceof OpenCodeExecutorError) throw cause;
+        throw executorError("structured task request failed", cause);
+      }
+    });
+    queue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  };
+
+  const abort = (): Promise<void> => {
+    if (abortPromise) return abortPromise;
+    aborted = true;
+    abortPromise = transport
+      .abort(sessionID)
+      .then(() => undefined)
+      .catch((cause) => {
+        throw executorError("could not abort the external session", cause);
+      });
+    return abortPromise;
+  };
+
+  const checkpoint = async (): Promise<z.infer<typeof checkpointSchema>> => {
+    if (terminalCheckpoint === undefined) {
+      throw executorError("session has no terminal message checkpoint");
+    }
+    return terminalCheckpoint;
+  };
+
+  const fork = async (checkpointInput: unknown): Promise<OpenCodeRun> => {
+    const checkpoint = checkpointSchema.safeParse(checkpointInput);
+    if (!checkpoint.success || checkpoint.data.sessionId !== sessionID) {
+      throw executorError("session checkpoint does not belong to this session");
+    }
+    try {
+      const child = await transport.forkSession(
+        sessionID,
+        checkpoint.data.messageId,
+        signal,
+      );
+      return createOpenCodeRunForSession(connection, signal, {
+        ...child,
+        ...(workspace === undefined ? {} : { workspace }),
+      });
+    } catch (cause) {
+      throw executorError("native session checkpoint fork failed", cause);
+    }
+  };
+
+  return {
+    ...(browserUrl === undefined ? {} : { browserUrl }),
+    ...(workspace === undefined ? {} : { workspace }),
+    prompt,
+    checkpoint,
+    fork,
+    abort,
+  };
+}

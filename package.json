@@ -1,0 +1,54 @@
+{
+  "name": "seqlane-project",
+  "version": "0.0.0",
+  "license": "ISC",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm exec nx run-many -t build",
+    "format": "pnpm exec nx format:write",
+    "format:check": "pnpm exec nx format:check --all",
+    "lint": "pnpm exec nx run-many -t lint",
+    "test": "pnpm run test:mapping && pnpm exec nx run-many -t test",
+    "test:mapping": "node scripts/check-test-mapping.mjs",
+    "typecheck": "pnpm exec tsc --build && pnpm run typecheck:specs",
+    "typecheck:specs": "pnpm exec tsc --noEmit --project tsconfig.spec.json"
+  },
+  "devDependencies": {
+    "@seqlane/core": "workspace:*",
+    "@nx/esbuild": "catalog:",
+    "@nx/eslint": "catalog:",
+    "@nx/eslint-plugin": "catalog:",
+    "@nx/jest": "catalog:",
+    "@nx/js": "catalog:",
+    "@nx/node": "catalog:",
+    "@nx/vitest": "catalog:",
+    "@nx/workspace": "catalog:",
+    "@swc-node/register": "~1.12.1",
+    "@swc/core": "~1.15.47",
+    "@swc/helpers": "~0.5.23",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "jsonc-eslint-parser": "catalog:",
+    "nx": "catalog:",
+    "prettier": "catalog:",
+    "tslib": "catalog:",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "zod": "4.5.4"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": "use pnpm instead - see README.md",
+    "yarn": "use pnpm instead - see README.md",
+    "pnpm": ">=10.33.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcolink/seqlane.git"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "@seqlane/studio-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.mts",
+    "build": "tsc --build tsconfig.json && vite build --config vite.config.mts",
+    "preview": "vite preview --config vite.config.mts",
+    "typecheck": "tsc --build tsconfig.json --emitDeclarationOnly && tsc --noEmit --project tsconfig.browser.json",
+    "test": "vitest run"
+  },
+  "exports": {
+    "./client/index.html": "./dist/client/index.html"
+  },
+  "dependencies": {
+    "@seqlane/core": "workspace:*",
+    "@seqlane/studio": "workspace:*",
+    "@xyflow/react": "12.11.3",
+    "geist": "1.7.2",
+    "lucide-react": "1.33.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "tailwindcss": "4.3.3",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcolink/seqlane.git",
+    "directory": "apps/seqlane-studio"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "pnpm": ">=10.33.0"
+  }
+}

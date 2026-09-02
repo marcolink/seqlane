@@ -1,0 +1,32 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "seqlane-output",
+  "projectType": "library",
+  "sourceRoot": "libs/seqlane-output/src",
+  "targets": {
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/seqlane-output",
+        "command": "tsc --build tsconfig.json --emitDeclarationOnly"
+      }
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/seqlane-output",
+        "command": "tsc --build tsconfig.json"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/seqlane-output",
+        "command": "vitest run"
+      }
+    }
+  }
+}

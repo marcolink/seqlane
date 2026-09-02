@@ -1,0 +1,34 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compileOnSave": false,
+  "files": [],
+  "references": [
+    {
+      "path": "./libs/seqlane-core"
+    },
+    {
+      "path": "./libs/seqlane-events"
+    },
+    {
+      "path": "./libs/seqlane-opencode"
+    },
+    {
+      "path": "./libs/seqlane-fixtures"
+    },
+    {
+      "path": "./libs/seqlane-runtime"
+    },
+    {
+      "path": "./apps/seqlane-cli"
+    },
+    {
+      "path": "./apps/seqlane-studio"
+    },
+    {
+      "path": "./libs/seqlane-output"
+    },
+    {
+      "path": "./libs/seqlane-studio"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "name": "seqlane",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "seqlane": "bin/run.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "$schema": "../../node_modules/nx/schemas/project-schema.json",
+    "tags": [
+      "type:lib",
+      "scope:private"
+    ]
+  },
+  "dependencies": {
+    "@seqlane/core": "workspace:*",
+    "@seqlane/events": "workspace:*",
+    "@seqlane/output": "workspace:*",
+    "@seqlane/runtime": "workspace:*",
+    "@seqlane/studio": "workspace:*",
+    "@seqlane/studio-app": "workspace:*",
+    "@oclif/core": "4.13.5"
+  },
+  "devDependencies": {
+    "@seqlane/fixtures": "workspace:*"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "oclif.config.mjs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcolink/seqlane.git",
+    "directory": "apps/seqlane-cli"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": "use pnpm instead - see README.md",
+    "yarn": "use pnpm instead - see README.md",
+    "pnpm": ">=10.33.0"
+  }
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.nx/
+out-tsc/
+*.tsbuildinfo
+.idea/
+.DS_Store
+.envrc
+.env.*
+!.env.example
+
+vitest.config.*.timestamp*
+
+opencode.json
+
+.pnpm-store
