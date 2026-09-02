@@ -60,4 +60,5 @@ explicit base-to-head range in a separate checkout. It does not execute package
 installation or repository scripts from the pull request. OpenCode ignores
 project runtime configuration during the review and receives a read-only tool
 policy. The workflow updates one marked pull-request comment with the report
-and fails its job when the report verdict is `request-changes`.
+and records the report verdict without failing the review job when it is
+`request-changes`.

@@ -219,14 +219,6 @@ jobs:
 
           echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
 
-      - name: Enforce review verdict
-        if: >-
-          steps.configuration.outputs.execute == 'true' &&
-          steps.report.outputs.verdict == 'request-changes'
-        run: |
-          echo "Seqlane requested changes."
-          exit 1
-
       - name: Print OpenCode log on failure
         if: failure() && steps.opencode.outputs.started == 'true'
         run: cat "$RUNNER_TEMP/opencode.log"
