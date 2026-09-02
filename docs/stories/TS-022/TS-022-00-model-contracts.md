@@ -1,6 +1,6 @@
 # TS-022-00 — Define Model Refs, Reasoning, and Catalog Helpers
 
-**Status:** in progress
+**Status:** completed
 
 ## User outcome
 
