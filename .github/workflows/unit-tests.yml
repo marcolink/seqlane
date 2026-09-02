@@ -41,4 +41,7 @@ jobs:
         run: pnpm test:mapping
 
       - name: Test affected projects
-        run: pnpm exec nx affected -t test --output-style=static
+        run: >-
+          pnpm exec nx affected -t test --output-style=static --
+          --reporter=default
+          --reporter=../../scripts/scoped-github-summary.ts
