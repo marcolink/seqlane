@@ -4,6 +4,7 @@ import type {
   TaskDefinitionRegistry,
 } from "@seqlane/core";
 import type { SeqlaneExecutor } from "../execution/executor.js";
+import type { ExecutorModelCapabilities } from "../execution/executor.js";
 
 export interface ResolvedExecutorSession {
   readonly key: symbol;
@@ -34,6 +35,7 @@ export class UnsupportedSessionBranchError extends Error {
 }
 
 export interface SessionResolver {
+  readonly modelCapabilities?: ExecutorModelCapabilities;
   resolve(request: {
     readonly invocationId: InvocationId;
     readonly task: TaskDefinition;

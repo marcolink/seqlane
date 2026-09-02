@@ -1,4 +1,6 @@
 import type {
+  ModelRef,
+  ModelSelection,
   TaskNode,
   TaskDefinition,
   SeqlaneInvocationMetrics,
@@ -49,6 +51,13 @@ export interface SeqlaneBackgroundProcessRequest {
   readonly termination?: Promise<unknown>;
 }
 
+/** Normalized model capabilities exposed by a private executor adapter. */
+export interface ExecutorModelCapabilities {
+  readonly executor: string;
+  readonly listModels: () => Promise<readonly ModelRef[]>;
+  readonly resolveDefaultModel: () => Promise<ModelSelection>;
+}
+
 export class UntrackedMutatingBackgroundProcessError extends Error {
   constructor() {
     super("Mutating background processes must report their termination");
@@ -76,6 +85,7 @@ export interface ExecutorRequest {
 }
 
 export interface SeqlaneExecutor {
+  readonly modelCapabilities?: ExecutorModelCapabilities;
   execute(request: ExecutorRequest): Promise<unknown>;
 }
 
@@ -83,6 +93,7 @@ export interface ExecutorResolvers {
   readonly agent: <Input, Output>(
     task: TaskDefinition<Input, Output>,
   ) => SeqlaneExecutor;
+  readonly modelCapabilities?: ExecutorModelCapabilities;
 }
 
 /** Temporary internal union while callers migrate from executor-name maps. */
@@ -118,4 +129,48 @@ export function getExecutor<Input, Output>(
     );
   }
   return executor;
+}
+
+export interface ResolvedExecutorModelCapabilities {
+  readonly executor: string;
+  readonly capabilities: ExecutorModelCapabilities;
+}
+
+/** Resolves model capabilities without creating a session. */
+export function getExecutorModelCapabilities(
+  registry: ExecutorRegistry,
+  node: Pick<TaskNode, "taskId"> & { readonly executor?: string },
+): ResolvedExecutorModelCapabilities | undefined {
+  if (isExecutorResolvers(registry)) {
+    if (registry.modelCapabilities !== undefined) {
+      return {
+        executor: registry.modelCapabilities.executor,
+        capabilities: registry.modelCapabilities,
+      };
+    }
+    return undefined;
+  }
+
+  const legacyExecutor = (node as LegacyTaskNode).executor;
+  const registeredLegacyExecutor =
+    legacyExecutor === undefined || legacyExecutor.length === 0
+      ? undefined
+      : registry.get(legacyExecutor);
+  const executor =
+    registeredLegacyExecutor ??
+    registry.get(node.taskId) ??
+    (registry.size === 1 ? registry.values().next().value : undefined);
+  if (executor === undefined) return undefined;
+  if (executor.modelCapabilities === undefined) return undefined;
+  return {
+    executor: executor.modelCapabilities.executor,
+    capabilities: executor.modelCapabilities,
+  };
+}
+
+export function describeModelSelection(selection: ModelSelection): string {
+  const reasoning = selection.reasoning
+    ? ` (reasoning: ${selection.reasoning})`
+    : "";
+  return `${selection.model.provider}/${selection.model.model}${reasoning}`;
 }

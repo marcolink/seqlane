@@ -1,6 +1,6 @@
 # TS-022-03 — Add Executor Model Capabilities and Runtime Preflight
 
-**Status:** planned
+**Status:** completed
 
 ## User outcome
 
@@ -14,10 +14,14 @@ the executor name and useful alternatives.
 - Resolve omitted models for new sessions through the executor default.
 - Validate availability before scheduling invocations.
 - Add deterministic fake-executor preflight tests.
+- Preflight task-backed validation sessions as new sessions.
+- Validate repeat-body model requirements without emitting static effective
+  selection keys for runtime-created iterations.
 
 ## Out of scope
 
-OpenCode HTTP details, session fork ordering, automatic fallback, and pricing.
+OpenCode HTTP details, session fork ordering, automatic fallback, pricing, and
+per-iteration model/session pinning for repeat bodies (TS-022-04).
 
 ## Acceptance criteria
 

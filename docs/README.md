@@ -96,4 +96,4 @@ Current status:
 - Proposed: ADR-020. Its rule-by-rule baseline audit is complete.
 - Accepted: ADR-021 and TS-021; TS-021 stories are ready for implementation.
 - Accepted: ADR-022. TS-022 is ready for implementation; TS-022-00 through
-  TS-022-02 are completed, and the remaining stories are planned.
+  TS-022-03 are completed, and the remaining stories are planned.
