@@ -129,6 +129,8 @@ describe("shared-session order preflight", () => {
 
   it("materializes every branch before a parent continuation advances", async () => {
     const activity: string[] = [];
+    let activeForks = 0;
+    let maximumConcurrentForks = 0;
     const parentExecutor = {
       execute: async ({ taskId }: { readonly taskId: string }) => {
         activity.push(`parent:${taskId}`);
@@ -149,6 +151,10 @@ describe("shared-session order preflight", () => {
         return "source-turn";
       },
       fork: async () => {
+        activeForks += 1;
+        maximumConcurrentForks = Math.max(maximumConcurrentForks, activeForks);
+        await Promise.resolve();
+        activeForks -= 1;
         activity.push("fork");
         return { key: Symbol("branch"), executor: childExecutor };
       },
@@ -160,6 +166,10 @@ describe("shared-session order preflight", () => {
           task("source"),
           {
             ...task("branch", ["source"]),
+            session: { type: "branch" as const, from: "source" },
+          },
+          {
+            ...task("second-branch", ["source"]),
             session: { type: "branch" as const, from: "source" },
           },
           {
@@ -176,6 +186,7 @@ describe("shared-session order preflight", () => {
         taskDefinitions: new Map([
           ["source", taskDefinition("source")],
           ["branch", taskDefinition("branch")],
+          ["second-branch", taskDefinition("second-branch")],
           ["reuse", taskDefinition("reuse")],
         ]),
       },
@@ -187,6 +198,7 @@ describe("shared-session order preflight", () => {
     expect(activity).toContain("parent:source");
     expect(activity).toContain("branch:branch");
     expect(activity).toContain("parent:reuse");
+    expect(maximumConcurrentForks).toBe(1);
     expect(activity.indexOf("checkpoint")).toBeLessThan(
       activity.indexOf("fork"),
     );

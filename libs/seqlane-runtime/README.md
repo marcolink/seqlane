@@ -22,10 +22,11 @@ order. Events report workspace waiting, admission, and release.
 After a successful agent turn and all tracked activity, the runtime publishes
 its private checkpoint. `reuse()` keeps the source session; `branch()` eagerly
 materializes every declared child from that checkpoint before either children
-or a parent continuation can run. A fan-in task consumes branch outputs as
-normal input and explicitly selects one session; Seqlane never merges
-diverged histories. Failed or ambiguous turns publish no checkpoint and poison
-their session.
+or a parent continuation can run. Native checkpoint forks are created one at a
+time; child task execution can still overlap after all sessions are
+materialized. A fan-in task consumes branch outputs as normal input and
+explicitly selects one session; Seqlane never merges diverged histories.
+Failed or ambiguous turns publish no checkpoint and poison their session.
 
 The selected runtime owns its permissions and approval behavior. Seqlane never
 inspects or changes runtime permission configuration. An unsupported runtime

@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@seqlane/core": "workspace:*",
-    "@opencode-ai/sdk": "1.18.18",
+    "@opencode-ai/sdk": "1.14.19",
     "zod": "4.5.4"
   },
   "files": [

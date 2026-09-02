@@ -99,19 +99,21 @@ export async function publishSessionCheckpoint(options: {
   }
 
   const checkpoint = await captureCheckpoint();
-  const materialized = await Promise.all(
-    consumers.map(async (consumer) => ({
-      consumer,
-      session:
-        consumer.type === "reuse"
-          ? options.sourceSession
-          : await fork({
-              checkpoint,
-              invocationId: consumer.invocationId,
-              task: consumer.task,
-            }),
-    })),
-  );
+  const materialized: Array<{
+    readonly consumer: SessionConsumer;
+    readonly session: ResolvedExecutorSession;
+  }> = [];
+  for (const consumer of consumers) {
+    const session =
+      consumer.type === "reuse"
+        ? options.sourceSession
+        : await fork({
+            checkpoint,
+            invocationId: consumer.invocationId,
+            task: consumer.task,
+          });
+    materialized.push({ consumer, session });
+  }
   for (const { consumer, session } of materialized) {
     options.resolvedSessions.set(consumer.invocationId, session);
   }
