@@ -8,6 +8,8 @@ export const JsonDependencyCheckRuleOptions = {
     "@seqlane/runtime",
     // The CLI resolves the built Studio shell through createRequire.
     "@seqlane/studio-app",
+    // Vite copies Geist font assets from its package without importing code.
+    "geist",
   ],
   ignoredFiles: [
     "{projectRoot}/eslint.config.{js,cjs,mjs,ts,cts,mts}",

@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SidebarResizeHandle } from "./sidebar-resize-handle.js";
 
 describe("SidebarResizeHandle", () => {
@@ -7,7 +7,7 @@ describe("SidebarResizeHandle", () => {
     const markup = renderToStaticMarkup(
       <SidebarResizeHandle
         bounds={{ minimum: 240, maximum: 352 }}
-        onResize={() => {}}
+        onResize={vi.fn()}
         sidebar="runs"
         width={240}
       />,

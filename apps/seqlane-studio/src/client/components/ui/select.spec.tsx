@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Select } from "./select.js";
 
 describe("Select", () => {
   it("associates a native select with its visible label", () => {
     const markup = renderToStaticMarkup(
-      <Select id="replay-speed" label="Speed" value="1" onChange={() => {}}>
+      <Select id="replay-speed" label="Speed" value="1" onChange={vi.fn()}>
         <option value="1">1x</option>
       </Select>,
     );

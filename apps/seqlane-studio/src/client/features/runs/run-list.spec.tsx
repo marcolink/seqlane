@@ -6,8 +6,7 @@ import { RunList, writeRunIdToClipboard } from "./run-list.js";
 const run = {
   workId: "work-1",
   runId: "88f82d70-b1a4-46dc-acad-630212500d9d",
-  workflowId:
-    "@seqlane/fixtures/renovate-workflow#renovateWorkflow",
+  workflowId: "@seqlane/fixtures/renovate-workflow#renovateWorkflow",
   state: "succeeded",
   isIncomplete: false,
   startedAt: "2026-08-29T20:00:00.000Z",
@@ -22,8 +21,8 @@ describe("RunList", () => {
       <RunList
         runs={[run]}
         selectedRunId={run.runId}
-        onClose={() => {}}
-        onSelect={() => {}}
+        onClose={vi.fn()}
+        onSelect={vi.fn()}
       />,
     );
 
