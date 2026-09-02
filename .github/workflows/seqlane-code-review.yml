@@ -204,8 +204,10 @@ jobs:
           cat "$RUNNER_TEMP/seqlane-code-review.md" >> "$GITHUB_STEP_SUMMARY"
 
           COMMENT_ID=$(gh api \
+            --paginate \
             "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-            --jq 'map(select(.body | contains("<!-- seqlane-code-review -->")))[0].id // empty')
+            --jq '.[] | select(.body | contains("<!-- seqlane-code-review -->")) | .id' \
+            | head -n 1)
 
           if [ -n "$COMMENT_ID" ]; then
             gh api --method PATCH \
