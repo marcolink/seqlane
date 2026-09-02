@@ -28,6 +28,12 @@ materialized. A fan-in task consumes branch outputs as normal input and
 explicitly selects one session; Seqlane never merges diverged histories.
 Failed or ambiguous turns publish no checkpoint and poison their session.
 
+Model selection is resolved before execution. A new session may select a
+model; omitted selection uses the configured OpenCode default. Reuse inherits
+the pinned selection, while a branch may pin a different selection. Seqlane
+does not fall back after validation. Completion events expose the effective
+provider, model, and optional reasoning as Seqlane-owned metrics.
+
 The selected runtime owns its permissions and approval behavior. Seqlane never
 inspects or changes runtime permission configuration. An unsupported runtime
 interaction during a non-interactive Run becomes a deterministic executor

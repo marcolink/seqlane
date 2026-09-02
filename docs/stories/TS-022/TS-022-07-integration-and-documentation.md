@@ -1,6 +1,6 @@
 # TS-022-07 — Complete Integration Compatibility Coverage and Documentation
 
-**Status:** planned
+**Status:** completed
 
 ## User outcome
 
