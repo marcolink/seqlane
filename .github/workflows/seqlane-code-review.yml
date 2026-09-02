@@ -1,0 +1,222 @@
+name: Seqlane code review
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: seqlane-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  code-review:
+    name: Review pull request
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check OpenAI credentials
+        id: configuration
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "execute=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping Seqlane code review because OPENAI_API_KEY is not configured."
+          else
+            echo "execute=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out trusted Seqlane source
+        if: steps.configuration.outputs.execute == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: seqlane-source
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Check out pull request head
+        if: steps.configuration.outputs.execute == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: review-target
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up pnpm
+        if: steps.configuration.outputs.execute == 'true'
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Set up Node.js
+        if: steps.configuration.outputs.execute == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: seqlane-source/pnpm-lock.yaml
+
+      - name: Install Seqlane dependencies
+        if: steps.configuration.outputs.execute == 'true'
+        working-directory: seqlane-source
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build the local Seqlane CLI
+        if: steps.configuration.outputs.execute == 'true'
+        working-directory: seqlane-source
+        run: pnpm exec nx build seqlane-cli
+
+      - name: Install OpenCode
+        if: steps.configuration.outputs.execute == 'true'
+        working-directory: seqlane-source
+        run: |
+          OPENCODE_VERSION=$(node -p "require('./libs/seqlane-opencode/package.json').dependencies['@opencode-ai/sdk']")
+          curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION"
+
+      - name: Start OpenCode
+        if: steps.configuration.outputs.execute == 'true'
+        id: opencode
+        working-directory: review-target
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENCODE_DISABLE_PROJECT_CONFIG: "true"
+          OPENCODE_CONFIG_CONTENT: >-
+            {"model":"openai/gpt-5.4","permission":{"*":"deny","StructuredOutput":"allow","read":"allow","glob":"allow","grep":"allow","bash":{"*":"deny","git rev-parse HEAD":"allow","git diff --no-ext-diff --no-textconv ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}":"allow"}}}
+        run: |
+          opencode serve --hostname 127.0.0.1 --port 4096 > "$RUNNER_TEMP/opencode.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/opencode.pid"
+          echo "started=true" >> "$GITHUB_OUTPUT"
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4096/global/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          cat "$RUNNER_TEMP/opencode.log"
+          exit 1
+
+      - name: Run Seqlane code review
+        if: steps.configuration.outputs.execute == 'true'
+        working-directory: seqlane-source
+        env:
+          BASE_REVISION: ${{ github.event.pull_request.base.sha }}
+          HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
+          PR_DESCRIPTION: ${{ github.event.pull_request.body || '' }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          REVIEW_TARGET: ${{ github.workspace }}/review-target
+        run: |
+          WORKFLOW_INPUT=$(jq --compact-output --null-input \
+            --arg repository "$REVIEW_TARGET" \
+            --arg baseRevision "$BASE_REVISION" \
+            --arg headRevision "$HEAD_REVISION" \
+            --arg title "$PR_TITLE" \
+            --arg description "$PR_DESCRIPTION" \
+            '{
+              repository: $repository,
+              baseRevision: $baseRevision,
+              headRevision: $headRevision,
+              pullRequest: {
+                title: $title,
+                description: $description
+              }
+            }')
+
+          set -o pipefail
+          ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts" \
+            --input "$WORKFLOW_INPUT" \
+            --runtime http://127.0.0.1:4096 \
+            --workspace "$REVIEW_TARGET" \
+            --output json \
+            | tee "$RUNNER_TEMP/seqlane-code-review.jsonl"
+
+      - name: Publish code review
+        if: steps.configuration.outputs.execute == 'true'
+        id: report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          jq --slurp \
+            'map(select(.type == "run.succeeded")) | last | .output' \
+            "$RUNNER_TEMP/seqlane-code-review.jsonl" \
+            > "$RUNNER_TEMP/seqlane-code-review-result.json"
+
+          jq --raw-output '
+            [
+              "<!-- seqlane-code-review -->",
+              "## Seqlane code review",
+              "",
+              "**Verdict:** `\(.verdict)` · **Rating:** \(.overallRating)/5",
+              "",
+              .summary,
+              "",
+              "### Ratings",
+              (.ratings[] | "- **\(.axis):** \(.rating)/5 — \(.rationale)"),
+              "",
+              "### Findings",
+              (if (.findings | length) == 0 then
+                "No findings."
+              else
+                (.findings[] |
+                  "- **\(.severity)** · **\(.axis)** — \(.summary)" +
+                  (if .file then
+                    " (`\(.file)\(if .line then ":\(.line)" else "" end)`)"
+                  else "" end) +
+                  "\n  - \(.recommendation)")
+              end),
+              "",
+              "### Verification",
+              (if (.verification | length) == 0 then
+                "No verification evidence reported."
+              else
+                (.verification[] | "- \(.)")
+              end)
+            ] | .[]
+          ' "$RUNNER_TEMP/seqlane-code-review-result.json" \
+            > "$RUNNER_TEMP/seqlane-code-review.md"
+
+          cat "$RUNNER_TEMP/seqlane-code-review.md" >> "$GITHUB_STEP_SUMMARY"
+
+          COMMENT_ID=$(gh api \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+            --jq 'map(select(.body | contains("<!-- seqlane-code-review -->")))[0].id // empty')
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+              -F "body=@$RUNNER_TEMP/seqlane-code-review.md" > /dev/null
+          else
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              -F "body=@$RUNNER_TEMP/seqlane-code-review.md" > /dev/null
+          fi
+
+          echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce review verdict
+        if: >-
+          steps.configuration.outputs.execute == 'true' &&
+          steps.report.outputs.verdict == 'request-changes'
+        run: |
+          echo "Seqlane requested changes."
+          exit 1
+
+      - name: Stop OpenCode
+        if: always() && steps.opencode.outputs.started == 'true'
+        run: |
+          kill "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
+          wait "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
