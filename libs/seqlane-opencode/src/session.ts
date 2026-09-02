@@ -1,4 +1,5 @@
 import { InteractionRequiredError } from "@seqlane/core";
+import type { ModelSelection } from "@seqlane/core";
 import type { Event as OpenCodeEvent } from "@opencode-ai/sdk/v2";
 import { z } from "zod";
 import { OpenCodeExecutorError } from "./errors.js";
@@ -305,6 +306,7 @@ async function createOpenCodeRunForSession(
   connection: OpenCodeConnection,
   signal?: AbortSignal,
   existingSession?: OpenCodeSession,
+  configuredSelection?: ModelSelection,
 ): Promise<OpenCodeRun> {
   if (signal?.aborted) {
     throw executorError("run was cancelled before session creation");
@@ -393,7 +395,13 @@ async function createOpenCodeRunForSession(
             .then(() => ({ type: "interaction" as const }))
             .catch((cause) => ({ type: "monitor-error" as const, cause }));
           const promptResponse = transport
-            .prompt(sessionID, request, promptController.signal)
+            .prompt(
+              sessionID,
+              configuredSelection?.reasoning === undefined
+                ? request
+                : { ...request, variant: configuredSelection.reasoning },
+              promptController.signal,
+            )
             .then(
               (response) => ({ type: "response" as const, response }),
               (cause: unknown) => ({ type: "transport-error" as const, cause }),
@@ -482,7 +490,10 @@ async function createOpenCodeRunForSession(
     return terminalCheckpoint;
   };
 
-  const fork = async (checkpointInput: unknown): Promise<OpenCodeRun> => {
+  const fork = async (
+    checkpointInput: unknown,
+    selection?: ModelSelection,
+  ): Promise<OpenCodeRun> => {
     const checkpoint = checkpointSchema.safeParse(checkpointInput);
     if (!checkpoint.success || checkpoint.data.sessionId !== sessionID) {
       throw executorError("session checkpoint does not belong to this session");
@@ -493,10 +504,22 @@ async function createOpenCodeRunForSession(
         checkpoint.data.messageId,
         signal,
       );
-      return createOpenCodeRunForSession(connection, signal, {
-        ...child,
-        ...(workspace === undefined ? {} : { workspace }),
-      });
+      if (selection !== undefined) {
+        await transport.configureSession(
+          child.sessionId,
+          { messageId: checkpoint.data.messageId, selection },
+          signal,
+        );
+      }
+      return createOpenCodeRunForSession(
+        connection,
+        signal,
+        {
+          ...child,
+          ...(workspace === undefined ? {} : { workspace }),
+        },
+        selection,
+      );
     } catch (cause) {
       throw executorError("native session checkpoint fork failed", cause);
     }

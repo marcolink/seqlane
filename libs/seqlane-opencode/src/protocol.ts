@@ -1,4 +1,5 @@
 import type { SeqlaneInvocationMetrics } from "@seqlane/core";
+import type { ModelSelection } from "@seqlane/core";
 import type { JsonSchema } from "./task.js";
 
 export interface OpenCodeConnection {
@@ -11,6 +12,8 @@ export interface OpenCodeConnection {
 export interface OpenCodePrompt {
   readonly text: string;
   readonly schema: JsonSchema;
+  /** OpenCode's native variant field for portable reasoning labels. */
+  readonly variant?: string;
   /** Cancels this prompt only after OpenCode acknowledges the session abort. */
   readonly signal?: AbortSignal;
   readonly onActivity?: (activity: OpenCodeActivity) => void;
@@ -59,6 +62,6 @@ export interface OpenCodeRun {
   readonly workspace?: string;
   prompt(request: OpenCodePrompt): Promise<OpenCodePromptResult>;
   checkpoint(): Promise<OpenCodeSessionCheckpoint>;
-  fork(checkpoint: unknown): Promise<OpenCodeRun>;
+  fork(checkpoint: unknown, selection?: ModelSelection): Promise<OpenCodeRun>;
   abort(): Promise<void>;
 }

@@ -2,6 +2,7 @@ import type {
   Event as OpenCodeEvent,
   OpencodeClient,
 } from "@opencode-ai/sdk/v2";
+import type { ModelSelection } from "@seqlane/core";
 import { z } from "zod";
 import { createOpenCodeClient } from "./client.js";
 import type { OpenCodePrompt } from "./protocol.js";
@@ -16,6 +17,12 @@ export interface OpenCodeSession {
   readonly workspace?: string;
 }
 
+/** Private adapter configuration for a pinned Seqlane model selection. */
+export interface OpenCodeSessionConfiguration {
+  readonly messageId: string;
+  readonly selection: ModelSelection;
+}
+
 export interface OpenCodeTransport {
   createSession(
     workspace: string | undefined,
@@ -26,6 +33,11 @@ export interface OpenCodeTransport {
     messageId: string,
     signal?: AbortSignal,
   ): Promise<OpenCodeSession>;
+  configureSession(
+    sessionId: string,
+    configuration: OpenCodeSessionConfiguration,
+    signal?: AbortSignal,
+  ): Promise<void>;
   prompt(
     sessionId: string,
     request: OpenCodePrompt,
@@ -64,6 +76,9 @@ function createOpenCodeTransportFromClient(
         {
           sessionID: sessionId,
           parts: [{ type: "text", text: request.text }],
+          ...(request.variant === undefined
+            ? {}
+            : { variant: request.variant }),
           format: {
             type: "json_schema",
             schema: request.schema,
@@ -81,6 +96,18 @@ function createOpenCodeTransportFromClient(
       );
       const session = sessionSchema.parse(response.data);
       return { sessionId: session.id, directory: session.directory };
+    },
+
+    async configureSession(sessionId, configuration, signal) {
+      await client.session.init(
+        {
+          sessionID: sessionId,
+          modelID: configuration.selection.model.model,
+          providerID: configuration.selection.model.provider,
+          messageID: configuration.messageId,
+        },
+        { throwOnError: true, signal },
+      );
     },
 
     async subscribeEvents(signal) {

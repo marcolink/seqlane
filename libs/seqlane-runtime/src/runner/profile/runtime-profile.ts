@@ -95,13 +95,15 @@ function createOpenCodeSession(
       onSessionUiAvailable,
     ),
     checkpoint: () => run.checkpoint(),
-    fork: async ({ checkpoint, effectiveSelection: branchSelection }) =>
-      createOpenCodeSession(
+    fork: async ({ checkpoint, effectiveSelection: branchSelection }) => {
+      const selection = branchSelection ?? effectiveSelection;
+      return createOpenCodeSession(
         taskDefinitions,
-        await run.fork(checkpoint),
+        await run.fork(checkpoint, selection),
         onSessionUiAvailable,
-        branchSelection ?? effectiveSelection,
-      ),
+        selection,
+      );
+    },
   };
 }
 
@@ -137,13 +139,15 @@ function createLazyOpenCodeSession(
       },
     },
     checkpoint: async () => (await resolveRun()).checkpoint(),
-    fork: async ({ checkpoint, effectiveSelection: branchSelection }) =>
-      createOpenCodeSession(
+    fork: async ({ checkpoint, effectiveSelection: branchSelection }) => {
+      const selection = branchSelection ?? effectiveSelection;
+      return createOpenCodeSession(
         taskDefinitions,
-        await (await resolveRun()).fork(checkpoint),
+        await (await resolveRun()).fork(checkpoint, selection),
         onSessionUiAvailable,
-        branchSelection ?? effectiveSelection,
-      ),
+        selection,
+      );
+    },
   };
 }
 

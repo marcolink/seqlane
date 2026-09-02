@@ -1,6 +1,6 @@
 # TS-022-05 — Initialize OpenCode Fork Models Before Prompting
 
-**Status:** planned
+**Status:** completed
 
 ## User outcome
 
