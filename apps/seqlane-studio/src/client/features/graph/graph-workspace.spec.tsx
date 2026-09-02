@@ -24,8 +24,8 @@ describe("GraphWorkspace", () => {
         snapshot={undefined}
         selectedInvocationId={undefined}
         selectedRunId={undefined}
-        onSaveNodePositions={() => {}}
-        onSelectInvocation={() => {}}
+        onSaveNodePositions={vi.fn()}
+        onSelectInvocation={vi.fn()}
       />,
     );
 
