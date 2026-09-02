@@ -24,6 +24,14 @@ erasable TypeScript syntax or compile unsupported syntax to `.mjs`.
 Examples may import `@seqlane/core` and `zod`. When copying an
 example to another project, install those dependencies there.
 
+To inspect OpenCode server logs during a local run, start the server in one
+terminal with `--print-logs`, then run the workflow command in another. The
+repository OpenCode configuration selects `openai/gpt-5.6-luna`.
+
+```sh
+opencode serve --hostname 127.0.0.1 --port 4096 --print-logs
+```
+
 `pr-code-review.ts` is an autonomous pull-request code-review workflow. It
 compares explicit base and head revisions, using the pull-request title and
 description as untrusted author-supplied context. It runs correctness,
