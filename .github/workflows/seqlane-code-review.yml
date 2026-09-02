@@ -92,6 +92,7 @@ jobs:
       - name: Start OpenCode
         if: steps.configuration.outputs.execute == 'true'
         id: opencode
+        timeout-minutes: 2
         working-directory: review-target
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -104,7 +105,8 @@ jobs:
           echo "started=true" >> "$GITHUB_OUTPUT"
 
           for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:4096/global/health > /dev/null; then
+            if curl --fail --silent --connect-timeout 1 --max-time 2 \
+              http://127.0.0.1:4096/global/health > /dev/null; then
               exit 0
             fi
             sleep 1
