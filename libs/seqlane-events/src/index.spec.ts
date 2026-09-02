@@ -31,6 +31,32 @@ describe("@seqlane/events", () => {
     expect(isSeqlaneExecutionEvent(JSON.parse(encoded))).toBe(true);
   });
 
+  it("round-trips effective model selection metrics without provider payloads", () => {
+    const event: SeqlaneExecutionEvent = {
+      type: "invocation.output",
+      metadata,
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      policy: "persistent",
+      channel: "task",
+      content: "Task completed",
+      metrics: {
+        modelSelection: {
+          model: { provider: "openai", model: "gpt-5.2" },
+          reasoning: "high",
+        },
+      },
+    };
+
+    const decoded = decodeSeqlaneExecutionEvent(
+      encodeSeqlaneExecutionEvent(event),
+    );
+
+    expect(decoded).toEqual(event);
+    expect(decoded).not.toHaveProperty("metrics.modelSelection.nativePayload");
+  });
+
   it("accepts a redacted nested Plan snapshot", () => {
     const event: SeqlaneExecutionEvent = {
       type: "run.plan",

@@ -1,6 +1,6 @@
 # TS-022-06 — Record Effective Model Selections in Observability
 
-**Status:** planned
+**Status:** completed
 
 ## User outcome
 

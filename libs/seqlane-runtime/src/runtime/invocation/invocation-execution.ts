@@ -1,5 +1,6 @@
 import type {
   SeqlaneInvocationMetrics,
+  ModelSelection,
   TaskNode,
   ValidationCheckNode,
   ValidationGateNode,
@@ -46,6 +47,28 @@ import {
   type ValidationEnvelope,
   type ValidationExecutionOptions,
 } from "./invocation-support.js";
+
+function effectiveModelSelection(
+  context: ExecutionContext,
+  invocationId: string,
+  session: ReturnType<typeof sessionForInvocation> | undefined,
+): ModelSelection | undefined {
+  return (
+    context.effectiveModelSelections.get(invocationId) ??
+    session?.effectiveSelection
+  );
+}
+
+function metricsWithModelSelection(
+  metrics: SeqlaneInvocationMetrics | undefined,
+  selection: ModelSelection | undefined,
+): SeqlaneInvocationMetrics | undefined {
+  if (metrics === undefined && selection === undefined) return undefined;
+  return {
+    ...(metrics ?? {}),
+    ...(selection === undefined ? {} : { modelSelection: selection }),
+  };
+}
 
 export async function executeTaskNode(
   context: ExecutionContext,
@@ -329,6 +352,11 @@ export async function executeTaskNode(
         throwTaskPhaseError(cause, "output", node.taskId, abortSignal);
       }
 
+      const observableMetrics = metricsWithModelSelection(
+        metrics,
+        effectiveModelSelection(context, invocationId, session),
+      );
+
       context.events.emit({
         type: "invocation.result",
         workId: context.workId,
@@ -365,7 +393,9 @@ export async function executeTaskNode(
         policy: "persistent",
         channel: "task",
         content: "Task completed",
-        ...(metrics === undefined ? {} : { metrics }),
+        ...(observableMetrics === undefined
+          ? {}
+          : { metrics: observableMetrics }),
         summary: summarizeSeqlaneOutput(output),
         ...optionalIteration(options.iteration),
       });

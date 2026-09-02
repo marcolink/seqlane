@@ -1,3 +1,4 @@
+// @test-scope ./output-details.ts
 import type { SeqlaneExecutionEvent } from "@seqlane/events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HumanTTYRenderer } from "./human-renderer.js";
@@ -487,6 +488,10 @@ describe("human TTY renderer", () => {
         durationMs: 1250,
         model: "fake-model",
         provider: "fake-provider",
+        modelSelection: {
+          model: { provider: "openai", model: "gpt-5.2" },
+          reasoning: "high",
+        },
         cost: 0.0042,
         tokens: {
           total: 42,
@@ -503,6 +508,8 @@ describe("human TTY renderer", () => {
     const frame = latest(output.stdout as RecordingSink);
     expect(frame).toContain("output object");
     expect(frame).toContain("fake-model");
+    expect(frame).toContain("openai/gpt-5.2");
+    expect(frame).toContain("reasoning high");
     expect(frame).toContain("42 tokens");
     expect(frame).toContain("$0.0042");
   });

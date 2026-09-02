@@ -8,9 +8,9 @@ import type {
   WorkId,
 } from "./contracts.js";
 import type { SeqlaneError } from "./errors.js";
+import type { ModelSelection } from "./models/model-ref.js";
 
-export type SeqlaneInvocationKind =
-  "workflow" | "loop" | "task" | "validation";
+export type SeqlaneInvocationKind = "workflow" | "loop" | "task" | "validation";
 
 export type SeqlaneInvocationSubject =
   | { readonly type: "task"; readonly taskId: TaskId }
@@ -39,6 +39,7 @@ export interface SeqlaneInvocationMetrics {
   readonly durationMs?: number;
   readonly model?: string;
   readonly provider?: string;
+  readonly modelSelection?: ModelSelection;
   readonly cost?: number;
   readonly tokens?: {
     readonly total?: number;

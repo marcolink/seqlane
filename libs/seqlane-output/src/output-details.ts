@@ -145,6 +145,16 @@ export function formatHumanOutputDetails(
   if (modelAndProvider.length > 0) {
     lines.push(modelAndProvider.join(" · "));
   }
+  if (metrics?.modelSelection !== undefined) {
+    const { model, reasoning } = metrics.modelSelection;
+    lines.push(
+      "selection " +
+        model.provider +
+        "/" +
+        model.model +
+        (reasoning === undefined ? "" : " · reasoning " + reasoning),
+    );
+  }
   const tokens = metrics === undefined ? undefined : formatHumanTokens(metrics);
   if (tokens !== undefined) lines.push(tokens);
   if (metrics?.cost !== undefined) {
@@ -171,6 +181,11 @@ export function formatCIOutputDetails(
   if (metrics?.model !== undefined) details.push("model=" + metrics.model);
   if (metrics?.provider !== undefined) {
     details.push("provider=" + metrics.provider);
+  }
+  if (metrics?.modelSelection !== undefined) {
+    const { model, reasoning } = metrics.modelSelection;
+    details.push("selection=" + model.provider + "/" + model.model);
+    if (reasoning !== undefined) details.push("reasoning=" + reasoning);
   }
   if (metrics?.tokens !== undefined) {
     const total =

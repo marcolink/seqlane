@@ -1,4 +1,8 @@
-import { acyclicValueSchema, isPlainRecord } from "@seqlane/core";
+import {
+  acyclicValueSchema,
+  isPlainRecord,
+  modelSelectionSchema,
+} from "@seqlane/core";
 import type {
   JsonValue,
   SeqlaneErrorCategory,
@@ -143,6 +147,7 @@ const metricsSchema = strictRecord({
   durationMs: nonNegativeNumberSchema.optional(),
   model: nonEmptyStringSchema.optional(),
   provider: nonEmptyStringSchema.optional(),
+  modelSelection: modelSelectionSchema.optional(),
   cost: nonNegativeNumberSchema.optional(),
   tokens: invocationTokensSchema.optional(),
 });

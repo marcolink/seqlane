@@ -1,4 +1,5 @@
 // @test-scope ../compile/compile-plan.ts
+// @test-scope ../invocation/invocation-execution.ts
 import type {
   Plan,
   PlanNode,
@@ -270,6 +271,11 @@ describe("Seqlane lifecycle events and outcomes", () => {
         };
       },
     });
+    const modelSelection = {
+      model: { provider: "openai", model: "gpt-5.2" },
+      reasoning: "high" as const,
+    };
+    compiled.context.effectiveModelSelections.set("a", modelSelection);
 
     await runCompiledWorkflow(compiled);
 
@@ -278,7 +284,7 @@ describe("Seqlane lifecycle events and outcomes", () => {
         event.type === "invocation.output" && event.policy === "persistent",
     );
     expect(output).toMatchObject({
-      metrics,
+      metrics: { ...metrics, modelSelection },
       summary: {
         kind: "object",
         size: 3,
@@ -286,6 +292,28 @@ describe("Seqlane lifecycle events and outcomes", () => {
       },
     });
     expect(output).not.toHaveProperty("summary.values");
+  });
+
+  it("emits effective selection metrics when the executor reports no metrics", async () => {
+    const events: SeqlaneEvent[] = [];
+    const compiled = compile(plan([task("a")]), {
+      events: { emit: (event) => events.push(event) },
+      executor: async () => ({ value: "output" }),
+    });
+    const modelSelection = {
+      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      reasoning: "medium" as const,
+    };
+    compiled.context.effectiveModelSelections.set("a", modelSelection);
+
+    await runCompiledWorkflow(compiled);
+
+    expect(
+      events.find(
+        (event) =>
+          event.type === "invocation.output" && event.policy === "persistent",
+      ),
+    ).toMatchObject({ metrics: { modelSelection } });
   });
 
   it("emits redacted executor activity in invocation order", async () => {
