@@ -85,8 +85,14 @@ jobs:
       - name: Install OpenCode
         if: steps.configuration.outputs.execute == 'true'
         working-directory: seqlane-source
+        env:
+          OPENCODE_VERSION: 1.14.19
         run: |
-          OPENCODE_VERSION=$(node -p "require('./libs/seqlane-opencode/package.json').dependencies['@opencode-ai/sdk']")
+          SDK_VERSION=$(node -p "require('./libs/seqlane-opencode/package.json').dependencies['@opencode-ai/sdk']")
+          if [ "$SDK_VERSION" != "$OPENCODE_VERSION" ]; then
+            echo "::error::OpenCode CLI $OPENCODE_VERSION must match @opencode-ai/sdk $SDK_VERSION."
+            exit 1
+          fi
           curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION"
 
       - name: Start OpenCode
