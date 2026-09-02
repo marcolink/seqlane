@@ -78,6 +78,11 @@ This directory contains the current canonical Seqlane design artifacts from the 
 62. **TS-021-session-checkpoint-reuse-and-branching.md** — implementation
     specification for ADR-021.
 63. **stories/TS-021/** — implementation stories derived from TS-021.
+64. **ADR-022-model-selection-and-session-model-semantics.md** — decision for
+    executor-neutral model selection and session model pinning.
+65. **TS-022-model-selection-and-session-model-semantics.md** — implementation
+    specification for ADR-022.
+66. **stories/TS-022/** — implementation stories derived from TS-022.
 
 Current status:
 
@@ -90,3 +95,5 @@ Current status:
 - Implemented: ADR-019 and TS-019. ADR-019 supersedes ADR-001.
 - Proposed: ADR-020. Its rule-by-rule baseline audit is complete.
 - Accepted: ADR-021 and TS-021; TS-021 stories are ready for implementation.
+- Accepted: ADR-022. TS-022 is ready for implementation; TS-022-00 is in
+  progress and the remaining stories are planned.
