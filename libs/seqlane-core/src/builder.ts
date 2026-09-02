@@ -38,7 +38,17 @@ function serializeSessionPolicy(
 ): PlanSessionPolicy {
   const resolved = policy ?? isolated();
   if (resolved.type === "isolated") return resolved;
-  return { type: resolved.type, from: sessionCheckpointNodeId(resolved.from) };
+  if (resolved.type === "reuse") {
+    return {
+      type: resolved.type,
+      from: sessionCheckpointNodeId(resolved.from),
+    };
+  }
+  return {
+    type: resolved.type,
+    from: sessionCheckpointNodeId(resolved.from),
+    ...(resolved.model === undefined ? {} : { model: resolved.model }),
+  };
 }
 
 export function buildWorkflow<Input, Output>(

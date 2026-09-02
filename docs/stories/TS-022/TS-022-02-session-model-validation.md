@@ -14,6 +14,7 @@ fail before execution with an actionable branch recommendation.
   it.
 - Accept omitted and equal continuation selections.
 - Validate branch inheritance and explicit branch changes.
+- Reject any model selection nested under a reuse policy.
 - Add malformed-input and conflict regression tests.
 
 ## Out of scope

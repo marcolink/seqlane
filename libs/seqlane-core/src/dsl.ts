@@ -14,6 +14,7 @@ import type {
   WorkflowBuildContext,
   WorkflowDefinition,
 } from "./contracts.js";
+import type { ModelSelection } from "./models/model-ref.js";
 import type {
   InputBinding,
   SessionCheckpointRef,
@@ -44,16 +45,25 @@ export function validatedBy<State>(
   return { type: "validated", validator };
 }
 
-export function isolated(): SessionPolicy {
-  return { type: "isolated" };
+export function isolated(
+  model?: ModelSelection,
+): Extract<SessionPolicy, { readonly type: "isolated" }> {
+  return model === undefined
+    ? { type: "isolated" }
+    : { type: "isolated", model };
 }
 
 export function reuse(from: SessionCheckpointRef): SessionPolicy {
   return { type: "reuse", from };
 }
 
-export function branch(from: SessionCheckpointRef): SessionPolicy {
-  return { type: "branch", from };
+export function branch(
+  from: SessionCheckpointRef,
+  model?: ModelSelection,
+): Extract<SessionPolicy, { readonly type: "branch" }> {
+  return model === undefined
+    ? { type: "branch", from }
+    : { type: "branch", from, model };
 }
 
 type RuntimeFlowAuthoringContext<Input> = FlowAuthoringContext<

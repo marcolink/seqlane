@@ -33,6 +33,9 @@ prompt, and record the effective selection on every invocation.
   `high`, `xhigh`, and `max`.
 - Omitted selection on a new session resolves to and records the executor
   default.
+- Model selection is nested under `session`; task definitions do not carry
+  model or reasoning fields.
+- `isolated` and `branch` may contain a selection; `reuse` cannot contain one.
 - A continuation inherits its pinned selection.
 - An equal explicit continuation selection is valid; a different one fails
   before execution and recommends a branch or isolated session.
@@ -62,10 +65,11 @@ type ModelSelection = Readonly<{
 }>;
 ```
 
-Task definitions expose model selection using the direct authoring shape
-`model?: ModelRef` and `reasoning?: ReasoningEffort`; builder/Plan code
-normalizes this pair to `ModelSelection`. This preserves the concise
-`model: openai("...")` syntax while giving runtime contracts one shape.
+Session helpers expose model selection using the nested authoring shape
+`isolated({ model: openai("..."), reasoning: "high" })` and
+`branch(checkpoint, { model: openai("..."), reasoning: "high" })`.
+`reuse(checkpoint)` has no selection argument. Builder/Plan code preserves the
+same nested `ModelSelection` shape.
 
 Task Plan nodes serialize only the normalized model selection. Omitted model
 is distinct from an explicit model until session resolution. Existing Plans

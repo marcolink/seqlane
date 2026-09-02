@@ -1,3 +1,4 @@
+// @test-scope ./builder.ts
 // @test-scope ./dsl.ts
 
 import { describe, expect, it } from "vitest";
@@ -7,9 +8,11 @@ import {
   createFlow,
   defineTask,
   defineWorkflow,
+  isolated,
   reuse,
 } from "./dsl.js";
 import { buildWorkflow } from "./builder.js";
+import { openai } from "./models/index.js";
 
 const schema = <T>(): SeqlaneSchema<T> => ({
   parse(value: unknown): T {
@@ -18,6 +21,165 @@ const schema = <T>(): SeqlaneSchema<T> => ({
 });
 
 describe("buildWorkflow", () => {
+  it("nests model selection under an isolated session", () => {
+    const task = defineTask({
+      id: "selected-model",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      goal: () => "Complete work",
+    });
+    const workflow = defineWorkflow({
+      id: "selected-model-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      build: ({ input, run }) =>
+        run(task, {
+          input,
+          session: isolated({
+            model: openai("gpt-5.6-luna"),
+            reasoning: "high",
+          }),
+        }).output,
+    });
+
+    const plan = buildWorkflow(workflow).plan;
+
+    expect(plan.nodes[0]).toMatchObject({
+      session: {
+        type: "isolated",
+        model: {
+          model: { provider: "openai", model: "gpt-5.6-luna" },
+          reasoning: "high",
+        },
+      },
+    });
+    expect(plan.nodes[0]).not.toHaveProperty("model");
+    expect(plan.nodes[0]).not.toHaveProperty("reasoning");
+    expect(JSON.parse(JSON.stringify(plan))).toEqual(plan);
+  });
+
+  it("allows a model only on a branched session", () => {
+    const task = defineTask({
+      id: "branched-model",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      goal: () => "Complete work",
+    });
+    const workflow = defineWorkflow({
+      id: "branched-model-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      build: ({ input, run }) => {
+        const source = run(task, { input });
+        return run(task, {
+          input,
+          session: branch(source.session, {
+            model: openai("gpt-5.6-sol"),
+            reasoning: "low",
+          }),
+        }).output;
+      },
+    });
+
+    expect(buildWorkflow(workflow).plan.nodes[1]).toMatchObject({
+      session: {
+        type: "branch",
+        model: {
+          model: { provider: "openai", model: "gpt-5.6-sol" },
+          reasoning: "low",
+        },
+      },
+    });
+  });
+
+  it("does not allow model configuration on reuse", () => {
+    const task = defineTask({
+      id: "reused-model",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      goal: () => "Complete work",
+    });
+    const workflow = defineWorkflow({
+      id: "reused-model-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      build: ({ input, run }) => {
+        const source = run(task, { input });
+        return run(task, {
+          input,
+          // @ts-expect-error Reuse sessions inherit their source model.
+          session: reuse(source.session, { model: openai("gpt-5.6-sol") }),
+        }).output;
+      },
+    });
+
+    expect(buildWorkflow(workflow).plan.nodes[1]).toMatchObject({
+      session: { type: "reuse", from: "reused-model:1" },
+    });
+  });
+
+  it("does not allow model configuration directly on a task invocation", () => {
+    const task = defineTask({
+      id: "task-level-model",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      goal: () => "Complete work",
+    });
+    const workflow = defineWorkflow({
+      id: "task-level-model-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      build: ({ input, run }) =>
+        run(task, {
+          input,
+          // @ts-expect-error Model selection belongs under session.
+          model: openai("gpt-5.6-luna"),
+        }).output,
+    });
+
+    expect(buildWorkflow(workflow).plan.nodes[0]).not.toHaveProperty("model");
+  });
+
+  it("carries session model selection into repeat body task nodes", () => {
+    const task = defineTask({
+      id: "repeat-selected-model",
+      input: schema<{ readonly complete: boolean }>(),
+      output: schema<{ readonly complete: boolean }>(),
+      goal: () => "Complete work",
+    });
+    const workflow = defineWorkflow({
+      id: "repeat-selected-model-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<{ readonly complete: boolean }>(),
+      build: ({ repeat }) =>
+        repeat({
+          initial: { complete: false },
+          body: ({ input, task: runTask }) =>
+            runTask(task, {
+              input,
+              session: isolated({ model: openai("gpt-5.6-sol") }),
+            }).output,
+          until: ({ output }) => output.complete,
+          maximumIterations: 1,
+        }).output,
+    });
+
+    expect(buildWorkflow(workflow).plan.nodes[0]).toMatchObject({
+      body: {
+        nodes: [
+          {
+            session: {
+              type: "isolated",
+              model: {
+                model: { provider: "openai", model: "gpt-5.6-sol" },
+              },
+            },
+          },
+        ],
+      },
+    });
+  });
+
   it("defaults omitted workspace policy to exclusive in the Plan", () => {
     const task = defineTask({
       id: "default-workspace-policy",

@@ -6,6 +6,7 @@ import type {
   ValueRef,
   ValidationInvocation,
 } from "./bindings.js";
+import type { ModelSelection } from "./models/model-ref.js";
 import { z } from "zod";
 
 export type WorkId = string;
@@ -23,9 +24,13 @@ export interface TaskDependency {
 }
 
 export type SessionPolicy =
-  | { readonly type: "isolated" }
+  | { readonly type: "isolated"; readonly model?: ModelSelection }
   | { readonly type: "reuse"; readonly from: SessionCheckpointRef }
-  | { readonly type: "branch"; readonly from: SessionCheckpointRef };
+  | {
+      readonly type: "branch";
+      readonly from: SessionCheckpointRef;
+      readonly model?: ModelSelection;
+    };
 
 export type JsonPrimitive = string | number | boolean | null;
 

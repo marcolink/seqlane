@@ -95,5 +95,5 @@ Current status:
 - Implemented: ADR-019 and TS-019. ADR-019 supersedes ADR-001.
 - Proposed: ADR-020. Its rule-by-rule baseline audit is complete.
 - Accepted: ADR-021 and TS-021; TS-021 stories are ready for implementation.
-- Accepted: ADR-022. TS-022 is ready for implementation; TS-022-00 is
-  completed and the remaining stories are planned.
+- Accepted: ADR-022. TS-022 is ready for implementation; TS-022-00 and
+  TS-022-01 are completed, and the remaining stories are planned.

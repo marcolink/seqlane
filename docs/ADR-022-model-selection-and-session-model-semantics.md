@@ -63,9 +63,12 @@ type ModelSelection = {
 };
 ```
 
-Task authoring may select a model and optional reasoning effort. The Plan
-stores only this Seqlane-owned descriptor. No provider SDK object, credential,
-OpenCode object, or Codex type crosses the core or Plan boundary.
+Model selection is nested inside the session declaration because models are
+bound to logical sessions. Isolated sessions and branches may declare a
+selection. Reuse sessions never accept a selection; they inherit the source
+session's pinned selection. The Plan stores only this Seqlane-owned descriptor.
+No provider SDK object, credential, OpenCode object, or Codex type crosses the
+core or Plan boundary.
 
 The effective model selection is immutable for each logical session:
 
@@ -75,6 +78,7 @@ The effective model selection is immutable for each logical session:
   selection is accepted; a different selection fails Plan validation.
 - A branch creates a new logical session. It inherits the parent selection by
   default and may select another selection. The branch is then pinned.
+- A reuse declaration cannot contain a model selection.
 - Separate child sessions may use different selections.
 - Adapter support for changing a model during a prompt does not weaken these
   rules. Seqlane only changes the selection while creating a new session.

@@ -13,16 +13,19 @@ Run `pnpm models:update` to refresh the committed model ID mirrors from
 models.dev. The generated catalog includes strict OpenAI and Anthropic IDs;
 other providers are intentionally left to generic string model references.
 
-Model selections can include an optional reasoning effort:
+Model selections are nested under new or branched sessions:
 
 ```ts
-import { openai, type ModelSelection } from "@seqlane/core/models";
+import { isolated } from "@seqlane/core";
+import { openai } from "@seqlane/core/models";
 
-const selection: ModelSelection = {
+const session = isolated({
   model: openai("gpt-5.6-luna"),
   reasoning: "high",
-};
+});
 ```
+
+Reuse sessions cannot select a model; they inherit the source session model.
 
 Use `defineTask` and `defineWorkflow` to declare typed, core-owned authoring
 definitions. Definitions keep schemas and build callbacks in memory; they are
