@@ -24,19 +24,44 @@ erasable TypeScript syntax or compile unsupported syntax to `.mjs`.
 Examples may import `@seqlane/core` and `zod`. When copying an
 example to another project, install those dependencies there.
 
-`code-review.ts` is an autonomous code-review workflow. It reviews either the
-last commit or all uncommitted changes, then runs correctness, maintainability,
-and risk lanes in parallel before producing a five-axis rating. It instructs
-the agent to use only read-only Git inspection commands. The current OpenCode
-tasks use `workspace: "shared"` because the author asserts they may overlap.
-This is not a read-only workspace boundary; configure the runtime accordingly.
+To inspect OpenCode server logs during a local run, start the server in one
+terminal with `--print-logs`, then run the workflow command in another. The
+repository OpenCode configuration selects `openai/gpt-5.6-luna`.
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run examples/code-review.ts \
-  --input '{"repository":"/path/to/repository","target":"last-commit"}' \
+opencode serve --hostname 127.0.0.1 --port 4096 --print-logs
+```
+
+`pr-code-review.ts` is an autonomous pull-request code-review workflow. It
+compares explicit base and head revisions, using the pull-request title and
+description as untrusted author-supplied context. It runs correctness,
+maintainability, and risk lanes in parallel before producing a five-axis
+rating. It instructs the agent to use only read-only Git inspection commands.
+The current OpenCode tasks use `workspace: "shared"` because the author asserts
+they may overlap. This is not a read-only workspace boundary; configure the
+runtime accordingly.
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js run examples/pr-code-review.ts \
+  --input '{"repository":"/path/to/repository","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
   --runtime http://127.0.0.1:4096 \
   --workspace /path/to/repository
 ```
+
+## Automated pull-request review
+
+`.github/workflows/seqlane-code-review.yml` runs the code-review example for
+non-draft pull requests from branches in this repository. Configure the
+`OPENAI_API_KEY` Actions secret to enable it. Without the secret, the workflow
+reports a successful skip.
+
+The workflow builds Seqlane from the trusted base revision and reviews the
+explicit base-to-head range in a separate checkout. It does not execute package
+installation or repository scripts from the pull request. OpenCode ignores
+project runtime configuration during the review and receives a read-only tool
+policy. The workflow updates one marked pull-request comment with the report
+and records the report verdict without failing the review job when it is
+`request-changes`.
 
 `all-features.ts` is the compact feature tour. It uses typed input/output,
 shared and exclusive workspaces, isolated/reused/branched sessions, explicit

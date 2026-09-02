@@ -3,3 +3,4 @@ node_modules/
 dist/
 .nx/
 out-tsc/
+pnpm-lock.yaml
