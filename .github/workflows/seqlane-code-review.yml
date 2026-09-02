@@ -118,7 +118,7 @@ jobs:
             sleep 1
           done
 
-          cat "$RUNNER_TEMP/opencode.log"
+          echo "OpenCode did not become ready. Detailed server logs are not printed to the public workflow log."
           exit 1
 
       - name: Run Seqlane code review
@@ -220,10 +220,6 @@ jobs:
           fi
 
           echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
-
-      - name: Print OpenCode log on failure
-        if: failure() && steps.opencode.outputs.started == 'true'
-        run: cat "$RUNNER_TEMP/opencode.log"
 
       - name: Stop OpenCode
         if: always() && steps.opencode.outputs.started == 'true'
