@@ -40,8 +40,8 @@ filesystem permission boundary. The workflow input does not grant file access;
 configure executor permissions before starting a non-interactive Run.
 
 ```sh
-seqlane run ./examples/code-review.ts \
-  --input '{"repository":"/path/to/repository","target":"last-commit"}' \
+seqlane run ./examples/pr-code-review.ts \
+  --input '{"repository":"/path/to/repository","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
   --runtime http://127.0.0.1:4096 \
   --workspace /path/to/repository
 ```
