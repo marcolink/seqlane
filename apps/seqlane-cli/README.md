@@ -8,26 +8,10 @@ From a packaged CLI, start a foreground, loopback-only Studio session:
 seqlane studio
 ```
 
-From this repository, use the compiled entrypoint:
-
-```sh
-pnpm exec node apps/seqlane-cli/bin/run.js studio \
-  --port 57694
-```
-
 Run a workflow and forward its canonical execution events to that session:
 
 ```sh
 seqlane run ./examples/minimal-workflow.ts \
-  --input '{"topic":"Seqlane"}' \
-  --runtime local \
-  --studio
-```
-
-The repository form is:
-
-```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
   --runtime http://127.0.0.1:4096 \
   --studio
@@ -41,7 +25,7 @@ running any tasks:
 ```sh
 seqlane run ./examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime local \
+  --runtime http://127.0.0.1:4096 \
   --dry
 ```
 
@@ -95,7 +79,7 @@ Recording is explicit and writes a new, local newline-delimited JSON file:
 ```sh
 seqlane run ./examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime local \
+  --runtime http://127.0.0.1:4096 \
   --record ./seqlane-recording.jsonl
 ```
 
@@ -111,4 +95,33 @@ consumer stream. It never loads or executes a workflow:
 ```sh
 seqlane replay ./seqlane-recording.jsonl --output human
 seqlane replay ./seqlane-recording.jsonl --studio --studioPort 57695
+```
+
+## Development
+
+Build the workspace before you run the repository CLI entrypoint:
+
+```sh
+pnpm build
+```
+
+Then run Studio from the repository root:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js studio --port 57694
+```
+
+Run a local workflow with the same entrypoint:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js run examples/minimal-workflow.ts \
+  --input '{"topic":"Seqlane"}' \
+  --runtime http://127.0.0.1:4096 \
+  --studio
+```
+
+Run the CLI boundary tests after a build:
+
+```sh
+pnpm exec nx test:e2e seqlane-cli
 ```
