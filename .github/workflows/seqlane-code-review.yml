@@ -147,13 +147,15 @@ jobs:
               }
             }')
 
-          set -o pipefail
           ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts" \
             --input "$WORKFLOW_INPUT" \
             --runtime http://127.0.0.1:4096 \
             --workspace "$REVIEW_TARGET" \
             --output json \
-            | tee "$RUNNER_TEMP/seqlane-code-review.jsonl"
+            > "$RUNNER_TEMP/seqlane-code-review.jsonl" \
+            2> "$RUNNER_TEMP/seqlane-code-review.stderr"
+
+          echo "Seqlane code review completed; publishing the report."
 
       - name: Publish code review
         if: steps.configuration.outputs.execute == 'true'
