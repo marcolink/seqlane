@@ -89,6 +89,10 @@ child-process CLI boundary tests separately when compiled packages are needed:
 pnpm exec nx test:e2e seqlane-cli
 ```
 
+GitHub Actions runs affected lint and unit-test targets for pull requests and
+pushes to `main`. The test workflow always checks test-to-implementation
+mappings before it runs affected unit tests.
+
 ## Package map
 
 | Package                                                             | Purpose                                                              |
