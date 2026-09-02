@@ -219,6 +219,10 @@ jobs:
           echo "Seqlane requested changes."
           exit 1
 
+      - name: Print OpenCode log on failure
+        if: failure() && steps.opencode.outputs.started == 'true'
+        run: cat "$RUNNER_TEMP/opencode.log"
+
       - name: Stop OpenCode
         if: always() && steps.opencode.outputs.started == 'true'
         run: |
