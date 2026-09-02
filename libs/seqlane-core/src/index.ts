@@ -24,3 +24,5 @@ export * from "./errors.js";
 export * from "./events.js";
 export * from "./json.js";
 export * from "./runner-protocol.js";
+export { modelSelectionSchema } from "./models/model-ref.js";
+export type { ModelSelection } from "./models/model-ref.js";

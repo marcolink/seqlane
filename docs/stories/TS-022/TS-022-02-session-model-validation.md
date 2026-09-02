@@ -1,6 +1,6 @@
 # TS-022-02 — Validate Model Inheritance and Session Conflicts
 
-**Status:** planned
+**Status:** completed
 
 ## User outcome
 
@@ -12,7 +12,7 @@ fail before execution with an actionable branch recommendation.
 - Extend Plan validation with model-selection shape and equality checks.
 - Compare provider and model ID, plus reasoning when session semantics require
   it.
-- Accept omitted and equal continuation selections.
+- Accept omitted continuation selections, which inherit the source.
 - Validate branch inheritance and explicit branch changes.
 - Reject any model selection nested under a reuse policy.
 - Add malformed-input and conflict regression tests.
@@ -30,10 +30,10 @@ Live executor catalogs, default resolution, session locks, and OpenCode calls.
 - **Then:** validation fails before execution and recommends a branch/isolated
   session
 
-**Scenario:** *Equal continuation*
+**Scenario:** *Reuse inherits*
 
 - **Given:** a session pinned to `openai/gpt-5.6-luna`
-- **When:** a continuation repeats that selection
+- **When:** a continuation uses `reuse(checkpoint)`
 - **Then:** validation succeeds
 
 **Scenario:** *Different branch*
