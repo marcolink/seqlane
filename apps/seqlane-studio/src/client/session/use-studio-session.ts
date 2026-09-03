@@ -264,26 +264,18 @@ export function useStudioSession() {
       : (replay === undefined ? savedPositions : replaySavedPositions).get(
           activeRunId,
         );
-  const graph = useMemo(
-    () => {
-      const next =
-        graphSnapshot === undefined
-          ? emptyGraph
-          : graphFor(
-              graphSnapshot,
-              selectedInvocationId,
-              graphPositions,
-              setSelectedInvocationId,
-            );
-      return reconcileGraph(previousGraph.current, next);
-    },
-    [
-      activeRunId,
-      graphPositions,
-      graphSnapshot,
-      selectedInvocationId,
-    ],
-  );
+  const graph = useMemo(() => {
+    const next =
+      graphSnapshot === undefined
+        ? emptyGraph
+        : graphFor(
+            graphSnapshot,
+            selectedInvocationId,
+            graphPositions,
+            setSelectedInvocationId,
+          );
+    return reconcileGraph(previousGraph.current, next);
+  }, [activeRunId, graphPositions, graphSnapshot, selectedInvocationId]);
   useEffect(() => {
     previousGraph.current = graph;
   }, [graph]);

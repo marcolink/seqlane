@@ -1,5 +1,8 @@
 import type { Plan, PlanNode, RepeatNode } from "@seqlane/core";
-import { PlanValidationError, validatePlan } from "../validation/plan-validation.js";
+import {
+  PlanValidationError,
+  validatePlan,
+} from "../validation/plan-validation.js";
 
 type NodeWithId = { readonly nodeId: string };
 type RepeatBodyNode = RepeatNode["body"]["nodes"][number];

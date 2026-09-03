@@ -91,9 +91,7 @@ function StudioApp() {
   const inspectorBounds = sidebarWidthBounds({
     sidebar: "inspector",
     viewportWidth,
-    otherSidebarWidth: runsDrawerOpen
-      ? runsDrawerWidth
-      : collapsedSidebarWidth,
+    otherSidebarWidth: runsDrawerOpen ? runsDrawerWidth : collapsedSidebarWidth,
   });
   const layoutStyle = {
     "--inspector-drawer-width": `${inspectorDrawerOpen ? inspectorDrawerWidth : collapsedSidebarWidth}px`,

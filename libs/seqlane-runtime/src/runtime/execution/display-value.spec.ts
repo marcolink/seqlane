@@ -6,9 +6,9 @@ describe("Seqlane display values", () => {
     expect(
       toSeqlaneDisplayValue({ safe: "ok", secret: "no" }, undefined),
     ).toEqual({ state: "present", value: { safe: "ok", secret: "no" } });
-    expect(
-      toSeqlaneDisplayValue({ safe: "ok" }, { includePaths: [] }),
-    ).toEqual({ state: "omitted", reason: "policy" });
+    expect(toSeqlaneDisplayValue({ safe: "ok" }, { includePaths: [] })).toEqual(
+      { state: "omitted", reason: "policy" },
+    );
   });
 
   it("truncates oversized default values", () => {

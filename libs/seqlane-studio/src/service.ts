@@ -8,10 +8,7 @@ import {
 } from "node:http";
 import { basename, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  decodeSeqlaneRecording,
-  MAX_RECORDING_BYTES,
-} from "@seqlane/events";
+import { decodeSeqlaneRecording, MAX_RECORDING_BYTES } from "@seqlane/events";
 import {
   studioProtocolVersion,
   type StudioApiError,

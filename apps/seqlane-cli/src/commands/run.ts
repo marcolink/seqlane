@@ -13,10 +13,7 @@ import { launchRunner } from "../runner-client.js";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import { createStudioPublisher } from "../studio-publisher.js";
 import { createRecordingConsumer } from "../recording.js";
-import {
-  defaultStudioPort,
-  startStudioSession,
-} from "@seqlane/studio";
+import { defaultStudioPort, startStudioSession } from "@seqlane/studio";
 import {
   connectTerminalResize,
   createCliRenderer,
@@ -202,9 +199,7 @@ export default class RunCommand extends Command {
         ownedStudio = await startStudioSession({
           port,
           clientRoot: dirname(
-            packageRequire.resolve(
-              "@seqlane/studio-app/client/index.html",
-            ),
+            packageRequire.resolve("@seqlane/studio-app/client/index.html"),
           ),
         });
         studioAddress = ownedStudio.address;

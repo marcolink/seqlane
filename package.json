@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm exec nx run-many -t build",
-    "format": "pnpm exec nx format:write",
+    "format": "pnpm exec nx format:write --all",
     "format:check": "pnpm exec nx format:check --all",
     "lint": "pnpm exec nx run-many -t lint",
     "models:update": "node scripts/update-models-catalog.mjs",

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildWorkflow,
-  defineTask,
-  defineWorkflow,
-} from "@seqlane/core";
+import { buildWorkflow, defineTask, defineWorkflow } from "@seqlane/core";
 import { z } from "zod";
 import { createOpenCodeRunnerExecution } from "./runner.js";
 

@@ -1,8 +1,4 @@
-import {
-  createFlow,
-  defineTask,
-  defineValidator,
-} from "@seqlane/core";
+import { createFlow, defineTask, defineValidator } from "@seqlane/core";
 import { z } from "zod";
 
 const taskOutputInputSchema = z.object({
