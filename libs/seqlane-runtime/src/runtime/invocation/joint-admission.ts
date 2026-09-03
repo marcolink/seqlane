@@ -14,6 +14,7 @@ export interface JointAdmission {
 }
 
 export interface JointAdmissionRequest {
+  readonly signal: AbortSignal;
   readonly session: ResolvedExecutorSession | undefined;
   readonly workspace: WorkspaceResource;
   readonly workspacePolicy: WorkspacePolicy;
@@ -29,6 +30,24 @@ interface WaitingAdmission {
   readonly request: JointAdmissionRequest;
   readonly resolve: (admission: JointAdmission) => void;
   readonly reject: (cause: unknown) => void;
+  readonly cleanup: () => void;
+}
+
+function createAbortWaiter(signal: AbortSignal): {
+  readonly promise: Promise<void>;
+  readonly cleanup: () => void;
+} {
+  if (signal.aborted) return { promise: Promise.resolve(), cleanup: () => {} };
+
+  let onAbort!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    onAbort = resolve;
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return {
+    promise,
+    cleanup: () => signal.removeEventListener("abort", onAbort),
+  };
 }
 
 /**
@@ -47,8 +66,31 @@ export class JointAdmissionRegistry {
 
   acquire(request: JointAdmissionRequest): Promise<JointAdmission> {
     return new Promise((resolve, reject) => {
+      if (request.signal.aborted) {
+        reject(request.signal.reason ?? new Error("Joint admission cancelled"));
+        return;
+      }
+
       const waiting = this.#waiting.get(request.workspace.key) ?? [];
-      waiting.push({ request, resolve, reject });
+      let admission: WaitingAdmission;
+      const onAbort = (): void => {
+        const index = waiting.indexOf(admission);
+        if (index === -1) return;
+        waiting.splice(index, 1);
+        if (waiting.length === 0) {
+          this.#waiting.delete(request.workspace.key);
+        }
+        admission.cleanup();
+        reject(request.signal.reason ?? new Error("Joint admission cancelled"));
+      };
+      admission = {
+        request,
+        resolve,
+        reject,
+        cleanup: () => request.signal.removeEventListener("abort", onAbort),
+      };
+      request.signal.addEventListener("abort", onAbort, { once: true });
+      waiting.push(admission);
       waiting.sort(
         (first, second) =>
           first.request.creationOrdinal - second.request.creationOrdinal,
@@ -70,21 +112,26 @@ export class JointAdmissionRegistry {
           return;
         }
 
-        const change = Promise.race([
-          this.workspaceLocks.waitForChange(),
-          this.sessionLocks.waitForChange(),
-        ]);
+        const abortWaiter = createAbortWaiter(next.request.signal);
         try {
           const admission = this.#tryAcquire(next.request);
           if (admission === undefined) {
-            await change;
+            await Promise.race([
+              this.workspaceLocks.waitForChange(),
+              this.sessionLocks.waitForChange(),
+              abortWaiter.promise,
+            ]);
             continue;
           }
           waiting?.shift();
+          next.cleanup();
           next.resolve(admission);
         } catch (cause) {
           waiting?.shift();
+          next.cleanup();
           next.reject(cause);
+        } finally {
+          abortWaiter.cleanup();
         }
       }
     } finally {

@@ -129,6 +129,7 @@ export async function executeTaskNode(
         ? undefined
         : sessionForInvocation(context.resolvedSessions, invocationId);
     const admission = await context.jointAdmissions.acquire({
+      signal: abortSignal,
       session,
       workspace: resource,
       workspacePolicy: node.workspace,
