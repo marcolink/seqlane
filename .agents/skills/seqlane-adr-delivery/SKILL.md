@@ -10,19 +10,20 @@ Use this workflow for a named Seqlane ADR. Read `docs/sdlc/AGENTS.md` first. Wor
 ## 1. Establish Context
 
 1. Read `AGENTS.md`, the target ADR, its active spec, its task entries, relevant RFC/PRD documents, and `git status`.
-2. Read the affected source, tests, package manifests, Nx configuration, and nearby documentation before planning edits.
-3. Preserve unrelated staged or unstaged work. Never reset, checkout, stash, or reformat unrelated files.
-4. Work on the requested ADR branch. Create one only when asked or when the task explicitly requires a dedicated ADR branch. Do not merge to `main` unless explicitly asked.
+2. Run `sdlc-impact` before implementation work and record its documentation impact assessment.
+3. Read the affected source, tests, package manifests, Nx configuration, and nearby documentation before planning edits.
+4. Preserve unrelated staged or unstaged work. Never reset, checkout, stash, or reformat unrelated files.
+5. Work on the requested ADR branch. Create one only when asked or when the task explicitly requires a dedicated ADR branch. Do not merge to `main` unless explicitly asked.
 
 ## 2. Make the Delivery Backlog
 
-If the ADR lacks a technical specification, create a
+If the ADR lacks a technical specification, use `sdlc-author` to create a
 `docs/sdlc/specs/YYYY-MM-DD-<slug>.md` document with a stable
 `spec.<slug>` metadata ID. Base it on the ADR's accepted decisions, scope,
 invariants, contracts, and PRD exclusions. If the ADR or authoritative product
 docs are ambiguous, ask before inventing a product decision.
 
-If the spec lacks tasks, create one
+If the spec lacks tasks, use `sdlc-author` to create one
 `docs/sdlc/tasks/YYYY-MM-DD-<slug>.md` file per task:
 
 - start with a bootstrap/dependency task when package or tooling setup is required;
@@ -59,7 +60,7 @@ For the next incomplete task:
    ```
 
 8. If a gate or acceptance criterion fails, start another fresh subagent to make the scoped repair, then rerun the affected gates and the full gate before continuing.
-9. Run a docs-sync review. Update mutable docs for changed commands, contracts, config, behavior, or package layout. Do not routinely rewrite accepted or implemented ADRs.
+9. Run `sdlc-sync` for canonical SDLC reconciliation. Run `docs-sync` for nearby README, AGENTS.md, command, configuration, or package-layout documentation. Do not routinely rewrite accepted or implemented ADRs.
 10. Mark the task completed, record its outcome, run `pnpm docs:index` and `pnpm docs:validate`, then commit only the completed task on the ADR branch. Use one clear conventional commit per task; do not skip hooks. Confirm a clean working tree before moving on.
 
 ## 4. Complete the ADR

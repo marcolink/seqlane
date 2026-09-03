@@ -14,6 +14,10 @@ For each meaningful change, either:
 - update the nearest relevant docs, or
 - state briefly why no doc update is needed
 
+Use `sdlc-impact` for pre-implementation impact analysis and `sdlc-sync` for
+canonical `docs/sdlc/` reconciliation. This skill covers nearby README,
+AGENTS.md, runbook, and workflow documentation.
+
 ## Check Changed Files First
 
 Prefer staged changes when present:

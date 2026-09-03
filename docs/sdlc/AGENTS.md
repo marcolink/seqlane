@@ -1,6 +1,9 @@
 # SDLC documentation instructions
 
 - Read `docs/sdlc/index.md` before creating or restructuring SDLC documents.
+- Use `sdlc-author` when creating or substantially revising SDLC documents.
+- Use `sdlc-impact` before meaningful implementation or architecture work.
+- Use `sdlc-sync` after implementation and before declaring the task complete.
 - Start implementation work from the assigned task or active spec.
 - Follow upstream links only as far as needed to understand intent and
   architecture constraints.
