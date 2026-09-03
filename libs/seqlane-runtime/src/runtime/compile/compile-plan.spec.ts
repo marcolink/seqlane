@@ -192,6 +192,32 @@ describe("EffectCompiler plan preparation", () => {
     );
   });
 
+  it("rejects a local definition used as a validation task source", () => {
+    const local: TaskDefinition = {
+      id: "local-validator",
+      input: { parse: (value: unknown) => value },
+      output: { parse: (value: unknown) => value },
+      execute: async () => ({ success: true }),
+    };
+    const source = plan([
+      {
+        type: "validation.check",
+        nodeId: "check",
+        source: {
+          type: "task",
+          taskId: local.id,
+          workspace: "shared",
+        },
+        input: {},
+        dependsOn: [],
+      } as PlanNode,
+    ]);
+
+    expect(() =>
+      validatePlan(source, new Map([[local.id, local]])),
+    ).toThrow(/agent task definition/i);
+  });
+
   it.each([
     [
       "an invalid execution kind",

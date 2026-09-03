@@ -449,6 +449,8 @@ function validateValidationNode(
   issues: PlanValidationIssue[],
   inRepeatBody: boolean,
   bodyNodeIds?: ReadonlySet<string>,
+  taskDefinitions?: TaskDefinitionRegistry,
+  validateDefinitions = true,
 ): void {
   if (node.type === "validation.check") {
     if (!validationSourceSchema.safeParse(node.source).success) {
@@ -458,6 +460,24 @@ function validateValidationNode(
         `Validation check "${node.nodeId}" must have a mechanical validatorId or task taskId`,
         node.nodeId,
       );
+    }
+    if (
+      validateDefinitions &&
+      node.source.type === "task" &&
+      taskDefinitions !== undefined
+    ) {
+      const definition = taskDefinitions.get(node.source.taskId);
+      if (
+        definition !== undefined &&
+        !agentTaskDefinitionSchema.safeParse(definition).success
+      ) {
+        addIssue(
+          issues,
+          "task-definition-kind-mismatch",
+          `Validation check "${node.nodeId}" must use an agent task definition for "${node.source.taskId}"`,
+          node.nodeId,
+        );
+      }
     }
   } else {
     if (node.policy !== "fail" && node.policy !== "repeat-postcondition") {
@@ -701,7 +721,15 @@ function validateRepeat(
       bodyNode.type === "validation.check" ||
       bodyNode.type === "validation.gate"
     ) {
-      validateValidationNode(bodyNode, bodyById, issues, true, bodyNodeIds);
+      validateValidationNode(
+        bodyNode,
+        bodyById,
+        issues,
+        true,
+        bodyNodeIds,
+        taskDefinitions,
+        validateDefinitions,
+      );
     }
   }
 
@@ -902,7 +930,15 @@ export function validatePlan(
       );
     }
     if (node.type === "validation.check" || node.type === "validation.gate") {
-      validateValidationNode(node, nodesById, issues, false);
+      validateValidationNode(
+        node,
+        nodesById,
+        issues,
+        false,
+        undefined,
+        taskDefinitions,
+        validateDefinitions,
+      );
     }
     if (node.type === "repeat") {
       validateRepeat(
