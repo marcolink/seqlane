@@ -22,6 +22,8 @@
 - Store document relationships in frontmatter metadata. Use stable metadata IDs
   in `upstream` and `supersedes`; never infer relationships from filenames,
   titles, or numeric sequences.
+- Treat type indexes as discovery metadata. Resolve task dependencies from
+  frontmatter IDs and Traceability links, not index order or filename naming.
 - Add Markdown links to the related canonical documents in `Traceability`.
 - Keep the filename date unchanged when `updated` changes. Update links and
   metadata references in the same change when a path changes.

@@ -29,7 +29,9 @@ If the spec lacks tasks, use `sdlc-author` to create one
 - start with a bootstrap/dependency task when package or tooling setup is required;
 - assign each task a stable `task.<slug>` metadata ID;
 - give every task an objective, scope, out-of-scope items, implementation plan, verification, and completion criteria;
-- order tasks by dependency in `docs/sdlc/tasks/index.md` and keep each independently committable;
+- record task dependencies with stable metadata IDs and Traceability links; treat
+  `docs/sdlc/tasks/index.md` as discovery metadata, not execution order;
+  keep each task independently committable;
 - link each task to its spec in frontmatter and its `Traceability` section.
 
 The type index contains only discovery metadata and links. Never put multiple task definitions in one file.
@@ -38,7 +40,9 @@ Read the spec and task documents again after writing them. Run `pnpm docs:index`
 
 ## 3. Deliver One Task
 
-For the next incomplete task:
+Select the next incomplete task by checking its explicit metadata dependencies
+and active spec. Never infer dependency order from task index row order or
+filename naming.
 
 1. Make a concise implementation plan: intended files, dependency/config changes, test approach, acceptance-criterion mapping, and risks.
 2. Start a **fresh high-reasoning implementation subagent session**. Never reuse a prior session; use Luna-high when available or explicitly requested.

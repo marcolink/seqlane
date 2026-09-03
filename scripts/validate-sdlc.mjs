@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 const defaultRepositoryRoot = resolve(import.meta.dirname, "..");
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const filenamePattern = /^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
-const idPattern = /^(brd|prd|rfc|adr|spec|task)\.[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const idPattern =
+  /^(brd|prd|rfc|adr|spec|task)\.(?=[a-z0-9-]*[a-z])[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const requiredFields = [
   "id",
   "title",
@@ -28,6 +29,14 @@ const sections = {
   ],
 };
 const knownFields = new Set(requiredFields);
+
+function isCalendarDate(value) {
+  if (!datePattern.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    Number.isFinite(date.getTime()) && date.toISOString().startsWith(value)
+  );
+}
 
 function parseFrontmatter(path, contents, report) {
   if (!contents.startsWith("---\n")) {
@@ -174,7 +183,8 @@ export function validateSdlc({
           `${metadata.id} is in the wrong type directory '${directory}'`,
         );
       }
-      if (!filenamePattern.test(name))
+      const filenameMatch = filenamePattern.test(name);
+      if (!filenameMatch)
         report(
           documentPath,
           "filename must use <YYYY-MM-DD>-<lowercase-kebab-title>.md",
@@ -194,17 +204,27 @@ export function validateSdlc({
       for (const field of ["created", "updated"]) {
         if (
           typeof metadata[field] !== "string" ||
-          !datePattern.test(metadata[field])
+          !isCalendarDate(metadata[field])
         ) {
-          report(documentPath, `${field} must use YYYY-MM-DD`);
+          report(documentPath, `${field} must be a valid calendar date`);
         }
       }
       if (
         typeof metadata.created === "string" &&
-        filenamePattern.test(name) &&
+        filenameMatch &&
         !name.startsWith(`${metadata.created}-`)
       ) {
         report(documentPath, "filename date must match frontmatter 'created'");
+      }
+      if (typeof metadata.id === "string" && filenameMatch) {
+        const filenameSlug = name.slice(11, -3);
+        const metadataSlug = metadata.id.split(".")[1];
+        if (filenameSlug !== metadataSlug) {
+          report(
+            documentPath,
+            `filename slug '${filenameSlug}' must match metadata ID slug '${metadataSlug}'`,
+          );
+        }
       }
       for (const field of ["upstream", "supersedes"]) {
         if (!Array.isArray(metadata[field]))

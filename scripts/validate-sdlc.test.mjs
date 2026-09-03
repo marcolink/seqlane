@@ -44,9 +44,9 @@ function writeDocument(
     upstream = [],
     supersedes = [],
     traceability = "",
+    filename = `${created}-${id.split(".")[1]}.md`,
   },
 ) {
-  const filename = `${created}-${id.split(".")[1]}.md`;
   const contents = `---
 id: ${id}
 title: ${title}
@@ -170,4 +170,38 @@ test("preserves partial historical supersession relationships", () => {
     studioLifecycleAdr,
     /supersedes only the access-boundary, session-discovery, and lifecycle\s+details/i,
   );
+});
+
+test("rejects invalid dates, numeric IDs, and mismatched filename slugs", () => {
+  const { fixtureRoot, sdlcRoot } = createFixture();
+  try {
+    writeDocument(sdlcRoot, "brd", {
+      id: "brd.invalid-date",
+      title: "Invalid date",
+      created: "2026-02-30",
+    });
+    writeDocument(sdlcRoot, "brd", {
+      id: "brd.123",
+      title: "Numeric ID",
+    });
+    writeDocument(sdlcRoot, "brd", {
+      id: "brd.expected-slug",
+      title: "Mismatched slug",
+      filename: "2026-01-01-wrong-slug.md",
+    });
+
+    const errors = validateSdlc({ repositoryRoot: fixtureRoot, sdlcRoot });
+
+    assert.ok(
+      errors.some((error) =>
+        error.includes("created must be a valid calendar date"),
+      ),
+    );
+    assert.ok(errors.some((error) => error.includes("invalid ID 'brd.123'")));
+    assert.ok(
+      errors.some((error) => error.includes("filename slug 'wrong-slug'")),
+    );
+  } finally {
+    removeFixture(fixtureRoot);
+  }
 });
