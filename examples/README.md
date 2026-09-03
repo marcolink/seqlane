@@ -60,8 +60,9 @@ untrusted author-supplied context. It runs correctness,
 maintainability, and risk lanes in parallel before producing a five-axis
 rating. It instructs the agent to use only read-only Git inspection commands.
 Inspection uses an isolated `openai/gpt-5.6-luna` session with high reasoning.
-Each review lane branches with its own OpenAI model and reasoning level; the
-final summary reuses the inspection session and does not select a model.
+Each review lane uses an independent session with its configured OpenAI model
+and reasoning level; the final summary uses an isolated
+`openai/gpt-5.6-luna` session with high reasoning.
 The current OpenCode tasks use `workspace: "shared"` because the author asserts
 they may overlap. This is not a read-only workspace boundary; configure the
 runtime accordingly.
@@ -81,15 +82,18 @@ non-draft pull requests from branches in this repository. Configure the
 reports a successful skip.
 
 The workflow currently uses `pull_request` temporarily so this pull request's
-workflow definition runs before merge. Restore `pull_request_target` after this
-change is merged.
+workflow definition and Seqlane source run before merge. Restore
+`pull_request_target` and the base-source checkout after this change is merged.
 
 The workflow reads the pull request's configured base branch and immutable base
 revision from the event, then reviews the explicit base-to-head range in a
-separate checkout. Inspection produces bounded requirements and evidence;
+separate checkout. A local workflow task validates the requested Git range and
+collects changed-file, diff-stat, and whitespace-check evidence. Inspection
+produces bounded requirements and evidence;
 specialist lanes run in independent sessions and verify that evidence against
-the target workspace before the final synthesis. It does not execute package
-installation or repository scripts from the pull request. OpenCode ignores
+the target workspace before the final synthesis. The workflow installs and
+builds the checked-out Seqlane source, but does not install dependencies or
+execute repository scripts from the separate review target. OpenCode ignores
 project runtime configuration during the review and receives a read-only tool
 policy. The workflow updates one marked pull-request comment with the report
 and records the report verdict without failing the review job when it is

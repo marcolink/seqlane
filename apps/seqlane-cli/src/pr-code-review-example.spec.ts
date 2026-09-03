@@ -48,8 +48,20 @@ describe("pull-request code review example workflow", () => {
       (node) =>
         node.type === "task" && node.taskId === "pr-code-review.summarize",
     );
+    const gitEvidence = plan.nodes.find(
+      (node) =>
+        node.type === "task" && node.taskId === "pr-code-review.git-evidence",
+    );
 
     expect(inspect).toBeDefined();
+    expect(gitEvidence).toMatchObject({
+      execution: "local",
+      workspace: "shared",
+      dependsOn: [],
+    });
+    expect(inspect).toMatchObject({
+      dependsOn: [gitEvidence?.nodeId],
+    });
     expect(inspect).toMatchObject({
       session: {
         type: "isolated",
@@ -101,6 +113,99 @@ describe("pull-request code review example workflow", () => {
           model: { provider: "openai", model: "gpt-5.6-luna" },
           reasoning: "high",
         },
+      },
+    });
+  });
+
+  it("collects deterministic Git review evidence with direct argv", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.git-evidence",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected local Git evidence task definition");
+    }
+
+    const baseRevision = "a".repeat(40);
+    const headRevision = "b".repeat(40);
+    const requests: Array<{
+      readonly command: string;
+      readonly args?: readonly string[];
+    }> = [];
+    const responses = [
+      { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "M\tsrc/review.ts\n", stderr: "" },
+      { exitCode: 0, stdout: " 1 file changed, 1 insertion(+)\n", stderr: "" },
+      {
+        exitCode: 2,
+        stdout: "src/review.ts: trailing whitespace.\n",
+        stderr: "",
+      },
+    ];
+    const result = await task.execute(
+      {
+        repository: "/repo",
+        baseBranch: "release/2026.09",
+        baseRevision,
+        headRevision,
+        pullRequest: {
+          title: "Add automated review",
+          description: "Run Seqlane for every pull request.",
+        },
+      },
+      {
+        exec: async (request) => {
+          requests.push(request);
+          const response = responses.shift();
+          if (response === undefined) throw new Error("Unexpected Git command");
+          return response;
+        },
+      },
+    );
+
+    expect(requests).toEqual([
+      { command: "git", args: ["rev-parse", "--verify", "HEAD"] },
+      { command: "git", args: ["cat-file", "-e", `${baseRevision}^{commit}`] },
+      {
+        command: "git",
+        args: [
+          "diff",
+          "--no-ext-diff",
+          "--no-textconv",
+          "--name-status",
+          `${baseRevision}...${headRevision}`,
+        ],
+      },
+      {
+        command: "git",
+        args: [
+          "diff",
+          "--no-ext-diff",
+          "--no-textconv",
+          "--stat",
+          `${baseRevision}...${headRevision}`,
+        ],
+      },
+      {
+        command: "git",
+        args: [
+          "diff",
+          "--no-ext-diff",
+          "--no-textconv",
+          "--check",
+          `${baseRevision}...${headRevision}`,
+        ],
+      },
+    ]);
+    expect(task.output.parse(result)).toEqual({
+      baseRevision,
+      headRevision,
+      changedFiles: ["src/review.ts"],
+      diffStat: " 1 file changed, 1 insertion(+)\n",
+      diffCheck: {
+        exitCode: 2,
+        stdout: "src/review.ts: trailing whitespace.\n",
+        stderr: "",
       },
     });
   });
@@ -169,10 +274,22 @@ describe("pull-request code review example workflow", () => {
         title: "Add automated review",
         description: "Run Seqlane for every pull request.",
       },
+      gitEvidence: {
+        baseRevision: "a".repeat(40),
+        headRevision: "b".repeat(40),
+        changedFiles: ["src/review.ts"],
+        diffStat: "1 file changed\n",
+        diffCheck: {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+        },
+      },
     };
     const inspectGoal = inspect.goal(reviewInput);
     expect(inspectGoal).toContain(reviewInput.pullRequest.description);
     expect(inspectGoal).toContain('"baseBranch":"release/2026.09"');
+    expect(inspectGoal).toContain('"diffCheck"');
 
     const change = {
       repository: reviewInput.repository,
@@ -189,6 +306,7 @@ describe("pull-request code review example workflow", () => {
           observation: "The new branch preserves the selected base revision.",
         },
       ],
+      gitEvidence: reviewInput.gitEvidence,
     };
     const lane = taskDefinitions.get("pr-code-review.correctness");
     if (lane === undefined || typeof lane.goal !== "function") {
