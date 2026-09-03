@@ -84,9 +84,9 @@ non-draft pull requests from branches in this repository. Configure the
 `OPENAI_API_KEY` Actions secret to enable it. Without the secret, the workflow
 reports a successful skip.
 
-The workflow currently uses `pull_request` temporarily so this pull request's
-workflow definition and Seqlane source run before merge. Restore
-`pull_request_target` and the base-source checkout after this change is merged.
+The workflow uses `pull_request_target`, runs the trusted workflow definition
+from the base branch, and checks out the trusted Seqlane source from the base
+revision. It checks out the pull-request head separately as the review target.
 
 The workflow reads the pull request's configured base branch and immutable base
 revision from the event, then reviews the explicit base-to-head range in a

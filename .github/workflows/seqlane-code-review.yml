@@ -1,9 +1,7 @@
 name: Seqlane code review
 
-# Temporary: use the PR workflow and source while validating this PR. Restore
-# pull_request_target and the base-source checkout after this change is merged.
 on:
-  pull_request:
+  pull_request_target:
     types:
       - opened
       - reopened
@@ -40,14 +38,14 @@ jobs:
             echo "execute=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check out Seqlane source from pull request
+      - name: Check out trusted Seqlane source
         if: steps.configuration.outputs.execute == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: seqlane-source
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Check out pull request head
         if: steps.configuration.outputs.execute == 'true'
