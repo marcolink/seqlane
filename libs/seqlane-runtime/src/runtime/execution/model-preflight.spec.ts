@@ -60,9 +60,10 @@ function model(reference: string): ModelRef {
 function capabilities(
   available: ModelRef[],
   defaultSelection: ModelSelection,
+  executor = "fake-executor",
 ): ExecutorModelCapabilities {
   return {
-    executor: "fake-executor",
+    executor,
     listModels: async () =>
       available.map(({ provider, model: id }) => ({ provider, model: id })),
     resolveDefaultModel: async () => defaultSelection,
@@ -83,6 +84,54 @@ function fakeExecutor(
 }
 
 describe("executor model preflight", () => {
+  it("uses task executor capabilities before resolver capabilities", async () => {
+    const taskSelection = {
+      model: model("task/task-model"),
+      reasoning: "high" as const,
+    };
+    const resolverDefault = {
+      model: model("resolver/resolver-model"),
+      reasoning: "minimal" as const,
+    };
+    const taskExecutor = fakeExecutor(
+      capabilities([taskSelection.model], taskSelection, "task-executor"),
+      () => undefined,
+    );
+    const compiled = new EffectCompiler().compileWorkflow(
+      plan([
+        task("task-specific", { type: "isolated" }),
+        task("resolver-managed"),
+      ]),
+      {
+        createInvocationId: (nodeId) => nodeId,
+        executors: new Map([
+          ["task-specific", taskExecutor],
+          ["unrelated", { execute: async () => ({}) }],
+        ]),
+        sessionResolver: {
+          modelCapabilities: capabilities(
+            [resolverDefault.model],
+            resolverDefault,
+            "resolver-executor",
+          ),
+          resolve: async () => ({
+            key: Symbol("resolver-session"),
+            executor: { execute: async () => ({}) },
+          }),
+        },
+      },
+    );
+
+    await preflightCompiledWorkflowModels(compiled);
+
+    expect(compiled.context.effectiveModelSelections).toEqual(
+      new Map<string, ModelSelection>([
+        ["task-specific", taskSelection],
+        ["resolver-managed", resolverDefault],
+      ]),
+    );
+  });
+
   it("rejects an unavailable explicit model before session resolution or task execution", async () => {
     let sessionResolutions = 0;
     let executions = 0;

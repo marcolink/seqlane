@@ -1,6 +1,8 @@
 // @test-scope ../compile/compile-plan.ts
+// @test-scope ../execution/model-preflight.ts
 // @test-scope ./repeat-execution.ts
 import type {
+  ModelSelection,
   Plan,
   PlanNode,
   RepeatNode,
@@ -16,11 +18,13 @@ import {
 } from "../../index.js";
 import { EffectCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";
+import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 
 function task(
   nodeId: string,
   dependsOn: readonly string[],
   input: ValueBinding,
+  session?: Extract<PlanNode, { type: "task" }>["session"],
 ): PlanNode {
   return {
     type: "task",
@@ -28,12 +32,16 @@ function task(
     nodeId,
     workspace: "shared",
     executor: "test-executor",
+    ...(session === undefined ? {} : { session }),
     input,
     dependsOn,
   } as PlanNode;
 }
 
-function repeatPlan(maximumIterations: number): Plan {
+function repeatPlan(
+  maximumIterations: number,
+  bodySession?: Extract<PlanNode, { type: "task" }>["session"],
+): Plan {
   const repeatNodeId = "repeat:1";
   const inputNodeId = `${repeatNodeId}:input`;
   const bodyNodeId = `${repeatNodeId}/body:1`;
@@ -46,9 +54,14 @@ function repeatPlan(maximumIterations: number): Plan {
     body: {
       inputNodeId,
       nodes: [
-        task(bodyNodeId, [inputNodeId], {
-          state: { type: "ref", nodeId: inputNodeId, path: [] },
-        }) as Extract<PlanNode, { type: "task" }>,
+        task(
+          bodyNodeId,
+          [inputNodeId],
+          {
+            state: { type: "ref", nodeId: inputNodeId, path: [] },
+          },
+          bodySession,
+        ) as Extract<PlanNode, { type: "task" }>,
       ],
       output: { type: "ref", nodeId: bodyNodeId, path: ["output"] },
       until: {
@@ -199,6 +212,74 @@ describe("conditioned repeat execution", () => {
     ]);
   });
 
+  it("passes preflighted repeat model selections to runtime sessions and completion metrics", async () => {
+    const selectedModel: ModelSelection = {
+      model: { provider: "openai", model: "gpt-5.6-sol" },
+      reasoning: "high",
+    };
+    const events: SeqlaneEvent[] = [];
+    const resolvedSelections: Array<ModelSelection | undefined> = [];
+    const bodyTaskId = "repeat:1/body:1";
+    const taskSchema = { parse: (value: unknown) => value };
+    const compiled = new EffectCompiler().compileWorkflow(
+      repeatPlan(1, { type: "isolated", model: selectedModel }),
+      {
+        createInvocationId: (nodeId) => nodeId,
+        executors: new Map([
+          ["test-executor", { execute: async () => ({ passed: false }) }],
+        ]),
+        taskDefinitions: new Map([
+          [
+            bodyTaskId,
+            {
+              id: bodyTaskId,
+              workspace: "shared",
+              input: taskSchema,
+              output: taskSchema,
+              goal: () => "complete the repeat body",
+            },
+          ],
+        ]),
+        sessionResolver: {
+          modelCapabilities: {
+            executor: "resolver-executor",
+            listModels: async () => [selectedModel.model],
+            resolveDefaultModel: async () => selectedModel,
+          },
+          resolve: async ({ effectiveSelection }) => {
+            resolvedSelections.push(effectiveSelection);
+            return {
+              key: Symbol("repeat-session"),
+              executor: {
+                execute: async ({ onMetrics }) => {
+                  onMetrics?.({ durationMs: 1 });
+                  return { passed: true };
+                },
+              },
+            };
+          },
+        },
+        events: { emit: (event) => events.push(event) },
+      },
+    );
+
+    await preflightCompiledWorkflowModels(compiled);
+    await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
+      status: "succeeded",
+      result: { passed: true },
+    });
+
+    expect(resolvedSelections).toEqual([selectedModel]);
+    expect(
+      events.find(
+        (event) =>
+          event.type === "invocation.output" &&
+          event.policy === "persistent" &&
+          event.invocationId.startsWith(`${bodyTaskId}:iteration:`),
+      ),
+    ).toMatchObject({ metrics: { modelSelection: selectedModel } });
+  });
+
   it("emits loop and per-iteration body invocation events", async () => {
     const events: SeqlaneEvent[] = [];
     let executions = 0;
@@ -217,9 +298,7 @@ describe("conditioned repeat execution", () => {
     });
 
     const created = events.filter(
-      (
-        event,
-      ): event is Extract<SeqlaneEvent, { type: "invocation.created" }> =>
+      (event): event is Extract<SeqlaneEvent, { type: "invocation.created" }> =>
         event.type === "invocation.created",
     );
     const loop = created.find((event) => event.kind === "loop");

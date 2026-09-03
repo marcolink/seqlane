@@ -39,6 +39,7 @@ export interface ExecutionContext {
   readonly executors: ExecutorRegistry;
   readonly resolvedSessions: Map<InvocationId, ResolvedExecutorSession>;
   readonly effectiveModelSelections: Map<InvocationId, ModelSelection>;
+  readonly effectiveModelSelectionsByNode: Map<PlanNodeId, ModelSelection>;
   readonly sessionConsumers: Map<string, readonly SessionConsumer[]>;
   readonly sessionLocks: SessionLockRegistry;
   readonly childSessions: ChildSessionRegistry;
@@ -88,6 +89,7 @@ export function createExecutionContext(
     executors: options.executors,
     resolvedSessions: new Map(),
     effectiveModelSelections: new Map(),
+    effectiveModelSelectionsByNode: new Map(),
     sessionConsumers: new Map(),
     sessionLocks,
     childSessions: new ChildSessionRegistry(),

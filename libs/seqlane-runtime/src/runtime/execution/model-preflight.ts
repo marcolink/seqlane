@@ -109,7 +109,7 @@ async function modelSelectionForTaskNode(
   nodesById: ReadonlyMap<string, TaskNode>,
   selections: Map<string, ModelSelection | undefined>,
   capabilitiesForTask: (
-    taskId: string,
+    node: TaskNode,
   ) => ResolvedExecutorModelCapabilities | undefined,
   defaults: Map<string, ModelSelection>,
   resolving = new Set<string>(),
@@ -132,7 +132,7 @@ async function modelSelectionForTaskNode(
 
   if (selection === undefined && policy?.type !== "reuse") {
     selection = await resolveDefaultSelection(
-      capabilitiesForTask(node.taskId),
+      capabilitiesForTask(node),
       defaults,
     );
   }
@@ -160,8 +160,20 @@ async function modelSelectionForTaskNode(
 
 function capabilityForNode(
   compiled: CompiledWorkflow,
-  taskId: string,
+  node: TaskNode | ValidationCheckNode,
 ): ResolvedExecutorModelCapabilities | undefined {
+  const taskNode =
+    node.type === "task"
+      ? node
+      : node.source.type === "task"
+        ? { taskId: node.source.taskId }
+        : undefined;
+  const executorCapabilities =
+    taskNode === undefined
+      ? undefined
+      : getExecutorModelCapabilities(compiled.context.executors, taskNode);
+  if (executorCapabilities !== undefined) return executorCapabilities;
+
   const resolverCapabilities =
     compiled.context.sessionResolver?.modelCapabilities;
   if (resolverCapabilities !== undefined) {
@@ -170,7 +182,7 @@ function capabilityForNode(
       capabilities: resolverCapabilities,
     };
   }
-  return getExecutorModelCapabilities(compiled.context.executors, { taskId });
+  return undefined;
 }
 
 async function resolveDefaultSelection(
@@ -213,16 +225,17 @@ export async function preflightCompiledWorkflowModels(
   const requirements = new Map<string, ModelRequirement>();
   const defaults = new Map<string, ModelSelection>();
   const effectiveSelections = new Map<string, ModelSelection>();
+  const effectiveSelectionsByNode = new Map<string, ModelSelection>();
 
   for (const preflightNode of nodes) {
-    const capabilities = capabilityForNode(compiled, preflightNode.taskId);
+    const capabilities = capabilityForNode(compiled, preflightNode.node);
     const effectiveSelection =
       preflightNode.node.type === "task"
         ? await modelSelectionForTaskNode(
             preflightNode.node,
             nodesById,
             selections,
-            (taskId) => capabilityForNode(compiled, taskId),
+            (taskNode) => capabilityForNode(compiled, taskNode),
             defaults,
           )
         : await resolveDefaultSelection(capabilities, defaults);
@@ -253,6 +266,8 @@ export async function preflightCompiledWorkflowModels(
       );
       if (!preflightNode.dynamic) {
         effectiveSelections.set(invocationId, effectiveSelection);
+      } else {
+        effectiveSelectionsByNode.set(preflightNode.nodeId, effectiveSelection);
       }
     }
   }
@@ -278,5 +293,8 @@ export async function preflightCompiledWorkflowModels(
 
   for (const [invocationId, selection] of effectiveSelections) {
     compiled.context.effectiveModelSelections.set(invocationId, selection);
+  }
+  for (const [nodeId, selection] of effectiveSelectionsByNode) {
+    compiled.context.effectiveModelSelectionsByNode.set(nodeId, selection);
   }
 }
