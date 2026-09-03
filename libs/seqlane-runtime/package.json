@@ -30,8 +30,6 @@
     "@mastra/mcp": "1.15.0",
     "@mastra/observability": "1.17.4",
     "@mastra/server": "1.63.2",
-    "@effect/platform": "0.97.1",
-    "@effect/platform-node": "0.108.1",
     "@seqlane/core": "workspace:*",
     "@seqlane/events": "workspace:*",
     "@seqlane/opencode": "workspace:*",
