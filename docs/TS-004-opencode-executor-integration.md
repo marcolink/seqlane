@@ -39,11 +39,11 @@ The MVP does not start, stop, or delete an OpenCode server. It does not delete a
 - Independent Runs use different OpenCode clients, sessions, and cancellation state.
 - Seqlane does not parse, copy, or rebuild `AGENTS.md`, OpenCode configuration, skills, agents, tools, plugins, MCP, or repository instructions.
 - Seqlane additions are additive task input. They do not replace repository capabilities or select a provider, model, or agent.
-- A declared task output requests OpenCode structured output. A JSON-looking response in ordinary text is not structured output.
+- A declared task output requests adapter-owned structured output. The adapter uses native JSON Schema output only for verified compatible OpenCode versions; otherwise it uses prompt-based JSON and local validation. A JSON-looking response in ordinary text is accepted only by the prompt strategy when it is exactly one valid JSON value.
 - Seqlane validates every raw structured result with the task output schema before it enters Seqlane dataflow.
 - Cancellation aborts active OpenCode work. It never stops the external server.
 - An unresolved permission or interaction state fails the invocation. The adapter never sends a permission response or reads terminal input.
-- The MVP does not expose session attachment, named sessions, session forks, checkpoints, model profiles, native Harness Overlay installation, OpenCode event streaming, retries, or concurrent task calls.
+- The MVP does not expose session attachment, named sessions, session forks, checkpoints, model profiles, native Harness Overlay installation, OpenCode event streaming, or concurrent task calls. Prompt-mode repair attempts are bounded within one task invocation and are not general task retries.
 
 ## 3. Package and Dependency Boundary
 
@@ -131,9 +131,10 @@ For each Seqlane invocation, the runtime first resolves and validates input as d
 1. finds the in-memory OpenCode task definition by `taskId`
 2. builds the task objective from the validated input
 3. adds task instructions and textual references without replacing the repository harness
-4. submits one structured-output request to the Run session
-5. extracts the structured result and normalized response metrics from the supported OpenCode response
-6. returns the raw result and Seqlane-owned metrics to the Seqlane runtime.
+4. selects native or prompt structured output inside the private adapter
+5. submits the request to the Run session, with bounded prompt-mode repair when local parsing or validation fails
+6. extracts the structured result and normalized response metrics from the supported OpenCode response
+7. returns the result and Seqlane-owned metrics to the Seqlane runtime.
 
 The normalized metrics may include response duration, model, provider, cost, and
 input/output/reasoning/cache token counts. They contain no OpenCode SDK object,
@@ -153,7 +154,7 @@ Seqlane output schema validation
 typed downstream ValueRef
 ```
 
-The adapter does not turn assistant text, tool output, shell output, or OpenCode event payloads into a Seqlane result. Missing, malformed, or incomplete structured output fails the invocation.
+The adapter does not turn tool output, shell output, or OpenCode event payloads into a Seqlane result. Native mode does not parse assistant prose. Prompt mode accepts only direct JSON or one complete `json` Markdown fence, then validates it with the task's canonical output schema. Missing, malformed, or incomplete output fails after the configured repair bound.
 
 The existing TS-001 output-validation boundary remains authoritative. OpenCode-side validation is an additional boundary only.
 
@@ -167,7 +168,7 @@ An abort before a session is created prevents session creation. An abort after a
 
 The adapter does not use OpenCode APIs that submit a response to a permission, TUI, or user-input request. If the supported server contract reports unresolved interaction, the adapter fails the invocation with a clear Seqlane executor error.
 
-No automatic retry is added. One Seqlane invocation maps to one OpenCode structured task request.
+Prompt-mode repair requests are not automatic task retries: they continue the same invocation and session, contain no repeated task execution request, and disable tools where OpenCode supports per-message restrictions. A native persisted-format readback failure is never replayed. It fails the current invocation and downgrades later `auto` selections for that runtime connection to prompt mode.
 
 ## 8. Required Tests
 

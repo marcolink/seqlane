@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildWorkflow,
-  defineTask,
-  defineWorkflow,
-} from "@seqlane/core";
+import { buildWorkflow, defineTask, defineWorkflow } from "@seqlane/core";
 import { z } from "zod";
 import { createOpenCodeExecutor } from "./executor.js";
 import type { OpenCodePrompt, OpenCodeRun } from "./session.js";
+import type { ResolvedStructuredOutput } from "./structured-output-strategy.js";
 
 const unsupportedForkCapabilities = {
   checkpoint: async () => ({ sessionId: "fake", messageId: "message-fake" }),
@@ -15,13 +12,18 @@ const unsupportedForkCapabilities = {
   },
 };
 
-function createFakeRun(result: unknown) {
+function createFakeRun(result: unknown, selection?: ResolvedStructuredOutput) {
   const prompts: OpenCodePrompt[] = [];
   const run: OpenCodeRun = {
     ...unsupportedForkCapabilities,
+    ...(selection === undefined
+      ? {}
+      : { structuredOutput: async () => selection }),
     prompt: async (request) => {
       prompts.push(request);
-      return { structured: result };
+      return selection?.strategy === "prompt"
+        ? { structured: undefined, text: JSON.stringify(result) }
+        : { structured: result };
     },
     abort: async () => undefined,
   };
@@ -75,9 +77,19 @@ describe("OpenCode executor", () => {
       build: ({ input, run }) => run(task, { input }).output,
     });
     const built = buildWorkflow(workflow);
-    const fake = createFakeRun({ files: ["package.json"] });
+    const fake = createFakeRun(
+      { files: ["package.json"] },
+      {
+        strategy: "prompt",
+        retryCount: 2,
+        reason: "affected-version",
+        version: "1.18.27",
+        report: () => undefined,
+      },
+    );
     const executor = createOpenCodeExecutor(built.taskDefinitions, fake.run);
     const controller = new AbortController();
+    const diagnostics: string[] = [];
 
     await expect(
       executor.execute({
@@ -85,11 +97,12 @@ describe("OpenCode executor", () => {
         taskId: "investigate",
         input: { dependency: "renovate" },
         signal: controller.signal,
+        onDiagnostic: (message) => diagnostics.push(message),
       }),
     ).resolves.toEqual({ files: ["package.json"] });
 
     expect(fake.prompts).toHaveLength(1);
-    expect(fake.prompts[0]?.text).toBe(
+    expect(fake.prompts[0]?.text).toContain(
       [
         "Investigate renovate.",
         "Response format: Return only the requested structured output.",
@@ -103,6 +116,106 @@ describe("OpenCode executor", () => {
       properties: { files: { type: "array" } },
     });
     expect(fake.prompts[0]?.signal).toBe(controller.signal);
+    expect(diagnostics).toEqual([
+      "OpenCode structured output fallback is active for OpenCode 1.18.27: using prompt mode because the native implementation is on the compatibility list. The JSON response is validated and repaired before task completion.",
+    ]);
+  });
+
+  it("repairs invalid prompt output without executing the task again", async () => {
+    const task = defineTask({
+      id: "repair-output",
+      workspace: "shared",
+      input: z.object({ value: z.string() }),
+      output: z.object({ result: z.string() }),
+      goal: ({ value }) => `Process ${value}`,
+    });
+    const built = buildWorkflow(
+      defineWorkflow({
+        id: "repair-output-workflow",
+        input: z.object({ value: z.string() }),
+        output: z.object({ result: z.string() }),
+        build: ({ input, run }) => run(task, { input }).output,
+      }),
+    );
+    const prompts: OpenCodePrompt[] = [];
+    const run: OpenCodeRun = {
+      ...unsupportedForkCapabilities,
+      structuredOutput: async () => ({
+        strategy: "prompt",
+        retryCount: 1,
+        reason: "explicit",
+      }),
+      prompt: async (request) => {
+        prompts.push(request);
+        return prompts.length === 1
+          ? { structured: undefined, text: "not json" }
+          : { structured: undefined, text: '{"result":"ok"}' };
+      },
+      abort: async () => undefined,
+    };
+    const executor = createOpenCodeExecutor(built.taskDefinitions, run);
+
+    await expect(
+      executor.execute({
+        invocationId: "inv-repair",
+        taskId: "repair-output",
+        input: { value: "demo" },
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ result: "ok" });
+
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]?.text).toContain("JSON Schema");
+    expect(prompts[0]).not.toHaveProperty("tools");
+    expect(prompts[1]?.text).toContain("already completed task");
+    expect(prompts[1]?.tools).toEqual({ "*": false, StructuredOutput: true });
+  });
+
+  it("stops after the configured repair bound", async () => {
+    const task = defineTask({
+      id: "exhaust-output",
+      workspace: "shared",
+      input: z.object({}),
+      output: z.object({ result: z.string() }),
+      goal: () => "Produce a result",
+    });
+    const built = buildWorkflow(
+      defineWorkflow({
+        id: "exhaust-output-workflow",
+        input: z.object({}),
+        output: z.object({ result: z.string() }),
+        build: ({ input, run }) => run(task, { input }).output,
+      }),
+    );
+    let promptCount = 0;
+    const run: OpenCodeRun = {
+      ...unsupportedForkCapabilities,
+      structuredOutput: async () => ({
+        strategy: "prompt",
+        retryCount: 2,
+        reason: "explicit",
+      }),
+      prompt: async () => {
+        promptCount += 1;
+        return { structured: undefined, text: "not json" };
+      },
+      abort: async () => undefined,
+    };
+    const executor = createOpenCodeExecutor(built.taskDefinitions, run);
+
+    await expect(
+      executor.execute({
+        invocationId: "inv-exhaust",
+        taskId: "exhaust-output",
+        input: {},
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({
+      name: "StructuredOutputValidationError",
+      attempts: 3,
+      issues: [expect.objectContaining({ kind: "parse" })],
+    });
+    expect(promptCount).toBe(3);
   });
 
   it("forwards available response metrics without changing task output", async () => {

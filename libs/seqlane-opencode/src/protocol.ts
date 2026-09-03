@@ -1,17 +1,28 @@
 import type { SeqlaneInvocationMetrics } from "@seqlane/core";
 import type { ModelSelection } from "@seqlane/core";
 import type { JsonSchema } from "./task.js";
+import type {
+  StructuredOutputConfiguration,
+  ResolvedStructuredOutput,
+  StructuredOutputState,
+} from "./structured-output-strategy.js";
 
 export interface OpenCodeConnection {
   readonly url: string;
   /** Origin of a detected OpenCode web UI for this runtime. */
   readonly browserUiUrl?: string;
   readonly workspace?: string;
+  readonly structuredOutput?: StructuredOutputConfiguration;
+  /** Shared by sessions created for one runtime connection. */
+  readonly structuredOutputState?: StructuredOutputState;
 }
 
 export interface OpenCodePrompt {
   readonly text: string;
   readonly schema: JsonSchema;
+  readonly strategy?: "native" | "prompt";
+  readonly retryCount?: number;
+  readonly tools?: Readonly<Record<string, boolean>>;
   /** Pins the model for this private OpenCode session. */
   readonly selection?: ModelSelection;
   /** OpenCode's native variant field for portable reasoning labels. */
@@ -50,6 +61,7 @@ export interface OpenCodeBackgroundProcess {
 
 export interface OpenCodePromptResult {
   readonly structured: unknown;
+  readonly text?: string;
   readonly metrics?: SeqlaneInvocationMetrics;
 }
 
@@ -63,6 +75,7 @@ export interface OpenCodeRun {
   readonly browserUrl?: string;
   readonly workspace?: string;
   prompt(request: OpenCodePrompt): Promise<OpenCodePromptResult>;
+  readonly structuredOutput?: () => Promise<ResolvedStructuredOutput>;
   checkpoint(): Promise<OpenCodeSessionCheckpoint>;
   fork(checkpoint: unknown, selection?: ModelSelection): Promise<OpenCodeRun>;
   abort(): Promise<void>;

@@ -55,6 +55,15 @@ function promptResponse(sessionID: string, interaction?: boolean | string) {
   };
 }
 
+function textPromptResponse(sessionID: string, text: string) {
+  const response = promptResponse(sessionID);
+  return {
+    ...response,
+    info: { ...response.info, structured: undefined },
+    parts: [{ type: "text", text }],
+  };
+}
+
 async function startServer(
   options: {
     readonly interaction?: boolean | string;
@@ -63,10 +72,14 @@ async function startServer(
     readonly holdPrompt?: boolean;
     readonly holdAbort?: boolean;
     readonly holdSession?: boolean;
+    readonly readbackCompatibilityError?: boolean;
     readonly toolEvents?: boolean;
     readonly nextToolEvents?: boolean;
     readonly skillEvents?: boolean;
     readonly backgroundShellEvent?: boolean;
+    readonly version?: string;
+    readonly promptResponses?: readonly unknown[];
+    readonly readbackFailures?: number;
   } = {},
 ) {
   const requests: RequestLog[] = [];
@@ -94,6 +107,7 @@ async function startServer(
     resolveSessionStarted = resolve;
   });
   let promptCount = 0;
+  let readbackFailures = options.readbackFailures ?? 0;
   const promptCountWaiters: Array<{
     readonly count: number;
     readonly resolve: () => void;
@@ -123,11 +137,24 @@ async function startServer(
     for await (const chunk of request) {
       body += String(chunk);
     }
-    requests.push({
-      method: request.method ?? "",
-      path: requestPath,
-      ...(body === "" ? {} : { body }),
-    });
+    if (
+      path !== "/global/health" &&
+      !(request.method === "GET" && /\/message$/.test(path))
+    ) {
+      requests.push({
+        method: request.method ?? "",
+        path: requestPath,
+        ...(body === "" ? {} : { body }),
+      });
+    }
+
+    if (request.method === "GET" && path === "/global/health") {
+      writeJson(response, {
+        healthy: true,
+        version: options.version ?? "1.14.19",
+      });
+      return;
+    }
 
     if (request.method === "POST" && path === "/session") {
       resolveSessionStarted();
@@ -170,6 +197,24 @@ async function startServer(
     }
 
     const match = /^\/session\/(session-\d+)\/message$/.exec(path);
+    if (request.method === "GET" && match) {
+      if (readbackFailures > 0) {
+        readbackFailures -= 1;
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            name: "BadRequest",
+            data: {
+              message:
+                'Expected OutputFormatJsonSchema, got {...} at [0]["info"]["format"]',
+            },
+          }),
+        );
+        return;
+      }
+      writeJson(response, [promptResponse(match[1] ?? "session-1")]);
+      return;
+    }
     if (request.method === "POST" && match) {
       const sessionID = match[1];
       if (sessionID === undefined) {
@@ -187,7 +232,11 @@ async function startServer(
         pendingResponses.push({ response, sessionID });
         return;
       }
-      writeJson(response, promptResponse(sessionID, options.interaction));
+      writeJson(
+        response,
+        options.promptResponses?.[promptCount - 1] ??
+          promptResponse(sessionID, options.interaction),
+      );
       return;
     }
 
@@ -520,6 +569,68 @@ describe("OpenCode run session", () => {
         "/session/session-1/message",
         "/session/session-1/message",
       ]);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("downgrades later auto prompts after a native readback failure", async () => {
+    const fake = await startServer({
+      readbackFailures: 1,
+      promptResponses: [
+        promptResponse("session-1"),
+        textPromptResponse("session-1", '{"result":"recovered"}'),
+      ],
+    });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+
+      await expect(
+        run.prompt({ text: "first", schema: { type: "object" } }),
+      ).rejects.toMatchObject({
+        name: "StructuredOutputCompatibilityError",
+        strategy: "native",
+        runtime: "opencode",
+        version: "1.14.19",
+        sessionId: "session-1",
+      });
+
+      await expect(
+        run.prompt({ text: "second", schema: { type: "object" } }),
+      ).resolves.toMatchObject({
+        text: '{"result":"recovered"}',
+        structured: undefined,
+      });
+
+      const prompts = fake.requests.filter(({ path }) =>
+        /\/session\/session-1\/message$/.test(path),
+      );
+      expect(prompts).toHaveLength(2);
+      expect(JSON.parse(prompts[0]?.body ?? "{}")).toHaveProperty(
+        "format.type",
+        "json_schema",
+      );
+      expect(JSON.parse(prompts[1]?.body ?? "{}")).not.toHaveProperty("format");
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("uses prompt mode before the first request for an affected version", async () => {
+    const fake = await startServer({
+      version: "1.17.13",
+      promptResponses: [textPromptResponse("session-1", '{"ok":true}')],
+    });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      await expect(
+        run.prompt({ text: "use prompt mode", schema: { type: "object" } }),
+      ).resolves.toMatchObject({ text: '{"ok":true}' });
+
+      const prompt = fake.requests.find(({ path }) =>
+        /\/session\/session-1\/message$/.test(path),
+      );
+      expect(JSON.parse(prompt?.body ?? "{}")).not.toHaveProperty("format");
     } finally {
       await closeServer(fake.server);
     }

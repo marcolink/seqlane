@@ -43,6 +43,13 @@ export interface OpenCodeTransport {
     request: OpenCodePrompt,
     signal?: AbortSignal,
   ): Promise<unknown>;
+  readonly getRuntimeVersion?: (
+    signal?: AbortSignal,
+  ) => Promise<string | undefined>;
+  readonly listMessages?: (
+    sessionId: string,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
   subscribeEvents(signal: AbortSignal): Promise<AsyncIterable<OpenCodeEvent>>;
   abort(sessionId: string): Promise<void>;
 }
@@ -87,11 +94,40 @@ function createOpenCodeTransportFromClient(
           ...(request.variant === undefined
             ? {}
             : { variant: request.variant }),
-          format: {
-            type: "json_schema",
-            schema: request.schema,
-          },
+          ...(request.tools === undefined ? {} : { tools: request.tools }),
+          ...(request.strategy === "prompt"
+            ? {}
+            : {
+                format: {
+                  type: "json_schema" as const,
+                  schema: request.schema,
+                  retryCount: request.retryCount ?? 2,
+                },
+              }),
         },
+        { throwOnError: true, signal },
+      );
+      return response.data;
+    },
+
+    async getRuntimeVersion(signal) {
+      try {
+        const response = await client.global.health({
+          throwOnError: true,
+          signal,
+        });
+        const parsed = z
+          .object({ healthy: z.literal(true), version: z.string() })
+          .safeParse(response.data);
+        return parsed.success ? parsed.data.version : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+
+    async listMessages(sessionId, signal) {
+      const response = await client.session.messages(
+        { sessionID: sessionId },
         { throwOnError: true, signal },
       );
       return response.data;

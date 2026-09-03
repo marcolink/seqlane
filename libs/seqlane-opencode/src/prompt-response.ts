@@ -27,6 +27,9 @@ const responseSchema = z.looseObject({
       cache: z.object({ read: z.number(), write: z.number() }),
     }),
   }),
+  parts: z.array(
+    z.looseObject({ type: z.string(), text: z.string().optional() }),
+  ),
 });
 
 const interactionRequirements: Readonly<
@@ -84,8 +87,22 @@ interface ParsedOpenCodePromptResponse extends OpenCodePromptResult {
   };
 }
 
+function extractAssistantText(
+  response: z.infer<typeof responseSchema>,
+): string {
+  const text = response.parts
+    .filter((part) => part.type === "text" && part.text !== undefined)
+    .map((part) => part.text)
+    .join("\n");
+  if (text.trim().length === 0) {
+    throw new Error("OpenCode response did not contain assistant text");
+  }
+  return text;
+}
+
 export function parseOpenCodePromptResponse(
   response: unknown,
+  strategy: "native" | "prompt" = "native",
 ): ParsedOpenCodePromptResponse {
   const parsed = responseSchema.parse(response);
   const requirement = getInteractionRequirement(parsed);
@@ -94,7 +111,9 @@ export function parseOpenCodePromptResponse(
   }
 
   return {
-    structured: extractStructuredOutput(parsed),
+    structured:
+      strategy === "native" ? extractStructuredOutput(parsed) : undefined,
+    ...(strategy === "prompt" ? { text: extractAssistantText(parsed) } : {}),
     metrics: getResponseMetrics(parsed.info),
     checkpoint: {
       sessionId: parsed.info.sessionID,

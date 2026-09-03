@@ -84,7 +84,7 @@ jobs:
         if: steps.configuration.outputs.execute == 'true'
         working-directory: seqlane-source
         env:
-          OPENCODE_VERSION: 1.14.19
+          OPENCODE_VERSION: 1.18.27
         run: |
           SDK_VERSION=$(node -p "require('./libs/seqlane-opencode/package.json').dependencies['@opencode-ai/sdk']")
           if [ "$SDK_VERSION" != "$OPENCODE_VERSION" ]; then

@@ -10,10 +10,7 @@ import {
   type RunnerRunControl,
 } from "./run.js";
 import { bindRunnerCancellationSignals, startRunnerProcess } from "./main.js";
-import type {
-  RunRequest,
-  TaskDefinitionRegistry,
-} from "@seqlane/core";
+import type { RunRequest, TaskDefinitionRegistry } from "@seqlane/core";
 import type {
   ResolvedExecutorSession,
   SessionResolver,
@@ -199,7 +196,13 @@ describe("seqlane runner entry point", () => {
         },
       ],
     ]);
-    const executor = { execute: async () => ({ result: "done" }) };
+    const executor: ResolvedExecutorSession["executor"] = {
+      execute: async ({ onMetrics, onDiagnostic }) => {
+        onMetrics?.({ durationMs: 1 });
+        onDiagnostic?.("Using prompt-based structured output");
+        return { result: "done" };
+      },
+    };
 
     await startRun(
       host,
@@ -232,6 +235,32 @@ describe("seqlane runner entry point", () => {
         (event) => (event as { type: string }).type === "run.plan",
       ),
     ).toHaveLength(1);
+    expect(host.events).toContainEqual(
+      expect.objectContaining({
+        type: "invocation.result",
+        result: { state: "present", value: { result: "done" } },
+      }),
+    );
+    expect(
+      host.events.find(
+        (event) => (event as { type: string }).type === "invocation.result",
+      ),
+    ).not.toHaveProperty("metrics");
+    expect(host.events).toContainEqual(
+      expect.objectContaining({
+        type: "invocation.output",
+        policy: "persistent",
+        metrics: { durationMs: 1 },
+      }),
+    );
+    expect(host.events).toContainEqual(
+      expect.objectContaining({
+        type: "invocation.output",
+        policy: "persistent",
+        channel: "task",
+        content: "Using prompt-based structured output",
+      }),
+    );
     expect(
       host.events.find(
         (event) => (event as { type: string }).type === "run.plan",

@@ -31,7 +31,7 @@ function compile(
 }
 
 describe("task invocation events", () => {
-  it("includes effective metrics in result and output events", async () => {
+  it("includes effective metrics in persistent output events", async () => {
     const events: SeqlaneEvent[] = [];
     const executorMetrics = {
       durationMs: 1250,
@@ -66,7 +66,7 @@ describe("task invocation events", () => {
         event.type === "invocation.output" && event.policy === "persistent",
     );
 
-    expect(result).toMatchObject({ metrics: expectedMetrics });
+    expect(result).not.toHaveProperty("metrics");
     expect(output).toMatchObject({ metrics: expectedMetrics });
   });
 });
