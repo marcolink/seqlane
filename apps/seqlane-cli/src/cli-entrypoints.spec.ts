@@ -125,7 +125,10 @@ async function startFakeOpenCodeServer(
         all: [
           {
             id: "openai",
-            models: { "gpt-5.6-luna": { id: "gpt-5.6-luna" } },
+            models: {
+              "gpt-5.6-luna": { id: "gpt-5.6-luna" },
+              "gpt-5.6-terra": { id: "gpt-5.6-terra" },
+            },
           },
           {
             id: "fake-provider",
@@ -143,7 +146,10 @@ async function startFakeOpenCodeServer(
         providers: [
           {
             id: "openai",
-            models: { "gpt-5.6-luna": { id: "gpt-5.6-luna" } },
+            models: {
+              "gpt-5.6-luna": { id: "gpt-5.6-luna" },
+              "gpt-5.6-terra": { id: "gpt-5.6-terra" },
+            },
           },
           {
             id: "fake-provider",
@@ -561,9 +567,7 @@ describe("seqlane CLI entrypoints", () => {
   });
 
   it("starts Studio replay from the explicit recording flag", async () => {
-    const directory = mkdtempSync(
-      join(tmpdir(), "seqlane-studio-replay-cli-"),
-    );
+    const directory = mkdtempSync(join(tmpdir(), "seqlane-studio-replay-cli-"));
     const path = join(directory, "private-recording.jsonl");
     const event: SeqlaneExecutionEvent = {
       type: "run.started",
