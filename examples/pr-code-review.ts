@@ -219,6 +219,7 @@ const gitEvidenceInstructions = [
 const readOnlyAnalysisInstructions = [
   "This is a read-only analysis task. Do not execute scripts, tests, builds, package managers, formatters, linters, validators, Git commands, shell commands, or other execution tools. Do not modify files.",
   "Use only the supplied review data and read, glob, or grep for targeted file inspection when needed. Do not try to recreate the diff or verification evidence.",
+  "Use workspace-relative paths for read, glob, and grep, starting from the current review workspace. Treat repository as identity metadata, not a filesystem path prefix; never search parent directories, runner paths, the Seqlane source checkout, or any path outside the review workspace.",
 ];
 
 const reviewProcessInstructions = [
