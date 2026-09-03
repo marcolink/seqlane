@@ -1,6 +1,10 @@
 import type { OutputCapabilities } from "@seqlane/output";
 import { describe, expect, it } from "vitest";
-import { createCliRenderer, resolveRendererMode } from "./output.js";
+import {
+  createCliRenderer,
+  createOutputCapabilities,
+  resolveRendererMode,
+} from "./output.js";
 import { parseOutputMode } from "./output-mode.js";
 
 const capabilities: OutputCapabilities = {
@@ -45,6 +49,29 @@ describe("CLI output mode selection", () => {
   it("honors explicit JSON and CI modes", () => {
     expect(createCliRenderer("json", capabilities).mode).toBe("json");
     expect(createCliRenderer("ci", capabilities).mode).toBe("ci");
+  });
+
+  it("configures known secret values for output redaction", () => {
+    const stream = {
+      isTTY: false,
+      columns: 80,
+      write: () => undefined,
+    } as unknown as NodeJS.WriteStream;
+    const output = createOutputCapabilities({
+      stdout: stream,
+      stderr: stream,
+      env: {
+        OPENAI_API_KEY: "openai-secret",
+        GITHUB_TOKEN: "github-secret",
+        SEQLANE_REDACT_VALUES: "custom-secret\nopenai-secret",
+      },
+    });
+
+    expect(output.redactions).toEqual([
+      "openai-secret",
+      "github-secret",
+      "custom-secret",
+    ]);
   });
 
   it("parses supported modes and preserves the CLI error for invalid values", () => {

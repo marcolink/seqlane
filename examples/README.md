@@ -102,7 +102,9 @@ execute repository scripts from the separate review target. OpenCode ignores
 project runtime configuration during the review and receives a read-only tool
 policy. The workflow updates one marked pull-request comment with the report
 and records the report verdict without failing the review job when it is
-`request-changes`.
+`request-changes`. Configured secret values are redacted from CI output,
+workflow summaries, and GitHub annotations. The review runtime denies access
+outside the review workspace and blocks environment files.
 
 `all-features.ts` is the compact feature tour. It uses typed input/output,
 shared and exclusive workspaces, isolated/reused/branched sessions, explicit

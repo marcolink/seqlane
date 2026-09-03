@@ -20,6 +20,8 @@ export interface OutputCapabilities {
   readonly stdout: OutputSink;
   readonly stderr: OutputSink;
   readonly summary?: OutputSink;
+  /** Secret values that must not appear in rendered output. */
+  readonly redactions?: readonly string[];
   /** Explicitly enabled sink for GitHub Actions workflow commands. */
   readonly githubActions?: {
     readonly annotations: OutputSink;
@@ -62,6 +64,10 @@ export function createExecutionRenderer(
   capabilities: OutputCapabilities,
 ): ExecutionRenderer {
   if (mode === "human") return new HumanTTYRenderer(capabilities);
-  if (mode === "ci") return new CIRenderer(capabilities);
+  if (mode === "ci") {
+    return new CIRenderer(capabilities, {
+      redactions: capabilities.redactions,
+    });
+  }
   return new JSONRenderer(capabilities);
 }

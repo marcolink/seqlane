@@ -22,10 +22,12 @@ import {
   formatCITokenDetails,
   formatCIValidationDetails,
 } from "./output-details.js";
+import { redactOutput } from "./redaction.js";
 
 export interface CIRendererOptions {
   readonly now?: () => Date;
   readonly heartbeatIntervalMs?: number;
+  readonly redactions?: readonly string[];
 }
 
 export interface CISummary {
@@ -109,25 +111,38 @@ function durationBetween(
   return Math.max(0, finished - started);
 }
 
-function sanitizeCI(value: string): string {
-  return value
-    .replace(ANSI_ESCAPE_PATTERN, "")
-    .replace(CONTROL_CHARACTER_PATTERN, "")
-    .replace(/\s+/g, " ")
-    .trim();
+function sanitizeCI(value: string, redactions: readonly string[] = []): string {
+  return redactOutput(
+    value
+      .replace(ANSI_ESCAPE_PATTERN, "")
+      .replace(CONTROL_CHARACTER_PATTERN, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+    redactions,
+  );
 }
 
-function sanitizeCILine(value: string): string {
+function sanitizeCILine(
+  value: string,
+  redactions: readonly string[] = [],
+): string {
   return value
     .split(ANSI_BOLD)
     .map((boldPart) =>
-      boldPart.split(ANSI_RESET).map(sanitizeCI).join(ANSI_RESET),
+      boldPart
+        .split(ANSI_RESET)
+        .map((part) => sanitizeCI(part, redactions))
+        .join(ANSI_RESET),
     )
     .join(ANSI_BOLD);
 }
 
-function compactCI(value: string, maximum = 500): string {
-  const normalized = sanitizeCI(value);
+function compactCI(
+  value: string,
+  maximum = 500,
+  redactions: readonly string[] = [],
+): string {
+  const normalized = sanitizeCI(value, redactions);
   return normalized.length <= maximum
     ? normalized
     : normalized.slice(0, Math.max(0, maximum - 1)) + "…";
@@ -217,7 +232,10 @@ export class CIRenderer implements ExecutionRenderer {
     options: CIRendererOptions = {},
   ) {
     this.capabilities = capabilities;
-    this.options = options;
+    this.options = {
+      ...options,
+      redactions: options.redactions ?? capabilities.redactions ?? [],
+    };
     this.now = options.now ?? (() => new Date());
     this.view = createHumanViewModel({ now: this.now });
   }
@@ -253,7 +271,7 @@ export class CIRenderer implements ExecutionRenderer {
 
   handleRunnerFailure(failure: { readonly message: string }): void {
     if (this.finished) return;
-    const message = compactCI(failure.message);
+    const message = compactCI(failure.message, 500, this.options.redactions);
     this.stopHeartbeat();
     this.runFinishedAt = this.now().toISOString();
     this.view = {
@@ -303,7 +321,10 @@ export class CIRenderer implements ExecutionRenderer {
     if (this.capabilities.summary !== undefined) {
       this.safeWrite(
         this.capabilities.summary,
-        this.summaryMarkdown(this._summary),
+        redactOutput(
+          this.summaryMarkdown(this._summary),
+          this.options.redactions ?? [],
+        ),
       );
     }
     await this.capabilities.stdout.flush?.();
@@ -737,7 +758,7 @@ export class CIRenderer implements ExecutionRenderer {
 
   private writeLine(line: string): void {
     if (line === "") return;
-    const sanitized = sanitizeCILine(line);
+    const sanitized = sanitizeCILine(line, this.options.redactions ?? []);
     if (sanitized === "") return;
     this.safeWrite(this.capabilities.stdout, sanitized + "\n");
   }
@@ -807,7 +828,9 @@ export class CIRenderer implements ExecutionRenderer {
         " title=" +
         escapeGithubCommandValue(title) +
         "::" +
-        escapeGithubCommandValue(compactCI(message, 1_500)) +
+        escapeGithubCommandValue(
+          compactCI(message, 1_500, this.options.redactions ?? []),
+        ) +
         "\n",
     );
   }

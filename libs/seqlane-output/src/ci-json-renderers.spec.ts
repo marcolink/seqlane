@@ -85,6 +85,7 @@ describe("CI renderer", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
+      redactions: ["top-secret-value"],
     });
     renderer.handle({ type: "run.started", ...run });
     renderer.handle(created("a", "Parallel A", 0));
@@ -212,6 +213,7 @@ describe("CI renderer", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
+      redactions: ["top-secret-value"],
     });
     renderer.handle({ type: "run.started", ...run });
     renderer.handle(created("a", "Task A", 0));
@@ -226,18 +228,19 @@ describe("CI renderer", () => {
       input: {
         state: "present",
         value: {
-          command: "git diff --no-ext-diff --no-textconv base...head",
+          command: "printf top-secret-value",
           secret: "must not be emitted separately",
         },
       },
-      message: "Tool failed",
+      message: "Tool failed: top-secret-value",
     });
     await renderer.finish();
 
     const output = stdout.writes.join("");
     expect(output).toContain(
-      "activity=bash command=git diff --no-ext-diff --no-textconv base...head failed error=Tool failed",
+      "activity=bash command=printf *** failed error=Tool failed: ***",
     );
+    expect(output).not.toContain("top-secret-value");
     expect(output).not.toContain("must not be emitted separately");
   });
 
@@ -594,5 +597,26 @@ describe("JSON renderer", () => {
       renderer.handle({ type: "run.started", ...run }),
     ).not.toThrow();
     expect(renderer.lastError).toBeInstanceOf(Error);
+  });
+
+  it("redacts configured values from replayed JSON", () => {
+    const stdout = new RecordingSink();
+    const renderer = new JSONRenderer({
+      ...capabilities(stdout),
+      redactions: ["top-secret-value"],
+    });
+
+    renderer.handle({
+      type: "invocation.output",
+      ...run,
+      invocationId: "a",
+      policy: "persistent",
+      channel: "task",
+      content: "top-secret-value",
+    });
+
+    const output = stdout.writes.join("");
+    expect(output).not.toContain("top-secret-value");
+    expect(JSON.parse(output)).toMatchObject({ content: "***" });
   });
 });
