@@ -32,9 +32,14 @@ export interface RuntimeSessionUi {
   readonly browserUrl: string;
 }
 
+export interface RendererFailure {
+  readonly message: string;
+}
+
 export interface ExecutionRenderer {
   readonly mode: RendererMode;
   handle(event: SeqlaneExecutionEvent): void;
+  handleRunnerFailure?(failure: RendererFailure): void;
   handleRuntimeSessionUi?(notification: RuntimeSessionUi): void;
   finish(): Promise<void>;
 }

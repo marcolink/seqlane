@@ -57,6 +57,15 @@ const EMPTY_AGGREGATE: HumanAggregate = {
   cancelled: 0,
 };
 
+const ANSI_ESCAPE_PATTERN = new RegExp(
+  String.raw`\u001B(?:\][^\u0007]*(?:\u0007|\u001B\\)|\[[0-?]*[ -/]*[@-~])`,
+  "g",
+);
+const CONTROL_CHARACTER_PATTERN = new RegExp(
+  String.raw`[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]`,
+  "g",
+);
+
 function eventTime(event: SeqlaneExecutionEvent, now: () => Date): string {
   return event.metadata?.occurredAt ?? now().toISOString();
 }
@@ -89,8 +98,16 @@ function durationBetween(
   return Math.max(0, finished - started);
 }
 
+function sanitizeCI(value: string): string {
+  return value
+    .replace(ANSI_ESCAPE_PATTERN, "")
+    .replace(CONTROL_CHARACTER_PATTERN, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function compactCI(value: string, maximum = 500): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
+  const normalized = sanitizeCI(value);
   return normalized.length <= maximum
     ? normalized
     : normalized.slice(0, Math.max(0, maximum - 1)) + "…";
@@ -178,6 +195,27 @@ export class CIRenderer implements ExecutionRenderer {
     }
     this.writeLine(this.lineFor(event, previousView, this.view));
     this.writeAnnotation(event, this.view);
+  }
+
+  handleRunnerFailure(failure: { readonly message: string }): void {
+    if (this.finished) return;
+    const message = compactCI(failure.message);
+    this.stopHeartbeat();
+    this.runFinishedAt = this.now().toISOString();
+    this.view = {
+      ...this.view,
+      runState: "failed",
+      runError: { category: "RuntimeError", message },
+    };
+    const runId = this.view.runId ?? "unknown";
+    this.writeLine(
+      "run=" + runId + " failed category=RuntimeError error=" + message,
+    );
+    this.writeAnnotationLine(
+      "error",
+      "Seqlane runner failed",
+      "run=" + runId + " category=RuntimeError error=" + message,
+    );
   }
 
   emitHeartbeat(): void {
@@ -611,7 +649,9 @@ export class CIRenderer implements ExecutionRenderer {
 
   private writeLine(line: string): void {
     if (line === "") return;
-    this.safeWrite(this.capabilities.stdout, line + "\n");
+    const sanitized = sanitizeCI(line);
+    if (sanitized === "") return;
+    this.safeWrite(this.capabilities.stdout, sanitized + "\n");
   }
 
   private safeWrite(sink: OutputSink, value: string): void {
@@ -632,55 +672,56 @@ export class CIRenderer implements ExecutionRenderer {
     if (event.type === "invocation.failed") {
       const label = view.nodes.get(event.invocationId)?.label ?? "unknown";
       const level = annotationLevel(event.disposition);
-      this.safeWrite(
-        sink,
-        "::" +
-          level +
-          " title=" +
-          escapeGithubCommandValue("Seqlane invocation failed") +
-          "::" +
-          escapeGithubCommandValue(
-            compactCI(
-              "run=" +
-                event.runId +
-                " invocation=" +
-                event.invocationId +
-                " label=" +
-                label +
-                " category=" +
-                event.error.category +
-                " disposition=" +
-                event.disposition +
-                " error=" +
-                event.error.message,
-              1_500,
-            ),
-          ) +
-          "\n",
+      this.writeAnnotationLine(
+        level,
+        "Seqlane invocation failed",
+        "run=" +
+          event.runId +
+          " invocation=" +
+          event.invocationId +
+          " label=" +
+          label +
+          " category=" +
+          event.error.category +
+          " disposition=" +
+          event.disposition +
+          " error=" +
+          event.error.message,
       );
       return;
     }
 
     if (event.type === "run.failed") {
-      this.safeWrite(
-        sink,
-        "::error title=" +
-          escapeGithubCommandValue("Seqlane run failed") +
-          "::" +
-          escapeGithubCommandValue(
-            compactCI(
-              "run=" +
-                event.runId +
-                " category=" +
-                event.error.category +
-                " error=" +
-                event.error.message,
-              1_500,
-            ),
-          ) +
-          "\n",
+      this.writeAnnotationLine(
+        "error",
+        "Seqlane run failed",
+        "run=" +
+          event.runId +
+          " category=" +
+          event.error.category +
+          " error=" +
+          event.error.message,
       );
     }
+  }
+
+  private writeAnnotationLine(
+    level: "error" | "warning",
+    title: string,
+    message: string,
+  ): void {
+    const sink = this.capabilities.githubActions?.annotations;
+    if (sink === undefined) return;
+    this.safeWrite(
+      sink,
+      "::" +
+        level +
+        " title=" +
+        escapeGithubCommandValue(title) +
+        "::" +
+        escapeGithubCommandValue(compactCI(message, 1_500)) +
+        "\n",
+    );
   }
 }
 

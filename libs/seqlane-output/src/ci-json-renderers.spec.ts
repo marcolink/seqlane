@@ -398,13 +398,14 @@ describe("CI renderer", () => {
       invocationId: "a",
       policy: "persistent",
       channel: "task",
-      content: "line one\nline two",
+      content: "\u001b[31mline one\u001b[0m\nline two",
     });
 
     const output = stdout.writes.join("");
     expect(output).not.toContain("secret input");
     expect(output).not.toContain("transient secret");
     expect(output).toContain("output=line one line two");
+    expect(output).not.toContain("\u001b");
     expect(output).not.toContain("line one\nline two");
   });
 
@@ -428,6 +429,29 @@ describe("CI renderer", () => {
       category: "RuntimeError",
       message: "runner unavailable",
     });
+  });
+
+  it("renders runner supervision failures in the final summary", async () => {
+    const stdout = new RecordingSink();
+    const annotations = new RecordingSink();
+    const summary = new RecordingSink();
+    const renderer = new CIRenderer(
+      capabilities(stdout, summary, annotations),
+      { heartbeatIntervalMs: 0 },
+    );
+    renderer.handle({ type: "run.started", ...run });
+    renderer.handleRunnerFailure({
+      message: "runner exited before terminal event",
+    });
+    await renderer.finish();
+
+    expect(stdout.writes.join("")).toContain(
+      "run=run-1 failed category=RuntimeError error=runner exited before terminal event",
+    );
+    expect(summary.writes.join("")).toContain("Outcome: failed");
+    expect(annotations.writes.join("")).toContain(
+      "::error title=Seqlane runner failed::",
+    );
   });
 });
 
