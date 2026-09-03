@@ -21,5 +21,6 @@
 | [spec.session-checkpoint-reuse-and-branching](./2026-09-02-session-checkpoint-reuse-and-branching.md) | Session Checkpoint Reuse and Branching | active | 2026-09-02 | core |
 | [spec.studio-vite-development-and-isolated-replay](./2026-09-02-studio-vite-development-and-isolated-replay.md) | Studio Vite Development and Isolated Replay | draft | 2026-09-02 | core |
 | [spec.work-run-invocation-identity-model](./2026-09-02-work-run-invocation-identity-model.md) | Work, Run, and Invocation Identity Model | active | 2026-09-02 | core |
+| [spec.local-mechanical-tasks](./2026-09-03-local-mechanical-tasks.md) | Local Mechanical Tasks | active | 2026-09-03 | core |
 | [spec.model-selection-and-session-model-semantics](./2026-09-03-model-selection-and-session-model-semantics.md) | Model Selection and Session Model Semantics | active | 2026-09-03 | core |
 | [spec.sdlc-documentation-system](./2026-09-03-sdlc-documentation-system.md) | SDLC documentation system | active | 2026-09-03 | core |

@@ -1,9 +1,21 @@
-# ADR-023 — Run Local Mechanical Tasks Without an Agent
+---
+id: adr.local-mechanical-tasks
+title: Run Local Mechanical Tasks Without an Agent
+status: accepted
+owners:
+  - core
+created: 2026-09-03
+updated: 2026-09-03
+upstream:
+  - adr.executor-neutral-workflow-authoring
+  - adr.effect-private-runtime-engine
+  - adr.seqlane-plan-ir-and-typed-dataflow
+  - adr.invocation-admission-and-workspace-coordination
+  - adr.autonomous-non-interactive-execution
+supersedes: []
+---
 
-**Status:** Accepted
-**Scope:** Local deterministic task execution, subprocess lifecycle, and task
-authoring contracts
-**Related:** ADR-003, ADR-005, ADR-008, ADR-019, ADR-020, ADR-021
+# Run Local Mechanical Tasks Without an Agent
 
 ## Context
 
@@ -16,38 +28,10 @@ work. A separate step concept would duplicate dataflow and lifecycle semantics.
 Local work must use the same typed input and output contracts, dependencies,
 workspace admission, cancellation, and execution events as agent work.
 
-The runtime uses `effect@3.22.1` as private execution infrastructure. Effect
-types must not cross into core, Plans, workflow source, runner IPC, or events.
+The runtime uses Effect as private execution infrastructure. Effect types must
+not cross into core, Plans, workflow source, runner IPC, or events.
 
-## Options Considered
-
-### Use an agent task for all work
-
-This keeps one execution path. It wastes model tokens on deterministic work and
-leaves Git and other command behavior dependent on model output. Rejected.
-
-### Add a separate step abstraction
-
-This separates agent and local work. It gives one workflow concern two public
-names and two handle models. Rejected.
-
-### Add local execution to the existing task abstraction
-
-A task declares either an agent `goal` or a local `execute` function. Both task
-types keep the same dataflow and lifecycle. Local tasks have no session. Chosen.
-
-### Run shell command strings
-
-Shell strings make quoting, interpolation, cancellation, and input safety less
-clear. They also make command injection easy. Rejected.
-
-### Fall back to Node subprocess APIs if Effect v3 is insufficient
-
-This would avoid an Effect v4 migration. It would also split subprocess
-lifecycle from the private runtime engine. Rejected. Seqlane migrates to Effect
-v4 before it adds local tasks when Effect v3 cannot meet the required behavior.
-
-## Decision Outcome
+## Decision
 
 `defineTask()` continues to define all Seqlane tasks. An agent task supplies a
 `goal`. A local task supplies an `execute` function. A task must supply exactly
@@ -70,8 +54,8 @@ const gitStatus = defineTask({
 
 The `execute` function receives a small Seqlane-owned task context. The first
 context capability is `exec`. It runs one executable and an argument array in
-the canonical workflow workspace. It returns the exit code and bounded standard
-output/error. It does not invoke a shell.
+the canonical workflow workspace. It returns the exit code and bounded
+standard output/error. It does not invoke a shell.
 
 Local task definitions stay in a runtime definition registry. The Plan stores
 the task ID, task execution kind, input binding, dependencies, and workspace
@@ -83,12 +67,38 @@ session or a session checkpoint. They cannot use `session`, model selection, or
 agent executor options. Local tasks do use workspace admission and generic
 invocation events.
 
-The runtime will first evaluate Effect v3 platform subprocess support. The work
-continues only if the implementation can run direct argv, collect bounded output,
-handle cancellation, and wait for process termination. If Effect v3 cannot meet
-these requirements, stop this delivery. Migrate the private runtime to Effect v4
-before local task support resumes. Do not use `node:child_process` as a fallback
-for this delivery.
+The runtime uses the installed Effect platform subprocess support only when it
+can run direct argv, collect bounded output, handle cancellation, and wait for
+process termination. If the private runtime cannot meet these requirements,
+local task support stops until the runtime engine can provide them. A shell or
+`node:child_process` fallback is not part of this decision.
+
+## Alternatives considered
+
+### Use an agent task for all work
+
+This keeps one execution path. It wastes model tokens on deterministic work and
+leaves Git and other command behavior dependent on model output. Rejected.
+
+### Add a separate step abstraction
+
+This separates agent and local work. It gives one workflow concern two public
+names and two handle models. Rejected.
+
+### Add local execution to the existing task abstraction
+
+A task declares either an agent `goal` or a local `execute` function. Both task
+types keep the same dataflow and lifecycle. Chosen.
+
+### Run shell command strings
+
+Shell strings make quoting, interpolation, cancellation, and input safety less
+clear. They also make command injection easy. Rejected.
+
+### Fall back to Node subprocess APIs
+
+This would split subprocess lifecycle from the private runtime engine and is
+not required by the current implementation. Rejected.
 
 ## Consequences
 
@@ -104,11 +114,11 @@ for this delivery.
 
 - The task contract is a discriminated union and Flow overloads must preserve
   the distinction.
-- Effect platform packages may add private runtime dependencies.
+- Effect platform packages add private runtime dependencies.
 - Local `execute` functions are trusted workflow code.
 - A local task that starts untracked external work can outlive the task.
 
-## Follow-up Constraints
+## Follow-up constraints
 
 - Keep Effect and Node subprocess types out of public contracts.
 - Keep local callbacks, executable paths, argv, process handles, and workspace
@@ -119,9 +129,16 @@ for this delivery.
   resolution, and token metrics.
 - Hold the workspace lease until the local process stops.
 - Keep V1 non-interactive. Do not add terminal input or approval prompts.
-- Do not implement local tasks if the Effect v3 feasibility gate fails.
 
-## Revisit Conditions
+## Revisit conditions
 
 Revisit this decision when Seqlane needs controlled shell support, sandboxing,
-network policy, background local processes, or an Effect v4 runtime migration.
+network policy, background local processes, or an Effect runtime migration.
+
+## Traceability
+
+- [adr.executor-neutral-workflow-authoring](./2026-09-02-executor-neutral-workflow-authoring.md)
+- [adr.effect-private-runtime-engine](./2026-09-02-effect-private-runtime-engine.md)
+- [adr.seqlane-plan-ir-and-typed-dataflow](./2026-09-02-seqlane-plan-ir-and-typed-dataflow.md)
+- [adr.invocation-admission-and-workspace-coordination](./2026-09-02-invocation-admission-and-workspace-coordination.md)
+- [adr.autonomous-non-interactive-execution](./2026-09-02-autonomous-non-interactive-execution.md)

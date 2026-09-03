@@ -149,9 +149,14 @@
 | [task.model-preflight](./2026-09-03-model-preflight.md) | Add Executor Model Capabilities and Runtime Preflight | completed | 2026-09-03 | core |
 | [task.plan-model-selection](./2026-09-03-plan-model-selection.md) | Carry Session Model Selection Through Plan Contracts | completed | 2026-09-03 | core |
 | [task.integration-and-documentation](./2026-09-03-integration-and-documentation.md) | Complete Integration Compatibility Coverage and Documentation | completed | 2026-09-03 | core |
+| [task.integration-documentation](./2026-09-03-integration-documentation.md) | Complete Local Task Integration and Documentation | completed | 2026-09-03 | core |
 | [task.create-sdlc-documentation-system](./2026-09-03-create-sdlc-documentation-system.md) | Create SDLC documentation system | completed | 2026-09-03 | core |
+| [task.local-task-contracts](./2026-09-03-local-task-contracts.md) | Define Local Task Contracts | completed | 2026-09-03 | core |
 | [task.model-contracts](./2026-09-03-model-contracts.md) | Define Model Refs, Reasoning, and Catalog Helpers | completed | 2026-09-03 | core |
 | [task.opencode-model-forks](./2026-09-03-opencode-model-forks.md) | Initialize OpenCode Fork Models Before Prompting | completed | 2026-09-03 | core |
 | [task.session-model-pinning](./2026-09-03-session-model-pinning.md) | Pin Effective Selections Across Runtime Sessions | completed | 2026-09-03 | core |
+| [task.effect-v3-subprocess-gate](./2026-09-03-effect-v3-subprocess-gate.md) | Prove the Private Effect Subprocess Contract | completed | 2026-09-03 | core |
 | [task.model-observability](./2026-09-03-model-observability.md) | Record Effective Model Selections in Observability | completed | 2026-09-03 | core |
+| [task.effect-local-task-execution](./2026-09-03-effect-local-task-execution.md) | Run Local Tasks Through the Private Effect Runtime | completed | 2026-09-03 | core |
+| [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
