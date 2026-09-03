@@ -29,8 +29,9 @@ export interface StructuredOutputDiagnostic {
 export interface ResolvedStructuredOutput {
   readonly strategy: "native" | "prompt";
   readonly retryCount: number;
+  readonly reason: StructuredOutputDiagnostic["reason"];
   readonly version?: string;
-  readonly report: (diagnostic: {
+  readonly report?: (diagnostic: {
     readonly type: "attempt" | "completed";
     readonly attempt?: number;
     readonly success?: boolean;
@@ -109,6 +110,7 @@ export function createStructuredOutputState(options: {
       return {
         strategy: selected.strategy,
         retryCount: configuration.retryCount,
+        reason: selected.reason,
         ...(version === undefined ? {} : { version }),
         report: (diagnostic) =>
           configuration.onDiagnostic?.({

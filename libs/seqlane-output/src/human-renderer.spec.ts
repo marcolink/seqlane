@@ -1,3 +1,4 @@
+// @test-scope ./human-renderer.ts
 // @test-scope ./output-details.ts
 import type { SeqlaneExecutionEvent } from "@seqlane/events";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -131,6 +132,29 @@ describe("human TTY renderer", () => {
     expect(latest(output.stdout as RecordingSink)).toContain("Build");
     expect(latest(output.stdout as RecordingSink)).toContain(
       "compile: compiling sources",
+    );
+  });
+
+  it("renders the structured output fallback reason in task details", () => {
+    const output = capabilities({ supportsAnsi: false, width: 200 });
+    const renderer = new HumanTTYRenderer(output, { retryTickMs: 0 });
+
+    renderer.handle(created("a", "Build", 0));
+    renderer.handle({
+      type: "invocation.output",
+      ...run,
+      invocationId: "a",
+      policy: "persistent",
+      channel: "task",
+      content:
+        "OpenCode structured output fallback is active for OpenCode 1.18.27: using prompt mode because the native implementation is on the compatibility list.",
+    });
+
+    expect(latest(output.stdout as RecordingSink)).toContain(
+      "structured output fallback is active for OpenCode 1.18.27",
+    );
+    expect(latest(output.stdout as RecordingSink)).toContain(
+      "native implementation is on the compatibility list",
     );
   });
 

@@ -615,6 +615,10 @@ async function createOpenCodeRunForSession(
       return {
         strategy: selected.strategy,
         retryCount: selected.retryCount,
+        reason: selected.reason,
+        ...(selected.version === undefined
+          ? {}
+          : { version: selected.version }),
         report: selected.report,
       };
     },

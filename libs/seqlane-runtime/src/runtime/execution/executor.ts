@@ -72,6 +72,8 @@ export interface ExecutorRequest {
   readonly input: unknown;
   readonly signal: AbortSignal;
   readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
+  /** Report bounded executor diagnostics for the invocation output. */
+  readonly onDiagnostic?: (message: string) => void;
   readonly onActivity?: (activity: SeqlaneExecutorActivity) => void;
   /** Register a managed effect before `execute` resolves. */
   readonly onEffect?: (effect: SeqlaneManagedEffect) => void;

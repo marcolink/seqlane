@@ -3,6 +3,7 @@ import { buildWorkflow, defineTask, defineWorkflow } from "@seqlane/core";
 import { z } from "zod";
 import { createOpenCodeExecutor } from "./executor.js";
 import type { OpenCodePrompt, OpenCodeRun } from "./session.js";
+import type { ResolvedStructuredOutput } from "./structured-output-strategy.js";
 
 const unsupportedForkCapabilities = {
   checkpoint: async () => ({ sessionId: "fake", messageId: "message-fake" }),
@@ -11,13 +12,18 @@ const unsupportedForkCapabilities = {
   },
 };
 
-function createFakeRun(result: unknown) {
+function createFakeRun(result: unknown, selection?: ResolvedStructuredOutput) {
   const prompts: OpenCodePrompt[] = [];
   const run: OpenCodeRun = {
     ...unsupportedForkCapabilities,
+    ...(selection === undefined
+      ? {}
+      : { structuredOutput: async () => selection }),
     prompt: async (request) => {
       prompts.push(request);
-      return { structured: result };
+      return selection?.strategy === "prompt"
+        ? { structured: undefined, text: JSON.stringify(result) }
+        : { structured: result };
     },
     abort: async () => undefined,
   };
@@ -71,9 +77,19 @@ describe("OpenCode executor", () => {
       build: ({ input, run }) => run(task, { input }).output,
     });
     const built = buildWorkflow(workflow);
-    const fake = createFakeRun({ files: ["package.json"] });
+    const fake = createFakeRun(
+      { files: ["package.json"] },
+      {
+        strategy: "prompt",
+        retryCount: 2,
+        reason: "affected-version",
+        version: "1.18.27",
+        report: () => undefined,
+      },
+    );
     const executor = createOpenCodeExecutor(built.taskDefinitions, fake.run);
     const controller = new AbortController();
+    const diagnostics: string[] = [];
 
     await expect(
       executor.execute({
@@ -81,11 +97,12 @@ describe("OpenCode executor", () => {
         taskId: "investigate",
         input: { dependency: "renovate" },
         signal: controller.signal,
+        onDiagnostic: (message) => diagnostics.push(message),
       }),
     ).resolves.toEqual({ files: ["package.json"] });
 
     expect(fake.prompts).toHaveLength(1);
-    expect(fake.prompts[0]?.text).toBe(
+    expect(fake.prompts[0]?.text).toContain(
       [
         "Investigate renovate.",
         "Response format: Return only the requested structured output.",
@@ -99,6 +116,9 @@ describe("OpenCode executor", () => {
       properties: { files: { type: "array" } },
     });
     expect(fake.prompts[0]?.signal).toBe(controller.signal);
+    expect(diagnostics).toEqual([
+      "OpenCode structured output fallback is active for OpenCode 1.18.27: using prompt mode because the native implementation is on the compatibility list. The JSON response is validated and repaired before task completion.",
+    ]);
   });
 
   it("repairs invalid prompt output without executing the task again", async () => {
@@ -120,7 +140,11 @@ describe("OpenCode executor", () => {
     const prompts: OpenCodePrompt[] = [];
     const run: OpenCodeRun = {
       ...unsupportedForkCapabilities,
-      structuredOutput: async () => ({ strategy: "prompt", retryCount: 1 }),
+      structuredOutput: async () => ({
+        strategy: "prompt",
+        retryCount: 1,
+        reason: "explicit",
+      }),
       prompt: async (request) => {
         prompts.push(request);
         return prompts.length === 1
@@ -166,7 +190,11 @@ describe("OpenCode executor", () => {
     let promptCount = 0;
     const run: OpenCodeRun = {
       ...unsupportedForkCapabilities,
-      structuredOutput: async () => ({ strategy: "prompt", retryCount: 2 }),
+      structuredOutput: async () => ({
+        strategy: "prompt",
+        retryCount: 2,
+        reason: "explicit",
+      }),
       prompt: async () => {
         promptCount += 1;
         return { structured: undefined, text: "not json" };

@@ -312,6 +312,18 @@ export async function executeTaskNode(
           onMetrics: (value) => {
             metrics = value;
           },
+          onDiagnostic: (message) => {
+            context.events.emit({
+              type: "invocation.output",
+              workId: context.workId,
+              runId: context.runId,
+              invocationId,
+              policy: "persistent",
+              channel: "task",
+              content: message,
+              ...optionalIteration(options.iteration),
+            });
+          },
           onActivity: emitActivity,
           onEffect: (termination) => effects.track(termination),
           onUncertainActivity: reportUncertainActivity,
@@ -367,9 +379,6 @@ export async function executeTaskNode(
           context.taskDefinitions?.get(node.taskId)?.observability?.studio
             ?.result,
         ),
-        ...(observableMetrics === undefined
-          ? {}
-          : { metrics: observableMetrics }),
         ...optionalIteration(options.iteration),
       });
       results.set(node.nodeId, output);

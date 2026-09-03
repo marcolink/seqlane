@@ -16,6 +16,7 @@ import {
 } from "./structured-output-parser.js";
 import { StructuredOutputValidationError } from "./errors.js";
 import type { OpenCodeRun } from "./session.js";
+import type { ResolvedStructuredOutput } from "./structured-output-strategy.js";
 import type {
   OpenCodeActivity,
   OpenCodeBackgroundProcess,
@@ -28,9 +29,32 @@ export interface OpenCodeExecutorRequest {
   readonly input: unknown;
   readonly signal: AbortSignal;
   readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
+  readonly onDiagnostic?: (message: string) => void;
   readonly onActivity?: (activity: OpenCodeActivity) => void;
   readonly onUncertainActivity?: (activity: OpenCodeUncertainActivity) => void;
   readonly onBackgroundProcess?: (process: OpenCodeBackgroundProcess) => void;
+}
+
+function promptStrategyDiagnostic(
+  selection: ResolvedStructuredOutput,
+): string | undefined {
+  if (selection.strategy !== "prompt" || selection.reason === "explicit") {
+    return undefined;
+  }
+  const version =
+    selection.version === undefined ? "" : ` for OpenCode ${selection.version}`;
+  const reason =
+    selection.reason === "affected-version"
+      ? "the native implementation is on the compatibility list"
+      : selection.reason === "unknown-version"
+        ? "the OpenCode version is not verified"
+        : selection.reason === "runtime-downgrade"
+          ? "native output readback was not compatible"
+          : "the runtime selected the compatibility fallback";
+  return (
+    `OpenCode structured output fallback is active${version}: using prompt mode because ${reason}. ` +
+    "The JSON response is validated and repaired before task completion."
+  );
 }
 
 export interface OpenCodeExecutor {
@@ -48,6 +72,11 @@ export function createOpenCodeExecutor(
       const selection = await run.structuredOutput?.();
       const strategy = selection?.strategy ?? "native";
       const retryCount = selection?.retryCount ?? 0;
+      const diagnostic =
+        selection === undefined
+          ? undefined
+          : promptStrategyDiagnostic(selection);
+      if (diagnostic !== undefined) request.onDiagnostic?.(diagnostic);
       const basePrompt = buildOpenCodePrompt(task, request.input);
       let promptText =
         strategy === "prompt"

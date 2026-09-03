@@ -3,6 +3,7 @@ import type { ModelSelection } from "@seqlane/core";
 import type { JsonSchema } from "./task.js";
 import type {
   StructuredOutputConfiguration,
+  ResolvedStructuredOutput,
   StructuredOutputState,
 } from "./structured-output-strategy.js";
 
@@ -74,15 +75,7 @@ export interface OpenCodeRun {
   readonly browserUrl?: string;
   readonly workspace?: string;
   prompt(request: OpenCodePrompt): Promise<OpenCodePromptResult>;
-  readonly structuredOutput?: () => Promise<{
-    readonly strategy: "native" | "prompt";
-    readonly retryCount: number;
-    readonly report?: (diagnostic: {
-      readonly type: "attempt" | "completed";
-      readonly attempt?: number;
-      readonly success?: boolean;
-    }) => void;
-  }>;
+  readonly structuredOutput?: () => Promise<ResolvedStructuredOutput>;
   checkpoint(): Promise<OpenCodeSessionCheckpoint>;
   fork(checkpoint: unknown, selection?: ModelSelection): Promise<OpenCodeRun>;
   abort(): Promise<void>;
