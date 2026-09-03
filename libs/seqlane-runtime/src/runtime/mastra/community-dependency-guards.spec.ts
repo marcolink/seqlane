@@ -72,6 +72,15 @@ describe("Community Mastra dependency boundary", () => {
       ),
       "utf8",
     );
+    const observabilityManifest = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../../../../libs/seqlane-runtime/node_modules/@mastra/observability/package.json",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    );
     const runtimeManifest = readFileSync(
       fileURLToPath(
         new URL(
@@ -84,9 +93,13 @@ describe("Community Mastra dependency boundary", () => {
 
     expect(packageManifest).toContain('"license": "Apache-2.0"');
     expect(packageManifest).toContain('"version": "1.64.0"');
+    expect(observabilityManifest).toContain('"license": "Apache-2.0"');
+    expect(observabilityManifest).toContain('"version": "1.17.4"');
     expect(runtimeManifest.match(/"@mastra\/[^"]+"/g)).toEqual([
       '"@mastra/core"',
+      '"@mastra/observability"',
     ]);
     expect(runtimeManifest).toContain('"@mastra/core": "1.64.0"');
+    expect(runtimeManifest).toContain('"@mastra/observability": "1.17.4"');
   });
 });

@@ -227,6 +227,39 @@ describe("private Mastra runtime spine", () => {
     expect(readFileSync(publicEntryPoint, "utf8")).not.toContain("@mastra/");
   });
 
+  it("persists the run and trace in Mastra storage with Seqlane correlation", async () => {
+    const runtime = createMastraRuntime([
+      { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
+    ]);
+    const request = {
+      workflowKey: "fixture",
+      input: { fail: false },
+      workId: "work-inspection",
+      runId: "run-inspection",
+    } as const;
+
+    await expect(runtime.run(request)).resolves.toMatchObject({
+      status: "succeeded",
+    });
+
+    const inspection = await runtime.inspect(request);
+    expect(inspection.workflowRun).toMatchObject({
+      run_id: request.runId,
+      resourceId: request.workId,
+      snapshot: { status: "success" },
+    });
+    expect(inspection.trace).toMatchObject({
+      spans: expect.arrayContaining([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            "seqlane.workId": request.workId,
+            "seqlane.runId": request.runId,
+          }),
+        }),
+      ]),
+    });
+  });
+
   it("normalizes cancellation from an active Mastra run", async () => {
     let started!: () => void;
     const startedPromise = new Promise<void>((resolve) => {

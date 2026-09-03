@@ -1,11 +1,11 @@
 ---
 id: task.mastra-storage-tracing
 title: Use Mastra Storage and Tracing as the Operational Source
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -57,6 +57,26 @@ the Mastra runtime integration contract.
 
 - Runs and steps are inspectable with Seqlane identities.
 - No complete Seqlane mirror or dual write remains.
+
+## Outcome
+
+Mastra now owns the runtime storage and trace records created by the private
+Seqlane runtime. Each run persists workflow snapshots in Mastra's
+`InMemoryStore` and exports workflow and step spans through
+`MastraStorageExporter`. Work and Run identities are present in Mastra
+request context and trace metadata. The runtime exposes a private inspection
+helper for integration tests; no Mastra types or operational state cross the
+package public boundary.
+
+The runtime uses in-memory storage for the current local execution path. A
+durable deployment-specific Mastra store remains an integration concern for a
+later server/runtime configuration task. No Seqlane run store or trace mirror
+was added.
+
+Focused verification covers persisted workflow state, workflow and step trace
+spans, identity metadata, public-boundary checks, and the existing cancellation
+and failure normalization behavior. The Community `@mastra/observability`
+package is pinned to `1.17.4`; no enterprise or `/ee/` import is used.
 
 ## Acceptance criteria
 

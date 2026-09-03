@@ -171,6 +171,6 @@
 | [task.mastra-deterministic-shell](./2026-09-03-mastra-deterministic-shell.md) | Run Deterministic Shell Tasks Through Mastra | completed | 2026-09-03 | core |
 | [task.effect-local-task-execution](./2026-09-03-effect-local-task-execution.md) | Run Local Tasks Through the Private Effect Runtime | completed | 2026-09-03 | core |
 | [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |
-| [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | planned | 2026-09-03 | core |
+| [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | completed | 2026-09-03 | core |
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
 | [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
