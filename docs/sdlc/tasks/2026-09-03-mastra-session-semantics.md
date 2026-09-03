@@ -1,7 +1,7 @@
 ---
 id: task.mastra-session-semantics
 title: Map Seqlane Session Semantics to Mastra
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
@@ -67,6 +67,19 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 All supported session modes use Mastra-compatible mechanisms with no parallel session scheduler.
+
+## Outcome
+
+Reuse-session consumers now receive deterministic graph dependencies in compiled
+Seqlane and Mastra workflows. This serializes consumers that share a source
+session before execution starts. Branch consumers remain independent because
+checkpoint forks receive distinct executor sessions and can run concurrently.
+Session identity remains scoped to one Work and executor resolver. The existing
+session lock remains only as a defensive guard for dynamically created repeat
+invocations and unconfirmed external activity.
+
+Focused ordering, isolation, branch, and session-lock tests pass. No session
+state crosses Work contexts, and no public contract contains Mastra types.
 
 ## Traceability
 
