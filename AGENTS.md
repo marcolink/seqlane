@@ -5,10 +5,13 @@
 - Foundation-only TypeScript monorepo using pnpm and Nx.
 - `libs/seqlane-core` owns public, engine-independent authoring contracts and Plan IR.
 - `libs/seqlane-events` owns public, consumer-agnostic serialized execution-event contracts.
-- `libs/seqlane-runtime` owns private Effect-based execution.
+- `libs/seqlane-runtime` owns the private Mastra integration and execution path.
 - `libs/seqlane-fixtures` owns private test fixtures and fixture contract tests; expose only intentional fixture subpaths.
 - Keep runtime-engine types and dependencies out of core, serialized Plans, and public workflow-author APIs.
 - Keep executor implementations, including OpenCode, out of workflow definitions, serialized Plans, public APIs, runner IPC, and documented CLI/configuration. Follow [adr.executor-neutral-workflow-authoring](docs/sdlc/adrs/2026-09-02-executor-neutral-workflow-authoring.md) when changing these boundaries.
+- Mastra is the sole generic runtime. Seqlane owns its public DSL, coding-task semantics, session and workspace policy, Work identity and provenance, executor contracts, and CLI experience.
+- Keep Mastra types behind the integration boundary. They must not leak into public DSL types, serialized definitions, executor-independent contracts, or stable CLI results.
+- Read [prd.seqlane-on-mastra](docs/sdlc/prd/2026-09-03-seqlane-on-mastra.md) and [rfc.mastra-runtime-and-operational-foundation](docs/sdlc/rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md) before changing runtime boundaries.
 - For SDLC documents, follow [the SDLC agent instructions](docs/sdlc/AGENTS.md).
 - Use pnpm and keep `pnpm-lock.yaml` synchronized.
 - Breaking changes are allowed in this phase. Preserve observable behavior unless a behavior change is intentional, documented, and tested.
@@ -22,6 +25,30 @@
 - Keep pure transformations separate from side effects. Orchestration coordinates operations; it does not own every policy.
 - Across package boundaries, use declared dependencies and package exports; never use relative source or `dist` paths.
 - Keep `seqlane-core` free of Mastra dependencies and types.
+
+## Mastra migration
+
+- Prefer deletion over adaptation when Mastra replaces an existing capability.
+- For each migration slice, identify the behavior and callers, implement the smallest Mastra-backed path, switch callers and tests, and remove the superseded implementation and support material.
+- Do not leave permanent dual runtimes, fallbacks, dual writes, or compatibility shims. A temporary bridge must have named callers and an objective removal condition.
+- Use the repository-pinned Mastra version. Verify APIs from the manifest and lockfile, installed declarations or source, applicable official documentation, and a focused typecheck or test.
+- Prefer native Mastra workflow, step, graph, schema, context, storage, workspace, sandbox, process, agent, ACP, tracing, server, MCP, and Community Studio capabilities.
+- Translate static session and workspace constraints into the Mastra graph before execution. Do not recreate a generic scheduler or canonical run store in Seqlane.
+- Use Mastra storage and tracing as the operational source of truth. Keep only the stable Seqlane event and result contracts needed by consumers.
+- `shell()` must use a Mastra Workspace or Sandbox process without constructing an agent or invoking a model.
+- Prefer Mastra-supported ACP or coding-agent primitives for OpenCode. Keep native OpenCode escape hatches inside the executor adapter and document the capability gap.
+- Remove Effect-based workflow orchestration, lifecycle, scheduling, retry, and service infrastructure when Mastra replaces it. Effect may remain only inside a low-level adapter with clear local value.
+- Replace the dedicated Seqlane Studio with a `seqlane studio` launcher for upstream Mastra Community Studio. Use Mastra server and MCP facilities through thin Seqlane registration.
+- Use Community and open-source Mastra components only. Do not import, copy, or depend on code under an `/ee/` path, Mastra Cloud, or enterprise-only features.
+- Use `$seqlane-mastra-stacked-delivery` for the migration branch and pull request workflow, `$mastra` for Mastra-facing changes, `$seqlane-migration` for each migration slice, and `$architectural-cleanup` after callers switch.
+- Implement each migration task with a fresh `gpt-5.6-luna` subagent at `high` reasoning. The primary agent reviews, validates, commits, pushes, and manages the GitHub stack.
+
+## Git and pull requests
+
+- This is an independent project. Branch names, commits, and pull requests do not require a Jira or other ticket ID.
+- Use concise Conventional Commit subjects and pull request titles without ticket suffixes.
+- Keep pull request descriptions focused on intent, behavior, scope, stack position, and verification.
+- Do not add tool attribution, AI-generation notes, agent credits, or “created with” boilerplate to commits or pull request descriptions.
 
 ## Runtime contracts and errors
 
@@ -42,4 +69,6 @@
 - Every test must map to implementation files for fast scoped runs: colocate `module.spec.ts(x)` or `module.test.ts(x)` with `module.ts(x)`; cross-module tests must declare one or more valid `@test-scope` implementation paths.
 - Keep test-to-implementation mapping machine-checkable. Run the repository test-mapping check before the test suite; unmapped or stale targets are errors.
 - Protocol and serialization changes require compatibility tests and malformed-input tests.
+- Mastra migration changes require focused integration tests, public-boundary checks for leaked Mastra types, and a check for forbidden `/ee/` imports.
+- Prove that deterministic tasks make zero model calls.
 - Optimize measured bottlenecks. Do not add speculative caching, complexity, or abstractions without evidence.
