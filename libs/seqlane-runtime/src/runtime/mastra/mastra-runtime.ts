@@ -6,6 +6,10 @@ import type { AnyWorkflow } from "@mastra/core/workflows";
 import { MastraStorageExporter, Observability } from "@mastra/observability";
 import type { RunId, SeqlaneRunOutcome, WorkId } from "@seqlane/core";
 import { RuntimeError, SeqlaneError } from "@seqlane/core";
+import {
+  registerMastraServer,
+  type MastraRuntimeServer,
+} from "./mastra-server.js";
 
 export interface MastraWorkflowRegistration {
   readonly key: string;
@@ -30,6 +34,7 @@ export interface MastraRuntime {
   run(request: MastraRunRequest): Promise<SeqlaneRunOutcome>;
   start(request: MastraRunRequest): MastraActiveRun;
   inspect(request: MastraRunRequest): Promise<MastraRuntimeInspection>;
+  readonly server: MastraRuntimeServer;
 }
 
 export interface MastraActiveRun {
@@ -167,6 +172,7 @@ export function createMastraRuntime(
     observability,
     logger: false,
   });
+  const server = registerMastraServer(mastra, workflows);
 
   async function flushObservability(): Promise<void> {
     await observability.flush();
@@ -175,6 +181,7 @@ export function createMastraRuntime(
   let runStarted = false;
 
   return {
+    server,
     run(request) {
       return this.start(request).outcome;
     },

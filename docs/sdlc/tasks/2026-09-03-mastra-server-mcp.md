@@ -1,11 +1,11 @@
 ---
 id: task.mastra-server-mcp
 title: Expose Workflows Through Mastra Server and MCP
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -69,6 +69,18 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 Server and MCP behavior use Mastra infrastructure with only Seqlane-specific adapters.
+
+## Outcome
+
+Mastra's Community server route handlers now discover the registered Seqlane
+workflows. A Community `MCPServer` is registered with Mastra and exposes each
+workflow as a validated `run_<workflowKey>` tool. The private runtime adapter
+keeps Mastra types behind the integration boundary, and focused tests cover
+workflow discovery, MCP invocation, and malformed tool input. Workflow
+descriptions are supplied for the MCP contract by the compiler and fixtures.
+
+The old generic server and MCP transport surface was not present on this
+branch, so no additional transport deletion was required.
 
 ## Traceability
 

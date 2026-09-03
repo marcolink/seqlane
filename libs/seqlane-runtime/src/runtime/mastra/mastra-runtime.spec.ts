@@ -303,6 +303,50 @@ describe("private Mastra runtime spine", () => {
     });
   });
 
+  it("exposes workflows through Mastra server routes and MCP", async () => {
+    const runtime = createMastraRuntime([
+      { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
+    ]);
+
+    const workflows = await runtime.server.listWorkflows();
+    expect(workflows).toHaveProperty("fixture");
+
+    const servers = await runtime.server.listMcpServers();
+    expect(servers).toMatchObject({
+      servers: [expect.objectContaining({ id: "seqlane-workflows" })],
+    });
+
+    const tools = await runtime.server.listMcpTools("seqlane-workflows");
+    expect(tools).toMatchObject({
+      tools: [expect.objectContaining({ name: "run_fixture" })],
+    });
+
+    await expect(
+      runtime.server.executeMcpTool("seqlane-workflows", "run_fixture", {
+        fail: false,
+      }),
+    ).resolves.toMatchObject({
+      result: { status: "success" },
+    });
+  });
+
+  it("rejects malformed MCP tool input through Mastra validation", async () => {
+    const runtime = createMastraRuntime([
+      { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
+    ]);
+
+    await expect(
+      runtime.server.executeMcpTool("seqlane-workflows", "run_fixture", {
+        fail: "not-a-boolean",
+      }),
+    ).resolves.toMatchObject({
+      result: {
+        error: true,
+        message: expect.stringContaining("Tool validation failed"),
+      },
+    });
+  });
+
   it("normalizes cancellation from an active Mastra run", async () => {
     let started!: () => void;
     const startedPromise = new Promise<void>((resolve) => {
@@ -326,6 +370,7 @@ describe("private Mastra runtime spine", () => {
     });
     const workflow = createWorkflow({
       id: "cancellable-workflow",
+      description: "Runs the cancellable workflow fixture.",
       inputSchema: z.unknown(),
       outputSchema: z.unknown(),
     })
