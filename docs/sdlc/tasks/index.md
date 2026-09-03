@@ -146,19 +146,32 @@
 | [task.boundary-verification-and-documentation](./2026-09-02-boundary-verification-and-documentation.md) | Verify Boundaries and Complete the Migration | completed | 2026-09-02 | core |
 | [task.verify-boundaries-and-documentation](./2026-09-02-verify-boundaries-and-documentation.md) | Verify boundaries and document built-in workflows | completed | 2026-09-02 | core |
 | [task.wire-opencode-execution-into-runner](./2026-09-02-wire-opencode-execution-into-runner.md) | Wire OpenCode execution into the runner | completed | 2026-09-02 | core |
+| [task.mastra-community-dependencies](./2026-09-03-mastra-community-dependencies.md) | Add Community Mastra Dependencies and Boundary Guards | planned | 2026-09-03 | core |
 | [task.model-preflight](./2026-09-03-model-preflight.md) | Add Executor Model Capabilities and Runtime Preflight | completed | 2026-09-03 | core |
 | [task.plan-model-selection](./2026-09-03-plan-model-selection.md) | Carry Session Model Selection Through Plan Contracts | completed | 2026-09-03 | core |
+| [task.mastra-plan-compiler](./2026-09-03-mastra-plan-compiler.md) | Compile Seqlane Plans to Mastra Workflows | planned | 2026-09-03 | core |
 | [task.integration-and-documentation](./2026-09-03-integration-and-documentation.md) | Complete Integration Compatibility Coverage and Documentation | completed | 2026-09-03 | core |
 | [task.integration-documentation](./2026-09-03-integration-documentation.md) | Complete Local Task Integration and Documentation | completed | 2026-09-03 | core |
 | [task.create-sdlc-documentation-system](./2026-09-03-create-sdlc-documentation-system.md) | Create SDLC documentation system | completed | 2026-09-03 | core |
+| [task.mastra-runtime-spine](./2026-09-03-mastra-runtime-spine.md) | Create the Mastra Runtime Spine | planned | 2026-09-03 | core |
 | [task.local-task-contracts](./2026-09-03-local-task-contracts.md) | Define Local Task Contracts | completed | 2026-09-03 | core |
 | [task.model-contracts](./2026-09-03-model-contracts.md) | Define Model Refs, Reasoning, and Catalog Helpers | completed | 2026-09-03 | core |
+| [task.mastra-migration-foundation](./2026-09-03-mastra-migration-foundation.md) | Establish the Mastra Migration Foundation | completed | 2026-09-03 | core |
+| [task.mastra-server-mcp](./2026-09-03-mastra-server-mcp.md) | Expose Workflows Through Mastra Server and MCP | planned | 2026-09-03 | core |
 | [task.opencode-model-forks](./2026-09-03-opencode-model-forks.md) | Initialize OpenCode Fork Models Before Prompting | completed | 2026-09-03 | core |
+| [task.mastra-workspace-constraints](./2026-09-03-mastra-workspace-constraints.md) | Lower Workspace Constraints Into the Mastra Graph | planned | 2026-09-03 | core |
+| [task.mastra-session-semantics](./2026-09-03-mastra-session-semantics.md) | Map Seqlane Session Semantics to Mastra | planned | 2026-09-03 | core |
 | [task.session-model-pinning](./2026-09-03-session-model-pinning.md) | Pin Effective Selections Across Runtime Sessions | completed | 2026-09-03 | core |
+| [task.mastra-identity-events](./2026-09-03-mastra-identity-events.md) | Preserve Identity and Normalized Execution Events | planned | 2026-09-03 | core |
 | [task.effect-v3-subprocess-gate](./2026-09-03-effect-v3-subprocess-gate.md) | Prove the Private Effect Subprocess Contract | completed | 2026-09-03 | core |
 | [task.model-observability](./2026-09-03-model-observability.md) | Record Effective Model Selections in Observability | completed | 2026-09-03 | core |
+| [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md) | Remove Superseded Runtime Architecture | planned | 2026-09-03 | core |
+| [task.mastra-community-studio](./2026-09-03-mastra-community-studio.md) | Replace the Dedicated Studio With Mastra Community Studio | planned | 2026-09-03 | core |
+| [task.mastra-agent-acp](./2026-09-03-mastra-agent-acp.md) | Run Agent Tasks Through Mastra ACP | planned | 2026-09-03 | core |
+| [task.mastra-deterministic-shell](./2026-09-03-mastra-deterministic-shell.md) | Run Deterministic Shell Tasks Through Mastra | planned | 2026-09-03 | core |
 | [task.effect-local-task-execution](./2026-09-03-effect-local-task-execution.md) | Run Local Tasks Through the Private Effect Runtime | completed | 2026-09-03 | core |
 | [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |
+| [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | planned | 2026-09-03 | core |
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
 | [task.bounded-pr-code-review-evidence](./2026-09-04-bounded-pr-code-review-evidence.md) | Add Bounded Patch Evidence to Pull Request Reviews | completed | 2026-09-04 | core |
 | [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
