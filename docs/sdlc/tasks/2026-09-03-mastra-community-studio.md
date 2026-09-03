@@ -1,11 +1,11 @@
 ---
 id: task.mastra-community-studio
 title: Replace the Dedicated Studio With Mastra Community Studio
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -71,6 +71,18 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 The upstream Community Studio is the only supported operational UI.
+
+## Outcome
+
+`seqlane studio` now launches the pinned Mastra Community Studio CLI and
+connects it to the configured Seqlane/Mastra server endpoint. The dedicated
+Seqlane Studio application, runtime service, replay publisher, assets, tests,
+and Nx projects were removed. Run and replay no longer expose the superseded
+local Studio forwarding flags. TypeScript references, workspace dependencies,
+test aliases, and documentation for the removed projects were also removed.
+
+The launcher remains a thin loopback-oriented connector. It does not fork,
+rebrand, embed, or add hosted or Enterprise Studio features.
 
 ## Traceability
 

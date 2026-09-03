@@ -583,42 +583,4 @@ describe("seqlane CLI entrypoints", () => {
     expect(`${result.stdout}${result.stderr}`).toMatch(/input|JSON/i);
     expect(result.stdout).not.toContain("workflow started");
   });
-
-  it("starts Studio replay from the explicit recording flag", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "seqlane-studio-replay-cli-"));
-    const path = join(directory, "private-recording.jsonl");
-    const event: SeqlaneExecutionEvent = {
-      type: "run.started",
-      metadata: {
-        schemaVersion: 1,
-        eventId: "event-1",
-        sequence: 1,
-        occurredAt: "2026-08-22T12:00:00.000Z",
-      },
-      workId: "work-1",
-      runId: "run-1",
-    };
-    writeFileSync(
-      path,
-      `${JSON.stringify({ type: "seqlane.recording", version: 1, workflowId: "workflow-1" })}\n${encodeSeqlaneExecutionEvent(event)}\n`,
-    );
-    try {
-      const result = await runCli(
-        productionEntry,
-        ["studio", "--replay", path],
-        (child) => child.kill("SIGINT"),
-        "Seqlane Studio:",
-      );
-
-      expect(result.code).toBe(0);
-      const match = result.stdout.match(/Seqlane Studio: (\S+)/);
-      expect(match).not.toBeNull();
-      const browserUrl = new URL(match?.[1] ?? "");
-      expect(browserUrl.searchParams.get("replay")).toMatch(/^[0-9a-f-]{36}$/);
-      expect(browserUrl.searchParams.get("debug")).toBe("1");
-      expect(result.stdout).not.toContain(path);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
 });

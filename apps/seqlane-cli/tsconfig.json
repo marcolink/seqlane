@@ -11,12 +11,6 @@
   "exclude": ["src/**/*.spec.ts"],
   "references": [
     {
-      "path": "../seqlane-studio"
-    },
-    {
-      "path": "../../libs/seqlane-studio"
-    },
-    {
       "path": "../../libs/seqlane-runtime"
     },
     {

@@ -80,12 +80,4 @@ export const workspaceAliases = [
     find: "@seqlane/runtime",
     replacement: resolve(workspaceRoot, "libs/seqlane-runtime/src/index.ts"),
   },
-  {
-    find: "@seqlane/studio/protocol",
-    replacement: resolve(workspaceRoot, "libs/seqlane-studio/src/protocol.ts"),
-  },
-  {
-    find: "@seqlane/studio",
-    replacement: resolve(workspaceRoot, "libs/seqlane-studio/src/service.ts"),
-  },
 ];
