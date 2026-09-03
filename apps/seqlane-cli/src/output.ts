@@ -69,6 +69,9 @@ export function createOutputCapabilities(
     stdout: streamSink(streams.stdout),
     stderr: streamSink(streams.stderr),
     ...(summaryPath === undefined ? {} : { summary: summarySink(summaryPath) }),
+    ...(isCIEnvironment(env)
+      ? { githubActions: { annotations: streamSink(streams.stderr) } }
+      : {}),
   };
 }
 

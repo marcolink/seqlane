@@ -121,42 +121,48 @@ jobs:
 
       - name: Run Seqlane code review
         if: steps.configuration.outputs.execute == 'true'
+        id: seqlane
+        continue-on-error: true
         working-directory: seqlane-source
         env:
           BASE_REVISION: ${{ github.event.pull_request.base.sha }}
           HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
-          PR_DESCRIPTION: ${{ github.event.pull_request.body || '' }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
           REVIEW_TARGET: ${{ github.workspace }}/review-target
         run: |
-          WORKFLOW_INPUT=$(jq --compact-output --null-input \
+          WORKFLOW_INPUT=$(jq --compact-output \
             --arg repository "$REVIEW_TARGET" \
             --arg baseRevision "$BASE_REVISION" \
             --arg headRevision "$HEAD_REVISION" \
-            --arg title "$PR_TITLE" \
-            --arg description "$PR_DESCRIPTION" \
             '{
               repository: $repository,
               baseRevision: $baseRevision,
               headRevision: $headRevision,
               pullRequest: {
-                title: $title,
-                description: $description
+                title: (.pull_request.title // ""),
+                description: (.pull_request.body // "")
               }
-            }')
+            }' "$GITHUB_EVENT_PATH")
 
           ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts" \
             --input "$WORKFLOW_INPUT" \
             --runtime http://127.0.0.1:4096 \
             --workspace "$REVIEW_TARGET" \
+            --output ci \
+            --record "$RUNNER_TEMP/seqlane-code-review-recording.jsonl"
+
+      - name: Export code review events
+        if: steps.configuration.outputs.execute == 'true' && steps.seqlane.outcome == 'success'
+        working-directory: seqlane-source
+        run: |
+          ./apps/seqlane-cli/bin/dev.js replay \
+            "$RUNNER_TEMP/seqlane-code-review-recording.jsonl" \
             --output json \
-            > "$RUNNER_TEMP/seqlane-code-review.jsonl" \
-            2> "$RUNNER_TEMP/seqlane-code-review.stderr"
+            > "$RUNNER_TEMP/seqlane-code-review.jsonl"
 
           echo "Seqlane code review completed; publishing the report."
 
       - name: Publish code review
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.configuration.outputs.execute == 'true' && steps.seqlane.outcome == 'success'
         id: report
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -226,3 +232,7 @@ jobs:
         run: |
           kill "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
           wait "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
+
+      - name: Fail when Seqlane execution fails
+        if: steps.configuration.outputs.execute == 'true' && steps.seqlane.outcome != 'success'
+        run: exit 1

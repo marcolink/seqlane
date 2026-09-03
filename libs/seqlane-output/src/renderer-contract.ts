@@ -20,6 +20,10 @@ export interface OutputCapabilities {
   readonly stdout: OutputSink;
   readonly stderr: OutputSink;
   readonly summary?: OutputSink;
+  /** Explicitly enabled sink for GitHub Actions workflow commands. */
+  readonly githubActions?: {
+    readonly annotations: OutputSink;
+  };
 }
 
 /** Non-canonical presentational data supplied by a runtime adapter. */

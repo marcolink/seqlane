@@ -3,6 +3,7 @@ import {
   createHumanViewModel,
   reduceHumanViewModel,
   type HumanAggregate,
+  type HumanExecutionNode,
   type HumanExecutionViewModel,
 } from "./event-reducer.js";
 import type {
@@ -25,9 +26,15 @@ export interface CISummary {
   readonly outcome: HumanExecutionViewModel["runState"];
   readonly durationMs?: number;
   readonly counts: HumanAggregate;
+  readonly runError?: {
+    readonly category: string;
+    readonly message: string;
+  };
   readonly failures: readonly {
     readonly invocationId: string;
     readonly label: string;
+    readonly category: string;
+    readonly disposition: string;
     readonly message: string;
   }[];
 }
@@ -76,6 +83,38 @@ function durationBetween(
   return Math.max(0, finished - started);
 }
 
+function compactCI(value: string, maximum = 500): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length <= maximum
+    ? normalized
+    : normalized.slice(0, Math.max(0, maximum - 1)) + "…";
+}
+
+function escapeGithubCommandValue(value: string): string {
+  return value
+    .replace(/%/g, "%25")
+    .replace(/\r/g, "%0D")
+    .replace(/\n/g, "%0A")
+    .replace(/:/g, "%3A")
+    .replace(/,/g, "%2C");
+}
+
+function annotationLevel(disposition: string): "error" | "warning" {
+  return disposition === "retry_scheduled" ||
+    disposition === "continue_siblings"
+    ? "warning"
+    : "error";
+}
+
+function isTerminalNode(node: HumanExecutionNode | undefined): boolean {
+  return (
+    node?.state === "succeeded" ||
+    node?.state === "failed" ||
+    node?.state === "skipped" ||
+    node?.state === "cancelled"
+  );
+}
+
 export class CIRenderer implements ExecutionRenderer {
   readonly mode = "ci" as const;
   private readonly capabilities: OutputCapabilities;
@@ -88,6 +127,7 @@ export class CIRenderer implements ExecutionRenderer {
   private finished = false;
   private _lastError: unknown;
   private _summary: CISummary | undefined;
+  private readonly lastProgress = new Map<string, string>();
 
   constructor(
     capabilities: OutputCapabilities,
@@ -110,6 +150,7 @@ export class CIRenderer implements ExecutionRenderer {
   handle(event: SeqlaneExecutionEvent): void {
     if (this.finished) return;
     const timestamp = eventTime(event, this.now);
+    const previousView = this.view;
     this.view = reduceHumanViewModel(this.view, event);
     if (event.type === "run.started") {
       this.runStartedAt = timestamp;
@@ -123,7 +164,8 @@ export class CIRenderer implements ExecutionRenderer {
       this.runFinishedAt = timestamp;
       this.stopHeartbeat();
     }
-    this.writeLine(this.lineFor(event, this.view));
+    this.writeLine(this.lineFor(event, previousView, this.view));
+    this.writeAnnotation(event, this.view);
   }
 
   emitHeartbeat(): void {
@@ -175,6 +217,7 @@ export class CIRenderer implements ExecutionRenderer {
 
   private lineFor(
     event: SeqlaneExecutionEvent,
+    previousView: HumanExecutionViewModel,
     view: HumanExecutionViewModel,
   ): string {
     switch (event.type) {
@@ -183,21 +226,29 @@ export class CIRenderer implements ExecutionRenderer {
       case "run.plan":
         return "";
       case "invocation.created":
-        return (
-          "run=" +
-          event.runId +
-          " invocation=" +
-          event.invocationId +
-          " created label=" +
-          event.label +
-          " kind=" +
-          event.kind +
-          (event.parentInvocationId === undefined
-            ? ""
-            : " parent=" + event.parentInvocationId) +
-          (event.iteration === undefined ? "" : " iteration=" + event.iteration)
-        );
-      case "invocation.progress":
+        return "";
+      case "invocation.progress": {
+        const node = view.nodes.get(event.invocationId);
+        const previousNode = previousView.nodes.get(event.invocationId);
+        const progressKey = [
+          event.state,
+          event.phase,
+          event.waitingReason ?? "",
+          event.dependencyIds?.join(",") ?? "",
+        ].join("|");
+        if (this.lastProgress.get(event.invocationId) === progressKey) {
+          return "";
+        }
+        this.lastProgress.set(event.invocationId, progressKey);
+        if (isTerminalNode(previousNode)) return "";
+        if (
+          previousNode !== undefined &&
+          previousNode.state === node?.state &&
+          previousNode.phase === node?.phase &&
+          previousNode.waitingReason === node?.waitingReason
+        ) {
+          return "";
+        }
         return (
           "run=" +
           event.runId +
@@ -205,24 +256,28 @@ export class CIRenderer implements ExecutionRenderer {
           event.invocationId +
           " " +
           event.state +
+          " label=" +
+          compactCI(node?.label ?? "unknown", 200) +
           " phase=" +
-          event.phase +
+          compactCI(event.phase, 120) +
           (event.waitingReason === undefined
             ? ""
-            : " reason=" + event.waitingReason)
+            : " reason=" + compactCI(event.waitingReason, 300))
         );
+      }
       case "invocation.activity":
-        return (
-          "run=" +
-          event.runId +
-          " invocation=" +
-          event.invocationId +
-          " " +
-          (event.kind === "skill" ? "skill=" : "tool=") +
-          event.name +
-          " state=" +
-          event.state
-        );
+        return event.state === "failed"
+          ? "run=" +
+              event.runId +
+              " invocation=" +
+              event.invocationId +
+              " activity=" +
+              compactCI(event.name, 200) +
+              " failed" +
+              (event.message === undefined
+                ? ""
+                : " error=" + compactCI(event.message))
+          : "";
       case "invocation.output":
         if (event.policy !== "persistent") return "";
         {
@@ -233,7 +288,7 @@ export class CIRenderer implements ExecutionRenderer {
             " invocation=" +
             event.invocationId +
             " output=" +
-            event.content +
+            compactCI(event.content) +
             (details === undefined ? "" : " " + details)
           );
         }
@@ -264,36 +319,54 @@ export class CIRenderer implements ExecutionRenderer {
           " next=" +
           (event.nextAttemptAt ?? "unknown") +
           " error=" +
-          event.lastError.message
+          compactCI(event.lastError.message)
         );
-      case "invocation.started":
+      case "invocation.started": {
+        const node = view.nodes.get(event.invocationId);
         return (
           "run=" +
           event.runId +
           " invocation=" +
           event.invocationId +
           " started task=" +
-          event.taskId +
+          compactCI(event.taskId ?? node?.taskId ?? "unknown", 200) +
+          " label=" +
+          compactCI(node?.label ?? "unknown", 200) +
+          (node?.parentInvocationId === undefined
+            ? ""
+            : " parent=" + node.parentInvocationId) +
           (event.iteration === undefined ? "" : " iteration=" + event.iteration)
         );
-      case "invocation.succeeded":
+      }
+      case "invocation.succeeded": {
+        const node = view.nodes.get(event.invocationId);
         return (
           "run=" +
           event.runId +
           " invocation=" +
           event.invocationId +
-          " succeeded"
+          " succeeded label=" +
+          compactCI(node?.label ?? "unknown", 200) +
+          (node?.elapsedMs === undefined
+            ? ""
+            : " elapsed=" + node.elapsedMs + "ms")
         );
-      case "invocation.failed":
+      }
+      case "invocation.failed": {
+        const node = view.nodes.get(event.invocationId);
         return (
           "run=" +
           event.runId +
           " invocation=" +
           event.invocationId +
-          " failed disposition=" +
+          " failed label=" +
+          compactCI(node?.label ?? "unknown", 200) +
+          " disposition=" +
           event.disposition +
+          " category=" +
+          event.error.category +
           " error=" +
-          event.error.message +
+          compactCI(event.error.message) +
           (event.error.validation === undefined
             ? ""
             : " " +
@@ -311,23 +384,22 @@ export class CIRenderer implements ExecutionRenderer {
                 },
               ))
         );
+      }
       case "invocation.skipped":
-        return (
-          "run=" +
-          event.runId +
-          " invocation=" +
-          event.invocationId +
-          " skipped reason=" +
-          event.reason
+        return this.invocationReasonLine(
+          event.runId,
+          event.invocationId,
+          view,
+          "skipped",
+          event.reason,
         );
       case "invocation.cancelled":
-        return (
-          "run=" +
-          event.runId +
-          " invocation=" +
-          event.invocationId +
-          " cancelled" +
-          (event.reason === undefined ? "" : " reason=" + event.reason)
+        return this.invocationReasonLine(
+          event.runId,
+          event.invocationId,
+          view,
+          "cancelled",
+          event.reason,
         );
       case "run.heartbeat":
         return (
@@ -341,7 +413,14 @@ export class CIRenderer implements ExecutionRenderer {
       case "run.succeeded":
         return "run=" + event.runId + " succeeded";
       case "run.failed":
-        return "run=" + event.runId + " failed error=" + event.error.message;
+        return (
+          "run=" +
+          event.runId +
+          " failed category=" +
+          event.error.category +
+          " error=" +
+          compactCI(event.error.message)
+        );
       case "run.cancelled":
         return "run=" + event.runId + " cancelled";
     }
@@ -354,14 +433,44 @@ export class CIRenderer implements ExecutionRenderer {
       outcome: this.view.runState,
       durationMs: durationBetween(this.runStartedAt, this.runFinishedAt),
       counts: aggregateView(this.view),
+      ...(this.view.runError === undefined
+        ? {}
+        : {
+            runError: {
+              category: this.view.runError.category,
+              message: this.view.runError.message,
+            },
+          }),
       failures: [...this.view.nodes.values()]
         .filter((node) => node.failure !== undefined)
         .map((node) => ({
           invocationId: node.invocationId,
           label: node.label,
+          category: node.failure?.category ?? "RuntimeError",
+          disposition: node.failure?.disposition ?? "fail_run",
           message: node.failure?.message ?? "unknown failure",
         })),
     };
+  }
+
+  private invocationReasonLine(
+    runId: string,
+    invocationId: string,
+    view: HumanExecutionViewModel,
+    state: "skipped" | "cancelled",
+    reason: string | undefined,
+  ): string {
+    const label = view.nodes.get(invocationId)?.label;
+    return (
+      "run=" +
+      runId +
+      " invocation=" +
+      invocationId +
+      " " +
+      state +
+      (label === undefined ? "" : " label=" + compactCI(label, 200)) +
+      (reason === undefined ? "" : " reason=" + compactCI(reason))
+    );
   }
 
   private summaryLine(summary: CISummary): string {
@@ -379,9 +488,14 @@ export class CIRenderer implements ExecutionRenderer {
       counts.failed +
       " skipped=" +
       counts.skipped +
+      " failures=" +
+      summary.failures.length +
       " duration=" +
       (summary.durationMs ?? 0) +
-      "ms"
+      "ms" +
+      (summary.runError === undefined
+        ? ""
+        : " error=" + compactCI(summary.runError.message))
     );
   }
 
@@ -397,6 +511,16 @@ export class CIRenderer implements ExecutionRenderer {
       "- Skipped: " + summary.counts.skipped,
       "- Duration: " + (summary.durationMs ?? 0) + " ms",
     ];
+    if (summary.runError !== undefined) {
+      lines.push(
+        "",
+        "### Run error",
+        "- " +
+          summary.runError.category +
+          ": " +
+          compactCI(summary.runError.message),
+      );
+    }
     if (summary.failures.length > 0) {
       lines.push("", "### Failures");
       for (const failure of summary.failures) {
@@ -404,9 +528,14 @@ export class CIRenderer implements ExecutionRenderer {
           "- " +
             failure.invocationId +
             " " +
-            failure.label +
+            compactCI(failure.label, 200) +
+            " [" +
+            failure.category +
+            ", " +
+            failure.disposition +
+            "]" +
             ": " +
-            failure.message,
+            compactCI(failure.message),
         );
       }
     }
@@ -423,6 +552,67 @@ export class CIRenderer implements ExecutionRenderer {
       sink.write(value);
     } catch (error) {
       this._lastError ??= error;
+    }
+  }
+
+  private writeAnnotation(
+    event: SeqlaneExecutionEvent,
+    view: HumanExecutionViewModel,
+  ): void {
+    const sink = this.capabilities.githubActions?.annotations;
+    if (sink === undefined) return;
+
+    if (event.type === "invocation.failed") {
+      const label = view.nodes.get(event.invocationId)?.label ?? "unknown";
+      const level = annotationLevel(event.disposition);
+      this.safeWrite(
+        sink,
+        "::" +
+          level +
+          " title=" +
+          escapeGithubCommandValue("Seqlane invocation failed") +
+          "::" +
+          escapeGithubCommandValue(
+            compactCI(
+              "run=" +
+                event.runId +
+                " invocation=" +
+                event.invocationId +
+                " label=" +
+                label +
+                " category=" +
+                event.error.category +
+                " disposition=" +
+                event.disposition +
+                " error=" +
+                event.error.message,
+              1_500,
+            ),
+          ) +
+          "\n",
+      );
+      return;
+    }
+
+    if (event.type === "run.failed") {
+      this.safeWrite(
+        sink,
+        "::error title=" +
+          escapeGithubCommandValue("Seqlane run failed") +
+          "::" +
+          escapeGithubCommandValue(
+            compactCI(
+              "run=" +
+                event.runId +
+                " category=" +
+                event.error.category +
+                " error=" +
+                event.error.message,
+              1_500,
+            ),
+          ) +
+          "\n",
+      );
     }
   }
 }

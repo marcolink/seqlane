@@ -9,7 +9,7 @@ workflows and it does not depend on a runtime adapter or executor.
 ## Renderer modes
 
 - `human` shows a terminal-friendly execution tree.
-- `ci` writes stable status and failure output for automation.
+- `ci` writes concise, append-only status and failure output for automation.
 - `json` writes one canonical execution event per line.
 
 The CLI selects these modes with `--output auto|human|ci|json`.
@@ -17,6 +17,13 @@ The CLI selects these modes with `--output auto|human|ci|json`.
 Validation invocations retain their identity, verdict, issues, and bounded
 evidence in human and CI output. JSON mode preserves the same redacted
 execution events for machine consumers.
+
+CI mode consumes the complete event stream but renders only meaningful state
+changes, retries, waits, skips, persistent output, failures, heartbeats, and
+the final summary. It does not print invocation input, transient output, or
+routine successful tool and skill activity. When the caller explicitly enables
+the GitHub Actions capability, invocation and run failures also produce
+workflow annotations.
 
 ## Use the package
 
