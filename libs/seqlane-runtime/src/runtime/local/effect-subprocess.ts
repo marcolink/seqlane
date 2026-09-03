@@ -59,17 +59,29 @@ function collectBoundedOutput(
   stream: Stream.Stream<Uint8Array, unknown>,
   limitBytes: number,
 ) {
-  return Stream.runFoldEffect(stream, new Uint8Array(), (output, chunk) => {
-    if (output.byteLength + chunk.byteLength > limitBytes) {
-      return Effect.fail(new EffectSubprocessOutputLimitError(limitBytes));
-    }
+  return Stream.runFoldEffect(
+    stream,
+    { chunks: [] as Uint8Array[], byteLength: 0 },
+    (output, chunk) => {
+      const nextByteLength = output.byteLength + chunk.byteLength;
+      if (nextByteLength > limitBytes) {
+        return Effect.fail(new EffectSubprocessOutputLimitError(limitBytes));
+      }
 
-    const next = new Uint8Array(output.byteLength + chunk.byteLength);
-    next.set(output);
-    next.set(chunk, output.byteLength);
-    return Effect.succeed(next);
-  }).pipe(
-    Effect.map((output) => new TextDecoder().decode(output)),
+      output.chunks.push(chunk);
+      output.byteLength = nextByteLength;
+      return Effect.succeed(output);
+    },
+  ).pipe(
+    Effect.map(({ chunks, byteLength }) => {
+      const output = new Uint8Array(byteLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        output.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return new TextDecoder().decode(output);
+    }),
     Effect.mapError((cause) =>
       cause instanceof EffectSubprocessOutputLimitError
         ? cause
