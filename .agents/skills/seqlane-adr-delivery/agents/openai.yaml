@@ -1,4 +1,4 @@
 interface:
   display_name: "Seqlane ADR Delivery"
-  short_description: "Deliver ADR stories through verified commits"
-  default_prompt: "Use $seqlane-adr-delivery to implement ADR-00X through its stories."
+  short_description: "Deliver ADR tasks through verified commits"
+  default_prompt: "Use $seqlane-adr-delivery to implement a named ADR through its linked spec and tasks."

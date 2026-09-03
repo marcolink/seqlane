@@ -1,0 +1,81 @@
+# Seqlane SDLC documents
+
+This directory is the canonical source for Seqlane software-development
+lifecycle documents. The lifecycle is:
+
+```text
+BRD -> PRD -> RFC -> SPEC -> TASK
+```
+
+The arrows describe traceability and authority, not directory nesting. ADRs
+record individual architecture decisions and can be referenced by RFCs, specs,
+and tasks.
+
+## Document types
+
+- [Business requirements](./brd/index.md)
+- [Product requirements](./prd/index.md)
+- [Requests for comments](./rfcs/index.md)
+- [Architecture decision records](./adrs/index.md)
+- [Technical specifications](./specs/index.md)
+- [Implementation tasks](./tasks/index.md)
+- [Document templates](./templates/)
+
+## Authority
+
+- An accepted BRD defines current business intent.
+- An accepted PRD defines current product requirements and scope.
+- Accepted RFCs and ADRs record architectural rationale and decisions.
+- An active spec defines the current implementation contract.
+- A task defines execution work. It does not redefine requirements or contracts.
+- If code and an active spec disagree, fix the implementation or explicitly
+  change the spec.
+- If a spec changes an accepted architecture decision, amend or supersede the
+  RFC or ADR in the same change.
+- A newer document does not override an older document unless supersession is
+  explicit.
+
+## Naming and metadata
+
+Document names use `<YYYY-MM-DD>-<lowercase-kebab-title>.md`. The date is the
+document's `created` date. The parent directory defines the document type.
+
+Every document has a stable, non-numeric metadata ID such as
+`spec.semantic-validation-gates` or `task.integration-and-documentation`.
+The ID does not change when the title, status, or filename changes.
+
+Every document has `id`, `title`, `status`, `owners`, `created`, `updated`,
+`upstream`, and `supersedes` frontmatter. Relationship fields contain stable
+metadata IDs. Body-level `Traceability` sections link to the exact related
+documents or clauses.
+
+Allowed statuses are:
+
+| Type | Statuses |
+| --- | --- |
+| BRD | `draft`, `review`, `accepted`, `superseded` |
+| PRD | `draft`, `review`, `accepted`, `superseded` |
+| RFC | `proposed`, `accepted`, `rejected`, `superseded` |
+| ADR | `proposed`, `accepted`, `rejected`, `superseded` |
+| SPEC | `draft`, `active`, `superseded` |
+| TASK | `planned`, `in-progress`, `blocked`, `completed`, `cancelled` |
+
+Superseded and rejected documents remain at their original canonical path.
+
+## Create a document
+
+1. Read [the local agent instructions](./AGENTS.md).
+2. Copy the matching file from `templates/` and remove its guidance comments.
+3. Set a stable metadata ID with the document type and title slug.
+4. Set `created` from the source document or the current date.
+5. Name the file with the `created` date and a lowercase kebab-case title slug.
+6. Link the nearest meaningful upstream documents in metadata and in the
+   `Traceability` section. Do not infer relationships from names.
+7. Add the document to its type index.
+8. Run `pnpm docs:index` and `pnpm docs:validate`.
+
+## Find the source of truth
+
+Start with the assigned task or active spec. Follow upstream links only as far
+as needed to understand product intent and architecture constraints. Use the
+type indexes to distinguish current, proposed, completed, and superseded work.

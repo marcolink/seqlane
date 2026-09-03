@@ -6,6 +6,9 @@
   "type": "module",
   "scripts": {
     "build": "pnpm exec nx run-many -t build",
+    "docs:index": "node scripts/update-sdlc-indexes.mjs",
+    "docs:test": "node --test scripts/validate-sdlc.test.mjs",
+    "docs:validate": "node scripts/validate-sdlc.mjs",
     "format": "pnpm exec nx format:write --all",
     "format:check": "pnpm exec nx format:check --all",
     "lint": "pnpm exec nx run-many -t lint",

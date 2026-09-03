@@ -40,6 +40,12 @@ jobs:
       - name: Check formatting
         run: pnpm exec nx format:check --base="$NX_BASE" --head="$NX_HEAD"
 
+      - name: Validate SDLC documentation
+        run: pnpm docs:validate
+
+      - name: Test SDLC documentation tooling
+        run: pnpm docs:test
+
       - name: Typecheck affected projects
         run: pnpm exec nx affected -t typecheck --output-style=static
 
