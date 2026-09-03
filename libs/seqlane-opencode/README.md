@@ -15,6 +15,19 @@ non-interactive failure path. It never approves an interaction. Workspace
 `shared` and `exclusive` policy is consumed by the Seqlane scheduler, not by
 OpenCode permission configuration.
 
+Structured output uses `auto` selection by default. A verified compatible
+OpenCode version uses native JSON Schema output. Affected, unknown, malformed,
+and prerelease versions use prompt-based JSON followed by local validation with
+the task's existing output schema. Both strategies return the same typed task
+value. The private adapter connection can explicitly select `native` or
+`prompt`, and can set the bounded repair count.
+
+If a native request causes the known persisted-message format readback failure,
+the current invocation fails without replaying the task. The adapter marks that
+runtime connection as native-unsafe, so later `auto` prompts use prompt mode
+directly. This avoids repeating tools or workspace mutations. It does not repair
+the already affected OpenCode session or restore native mode automatically.
+
 Seqlane passes a normalized provider/model selection to this adapter. OpenCode
 provider and model IDs remain private to the adapter. New and branched sessions
 send their selected model before the first prompt; portable reasoning labels

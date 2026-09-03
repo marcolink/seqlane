@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildWorkflow,
-  defineTask,
-  defineWorkflow,
-} from "@seqlane/core";
+import { buildWorkflow, defineTask, defineWorkflow } from "@seqlane/core";
 import { z } from "zod";
 import { createOpenCodeExecutor } from "./executor.js";
 import type { OpenCodePrompt, OpenCodeRun } from "./session.js";
@@ -103,6 +99,95 @@ describe("OpenCode executor", () => {
       properties: { files: { type: "array" } },
     });
     expect(fake.prompts[0]?.signal).toBe(controller.signal);
+  });
+
+  it("repairs invalid prompt output without executing the task again", async () => {
+    const task = defineTask({
+      id: "repair-output",
+      workspace: "shared",
+      input: z.object({ value: z.string() }),
+      output: z.object({ result: z.string() }),
+      goal: ({ value }) => `Process ${value}`,
+    });
+    const built = buildWorkflow(
+      defineWorkflow({
+        id: "repair-output-workflow",
+        input: z.object({ value: z.string() }),
+        output: z.object({ result: z.string() }),
+        build: ({ input, run }) => run(task, { input }).output,
+      }),
+    );
+    const prompts: OpenCodePrompt[] = [];
+    const run: OpenCodeRun = {
+      ...unsupportedForkCapabilities,
+      structuredOutput: async () => ({ strategy: "prompt", retryCount: 1 }),
+      prompt: async (request) => {
+        prompts.push(request);
+        return prompts.length === 1
+          ? { structured: undefined, text: "not json" }
+          : { structured: undefined, text: '{"result":"ok"}' };
+      },
+      abort: async () => undefined,
+    };
+    const executor = createOpenCodeExecutor(built.taskDefinitions, run);
+
+    await expect(
+      executor.execute({
+        invocationId: "inv-repair",
+        taskId: "repair-output",
+        input: { value: "demo" },
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ result: "ok" });
+
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]?.text).toContain("JSON Schema");
+    expect(prompts[0]).not.toHaveProperty("tools");
+    expect(prompts[1]?.text).toContain("already completed task");
+    expect(prompts[1]?.tools).toEqual({ "*": false, StructuredOutput: true });
+  });
+
+  it("stops after the configured repair bound", async () => {
+    const task = defineTask({
+      id: "exhaust-output",
+      workspace: "shared",
+      input: z.object({}),
+      output: z.object({ result: z.string() }),
+      goal: () => "Produce a result",
+    });
+    const built = buildWorkflow(
+      defineWorkflow({
+        id: "exhaust-output-workflow",
+        input: z.object({}),
+        output: z.object({ result: z.string() }),
+        build: ({ input, run }) => run(task, { input }).output,
+      }),
+    );
+    let promptCount = 0;
+    const run: OpenCodeRun = {
+      ...unsupportedForkCapabilities,
+      structuredOutput: async () => ({ strategy: "prompt", retryCount: 2 }),
+      prompt: async () => {
+        promptCount += 1;
+        return { structured: undefined, text: "not json" };
+      },
+      abort: async () => undefined,
+    };
+    const executor = createOpenCodeExecutor(built.taskDefinitions, run);
+
+    await expect(
+      executor.execute({
+        invocationId: "inv-exhaust",
+        taskId: "exhaust-output",
+        input: {},
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({
+      name: "StructuredOutputValidationError",
+      attempts: 3,
+      issues: [expect.objectContaining({ kind: "parse" })],
+    });
+    expect(promptCount).toBe(3);
   });
 
   it("forwards available response metrics without changing task output", async () => {

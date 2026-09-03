@@ -3,6 +3,7 @@ import type { ModelSelection } from "@seqlane/core";
 import type { Event as OpenCodeEvent } from "@opencode-ai/sdk/v2";
 import { z } from "zod";
 import { OpenCodeExecutorError } from "./errors.js";
+import { StructuredOutputCompatibilityError } from "./errors.js";
 import { parseOpenCodePromptResponse } from "./prompt-response.js";
 import type {
   OpenCodeConnection,
@@ -14,6 +15,11 @@ import type {
 } from "./protocol.js";
 import { createOpenCodeTransport, type OpenCodeSession } from "./transport.js";
 import { createOpenCodeSessionBrowserUrl } from "./session-browser-url.js";
+import {
+  createStructuredOutputState,
+  type StructuredOutputState,
+} from "./structured-output-strategy.js";
+import { isNativeReadbackCompatibilityError } from "./structured-output-compatibility.js";
 
 const eventEnvelopeSchema = z.looseObject({
   type: z.string(),
@@ -32,6 +38,11 @@ const checkpointSchema = z.object({
   sessionId: z.string().min(1),
   messageId: z.string().min(1),
 });
+
+const structuredOutputStates = new WeakMap<
+  OpenCodeConnection,
+  StructuredOutputState
+>();
 
 function eventDetails(
   value: unknown,
@@ -295,6 +306,21 @@ function executorError(message: string, cause?: unknown): Error {
   return new OpenCodeExecutorError(message, cause);
 }
 
+function getStructuredOutputState(
+  connection: OpenCodeConnection,
+  transport: ReturnType<typeof createOpenCodeTransport>,
+): StructuredOutputState {
+  const existing = structuredOutputStates.get(connection);
+  if (existing !== undefined) return existing;
+  const state = createStructuredOutputState({
+    configuration: connection.structuredOutput,
+    resolveVersion: () =>
+      transport.getRuntimeVersion?.() ?? Promise.resolve(undefined),
+  });
+  structuredOutputStates.set(connection, state);
+  return state;
+}
+
 export async function createOpenCodeRun(
   connection: OpenCodeConnection,
   signal?: AbortSignal,
@@ -313,12 +339,17 @@ async function createOpenCodeRunForSession(
   signal?: AbortSignal,
   existingSession?: OpenCodeSession,
   configuredSelection?: ModelSelection,
+  structuredOutputState?: StructuredOutputState,
 ): Promise<OpenCodeRun> {
   if (signal?.aborted) {
     throw executorError("run was cancelled before session creation");
   }
 
   const transport = createOpenCodeTransport(connection.url);
+  const outputState =
+    structuredOutputState ??
+    connection.structuredOutputState ??
+    getStructuredOutputState(connection, transport);
   let sessionID: string;
   let workspace: string | undefined;
   let browserUrl: string | undefined;
@@ -355,6 +386,8 @@ async function createOpenCodeRunForSession(
       }
 
       try {
+        const selected = await outputState.resolve();
+        const effectiveStrategy = request.strategy ?? selected.strategy;
         const promptController = new AbortController();
         const permissionMonitorController = new AbortController();
         const requestSignal = request.signal;
@@ -400,20 +433,21 @@ async function createOpenCodeRunForSession(
           )
             .then(() => ({ type: "interaction" as const }))
             .catch((cause) => ({ type: "monitor-error" as const, cause }));
+          const effectiveRequest: OpenCodePrompt = {
+            ...request,
+            strategy: effectiveStrategy,
+            retryCount: selected.retryCount,
+            ...(configuredSelection === undefined
+              ? {}
+              : {
+                  selection: configuredSelection,
+                  ...(configuredSelection.reasoning === undefined
+                    ? {}
+                    : { variant: configuredSelection.reasoning }),
+                }),
+          };
           const promptResponse = transport
-            .prompt(
-              sessionID,
-              configuredSelection === undefined
-                ? request
-                : {
-                    ...request,
-                    selection: configuredSelection,
-                    ...(configuredSelection.reasoning === undefined
-                      ? {}
-                      : { variant: configuredSelection.reasoning }),
-                  },
-              promptController.signal,
-            )
+            .prompt(sessionID, effectiveRequest, promptController.signal)
             .then(
               (response) => ({ type: "response" as const, response }),
               (cause: unknown) => ({ type: "transport-error" as const, cause }),
@@ -451,17 +485,47 @@ async function createOpenCodeRunForSession(
           }
 
           if (result.type === "transport-error") {
+            if (
+              effectiveStrategy === "native" &&
+              isNativeReadbackCompatibilityError(result.cause)
+            ) {
+              outputState.markNativeReadbackIncompatible(selected.version);
+              throw new StructuredOutputCompatibilityError(
+                selected.version,
+                sessionID,
+                result.cause,
+              );
+            }
             request.onUncertainActivity?.({ reason: "disconnect" });
             throw executorError("structured task request failed", result.cause);
           }
 
-          const parsed = parseOpenCodePromptResponse(result.response);
+          const parsed = parseOpenCodePromptResponse(
+            result.response,
+            effectiveStrategy,
+          );
           if (parsed.checkpoint.sessionId !== sessionID) {
             throw executorError("prompt response belonged to another session");
+          }
+          if (effectiveStrategy === "native" && transport.listMessages) {
+            try {
+              await transport.listMessages(sessionID, promptController.signal);
+            } catch (cause) {
+              if (isNativeReadbackCompatibilityError(cause)) {
+                outputState.markNativeReadbackIncompatible(selected.version);
+                throw new StructuredOutputCompatibilityError(
+                  selected.version,
+                  sessionID,
+                  cause,
+                );
+              }
+              throw executorError("could not read the external session", cause);
+            }
           }
           terminalCheckpoint = parsed.checkpoint;
           return {
             structured: parsed.structured,
+            ...(parsed.text === undefined ? {} : { text: parsed.text }),
             ...(parsed.metrics === undefined
               ? {}
               : { metrics: parsed.metrics }),
@@ -472,7 +536,11 @@ async function createOpenCodeRunForSession(
         }
       } catch (cause) {
         if (cause instanceof InteractionRequiredError) throw cause;
-        if (cause instanceof OpenCodeExecutorError) throw cause;
+        if (
+          cause instanceof OpenCodeExecutorError ||
+          cause instanceof StructuredOutputCompatibilityError
+        )
+          throw cause;
         throw executorError("structured task request failed", cause);
       }
     });
@@ -531,6 +599,7 @@ async function createOpenCodeRunForSession(
           ...(workspace === undefined ? {} : { workspace }),
         },
         selection,
+        outputState,
       );
     } catch (cause) {
       throw executorError("native session checkpoint fork failed", cause);
@@ -541,6 +610,14 @@ async function createOpenCodeRunForSession(
     ...(browserUrl === undefined ? {} : { browserUrl }),
     ...(workspace === undefined ? {} : { workspace }),
     prompt,
+    structuredOutput: async () => {
+      const selected = await outputState.resolve();
+      return {
+        strategy: selected.strategy,
+        retryCount: selected.retryCount,
+        report: selected.report,
+      };
+    },
     checkpoint,
     fork,
     abort,
