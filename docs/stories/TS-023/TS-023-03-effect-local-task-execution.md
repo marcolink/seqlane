@@ -1,6 +1,6 @@
 # TS-023-03 — Run Local Tasks Through Effect
 
-**Status:** ready for implementation
+**Status:** completed
 **Depends on:** TS-023-00, TS-023-02
 
 ## User outcome
