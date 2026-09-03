@@ -82,8 +82,10 @@ reports a successful skip.
 
 The workflow reads the pull request's configured base branch and immutable base
 revision from the event, then reviews the explicit base-to-head range in a
-separate checkout. It does not execute package installation or repository
-scripts from the pull request. OpenCode ignores
+separate checkout. Inspection produces bounded requirements and evidence;
+specialist lanes run in independent sessions and verify that evidence against
+the target workspace before the final synthesis. It does not execute package
+installation or repository scripts from the pull request. OpenCode ignores
 project runtime configuration during the review and receives a read-only tool
 policy. The workflow updates one marked pull-request comment with the report
 and records the report verdict without failing the review job when it is
