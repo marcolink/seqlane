@@ -113,6 +113,7 @@ describe("CI renderer", () => {
       channel: "task",
       content: "checkpoint",
       metrics: {
+        cost: 0.0042,
         tokens: {
           total: 42,
           input: 20,
@@ -129,6 +130,12 @@ describe("CI renderer", () => {
       metadata: { ...run.metadata, occurredAt: "2026-08-18T00:00:02.000Z" },
       invocationId: "a",
     });
+    renderer.handle({
+      type: "run.succeeded",
+      ...run,
+      metadata: { ...run.metadata, occurredAt: "2026-08-18T00:00:03.000Z" },
+      output: null,
+    });
     await renderer.finish();
 
     const output = stdout.writes.join("");
@@ -136,13 +143,17 @@ describe("CI renderer", () => {
     expect(output).toContain("invocation=a");
     expect(output).toContain("\u001b[1mrun=run-1 invocation=a started");
     expect(output).toContain(
-      "\u001b[1mrun=run-1 invocation=a succeeded label=Parallel A duration=2000ms tokens=42 inputTokens=20 outputTokens=12 reasoning=8 cacheRead=2 cacheWrite=0\u001b[0m",
+      "\u001b[1mrun=run-1 invocation=a succeeded label=Parallel A duration=2000ms tokens=42 inputTokens=20 outputTokens=12 reasoning=8 cacheRead=2 cacheWrite=0 cost=0.0042\u001b[0m",
     );
-    expect(output).not.toContain("invocation=b");
     expect(output).toContain(
-      "task-duration run=run-1 invocation=a label=Parallel A state=succeeded duration=2.0s",
+      "task-duration run=run-1 invocation=a label=Parallel A state=succeeded duration=2.0s cost=0.0042",
     );
-    expect(output).toContain("summary run=run-1");
+    expect(output).toContain("summary run=run-1 outcome=succeeded");
+    expect(output).toContain("cost=0.0042");
+    expect(renderer.summary).toMatchObject({
+      totalCost: 0.0042,
+      taskDurations: [{ invocationId: "a", cost: 0.0042 }],
+    });
   });
 
   it("includes loop parents and body iterations in CI lines", () => {

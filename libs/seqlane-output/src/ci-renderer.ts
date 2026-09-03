@@ -16,6 +16,8 @@ import type {
   OutputSink,
 } from "./renderer-contract.js";
 import {
+  formatCICost,
+  formatCICostDetails,
   formatCIOutputDetails,
   formatCITokenDetails,
   formatCIValidationDetails,
@@ -30,6 +32,7 @@ export interface CISummary {
   readonly runId?: string;
   readonly outcome: HumanExecutionViewModel["runState"];
   readonly durationMs?: number;
+  readonly totalCost: number;
   readonly counts: HumanAggregate;
   readonly runError?: {
     readonly category: string;
@@ -40,6 +43,7 @@ export interface CISummary {
     readonly label: string;
     readonly state: HumanExecutionNode["state"];
     readonly durationMs: number;
+    readonly cost?: number;
   }[];
   readonly failures: readonly {
     readonly invocationId: string;
@@ -537,10 +541,23 @@ export class CIRenderer implements ExecutionRenderer {
   }
 
   private createSummary(): CISummary {
+    const taskNodes = [...this.view.nodes.values()]
+      .filter(
+        (node) =>
+          node.kind !== "workflow" &&
+          node.kind !== "loop" &&
+          node.elapsedMs !== undefined,
+      )
+      .sort((left, right) => left.createdSequence - right.createdSequence);
+    const totalCost = taskNodes.reduce(
+      (total, node) => total + (node.output.metrics?.cost ?? 0),
+      0,
+    );
     return {
       runId: this.view.runId,
       outcome: this.view.runState,
       durationMs: durationBetween(this.runStartedAt, this.runFinishedAt),
+      totalCost,
       counts: aggregateView(this.view),
       ...(this.view.runError === undefined
         ? {}
@@ -550,20 +567,15 @@ export class CIRenderer implements ExecutionRenderer {
               message: this.view.runError.message,
             },
           }),
-      taskDurations: [...this.view.nodes.values()]
-        .filter(
-          (node) =>
-            node.kind !== "workflow" &&
-            node.kind !== "loop" &&
-            node.elapsedMs !== undefined,
-        )
-        .sort((left, right) => left.createdSequence - right.createdSequence)
-        .map((node) => ({
-          invocationId: node.invocationId,
-          label: node.label,
-          state: node.state,
-          durationMs: node.elapsedMs ?? 0,
-        })),
+      taskDurations: taskNodes.map((node) => ({
+        invocationId: node.invocationId,
+        label: node.label,
+        state: node.state,
+        durationMs: node.elapsedMs ?? 0,
+        ...(node.output.metrics?.cost === undefined
+          ? {}
+          : { cost: node.output.metrics.cost }),
+      })),
       failures: [...this.view.nodes.values()]
         .filter((node) => node.failure !== undefined)
         .map((node) => ({
@@ -605,6 +617,8 @@ export class CIRenderer implements ExecutionRenderer {
         : [" duration=" + node.elapsedMs + "ms"];
     const tokenDetails = formatCITokenDetails(node?.output.metrics);
     if (tokenDetails !== undefined) details.push(tokenDetails);
+    const costDetails = formatCICostDetails(node?.output.metrics);
+    if (costDetails !== undefined) details.push(costDetails);
     return details.length === 0 ? "" : " " + details.join(" ");
   }
 
@@ -622,7 +636,8 @@ export class CIRenderer implements ExecutionRenderer {
       " state=" +
       task.state +
       " duration=" +
-      formatCIDuration(task.durationMs)
+      formatCIDuration(task.durationMs) +
+      (task.cost === undefined ? "" : " cost=" + formatCICost(task.cost))
     );
   }
 
@@ -646,6 +661,8 @@ export class CIRenderer implements ExecutionRenderer {
       " duration=" +
       (summary.durationMs ?? 0) +
       "ms" +
+      " cost=" +
+      formatCICost(summary.totalCost) +
       (summary.runError === undefined
         ? ""
         : " error=" + compactCI(summary.runError.message))
@@ -663,14 +680,15 @@ export class CIRenderer implements ExecutionRenderer {
       "- Failed: " + summary.counts.failed,
       "- Skipped: " + summary.counts.skipped,
       "- Duration: " + (summary.durationMs ?? 0) + " ms",
+      "- Total cost: $" + formatCICost(summary.totalCost),
     ];
     if (summary.taskDurations.length > 0) {
       lines.push(
         "",
         "### Task durations",
         "",
-        "| Task | State | Duration |",
-        "| --- | --- | ---: |",
+        "| Task | State | Duration | Cost |",
+        "| --- | --- | ---: | ---: |",
       );
       for (const task of summary.taskDurations) {
         lines.push(
@@ -680,6 +698,8 @@ export class CIRenderer implements ExecutionRenderer {
             task.state +
             " | " +
             formatCIDuration(task.durationMs) +
+            " | " +
+            (task.cost === undefined ? "—" : "$" + formatCICost(task.cost)) +
             " |",
         );
       }

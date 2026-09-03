@@ -110,6 +110,18 @@ export function formatCITokenDetails(
   ].join(" ");
 }
 
+export function formatCICost(cost: number): string {
+  return cost.toFixed(4);
+}
+
+export function formatCICostDetails(
+  metrics: SeqlaneInvocationMetrics | undefined,
+): string | undefined {
+  return metrics?.cost === undefined
+    ? undefined
+    : "cost=" + formatCICost(metrics.cost);
+}
+
 function formatDuration(milliseconds: number): string {
   return milliseconds < 1000
     ? milliseconds + "ms"
@@ -230,8 +242,7 @@ export function formatCIOutputDetails(
   }
   const tokenDetails = formatCITokenDetails(metrics);
   if (tokenDetails !== undefined) details.push(tokenDetails);
-  if (metrics?.cost !== undefined) {
-    details.push("cost=" + metrics.cost.toFixed(4));
-  }
+  const costDetails = formatCICostDetails(metrics);
+  if (costDetails !== undefined) details.push(costDetails);
   return details.length === 0 ? undefined : details.join(" ");
 }
