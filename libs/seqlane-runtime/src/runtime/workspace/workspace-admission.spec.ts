@@ -905,9 +905,7 @@ describe("workspace admission", () => {
       createInvocationId: (nodeId) => nodeId,
       workflowInput: undefined,
       executors: new Map([["test", executor]]),
-      taskDefinitions: new Map([
-        ["local", localWriteTaskDefinition("local")],
-      ]),
+      taskDefinitions: new Map([["local", localWriteTaskDefinition("local")]]),
       workspaceResources: new Map([["local", workspace]]),
     });
     const holder = await context.workspaceLocks.acquire(

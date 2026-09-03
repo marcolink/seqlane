@@ -213,9 +213,9 @@ describe("EffectCompiler plan preparation", () => {
       } as PlanNode,
     ]);
 
-    expect(() =>
-      validatePlan(source, new Map([[local.id, local]])),
-    ).toThrow(/agent task definition/i);
+    expect(() => validatePlan(source, new Map([[local.id, local]]))).toThrow(
+      /agent task definition/i,
+    );
   });
 
   it.each([
