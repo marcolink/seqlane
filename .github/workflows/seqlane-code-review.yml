@@ -1,7 +1,9 @@
 name: Seqlane code review
 
+# Temporary: use the PR workflow while validating this PR. Restore
+# pull_request_target after this change is merged.
 on:
-  pull_request_target:
+  pull_request:
     types:
       - opened
       - reopened

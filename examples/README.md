@@ -80,6 +80,10 @@ non-draft pull requests from branches in this repository. Configure the
 `OPENAI_API_KEY` Actions secret to enable it. Without the secret, the workflow
 reports a successful skip.
 
+The workflow currently uses `pull_request` temporarily so this pull request's
+workflow definition runs before merge. Restore `pull_request_target` after this
+change is merged.
+
 The workflow reads the pull request's configured base branch and immutable base
 revision from the event, then reviews the explicit base-to-head range in a
 separate checkout. Inspection produces bounded requirements and evidence;
