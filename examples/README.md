@@ -37,6 +37,9 @@ compares explicit base and head revisions, using the pull-request title and
 description as untrusted author-supplied context. It runs correctness,
 maintainability, and risk lanes in parallel before producing a five-axis
 rating. It instructs the agent to use only read-only Git inspection commands.
+Inspection uses an isolated `openai/gpt-5.6-luna` session with high reasoning.
+Each review lane branches with its own OpenAI model and reasoning level; the
+final summary reuses the inspection session and does not select a model.
 The current OpenCode tasks use `workspace: "shared"` because the author asserts
 they may overlap. This is not a read-only workspace boundary; configure the
 runtime accordingly.
