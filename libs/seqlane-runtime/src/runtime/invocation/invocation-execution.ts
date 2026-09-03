@@ -1,4 +1,5 @@
 import type {
+  LocalTaskDefinition,
   SeqlaneInvocationMetrics,
   ModelSelection,
   TaskNode,
@@ -47,6 +48,7 @@ import {
   type ValidationEnvelope,
   type ValidationExecutionOptions,
 } from "./invocation-support.js";
+import { executeLocalTask } from "../local/local-task-execution.js";
 
 function effectiveModelSelection(
   context: ExecutionContext,
@@ -118,11 +120,12 @@ export async function executeTaskNode(
   };
 
   try {
+    const isLocalTask = node.execution === "local";
     const resource = context.workspaceResources.get(node.taskId) ?? {
       key: "seqlane:runtime-workspace",
     };
     const session =
-      context.sessionResolver === undefined
+      isLocalTask || context.sessionResolver === undefined
         ? undefined
         : sessionForInvocation(context.resolvedSessions, invocationId);
     const admission = await context.jointAdmissions.acquire({
@@ -295,41 +298,59 @@ export async function executeTaskNode(
       };
       let executorFailure: { readonly cause: unknown } | undefined;
       try {
-        const executor =
-          session === undefined
-            ? getExecutor(
-                context.executors,
-                node,
-                context.taskDefinitions?.get(node.taskId),
-              )
-            : session.executor;
-        rawOutput = await executor.execute({
-          invocationId,
-          taskId: node.taskId,
-          executor: (node as LegacyTaskNode).executor ?? node.taskId,
-          input,
-          signal: abortSignal,
-          onMetrics: (value) => {
-            metrics = value;
-          },
-          onDiagnostic: (message) => {
-            context.events.emit({
-              type: "invocation.output",
-              workId: context.workId,
-              runId: context.runId,
-              invocationId,
-              policy: "persistent",
-              channel: "task",
-              content: message,
-              ...optionalIteration(options.iteration),
-            });
-          },
-          onActivity: emitActivity,
-          onEffect: (termination) => effects.track(termination),
-          onUncertainActivity: reportUncertainActivity,
-          onChildSession: reportChildSession,
-          onBackgroundProcess: reportBackgroundProcess,
-        });
+        if (isLocalTask) {
+          const definition = context.taskDefinitions?.get(node.taskId);
+          if (definition === undefined || !("execute" in definition)) {
+            throw new Error(
+              `No local task definition registered for "${node.taskId}"`,
+            );
+          }
+          rawOutput = await executeLocalTask({
+            definition: definition as LocalTaskDefinition<unknown, unknown>,
+            input,
+            cwd:
+              resource.key === "seqlane:runtime-workspace"
+                ? process.cwd()
+                : resource.key,
+            signal: abortSignal,
+          });
+        } else {
+          const executor =
+            session === undefined
+              ? getExecutor(
+                  context.executors,
+                  node,
+                  context.taskDefinitions?.get(node.taskId),
+                )
+              : session.executor;
+          rawOutput = await executor.execute({
+            invocationId,
+            taskId: node.taskId,
+            executor: (node as LegacyTaskNode).executor ?? node.taskId,
+            input,
+            signal: abortSignal,
+            onMetrics: (value) => {
+              metrics = value;
+            },
+            onDiagnostic: (message) => {
+              context.events.emit({
+                type: "invocation.output",
+                workId: context.workId,
+                runId: context.runId,
+                invocationId,
+                policy: "persistent",
+                channel: "task",
+                content: message,
+                ...optionalIteration(options.iteration),
+              });
+            },
+            onActivity: emitActivity,
+            onEffect: (termination) => effects.track(termination),
+            onUncertainActivity: reportUncertainActivity,
+            onChildSession: reportChildSession,
+            onBackgroundProcess: reportBackgroundProcess,
+          });
+        }
       } catch (cause) {
         executorFailure = { cause };
       }
@@ -365,8 +386,10 @@ export async function executeTaskNode(
       }
 
       const observableMetrics = metricsWithModelSelection(
-        metrics,
-        effectiveModelSelection(context, invocationId, session),
+        isLocalTask ? undefined : metrics,
+        isLocalTask
+          ? undefined
+          : effectiveModelSelection(context, invocationId, session),
       );
 
       context.events.emit({
@@ -382,7 +405,7 @@ export async function executeTaskNode(
         ...optionalIteration(options.iteration),
       });
       results.set(node.nodeId, output);
-      if (session !== undefined) {
+      if (!isLocalTask && session !== undefined) {
         await publishSessionCheckpoint({
           sourceNodeId: node.nodeId,
           sourceSession: session,

@@ -1,4 +1,9 @@
-import type { Plan, PlanNode, RepeatNode } from "@seqlane/core";
+import type {
+  Plan,
+  PlanNode,
+  RepeatNode,
+  TaskDefinitionRegistry,
+} from "@seqlane/core";
 import {
   PlanValidationError,
   validatePlan,
@@ -65,8 +70,9 @@ export function orderRepeatBodyNodes(
 export function orderPlanNodes(
   plan: Plan,
   validateDefinitions = true,
+  taskDefinitions?: TaskDefinitionRegistry,
 ): readonly PlanNode[] {
-  validatePlan(plan, undefined, validateDefinitions);
+  validatePlan(plan, taskDefinitions, validateDefinitions);
 
   const dependents = new Map<string, PlanNode[]>();
   const remainingDependencies = new Map<string, number>();

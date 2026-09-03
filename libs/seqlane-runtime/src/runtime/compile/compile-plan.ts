@@ -109,10 +109,10 @@ function computeRemainingConsumers(plan: Plan): Map<string, number> {
 
 export class EffectCompiler {
   /** Prepare a Plan without constructing a workflow. */
-  compile(plan: Plan): PreparedPlan {
+  compile(plan: Plan, taskDefinitions?: TaskDefinitionRegistry): PreparedPlan {
     return {
       plan,
-      orderedNodes: orderPlanNodes(plan),
+      orderedNodes: orderPlanNodes(plan, true, taskDefinitions),
     };
   }
 
@@ -125,7 +125,7 @@ export class EffectCompiler {
     options: CompileWorkflowOptions,
   ): CompiledWorkflow {
     validatePlan(plan, options.taskDefinitions);
-    const prepared = this.compile(plan);
+    const prepared = this.compile(plan, options.taskDefinitions);
     assertValidationRegistries(
       plan,
       options.taskDefinitions,
