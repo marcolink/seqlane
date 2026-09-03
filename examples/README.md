@@ -18,8 +18,8 @@ Direct file references load the module's default export. Use
 named workflow. The CLI supports `.ts`, `.mts`, `.js`, and `.mjs` files.
 
 The minimal workflow explicitly selects `openai/gpt-5.6-luna` with `high`
-reasoning for its `prepare` session. Its `finish` session uses the runtime
-default.
+reasoning for its `prepare` session and `openai/gpt-5.6-terra` for its `finish`
+session.
 
 Workflow files run as local Node.js code in the runner process. Run only files
 you trust. TypeScript files use Node.js 24 native type stripping; use

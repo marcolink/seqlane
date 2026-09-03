@@ -58,6 +58,10 @@ export default createFlow({
     }),
     validateOutput: draftValidator,
   })
-  .task("finish", finishTask, ({ tasks }) => tasks.prepare.output)
+  .task("finish", finishTask, ({ tasks }) => tasks.prepare.output, {
+    session: isolated({
+      model: openai("gpt-5.6-terra"),
+    }),
+  })
   .output(({ tasks }) => tasks.finish.output)
   .define();

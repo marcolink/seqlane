@@ -240,8 +240,8 @@ export default createFlow({
     {
       session: ({ tasks }) =>
         branch(tasks.inspect.session, {
-          model: openai("gpt-5.6-sol"),
-          reasoning: "high",
+          model: openai("gpt-5.6-luna"),
+          reasoning: "max",
         }),
     },
   )
@@ -270,8 +270,8 @@ export default createFlow({
     {
       session: ({ tasks }) =>
         branch(tasks.inspect.session, {
-          model: openai("gpt-5.6"),
-          reasoning: "low",
+          model: openai("gpt-5.6-luna"),
+          reasoning: "medium",
         }),
     },
   )

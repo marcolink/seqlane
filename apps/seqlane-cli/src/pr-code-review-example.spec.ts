@@ -67,8 +67,8 @@ describe("pull-request code review example workflow", () => {
             type: "branch",
             from: inspect?.nodeId,
             model: {
-              model: { provider: "openai", model: "gpt-5.6-sol" },
-              reasoning: "high",
+              model: { provider: "openai", model: "gpt-5.6-luna" },
+              reasoning: "max",
             },
           },
         }),
@@ -89,8 +89,8 @@ describe("pull-request code review example workflow", () => {
             type: "branch",
             from: inspect?.nodeId,
             model: {
-              model: { provider: "openai", model: "gpt-5.6" },
-              reasoning: "low",
+              model: { provider: "openai", model: "gpt-5.6-luna" },
+              reasoning: "medium",
             },
           },
         }),
