@@ -37,7 +37,8 @@ function createAbortWaiter(signal: AbortSignal): {
   readonly promise: Promise<void>;
   readonly cleanup: () => void;
 } {
-  if (signal.aborted) return { promise: Promise.resolve(), cleanup: () => {} };
+  if (signal.aborted)
+    return { promise: Promise.resolve(), cleanup: () => undefined };
 
   let onAbort!: () => void;
   const promise = new Promise<void>((resolve) => {
@@ -72,7 +73,6 @@ export class JointAdmissionRegistry {
       }
 
       const waiting = this.#waiting.get(request.workspace.key) ?? [];
-      let admission: WaitingAdmission;
       const onAbort = (): void => {
         const index = waiting.indexOf(admission);
         if (index === -1) return;
@@ -83,7 +83,7 @@ export class JointAdmissionRegistry {
         admission.cleanup();
         reject(request.signal.reason ?? new Error("Joint admission cancelled"));
       };
-      admission = {
+      const admission: WaitingAdmission = {
         request,
         resolve,
         reject,
