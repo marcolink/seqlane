@@ -16,6 +16,7 @@ import {
   type ValidationResult,
   type WorkflowDefinition,
   InteractionRequiredError,
+  isolated,
   reuse,
 } from "./index.js";
 
@@ -40,6 +41,95 @@ describe("seqlane core", () => {
     expect(task.goal({ request: "question" })).toBe("Answer question");
     expect(task.instructions).toEqual(["Return a concise answer."]);
     expect(task.references).toEqual(["README.md"]);
+  });
+
+  it("defines local tasks with an output-only Flow handle", () => {
+    const local = defineTask({
+      id: "local-status",
+      input: schema<{ readonly repository: string }>(),
+      output: schema<{ readonly clean: boolean }>(),
+      execute: async (_input, { exec }) => {
+        const result = await exec({ command: "git", args: ["status"] });
+        return { clean: result.exitCode === 0 };
+      },
+    });
+    const agent = defineTask({
+      id: "agent-report",
+      input: schema<{ readonly clean: boolean }>(),
+      output: schema<{ readonly report: string }>(),
+      goal: ({ clean }) => (clean ? "Report clean" : "Report changes"),
+    });
+
+    const flow = createFlow({
+      id: "local-handle-contract",
+      input: schema<{ readonly repository: string }>(),
+      output: schema<{ readonly report: string }>(),
+    })
+      .task("status", local, ({ input }) => ({ repository: input.repository }))
+      .task("report", agent, ({ tasks }) => ({
+        clean: tasks.status.output.clean,
+      }))
+      .output(({ tasks }) => {
+        const checkpoint: SessionCheckpointRef = tasks.report.session;
+        expect(checkpoint).toBeDefined();
+        // @ts-expect-error Local task handles do not expose session checkpoints.
+        reuse(tasks.status.session);
+        return tasks.report.output;
+      });
+
+    const workflow = flow.define();
+    const built = buildWorkflow(workflow);
+
+    expect(workflow.id).toBe("local-handle-contract");
+    expect(built.taskDefinitions.get(local.id)).toBe(local);
+  });
+
+  it("rejects local task session options statically", () => {
+    const local = defineTask({
+      id: "local-session-options",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      execute: async () => ({}),
+    });
+    const flow = createFlow({
+      id: "local-session-options-flow",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+    });
+
+    // @ts-expect-error Local task invocation options do not support sessions.
+    flow.task("local", local, () => ({}), { session: isolated() });
+
+    defineWorkflow({
+      id: "local-session-options-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      build: ({ input, run }) => {
+        // @ts-expect-error Local task invocation options do not support sessions.
+        return run(local, { input, session: isolated() }).output;
+      },
+    });
+  });
+
+  it("rejects mixed and missing task behavior at type and runtime boundaries", () => {
+    expect(() => {
+      // @ts-expect-error A task cannot define both agent and local behavior.
+      defineTask({
+        id: "mixed-task",
+        input: schema<Record<never, never>>(),
+        output: schema<Record<never, never>>(),
+        goal: () => "work",
+        execute: async () => ({}),
+      });
+    }).toThrow();
+    expect(() => {
+      // @ts-expect-error A task must define agent or local behavior.
+      defineTask({
+        id: "missing-task-behavior",
+        input: schema<Record<never, never>>(),
+        output: schema<Record<never, never>>(),
+      });
+    }).toThrow();
   });
 
   it("permits omitted workspace policy", () => {
@@ -67,10 +157,10 @@ describe("seqlane core", () => {
       output: schema<Record<never, never>>(),
       goal: () => "work",
     });
+    // @ts-expect-error Seqlane no longer exposes per-task permissions
     defineTask({
       id: "old-permission-field",
       workspace: "shared",
-      // @ts-expect-error Seqlane no longer exposes per-task permissions
       permissions: { workspace: "read" },
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
@@ -224,6 +314,7 @@ describe("seqlane core", () => {
           taskId: "investigate",
           nodeId: "investigate:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           dependsOn: [],
           input: { repository: "seqlane" },
@@ -355,6 +446,7 @@ describe("seqlane core", () => {
           taskId: "investigate",
           nodeId: "investigate:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             request: {
@@ -370,6 +462,7 @@ describe("seqlane core", () => {
           taskId: "plan",
           nodeId: "plan:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             files: {
@@ -427,6 +520,7 @@ describe("seqlane core", () => {
           taskId: "first",
           nodeId: "first:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             request: {
@@ -442,6 +536,7 @@ describe("seqlane core", () => {
           taskId: "second",
           nodeId: "second:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             value: {

@@ -63,6 +63,20 @@ function writeTaskDefinition(taskId: string): TaskDefinition {
   };
 }
 
+function localWriteTask(taskId: string): TaskNode {
+  return { ...writeTask(taskId), execution: "local" };
+}
+
+function localWriteTaskDefinition(taskId: string): TaskDefinition {
+  return {
+    id: taskId,
+    workspace: "exclusive",
+    input: schema,
+    output: schema,
+    execute: async () => ({}),
+  };
+}
+
 function readTask(taskId: string): TaskNode {
   return {
     type: "task",
@@ -881,6 +895,57 @@ describe("workspace admission", () => {
     );
     readerLease.release();
     await writer;
+  });
+
+  it("cancels a local task blocked behind an exclusive workspace holder", async () => {
+    const executor = { execute: async () => ({ unexpected: true }) };
+    const context = createExecutionContext({
+      workId: "work",
+      runId: "run",
+      createInvocationId: (nodeId) => nodeId,
+      workflowInput: undefined,
+      executors: new Map([["test", executor]]),
+      taskDefinitions: new Map([["local", localWriteTaskDefinition("local")]]),
+      workspaceResources: new Map([["local", workspace]]),
+    });
+    const holder = await context.workspaceLocks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      0,
+      "holder",
+    );
+    const controller = new AbortController();
+    const cancelled = executeTaskNode(
+      context,
+      localWriteTask("local"),
+      controller.signal,
+      {
+        invocationId: "cancelled",
+        results: context.results,
+        remainingConsumers: context.remainingConsumers,
+        subject: { type: "task", taskId: "local" },
+      },
+    );
+
+    await expectPending(cancelled);
+    const reason = new Error("cancelled while waiting for workspace");
+    controller.abort(reason);
+    await expect(cancelled).rejects.toBe(reason);
+
+    const replacement = executeTaskNode(
+      context,
+      localWriteTask("local"),
+      new AbortController().signal,
+      {
+        invocationId: "replacement",
+        results: context.results,
+        remainingConsumers: context.remainingConsumers,
+        subject: { type: "task", taskId: "local" },
+      },
+    );
+    holder.release();
+    await replacement;
   });
 
   it("leaves a shared session available while waiting for workspace admission", async () => {

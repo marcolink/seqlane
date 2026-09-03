@@ -74,6 +74,7 @@ function modelPreflightNodes(
     dynamic: boolean,
   ): ModelPreflightNode | undefined => {
     if (node.type === "task") {
+      if (node.execution === "local") return undefined;
       return {
         node,
         nodeId: node.nodeId,

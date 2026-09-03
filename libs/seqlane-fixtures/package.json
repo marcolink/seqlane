@@ -28,6 +28,11 @@
       "types": "./dist/model-selection-workflow.d.ts",
       "import": "./dist/model-selection-workflow.js",
       "default": "./dist/model-selection-workflow.js"
+    },
+    "./local-git-status": {
+      "types": "./dist/local-git-status.d.ts",
+      "import": "./dist/local-git-status.js",
+      "default": "./dist/local-git-status.js"
     }
   },
   "nx": {

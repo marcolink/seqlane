@@ -22,8 +22,13 @@ async function expectPending(promise: Promise<unknown>) {
   expect(settled).toBe(false);
 }
 
-function request(invocationId: string, creationOrdinal: number) {
+function request(
+  invocationId: string,
+  creationOrdinal: number,
+  signal = new AbortController().signal,
+) {
   return {
+    signal,
     session,
     workspace,
     workspacePolicy: "exclusive" as const,

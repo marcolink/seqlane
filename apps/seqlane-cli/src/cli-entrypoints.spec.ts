@@ -6,6 +6,7 @@
 // @test-scope ./recording.ts
 // @test-scope ./commands/studio.ts
 // @test-scope ../../../examples/minimal-workflow.ts
+// @test-scope ../../../examples/local-only.ts
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type ServerResponse } from "node:http";
@@ -30,6 +31,7 @@ const productionEntry = fileURLToPath(
 const workflowReference =
   "@seqlane/fixtures/renovate-workflow#renovateWorkflow";
 const exampleWorkflowReference = "examples/minimal-workflow.ts";
+const localOnlyWorkflowReference = "examples/local-only.ts";
 const input = JSON.stringify({
   dependency: "some-package",
   fromVersion: "1.0.0",
@@ -402,7 +404,7 @@ describe("seqlane CLI entrypoints", () => {
     expect(result.stderr).toBe("");
   });
 
-  it("requires a runtime when not in dry-run mode", async () => {
+  it("fails an agent workflow without a runtime profile", async () => {
     const result = await runCli(productionEntry, [
       "run",
       exampleWorkflowReference,
@@ -410,8 +412,24 @@ describe("seqlane CLI entrypoints", () => {
       builtinInput,
     ]);
 
-    expect(result.code).toBe(2);
-    expect(`${result.stdout}${result.stderr}`).toMatch(/runtime/i);
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toMatch(
+      /runtime profile.*not configured/i,
+    );
+  });
+
+  it("runs a local-only workflow without a runtime profile", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--output",
+      "json",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('"type":"run.succeeded"');
   });
 
   it("runs a TypeScript workflow file through its default export", async () => {

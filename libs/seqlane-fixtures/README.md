@@ -4,7 +4,9 @@ Private workflows and task definitions for tests and local development.
 
 The package includes workflows for Renovate-shaped execution, mixed agent and
 operation work, model-selected sessions, fake execution paths, and semantic
-validation coverage. It is not a production workflow catalog.
+validation coverage. The `local-git-status` fixture demonstrates a local Git
+inspection task followed by a typed agent task. It is not a production workflow
+catalog.
 
 ## Use a fixture
 
@@ -22,6 +24,8 @@ import {
 } from "@seqlane/fixtures/validation-workflow";
 
 import { modelSelectionWorkflow } from "@seqlane/fixtures/model-selection-workflow";
+
+import { localGitStatusWorkflow } from "@seqlane/fixtures/local-git-status";
 ```
 
 Run the Renovate fixture from the repository after a runtime service starts:
@@ -35,3 +39,10 @@ pnpm exec node apps/seqlane-cli/bin/run.js run \
 
 Use only the exported subpaths in `package.json`. Do not import fixture source
 files or `dist` files through relative paths.
+
+The local Git task uses `execute` with direct argv for
+`git status --porcelain=v1` in the canonical workflow workspace. It has no
+session or model metrics. The command is foreground and non-interactive, and
+the fixture does not add Git helpers, Git mutation APIs, shell support,
+background processes, or command policy. The local task itself does not need
+OpenCode; the later agent task does.

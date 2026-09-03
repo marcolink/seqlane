@@ -172,6 +172,7 @@ describe("semantic validation core contracts", () => {
           taskId: "draft",
           nodeId: "draft:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             type: "ref",
@@ -208,6 +209,7 @@ describe("semantic validation core contracts", () => {
           taskId: "publish",
           nodeId: "publish:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             title: {
@@ -409,6 +411,7 @@ describe("semantic validation core contracts", () => {
               taskId: "repair-state",
               nodeId: "repeat:1/repair-state:1",
               workspace: "shared",
+              execution: "agent",
               session: { type: "isolated" },
               input: {
                 type: "ref",

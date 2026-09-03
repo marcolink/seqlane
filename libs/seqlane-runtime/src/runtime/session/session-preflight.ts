@@ -16,7 +16,7 @@ export async function resolveCompiledWorkflowSessions(
   const { context } = compiled;
   for (const node of compiled.orderedNodes) {
     const invocationId = invocationIdForNode(context, node);
-    if (node.type === "task") {
+    if (node.type === "task" && node.execution !== "local") {
       const policy = node.session ?? { type: "isolated" as const };
       if (policy.type !== "isolated") {
         const task = context.taskDefinitions?.get(node.taskId);

@@ -21,6 +21,27 @@ const schema = <T>(): SeqlaneSchema<T> => ({
 });
 
 describe("buildWorkflow", () => {
+  it("rejects malformed task behavior when a workflow is built", () => {
+    const malformedTask = {
+      id: "mixed-task-behavior",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      goal: () => "work",
+      execute: async () => ({}),
+    };
+    const workflow = defineWorkflow({
+      id: "mixed-task-behavior-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      build: ({ input, run }) => {
+        // @ts-expect-error A task cannot define both agent and local behavior.
+        return run(malformedTask, { input }).output;
+      },
+    });
+
+    expect(() => buildWorkflow(workflow)).toThrow();
+  });
+
   it("nests model selection under an isolated session", () => {
     const task = defineTask({
       id: "selected-model",
@@ -130,9 +151,9 @@ describe("buildWorkflow", () => {
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       build: ({ input, run }) =>
+        // @ts-expect-error Model selection belongs under session.
         run(task, {
           input,
-          // @ts-expect-error Model selection belongs under session.
           model: openai("gpt-5.6-luna"),
         }).output,
     });
@@ -196,8 +217,85 @@ describe("buildWorkflow", () => {
 
     expect(buildWorkflow(workflow).plan.nodes[0]).toMatchObject({
       workspace: "exclusive",
+      execution: "agent",
       session: { type: "isolated" },
     });
+  });
+
+  it("lowers local tasks without sessions and keeps definitions out of the Plan", () => {
+    const local = defineTask({
+      id: "local-status",
+      input: schema<{ readonly repository: string }>(),
+      output: schema<{ readonly clean: boolean }>(),
+      execute: async () => ({ clean: true }),
+    });
+    const workflow = defineWorkflow({
+      id: "local-status-workflow",
+      input: schema<{ readonly repository: string }>(),
+      output: schema<{ readonly clean: boolean }>(),
+      build: ({ input, run }) => run(local, { input }).output,
+    });
+
+    const built = buildWorkflow(workflow);
+
+    expect(built.plan.nodes).toEqual([
+      {
+        type: "task",
+        taskId: "local-status",
+        nodeId: "local-status:1",
+        workspace: "exclusive",
+        execution: "local",
+        input: {
+          type: "ref",
+          nodeId: "__seqlane_input",
+          path: [],
+        },
+        dependsOn: [],
+      },
+    ]);
+    expect(built.taskDefinitions.get(local.id)).toBe(local);
+    expect(JSON.stringify(built.plan)).not.toContain("execute");
+    expect(JSON.stringify(built.plan)).not.toContain("repository");
+  });
+
+  it("carries local task execution through repeat bodies", () => {
+    const local = defineTask({
+      id: "local-repeat",
+      input: schema<{ readonly complete: boolean }>(),
+      output: schema<{ readonly complete: boolean }>(),
+      execute: async (input) => input,
+    });
+    const workflow = defineWorkflow({
+      id: "local-repeat-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<{ readonly complete: boolean }>(),
+      build: ({ repeat }) =>
+        repeat({
+          initial: { complete: false },
+          body: ({ input, task }) => task(local, { input }).output,
+          until: ({ output }) => output.complete,
+          maximumIterations: 1,
+        }).output,
+    });
+
+    const built = buildWorkflow(workflow);
+    const repeat = built.plan.nodes[0];
+
+    expect(repeat).toMatchObject({
+      type: "repeat",
+      body: {
+        nodes: [
+          {
+            taskId: "local-repeat",
+            execution: "local",
+          },
+        ],
+      },
+    });
+    expect(
+      (repeat as Extract<typeof repeat, { type: "repeat" }>).body.nodes[0],
+    ).not.toHaveProperty("session");
+    expect(built.taskDefinitions.get(local.id)).toBe(local);
   });
 
   it("serializes typed reuse and branch checkpoint selections", () => {

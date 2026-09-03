@@ -18,8 +18,9 @@ in the [SDLC corpus](docs/sdlc/index.md).
 
 ### Install
 
-Use Node.js 24 or later and pnpm 10.33 or later. In the current release,
-Seqlane requires an available OpenCode runtime before it can run a workflow.
+Use Node.js 24 or later and pnpm 10.33 or later. Workflows with agent tasks
+require an available runtime. Local tasks execute in the Seqlane process and do
+not need a model session or model tokens.
 
 ```sh
 pnpm add @seqlane/core zod
@@ -61,6 +62,36 @@ pnpm exec seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
   --runtime http://127.0.0.1:4096
 ```
+
+### Run a local task
+
+Use `execute` instead of `goal` for deterministic work. The local task below
+runs one executable with direct argv in the canonical workflow workspace:
+
+```ts
+const gitStatus = defineTask({
+  id: "git-status",
+  input: z.object({}),
+  output: z.object({
+    exitCode: z.number(),
+    stdout: z.string(),
+    stderr: z.string(),
+  }),
+  workspace: "shared",
+  execute: async (_input, { exec }) =>
+    exec({ command: "git", args: ["status", "--porcelain=v1"] }),
+});
+```
+
+Local tasks have no `session`, model selection, or token metrics. `exec` does
+not invoke a shell. V1 supports only awaited, foreground, non-interactive
+commands with bounded output. Local tasks do not provide Git helpers, Git
+mutation APIs, shell support, background processes, or command policy.
+
+The complete local-to-agent fixture is documented in
+[`@seqlane/fixtures/local-git-status`](libs/seqlane-fixtures/README.md). The
+later agent task receives the parsed `{ exitCode, stdout, stderr }` value as
+typed input.
 
 ### Select a model
 

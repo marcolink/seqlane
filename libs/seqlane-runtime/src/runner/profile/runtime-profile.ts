@@ -166,6 +166,30 @@ export async function resolveRuntimeProfile(
   }
   const workspacePath = profile.workspace;
 
+  if (profile.id === "local") {
+    const workspaceIdentities = await resolveTaskWorkspaceIdentities(
+      taskDefinitions,
+      workspacePath,
+    );
+    const workspaceResources = createWorkspaceResources(workspaceIdentities);
+    const localExecutor = (): never => {
+      throw new Error('Runtime profile "local" cannot execute agent tasks');
+    };
+    return {
+      executors: { agent: localExecutor },
+      sessionResolver: {
+        resolve: async () => {
+          throw new Error(
+            'Runtime profile "local" cannot resolve agent sessions',
+          );
+        },
+      },
+      taskDefinitions,
+      workspaceIdentities,
+      workspaceResources,
+    };
+  }
+
   if (profile.id === "test-fixture") {
     const workspaceIdentities = await resolveTaskWorkspaceIdentities(
       taskDefinitions,

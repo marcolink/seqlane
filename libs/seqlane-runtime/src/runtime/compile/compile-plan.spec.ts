@@ -5,6 +5,7 @@
 import type {
   Plan,
   PlanNode,
+  TaskDefinition,
   SeqlaneSchema,
   ValidationNode,
   ValueBinding,
@@ -167,6 +168,98 @@ describe("EffectCompiler plan preparation", () => {
     Reflect.set(source.nodes[0]!, "workspace", "filesystem");
 
     expect(() => validatePlan(source)).toThrow(/workspace policy/i);
+  });
+
+  it("validates local task execution against its registered definition", () => {
+    const local: TaskDefinition = {
+      id: "local-task",
+      input: { parse: (value: unknown) => value },
+      output: { parse: (value: unknown) => value },
+      execute: async () => ({}),
+    };
+    const source = plan([
+      {
+        ...task("local-task"),
+        execution: "local",
+      } as PlanNode,
+    ]);
+
+    expect(() =>
+      validatePlan(source, new Map([[local.id, local]])),
+    ).not.toThrow();
+    expect(() => validatePlan(source, new Map())).toThrow(
+      /no registered definition/i,
+    );
+  });
+
+  it("rejects a local definition used as a validation task source", () => {
+    const local: TaskDefinition = {
+      id: "local-validator",
+      input: { parse: (value: unknown) => value },
+      output: { parse: (value: unknown) => value },
+      execute: async () => ({ success: true }),
+    };
+    const source = plan([
+      {
+        type: "validation.check",
+        nodeId: "check",
+        source: {
+          type: "task",
+          taskId: local.id,
+          workspace: "shared",
+        },
+        input: {},
+        dependsOn: [],
+      } as PlanNode,
+    ]);
+
+    expect(() => validatePlan(source, new Map([[local.id, local]]))).toThrow(
+      /agent task definition/i,
+    );
+  });
+
+  it.each([
+    [
+      "an invalid execution kind",
+      { execution: "shell" },
+      "invalid-task-execution",
+    ],
+    [
+      "a local task session",
+      { execution: "local", session: { type: "isolated" } },
+      "local-task-session",
+    ],
+    [
+      "a mismatched task definition",
+      { execution: "local" },
+      "task-definition-kind-mismatch",
+    ],
+  ])("rejects %s", (_description, fields, code) => {
+    const agent: TaskDefinition = {
+      id: "task-kind",
+      input: { parse: (value: unknown) => value },
+      output: { parse: (value: unknown) => value },
+      goal: () => "work",
+    };
+    const source = plan([
+      {
+        ...task("task-kind"),
+        ...fields,
+      } as unknown as PlanNode,
+    ]);
+
+    expect(() => validatePlan(source, new Map([[agent.id, agent]]))).toThrow();
+    try {
+      validatePlan(source, new Map([[agent.id, agent]]));
+    } catch (error) {
+      expect((error as PlanValidationError).issues).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code })]),
+      );
+    }
+  });
+
+  it("treats a task without execution as a legacy agent task", () => {
+    expect(() => validatePlan(plan([task("legacy-task")]))).not.toThrow();
   });
 
   it("rejects removed Seqlane permission configuration in a Plan", () => {

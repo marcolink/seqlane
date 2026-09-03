@@ -1,4 +1,4 @@
-import { Args, Command, Constraints, Flags } from "@oclif/core";
+import { Args, Command, Flags } from "@oclif/core";
 import {
   isJsonValue,
   type JsonValue,
@@ -22,7 +22,7 @@ import {
 import { parseOutputMode } from "../output-mode.js";
 
 const packageRequire = createRequire(import.meta.url);
-const dryRunRuntimeId = "dry-run";
+const localRuntimeId = "local";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -101,16 +101,12 @@ function createRunRequest(
   workspace: string | undefined,
   dryRun: boolean,
 ): RunRequest {
-  if (runtime === undefined && !dryRun) {
-    throw new Error("--runtime is required unless --dry is set");
-  }
-
   return {
     type: "run.start",
     workflow: parseWorkflowReference(workflow),
     input: parseJsonInput(input),
     runtime: {
-      id: runtime ?? dryRunRuntimeId,
+      id: runtime ?? localRuntimeId,
       ...(workspace === undefined ? {} : { workspace }),
     },
     ...(dryRun ? { dryRun: true } : {}),
@@ -163,12 +159,6 @@ export default class RunCommand extends Command {
       description: "Print the calculated Plan without executing workflow tasks",
     }),
   };
-
-  static override constraints: (typeof Command)["constraints"] = [
-    Constraints.flag("runtime")
-      .is.requiredAll()
-      .unless.thisIsTrue((flags) => flags.dry === true),
-  ];
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(RunCommand);

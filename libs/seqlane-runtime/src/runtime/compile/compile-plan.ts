@@ -39,6 +39,7 @@ import {
 import { executeRepeatNode } from "../invocation/repeat-execution.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
+import { validatePlan } from "../validation/plan-validation.js";
 
 export interface PreparedPlan {
   readonly plan: Plan;
@@ -108,10 +109,10 @@ function computeRemainingConsumers(plan: Plan): Map<string, number> {
 
 export class EffectCompiler {
   /** Prepare a Plan without constructing a workflow. */
-  compile(plan: Plan): PreparedPlan {
+  compile(plan: Plan, taskDefinitions?: TaskDefinitionRegistry): PreparedPlan {
     return {
       plan,
-      orderedNodes: orderPlanNodes(plan),
+      orderedNodes: orderPlanNodes(plan, true, taskDefinitions),
     };
   }
 
@@ -123,7 +124,8 @@ export class EffectCompiler {
     plan: Plan,
     options: CompileWorkflowOptions,
   ): CompiledWorkflow {
-    const prepared = this.compile(plan);
+    validatePlan(plan, options.taskDefinitions);
+    const prepared = this.compile(plan, options.taskDefinitions);
     assertValidationRegistries(
       plan,
       options.taskDefinitions,
