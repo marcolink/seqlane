@@ -17,6 +17,7 @@ import type {
 } from "./renderer-contract.js";
 import {
   formatCIOutputDetails,
+  formatCITokenDetails,
   formatCIValidationDetails,
 } from "./output-details.js";
 
@@ -69,6 +70,8 @@ const CONTROL_CHARACTER_PATTERN = new RegExp(
   String.raw`[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]`,
   "g",
 );
+const ANSI_BOLD = "\u001b[1m";
+const ANSI_RESET = "\u001b[0m";
 
 function eventTime(event: SeqlaneExecutionEvent, now: () => Date): string {
   return event.metadata?.occurredAt ?? now().toISOString();
@@ -110,11 +113,24 @@ function sanitizeCI(value: string): string {
     .trim();
 }
 
+function sanitizeCILine(value: string): string {
+  return value
+    .split(ANSI_BOLD)
+    .map((boldPart) =>
+      boldPart.split(ANSI_RESET).map(sanitizeCI).join(ANSI_RESET),
+    )
+    .join(ANSI_BOLD);
+}
+
 function compactCI(value: string, maximum = 500): string {
   const normalized = sanitizeCI(value);
   return normalized.length <= maximum
     ? normalized
     : normalized.slice(0, Math.max(0, maximum - 1)) + "…";
+}
+
+function boldCI(value: string): string {
+  return ANSI_BOLD + value + ANSI_RESET;
 }
 
 function activityDetail(event: InvocationActivityEvent): string | undefined {
@@ -415,66 +431,67 @@ export class CIRenderer implements ExecutionRenderer {
         );
       case "invocation.started": {
         const node = view.nodes.get(event.invocationId);
-        return (
+        return boldCI(
           "run=" +
-          event.runId +
-          " invocation=" +
-          event.invocationId +
-          " started task=" +
-          compactCI(event.taskId ?? node?.taskId ?? "unknown", 200) +
-          " label=" +
-          compactCI(node?.label ?? "unknown", 200) +
-          (node?.parentInvocationId === undefined
-            ? ""
-            : " parent=" + node.parentInvocationId) +
-          (event.iteration === undefined ? "" : " iteration=" + event.iteration)
+            event.runId +
+            " invocation=" +
+            event.invocationId +
+            " started task=" +
+            compactCI(event.taskId ?? node?.taskId ?? "unknown", 200) +
+            " label=" +
+            compactCI(node?.label ?? "unknown", 200) +
+            (node?.parentInvocationId === undefined
+              ? ""
+              : " parent=" + node.parentInvocationId) +
+            (event.iteration === undefined
+              ? ""
+              : " iteration=" + event.iteration),
         );
       }
       case "invocation.succeeded": {
         const node = view.nodes.get(event.invocationId);
-        return (
+        return boldCI(
           "run=" +
-          event.runId +
-          " invocation=" +
-          event.invocationId +
-          " succeeded label=" +
-          compactCI(node?.label ?? "unknown", 200) +
-          (node?.elapsedMs === undefined
-            ? ""
-            : " elapsed=" + node.elapsedMs + "ms")
+            event.runId +
+            " invocation=" +
+            event.invocationId +
+            " succeeded label=" +
+            compactCI(node?.label ?? "unknown", 200) +
+            this.invocationEndDetails(node),
         );
       }
       case "invocation.failed": {
         const node = view.nodes.get(event.invocationId);
-        return (
+        return boldCI(
           "run=" +
-          event.runId +
-          " invocation=" +
-          event.invocationId +
-          " failed label=" +
-          compactCI(node?.label ?? "unknown", 200) +
-          " disposition=" +
-          event.disposition +
-          " category=" +
-          event.error.category +
-          " error=" +
-          compactCI(event.error.message) +
-          (event.error.validation === undefined
-            ? ""
-            : " " +
-              formatCIValidationDetails(
-                view.nodes.get(event.invocationId)?.validation ?? {
-                  validationNodeId: event.error.validation.validationNodeId,
-                  sourceId: event.error.validation.sourceId,
-                  sourceType: "validation-gate",
-                  verdict: "failed",
-                  issues: event.error.validation.issues,
-                  ...(event.error.validation.evidence === undefined
-                    ? {}
-                    : { evidence: event.error.validation.evidence }),
-                  continued: false,
-                },
-              ))
+            event.runId +
+            " invocation=" +
+            event.invocationId +
+            " failed label=" +
+            compactCI(node?.label ?? "unknown", 200) +
+            " disposition=" +
+            event.disposition +
+            " category=" +
+            event.error.category +
+            " error=" +
+            compactCI(event.error.message) +
+            (event.error.validation === undefined
+              ? ""
+              : " " +
+                formatCIValidationDetails(
+                  view.nodes.get(event.invocationId)?.validation ?? {
+                    validationNodeId: event.error.validation.validationNodeId,
+                    sourceId: event.error.validation.sourceId,
+                    sourceType: "validation-gate",
+                    verdict: "failed",
+                    issues: event.error.validation.issues,
+                    ...(event.error.validation.evidence === undefined
+                      ? {}
+                      : { evidence: event.error.validation.evidence }),
+                    continued: false,
+                  },
+                )) +
+            this.invocationEndDetails(node),
         );
       }
       case "invocation.skipped":
@@ -566,17 +583,29 @@ export class CIRenderer implements ExecutionRenderer {
     state: "skipped" | "cancelled",
     reason: string | undefined,
   ): string {
-    const label = view.nodes.get(invocationId)?.label;
-    return (
+    const node = view.nodes.get(invocationId);
+    const label = node?.label;
+    return boldCI(
       "run=" +
-      runId +
-      " invocation=" +
-      invocationId +
-      " " +
-      state +
-      (label === undefined ? "" : " label=" + compactCI(label, 200)) +
-      (reason === undefined ? "" : " reason=" + compactCI(reason))
+        runId +
+        " invocation=" +
+        invocationId +
+        " " +
+        state +
+        (label === undefined ? "" : " label=" + compactCI(label, 200)) +
+        (reason === undefined ? "" : " reason=" + compactCI(reason)) +
+        this.invocationEndDetails(node),
     );
+  }
+
+  private invocationEndDetails(node: HumanExecutionNode | undefined): string {
+    const details =
+      node?.elapsedMs === undefined
+        ? []
+        : [" duration=" + node.elapsedMs + "ms"];
+    const tokenDetails = formatCITokenDetails(node?.output.metrics);
+    if (tokenDetails !== undefined) details.push(tokenDetails);
+    return details.length === 0 ? "" : " " + details.join(" ");
   }
 
   private taskDurationLine(
@@ -688,7 +717,7 @@ export class CIRenderer implements ExecutionRenderer {
 
   private writeLine(line: string): void {
     if (line === "") return;
-    const sanitized = sanitizeCI(line);
+    const sanitized = sanitizeCILine(line);
     if (sanitized === "") return;
     this.safeWrite(this.capabilities.stdout, sanitized + "\n");
   }
@@ -765,5 +794,10 @@ export class CIRenderer implements ExecutionRenderer {
 }
 
 export function isCIOutput(value: string): boolean {
-  return !value.includes("\u001b") && !value.includes("\r");
+  const withoutBold = value
+    .split(ANSI_BOLD)
+    .join("")
+    .split(ANSI_RESET)
+    .join("");
+  return !withoutBold.includes("\u001b") && !withoutBold.includes("\r");
 }

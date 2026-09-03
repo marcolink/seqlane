@@ -254,7 +254,8 @@ execution, or process status.
 The CLI selects the renderer with `--output auto|human|ci|json`. Auto mode uses
 human output only for an interactive non-CI TTY; CI output is the fallback for
 CI and non-TTY execution. Human output may redraw through a TTY, while CI
-output is append-only and emits no ANSI or carriage-return control sequences.
+output is append-only and uses only bold ANSI styling for task lifecycle lines.
+It emits no carriage-return control sequences.
 JSON mode reserves stdout for one machine-readable event record per line.
 
 The CLI supplies terminal capabilities, output sinks, optional

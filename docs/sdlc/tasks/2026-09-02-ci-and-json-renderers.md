@@ -45,9 +45,9 @@ and machine processing remains reliable.
 
 ## Implementation Notes
 
-The CI renderer must never use carriage returns, cursor movement, or ANSI
-styling. GitHub group, warning, and error commands must be emitted only through
-an explicitly enabled output capability.
+The CI renderer must never use carriage returns or cursor movement. It may use
+bold ANSI styling on task lifecycle lines. GitHub group, warning, and error
+commands must be emitted only through an explicitly enabled output capability.
 
 The JSON renderer serializes validated, redacted runner events. It must not add
 human prefixes or mix summary text into the JSON stream.
@@ -57,7 +57,9 @@ human prefixes or mix summary text into the JSON stream.
 **Scenario:** CI output is append-only
 - **Given:** A non-interactive sink
 - **When:** Task transitions occur
-- **Then:** The renderer emits permanent lines without ANSI or carriage-return sequences
+- **Then:** The renderer emits permanent lines with bold task lifecycle
+  markers, duration, and available token details, without carriage-return
+  sequences
 
 **Scenario:** CI output remains live
 - **Given:** Active work with no durable transition

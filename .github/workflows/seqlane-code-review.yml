@@ -181,21 +181,24 @@ jobs:
           jq --raw-output '
             [
               "<!-- seqlane-code-review -->",
-              "## Seqlane code review",
+              "## 🧪 Seqlane code review",
               "",
-              "**Verdict:** `\(.verdict)` · **Rating:** \(.overallRating)/5",
+              "**Verdict:** \(if .verdict == \"approve\" then \"✅ approve\" else \"🛑 request-changes\" end) · **Rating:** ⭐ \(.overallRating)/5",
               "",
               .summary,
               "",
               "### Ratings",
-              (.ratings[] | "- **\(.axis):** \(.rating)/5 — \(.rationale)"),
+              (.ratings[] |
+                (if .rating >= 4 then "✅" elif .rating == 3 then "🟡" else "🔴" end) +
+                " **\(.axis):** \(.rating)/5 — \(.rationale)"),
               "",
               "### Findings",
               (if (.findings | length) == 0 then
-                "No findings."
+                "✅ No findings."
               else
                 (.findings[] |
-                  "- **\(.severity)** · **\(.axis)** — \(.summary)" +
+                  (if .severity == "critical" then "🚨" elif .severity == "required" then "🔴" elif .severity == "optional" then "🟡" else "💡" end) +
+                  " **\(.severity)** · **\(.axis)** — \(.summary)" +
                   (if .file then
                     " (`\(.file)\(if .line then ":\(.line)" else "" end)`)"
                   else "" end) +
@@ -204,9 +207,9 @@ jobs:
               "",
               "### Verification",
               (if (.verification | length) == 0 then
-                "No verification evidence reported."
+                "⚠️ No verification evidence reported."
               else
-                (.verification[] | "- \(.)")
+                (.verification[] | "🔎 \(.)")
               end)
             ] | .[]
           ' "$RUNNER_TEMP/seqlane-code-review-result.json" \

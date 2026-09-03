@@ -81,7 +81,7 @@ afterEach(() => {
 });
 
 describe("CI renderer", () => {
-  it("emits permanent attributable lines without terminal controls", async () => {
+  it("emits bold task lifecycle lines with duration and token details", async () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -89,6 +89,13 @@ describe("CI renderer", () => {
     renderer.handle({ type: "run.started", ...run });
     renderer.handle(created("a", "Parallel A", 0));
     renderer.handle(created("b", "Parallel B", 1));
+    renderer.handle({
+      type: "invocation.started",
+      ...run,
+      invocationId: "a",
+      subject: { type: "task", taskId: "Parallel A" },
+      taskId: "Parallel A",
+    });
     renderer.handle({
       type: "invocation.progress",
       ...run,
@@ -98,8 +105,28 @@ describe("CI renderer", () => {
       message: "working",
     });
     renderer.handle({
+      type: "invocation.output",
+      ...run,
+      metadata: { ...run.metadata, occurredAt: "2026-08-18T00:00:01.000Z" },
+      invocationId: "a",
+      policy: "persistent",
+      channel: "task",
+      content: "checkpoint",
+      metrics: {
+        tokens: {
+          total: 42,
+          input: 20,
+          output: 12,
+          reasoning: 8,
+          cacheRead: 2,
+          cacheWrite: 0,
+        },
+      },
+    });
+    renderer.handle({
       type: "invocation.succeeded",
       ...run,
+      metadata: { ...run.metadata, occurredAt: "2026-08-18T00:00:02.000Z" },
       invocationId: "a",
     });
     await renderer.finish();
@@ -107,9 +134,13 @@ describe("CI renderer", () => {
     const output = stdout.writes.join("");
     expect(isCIOutput(output)).toBe(true);
     expect(output).toContain("invocation=a");
+    expect(output).toContain("\u001b[1mrun=run-1 invocation=a started");
+    expect(output).toContain(
+      "\u001b[1mrun=run-1 invocation=a succeeded label=Parallel A duration=2000ms tokens=42 inputTokens=20 outputTokens=12 reasoning=8 cacheRead=2 cacheWrite=0\u001b[0m",
+    );
     expect(output).not.toContain("invocation=b");
     expect(output).toContain(
-      "task-duration run=run-1 invocation=a label=Parallel A state=succeeded duration=0ms",
+      "task-duration run=run-1 invocation=a label=Parallel A state=succeeded duration=2.0s",
     );
     expect(output).toContain("summary run=run-1");
   });
