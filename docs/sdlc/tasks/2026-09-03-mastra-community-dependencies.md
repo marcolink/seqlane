@@ -1,7 +1,7 @@
 ---
 id: task.mastra-community-dependencies
 title: Add Community Mastra Dependencies and Boundary Guards
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
@@ -70,6 +70,16 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 Community Mastra dependencies and enforceable boundary guards are available without changing runtime behavior.
+
+## Outcome
+
+Pinned `@mastra/core@1.64.0` as the only direct Mastra dependency in the
+private runtime package and synchronized the pnpm lockfile. Added executable
+guards for Mastra-free public packages, Community workflow exports, and
+forbidden Enterprise Edition imports. The guard suite, runtime typecheck, and
+focused lint pass. The broader runtime target still has three unrelated
+localhost-listener failures in existing runtime-profile tests under the
+sandbox.
 
 ## Traceability
 
