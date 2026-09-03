@@ -1,7 +1,7 @@
 ---
 id: task.mastra-deterministic-shell
 title: Run Deterministic Shell Tasks Through Mastra
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
@@ -68,6 +68,20 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 Deterministic tasks use Mastra process primitives exclusively.
+
+## Outcome
+
+Deterministic local task invocations now use the pinned Mastra `LocalSandbox`
+process path with direct command arguments. Results normalize exit status,
+bounded output, timing, timeout, cancellation, task identity, and invocation
+identity. The last production callers switched, and the replaced Effect
+subprocess implementation, prototype, tests, and direct platform dependencies
+were removed. The public workflow and task contracts remain free of Mastra
+types.
+
+Focused runtime tests, runtime typecheck, runtime lint, test mapping, and the
+lockfile-only dependency synchronization passed. The repository-wide gates
+remain for the stacked migration validation.
 
 ## Traceability
 

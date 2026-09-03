@@ -1,5 +1,6 @@
 // @test-scope ./index.ts
 // @test-scope ./runner-protocol.ts
+// @test-scope ./contracts.ts
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,7 @@ describe("adr.executor-neutral-workflow-authoring executor-neutral boundaries", 
       [
         "libs/seqlane-core/src/index.ts",
         "libs/seqlane-core/src/runner-protocol.ts",
+        "libs/seqlane-core/src/contracts.ts",
         "apps/seqlane-cli/src/commands/run.ts",
       ],
       [

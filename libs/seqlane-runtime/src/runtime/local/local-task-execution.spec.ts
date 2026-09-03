@@ -1,5 +1,5 @@
 // @test-scope ./local-task-execution.ts
-// @test-scope ./effect-subprocess.ts
+// @test-scope ./mastra-process.ts
 // @test-scope ../invocation/invocation-execution.ts
 // @test-scope ../compile/compile-plan.ts
 // @test-scope ../execution/model-preflight.ts
@@ -19,7 +19,6 @@ import type {
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import {
-  ExecutorError,
   OutputValidationError,
   runCompiledWorkflow,
   startCompiledWorkflow,
@@ -27,11 +26,6 @@ import {
 import { EffectCompiler } from "../compile/compile-plan.js";
 import type { ExecutorResolvers } from "../execution/executor.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
-import {
-  EffectSubprocessOutputLimitError,
-  EffectSubprocessSpawnError,
-  runEffectSubprocess,
-} from "./effect-subprocess.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 
@@ -149,7 +143,8 @@ describe("local task execution", () => {
         { workspace, events: { emit: (event) => events.push(event) } },
       );
 
-      await expect(runCompiledWorkflow(compiled)).resolves.toEqual({
+      const outcome = await runCompiledWorkflow(compiled);
+      expect(outcome).toMatchObject({
         status: "succeeded",
         result: {
           exitCode: 0,
@@ -157,6 +152,14 @@ describe("local task execution", () => {
           stderr: "stderr",
           input: { value: "parsed-input" },
           parsed: true,
+        },
+      });
+      expect(outcome).toMatchObject({
+        status: "succeeded",
+        result: {
+          taskId: definition.id,
+          invocationId: "local-output:1",
+          outcome: "completed",
         },
       });
       expect(events.map(({ type }) => type)).toEqual([
@@ -208,54 +211,6 @@ describe("local task execution", () => {
       });
     },
   );
-
-  it("bounds each subprocess output stream with a typed error", async () => {
-    await expect(
-      runEffectSubprocess({
-        command: process.execPath,
-        args: ["-e", "process.stdout.write('1234')"],
-        cwd: process.cwd(),
-        outputLimitBytes: 3,
-      }),
-    ).rejects.toBeInstanceOf(EffectSubprocessOutputLimitError);
-    await expect(
-      runEffectSubprocess({
-        command: process.execPath,
-        args: ["-e", "process.stderr.write('1234')"],
-        cwd: process.cwd(),
-        outputLimitBytes: 3,
-      }),
-    ).rejects.toBeInstanceOf(EffectSubprocessOutputLimitError);
-  });
-
-  it("maps a missing executable to a typed failure that retains its cause", async () => {
-    const cause = new Error("invalid output");
-    const definition: LocalTaskDefinition = {
-      id: "local-failure",
-      input: identitySchema,
-      output: {
-        parse: () => {
-          throw cause;
-        },
-      },
-      execute: async (_input, context) =>
-        context.exec({ command: "seqlane-command-that-does-not-exist" }),
-    };
-    const compiled = compileLocal(
-      localPlan(localTaskNode(definition.id)),
-      definition,
-    );
-
-    const outcome = await runCompiledWorkflow(compiled);
-
-    expect(outcome.status).toBe("failed");
-    expect((outcome as { readonly error: unknown }).error).toBeInstanceOf(
-      ExecutorError,
-    );
-    expect(
-      (outcome as unknown as { readonly error: ExecutorError }).error.cause,
-    ).toBeInstanceOf(EffectSubprocessSpawnError);
-  });
 
   it("maps invalid local output to OutputValidationError and does not retain it", async () => {
     const cause = new Error("invalid output");

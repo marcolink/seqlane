@@ -10,9 +10,6 @@ export const JsonDependencyCheckRuleOptions = {
     "@seqlane/studio-app",
     // Vite copies Geist font assets from its package without importing code.
     "geist",
-    // Effect platform modules use subpath imports so optional Node peers stay unloaded.
-    "@effect/platform",
-    "@effect/platform-node",
   ],
   ignoredFiles: [
     "{projectRoot}/eslint.config.{js,cjs,mjs,ts,cts,mts}",
