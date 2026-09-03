@@ -15,10 +15,7 @@ import {
   compilePlanToMastra,
   type CompiledMastraPlan,
 } from "../compile/mastra-plan-compiler.js";
-import {
-  EffectCompiler,
-  type CompiledWorkflow,
-} from "../compile/compile-plan.js";
+import { PlanCompiler, type CompiledPlan } from "../compile/compile-plan.js";
 import {
   executeTaskNode,
   executeValidationCheckNode,
@@ -61,7 +58,7 @@ export interface MastraPlanExecutionOptions {
 }
 
 export interface MastraPlanExecution {
-  readonly legacy: CompiledWorkflow;
+  readonly prepared: CompiledPlan;
   readonly compiled: CompiledMastraPlan;
   readonly runtime: MastraRuntime;
 }
@@ -95,7 +92,7 @@ function dependencyResults(
 }
 
 function dependencyInvocationIds(
-  context: CompiledWorkflow["context"],
+  context: CompiledPlan["context"],
   compiled: CompiledMastraPlan,
   node: PlanNode,
 ): readonly InvocationId[] {
@@ -111,10 +108,10 @@ function dependencyInvocationIds(
 
 export function emitMastraInvocationTopology(
   compiled: CompiledMastraPlan,
-  legacy: CompiledWorkflow,
+  prepared: CompiledPlan,
   events: SeqlaneEventSink,
 ): void {
-  const { context } = legacy;
+  const { context } = prepared;
   for (const [siblingOrder, node] of compiled.orderedNodes.entries()) {
     const subject = invocationSubject(node);
     const invocationId = invocationIdForNode(context, node);
@@ -148,7 +145,7 @@ export function emitMastraInvocationTopology(
 
 function emitMastraNonTerminalInvocations(
   compiled: CompiledMastraPlan,
-  legacy: CompiledWorkflow,
+  prepared: CompiledPlan,
   result: MastraWorkflowResult,
   events: SeqlaneEventSink,
 ): void {
@@ -174,31 +171,31 @@ function emitMastraNonTerminalInvocations(
       continue;
     }
 
-    const invocationId = invocationIdForNode(legacy.context, node);
+    const invocationId = invocationIdForNode(prepared.context, node);
     if (cancelledBeforeTerminal) {
       events.emit({
         type: "invocation.cancelled",
-        workId: legacy.context.workId,
-        runId: legacy.context.runId,
+        workId: prepared.context.workId,
+        runId: prepared.context.runId,
         invocationId,
         reason: "Mastra cancelled invocation before execution completed",
       });
     } else if (status === "skipped" || skippedAfterFailure) {
       events.emit({
         type: "invocation.skipped",
-        workId: legacy.context.workId,
-        runId: legacy.context.runId,
+        workId: prepared.context.workId,
+        runId: prepared.context.runId,
         invocationId,
         reason: skippedAfterFailure
           ? "Mastra did not execute invocation after an upstream failure"
           : "Mastra skipped invocation after an upstream failure",
-        dependencyIds: dependencyInvocationIds(legacy.context, compiled, node),
+        dependencyIds: dependencyInvocationIds(prepared.context, compiled, node),
       });
     } else {
       events.emit({
         type: "invocation.cancelled",
-        workId: legacy.context.workId,
-        runId: legacy.context.runId,
+        workId: prepared.context.workId,
+        runId: prepared.context.runId,
         invocationId,
         reason: "Mastra cancelled invocation",
       });
@@ -213,7 +210,7 @@ export function createMastraPlanExecution(
   const captureFailure = (failure: SeqlaneError): void => {
     typedFailure ??= failure;
   };
-  const legacy = new EffectCompiler().compileWorkflow(options.plan, {
+  const prepared = new PlanCompiler().compileWorkflow(options.plan, {
     workId: options.workId,
     runId: options.runId,
     createInvocationId: (nodeId) => options.createInvocationId(nodeId),
@@ -230,7 +227,7 @@ export function createMastraPlanExecution(
     workId: options.workId,
     runId: options.runId,
     createInvocationId: (nodeId) => {
-      const invocationId = legacy.context.invocationIds.get(nodeId);
+      const invocationId = prepared.context.invocationIds.get(nodeId);
       if (invocationId === undefined) {
         throw new Error(`No Invocation ID allocated for Plan node "${nodeId}"`);
       }
@@ -275,9 +272,9 @@ export function createMastraPlanExecution(
       try {
         const results = dependencyResults(node, getStepResult);
         const context = {
-          ...legacy.context,
+          ...prepared.context,
           results,
-          remainingConsumers: new Map(legacy.context.remainingConsumers),
+          remainingConsumers: new Map(prepared.context.remainingConsumers),
           failure: undefined,
         };
         if (node.type === "task") {
@@ -323,7 +320,7 @@ export function createMastraPlanExecution(
   });
 
   return {
-    legacy,
+    prepared,
     compiled,
     runtime: createMastraRuntime(
       [{ key: compiled.key, workflow: compiled.workflow }],
@@ -333,7 +330,7 @@ export function createMastraPlanExecution(
         onWorkflowResult: (_request, result) => {
           emitMastraNonTerminalInvocations(
             compiled,
-            legacy,
+            prepared,
             result,
             options.events,
           );

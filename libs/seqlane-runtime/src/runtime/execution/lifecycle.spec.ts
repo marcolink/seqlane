@@ -19,7 +19,7 @@ import {
   type SeqlaneRunOutcome,
 } from "../../index.js";
 import { createSequentialProgram } from "./program.js";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "./executor.js";
 import type { TaskSchema } from "../plan/task-schema.js";
 
@@ -60,7 +60,7 @@ function compile(
     taskDefinitions?: ReadonlyMap<string, TaskDefinition>;
   } = {},
 ) {
-  return new EffectCompiler().compileWorkflow(source, {
+  return new PlanCompiler().compileWorkflow(source, {
     workId: "test-work",
     runId: "run-1",
     workflowInput: { value: "input" },

@@ -1,11 +1,11 @@
 ---
 id: task.mastra-architectural-cleanup
 title: Remove Superseded Runtime Architecture
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -68,6 +68,24 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 The repository contains one runtime authority and the migration ledger has no unexplained remainder.
+
+## Outcome
+
+Mastra is now the only production workflow runtime. The superseded Effect
+dependency and interruption adapter were removed. Plan preparation now uses
+`PlanCompiler`, and the Mastra runner consumes its prepared execution context
+directly. The `legacy` execution bridge was removed from the Mastra execution
+result.
+
+The remaining in-process workflow test harness uses native Promise dependency
+execution. It keeps the existing cancellation guarantee by waiting for active
+executor work to settle before it reports cancellation. No Effect package,
+Effect import, fallback runtime, or unexplained bridge remains in the runtime
+package.
+
+Repository searches confirmed that Mastra types remain private, no `/ee/` import
+is present, and the Renovate workflow remains outside this migration as the
+independent deliverable documented by the delivery plan.
 
 ## Traceability
 

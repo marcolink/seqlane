@@ -1,5 +1,3 @@
-import { Cause, Effect, Exit, Option } from "effect";
-
 export interface SequentialProgramStep {
   readonly id: string;
   readonly dependsOn?: readonly string[];
@@ -97,35 +95,16 @@ export function executeSequentialProgram(
 ): Promise<SequentialProgramResult> {
   if (signal?.aborted) return Promise.resolve({ status: "cancelled" });
 
-  let execution: Promise<void> | undefined;
-  const effect = Effect.tryPromise({
-    try: (abortSignal) => {
-      execution = executeDependencyProgram(program, abortSignal);
-      return execution;
-    },
-    catch: (cause) => cause,
-  }).pipe(
-    // Effect interruption stops waiting for the step promise immediately. The
-    // finalizer keeps the runner alive until a cancelled executor confirms its
-    // external work has stopped (for example, OpenCode acknowledges /abort).
-    Effect.onInterrupt(() =>
-      Effect.promise(
-        () =>
-          execution?.then(
-            () => undefined,
-            () => undefined,
-          ) ?? Promise.resolve(),
-      ),
-    ),
+  // Keep waiting for active executor work to settle after cancellation. This
+  // preserves the subprocess/session cleanup guarantee without a second
+  // orchestration runtime.
+  const abortSignal = signal ?? new AbortController().signal;
+  return executeDependencyProgram(program, abortSignal).then(
+    () =>
+      abortSignal.aborted ? { status: "cancelled" } : { status: "success" },
+    (error) =>
+      abortSignal.aborted
+        ? { status: "cancelled" }
+        : { status: "failed", error },
   );
-  return Effect.runPromiseExit(effect, { signal }).then((exit) => {
-    if (Exit.isSuccess(exit)) return { status: "success" };
-    if (Exit.isInterrupted(exit)) return { status: "cancelled" };
-
-    const failure = Cause.failureOption(exit.cause);
-    if (Option.isSome(failure)) {
-      return { status: "failed", error: failure.value };
-    }
-    return { status: "failed", error: exit.cause };
-  });
 }

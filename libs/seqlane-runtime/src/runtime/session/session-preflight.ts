@@ -1,4 +1,4 @@
-import type { CompiledWorkflow } from "../compile/compile-plan.js";
+import type { CompiledPlan } from "../compile/compile-plan.js";
 import { invocationIdForNode } from "../execution/context.js";
 import {
   resolveTaskSession,
@@ -11,7 +11,7 @@ import {
 
 /** Resolves executor sessions and validates session admission before execution. */
 export async function resolveCompiledWorkflowSessions(
-  compiled: CompiledWorkflow,
+  compiled: CompiledPlan,
 ): Promise<void> {
   const { context } = compiled;
   for (const node of compiled.orderedNodes) {
