@@ -55,13 +55,6 @@ export const workspaceAliases = [
     ),
   },
   {
-    find: "@seqlane/fixtures/local-git-status",
-    replacement: resolve(
-      workspaceRoot,
-      "libs/seqlane-fixtures/src/local-git-status.ts",
-    ),
-  },
-  {
     find: "@seqlane/opencode",
     replacement: resolve(workspaceRoot, "libs/seqlane-opencode/src/index.ts"),
   },
