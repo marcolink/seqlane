@@ -7,6 +7,8 @@ import type {
   FlowHandle,
   SessionPolicy,
   FlowValidationHandle,
+  AgentTaskDefinition,
+  LocalTaskDefinition,
   TaskDefinition,
   ValidatedRepeatCondition,
   Validator,
@@ -14,6 +16,7 @@ import type {
   WorkflowBuildContext,
   WorkflowDefinition,
 } from "./contracts.js";
+import { taskDefinitionSchema } from "./contracts.js";
 import type { ModelSelection } from "./models/model-ref.js";
 import type {
   InputBinding,
@@ -28,8 +31,13 @@ export function defineValidator<Input>(
 }
 
 export function defineTask<Input, Output>(
-  definition: TaskDefinition<Input, Output>,
-): TaskDefinition<Input, Output> {
+  definition: AgentTaskDefinition<Input, Output>,
+): AgentTaskDefinition<Input, Output>;
+export function defineTask<Input, Output>(
+  definition: LocalTaskDefinition<Input, Output>,
+): LocalTaskDefinition<Input, Output>;
+export function defineTask(definition: TaskDefinition): TaskDefinition {
+  taskDefinitionSchema.parse(definition);
   return definition;
 }
 
@@ -176,18 +184,28 @@ export function createFlow<Input, Output>(
             taskOptions?.dependsOn,
             authoringContext,
           );
-          const session =
-            typeof taskOptions?.session === "function"
-              ? taskOptions.session(authoringContext)
-              : taskOptions?.session;
-          return context.run(definition, {
+          const runOptions = {
             input: resolvedBinding,
             ...(taskOptions?.validateOutput === undefined
               ? {}
               : { validateOutput: taskOptions.validateOutput }),
             ...(dependsOn === undefined ? {} : { dependsOn }),
-            ...(session === undefined ? {} : { session }),
-          });
+          };
+          if ("goal" in definition && typeof definition.goal === "function") {
+            const sessionOption =
+              taskOptions !== undefined && "session" in taskOptions
+                ? taskOptions.session
+                : undefined;
+            const session =
+              typeof sessionOption === "function"
+                ? sessionOption(authoringContext)
+                : sessionOption;
+            return context.run(definition, {
+              ...runOptions,
+              ...(session === undefined ? {} : { session }),
+            });
+          }
+          return context.run(definition, runOptions);
         },
       });
       return builder as never;

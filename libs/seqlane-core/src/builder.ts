@@ -1,7 +1,11 @@
+import { taskDefinitionSchema } from "./contracts.js";
 import type {
+  AgentTaskDefinition,
+  AgentTaskInvocationOptions,
+  LocalTaskDefinition,
+  LocalTaskInvocationOptions,
   TaskDefinition,
   TaskId,
-  TaskInvocationOptions,
   Validator,
   ValidatorDefinition,
   WorkflowDefinition,
@@ -34,7 +38,7 @@ import type {
 import { isolated } from "./dsl.js";
 
 function serializeSessionPolicy(
-  policy: TaskInvocationOptions<unknown, unknown>["session"],
+  policy: AgentTaskInvocationOptions<unknown, unknown>["session"],
 ): PlanSessionPolicy {
   const resolved = policy ?? isolated();
   if (resolved.type === "isolated") return resolved;
@@ -58,13 +62,24 @@ export function buildWorkflow<Input, Output>(
   const invocationCounts = new Map<TaskId, number>();
   const validationCounts = new Map<string, number>();
   let repeatCount = 0;
-  const taskDefinitions = new Map<TaskId, TaskDefinition>();
-  const validatorDefinitions = new Map<string, ValidatorDefinition>();
+  const taskDefinitions = new Map<TaskId, TaskDefinition<unknown, unknown>>();
+  const validatorDefinitions = new Map<string, ValidatorDefinition<unknown>>();
 
-  const run = <TaskInput, TaskOutput>(
+  function run<TaskInput, TaskOutput>(
+    task: AgentTaskDefinition<TaskInput, TaskOutput>,
+    options: AgentTaskInvocationOptions<TaskInput, TaskOutput>,
+  ): TaskInvocation<TaskOutput>;
+  function run<TaskInput, TaskOutput>(
+    task: LocalTaskDefinition<TaskInput, TaskOutput>,
+    options: LocalTaskInvocationOptions<TaskInput, TaskOutput>,
+  ): MechanicalTaskRef<TaskOutput>;
+  function run<TaskInput, TaskOutput>(
     task: TaskDefinition<TaskInput, TaskOutput>,
-    options: TaskInvocationOptions<TaskInput, TaskOutput>,
-  ): TaskInvocation<TaskOutput> => {
+    options:
+      | AgentTaskInvocationOptions<TaskInput, TaskOutput>
+      | LocalTaskInvocationOptions<TaskInput, TaskOutput>,
+  ): TaskInvocation<TaskOutput> | MechanicalTaskRef<TaskOutput> {
+    taskDefinitionSchema.parse(task);
     const count = (invocationCounts.get(task.id) ?? 0) + 1;
     invocationCounts.set(task.id, count);
     const nodeId = `${task.id}:${count}`;
@@ -74,9 +89,11 @@ export function buildWorkflow<Input, Output>(
     for (const dependency of options.dependsOn ?? []) {
       dependencies.add(dependency.nodeId);
     }
-    const session = serializeSessionPolicy(options.session);
+    const session = serializeSessionPolicy(
+      "session" in options ? options.session : undefined,
+    );
     if (session.type !== "isolated") dependencies.add(session.from);
-    taskDefinitions.set(task.id, task as unknown as TaskDefinition);
+    taskDefinitions.set(task.id, task);
     nodes.push({
       type: "task",
       taskId: task.id,
@@ -90,19 +107,19 @@ export function buildWorkflow<Input, Output>(
     const output = createValueRef<TaskOutput>(nodeId, ["output"]);
     if (options.validateOutput !== undefined) {
       const validation = validate(options.validateOutput, { input: output });
-      return {
-        nodeId,
-        output: validation.output,
-        session: createSessionCheckpointRef(nodeId),
-      };
+      return "goal" in task
+        ? {
+            nodeId,
+            output: validation.output,
+            session: createSessionCheckpointRef(nodeId),
+          }
+        : { nodeId, output: validation.output };
     }
 
-    return {
-      nodeId,
-      output,
-      session: createSessionCheckpointRef(nodeId),
-    };
-  };
+    return "goal" in task
+      ? { nodeId, output, session: createSessionCheckpointRef(nodeId) }
+      : { nodeId, output };
+  }
 
   const validate = <Candidate>(
     validator: Validator<Candidate>,
@@ -121,23 +138,20 @@ export function buildWorkflow<Input, Output>(
     collectDependencies(options.input, checkDependencies);
 
     let source: ValidationSource;
-    if ("validate" in validator && typeof validator.validate === "function") {
+    if ("goal" in validator) {
+      taskDefinitions.set(validator.id, validator);
+      source = {
+        type: "task",
+        taskId: validator.id,
+        workspace: validator.workspace ?? "exclusive",
+      };
+    } else {
       const existing = validatorDefinitions.get(validator.id);
       if (existing !== undefined && existing !== validator) {
         throw new Error(`Duplicate validator definition "${validator.id}"`);
       }
-      validatorDefinitions.set(
-        validator.id,
-        validator as unknown as ValidatorDefinition,
-      );
+      validatorDefinitions.set(validator.id, validator);
       source = { type: "mechanical", validatorId: validator.id };
-    } else {
-      taskDefinitions.set(validator.id, validator as unknown as TaskDefinition);
-      source = {
-        type: "task",
-        taskId: validator.id,
-        workspace: (validator as TaskDefinition).workspace ?? "exclusive",
-      };
     }
 
     targetNodes.push({
@@ -176,13 +190,33 @@ export function buildWorkflow<Input, Output>(
     const bodyCounts = new Map<TaskId, number>();
     const bodyValidationPrefix = `${nodeId}/validation`;
     const bodyInput = createValueRef<State>(`${nodeId}:input`);
-    const bodyTask = <TaskInput, TaskOutput>(
-      task: TaskDefinition<TaskInput, TaskOutput>,
+    function bodyTask<TaskInput, TaskOutput>(
+      task: AgentTaskDefinition<TaskInput, TaskOutput>,
       taskOptions: Omit<
-        TaskInvocationOptions<TaskInput, TaskOutput>,
+        AgentTaskInvocationOptions<TaskInput, TaskOutput>,
         "validateOutput"
       >,
-    ): TaskInvocation<TaskOutput> => {
+    ): TaskInvocation<TaskOutput>;
+    function bodyTask<TaskInput, TaskOutput>(
+      task: LocalTaskDefinition<TaskInput, TaskOutput>,
+      taskOptions: Omit<
+        LocalTaskInvocationOptions<TaskInput, TaskOutput>,
+        "validateOutput"
+      >,
+    ): MechanicalTaskRef<TaskOutput>;
+    function bodyTask<TaskInput, TaskOutput>(
+      task: TaskDefinition<TaskInput, TaskOutput>,
+      taskOptions:
+        | Omit<
+            AgentTaskInvocationOptions<TaskInput, TaskOutput>,
+            "validateOutput"
+          >
+        | Omit<
+            LocalTaskInvocationOptions<TaskInput, TaskOutput>,
+            "validateOutput"
+          >,
+    ): TaskInvocation<TaskOutput> | MechanicalTaskRef<TaskOutput> {
+      taskDefinitionSchema.parse(task);
       const count = (bodyCounts.get(task.id) ?? 0) + 1;
       bodyCounts.set(task.id, count);
       const bodyNodeId = `${nodeId}/${task.id}:${count}`;
@@ -191,9 +225,11 @@ export function buildWorkflow<Input, Output>(
       for (const dependency of taskOptions.dependsOn ?? []) {
         bodyDependencies.add(dependency.nodeId);
       }
-      const session = serializeSessionPolicy(taskOptions.session);
+      const session = serializeSessionPolicy(
+        "session" in taskOptions ? taskOptions.session : undefined,
+      );
       if (session.type !== "isolated") bodyDependencies.add(session.from);
-      taskDefinitions.set(task.id, task as unknown as TaskDefinition);
+      taskDefinitions.set(task.id, task);
       bodyNodes.push({
         type: "task",
         taskId: task.id,
@@ -203,12 +239,15 @@ export function buildWorkflow<Input, Output>(
         input: serializeBinding(taskOptions.input),
         dependsOn: [...bodyDependencies],
       });
-      return {
-        nodeId: bodyNodeId,
-        output: createValueRef(bodyNodeId, ["output"]),
-        session: createSessionCheckpointRef(bodyNodeId),
-      };
-    };
+      const output = createValueRef<TaskOutput>(bodyNodeId, ["output"]);
+      return "goal" in task
+        ? {
+            nodeId: bodyNodeId,
+            output,
+            session: createSessionCheckpointRef(bodyNodeId),
+          }
+        : { nodeId: bodyNodeId, output };
+    }
     const bodyValidate = <Candidate>(
       validator: Validator<Candidate>,
       validationOptions: { readonly input: InputBinding<Candidate> },

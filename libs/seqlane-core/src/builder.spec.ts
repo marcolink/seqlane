@@ -21,6 +21,27 @@ const schema = <T>(): SeqlaneSchema<T> => ({
 });
 
 describe("buildWorkflow", () => {
+  it("rejects malformed task behavior when a workflow is built", () => {
+    const malformedTask = {
+      id: "mixed-task-behavior",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      goal: () => "work",
+      execute: async () => ({}),
+    };
+    const workflow = defineWorkflow({
+      id: "mixed-task-behavior-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      build: ({ input, run }) => {
+        // @ts-expect-error A task cannot define both agent and local behavior.
+        return run(malformedTask, { input }).output;
+      },
+    });
+
+    expect(() => buildWorkflow(workflow)).toThrow();
+  });
+
   it("nests model selection under an isolated session", () => {
     const task = defineTask({
       id: "selected-model",
@@ -130,9 +151,9 @@ describe("buildWorkflow", () => {
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       build: ({ input, run }) =>
+        // @ts-expect-error Model selection belongs under session.
         run(task, {
           input,
-          // @ts-expect-error Model selection belongs under session.
           model: openai("gpt-5.6-luna"),
         }).output,
     });

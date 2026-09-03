@@ -1,6 +1,6 @@
 # TS-023-01 — Define Local Task Contracts
 
-**Status:** ready for implementation
+**Status:** completed
 **Depends on:** TS-023-00 passes
 
 ## User outcome

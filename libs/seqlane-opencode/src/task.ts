@@ -1,11 +1,15 @@
-import type { TaskDefinition, TaskDefinitionRegistry } from "@seqlane/core";
+import type {
+  AgentTaskDefinition as CoreAgentTaskDefinition,
+  TaskDefinition,
+  TaskDefinitionRegistry,
+} from "@seqlane/core";
 
 export type JsonSchema = { readonly [key: string]: unknown };
 
 export type AgentTaskDefinition<
   Input = unknown,
   Output = unknown,
-> = TaskDefinition<Input, Output>;
+> = CoreAgentTaskDefinition<Input, Output>;
 
 export function isAgentTaskDefinition(
   value: TaskDefinition,
