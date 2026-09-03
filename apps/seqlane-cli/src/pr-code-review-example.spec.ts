@@ -264,6 +264,12 @@ describe("pull-request code review example workflow", () => {
     expect(inspect.instructions).toContain(
       "Compare the stated pull-request intent with the complete baseRevision...headRevision diff and report scope drift or unmet requirements.",
     );
+    expect(inspect.instructions).toContain(
+      "Do not rerun git diff --stat, git diff --name-only, git diff --name-status, git diff --check, or git rev-parse HEAD; the supplied gitEvidence already contains those results.",
+    );
+    expect(inspect.instructions).toContain(
+      "If patch contents are needed, use only the exact read-only command git diff --no-ext-diff --no-textconv <baseRevision>...<headRevision>.",
+    );
 
     const reviewInput = {
       repository: "/repo",
