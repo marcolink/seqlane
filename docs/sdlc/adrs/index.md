@@ -21,7 +21,7 @@
 | [adr.builtin-workflow-distribution](./2026-09-02-builtin-workflow-distribution.md) | Store and Ship Built-in Workflows as a Dedicated Package | accepted | 2026-09-02 | core |
 | [adr.repository-user-workflow-discovery-and-composition](./2026-09-02-repository-user-workflow-discovery-and-composition.md) | Support Repository and User Scoped Composition Using Ordinary TypeScript | proposed | 2026-09-02 | core |
 | [adr.seqlane-plan-ir-and-typed-dataflow](./2026-09-02-seqlane-plan-ir-and-typed-dataflow.md) | Use a Seqlane-Owned Plan IR with Typed Dataflow | accepted | 2026-09-02 | core |
-| [adr.effect-private-runtime-engine](./2026-09-02-effect-private-runtime-engine.md) | Use Effect as Seqlane's Private Runtime Engine | accepted | 2026-09-02 | core |
+| [adr.effect-private-runtime-engine](./2026-09-02-effect-private-runtime-engine.md) | Use Effect as Seqlane's Private Runtime Engine | superseded | 2026-09-02 | core |
 | [adr.mastra-internal-workflow-engine](./2026-09-02-mastra-internal-workflow-engine.md) | Use Mastra as Seqlane’s Internal Workflow Engine | superseded | 2026-09-02 | core |
 | [adr.model-selection-and-session-model-semantics](./2026-09-03-model-selection-and-session-model-semantics.md) | Model Selection and Session Model Semantics | accepted | 2026-09-03 | core |
 | [adr.local-mechanical-tasks](./2026-09-03-local-mechanical-tasks.md) | Run Local Mechanical Tasks Without an Agent | accepted | 2026-09-03 | core |

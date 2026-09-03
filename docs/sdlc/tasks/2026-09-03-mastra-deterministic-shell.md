@@ -1,0 +1,75 @@
+---
+id: task.mastra-deterministic-shell
+title: Run Deterministic Shell Tasks Through Mastra
+status: planned
+owners:
+  - core
+created: 2026-09-03
+updated: 2026-09-03
+upstream:
+  - spec.mastra-runtime-and-operational-integration
+supersedes: []
+---
+
+# Run Deterministic Shell Tasks Through Mastra
+
+## Objective
+
+Deliver one independently reviewable migration slice that satisfies its part of
+the Mastra runtime integration contract.
+
+## Dependencies
+
+- [task.mastra-plan-compiler](./2026-09-03-mastra-plan-compiler.md)
+
+## Delivery
+
+- Stack order: 4
+- Branch: `mastra-04-deterministic-shell`
+- Pull request base: `mastra-03-plan-compiler`
+- Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
+- Delivery unit: exactly one task branch and one pull request
+
+## Scope
+
+- Map deterministic tasks to Mastra Workspace or Sandbox processes.
+- Normalize output, timing, timeout, cancellation, and identity.
+- Switch callers and delete the replaced Effect subprocess path.
+
+## Out of scope
+
+- Agent execution.
+- General shell-string parsing unless explicitly required by the public contract.
+
+## Implementation plan
+
+1. Verify the pinned process API.
+2. Implement argv-first process execution.
+3. Add zero-model-call tests and remove obsolete code/dependencies.
+
+## Affected areas
+
+- `libs/seqlane-runtime/src/runtime/local/`
+- local task contracts and tests
+
+## Verification
+
+- Success, non-zero exit, timeout, cancellation, and output bounds are covered.
+- Tests prove zero agent/model invocations.
+
+## Acceptance criteria
+
+- **Given:** all dependency tasks are complete and the task branch matches the
+  `Delivery` section
+- **When:** the scoped implementation and required verification finish
+- **Then:** the completion criteria are true, no out-of-scope change is present,
+  and the branch is ready as one stacked pull request
+
+## Completion criteria
+
+Deterministic tasks use Mastra process primitives exclusively.
+
+## Traceability
+
+- [spec.mastra-runtime-and-operational-integration](../specs/2026-09-03-mastra-runtime-and-operational-integration.md)
+- [task.mastra-plan-compiler](./2026-09-03-mastra-plan-compiler.md)
