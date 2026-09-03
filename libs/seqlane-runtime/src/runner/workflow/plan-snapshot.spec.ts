@@ -120,6 +120,7 @@ describe("Seqlane Plan snapshots", () => {
           planNodeId: "prepare:1",
           type: "task",
           label: "prepare-task",
+          execution: "agent",
           taskId: "prepare-task",
           dependsOn: [],
           siblingOrder: 0,
@@ -135,6 +136,7 @@ describe("Seqlane Plan snapshots", () => {
           planNodeId: "fork:1",
           type: "task",
           label: "fork-task",
+          execution: "agent",
           taskId: "fork-task",
           dependsOn: ["prepare:1"],
           siblingOrder: 1,
@@ -158,6 +160,7 @@ describe("Seqlane Plan snapshots", () => {
           planNodeId: "finish:1",
           type: "task",
           label: "finish-task",
+          execution: "agent",
           taskId: "finish-task",
           dependsOn: ["repeat:1", "prepare:1"],
           siblingOrder: 3,
@@ -167,6 +170,7 @@ describe("Seqlane Plan snapshots", () => {
           planNodeId: "repeat:1/body:1",
           type: "task",
           label: longTaskId.slice(0, 512),
+          execution: "agent",
           taskId: longTaskId.slice(0, 256),
           dependsOn: [],
           parentPlanNodeId: "repeat:1",
@@ -193,5 +197,38 @@ describe("Seqlane Plan snapshots", () => {
     expect(
       snapshot.nodes.every(({ planNodeId }) => planNodeId.length <= 256),
     ).toBe(true);
+  });
+
+  it("projects local execution without callback or process data", () => {
+    const plan: Plan = {
+      workflow: { id: "local-workflow" },
+      nodes: [
+        {
+          type: "task",
+          nodeId: "local:1",
+          taskId: "local-task",
+          workspace: "shared",
+          execution: "local",
+          input: {
+            command: "git",
+            args: ["status"],
+            execute: async () => undefined,
+          } as never,
+          dependsOn: [],
+        },
+      ],
+      output: { type: "ref", nodeId: "local:1", path: ["output"] },
+    };
+
+    const snapshot = createSeqlanePlanSnapshot(plan);
+
+    expect(snapshot.nodes[0]).toMatchObject({
+      type: "task",
+      execution: "local",
+      taskId: "local-task",
+    });
+    expect(snapshot.nodes[0]).not.toHaveProperty("session");
+    expect(JSON.stringify(snapshot)).not.toContain("execute");
+    expect(JSON.stringify(snapshot)).not.toContain("git");
   });
 });

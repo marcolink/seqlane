@@ -62,8 +62,11 @@ export function orderRepeatBodyNodes(
   return orderedNodes;
 }
 
-export function orderPlanNodes(plan: Plan): readonly PlanNode[] {
-  validatePlan(plan);
+export function orderPlanNodes(
+  plan: Plan,
+  validateDefinitions = true,
+): readonly PlanNode[] {
+  validatePlan(plan, undefined, validateDefinitions);
 
   const dependents = new Map<string, PlanNode[]>();
   const remainingDependencies = new Map<string, number>();

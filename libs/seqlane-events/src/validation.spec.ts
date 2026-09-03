@@ -177,6 +177,52 @@ describe("event validation schemas", () => {
         },
       }),
     ).toBe(false);
+
+    expect(
+      isSeqlaneExecutionEvent({
+        type: "run.plan",
+        metadata,
+        workId: "work-1",
+        runId: "run-1",
+        plan: {
+          workflow: { id: "workflow-1" },
+          nodes: [
+            {
+              planNodeId: "local-1",
+              type: "task",
+              label: "local",
+              taskId: "local-task",
+              execution: "local",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isSeqlaneExecutionEvent({
+        type: "run.plan",
+        metadata,
+        workId: "work-1",
+        runId: "run-1",
+        plan: {
+          workflow: { id: "workflow-1" },
+          nodes: [
+            {
+              planNodeId: "local-1",
+              type: "task",
+              label: "local",
+              taskId: "local-task",
+              execution: "local",
+              session: { type: "isolated" },
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+          ],
+        },
+      }),
+    ).toBe(false);
   });
 
   it("validates bounded tool activity events", () => {

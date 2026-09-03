@@ -115,7 +115,7 @@ export async function loadWorkflow(
   }
   plan = loadedPlan.data;
 
-  validatePlan(plan);
+  validatePlan(plan, taskDefinitions);
 
   return {
     reference,

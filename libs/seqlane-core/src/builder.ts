@@ -1,4 +1,7 @@
-import { taskDefinitionSchema } from "./contracts.js";
+import {
+  agentTaskDefinitionSchema,
+  taskDefinitionSchema,
+} from "./contracts.js";
 import type {
   AgentTaskDefinition,
   AgentTaskInvocationOptions,
@@ -55,6 +58,17 @@ function serializeSessionPolicy(
   };
 }
 
+function registerTaskDefinition(
+  taskDefinitions: Map<TaskId, TaskDefinition<unknown, unknown>>,
+  task: TaskDefinition<unknown, unknown>,
+): void {
+  const existing = taskDefinitions.get(task.id);
+  if (existing !== undefined && existing !== task) {
+    throw new Error(`Duplicate task definition "${task.id}"`);
+  }
+  taskDefinitions.set(task.id, task);
+}
+
 export function buildWorkflow<Input, Output>(
   workflow: WorkflowDefinition<Input, Output>,
 ): BuiltWorkflow<Input, Output> {
@@ -89,17 +103,25 @@ export function buildWorkflow<Input, Output>(
     for (const dependency of options.dependsOn ?? []) {
       dependencies.add(dependency.nodeId);
     }
-    const session = serializeSessionPolicy(
-      "session" in options ? options.session : undefined,
-    );
-    if (session.type !== "isolated") dependencies.add(session.from);
-    taskDefinitions.set(task.id, task);
+    const isAgentTask = agentTaskDefinitionSchema.safeParse(task).success;
+    const execution = isAgentTask ? "agent" : "local";
+    const session =
+      execution === "agent"
+        ? serializeSessionPolicy(
+            "session" in options ? options.session : undefined,
+          )
+        : undefined;
+    if (session !== undefined && session.type !== "isolated") {
+      dependencies.add(session.from);
+    }
+    registerTaskDefinition(taskDefinitions, task);
     nodes.push({
       type: "task",
       taskId: task.id,
       nodeId,
       workspace: task.workspace ?? "exclusive",
-      session,
+      execution,
+      ...(session === undefined ? {} : { session }),
       input: serializeBinding(options.input),
       dependsOn: [...dependencies],
     });
@@ -107,7 +129,7 @@ export function buildWorkflow<Input, Output>(
     const output = createValueRef<TaskOutput>(nodeId, ["output"]);
     if (options.validateOutput !== undefined) {
       const validation = validate(options.validateOutput, { input: output });
-      return "goal" in task
+      return isAgentTask
         ? {
             nodeId,
             output: validation.output,
@@ -116,7 +138,7 @@ export function buildWorkflow<Input, Output>(
         : { nodeId, output: validation.output };
     }
 
-    return "goal" in task
+    return isAgentTask
       ? { nodeId, output, session: createSessionCheckpointRef(nodeId) }
       : { nodeId, output };
   }
@@ -139,7 +161,7 @@ export function buildWorkflow<Input, Output>(
 
     let source: ValidationSource;
     if ("goal" in validator) {
-      taskDefinitions.set(validator.id, validator);
+      registerTaskDefinition(taskDefinitions, validator);
       source = {
         type: "task",
         taskId: validator.id,
@@ -225,22 +247,30 @@ export function buildWorkflow<Input, Output>(
       for (const dependency of taskOptions.dependsOn ?? []) {
         bodyDependencies.add(dependency.nodeId);
       }
-      const session = serializeSessionPolicy(
-        "session" in taskOptions ? taskOptions.session : undefined,
-      );
-      if (session.type !== "isolated") bodyDependencies.add(session.from);
-      taskDefinitions.set(task.id, task);
+      const isAgentTask = agentTaskDefinitionSchema.safeParse(task).success;
+      const execution = isAgentTask ? "agent" : "local";
+      const session =
+        execution === "agent"
+          ? serializeSessionPolicy(
+              "session" in taskOptions ? taskOptions.session : undefined,
+            )
+          : undefined;
+      if (session !== undefined && session.type !== "isolated") {
+        bodyDependencies.add(session.from);
+      }
+      registerTaskDefinition(taskDefinitions, task);
       bodyNodes.push({
         type: "task",
         taskId: task.id,
         nodeId: bodyNodeId,
         workspace: task.workspace ?? "exclusive",
-        session,
+        execution,
+        ...(session === undefined ? {} : { session }),
         input: serializeBinding(taskOptions.input),
         dependsOn: [...bodyDependencies],
       });
       const output = createValueRef<TaskOutput>(bodyNodeId, ["output"]);
-      return "goal" in task
+      return isAgentTask
         ? {
             nodeId: bodyNodeId,
             output,

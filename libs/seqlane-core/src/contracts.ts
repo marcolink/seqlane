@@ -126,17 +126,21 @@ const taskDefinitionBaseSchema = {
   }),
 };
 
+export const agentTaskDefinitionSchema = z.looseObject({
+  ...taskDefinitionBaseSchema,
+  goal: z.custom((value) => typeof value === "function"),
+  execute: z.never().optional(),
+});
+
+export const localTaskDefinitionSchema = z.looseObject({
+  ...taskDefinitionBaseSchema,
+  goal: z.never().optional(),
+  execute: z.custom((value) => typeof value === "function"),
+});
+
 export const taskDefinitionSchema = z.union([
-  z.looseObject({
-    ...taskDefinitionBaseSchema,
-    goal: z.custom((value) => typeof value === "function"),
-    execute: z.never().optional(),
-  }),
-  z.looseObject({
-    ...taskDefinitionBaseSchema,
-    goal: z.never().optional(),
-    execute: z.custom((value) => typeof value === "function"),
-  }),
+  agentTaskDefinitionSchema,
+  localTaskDefinitionSchema,
 ]);
 
 export interface AgentTaskInvocationOptions<Input, Output> {

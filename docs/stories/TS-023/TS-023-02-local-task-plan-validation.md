@@ -1,6 +1,6 @@
 # TS-023-02 — Serialize and Validate Local Task Nodes
 
-**Status:** ready for implementation
+**Status:** completed
 **Depends on:** TS-023-01
 
 ## User outcome

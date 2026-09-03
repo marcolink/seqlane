@@ -2,12 +2,16 @@ import type {
   Plan,
   PlanNode,
   RepeatNode,
+  TaskDefinitionRegistry,
   TaskNode,
   ValidationNode,
   ValueBinding,
 } from "@seqlane/core";
 import {
   modelSelectionSchema,
+  agentTaskDefinitionSchema,
+  localTaskDefinitionSchema,
+  taskExecutionSchema,
   workspacePolicySchema,
   type ModelSelection,
 } from "@seqlane/core";
@@ -75,7 +79,12 @@ export type PlanValidationIssueCode =
   | "invalid-session-source"
   | "missing-session-dependency"
   | "duplicate-session-reuse"
-  | "forbidden-permission-configuration";
+  | "forbidden-permission-configuration"
+  | "invalid-task-execution"
+  | "local-task-session"
+  | "missing-task-definition"
+  | "invalid-task-definition"
+  | "task-definition-kind-mismatch";
 
 export interface PlanValidationIssue {
   readonly code: PlanValidationIssueCode;
@@ -124,6 +133,75 @@ function validateTaskWorkspace(
       issues,
       "forbidden-permission-configuration",
       `Task "${node.nodeId}" must not declare Seqlane permission configuration`,
+      node.nodeId,
+    );
+  }
+}
+
+function validateTaskDefinition(
+  node: TaskNode,
+  taskDefinitions: TaskDefinitionRegistry | undefined,
+  issues: PlanValidationIssue[],
+  validateDefinitions: boolean,
+): void {
+  const executionResult = taskExecutionSchema.safeParse(node.execution);
+  if (node.execution !== undefined && !executionResult.success) {
+    addIssue(
+      issues,
+      "invalid-task-execution",
+      `Task "${node.nodeId}" must declare agent or local execution`,
+      node.nodeId,
+    );
+  }
+  const execution = executionResult.success
+    ? executionResult.data
+    : node.execution === undefined
+      ? "agent"
+      : undefined;
+
+  if (execution === "local" && node.session !== undefined) {
+    addIssue(
+      issues,
+      "local-task-session",
+      `Local task "${node.nodeId}" must not declare a session`,
+      node.nodeId,
+    );
+  }
+
+  if (!validateDefinitions) return;
+
+  const definition = taskDefinitions?.get(node.taskId);
+  if (definition === undefined) {
+    if (execution === "local") {
+      addIssue(
+        issues,
+        "missing-task-definition",
+        `Task "${node.nodeId}" has no registered definition for "${node.taskId}"`,
+        node.nodeId,
+      );
+    }
+    return;
+  }
+
+  const localDefinition = localTaskDefinitionSchema.safeParse(definition);
+  const agentDefinition = agentTaskDefinitionSchema.safeParse(definition);
+  const definitionExecution = localDefinition.success
+    ? "local"
+    : agentDefinition.success
+      ? "agent"
+      : undefined;
+  if (definitionExecution === undefined) {
+    addIssue(
+      issues,
+      "invalid-task-definition",
+      `Task definition "${node.taskId}" is malformed`,
+      node.nodeId,
+    );
+  } else if (execution !== undefined && definitionExecution !== execution) {
+    addIssue(
+      issues,
+      "task-definition-kind-mismatch",
+      `Task "${node.nodeId}" declares ${execution} execution but its definition is ${definitionExecution}`,
       node.nodeId,
     );
   }
@@ -519,6 +597,8 @@ function validateRepeat(
   node: RepeatNode,
   issues: PlanValidationIssue[],
   outerNodeIds: ReadonlySet<string>,
+  taskDefinitions: TaskDefinitionRegistry | undefined,
+  validateDefinitions: boolean,
 ): void {
   if (
     !Number.isFinite(node.maximumIterations) ||
@@ -610,6 +690,12 @@ function validateRepeat(
     );
     if (bodyNode.type === "task") {
       validateTaskWorkspace(bodyNode, issues);
+      validateTaskDefinition(
+        bodyNode,
+        taskDefinitions,
+        issues,
+        validateDefinitions,
+      );
     }
     if (
       bodyNode.type === "validation.check" ||
@@ -746,7 +832,11 @@ function validateRepeat(
   validateReuseConsumers(node.body.nodes, issues);
 }
 
-export function validatePlan(plan: Plan): void {
+export function validatePlan(
+  plan: Plan,
+  taskDefinitions?: TaskDefinitionRegistry,
+  validateDefinitions = true,
+): void {
   const issues: PlanValidationIssue[] = [];
   const nodesById = new Map<string, PlanNode>();
 
@@ -804,12 +894,24 @@ export function validatePlan(plan: Plan): void {
     validateReferences(node.input, node, nodesById, issues);
     if (node.type === "task") {
       validateTaskWorkspace(node, issues);
+      validateTaskDefinition(
+        node,
+        taskDefinitions,
+        issues,
+        validateDefinitions,
+      );
     }
     if (node.type === "validation.check" || node.type === "validation.gate") {
       validateValidationNode(node, nodesById, issues, false);
     }
     if (node.type === "repeat") {
-      validateRepeat(node, issues, new Set(nodesById.keys()));
+      validateRepeat(
+        node,
+        issues,
+        new Set(nodesById.keys()),
+        taskDefinitions,
+        validateDefinitions,
+      );
     }
   }
 

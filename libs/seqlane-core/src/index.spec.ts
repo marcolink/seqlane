@@ -314,6 +314,7 @@ describe("seqlane core", () => {
           taskId: "investigate",
           nodeId: "investigate:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           dependsOn: [],
           input: { repository: "seqlane" },
@@ -445,6 +446,7 @@ describe("seqlane core", () => {
           taskId: "investigate",
           nodeId: "investigate:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             request: {
@@ -460,6 +462,7 @@ describe("seqlane core", () => {
           taskId: "plan",
           nodeId: "plan:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             files: {
@@ -517,6 +520,7 @@ describe("seqlane core", () => {
           taskId: "first",
           nodeId: "first:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             request: {
@@ -532,6 +536,7 @@ describe("seqlane core", () => {
           taskId: "second",
           nodeId: "second:1",
           workspace: "shared",
+          execution: "agent",
           session: { type: "isolated" },
           input: {
             value: {

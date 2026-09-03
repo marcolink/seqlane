@@ -85,7 +85,7 @@ function nodeSession(
   node: PlanNode,
   serializedIds: ReadonlyMap<string, string>,
 ) {
-  if (node.type !== "task") return undefined;
+  if (node.type !== "task" || node.execution === "local") return undefined;
   const session = node.session ?? { type: "isolated" as const };
   if (session.type === "isolated") return session;
   const from = serializedIds.get(session.from);
@@ -99,7 +99,7 @@ function nodeSession(
 }
 
 export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
-  const topLevelNodes = orderPlanNodes(plan);
+  const topLevelNodes = orderPlanNodes(plan, false);
   const allNodes: PlanNode[] = [];
   const collectNodes = (nodes: readonly PlanNode[]): void => {
     for (const node of nodes) {
@@ -146,6 +146,9 @@ export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
         siblingOrder,
         ...(taskId === undefined ? {} : { taskId }),
         ...(session === undefined ? {} : { session }),
+        ...(node.type === "task"
+          ? { execution: node.execution ?? "agent" }
+          : {}),
         ...(serializedParent === undefined
           ? {}
           : { parentPlanNodeId: serializedParent }),

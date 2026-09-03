@@ -39,6 +39,7 @@ import {
 import { executeRepeatNode } from "../invocation/repeat-execution.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
+import { validatePlan } from "../validation/plan-validation.js";
 
 export interface PreparedPlan {
   readonly plan: Plan;
@@ -123,6 +124,7 @@ export class EffectCompiler {
     plan: Plan,
     options: CompileWorkflowOptions,
   ): CompiledWorkflow {
+    validatePlan(plan, options.taskDefinitions);
     const prepared = this.compile(plan);
     assertValidationRegistries(
       plan,
