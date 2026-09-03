@@ -58,7 +58,9 @@ uses the supplied base branch for context and compares the matching explicit
 base and head revisions, using the pull-request title and description as
 untrusted author-supplied context. It runs correctness,
 maintainability, and risk lanes in parallel before producing a five-axis
-rating. It instructs the agent to use only read-only Git inspection commands.
+rating. Review tasks only read supplied evidence and targeted workspace files;
+they do not execute scripts, tests, builds, package managers, Git, or shell
+commands.
 Inspection uses an isolated `openai/gpt-5.6-luna` session with high reasoning.
 Each review lane uses an independent session with its configured OpenAI model
 and reasoning level; the final summary uses an isolated
