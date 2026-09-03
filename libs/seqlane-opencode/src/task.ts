@@ -1,7 +1,4 @@
-import type {
-  TaskDefinition,
-  TaskDefinitionRegistry,
-} from "@seqlane/core";
+import type { TaskDefinition, TaskDefinitionRegistry } from "@seqlane/core";
 
 export type JsonSchema = { readonly [key: string]: unknown };
 

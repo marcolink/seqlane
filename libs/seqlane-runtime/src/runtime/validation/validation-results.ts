@@ -1,11 +1,5 @@
-import type {
-  ValidationCheckNode,
-  ValidationGateNode,
-} from "@seqlane/core";
-import {
-  ValidationFailedError,
-  jsonValueSchema,
-} from "@seqlane/core";
+import type { ValidationCheckNode, ValidationGateNode } from "@seqlane/core";
+import { ValidationFailedError, jsonValueSchema } from "@seqlane/core";
 import { z } from "zod";
 
 const validationIssueSchema = z.looseObject({
@@ -59,9 +53,7 @@ const failedValidationShapeSchema = z.looseObject({
 
 export type RuntimeValidationResult = z.infer<typeof validationResultSchema>;
 
-export function parseValidationResult(
-  value: unknown,
-): RuntimeValidationResult {
+export function parseValidationResult(value: unknown): RuntimeValidationResult {
   if (!validationResultObjectSchema.safeParse(value).success) {
     throw new Error("Validation result must be a JSON object");
   }
@@ -87,8 +79,7 @@ export function parseValidationResult(
     );
   }
   if (
-    !z.array(validationIssueSchema).safeParse(failedShape.data.issues)
-      .success
+    !z.array(validationIssueSchema).safeParse(failedShape.data.issues).success
   ) {
     throw new Error("Validation issues must contain code and message strings");
   }

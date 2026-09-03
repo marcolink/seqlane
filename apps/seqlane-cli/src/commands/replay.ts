@@ -1,9 +1,6 @@
 import { Args, Command, Flags } from "@oclif/core";
 import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
-import {
-  defaultStudioPort,
-  startStudioSession,
-} from "@seqlane/studio";
+import { defaultStudioPort, startStudioSession } from "@seqlane/studio";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { createEventDispatcher } from "../event-dispatcher.js";
@@ -75,9 +72,7 @@ export default class ReplayCommand extends Command {
         ownedStudio = await startStudioSession({
           port,
           clientRoot: dirname(
-            packageRequire.resolve(
-              "@seqlane/studio-app/client/index.html",
-            ),
+            packageRequire.resolve("@seqlane/studio-app/client/index.html"),
           ),
         });
         studioAddress = ownedStudio.address;

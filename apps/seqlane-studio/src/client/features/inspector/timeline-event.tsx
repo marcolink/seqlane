@@ -23,7 +23,10 @@ export function TimelineEvent({
   readonly onToggle: (cursor: number, isOpen: boolean) => void;
   readonly snapshot: StudioRunSnapshot | undefined;
 }) {
-  const annotation = timelineAnnotation(item.event, snapshot?.invocations ?? []);
+  const annotation = timelineAnnotation(
+    item.event,
+    snapshot?.invocations ?? [],
+  );
   const presentation = timelineEventPresentation(item.event);
   const Icon = presentation.icon;
   const target =
@@ -51,14 +54,23 @@ export function TimelineEvent({
                 {target}
               </Mono>
             </span>
-            <Text as="span" className="timeline-event__detail" tone="muted" variant="meta">
+            <Text
+              as="span"
+              className="timeline-event__detail"
+              tone="muted"
+              variant="meta"
+            >
               {presentation.detail}
             </Text>
           </span>
           <Mono as="span" className="timeline-event__meta">
             {duration} · #{item.cursor}
           </Mono>
-          <ChevronDown aria-hidden="true" className="timeline-event__chevron" size={14} />
+          <ChevronDown
+            aria-hidden="true"
+            className="timeline-event__chevron"
+            size={14}
+          />
         </span>
       }
     >

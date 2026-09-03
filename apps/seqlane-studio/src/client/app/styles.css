@@ -1503,7 +1503,8 @@ ol {
     var(--inspector-drawer-width);
 }
 
-.studio-layout > :is(.workspace-panel, .inspector-panel, .inspector-drawer-collapsed) {
+.studio-layout
+  > :is(.workspace-panel, .inspector-panel, .inspector-drawer-collapsed) {
   border-left: 1px solid #d1dfdc;
 }
 
@@ -1546,7 +1547,9 @@ ol {
   width: 1px;
   background: transparent;
   content: "";
-  transition: background-color 140ms ease, width 140ms ease;
+  transition:
+    background-color 140ms ease,
+    width 140ms ease;
 }
 
 .sidebar-resize-handle:hover::after,
@@ -1666,10 +1669,10 @@ ol {
 }
 
 @media (max-width: 1100px) {
-.studio-layout,
-.studio-layout.inspector-collapsed,
-.studio-layout.runs-collapsed,
-.studio-layout.runs-collapsed.inspector-collapsed {
+  .studio-layout,
+  .studio-layout.inspector-collapsed,
+  .studio-layout.runs-collapsed,
+  .studio-layout.runs-collapsed.inspector-collapsed {
     grid-template-columns: var(--runs-drawer-width) minmax(28rem, 1fr);
   }
 

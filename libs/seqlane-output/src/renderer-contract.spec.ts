@@ -52,9 +52,7 @@ describe("seqlane output package", () => {
   });
 
   it("ships the core and canonical event dependencies", () => {
-    const manifest = JSON.parse(
-      source("libs/seqlane-output/package.json"),
-    ) as {
+    const manifest = JSON.parse(source("libs/seqlane-output/package.json")) as {
       readonly dependencies?: Record<string, string>;
       readonly files?: readonly string[];
       readonly exports?: Record<string, unknown>;

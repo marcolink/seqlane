@@ -65,9 +65,9 @@ describe("semantic validation workflow fixtures", () => {
   });
 
   it("validates evaluator results at the task boundary", () => {
-    const evaluator = buildWorkflow(evaluatorRepeatWorkflow).taskDefinitions.get(
-      "validation.fixture.evaluator",
-    );
+    const evaluator = buildWorkflow(
+      evaluatorRepeatWorkflow,
+    ).taskDefinitions.get("validation.fixture.evaluator");
 
     if (!evaluator) {
       throw new Error("Expected evaluator fixture task definition");

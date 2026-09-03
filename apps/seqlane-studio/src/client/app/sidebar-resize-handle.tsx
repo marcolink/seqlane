@@ -1,9 +1,4 @@
-import {
-  type KeyboardEvent,
-  type PointerEvent,
-  useRef,
-  useState,
-} from "react";
+import { type KeyboardEvent, type PointerEvent, useRef, useState } from "react";
 import { Tooltip } from "../components/ui/tooltip.js";
 import {
   sidebarWidthAfterDrag,
@@ -34,7 +29,12 @@ export function SidebarResizeHandle({
     const start = pointerStart.current;
     if (start === undefined) return;
     onResize(
-      sidebarWidthAfterDrag(sidebar, start.width, event.clientX - start.x, bounds),
+      sidebarWidthAfterDrag(
+        sidebar,
+        start.width,
+        event.clientX - start.x,
+        bounds,
+      ),
     );
   };
 

@@ -36,9 +36,7 @@ export default class StudioCommand extends Command {
         port: flags.port,
         replayFile: flags.replay,
         clientRoot: dirname(
-          packageRequire.resolve(
-            "@seqlane/studio-app/client/index.html",
-          ),
+          packageRequire.resolve("@seqlane/studio-app/client/index.html"),
         ),
       });
     } catch (error) {

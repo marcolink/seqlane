@@ -3,7 +3,9 @@ import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
 
 const studioService = "http://127.0.0.1:57694";
-const geistFonts = fileURLToPath(new URL("./node_modules/geist/dist/fonts", import.meta.url));
+const geistFonts = fileURLToPath(
+  new URL("./node_modules/geist/dist/fonts", import.meta.url),
+);
 
 export default defineConfig({
   root: "src/client",

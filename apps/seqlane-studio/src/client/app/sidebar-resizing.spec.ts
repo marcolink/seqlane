@@ -28,11 +28,11 @@ describe("sidebar resizing", () => {
 
     expect(sidebarWidthAfterDrag("runs", 240, -96, runsBounds)).toBe(240);
     expect(sidebarWidthAfterDrag("runs", 240, 480, runsBounds)).toBe(352);
-    expect(
-      sidebarWidthAfterDrag("inspector", 352, 96, inspectorBounds),
-    ).toBe(352);
-    expect(
-      sidebarWidthAfterDrag("inspector", 352, -480, inspectorBounds),
-    ).toBe(464);
+    expect(sidebarWidthAfterDrag("inspector", 352, 96, inspectorBounds)).toBe(
+      352,
+    );
+    expect(sidebarWidthAfterDrag("inspector", 352, -480, inspectorBounds)).toBe(
+      464,
+    );
   });
 });

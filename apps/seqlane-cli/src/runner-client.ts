@@ -8,10 +8,7 @@ import {
   decodeRuntimeSessionUiAvailable,
   type RuntimeSessionUiAvailable,
 } from "@seqlane/runtime";
-import {
-  encodeRunnerCommand,
-  type RunRequest,
-} from "@seqlane/core";
+import { encodeRunnerCommand, type RunRequest } from "@seqlane/core";
 
 export type TerminalSeqlaneExecutionEvent = Extract<
   SeqlaneExecutionEvent,

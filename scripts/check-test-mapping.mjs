@@ -53,7 +53,8 @@ const mappings = [];
 for (const testFile of tests) {
   const contents = readFileSync(testFile, "utf8");
   const targets = explicitImplementations(testFile, contents);
-  const resolvedTargets = targets.length > 0 ? targets : defaultImplementation(testFile);
+  const resolvedTargets =
+    targets.length > 0 ? targets : defaultImplementation(testFile);
 
   if (resolvedTargets.length === 0) {
     errors.push(
@@ -87,5 +88,7 @@ if (errors.length > 0) {
   for (const error of errors) console.error(`- ${error}`);
   process.exitCode = 1;
 } else {
-  console.log(`Test-to-implementation mapping passed (${mappings.length} mappings).`);
+  console.log(
+    `Test-to-implementation mapping passed (${mappings.length} mappings).`,
+  );
 }

@@ -47,11 +47,7 @@ export function Timeline({
                 item={item}
                 onToggle={(cursor, isOpen) =>
                   setExpandedCursor((currentCursor) =>
-                    updateExpandedTimelineCursor(
-                      currentCursor,
-                      cursor,
-                      isOpen,
-                    ),
+                    updateExpandedTimelineCursor(currentCursor, cursor, isOpen),
                   )
                 }
                 snapshot={snapshot}
