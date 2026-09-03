@@ -117,14 +117,34 @@ function compactCI(value: string, maximum = 500): string {
     : normalized.slice(0, Math.max(0, maximum - 1)) + "…";
 }
 
-function activityCommand(event: InvocationActivityEvent): string | undefined {
+function activityDetail(event: InvocationActivityEvent): string | undefined {
   if (event.kind !== "tool" || event.input?.state !== "present") {
     return undefined;
   }
   const value = event.input.value;
   if (!isPlainRecord(value)) return undefined;
-  const command = value.command;
-  return typeof command === "string" ? compactCI(command, 500) : undefined;
+  if (event.name === "bash") {
+    const command = value.command;
+    return typeof command === "string"
+      ? "command=" + compactCI(command, 500)
+      : undefined;
+  }
+  if (event.name === "read") {
+    const filePath = value.filePath ?? value.path;
+    return typeof filePath === "string"
+      ? "path=" + compactCI(filePath, 500)
+      : undefined;
+  }
+  if (event.name === "glob" || event.name === "grep") {
+    const pattern = value.pattern;
+    const path = value.path;
+    const details = [
+      typeof pattern === "string" ? "pattern=" + compactCI(pattern, 300) : "",
+      typeof path === "string" ? "path=" + compactCI(path, 300) : "",
+    ].filter((detail) => detail.length > 0);
+    return details.length === 0 ? undefined : details.join(" ");
+  }
+  return undefined;
 }
 
 function formatCIDuration(milliseconds: number): string {
@@ -335,7 +355,7 @@ export class CIRenderer implements ExecutionRenderer {
       case "invocation.activity":
         if (event.state !== "failed") return "";
         {
-          const command = activityCommand(event);
+          const detail = activityDetail(event);
           return (
             "run=" +
             event.runId +
@@ -343,7 +363,7 @@ export class CIRenderer implements ExecutionRenderer {
             event.invocationId +
             " activity=" +
             compactCI(event.name, 200) +
-            (command === undefined ? "" : " command=" + command) +
+            (detail === undefined ? "" : " " + detail) +
             " failed" +
             (event.message === undefined
               ? ""

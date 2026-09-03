@@ -247,6 +247,19 @@ describe("pull-request code review example workflow", () => {
     ]) {
       expect(taskDefinitions.get(taskId)?.workspace).toBe("shared");
     }
+    for (const taskId of [
+      "pr-code-review.correctness",
+      "pr-code-review.maintainability",
+      "pr-code-review.risk",
+    ]) {
+      const task = taskDefinitions.get(taskId);
+      if (task === undefined || typeof task.goal !== "function") {
+        throw new Error(`Expected specialist task definition: ${taskId}`);
+      }
+      expect(task.instructions).toContain(
+        "The inspection task is the canonical full-diff pass. Do not call bash or rerun repository-level Git discovery in a specialist lane; use gitEvidence and inspection evidence, then use read, glob, or grep only to verify a specific file-level claim, requirement, test, or finding.",
+      );
+    }
     expect(taskDefinitions.get("pr-code-review.summarize")?.workspace).toBe(
       "shared",
     );

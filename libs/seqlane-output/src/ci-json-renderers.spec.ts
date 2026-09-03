@@ -199,6 +199,38 @@ describe("CI renderer", () => {
     expect(output).not.toContain("must not be emitted separately");
   });
 
+  it("logs the bounded path for failed read activity", async () => {
+    const stdout = new RecordingSink();
+    const renderer = new CIRenderer(capabilities(stdout), {
+      heartbeatIntervalMs: 0,
+    });
+    renderer.handle({ type: "run.started", ...run });
+    renderer.handle(created("a", "Task A", 0));
+    renderer.handle({
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool",
+      name: "read",
+      state: "failed",
+      input: {
+        state: "present",
+        value: {
+          filePath: "/repo/src/review.ts",
+          offset: 1,
+          limit: 200,
+        },
+      },
+      message: "Tool failed",
+    });
+    await renderer.finish();
+
+    expect(stdout.writes.join("")).toContain(
+      "activity=read path=/repo/src/review.ts failed error=Tool failed",
+    );
+  });
+
   it("emits a heartbeat while active", () => {
     vi.useFakeTimers();
     const stdout = new RecordingSink();
