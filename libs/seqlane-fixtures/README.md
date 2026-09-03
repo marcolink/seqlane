@@ -3,8 +3,8 @@
 Private workflows and task definitions for tests and local development.
 
 The package includes workflows for Renovate-shaped execution, mixed agent and
-operation work, fake execution paths, and semantic validation coverage. It is
-not a production workflow catalog.
+operation work, model-selected sessions, fake execution paths, and semantic
+validation coverage. It is not a production workflow catalog.
 
 ## Use a fixture
 
@@ -20,6 +20,8 @@ import {
   evaluatorRepeatWorkflow,
   taskOutputValidationWorkflow,
 } from "@seqlane/fixtures/validation-workflow";
+
+import { modelSelectionWorkflow } from "@seqlane/fixtures/model-selection-workflow";
 ```
 
 Run the Renovate fixture from the repository after a runtime service starts:

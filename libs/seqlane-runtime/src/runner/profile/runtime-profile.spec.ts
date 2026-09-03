@@ -28,6 +28,39 @@ async function startOpenCodeServer(): Promise<{
       response.end();
       return;
     }
+    if (request.method === "GET" && url.pathname === "/provider") {
+      writeJson(response, {
+        all: [
+          {
+            id: "openai",
+            models: { "gpt-5.6-luna": { id: "gpt-5.6-luna" } },
+          },
+          {
+            id: "anthropic",
+            models: { "claude-sonnet-4-6": { id: "claude-sonnet-4-6" } },
+          },
+        ],
+        default: { openai: "gpt-5.6-luna" },
+        connected: ["openai", "anthropic"],
+      });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/config/providers") {
+      writeJson(response, {
+        providers: [
+          {
+            id: "openai",
+            models: { "gpt-5.6-luna": { id: "gpt-5.6-luna" } },
+          },
+          {
+            id: "anthropic",
+            models: { "claude-sonnet-4-6": { id: "claude-sonnet-4-6" } },
+          },
+        ],
+        default: { openai: "gpt-5.6-luna" },
+      });
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/session") {
       let body = "";
       for await (const chunk of request) body += String(chunk);
@@ -116,13 +149,48 @@ describe("resolveRuntimeProfile", () => {
         new AbortController().signal,
         null,
       );
+      const selection = {
+        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        reasoning: "high" as const,
+      };
       const session = await execution.sessionResolver.resolve({
         invocationId: "invocation:source",
         task: source,
+        effectiveSelection: selection,
       });
 
       expect(session.checkpoint).toBeTypeOf("function");
       expect(session.fork).toBeTypeOf("function");
+      expect(session.effectiveSelection).toEqual(selection);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("exposes the OpenCode model catalog and configured default", async () => {
+    const server = await startOpenCodeServer();
+    const source = task("source", "shared");
+    const tasks: TaskDefinitionRegistry = new Map([[source.id, source]]);
+
+    try {
+      const execution = await resolveRuntimeProfile(
+        { id: server.url, workspace: process.cwd() },
+        tasks,
+        new AbortController().signal,
+        null,
+      );
+
+      await expect(
+        execution.sessionResolver.modelCapabilities?.listModels(),
+      ).resolves.toEqual([
+        { provider: "openai", model: "gpt-5.6-luna" },
+        { provider: "anthropic", model: "claude-sonnet-4-6" },
+      ]);
+      await expect(
+        execution.sessionResolver.modelCapabilities?.resolveDefaultModel(),
+      ).resolves.toEqual({
+        model: { provider: "openai", model: "gpt-5.6-luna" },
+      });
     } finally {
       await server.close();
     }

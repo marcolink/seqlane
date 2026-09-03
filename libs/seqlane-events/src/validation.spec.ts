@@ -69,6 +69,49 @@ describe("event validation schemas", () => {
     ).toBe(true);
   });
 
+  it("accepts portable model selection metrics and rejects malformed selections", () => {
+    const output = {
+      type: "invocation.output" as const,
+      metadata,
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      policy: "persistent" as const,
+      channel: "task" as const,
+      content: "Task completed",
+      metrics: {
+        modelSelection: {
+          model: { provider: "openai", model: "gpt-5.2" },
+          reasoning: "high" as const,
+        },
+      },
+    };
+
+    expect(isSeqlaneExecutionEvent(output)).toBe(true);
+    expect(
+      isSeqlaneExecutionEvent({
+        ...output,
+        metrics: {
+          modelSelection: {
+            model: { provider: "openai", model: "gpt-5.2" },
+            reasoning: "unsupported",
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isSeqlaneExecutionEvent({
+        ...output,
+        metrics: {
+          modelSelection: {
+            model: { provider: "openai", model: "gpt-5.2" },
+            nativePayload: { secret: true },
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("preserves canonical timestamp, trace, and integer boundaries", () => {
     expect(isSeqlaneExecutionEvent(started)).toBe(true);
     expect(

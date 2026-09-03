@@ -17,6 +17,10 @@ Direct file references load the module's default export. Use
 `path/to/workflow.ts#namedExport` only when a module intentionally exports a
 named workflow. The CLI supports `.ts`, `.mts`, `.js`, and `.mjs` files.
 
+The minimal workflow explicitly selects `openai/gpt-5.6-luna` with `high`
+reasoning for its `prepare` session and `openai/gpt-5.6-terra` for its `finish`
+session.
+
 Workflow files run as local Node.js code in the runner process. Run only files
 you trust. TypeScript files use Node.js 24 native type stripping; use
 erasable TypeScript syntax or compile unsupported syntax to `.mjs`.
@@ -37,6 +41,9 @@ compares explicit base and head revisions, using the pull-request title and
 description as untrusted author-supplied context. It runs correctness,
 maintainability, and risk lanes in parallel before producing a five-axis
 rating. It instructs the agent to use only read-only Git inspection commands.
+Inspection uses an isolated `openai/gpt-5.6-luna` session with high reasoning.
+Each review lane branches with its own OpenAI model and reasoning level; the
+final summary reuses the inspection session and does not select a model.
 The current OpenCode tasks use `workspace: "shared"` because the author asserts
 they may overlap. This is not a read-only workspace boundary; configure the
 runtime accordingly.

@@ -7,6 +7,26 @@ This package is intentionally independent of Mastra. Runtime integration belongs
 `SeqlaneSchema` is the small Mastra-independent schema contract used by the
 runtime to validate external task inputs and outputs.
 
+### Model catalog
+
+Run `pnpm models:update` to refresh the committed model ID mirrors from
+models.dev. The generated catalog includes strict OpenAI and Anthropic IDs;
+other providers are intentionally left to generic string model references.
+
+Model selections are nested under new or branched sessions:
+
+```ts
+import { isolated } from "@seqlane/core";
+import { openai } from "@seqlane/core/models";
+
+const session = isolated({
+  model: openai("gpt-5.6-luna"),
+  reasoning: "high",
+});
+```
+
+Reuse sessions cannot select a model; they inherit the source session model.
+
 Use `defineTask` and `defineWorkflow` to declare typed, core-owned authoring
 definitions. Definitions keep schemas and build callbacks in memory; they are
 not part of the serializable Plan IR. Local Studio displays bounded input,

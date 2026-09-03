@@ -9,6 +9,7 @@ import {
   startCompiledWorkflow,
   type ActiveWorkflowRun,
 } from "../runtime/execution/workflow-run.js";
+import { preflightCompiledWorkflowModels } from "../runtime/execution/model-preflight.js";
 import { resolveCompiledWorkflowSessions } from "../runtime/session/session-preflight.js";
 import { createExecutionEventBridge } from "./event-bridge.js";
 import { loadWorkflow, type LoadedWorkflow } from "./workflow/load-workflow.js";
@@ -145,6 +146,7 @@ export async function startRun(
       validatorDefinitions: loadedWorkflow.validatorDefinitions,
       events,
     });
+    await preflightCompiledWorkflowModels(compiled);
     await resolveCompiledWorkflowSessions(compiled);
 
     events.emitPlan(createSeqlanePlanSnapshot(compiled.plan), workId, runId);

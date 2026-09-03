@@ -78,7 +78,13 @@ describe("Seqlane Plan snapshots", () => {
           nodeId: "fork:1",
           taskId: "fork-task",
           workspace: "shared",
-          session: { type: "branch", from: "prepare:1" },
+          session: {
+            type: "branch",
+            from: "prepare:1",
+            model: {
+              model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+            },
+          },
           input: { source: "prepare" },
           dependsOn: ["prepare:1"],
         },
@@ -87,6 +93,13 @@ describe("Seqlane Plan snapshots", () => {
           nodeId: "prepare:1",
           taskId: "prepare-task",
           workspace: "shared",
+          session: {
+            type: "isolated",
+            model: {
+              model: { provider: "openai", model: "gpt-5.6-luna" },
+              reasoning: "high",
+            },
+          },
           input: { secret: "do-not-serialize" },
           dependsOn: [],
         },
@@ -110,7 +123,13 @@ describe("Seqlane Plan snapshots", () => {
           taskId: "prepare-task",
           dependsOn: [],
           siblingOrder: 0,
-          session: { type: "isolated" },
+          session: {
+            type: "isolated",
+            model: {
+              model: { provider: "openai", model: "gpt-5.6-luna" },
+              reasoning: "high",
+            },
+          },
         },
         {
           planNodeId: "fork:1",
@@ -119,7 +138,13 @@ describe("Seqlane Plan snapshots", () => {
           taskId: "fork-task",
           dependsOn: ["prepare:1"],
           siblingOrder: 1,
-          session: { type: "branch", from: "prepare:1" },
+          session: {
+            type: "branch",
+            from: "prepare:1",
+            model: {
+              model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+            },
+          },
         },
         {
           planNodeId: "repeat:1",

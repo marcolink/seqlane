@@ -6,7 +6,11 @@ import type {
   ValidationNode,
   ValueBinding,
 } from "@seqlane/core";
-import { workspacePolicySchema } from "@seqlane/core";
+import {
+  modelSelectionSchema,
+  workspacePolicySchema,
+  type ModelSelection,
+} from "@seqlane/core";
 import { z } from "zod";
 import { WORKFLOW_INPUT_NODE_ID } from "../plan/binding-resolution.js";
 
@@ -29,9 +33,16 @@ const validationSourceSchema = z.union([
 ]);
 
 const sessionPolicySchema = z.union([
-  z.looseObject({ type: z.literal("isolated") }),
+  z.looseObject({
+    type: z.literal("isolated"),
+    model: z.unknown().optional(),
+  }),
   z.looseObject({ type: z.literal("reuse"), from: z.string().min(1) }),
-  z.looseObject({ type: z.literal("branch"), from: z.string().min(1) }),
+  z.looseObject({
+    type: z.literal("branch"),
+    from: z.string().min(1),
+    model: z.unknown().optional(),
+  }),
 ]);
 
 export type PlanValidationIssueCode =
@@ -59,6 +70,8 @@ export type PlanValidationIssueCode =
   | "invalid-repeat-postcondition"
   | "invalid-workspace-policy"
   | "invalid-session-policy"
+  | "invalid-session-model"
+  | "session-model-conflict"
   | "invalid-session-source"
   | "missing-session-dependency"
   | "duplicate-session-reuse"
@@ -116,41 +129,122 @@ function validateTaskWorkspace(
   }
 }
 
-function validateTaskSession(
+type ParsedSessionPolicy = z.output<typeof sessionPolicySchema>;
+
+function describeModelSelection(selection: ModelSelection | undefined): string {
+  if (selection === undefined) return "an unspecified executor default";
+  const reasoning = selection.reasoning
+    ? ` (reasoning: ${selection.reasoning})`
+    : "";
+  return `${selection.model.provider}/${selection.model.model}${reasoning}`;
+}
+
+function parseSessionModel(
   node: TaskNode,
+  policy: ParsedSessionPolicy,
+  issues: PlanValidationIssue[],
+): ModelSelection | undefined {
+  if (!Object.hasOwn(node.session ?? {}, "model")) return undefined;
+
+  const result = modelSelectionSchema.safeParse(
+    "model" in policy ? policy.model : undefined,
+  );
+  if (!result.success) {
+    addIssue(
+      issues,
+      "invalid-session-model",
+      `Task "${node.nodeId}" must declare a valid model selection under its session`,
+      node.nodeId,
+    );
+    return undefined;
+  }
+  return result.data;
+}
+
+function resolveSessionSelections(
+  nodes: readonly PlanNode[],
   nodesById: ReadonlyMap<string, PlanNode>,
   issues: PlanValidationIssue[],
-): void {
-  if (node.session === undefined) return;
-  const policy = sessionPolicySchema.safeParse(node.session);
-  if (!policy.success) {
-    addIssue(
-      issues,
-      "invalid-session-policy",
-      `Task "${node.nodeId}" must declare a valid session policy`,
-      node.nodeId,
-    );
-    return;
-  }
-  if (policy.data.type === "isolated") return;
+): ReadonlyMap<string, ModelSelection | undefined> {
+  const selections = new Map<string, ModelSelection | undefined>();
+  const resolving = new Set<string>();
 
-  const source = nodesById.get(policy.data.from);
-  if (source?.type !== "task") {
-    addIssue(
-      issues,
-      "invalid-session-source",
-      `Task "${node.nodeId}" ${policy.data.type}s session source "${policy.data.from}" must be an agent task`,
-      node.nodeId,
-    );
+  const resolve = (nodeId: string): ModelSelection | undefined => {
+    if (selections.has(nodeId)) return selections.get(nodeId);
+    if (resolving.has(nodeId)) return undefined;
+
+    const node = nodesById.get(nodeId);
+    if (node?.type !== "task") return undefined;
+    resolving.add(nodeId);
+
+    if (node.session === undefined) {
+      selections.set(nodeId, undefined);
+      resolving.delete(nodeId);
+      return undefined;
+    }
+
+    const policy = sessionPolicySchema.safeParse(node.session);
+    if (!policy.success) {
+      addIssue(
+        issues,
+        "invalid-session-policy",
+        `Task "${node.nodeId}" must declare a valid session policy`,
+        node.nodeId,
+      );
+      selections.set(nodeId, undefined);
+      resolving.delete(nodeId);
+      return undefined;
+    }
+
+    const declaredSelection = parseSessionModel(node, policy.data, issues);
+    if (policy.data.type === "isolated") {
+      selections.set(nodeId, declaredSelection);
+      resolving.delete(nodeId);
+      return declaredSelection;
+    }
+
+    const source = nodesById.get(policy.data.from);
+    if (source?.type !== "task") {
+      addIssue(
+        issues,
+        "invalid-session-source",
+        `Task "${node.nodeId}" ${policy.data.type}s session source "${policy.data.from}" must be an agent task`,
+        node.nodeId,
+      );
+    }
+    if (!node.dependsOn.includes(policy.data.from)) {
+      addIssue(
+        issues,
+        "missing-session-dependency",
+        `Task "${node.nodeId}" must list its ${policy.data.type} session source "${policy.data.from}" as a dependency`,
+        node.nodeId,
+      );
+    }
+
+    const inheritedSelection =
+      source?.type === "task" ? resolve(source.nodeId) : undefined;
+    if (policy.data.type === "reuse" && Object.hasOwn(node.session, "model")) {
+      addIssue(
+        issues,
+        "session-model-conflict",
+        `Task "${node.nodeId}" cannot declare ${describeModelSelection(declaredSelection)} on a reuse session; it inherits ${describeModelSelection(inheritedSelection)}. Use a branch or isolated session to select a different provider/model or reasoning effort`,
+        node.nodeId,
+      );
+    }
+
+    const effectiveSelection =
+      policy.data.type === "branch"
+        ? (declaredSelection ?? inheritedSelection)
+        : inheritedSelection;
+    selections.set(nodeId, effectiveSelection);
+    resolving.delete(nodeId);
+    return effectiveSelection;
+  };
+
+  for (const node of nodes) {
+    if (node.type === "task") resolve(node.nodeId);
   }
-  if (!node.dependsOn.includes(policy.data.from)) {
-    addIssue(
-      issues,
-      "missing-session-dependency",
-      `Task "${node.nodeId}" must list its ${policy.data.type} session source "${policy.data.from}" as a dependency`,
-      node.nodeId,
-    );
-  }
+  return selections;
 }
 
 function validateReuseConsumers(
@@ -516,7 +610,6 @@ function validateRepeat(
     );
     if (bodyNode.type === "task") {
       validateTaskWorkspace(bodyNode, issues);
-      validateTaskSession(bodyNode, bodyById, issues);
     }
     if (
       bodyNode.type === "validation.check" ||
@@ -525,6 +618,8 @@ function validateRepeat(
       validateValidationNode(bodyNode, bodyById, issues, true, bodyNodeIds);
     }
   }
+
+  resolveSessionSelections(node.body.nodes, bodyById, issues);
 
   validateReferences(
     node.body.output,
@@ -709,7 +804,6 @@ export function validatePlan(plan: Plan): void {
     validateReferences(node.input, node, nodesById, issues);
     if (node.type === "task") {
       validateTaskWorkspace(node, issues);
-      validateTaskSession(node, nodesById, issues);
     }
     if (node.type === "validation.check" || node.type === "validation.gate") {
       validateValidationNode(node, nodesById, issues, false);
@@ -718,6 +812,8 @@ export function validatePlan(plan: Plan): void {
       validateRepeat(node, issues, new Set(nodesById.keys()));
     }
   }
+
+  resolveSessionSelections(plan.nodes, nodesById, issues);
 
   validateReferences(plan.output, undefined, nodesById, issues);
 

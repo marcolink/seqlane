@@ -1,13 +1,17 @@
 import type {
   InvocationId,
+  ModelSelection,
   TaskDefinition,
   TaskDefinitionRegistry,
 } from "@seqlane/core";
 import type { SeqlaneExecutor } from "../execution/executor.js";
+import type { ExecutorModelCapabilities } from "../execution/executor.js";
 
 export interface ResolvedExecutorSession {
   readonly key: symbol;
   readonly executor: SeqlaneExecutor;
+  /** The immutable Seqlane model selection pinned to this logical session. */
+  readonly effectiveSelection?: ModelSelection;
   /** Captures an executor-private stable checkpoint after all activity ends. */
   readonly checkpoint?: () => Promise<unknown>;
   /** Creates a distinct executor session from an exact private checkpoint. */
@@ -15,6 +19,7 @@ export interface ResolvedExecutorSession {
     readonly checkpoint: unknown;
     readonly invocationId: InvocationId;
     readonly task: TaskDefinition;
+    readonly effectiveSelection?: ModelSelection;
   }) => Promise<ResolvedExecutorSession>;
 }
 
@@ -22,6 +27,7 @@ export interface SessionConsumer {
   readonly invocationId: InvocationId;
   readonly task: TaskDefinition;
   readonly type: "reuse" | "branch";
+  readonly effectiveSelection?: ModelSelection;
 }
 
 export class UnsupportedSessionBranchError extends Error {
@@ -33,11 +39,44 @@ export class UnsupportedSessionBranchError extends Error {
   }
 }
 
+export class SessionModelSelectionMismatchError extends Error {
+  constructor(
+    readonly requested: ModelSelection,
+    readonly resolved: ModelSelection,
+  ) {
+    super(
+      "Resolved session effective model selection differs from requested selection",
+    );
+    this.name = "SessionModelSelectionMismatchError";
+  }
+}
+
 export interface SessionResolver {
+  readonly modelCapabilities?: ExecutorModelCapabilities;
   resolve(request: {
     readonly invocationId: InvocationId;
     readonly task: TaskDefinition;
+    readonly effectiveSelection?: ModelSelection;
   }): Promise<ResolvedExecutorSession>;
+}
+
+function pinSession(
+  session: ResolvedExecutorSession,
+  effectiveSelection: ModelSelection | undefined,
+): ResolvedExecutorSession {
+  if (effectiveSelection === undefined) return session;
+  const existing = session.effectiveSelection;
+  if (existing === undefined) {
+    return { ...session, effectiveSelection };
+  }
+  if (
+    existing.model.provider === effectiveSelection.model.provider &&
+    existing.model.model === effectiveSelection.model.model &&
+    existing.reasoning === effectiveSelection.reasoning
+  ) {
+    return session;
+  }
+  throw new SessionModelSelectionMismatchError(effectiveSelection, existing);
 }
 
 export async function resolveTaskSession(
@@ -46,6 +85,7 @@ export async function resolveTaskSession(
   taskDefinitions: TaskDefinitionRegistry | undefined,
   invocationId: InvocationId,
   taskId: string,
+  effectiveSelection?: ModelSelection,
 ): Promise<void> {
   if (resolver === undefined) return;
   if (resolvedSessions.has(invocationId)) {
@@ -57,10 +97,12 @@ export async function resolveTaskSession(
     throw new Error(`No task definition registered for "${taskId}"`);
   }
 
-  resolvedSessions.set(
+  const session = await resolver.resolve({
     invocationId,
-    await resolver.resolve({ invocationId, task }),
-  );
+    task,
+    ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
+  });
+  resolvedSessions.set(invocationId, pinSession(session, effectiveSelection));
 }
 
 export function sessionForInvocation(
@@ -107,11 +149,18 @@ export async function publishSessionCheckpoint(options: {
     const session =
       consumer.type === "reuse"
         ? options.sourceSession
-        : await fork({
-            checkpoint,
-            invocationId: consumer.invocationId,
-            task: consumer.task,
-          });
+        : pinSession(
+            await fork({
+              checkpoint,
+              invocationId: consumer.invocationId,
+              task: consumer.task,
+              effectiveSelection:
+                consumer.effectiveSelection ??
+                options.sourceSession.effectiveSelection,
+            }),
+            consumer.effectiveSelection ??
+              options.sourceSession.effectiveSelection,
+          );
     materialized.push({ consumer, session });
   }
   for (const { consumer, session } of materialized) {

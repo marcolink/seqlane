@@ -59,6 +59,7 @@ async function startServer(
   options: {
     readonly interaction?: boolean | string;
     readonly failPrompt?: boolean;
+    readonly failInit?: boolean;
     readonly holdPrompt?: boolean;
     readonly holdAbort?: boolean;
     readonly holdSession?: boolean;
@@ -154,6 +155,17 @@ async function startServer(
         version: "1",
         time: { created: nextSession, updated: nextSession },
       });
+      return;
+    }
+
+    const init = /^\/session\/(session-\d+)\/init$/.exec(path);
+    if (request.method === "POST" && init) {
+      if (options.failInit) {
+        response.writeHead(503);
+        response.end("OpenCode model initialization failed");
+        return;
+      }
+      writeJson(response, true);
       return;
     }
 
@@ -513,6 +525,31 @@ describe("OpenCode run session", () => {
     }
   });
 
+  it("sends the pinned model and reasoning on the first prompt", async () => {
+    const fake = await startServer();
+    try {
+      const run = await createOpenCodeRun({ url: fake.url }, undefined, {
+        model: { provider: "openai", model: "gpt-5.6-luna" },
+        reasoning: "high",
+      });
+
+      await run.prompt({ text: "use the selected model", schema: {} });
+
+      expect(
+        fake.requests.find(({ path }) => path === "/session/session-1/message"),
+      ).toMatchObject({
+        body: expect.stringContaining(
+          '"model":{"providerID":"openai","modelID":"gpt-5.6-luna"}',
+        ),
+      });
+      expect(
+        fake.requests.find(({ path }) => path === "/session/session-1/message"),
+      ).toMatchObject({ body: expect.stringContaining('"variant":"high"') });
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
   it("forks a new session from the terminal prompt checkpoint", async () => {
     const fake = await startServer();
     try {
@@ -534,6 +571,73 @@ describe("OpenCode run session", () => {
       expect(
         fake.requests.find(({ path }) => path === "/session/session-1/fork"),
       ).toMatchObject({ body: '{"messageID":"message-session-1"}' });
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("initializes a forked model before sending its first prompt", async () => {
+    const fake = await startServer();
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      await run.prompt({ text: "source", schema: { type: "object" } });
+      const branch = await run.fork(await run.checkpoint(), {
+        model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        reasoning: "high",
+      });
+      await branch.prompt({ text: "branch", schema: { type: "object" } });
+
+      expect(
+        fake.requests
+          .filter(({ path }) => !isInteractionMonitorPath(path))
+          .map(({ path }) => path),
+      ).toEqual([
+        "/session",
+        "/session/session-1/message",
+        "/session/session-1/fork",
+        "/session/session-2/init",
+        "/session/session-2/message",
+      ]);
+      expect(
+        fake.requests.find(({ path }) => path === "/session/session-2/init"),
+      ).toMatchObject({
+        body: JSON.stringify({
+          modelID: "claude-sonnet-4-6",
+          providerID: "anthropic",
+          messageID: "message-session-1",
+        }),
+      });
+      expect(
+        fake.requests.find(({ path }) => path === "/session/session-2/message"),
+      ).toMatchObject({ body: expect.stringContaining('"variant":"high"') });
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("does not expose a forked run when model initialization fails", async () => {
+    const fake = await startServer({ failInit: true });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      await run.prompt({ text: "source", schema: { type: "object" } });
+
+      await expect(
+        run.fork(await run.checkpoint(), {
+          model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+          reasoning: "high",
+        }),
+      ).rejects.toThrow(/native session checkpoint fork failed/i);
+
+      expect(
+        fake.requests
+          .filter(({ path }) => !isInteractionMonitorPath(path))
+          .map(({ path }) => path),
+      ).toEqual([
+        "/session",
+        "/session/session-1/message",
+        "/session/session-1/fork",
+        "/session/session-2/init",
+      ]);
     } finally {
       await closeServer(fake.server);
     }

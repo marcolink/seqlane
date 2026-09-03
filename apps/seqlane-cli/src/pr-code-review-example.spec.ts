@@ -28,7 +28,7 @@ describe("pull-request code review example workflow", () => {
     ).toThrow();
   });
 
-  it("branches review lanes and reuses inspection for the final review", () => {
+  it("selects session models for inspection and review lanes", () => {
     const plan = buildWorkflow(prCodeReviewWorkflow).plan;
     const inspect = plan.nodes.find(
       (node) =>
@@ -49,15 +49,57 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(inspect).toBeDefined();
+    expect(inspect).toMatchObject({
+      session: {
+        type: "isolated",
+        model: {
+          model: { provider: "openai", model: "gpt-5.6-luna" },
+          reasoning: "high",
+        },
+      },
+    });
     expect(reviewLanes).toHaveLength(3);
-    for (const reviewLane of reviewLanes) {
-      expect(reviewLane).toMatchObject({
-        session: { type: "branch", from: inspect?.nodeId },
-      });
-    }
+    expect(reviewLanes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: "pr-code-review.correctness",
+          session: {
+            type: "branch",
+            from: inspect?.nodeId,
+            model: {
+              model: { provider: "openai", model: "gpt-5.6-luna" },
+              reasoning: "max",
+            },
+          },
+        }),
+        expect.objectContaining({
+          taskId: "pr-code-review.maintainability",
+          session: {
+            type: "branch",
+            from: inspect?.nodeId,
+            model: {
+              model: { provider: "openai", model: "gpt-5.6-terra" },
+              reasoning: "medium",
+            },
+          },
+        }),
+        expect.objectContaining({
+          taskId: "pr-code-review.risk",
+          session: {
+            type: "branch",
+            from: inspect?.nodeId,
+            model: {
+              model: { provider: "openai", model: "gpt-5.6-luna" },
+              reasoning: "medium",
+            },
+          },
+        }),
+      ]),
+    );
     expect(summarize).toMatchObject({
       session: { type: "reuse", from: inspect?.nodeId },
     });
+    expect(summarize).not.toHaveProperty("session.model");
   });
 
   it("keeps every review task non-interactive", () => {

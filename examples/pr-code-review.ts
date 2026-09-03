@@ -1,4 +1,5 @@
-import { branch, createFlow, defineTask, reuse } from "@seqlane/core";
+import { branch, createFlow, defineTask, isolated, reuse } from "@seqlane/core";
+import { openai } from "@seqlane/core/models";
 import { z } from "zod";
 
 // Review rubric: https://github.com/addyosmani/agent-skills/blob/main/skills/code-review-and-quality/SKILL.md
@@ -223,7 +224,12 @@ export default createFlow({
   input: codeReviewInputSchema,
   output: codeReviewReportSchema,
 })
-  .task("inspect", inspectChangeTask, ({ input }) => input)
+  .task("inspect", inspectChangeTask, ({ input }) => input, {
+    session: isolated({
+      model: openai("gpt-5.6-luna"),
+      reasoning: "high",
+    }),
+  })
   .task(
     "correctness",
     correctnessReviewTask,
@@ -231,7 +237,13 @@ export default createFlow({
       change: tasks.inspect.output,
       pullRequest: input.pullRequest,
     }),
-    { session: ({ tasks }) => branch(tasks.inspect.session) },
+    {
+      session: ({ tasks }) =>
+        branch(tasks.inspect.session, {
+          model: openai("gpt-5.6-luna"),
+          reasoning: "max",
+        }),
+    },
   )
   .task(
     "maintainability",
@@ -240,7 +252,13 @@ export default createFlow({
       change: tasks.inspect.output,
       pullRequest: input.pullRequest,
     }),
-    { session: ({ tasks }) => branch(tasks.inspect.session) },
+    {
+      session: ({ tasks }) =>
+        branch(tasks.inspect.session, {
+          model: openai("gpt-5.6-terra"),
+          reasoning: "medium",
+        }),
+    },
   )
   .task(
     "risk",
@@ -249,7 +267,13 @@ export default createFlow({
       change: tasks.inspect.output,
       pullRequest: input.pullRequest,
     }),
-    { session: ({ tasks }) => branch(tasks.inspect.session) },
+    {
+      session: ({ tasks }) =>
+        branch(tasks.inspect.session, {
+          model: openai("gpt-5.6-luna"),
+          reasoning: "medium",
+        }),
+    },
   )
   .task(
     "summarize",

@@ -23,6 +23,11 @@
       "types": "./dist/validation-workflow.d.ts",
       "import": "./dist/validation-workflow.js",
       "default": "./dist/validation-workflow.js"
+    },
+    "./model-selection-workflow": {
+      "types": "./dist/model-selection-workflow.d.ts",
+      "import": "./dist/model-selection-workflow.js",
+      "default": "./dist/model-selection-workflow.js"
     }
   },
   "nx": {

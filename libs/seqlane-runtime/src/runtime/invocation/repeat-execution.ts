@@ -127,6 +127,9 @@ export async function executeRepeatNode(
           );
           invocationCreationOrdinal(context, invocationId);
           bodyInvocationIds.set(bodyNode.nodeId, invocationId);
+          const effectiveSelection = context.effectiveModelSelectionsByNode.get(
+            bodyNode.nodeId,
+          );
           if (bodyNode.type === "task") {
             await resolveTaskSession(
               context.resolvedSessions,
@@ -134,6 +137,7 @@ export async function executeRepeatNode(
               context.taskDefinitions,
               invocationId,
               bodyNode.taskId,
+              effectiveSelection,
             );
           } else if (
             bodyNode.type === "validation.check" &&
@@ -145,6 +149,7 @@ export async function executeRepeatNode(
               context.taskDefinitions,
               invocationId,
               bodyNode.source.taskId,
+              effectiveSelection,
             );
           }
           const subject = invocationSubject(bodyNode);

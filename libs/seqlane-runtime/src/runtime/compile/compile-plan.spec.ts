@@ -243,6 +243,101 @@ describe("EffectCompiler plan preparation", () => {
     );
   });
 
+  it("accepts statically resolvable session selections and model changes on branches", () => {
+    const source = {
+      ...task("source"),
+      session: {
+        type: "isolated" as const,
+        model: {
+          model: { provider: "openai", model: "gpt-5.6-luna" },
+          reasoning: "high" as const,
+        },
+      },
+    };
+    const branch = {
+      ...task("branch", ["source"]),
+      session: {
+        type: "branch" as const,
+        from: "source",
+        model: {
+          model: { provider: "anthropic", model: "claude-sonnet-4" },
+          reasoning: "low" as const,
+        },
+      },
+    };
+    const reuse = {
+      ...task("reuse", ["source"]),
+      session: { type: "reuse" as const, from: "source" },
+    };
+
+    expect(() => validatePlan(plan([source, branch, reuse]))).not.toThrow();
+  });
+
+  it("validates model selections with the canonical schema", () => {
+    const source = task("source");
+    Reflect.set(source, "session", {
+      type: "isolated",
+      model: {
+        model: { provider: "openai", model: "gpt-5.6-luna" },
+        reasoning: "unsupported",
+      },
+    });
+
+    try {
+      validatePlan(plan([source]));
+      expect.fail("expected validation to fail");
+    } catch (error) {
+      expect((error as PlanValidationError).issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "invalid-session-model" }),
+        ]),
+      );
+    }
+  });
+
+  it("rejects a model field on reuse with an actionable conflict", () => {
+    const source = {
+      ...task("source"),
+      session: {
+        type: "isolated" as const,
+        model: {
+          model: { provider: "openai", model: "gpt-5.6-luna" },
+          reasoning: "high" as const,
+        },
+      },
+    };
+    const reuse = {
+      ...task("reuse", ["source"]),
+      session: {
+        type: "reuse" as const,
+        from: "source",
+        model: {
+          model: { provider: "anthropic", model: "claude-sonnet-4" },
+          reasoning: "low" as const,
+        },
+      },
+    } as unknown as PlanNode;
+
+    try {
+      validatePlan(plan([source, reuse]));
+      expect.fail("expected validation to fail");
+    } catch (error) {
+      expect((error as PlanValidationError).issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "session-model-conflict",
+            message: expect.stringMatching(
+              /openai\/gpt-5\.6-luna.*anthropic\/claude-sonnet-4|anthropic\/claude-sonnet-4.*openai\/gpt-5\.6-luna/,
+            ),
+          }),
+        ]),
+      );
+      expect((error as PlanValidationError).message).toMatch(
+        /branch or isolated/i,
+      );
+    }
+  });
+
   it("describes cycles that include a session dependency", () => {
     const source = task("source", ["consumer"]);
     const consumer = {

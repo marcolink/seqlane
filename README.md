@@ -55,3 +55,9 @@ pnpm exec seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
   --runtime http://127.0.0.1:4096
 ```
+
+### Select a model
+
+Models belong to sessions. New or branched sessions may select a model and
+reasoning effort; reuse sessions inherit the source selection. Omit selection
+to use the OpenCode default. See [core model selection](libs/seqlane-core/README.md#model-catalog).

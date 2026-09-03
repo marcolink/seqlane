@@ -15,6 +15,12 @@ non-interactive failure path. It never approves an interaction. Workspace
 `shared` and `exclusive` policy is consumed by the Seqlane scheduler, not by
 OpenCode permission configuration.
 
+Seqlane passes a normalized provider/model selection to this adapter. OpenCode
+provider and model IDs remain private to the adapter. New and branched sessions
+send their selected model before the first prompt; portable reasoning labels
+are sent through OpenCode's variant field. The adapter exposes the configured
+OpenCode catalog and default model to runtime preflight.
+
 After a successful prompt, the adapter retains its terminal OpenCode message
 ID as a private checkpoint. A Seqlane branch calls OpenCode's native
 `session.fork` with that source session ID and message ID; it never summarizes

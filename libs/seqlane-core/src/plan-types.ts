@@ -7,6 +7,7 @@ import type {
   WorkflowDefinition,
 } from "./contracts.js";
 import type { ValueBinding, ValueRef } from "./bindings.js";
+import type { ModelSelection } from "./models/model-ref.js";
 
 export interface WorkflowIdentity {
   readonly id: string;
@@ -14,9 +15,13 @@ export interface WorkflowIdentity {
 }
 
 export type PlanSessionPolicy =
-  | { readonly type: "isolated" }
+  | { readonly type: "isolated"; readonly model?: ModelSelection }
   | { readonly type: "reuse"; readonly from: PlanNodeId }
-  | { readonly type: "branch"; readonly from: PlanNodeId };
+  | {
+      readonly type: "branch";
+      readonly from: PlanNodeId;
+      readonly model?: ModelSelection;
+    };
 
 export interface TaskNode {
   readonly type: "task";

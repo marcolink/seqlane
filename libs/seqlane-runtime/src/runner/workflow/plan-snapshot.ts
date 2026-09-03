@@ -89,7 +89,13 @@ function nodeSession(
   const session = node.session ?? { type: "isolated" as const };
   if (session.type === "isolated") return session;
   const from = serializedIds.get(session.from);
-  return from === undefined ? undefined : { type: session.type, from };
+  if (from === undefined) return undefined;
+  if (session.type === "reuse") return { type: session.type, from };
+  return {
+    type: session.type,
+    from,
+    ...(session.model === undefined ? {} : { model: session.model }),
+  };
 }
 
 export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {

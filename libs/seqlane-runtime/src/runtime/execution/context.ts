@@ -8,6 +8,7 @@ import type {
   SeqlaneEventSink,
   ValidatorDefinitionRegistry,
   WorkId,
+  ModelSelection,
 } from "@seqlane/core";
 import type { ExecutorRegistry } from "./executor.js";
 import { ChildSessionRegistry } from "../session/child-session.js";
@@ -37,6 +38,8 @@ export interface ExecutionContext {
   readonly remainingConsumers: Map<string, number>;
   readonly executors: ExecutorRegistry;
   readonly resolvedSessions: Map<InvocationId, ResolvedExecutorSession>;
+  readonly effectiveModelSelections: Map<InvocationId, ModelSelection>;
+  readonly effectiveModelSelectionsByNode: Map<PlanNodeId, ModelSelection>;
   readonly sessionConsumers: Map<string, readonly SessionConsumer[]>;
   readonly sessionLocks: SessionLockRegistry;
   readonly childSessions: ChildSessionRegistry;
@@ -85,6 +88,8 @@ export function createExecutionContext(
     remainingConsumers: new Map(options.remainingConsumers),
     executors: options.executors,
     resolvedSessions: new Map(),
+    effectiveModelSelections: new Map(),
+    effectiveModelSelectionsByNode: new Map(),
     sessionConsumers: new Map(),
     sessionLocks,
     childSessions: new ChildSessionRegistry(),

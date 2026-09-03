@@ -5,6 +5,13 @@ const workspaceRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export const workspaceAliases = [
   {
+    find: "@seqlane/core/models",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/seqlane-core/src/models/index.ts",
+    ),
+  },
+  {
     find: "@seqlane/core",
     replacement: resolve(workspaceRoot, "libs/seqlane-core/src/index.ts"),
   },
@@ -38,6 +45,13 @@ export const workspaceAliases = [
     replacement: resolve(
       workspaceRoot,
       "libs/seqlane-fixtures/src/validation-workflow.ts",
+    ),
+  },
+  {
+    find: "@seqlane/fixtures/model-selection-workflow",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/seqlane-fixtures/src/model-selection-workflow.ts",
     ),
   },
   {

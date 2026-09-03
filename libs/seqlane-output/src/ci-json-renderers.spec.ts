@@ -1,5 +1,6 @@
 // @test-scope ./ci-renderer.ts
 // @test-scope ./json-renderer.ts
+// @test-scope ./output-details.ts
 
 import type { SeqlaneExecutionEvent } from "@seqlane/events";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -217,6 +218,10 @@ describe("CI renderer", () => {
         durationMs: 1250,
         model: "fake-model",
         provider: "fake-provider",
+        modelSelection: {
+          model: { provider: "openai", model: "gpt-5.2" },
+          reasoning: "high",
+        },
         cost: 0.0042,
         tokens: {
           total: 42,
@@ -247,6 +252,8 @@ describe("CI renderer", () => {
     expect(output).toContain("retry attempt=2/3");
     expect(output).toContain("output=checkpoint");
     expect(output).toContain("model=fake-model");
+    expect(output).toContain("selection=openai/gpt-5.2");
+    expect(output).toContain("reasoning=high");
     expect(output).toContain("tokens=42");
     expect(output).toContain("summary=object");
     expect(output).toContain("reason=dependency A failed");

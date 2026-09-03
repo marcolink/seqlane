@@ -26,7 +26,13 @@ export async function resolveCompiledWorkflowSessions(
         const consumers = context.sessionConsumers.get(policy.from) ?? [];
         context.sessionConsumers.set(policy.from, [
           ...consumers,
-          { invocationId, task, type: policy.type } satisfies SessionConsumer,
+          {
+            invocationId,
+            task,
+            type: policy.type,
+            effectiveSelection:
+              context.effectiveModelSelections.get(invocationId),
+          } satisfies SessionConsumer,
         ]);
         continue;
       }
@@ -36,6 +42,7 @@ export async function resolveCompiledWorkflowSessions(
         context.taskDefinitions,
         invocationId,
         node.taskId,
+        context.effectiveModelSelections.get(invocationId),
       );
     } else if (
       node.type === "validation.check" &&
@@ -47,6 +54,7 @@ export async function resolveCompiledWorkflowSessions(
         context.taskDefinitions,
         invocationId,
         node.source.taskId,
+        context.effectiveModelSelections.get(invocationId),
       );
     }
   }

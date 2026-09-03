@@ -10,6 +10,8 @@ export type {
 } from "./session.js";
 export { createOpenCodeExecutor } from "./executor.js";
 export type { OpenCodeExecutor, OpenCodeExecutorRequest } from "./executor.js";
+export { createOpenCodeModelCapabilities } from "./model-capabilities.js";
+export type { OpenCodeModelCapabilities } from "./model-capabilities.js";
 
 /** The SDK/server contract proven by the TS-004-00 contract suite. */
 export const OPENCODE_SDK_VERSION = "1.18.18" as const;
