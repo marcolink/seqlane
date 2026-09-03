@@ -30,7 +30,16 @@ seqlane run ./examples/minimal-workflow.ts \
 ```
 
 The command writes the Plan as formatted JSON to stdout. `--runtime` is
-optional for dry runs and required for execution.
+optional for dry runs and local-only workflows. When omitted, the CLI uses the
+local runtime profile; workflows with agent tasks must provide an OpenCode
+runtime URL.
+
+Local-only workflows can execute without a runtime profile:
+
+```sh
+seqlane run ./examples/local-only.ts \
+  --input '{"value":"local"}'
+```
 
 For non-interactive execution, use CI output for concise line-by-line progress
 and actionable failures:

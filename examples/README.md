@@ -31,6 +31,13 @@ pnpm exec node apps/seqlane-cli/bin/run.js run examples/local-git-status.ts \
   --workspace "$PWD"
 ```
 
+`local-only.ts` contains no agent work and runs without a runtime profile:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js run examples/local-only.ts \
+  --input '{"value":"local"}'
+```
+
 Workflow files run as local Node.js code in the runner process. Run only files
 you trust. TypeScript files use Node.js 24 native type stripping; use
 erasable TypeScript syntax or compile unsupported syntax to `.mjs`.

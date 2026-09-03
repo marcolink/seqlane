@@ -4,13 +4,14 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { decodeSeqlaneExecutionEvent } from "@seqlane/events";
 import {
+  planContainsAgentWork,
   requestRunnerCancellation,
   startRun,
   type RunnerHost,
   type RunnerRunControl,
 } from "./run.js";
 import { bindRunnerCancellationSignals, startRunnerProcess } from "./main.js";
-import type { RunRequest, TaskDefinitionRegistry } from "@seqlane/core";
+import type { Plan, RunRequest, TaskDefinitionRegistry } from "@seqlane/core";
 import type {
   ResolvedExecutorSession,
   SessionResolver,
@@ -54,6 +55,51 @@ class FakeRunnerSignalSource extends EventEmitter {
 }
 
 describe("seqlane runner entry point", () => {
+  it("detects agent work inside repeat bodies", () => {
+    const task = (execution: "agent" | "local") => ({
+      type: "task" as const,
+      taskId: execution,
+      nodeId: execution,
+      workspace: "shared" as const,
+      execution,
+      input: {},
+      dependsOn: [],
+    });
+    const repeat = {
+      type: "repeat" as const,
+      nodeId: "repeat:1",
+      input: {},
+      dependsOn: [],
+      maximumIterations: 1,
+      body: {
+        inputNodeId: "repeat:1:input",
+        nodes: [task("agent")],
+        output: {},
+        until: { type: "ref" as const, nodeId: "repeat:1:input", path: [] },
+      },
+    };
+
+    expect(
+      planContainsAgentWork({
+        workflow: { id: "local" },
+        nodes: [
+          {
+            ...repeat,
+            body: { ...repeat.body, nodes: [task("local")] },
+          },
+        ],
+        output: {},
+      } as Plan),
+    ).toBe(false);
+    expect(
+      planContainsAgentWork({
+        workflow: { id: "agent" },
+        nodes: [repeat],
+        output: {},
+      } as Plan),
+    ).toBe(true);
+  });
+
   it("is safe to call outside a child process with IPC", () => {
     expect(() => startRunnerProcess()).not.toThrow();
   });

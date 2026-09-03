@@ -103,6 +103,26 @@ function task(id: string, workspace: "shared" | "exclusive"): TaskDefinition {
 }
 
 describe("resolveRuntimeProfile", () => {
+  it("resolves local workspace resources without contacting OpenCode", async () => {
+    const local: TaskDefinition = {
+      id: "local-task",
+      input: schema,
+      output: schema,
+      execute: async (input) => input,
+    };
+
+    const execution = await resolveRuntimeProfile(
+      { id: "local", workspace: process.cwd() },
+      new Map([[local.id, local]]),
+      new AbortController().signal,
+      null,
+    );
+
+    expect(execution.workspaceResources.get(local.id)).toEqual({
+      key: process.cwd(),
+    });
+  });
+
   it("does not derive OpenCode authority from task workspace policy", async () => {
     const server = await startOpenCodeServer();
     const sharedTask = task("shared-task", "shared");
