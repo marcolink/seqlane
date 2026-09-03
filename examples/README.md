@@ -88,10 +88,12 @@ workflow definition and Seqlane source run before merge. Restore
 The workflow reads the pull request's configured base branch and immutable base
 revision from the event, then reviews the explicit base-to-head range in a
 separate checkout. A local workflow task validates the requested Git range and
-collects changed-file, diff-stat, and whitespace-check evidence. Inspection
-produces bounded requirements and evidence;
+collects bounded changed-file, diff-stat, and whitespace-check evidence with
+explicit overflow metadata. Inspection produces bounded requirements and
+evidence;
 specialist lanes run in independent sessions and verify that evidence against
-the target workspace before the final synthesis. The workflow installs and
+the target workspace before the final synthesis, which preserves the exact
+repository and base/head identity fields from inspection. The workflow installs and
 builds the checked-out Seqlane source, but does not install dependencies or
 execute repository scripts from the separate review target. OpenCode ignores
 project runtime configuration during the review and receives a read-only tool

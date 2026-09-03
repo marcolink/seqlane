@@ -201,11 +201,83 @@ describe("pull-request code review example workflow", () => {
       baseRevision,
       headRevision,
       changedFiles: ["src/review.ts"],
+      changedFileCount: 1,
+      changedFilesTruncated: false,
       diffStat: " 1 file changed, 1 insertion(+)\n",
+      diffStatTruncated: false,
       diffCheck: {
         exitCode: 2,
         stdout: "src/review.ts: trailing whitespace.\n",
         stderr: "",
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      },
+    });
+  });
+
+  it("bounds oversized Git evidence and records overflow", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.git-evidence",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected local Git evidence task definition");
+    }
+
+    const baseRevision = "a".repeat(40);
+    const headRevision = "b".repeat(40);
+    const changedOutput = Array.from(
+      { length: 201 },
+      (_, index) => `M\tsrc/file-${index}.ts`,
+    ).join("\n");
+    const oversizedOutput = "x".repeat(8_001);
+    const responses = [
+      { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: changedOutput, stderr: "" },
+      { exitCode: 0, stdout: oversizedOutput, stderr: "" },
+      {
+        exitCode: 2,
+        stdout: oversizedOutput,
+        stderr: oversizedOutput,
+      },
+    ];
+    const result = await task.execute(
+      {
+        repository: "/repo",
+        baseBranch: "release/2026.09",
+        baseRevision,
+        headRevision,
+        pullRequest: {
+          title: "Add automated review",
+          description: "Run Seqlane for every pull request.",
+        },
+      },
+      {
+        exec: async () => {
+          const response = responses.shift();
+          if (response === undefined) throw new Error("Unexpected Git command");
+          return response;
+        },
+      },
+    );
+
+    expect(task.output.parse(result)).toEqual({
+      baseRevision,
+      headRevision,
+      changedFiles: Array.from(
+        { length: 200 },
+        (_, index) => `src/file-${index}.ts`,
+      ),
+      changedFileCount: 201,
+      changedFilesTruncated: true,
+      diffStat: oversizedOutput.slice(0, 7_999) + "…",
+      diffStatTruncated: true,
+      diffCheck: {
+        exitCode: 2,
+        stdout: oversizedOutput.slice(0, 7_999) + "…",
+        stderr: oversizedOutput.slice(0, 7_999) + "…",
+        stdoutTruncated: true,
+        stderrTruncated: true,
       },
     });
   });
@@ -378,5 +450,31 @@ describe("pull-request code review example workflow", () => {
     });
     expect(summarizeGoal).toContain('"correctness"');
     expect(summarizeGoal).toContain('"requirements"');
+  });
+
+  it("preserves review identity fields in the final output binding", () => {
+    const output = buildWorkflow(prCodeReviewWorkflow).plan.output;
+    expect(output).toMatchObject({
+      repository: {
+        type: "ref",
+        nodeId: "pr-code-review.inspect:1",
+        path: ["output", "repository"],
+      },
+      baseBranch: {
+        type: "ref",
+        nodeId: "pr-code-review.inspect:1",
+        path: ["output", "baseBranch"],
+      },
+      baseRevision: {
+        type: "ref",
+        nodeId: "pr-code-review.inspect:1",
+        path: ["output", "baseRevision"],
+      },
+      headRevision: {
+        type: "ref",
+        nodeId: "pr-code-review.inspect:1",
+        path: ["output", "headRevision"],
+      },
+    });
   });
 });
