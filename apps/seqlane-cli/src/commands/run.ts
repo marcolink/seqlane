@@ -289,6 +289,15 @@ export default class RunCommand extends Command {
     const result = await client.result;
     await dispatcher.flush();
     await dispatcher.close();
+    if ("failure" in result) {
+      if (renderer?.handleRunnerFailure !== undefined) {
+        renderer.handleRunnerFailure(result.failure);
+      } else {
+        capabilities.stderr.write(
+          "seqlane runner error: " + result.failure.message + "\n",
+        );
+      }
+    }
     try {
       await renderer?.finish();
     } catch (error) {

@@ -48,7 +48,7 @@ function runCli(
   entry: string,
   args: readonly string[],
   onStarted?: (child: ChildProcess) => void,
-  startMarker = "created label=investigate-renovate-failure",
+  startMarker = "started task=investigate-renovate-failure",
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(entry, args, {

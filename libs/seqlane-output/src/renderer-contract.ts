@@ -20,6 +20,10 @@ export interface OutputCapabilities {
   readonly stdout: OutputSink;
   readonly stderr: OutputSink;
   readonly summary?: OutputSink;
+  /** Explicitly enabled sink for GitHub Actions workflow commands. */
+  readonly githubActions?: {
+    readonly annotations: OutputSink;
+  };
 }
 
 /** Non-canonical presentational data supplied by a runtime adapter. */
@@ -28,9 +32,14 @@ export interface RuntimeSessionUi {
   readonly browserUrl: string;
 }
 
+export interface RendererFailure {
+  readonly message: string;
+}
+
 export interface ExecutionRenderer {
   readonly mode: RendererMode;
   handle(event: SeqlaneExecutionEvent): void;
+  handleRunnerFailure?(failure: RendererFailure): void;
   handleRuntimeSessionUi?(notification: RuntimeSessionUi): void;
   finish(): Promise<void>;
 }

@@ -5,8 +5,21 @@ import type {
 } from "@seqlane/core";
 import type { HumanValidationState } from "./event-reducer.js";
 
+const ANSI_ESCAPE_PATTERN = new RegExp(
+  String.raw`\u001B(?:\][^\u0007]*(?:\u0007|\u001B\\)|\[[0-?]*[ -/]*[@-~])`,
+  "g",
+);
+const CONTROL_CHARACTER_PATTERN = new RegExp(
+  String.raw`[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]`,
+  "g",
+);
+
 function compact(value: string, maximum = 500): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
+  const normalized = value
+    .replace(ANSI_ESCAPE_PATTERN, "")
+    .replace(CONTROL_CHARACTER_PATTERN, "")
+    .replace(/\s+/g, " ")
+    .trim();
   return normalized.length <= maximum
     ? normalized
     : normalized.slice(0, Math.max(0, maximum - 1)) + "…";
@@ -172,20 +185,31 @@ export function formatCIOutputDetails(
     details.push("summary=" + summary.kind);
     if (summary.size !== undefined) details.push("size=" + summary.size);
     if (summary.fields !== undefined && summary.fields.length > 0) {
-      details.push("fields=" + summary.fields.join(","));
+      details.push(
+        "fields=" + summary.fields.map((field) => compact(field, 80)).join(","),
+      );
     }
   }
   if (metrics?.durationMs !== undefined) {
     details.push("duration=" + metrics.durationMs + "ms");
   }
-  if (metrics?.model !== undefined) details.push("model=" + metrics.model);
+  if (metrics?.model !== undefined) {
+    details.push("model=" + compact(metrics.model, 200));
+  }
   if (metrics?.provider !== undefined) {
-    details.push("provider=" + metrics.provider);
+    details.push("provider=" + compact(metrics.provider, 200));
   }
   if (metrics?.modelSelection !== undefined) {
     const { model, reasoning } = metrics.modelSelection;
-    details.push("selection=" + model.provider + "/" + model.model);
-    if (reasoning !== undefined) details.push("reasoning=" + reasoning);
+    details.push(
+      "selection=" +
+        compact(model.provider, 120) +
+        "/" +
+        compact(model.model, 200),
+    );
+    if (reasoning !== undefined) {
+      details.push("reasoning=" + compact(reasoning, 120));
+    }
   }
   if (metrics?.tokens !== undefined) {
     const total =

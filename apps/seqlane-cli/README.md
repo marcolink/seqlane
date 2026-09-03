@@ -32,6 +32,20 @@ seqlane run ./examples/minimal-workflow.ts \
 The command writes the Plan as formatted JSON to stdout. `--runtime` is
 optional for dry runs and required for execution.
 
+For non-interactive execution, use CI output for concise line-by-line progress
+and actionable failures:
+
+```sh
+seqlane run ./examples/minimal-workflow.ts \
+  --input '{"topic":"Seqlane"}' \
+  --runtime http://127.0.0.1:4096 \
+  --output ci
+```
+
+CI output does not print invocation input, transient output, or routine tool
+activity. Use `--record` with `replay --output json` when a complete
+machine-readable event stream is needed in addition to the visible CI log.
+
 ## File-accessing workflows
 
 `workspace: "shared"` permits overlap with other shared tasks;
