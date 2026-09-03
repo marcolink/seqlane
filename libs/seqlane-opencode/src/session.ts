@@ -298,8 +298,14 @@ function executorError(message: string, cause?: unknown): Error {
 export async function createOpenCodeRun(
   connection: OpenCodeConnection,
   signal?: AbortSignal,
+  configuredSelection?: ModelSelection,
 ): Promise<OpenCodeRun> {
-  return createOpenCodeRunForSession(connection, signal);
+  return createOpenCodeRunForSession(
+    connection,
+    signal,
+    undefined,
+    configuredSelection,
+  );
 }
 
 async function createOpenCodeRunForSession(
@@ -397,9 +403,15 @@ async function createOpenCodeRunForSession(
           const promptResponse = transport
             .prompt(
               sessionID,
-              configuredSelection?.reasoning === undefined
+              configuredSelection === undefined
                 ? request
-                : { ...request, variant: configuredSelection.reasoning },
+                : {
+                    ...request,
+                    selection: configuredSelection,
+                    ...(configuredSelection.reasoning === undefined
+                      ? {}
+                      : { variant: configuredSelection.reasoning }),
+                  },
               promptController.signal,
             )
             .then(

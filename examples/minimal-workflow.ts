@@ -2,7 +2,9 @@ import {
   createFlow,
   defineTask,
   defineValidator,
+  isolated,
 } from "@seqlane/core";
+import { openai } from "@seqlane/core/models";
 import { z } from "zod";
 
 const inputSchema = z.object({ topic: z.string() });
@@ -50,6 +52,10 @@ export default createFlow({
   output: answerSchema,
 })
   .task("prepare", prepareTask, ({ input }) => input, {
+    session: isolated({
+      model: openai("gpt-5.6-luna"),
+      reasoning: "high",
+    }),
     validateOutput: draftValidator,
   })
   .task("finish", finishTask, ({ tasks }) => tasks.prepare.output)

@@ -525,6 +525,31 @@ describe("OpenCode run session", () => {
     }
   });
 
+  it("sends the pinned model and reasoning on the first prompt", async () => {
+    const fake = await startServer();
+    try {
+      const run = await createOpenCodeRun({ url: fake.url }, undefined, {
+        model: { provider: "openai", model: "gpt-5.6-luna" },
+        reasoning: "high",
+      });
+
+      await run.prompt({ text: "use the selected model", schema: {} });
+
+      expect(
+        fake.requests.find(({ path }) => path === "/session/session-1/message"),
+      ).toMatchObject({
+        body: expect.stringContaining(
+          '"model":{"providerID":"openai","modelID":"gpt-5.6-luna"}',
+        ),
+      });
+      expect(
+        fake.requests.find(({ path }) => path === "/session/session-1/message"),
+      ).toMatchObject({ body: expect.stringContaining('"variant":"high"') });
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
   it("forks a new session from the terminal prompt checkpoint", async () => {
     const fake = await startServer();
     try {

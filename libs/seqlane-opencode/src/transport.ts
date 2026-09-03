@@ -76,6 +76,14 @@ function createOpenCodeTransportFromClient(
         {
           sessionID: sessionId,
           parts: [{ type: "text", text: request.text }],
+          ...(request.selection === undefined
+            ? {}
+            : {
+                model: {
+                  providerID: request.selection.model.provider,
+                  modelID: request.selection.model.model,
+                },
+              }),
           ...(request.variant === undefined
             ? {}
             : { variant: request.variant }),

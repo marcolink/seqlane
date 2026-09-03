@@ -12,6 +12,8 @@ export interface OpenCodeConnection {
 export interface OpenCodePrompt {
   readonly text: string;
   readonly schema: JsonSchema;
+  /** Pins the model for this private OpenCode session. */
+  readonly selection?: ModelSelection;
   /** OpenCode's native variant field for portable reasoning labels. */
   readonly variant?: string;
   /** Cancels this prompt only after OpenCode acknowledges the session abort. */

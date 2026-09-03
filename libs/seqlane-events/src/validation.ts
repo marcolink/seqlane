@@ -182,14 +182,21 @@ const serializedSeqlaneErrorSchema = strictRecord({
 
 const isolatedPlanSessionSchema = strictRecord({
   type: z.literal("isolated"),
+  model: modelSelectionSchema.optional(),
 });
-const derivedPlanSessionSchema = strictRecord({
-  type: z.enum(["reuse", "branch"]),
+const branchPlanSessionSchema = strictRecord({
+  type: z.literal("branch"),
+  from: boundedString(256),
+  model: modelSelectionSchema.optional(),
+});
+const reusePlanSessionSchema = strictRecord({
+  type: z.literal("reuse"),
   from: boundedString(256),
 });
 const planSessionSchema = z.union([
   isolatedPlanSessionSchema,
-  derivedPlanSessionSchema,
+  branchPlanSessionSchema,
+  reusePlanSessionSchema,
 ]);
 
 const planNodeShapeSchema = strictRecord({

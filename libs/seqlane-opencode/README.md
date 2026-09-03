@@ -16,9 +16,10 @@ non-interactive failure path. It never approves an interaction. Workspace
 OpenCode permission configuration.
 
 Seqlane passes a normalized provider/model selection to this adapter. OpenCode
-provider and model IDs remain private to the adapter. A branched session is
-configured with its selected model before its first prompt; portable reasoning
-labels are sent through OpenCode's variant field.
+provider and model IDs remain private to the adapter. New and branched sessions
+send their selected model before the first prompt; portable reasoning labels
+are sent through OpenCode's variant field. The adapter exposes the configured
+OpenCode catalog and default model to runtime preflight.
 
 After a successful prompt, the adapter retains its terminal OpenCode message
 ID as a private checkpoint. A Seqlane branch calls OpenCode's native

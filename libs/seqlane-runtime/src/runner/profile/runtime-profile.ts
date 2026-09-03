@@ -7,6 +7,7 @@ import type {
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
 import {
   createOpenCodeExecutor,
+  createOpenCodeModelCapabilities,
   createOpenCodeRun,
   resolveOpenCodeBrowserUiUrl,
 } from "@seqlane/opencode";
@@ -116,7 +117,8 @@ function createLazyOpenCodeSession(
 ): ResolvedExecutorSession {
   let run: Promise<Awaited<ReturnType<typeof createOpenCodeRun>>> | undefined;
 
-  const resolveRun = () => (run ??= createOpenCodeRun(connection, signal));
+  const resolveRun = () =>
+    (run ??= createOpenCodeRun(connection, signal, effectiveSelection));
   let reported = false;
 
   return {
@@ -201,7 +203,12 @@ export async function resolveRuntimeProfile(
     workspacePath,
   );
   const workspaceResources = createWorkspaceResources(workspaceIdentities);
+  const modelCapabilities = createOpenCodeModelCapabilities(
+    url.href,
+    workspacePath,
+  );
   const sessionResolver: SessionResolver = {
+    modelCapabilities,
     resolve: async ({ effectiveSelection }): Promise<ResolvedExecutorSession> =>
       createLazyOpenCodeSession(
         taskDefinitions,

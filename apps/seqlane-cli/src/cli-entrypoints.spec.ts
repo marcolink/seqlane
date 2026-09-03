@@ -5,6 +5,7 @@
 // @test-scope ./output.ts
 // @test-scope ./recording.ts
 // @test-scope ./commands/studio.ts
+// @test-scope ../../../examples/minimal-workflow.ts
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type ServerResponse } from "node:http";
@@ -116,6 +117,41 @@ async function startFakeOpenCodeServer(
     if (request.method === "GET" && path === "/") {
       response.writeHead(200, { "content-type": "text/html" });
       response.end();
+      return;
+    }
+
+    if (request.method === "GET" && path === "/provider") {
+      writeJson(response, {
+        all: [
+          {
+            id: "openai",
+            models: { "gpt-5.6-luna": { id: "gpt-5.6-luna" } },
+          },
+          {
+            id: "fake-provider",
+            models: { "fake-model": { id: "fake-model" } },
+          },
+        ],
+        default: { openai: "gpt-5.6-luna" },
+        connected: ["openai", "fake-provider"],
+      });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/config/providers") {
+      writeJson(response, {
+        providers: [
+          {
+            id: "openai",
+            models: { "gpt-5.6-luna": { id: "gpt-5.6-luna" } },
+          },
+          {
+            id: "fake-provider",
+            models: { "fake-model": { id: "fake-model" } },
+          },
+        ],
+        default: { openai: "gpt-5.6-luna" },
+      });
       return;
     }
 
@@ -334,6 +370,13 @@ describe("seqlane CLI entrypoints", () => {
           planNodeId: "example.prepare:1",
           type: "task",
           taskId: "example.prepare",
+          session: {
+            type: "isolated",
+            model: {
+              model: { provider: "openai", model: "gpt-5.6-luna" },
+              reasoning: "high",
+            },
+          },
         },
         {
           planNodeId: "validation.check:1",

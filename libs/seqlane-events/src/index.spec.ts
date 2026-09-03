@@ -107,7 +107,13 @@ describe("@seqlane/events", () => {
             label: "prepare",
             dependsOn: [],
             siblingOrder: 0,
-            session: { type: "isolated" },
+            session: {
+              type: "isolated",
+              model: {
+                model: { provider: "openai", model: "gpt-5.6-luna" },
+                reasoning: "high",
+              },
+            },
           },
           {
             planNodeId: "review:1",
@@ -115,7 +121,13 @@ describe("@seqlane/events", () => {
             label: "review",
             dependsOn: ["prepare:1"],
             siblingOrder: 1,
-            session: { type: "branch", from: "prepare:1" },
+            session: {
+              type: "branch",
+              from: "prepare:1",
+              model: {
+                model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+              },
+            },
           },
         ],
       },
@@ -136,6 +148,33 @@ describe("@seqlane/events", () => {
               dependsOn: [],
               siblingOrder: 2,
               session: { type: "isolated" },
+            },
+          ],
+        },
+      }),
+    ).toBe(false);
+
+    expect(
+      isSeqlaneExecutionEvent({
+        ...event,
+        plan: {
+          ...event.plan,
+          nodes: [
+            ...event.plan.nodes,
+            {
+              planNodeId: "invalid-reuse:1",
+              type: "task",
+              label: "invalid reuse",
+              taskId: "invalid-reuse",
+              dependsOn: ["prepare:1"],
+              siblingOrder: 2,
+              session: {
+                type: "reuse",
+                from: "prepare:1",
+                model: {
+                  model: { provider: "openai", model: "gpt-5.6-luna" },
+                },
+              },
             },
           ],
         },
