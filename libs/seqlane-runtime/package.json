@@ -28,6 +28,8 @@
   "dependencies": {
     "@mastra/core": "1.64.0",
     "@mastra/observability": "1.17.4",
+    "@effect/platform": "0.97.1",
+    "@effect/platform-node": "0.108.1",
     "@seqlane/core": "workspace:*",
     "@seqlane/events": "workspace:*",
     "@seqlane/opencode": "workspace:*",
