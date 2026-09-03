@@ -239,8 +239,8 @@ importers:
   libs/seqlane-opencode:
     dependencies:
       '@opencode-ai/sdk':
-        specifier: 1.14.19
-        version: 1.14.19
+        specifier: 1.18.27
+        version: 1.18.27
       '@seqlane/core':
         specifier: workspace:*
         version: link:../seqlane-core
@@ -1321,8 +1321,8 @@ packages:
     resolution: {integrity: sha512-KcbWlSO+s0Yr9c5wHNC6Npqdh46iJ8t9wCWW19yipT0QmnfZjoTqqqJ1DoP6s3i5P1z5cG35AqS17KL3b20Klw==, tarball: https://registry.npmjs.org/@oclif/core/-/core-4.13.5.tgz}
     engines: {node: '>=18.0.0'}
 
-  '@opencode-ai/sdk@1.14.19':
-    resolution: {integrity: sha512-9sTGsi8/HlBBeaWfsUjdJ2yi/SqpRvqSld0IFXc3ldaPb1w1uIPvgCGzhlHYQtqatXxSaX5lTN7zpudMaE21aw==, tarball: https://registry.npmjs.org/@opencode-ai/sdk/-/sdk-1.14.19.tgz}
+  '@opencode-ai/sdk@1.18.27':
+    resolution: {integrity: sha512-VTfAB9SWaGiMtI2L9rf2xl+0fTYDMHB2pHYKCquWG5OIX3rHvth9oM915d9Z38IuPZUZkmdNMVz2iAdxG4IR+A==, tarball: https://registry.npmjs.org/@opencode-ai/sdk/-/sdk-1.18.27.tgz}
 
   '@oxc-project/types@0.144.0':
     resolution: {integrity: sha512-nuhZIOLuI6TFQ32I/WnUx+SCPY7SdSKwgnFHydAuoS1+Z4BRcaP+RRJmGzl9lw+0OFF7UmaESf7KQRXaNLHypg==, tarball: https://registry.npmjs.org/@oxc-project/types/-/types-0.144.0.tgz}
@@ -5442,7 +5442,7 @@ snapshots:
       wrap-ansi: 7.0.0
       wsl-utils: 0.4.0
 
-  '@opencode-ai/sdk@1.14.19':
+  '@opencode-ai/sdk@1.18.27':
     dependencies:
       cross-spawn: 7.0.6
 
