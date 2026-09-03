@@ -1,7 +1,7 @@
 ---
 id: task.mastra-identity-events
 title: Preserve Identity and Normalized Execution Events
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
@@ -69,6 +69,19 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 CLI and external consumers observe stable Seqlane events backed by Mastra execution.
+
+## Outcome
+
+The runner now compiles and starts Seqlane Plans as private Mastra workflows.
+Work IDs are carried as Mastra resource identities, Run IDs are supplied to
+Mastra workflow runs, and each compiled step carries its stable Invocation ID.
+The runner maps Mastra success, failure, and cancellation results to the stable
+Seqlane run contract while the existing invocation event bridge preserves
+ordered, serialized Seqlane events and original typed error causes.
+
+Focused compiler, runtime, cancellation, and runner tests pass. The bridge
+keeps Mastra types private and does not add a second serialized event owner or
+run-state store.
 
 ## Traceability
 

@@ -3,6 +3,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { createStep, createWorkflow } from "@mastra/core/workflows";
+import { z } from "zod";
 import { mastraRuntimeSpineWorkflow } from "../../../fixtures/mastra-runtime-spine-workflow.js";
 import { createMastraRuntime } from "./mastra-runtime.js";
 
@@ -66,5 +68,46 @@ describe("private Mastra runtime spine", () => {
 
   it("keeps Mastra imports out of the package public entry point", () => {
     expect(readFileSync(publicEntryPoint, "utf8")).not.toContain("@mastra/");
+  });
+
+  it("normalizes cancellation from an active Mastra run", async () => {
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const step = createStep({
+      id: "cancellable",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+      execute: async ({ abortSignal }) => {
+        started();
+        await new Promise<never>((_resolve, reject) => {
+          abortSignal.addEventListener(
+            "abort",
+            () => reject(new Error("step aborted")),
+            { once: true },
+          );
+        });
+        return null;
+      },
+    });
+    const workflow = createWorkflow({
+      id: "cancellable-workflow",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(step)
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }]);
+    const active = runtime.start({
+      workflowKey: workflow.id,
+      input: null,
+      workId: "work-cancel",
+      runId: "run-cancel",
+    });
+
+    await startedPromise;
+    await active.cancel();
+    await expect(active.outcome).resolves.toEqual({ status: "cancelled" });
   });
 });

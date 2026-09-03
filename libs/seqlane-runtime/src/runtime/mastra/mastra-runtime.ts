@@ -17,6 +17,12 @@ export interface MastraRunRequest {
 
 export interface MastraRuntime {
   run(request: MastraRunRequest): Promise<SeqlaneRunOutcome>;
+  start(request: MastraRunRequest): MastraActiveRun;
+}
+
+export interface MastraActiveRun {
+  readonly outcome: Promise<SeqlaneRunOutcome>;
+  cancel(): Promise<void>;
 }
 
 function validateRegistrations(
@@ -81,6 +87,10 @@ function normalizeResult(
     return failedOutcome(result.error);
   }
 
+  if (result.status === "canceled" || result.status === "cancelled") {
+    return { status: "cancelled" };
+  }
+
   return failedOutcome(
     new Error(
       `Mastra workflow "${workflowKey}" ended with unsupported status "${result.status}"`,
@@ -99,18 +109,38 @@ export function createMastraRuntime(
   const mastra = new Mastra({ workflows, logger: false });
 
   return {
-    async run(request) {
-      try {
-        const workflow = mastra.getWorkflow(request.workflowKey);
-        const run = await workflow.createRun({
-          runId: request.runId,
-          resourceId: request.workId,
-        });
-        const result = await run.start({ inputData: request.input });
-        return normalizeResult(request.workflowKey, result);
-      } catch (cause) {
-        return failedOutcome(cause);
-      }
+    run(request) {
+      return this.start(request).outcome;
+    },
+    start(request) {
+      let activeRun: Awaited<ReturnType<AnyWorkflow["createRun"]>> | undefined;
+      let cancellationRequested = false;
+      const outcome = (async () => {
+        try {
+          const workflow = mastra.getWorkflow(request.workflowKey);
+          activeRun = await workflow.createRun({
+            runId: request.runId,
+            resourceId: request.workId,
+          });
+          if (cancellationRequested) {
+            await activeRun.cancel();
+            return { status: "cancelled" } as const;
+          }
+          const result = await activeRun.start({ inputData: request.input });
+          return normalizeResult(request.workflowKey, result);
+        } catch (cause) {
+          if (cancellationRequested) return { status: "cancelled" } as const;
+          return failedOutcome(cause);
+        }
+      })();
+
+      return {
+        outcome,
+        cancel: async () => {
+          cancellationRequested = true;
+          await activeRun?.cancel();
+        },
+      };
     },
   };
 }
