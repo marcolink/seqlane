@@ -3,6 +3,7 @@ import type {
   ExecutionRenderer,
   OutputCapabilities,
 } from "./renderer-contract.js";
+import { redactOutput } from "./redaction.js";
 
 export class JSONRenderer implements ExecutionRenderer {
   readonly mode = "json" as const;
@@ -20,7 +21,10 @@ export class JSONRenderer implements ExecutionRenderer {
 
   handle(event: SeqlaneExecutionEvent): void {
     if (this.finished) return;
-    this.safeWrite(JSON.stringify(event) + "\n");
+    this.safeWrite(
+      redactOutput(JSON.stringify(event), this.capabilities.redactions ?? []) +
+        "\n",
+    );
   }
 
   async finish(): Promise<void> {

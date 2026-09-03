@@ -47,6 +47,19 @@ function summarySink(path: string): OutputSink {
   };
 }
 
+function configuredRedactions(env: NodeJS.ProcessEnv): readonly string[] {
+  return [
+    env.OPENAI_API_KEY,
+    env.GITHUB_TOKEN,
+    ...(env.SEQLANE_REDACT_VALUES?.split(/\r?\n/) ?? []),
+  ].filter(
+    (value, index, values): value is string =>
+      value !== undefined &&
+      value.length >= 4 &&
+      values.indexOf(value) === index,
+  );
+}
+
 export function createOutputCapabilities(
   streams: CliOutputStreams = {
     stdout: process.stdout,
@@ -68,6 +81,7 @@ export function createOutputCapabilities(
     width: Math.max(1, streams.stdout.columns ?? 80),
     stdout: streamSink(streams.stdout),
     stderr: streamSink(streams.stderr),
+    redactions: configuredRedactions(env),
     ...(summaryPath === undefined ? {} : { summary: summarySink(summaryPath) }),
     ...(isCIEnvironment(env)
       ? { githubActions: { annotations: streamSink(streams.stderr) } }

@@ -55,7 +55,8 @@ and event emission.
 - Human rows have stable plan order. Event arrival order must not reorder rows.
 - Completed work can collapse; active work remains visible; failed work exposes a
   concise failure summary.
-- CI mode never emits ANSI control sequences or carriage-return redraws.
+- CI mode uses only bold ANSI styling for task lifecycle lines and never emits
+  carriage-return redraws or other terminal control sequences.
 - Auto mode uses CI output when the terminal cannot safely support ANSI
   redraws, preventing repeated full-frame output.
 - JSON/NDJSON mode emits machine-readable records without human decoration.
@@ -325,7 +326,8 @@ such as completed, active, waiting, failed, and total.
 
 - Emits permanent lines for meaningful state transitions.
 - Emits a periodic heartbeat while the run is active.
-- Uses no ANSI styling, cursor movement, or carriage-return redraw.
+- Uses bold ANSI styling only on task lifecycle lines, with no cursor movement
+  or carriage-return redraw.
 - Includes run ID, invocation/task label, phase, elapsed time, counts, and
   terminal outcome.
 - Includes retry, skip, failure, and dependency-wait reasons when present.
@@ -403,7 +405,8 @@ Tests must prove:
 - retries, failures, cancellation, skipping, and dynamic children update the
   view model correctly;
 - human output redraws only through a TTY-capable sink;
-- CI output contains no ANSI or carriage-return redraw sequences;
+- CI output uses bold styling for task lifecycle lines and contains no
+  carriage-return redraw sequences;
 - CI heartbeats are emitted using an injectable timer;
 - transient and persistent output follow their configured policies;
 - output metrics and bounded output summaries round-trip and render in human,

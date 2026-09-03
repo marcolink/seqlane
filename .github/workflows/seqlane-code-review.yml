@@ -102,7 +102,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENCODE_DISABLE_PROJECT_CONFIG: "true"
           OPENCODE_CONFIG_CONTENT: >-
-            {"model":"openai/gpt-5.6-luna","permission":{"*":"deny","StructuredOutput":"allow","read":"allow","glob":"allow","grep":"allow","bash":{"*":"deny","git rev-parse HEAD":"allow","git diff --no-ext-diff --no-textconv ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}":"allow"}}}
+            {"model":"openai/gpt-5.6-luna","permission":{"*":"deny","StructuredOutput":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","bash":"deny","external_directory":"deny"}}
         run: |
           opencode serve --hostname 127.0.0.1 --port 4096 --print-logs > "$RUNNER_TEMP/opencode.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/opencode.pid"
@@ -125,16 +125,20 @@ jobs:
         continue-on-error: true
         working-directory: seqlane-source
         env:
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           BASE_REVISION: ${{ github.event.pull_request.base.sha }}
           HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
           REVIEW_TARGET: ${{ github.workspace }}/review-target
+          SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
         run: |
           WORKFLOW_INPUT=$(jq --compact-output \
             --arg repository "$REVIEW_TARGET" \
+            --arg baseBranch "$BASE_BRANCH" \
             --arg baseRevision "$BASE_REVISION" \
             --arg headRevision "$HEAD_REVISION" \
             '{
               repository: $repository,
+              baseBranch: $baseBranch,
               baseRevision: $baseRevision,
               headRevision: $headRevision,
               pullRequest: {
@@ -153,6 +157,8 @@ jobs:
       - name: Export code review events
         if: steps.configuration.outputs.execute == 'true' && steps.seqlane.outcome == 'success'
         working-directory: seqlane-source
+        env:
+          SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
         run: |
           ./apps/seqlane-cli/bin/dev.js replay \
             "$RUNNER_TEMP/seqlane-code-review-recording.jsonl" \
@@ -176,21 +182,24 @@ jobs:
           jq --raw-output '
             [
               "<!-- seqlane-code-review -->",
-              "## Seqlane code review",
+              "## 🧪 Seqlane code review",
               "",
-              "**Verdict:** `\(.verdict)` · **Rating:** \(.overallRating)/5",
+              "**Verdict:** \(if .verdict == "approve" then "✅ approve" else "🛑 request-changes" end) · **Rating:** ⭐ \(.overallRating)/5",
               "",
               .summary,
               "",
               "### Ratings",
-              (.ratings[] | "- **\(.axis):** \(.rating)/5 — \(.rationale)"),
+              (.ratings[] |
+                (if .rating >= 4 then "✅" elif .rating == 3 then "🟡" else "🔴" end) +
+                " **\(.axis):** \(.rating)/5 — \(.rationale)"),
               "",
               "### Findings",
               (if (.findings | length) == 0 then
-                "No findings."
+                "✅ No findings."
               else
                 (.findings[] |
-                  "- **\(.severity)** · **\(.axis)** — \(.summary)" +
+                  (if .severity == "critical" then "🚨" elif .severity == "required" then "🔴" elif .severity == "optional" then "🟡" else "💡" end) +
+                  " **\(.severity)** · **\(.axis)** — \(.summary)" +
                   (if .file then
                     " (`\(.file)\(if .line then ":\(.line)" else "" end)`)"
                   else "" end) +
@@ -199,9 +208,9 @@ jobs:
               "",
               "### Verification",
               (if (.verification | length) == 0 then
-                "No verification evidence reported."
+                "⚠️ No verification evidence reported."
               else
-                (.verification[] | "- \(.)")
+                (.verification[] | "🔎 \(.)")
               end)
             ] | .[]
           ' "$RUNNER_TEMP/seqlane-code-review-result.json" \

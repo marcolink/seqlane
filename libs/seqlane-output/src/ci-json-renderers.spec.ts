@@ -81,14 +81,22 @@ afterEach(() => {
 });
 
 describe("CI renderer", () => {
-  it("emits permanent attributable lines without terminal controls", async () => {
+  it("emits bold task lifecycle lines with duration and token details", async () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
+      redactions: ["top-secret-value"],
     });
     renderer.handle({ type: "run.started", ...run });
     renderer.handle(created("a", "Parallel A", 0));
     renderer.handle(created("b", "Parallel B", 1));
+    renderer.handle({
+      type: "invocation.started",
+      ...run,
+      invocationId: "a",
+      subject: { type: "task", taskId: "Parallel A" },
+      taskId: "Parallel A",
+    });
     renderer.handle({
       type: "invocation.progress",
       ...run,
@@ -98,20 +106,55 @@ describe("CI renderer", () => {
       message: "working",
     });
     renderer.handle({
+      type: "invocation.output",
+      ...run,
+      metadata: { ...run.metadata, occurredAt: "2026-08-18T00:00:01.000Z" },
+      invocationId: "a",
+      policy: "persistent",
+      channel: "task",
+      content: "checkpoint",
+      metrics: {
+        cost: 0.0042,
+        tokens: {
+          total: 42,
+          input: 20,
+          output: 12,
+          reasoning: 8,
+          cacheRead: 2,
+          cacheWrite: 0,
+        },
+      },
+    });
+    renderer.handle({
       type: "invocation.succeeded",
       ...run,
+      metadata: { ...run.metadata, occurredAt: "2026-08-18T00:00:02.000Z" },
       invocationId: "a",
+    });
+    renderer.handle({
+      type: "run.succeeded",
+      ...run,
+      metadata: { ...run.metadata, occurredAt: "2026-08-18T00:00:03.000Z" },
+      output: null,
     });
     await renderer.finish();
 
     const output = stdout.writes.join("");
     expect(isCIOutput(output)).toBe(true);
     expect(output).toContain("invocation=a");
-    expect(output).not.toContain("invocation=b");
+    expect(output).toContain("\u001b[1mrun=run-1 invocation=a started");
     expect(output).toContain(
-      "task-duration run=run-1 invocation=a label=Parallel A state=succeeded duration=0ms",
+      "\u001b[1mrun=run-1 invocation=a succeeded label=Parallel A duration=2000ms tokens=42 inputTokens=20 outputTokens=12 reasoning=8 cacheRead=2 cacheWrite=0 cost=0.0042\u001b[0m",
     );
-    expect(output).toContain("summary run=run-1");
+    expect(output).toContain(
+      "task-duration run=run-1 invocation=a label=Parallel A state=succeeded duration=2.0s cost=0.0042",
+    );
+    expect(output).toContain("summary run=run-1 outcome=succeeded");
+    expect(output).toContain("cost=0.0042");
+    expect(renderer.summary).toMatchObject({
+      totalCost: 0.0042,
+      taskDurations: [{ invocationId: "a", cost: 0.0042 }],
+    });
   });
 
   it("includes loop parents and body iterations in CI lines", () => {
@@ -164,6 +207,73 @@ describe("CI renderer", () => {
     });
 
     expect(stdout.writes.join("")).not.toContain("filesystem.read");
+  });
+
+  it("logs the bounded command for failed tool activity", async () => {
+    const stdout = new RecordingSink();
+    const renderer = new CIRenderer(capabilities(stdout), {
+      heartbeatIntervalMs: 0,
+      redactions: ["top-secret-value"],
+    });
+    renderer.handle({ type: "run.started", ...run });
+    renderer.handle(created("a", "Task A", 0));
+    renderer.handle({
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool",
+      name: "bash",
+      state: "failed",
+      input: {
+        state: "present",
+        value: {
+          command: "printf top-secret-value",
+          secret: "must not be emitted separately",
+        },
+      },
+      message: "Tool failed: top-secret-value",
+    });
+    await renderer.finish();
+
+    const output = stdout.writes.join("");
+    expect(output).toContain(
+      "activity=bash command=printf *** failed error=Tool failed: ***",
+    );
+    expect(output).not.toContain("top-secret-value");
+    expect(output).not.toContain("must not be emitted separately");
+  });
+
+  it("logs the bounded path for failed read activity", async () => {
+    const stdout = new RecordingSink();
+    const renderer = new CIRenderer(capabilities(stdout), {
+      heartbeatIntervalMs: 0,
+    });
+    renderer.handle({ type: "run.started", ...run });
+    renderer.handle(created("a", "Task A", 0));
+    renderer.handle({
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool",
+      name: "read",
+      state: "failed",
+      input: {
+        state: "present",
+        value: {
+          filePath: "/repo/src/review.ts",
+          offset: 1,
+          limit: 200,
+        },
+      },
+      message: "Tool failed",
+    });
+    await renderer.finish();
+
+    expect(stdout.writes.join("")).toContain(
+      "activity=read path=/repo/src/review.ts failed error=Tool failed",
+    );
   });
 
   it("emits a heartbeat while active", () => {
@@ -487,5 +597,26 @@ describe("JSON renderer", () => {
       renderer.handle({ type: "run.started", ...run }),
     ).not.toThrow();
     expect(renderer.lastError).toBeInstanceOf(Error);
+  });
+
+  it("redacts configured values from replayed JSON", () => {
+    const stdout = new RecordingSink();
+    const renderer = new JSONRenderer({
+      ...capabilities(stdout),
+      redactions: ["top-secret-value"],
+    });
+
+    renderer.handle({
+      type: "invocation.output",
+      ...run,
+      invocationId: "a",
+      policy: "persistent",
+      channel: "task",
+      content: "top-secret-value",
+    });
+
+    const output = stdout.writes.join("");
+    expect(output).not.toContain("top-secret-value");
+    expect(JSON.parse(output)).toMatchObject({ content: "***" });
   });
 });

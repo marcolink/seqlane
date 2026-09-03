@@ -93,6 +93,35 @@ export function formatCIValidationDetails(
   );
 }
 
+export function formatCITokenDetails(
+  metrics: SeqlaneInvocationMetrics | undefined,
+): string | undefined {
+  if (metrics?.tokens === undefined) return undefined;
+  const total =
+    metrics.tokens.total ??
+    metrics.tokens.input + metrics.tokens.output + metrics.tokens.reasoning;
+  return [
+    "tokens=" + total,
+    "inputTokens=" + metrics.tokens.input,
+    "outputTokens=" + metrics.tokens.output,
+    "reasoning=" + metrics.tokens.reasoning,
+    "cacheRead=" + metrics.tokens.cacheRead,
+    "cacheWrite=" + metrics.tokens.cacheWrite,
+  ].join(" ");
+}
+
+export function formatCICost(cost: number): string {
+  return cost.toFixed(4);
+}
+
+export function formatCICostDetails(
+  metrics: SeqlaneInvocationMetrics | undefined,
+): string | undefined {
+  return metrics?.cost === undefined
+    ? undefined
+    : "cost=" + formatCICost(metrics.cost);
+}
+
 function formatDuration(milliseconds: number): string {
   return milliseconds < 1000
     ? milliseconds + "ms"
@@ -211,19 +240,9 @@ export function formatCIOutputDetails(
       details.push("reasoning=" + compact(reasoning, 120));
     }
   }
-  if (metrics?.tokens !== undefined) {
-    const total =
-      metrics.tokens.total ??
-      metrics.tokens.input + metrics.tokens.output + metrics.tokens.reasoning;
-    details.push("tokens=" + total);
-    details.push("inputTokens=" + metrics.tokens.input);
-    details.push("outputTokens=" + metrics.tokens.output);
-    details.push("reasoning=" + metrics.tokens.reasoning);
-    details.push("cacheRead=" + metrics.tokens.cacheRead);
-    details.push("cacheWrite=" + metrics.tokens.cacheWrite);
-  }
-  if (metrics?.cost !== undefined) {
-    details.push("cost=" + metrics.cost.toFixed(4));
-  }
+  const tokenDetails = formatCITokenDetails(metrics);
+  if (tokenDetails !== undefined) details.push(tokenDetails);
+  const costDetails = formatCICostDetails(metrics);
+  if (costDetails !== undefined) details.push(costDetails);
   return details.length === 0 ? undefined : details.join(" ");
 }

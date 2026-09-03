@@ -54,20 +54,25 @@ opencode serve --hostname 127.0.0.1 --port 4096 --print-logs
 ```
 
 `pr-code-review.ts` is an autonomous pull-request code-review workflow. It
-compares explicit base and head revisions, using the pull-request title and
-description as untrusted author-supplied context. It runs correctness,
+uses the supplied base branch for context and compares the matching explicit
+base and head revisions, using the pull-request title and description as
+untrusted author-supplied context. It runs correctness,
 maintainability, and risk lanes in parallel before producing a five-axis
-rating. It instructs the agent to use only read-only Git inspection commands.
+rating. Review tasks only read supplied evidence and targeted workspace files;
+they do not execute scripts, tests, builds, package managers, Git, or shell
+commands. File inspection uses workspace-relative paths and stays inside the
+review workspace.
 Inspection uses an isolated `openai/gpt-5.6-luna` session with high reasoning.
-Each review lane branches with its own OpenAI model and reasoning level; the
-final summary reuses the inspection session and does not select a model.
+Each review lane uses an independent session with its configured OpenAI model
+and reasoning level; the final summary uses an isolated
+`openai/gpt-5.6-luna` session with high reasoning.
 The current OpenCode tasks use `workspace: "shared"` because the author asserts
 they may overlap. This is not a read-only workspace boundary; configure the
 runtime accordingly.
 
 ```sh
 pnpm exec node apps/seqlane-cli/bin/run.js run examples/pr-code-review.ts \
-  --input '{"repository":"/path/to/repository","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
+  --input '{"repository":"/path/to/repository","baseBranch":"release/2026.09","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
   --runtime http://127.0.0.1:4096 \
   --workspace /path/to/repository
 ```
@@ -79,13 +84,27 @@ non-draft pull requests from branches in this repository. Configure the
 `OPENAI_API_KEY` Actions secret to enable it. Without the secret, the workflow
 reports a successful skip.
 
-The workflow builds Seqlane from the trusted base revision and reviews the
-explicit base-to-head range in a separate checkout. It does not execute package
-installation or repository scripts from the pull request. OpenCode ignores
+The workflow uses `pull_request_target`, runs the trusted workflow definition
+from the base branch, and checks out the trusted Seqlane source from the base
+revision. It checks out the pull-request head separately as the review target.
+
+The workflow reads the pull request's configured base branch and immutable base
+revision from the event, then reviews the explicit base-to-head range in a
+separate checkout. A local workflow task validates the requested Git range and
+collects bounded changed-file, diff-stat, and whitespace-check evidence with
+explicit overflow metadata. Inspection produces bounded requirements and
+evidence;
+specialist lanes run in independent sessions and verify that evidence against
+the target workspace before the final synthesis, which preserves the exact
+repository and base/head identity fields from inspection. The workflow installs and
+builds the checked-out Seqlane source, but does not install dependencies or
+execute repository scripts from the separate review target. OpenCode ignores
 project runtime configuration during the review and receives a read-only tool
 policy. The workflow updates one marked pull-request comment with the report
 and records the report verdict without failing the review job when it is
-`request-changes`.
+`request-changes`. Configured secret values are redacted from CI output,
+workflow summaries, and GitHub annotations. The review runtime denies access
+outside the review workspace and blocks environment files.
 
 `all-features.ts` is the compact feature tour. It uses typed input/output,
 shared and exclusive workspaces, isolated/reused/branched sessions, explicit
