@@ -108,6 +108,9 @@ describe("CI renderer", () => {
     expect(isCIOutput(output)).toBe(true);
     expect(output).toContain("invocation=a");
     expect(output).not.toContain("invocation=b");
+    expect(output).toContain(
+      "task-duration run=run-1 invocation=a label=Parallel A state=succeeded duration=0ms",
+    );
     expect(output).toContain("summary run=run-1");
   });
 
@@ -278,6 +281,7 @@ describe("CI renderer", () => {
 
     expect(summary.writes.join("")).toContain("Nested task");
     expect(summary.writes.join("")).toContain("redacted failure");
+    expect(summary.writes.join("")).toContain("### Task durations");
     expect(renderer.summary?.counts.failed).toBe(1);
   });
 

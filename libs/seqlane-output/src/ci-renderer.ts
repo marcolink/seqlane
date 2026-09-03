@@ -30,6 +30,12 @@ export interface CISummary {
     readonly category: string;
     readonly message: string;
   };
+  readonly taskDurations: readonly {
+    readonly invocationId: string;
+    readonly label: string;
+    readonly state: HumanExecutionNode["state"];
+    readonly durationMs: number;
+  }[];
   readonly failures: readonly {
     readonly invocationId: string;
     readonly label: string;
@@ -88,6 +94,12 @@ function compactCI(value: string, maximum = 500): string {
   return normalized.length <= maximum
     ? normalized
     : normalized.slice(0, Math.max(0, maximum - 1)) + "…";
+}
+
+function formatCIDuration(milliseconds: number): string {
+  return milliseconds < 1000
+    ? milliseconds + "ms"
+    : (milliseconds / 1000).toFixed(1) + "s";
 }
 
 function escapeGithubCommandValue(value: string): string {
@@ -192,6 +204,9 @@ export class CIRenderer implements ExecutionRenderer {
     this.finished = true;
     this.stopHeartbeat();
     this._summary = this.createSummary();
+    for (const task of this._summary.taskDurations) {
+      this.writeLine(this.taskDurationLine(this._summary.runId, task));
+    }
     this.writeLine(this.summaryLine(this._summary));
     if (this.capabilities.summary !== undefined) {
       this.safeWrite(
@@ -441,6 +456,20 @@ export class CIRenderer implements ExecutionRenderer {
               message: this.view.runError.message,
             },
           }),
+      taskDurations: [...this.view.nodes.values()]
+        .filter(
+          (node) =>
+            node.kind !== "workflow" &&
+            node.kind !== "loop" &&
+            node.elapsedMs !== undefined,
+        )
+        .sort((left, right) => left.createdSequence - right.createdSequence)
+        .map((node) => ({
+          invocationId: node.invocationId,
+          label: node.label,
+          state: node.state,
+          durationMs: node.elapsedMs ?? 0,
+        })),
       failures: [...this.view.nodes.values()]
         .filter((node) => node.failure !== undefined)
         .map((node) => ({
@@ -470,6 +499,24 @@ export class CIRenderer implements ExecutionRenderer {
       state +
       (label === undefined ? "" : " label=" + compactCI(label, 200)) +
       (reason === undefined ? "" : " reason=" + compactCI(reason))
+    );
+  }
+
+  private taskDurationLine(
+    runId: string | undefined,
+    task: CISummary["taskDurations"][number],
+  ): string {
+    return (
+      "task-duration run=" +
+      (runId ?? "unknown") +
+      " invocation=" +
+      task.invocationId +
+      " label=" +
+      compactCI(task.label, 200) +
+      " state=" +
+      task.state +
+      " duration=" +
+      formatCIDuration(task.durationMs)
     );
   }
 
@@ -511,6 +558,26 @@ export class CIRenderer implements ExecutionRenderer {
       "- Skipped: " + summary.counts.skipped,
       "- Duration: " + (summary.durationMs ?? 0) + " ms",
     ];
+    if (summary.taskDurations.length > 0) {
+      lines.push(
+        "",
+        "### Task durations",
+        "",
+        "| Task | State | Duration |",
+        "| --- | --- | ---: |",
+      );
+      for (const task of summary.taskDurations) {
+        lines.push(
+          "| " +
+            compactCI(task.label, 200).replaceAll("|", "\\|") +
+            " | " +
+            task.state +
+            " | " +
+            formatCIDuration(task.durationMs) +
+            " |",
+        );
+      }
+    }
     if (summary.runError !== undefined) {
       lines.push(
         "",

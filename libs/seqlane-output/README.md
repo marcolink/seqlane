@@ -23,7 +23,9 @@ changes, retries, waits, skips, persistent output, failures, heartbeats, and
 the final summary. It does not print invocation input, transient output, or
 routine successful tool and skill activity. When the caller explicitly enables
 the GitHub Actions capability, invocation and run failures also produce
-workflow annotations.
+workflow annotations. The final log and GitHub summary include one duration
+entry for each completed leaf task; workflow and loop aggregates are excluded
+to avoid double-counting.
 
 ## Use the package
 
