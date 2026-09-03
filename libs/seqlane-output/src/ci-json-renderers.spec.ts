@@ -166,6 +166,39 @@ describe("CI renderer", () => {
     expect(stdout.writes.join("")).not.toContain("filesystem.read");
   });
 
+  it("logs the bounded command for failed tool activity", async () => {
+    const stdout = new RecordingSink();
+    const renderer = new CIRenderer(capabilities(stdout), {
+      heartbeatIntervalMs: 0,
+    });
+    renderer.handle({ type: "run.started", ...run });
+    renderer.handle(created("a", "Task A", 0));
+    renderer.handle({
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool",
+      name: "bash",
+      state: "failed",
+      input: {
+        state: "present",
+        value: {
+          command: "git diff --no-ext-diff --no-textconv base...head",
+          secret: "must not be emitted separately",
+        },
+      },
+      message: "Tool failed",
+    });
+    await renderer.finish();
+
+    const output = stdout.writes.join("");
+    expect(output).toContain(
+      "activity=bash command=git diff --no-ext-diff --no-textconv base...head failed error=Tool failed",
+    );
+    expect(output).not.toContain("must not be emitted separately");
+  });
+
   it("emits a heartbeat while active", () => {
     vi.useFakeTimers();
     const stdout = new RecordingSink();

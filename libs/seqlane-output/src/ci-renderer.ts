@@ -1,4 +1,8 @@
-import type { SeqlaneExecutionEvent } from "@seqlane/events";
+import { isPlainRecord } from "@seqlane/core";
+import type {
+  InvocationActivityEvent,
+  SeqlaneExecutionEvent,
+} from "@seqlane/events";
 import {
   createHumanViewModel,
   reduceHumanViewModel,
@@ -111,6 +115,16 @@ function compactCI(value: string, maximum = 500): string {
   return normalized.length <= maximum
     ? normalized
     : normalized.slice(0, Math.max(0, maximum - 1)) + "…";
+}
+
+function activityCommand(event: InvocationActivityEvent): string | undefined {
+  if (event.kind !== "tool" || event.input?.state !== "present") {
+    return undefined;
+  }
+  const value = event.input.value;
+  if (!isPlainRecord(value)) return undefined;
+  const command = value.command;
+  return typeof command === "string" ? compactCI(command, 500) : undefined;
 }
 
 function formatCIDuration(milliseconds: number): string {
@@ -319,18 +333,23 @@ export class CIRenderer implements ExecutionRenderer {
         );
       }
       case "invocation.activity":
-        return event.state === "failed"
-          ? "run=" +
-              event.runId +
-              " invocation=" +
-              event.invocationId +
-              " activity=" +
-              compactCI(event.name, 200) +
-              " failed" +
-              (event.message === undefined
-                ? ""
-                : " error=" + compactCI(event.message))
-          : "";
+        if (event.state !== "failed") return "";
+        {
+          const command = activityCommand(event);
+          return (
+            "run=" +
+            event.runId +
+            " invocation=" +
+            event.invocationId +
+            " activity=" +
+            compactCI(event.name, 200) +
+            (command === undefined ? "" : " command=" + command) +
+            " failed" +
+            (event.message === undefined
+              ? ""
+              : " error=" + compactCI(event.message))
+          );
+        }
       case "invocation.output":
         if (event.policy !== "persistent") return "";
         {

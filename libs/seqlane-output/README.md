@@ -22,11 +22,12 @@ CI mode consumes the complete event stream but renders only meaningful state
 changes, retries, waits, skips, persistent output, failures, heartbeats, and
 the final summary. It does not print invocation input, transient output, or
 routine successful tool and skill activity. When the caller explicitly enables
-the GitHub Actions capability, invocation and run failures also produce
-workflow annotations. The final log and GitHub summary include one duration
-entry for each completed leaf task; workflow and loop aggregates are excluded
-to avoid double-counting. Runner supervision failures are also rendered as
-failed outcomes before finalization.
+the GitHub Actions capability, failed tool activity includes a bounded command
+when available, and invocation and run failures also produce workflow
+annotations. The final log and GitHub summary include one duration entry for
+each completed leaf task; workflow and loop aggregates are excluded to avoid
+double-counting. Runner supervision failures are also rendered as failed
+outcomes before finalization.
 
 ## Use the package
 
