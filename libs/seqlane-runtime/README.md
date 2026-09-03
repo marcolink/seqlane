@@ -5,11 +5,11 @@ private infrastructure; its types do not cross this package boundary.
 
 ### Community Mastra dependency boundary
 
-The runtime pins `@mastra/core@1.64.0`. The private integration registers and
-runs workflows through the workflow API from `@mastra/core/workflows`, using
-`createStep` and `createWorkflow`. The package declares
-Apache-2.0 licensing. Mastra paths under `ee/` are enterprise-only and are
-rejected by the runtime boundary tests.
+The runtime pins `@mastra/core@1.64.0`. The installed Community package exposes
+the workflow API from `@mastra/core/workflows`, including `createStep` and
+`createWorkflow`, which the private integration uses to register and run
+workflows. The package declares Apache-2.0 licensing. Mastra paths under `ee/`
+are enterprise-only and are rejected by the runtime boundary tests.
 
 The Enterprise boundary guard scans production source and package manifests in
 `apps/` and `libs/`. It rejects static and side-effect imports, export-from
