@@ -39,6 +39,18 @@ export class UnsupportedSessionBranchError extends Error {
   }
 }
 
+export class SessionModelSelectionMismatchError extends Error {
+  constructor(
+    readonly requested: ModelSelection,
+    readonly resolved: ModelSelection,
+  ) {
+    super(
+      "Resolved session effective model selection differs from requested selection",
+    );
+    this.name = "SessionModelSelectionMismatchError";
+  }
+}
+
 export interface SessionResolver {
   readonly modelCapabilities?: ExecutorModelCapabilities;
   resolve(request: {
@@ -54,15 +66,17 @@ function pinSession(
 ): ResolvedExecutorSession {
   if (effectiveSelection === undefined) return session;
   const existing = session.effectiveSelection;
+  if (existing === undefined) {
+    return { ...session, effectiveSelection };
+  }
   if (
-    existing !== undefined &&
     existing.model.provider === effectiveSelection.model.provider &&
     existing.model.model === effectiveSelection.model.model &&
     existing.reasoning === effectiveSelection.reasoning
   ) {
     return session;
   }
-  return { ...session, effectiveSelection };
+  throw new SessionModelSelectionMismatchError(effectiveSelection, existing);
 }
 
 export async function resolveTaskSession(

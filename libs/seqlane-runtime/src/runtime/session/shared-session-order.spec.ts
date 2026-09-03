@@ -268,7 +268,7 @@ describe("shared-session order preflight", () => {
     expect(sourceSession?.effectiveSelection).toEqual(selection);
   });
 
-  it("pins a changed branch selection without changing the parent session", async () => {
+  it("rejects a fork session with a changed effective selection", async () => {
     const parentSelection: ModelSelection = {
       model: { provider: "openai", model: "gpt-5.6-sol" },
       reasoning: "medium",
@@ -344,21 +344,16 @@ describe("shared-session order preflight", () => {
 
     await preflightCompiledWorkflowModels(compiled);
     await resolveCompiledWorkflowSessions(compiled);
-    await runCompiledWorkflow(compiled);
+    await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
+      status: "failed",
+      error: { message: expect.stringMatching(/effective model selection/i) },
+    });
 
     const branchSession = compiled.context.resolvedSessions.get("inv:branch");
     expect(forkSelections).toEqual([branchSelection]);
-    expect(branchSession).toBeDefined();
-    expect(branchSession).not.toBe(parentSession);
-    expect(branchSession?.effectiveSelection).toEqual(branchSelection);
+    expect(branchSession).toBeUndefined();
     expect(compiled.context.resolvedSessions.get("inv:source")).toBe(
       parentSession,
-    );
-    expect(compiled.context.resolvedSessions.get("inv:reuse")).toBe(
-      parentSession,
-    );
-    expect(compiled.context.resolvedSessions.get("inv:branch-reuse")).toBe(
-      branchSession,
     );
     expect(parentSession.effectiveSelection).toEqual(parentSelection);
   });

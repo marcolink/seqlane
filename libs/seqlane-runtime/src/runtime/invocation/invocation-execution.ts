@@ -367,6 +367,9 @@ export async function executeTaskNode(
           context.taskDefinitions?.get(node.taskId)?.observability?.studio
             ?.result,
         ),
+        ...(observableMetrics === undefined
+          ? {}
+          : { metrics: observableMetrics }),
         ...optionalIteration(options.iteration),
       });
       results.set(node.nodeId, output);

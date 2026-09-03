@@ -101,6 +101,26 @@ describe("OpenCode model capabilities", () => {
     }
   });
 
+  it("lists models only for connected providers", async () => {
+    const fake = await startFakeServer({
+      providerResponse: {
+        ...providerList,
+        connected: ["anthropic"],
+      },
+      configResponse: providerCatalog,
+    });
+    try {
+      const capabilities = createOpenCodeModelCapabilities(fake.url);
+
+      await expect(capabilities.listModels()).resolves.toEqual([
+        { provider: "anthropic", model: "claude-sonnet-4-6" },
+        { provider: "anthropic", model: "claude-haiku-4-5" },
+      ]);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
   it("rejects a catalog with a malformed model entry", async () => {
     const fake = await startFakeServer({
       providerResponse: {

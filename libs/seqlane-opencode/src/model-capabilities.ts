@@ -57,11 +57,13 @@ function createOpenCodeModelCapabilitiesFromClient(
       );
       const catalog = providerListResponseSchema.parse(response.data);
       return Object.freeze(
-        catalog.all.flatMap((provider) =>
-          Object.values(provider.models).map((model) =>
-            Object.freeze({ provider: provider.id, model: model.id }),
+        catalog.all
+          .filter((provider) => catalog.connected.includes(provider.id))
+          .flatMap((provider) =>
+            Object.values(provider.models).map((model) =>
+              Object.freeze({ provider: provider.id, model: model.id }),
+            ),
           ),
-        ),
       );
     },
 
