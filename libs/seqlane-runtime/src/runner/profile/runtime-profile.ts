@@ -6,7 +6,7 @@ import type {
 } from "@seqlane/core";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
 import {
-  createOpenCodeExecutor,
+  createMastraAcpExecutor,
   createOpenCodeModelCapabilities,
   createOpenCodeRun,
   resolveOpenCodeBrowserUiUrl,
@@ -91,7 +91,10 @@ function createOpenCodeSession(
     key: Symbol("opencode-executor-session"),
     ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: createSessionUiExecutor(
-      createOpenCodeExecutor(taskDefinitions, run),
+      createMastraAcpExecutor(taskDefinitions, {
+        workspace: run.workspace,
+        selection: effectiveSelection,
+      }),
       run.browserUrl,
       onSessionUiAvailable,
     ),
@@ -119,6 +122,10 @@ function createLazyOpenCodeSession(
 
   const resolveRun = () =>
     (run ??= createOpenCodeRun(connection, signal, effectiveSelection));
+  const acpExecutor = createMastraAcpExecutor(taskDefinitions, {
+    workspace: connection.workspace,
+    selection: effectiveSelection,
+  });
   let reported = false;
 
   return {
@@ -126,18 +133,15 @@ function createLazyOpenCodeSession(
     ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: {
       async execute(request) {
-        const resolved = await resolveRun();
         if (!reported) {
           reported = true;
           await reportSessionUi(
             request.invocationId,
-            resolved.browserUrl,
+            connection.browserUiUrl,
             onSessionUiAvailable,
           );
         }
-        return createOpenCodeExecutor(taskDefinitions, resolved).execute(
-          request,
-        );
+        return acpExecutor.execute(request);
       },
     },
     checkpoint: async () => (await resolveRun()).checkpoint(),

@@ -238,6 +238,12 @@ importers:
 
   libs/seqlane-opencode:
     dependencies:
+      '@mastra/acp':
+        specifier: 0.4.0
+        version: 0.4.0(@mastra/core@1.64.0(zod@4.5.4))(zod@4.5.4)
+      '@mastra/core':
+        specifier: 1.64.0
+        version: 1.64.0(zod@4.5.4)
       '@opencode-ai/sdk':
         specifier: 1.18.27
         version: 1.18.27
@@ -322,6 +328,11 @@ packages:
         optional: true
       express:
         optional: true
+
+  '@agentclientprotocol/sdk@0.21.1':
+    resolution: {integrity: sha512-ZTLH+o9QxcZDLX/9ww+W7C2iExnXFM+vD/uGFVSlR61Kzj9FaxUqBC6Rv/kwgA7qVWYUEI9c5ZNqCuO9PM4rKg==, tarball: https://registry.npmjs.org/@agentclientprotocol/sdk/-/sdk-0.21.1.tgz}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@ai-sdk/provider-utils@4.0.40':
     resolution: {integrity: sha512-OL5IrpUm9Y8Dwy+w/vvFwPotS6m52O9W0op2oXgXdCROMJIBalBI0oro6OIBYkPxvm5Xg02GSkoQN25RlR0bnw==, tarball: https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-4.0.40.tgz}
@@ -1167,6 +1178,12 @@ packages:
   '@lukeed/uuid@2.0.1':
     resolution: {integrity: sha512-qC72D4+CDdjGqJvkFMMEAtancHUQ7/d/tAiHf64z8MopFDmcrtbcJuerDtFceuAfQJ2pDSfCKCtbqoGBNnwg0w==, tarball: https://registry.npmjs.org/@lukeed/uuid/-/uuid-2.0.1.tgz}
     engines: {node: '>=8'}
+
+  '@mastra/acp@0.4.0':
+    resolution: {integrity: sha512-iSp+T65/wnDE1ryBFAJn4pCEsalJvx8dfKIcUCS0AWvF5qacdkU6griTlbloshc1PuZucP9S656hC4Zk7VvNQg==, tarball: https://registry.npmjs.org/@mastra/acp/-/acp-0.4.0.tgz}
+    engines: {node: '>=22.13.0'}
+    peerDependencies:
+      '@mastra/core': '>=1.34.0-0 <2.0.0-0'
 
   '@mastra/core@1.64.0':
     resolution: {integrity: sha512-+fuvDeORYWIb+SJrGQlXQi6r1JCxd05g3SNCDepnO910j4uqxMWf5s22Ta0sRSR5zbKRx2NUZoWPAfQt2xF4hQ==, tarball: https://registry.npmjs.org/@mastra/core/-/core-1.64.0.tgz}
@@ -4537,6 +4554,10 @@ snapshots:
       jose: 6.2.10
       uuid: 11.1.1
 
+  '@agentclientprotocol/sdk@0.21.1(zod@4.5.4)':
+    dependencies:
+      zod: 4.5.4
+
   '@ai-sdk/provider-utils@4.0.40(zod@4.5.4)':
     dependencies:
       '@ai-sdk/provider': 3.0.14
@@ -5650,6 +5671,13 @@ snapshots:
   '@lukeed/uuid@2.0.1':
     dependencies:
       '@lukeed/csprng': 1.1.0
+
+  '@mastra/acp@0.4.0(@mastra/core@1.64.0(zod@4.5.4))(zod@4.5.4)':
+    dependencies:
+      '@agentclientprotocol/sdk': 0.21.1(zod@4.5.4)
+      '@mastra/core': 1.64.0(zod@4.5.4)
+    transitivePeerDependencies:
+      - zod
 
   '@mastra/core@1.64.0(zod@4.5.4)':
     dependencies:

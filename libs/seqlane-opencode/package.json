@@ -21,8 +21,10 @@
     ]
   },
   "dependencies": {
-    "@seqlane/core": "workspace:*",
+    "@mastra/acp": "0.4.0",
+    "@mastra/core": "1.64.0",
     "@opencode-ai/sdk": "1.18.27",
+    "@seqlane/core": "workspace:*",
     "zod": "4.5.4"
   },
   "files": [
