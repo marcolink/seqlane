@@ -6,6 +6,19 @@ private infrastructure; its types do not cross this package boundary.
 The runtime validates task inputs and outputs, resolves bindings, emits bounded
 consumer events, and retains results until their final consumer completes.
 
+### Local task execution
+
+A task with `execute` runs through the local invocation path. The runtime parses
+its typed input, admits the canonical workspace, and provides a scoped
+`TaskContext.exec` capability. Each call starts one foreground process with an
+executable and direct argv, never a shell, and captures bounded stdout and
+stderr. The workspace lease remains held until the process terminates.
+
+Local tasks do not resolve an agent executor, model, session, or checkpoint, and
+their generic invocation results contain no model or token metrics. V1 is
+non-interactive and requires `execute` to await `exec`; there is no Git helper,
+Git mutation API, shell support, background-process API, or command policy.
+
 Workspace policy is scheduling-only. A task with `workspace: "shared"` may run
 with other shared tasks. An `exclusive` task waits for all workspace work; any
 task waits while an exclusive task is active. Omitted policy resolves to

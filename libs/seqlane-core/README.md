@@ -46,6 +46,37 @@ Both reuse and branch infer the source dependency; a checkpoint has one reuse
 consumer and any number of branch consumers. Mechanical task handles do not
 expose `.session`.
 
+### Local tasks
+
+Use `defineTask` with `execute` for deterministic work that does not need an
+agent. Use `goal` for an agent task; a definition must use exactly one of these
+fields. A local task returns an output-only handle, so it cannot select a
+session, model, or token-producing executor.
+
+The local context exposes only direct executable and argv invocation:
+
+```ts
+import { defineTask } from "@seqlane/core";
+import { z } from "zod";
+
+const gitStatus = defineTask({
+  id: "git-status",
+  input: z.object({}),
+  output: z.object({
+    exitCode: z.number(),
+    stdout: z.string(),
+    stderr: z.string(),
+  }),
+  execute: async (_input, { exec }) =>
+    exec({ command: "git", args: ["status", "--porcelain=v1"] }),
+});
+```
+
+`exec` uses the canonical workflow workspace and does not invoke a shell. It
+captures bounded stdout and stderr. Local tasks must await foreground,
+non-interactive commands. The V1 API has no Git helper or mutation APIs, shell
+support, background process API, or command policy.
+
 This fan-out/fan-in workflow shares source context without merging session
 histories. The synthesis task explicitly reuses `context`; branch outputs are
 ordinary typed inputs.

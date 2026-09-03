@@ -1,5 +1,6 @@
 // @test-scope ./validation-workflow.ts
 // @test-scope ./model-selection-workflow.ts
+// @test-scope ./local-git-status.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -17,6 +18,7 @@ describe("fixture package boundary", () => {
       "./mixed-workflow",
       "./validation-workflow",
       "./model-selection-workflow",
+      "./local-git-status",
     ]);
     expect(manifest.exports?.["./validation-workflow"]).toMatchObject({
       import: "./dist/validation-workflow.js",

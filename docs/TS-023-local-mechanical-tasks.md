@@ -1,6 +1,6 @@
 # TS-023 — Local Mechanical Tasks
 
-**Status:** Ready for implementation
+**Status:** Implemented
 **Implements:** ADR-023
 **Depends on:** ADR-003, ADR-005, ADR-008, ADR-019, ADR-020, ADR-021
 
