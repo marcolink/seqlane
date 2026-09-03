@@ -166,6 +166,10 @@ function normalizeResult(
     return { status: "cancelled" };
   }
 
+  if (result.status === "canceled" || result.status === "cancelled") {
+    return { status: "cancelled" };
+  }
+
   return failedOutcome(
     new Error(
       `Mastra workflow "${workflowKey}" ended with unsupported status "${result.status}"`,
