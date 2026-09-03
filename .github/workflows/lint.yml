@@ -43,6 +43,9 @@ jobs:
       - name: Validate SDLC documentation
         run: pnpm docs:validate
 
+      - name: Test SDLC documentation tooling
+        run: pnpm docs:test
+
       - name: Typecheck affected projects
         run: pnpm exec nx affected -t typecheck --output-style=static
 

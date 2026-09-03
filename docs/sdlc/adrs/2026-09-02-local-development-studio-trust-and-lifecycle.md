@@ -8,7 +8,8 @@ created: 2026-09-02
 updated: 2026-09-03
 upstream:
   - rfc.seqlane-technical-architecture
-supersedes: []
+supersedes:
+  - adr.local-read-only-execution-studio
 ---
 
 # Simplify the Local Development Studio Trust and Lifecycle
@@ -24,6 +25,11 @@ environment, but it adds friction to the intended use case: one developer
 running Seqlane locally. The developer accepts that another local process can
 read the Studio data or inject fake events. Studio data is already transient
 and is not a production or remote service.
+
+This ADR supersedes only the access-boundary, session-discovery, and lifecycle
+details of
+[adr.local-read-only-execution-studio](2026-09-02-local-read-only-execution-studio.md);
+its read-only UI and event-contract decisions remain in force.
 
 The current model also makes Studio restart recovery harder: a browser tab can
 retain a stale cookie, while a descriptor and bootstrap URL belong to the

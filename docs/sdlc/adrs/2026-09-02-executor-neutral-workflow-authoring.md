@@ -8,7 +8,8 @@ created: 2026-09-02
 updated: 2026-09-03
 upstream:
   - rfc.seqlane-technical-architecture
-supersedes: []
+supersedes:
+  - adr.opencode-executor-integration
 ---
 
 # Keep Workflow Authoring and Plans Executor-Neutral
@@ -28,6 +29,10 @@ The current design exposes executor-specific concepts in several places:
 
 This couples authored workflows and persisted Plans to one executor. It also
 makes replacing, adding, or configuring executors a public API change.
+
+This ADR supersedes only the workflow-authoring portion of
+[adr.opencode-executor-integration](2026-09-02-opencode-executor-integration.md);
+its runtime integration and repository harness decisions remain in force.
 
 Mastra remains a private runtime implementation under adr.mastra-internal-workflow-engine. This ADR applies
 the same boundary rule to OpenCode and to any future executor.

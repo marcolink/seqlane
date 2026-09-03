@@ -30,3 +30,4 @@
 - Keep essential content valid and understandable as raw Markdown.
 - Add new documents to their type index, run `pnpm docs:index`, and run
   `pnpm docs:validate`.
+- When changing SDLC index or validation tooling, also run `pnpm docs:test`.
