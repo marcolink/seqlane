@@ -23,7 +23,7 @@ function expectNoBoundaryLeak(
   }
 }
 
-describe("ADR-008 executor-neutral boundaries", () => {
+describe("adr.executor-neutral-workflow-authoring executor-neutral boundaries", () => {
   it("keeps core and public runner protocol free of adapter details", () => {
     expectNoBoundaryLeak(
       [
@@ -63,10 +63,10 @@ describe("ADR-008 executor-neutral boundaries", () => {
         "libs/seqlane-core/README.md",
         "libs/seqlane-runtime/README.md",
         "libs/seqlane-opencode/README.md",
-        "docs/TS-003-seqlane-plan-ir-typed-dataflow.md",
-        "docs/TS-004-opencode-executor-integration.md",
-        "docs/ADR-006-repository-user-workflow-discovery-and-composition.md",
-        "docs/MVP.md",
+        "docs/sdlc/specs/2026-09-02-seqlane-plan-ir-typed-dataflow.md",
+        "docs/sdlc/specs/2026-09-02-opencode-executor-integration.md",
+        "docs/sdlc/adrs/2026-09-02-repository-user-workflow-discovery-and-composition.md",
+        "docs/sdlc/prd/2026-09-02-seqlane.md",
       ],
       [/opencode\.task/, /opencode-url/, /createRunnerExecution/],
     );
@@ -86,7 +86,7 @@ describe("ADR-008 executor-neutral boundaries", () => {
   });
 });
 
-describe("ADR-016 execution-event boundaries", () => {
+describe("adr.consumer-agnostic-seqlane-execution-events execution-event boundaries", () => {
   it("does not expose the legacy RunnerEvent contract from core", () => {
     const coreIndex = source("libs/seqlane-core/src/index.ts");
     const runnerProtocol = source("libs/seqlane-core/src/runner-protocol.ts");

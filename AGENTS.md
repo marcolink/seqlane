@@ -8,7 +8,8 @@
 - `libs/seqlane-runtime` owns private Effect-based execution.
 - `libs/seqlane-fixtures` owns private test fixtures and fixture contract tests; expose only intentional fixture subpaths.
 - Keep runtime-engine types and dependencies out of core, serialized Plans, and public workflow-author APIs.
-- Keep executor implementations, including OpenCode, out of workflow definitions, serialized Plans, public APIs, runner IPC, and documented CLI/configuration. Follow [ADR-008](docs/ADR-008-executor-neutral-workflow-authoring.md) when changing these boundaries.
+- Keep executor implementations, including OpenCode, out of workflow definitions, serialized Plans, public APIs, runner IPC, and documented CLI/configuration. Follow [adr.executor-neutral-workflow-authoring](docs/sdlc/adrs/2026-09-02-executor-neutral-workflow-authoring.md) when changing these boundaries.
+- For SDLC documents, follow [the SDLC agent instructions](docs/sdlc/AGENTS.md).
 - Use pnpm and keep `pnpm-lock.yaml` synchronized.
 - Breaking changes are allowed in this phase. Preserve observable behavior unless a behavior change is intentional, documented, and tested.
 

@@ -8,6 +8,12 @@ then run the workflow with the CLI.
 Seqlane is under active development. Breaking changes can occur while its
 contracts and package boundaries evolve.
 
+## Documentation
+
+See the [documentation index](docs/index.md). Product requirements,
+architecture decisions, technical specifications, and implementation tasks are
+in the [SDLC corpus](docs/sdlc/index.md).
+
 ## Quickstart
 
 ### Install
