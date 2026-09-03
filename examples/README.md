@@ -54,8 +54,9 @@ opencode serve --hostname 127.0.0.1 --port 4096 --print-logs
 ```
 
 `pr-code-review.ts` is an autonomous pull-request code-review workflow. It
-compares explicit base and head revisions, using the pull-request title and
-description as untrusted author-supplied context. It runs correctness,
+uses the supplied base branch for context and compares the matching explicit
+base and head revisions, using the pull-request title and description as
+untrusted author-supplied context. It runs correctness,
 maintainability, and risk lanes in parallel before producing a five-axis
 rating. It instructs the agent to use only read-only Git inspection commands.
 Inspection uses an isolated `openai/gpt-5.6-luna` session with high reasoning.
@@ -67,7 +68,7 @@ runtime accordingly.
 
 ```sh
 pnpm exec node apps/seqlane-cli/bin/run.js run examples/pr-code-review.ts \
-  --input '{"repository":"/path/to/repository","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
+  --input '{"repository":"/path/to/repository","baseBranch":"release/2026.09","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
   --runtime http://127.0.0.1:4096 \
   --workspace /path/to/repository
 ```
@@ -79,9 +80,10 @@ non-draft pull requests from branches in this repository. Configure the
 `OPENAI_API_KEY` Actions secret to enable it. Without the secret, the workflow
 reports a successful skip.
 
-The workflow builds Seqlane from the trusted base revision and reviews the
-explicit base-to-head range in a separate checkout. It does not execute package
-installation or repository scripts from the pull request. OpenCode ignores
+The workflow reads the pull request's configured base branch and immutable base
+revision from the event, then reviews the explicit base-to-head range in a
+separate checkout. It does not execute package installation or repository
+scripts from the pull request. OpenCode ignores
 project runtime configuration during the review and receives a read-only tool
 policy. The workflow updates one marked pull-request comment with the report
 and records the report verdict without failing the review job when it is

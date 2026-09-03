@@ -125,16 +125,19 @@ jobs:
         continue-on-error: true
         working-directory: seqlane-source
         env:
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           BASE_REVISION: ${{ github.event.pull_request.base.sha }}
           HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
           REVIEW_TARGET: ${{ github.workspace }}/review-target
         run: |
           WORKFLOW_INPUT=$(jq --compact-output \
             --arg repository "$REVIEW_TARGET" \
+            --arg baseBranch "$BASE_BRANCH" \
             --arg baseRevision "$BASE_REVISION" \
             --arg headRevision "$HEAD_REVISION" \
             '{
               repository: $repository,
+              baseBranch: $baseBranch,
               baseRevision: $baseRevision,
               headRevision: $headRevision,
               pullRequest: {
