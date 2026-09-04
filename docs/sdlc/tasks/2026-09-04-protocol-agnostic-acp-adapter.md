@@ -89,7 +89,8 @@ launch configuration, Seqlane-owned errors and diagnostics, ACP stream
 activity mapping, cancellation propagation, non-interactive permission
 rejection, structured-output validation, and malformed-input tests. Removed
 ACP ownership and exports from `@seqlane/opencode` and moved its interim ACP
-composition to the private runtime profile boundary.
+composition to the private runtime profile boundary. Delivered in commit
+`c3e04a0` and [PR #32](https://github.com/marcolink/seqlane/pull/32).
 
 ## Traceability
 
