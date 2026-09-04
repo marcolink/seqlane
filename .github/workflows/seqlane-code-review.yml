@@ -1,11 +1,10 @@
 name: Seqlane code review
 
 on:
-  # Temporary branch validation: change this trigger to pull_request and the
-  # trusted-source ref below to head.sha, run validation, then restore both
-  # settings. pull_request exposes the OpenAI credential to pull-request code,
-  # so use this only for same-repository branch validation.
-  pull_request_target:
+  # TEMPORARY: validate this branch's workflow and source. Restore
+  # pull_request_target and base.sha before merging. pull_request exposes the
+  # OpenAI credential to pull-request code, so this is limited to same-repo PRs.
+  pull_request:
     types:
       - opened
       - reopened
@@ -44,16 +43,14 @@ jobs:
             echo "execute=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check out trusted Seqlane source
+      - name: Check out Seqlane source under test
         if: steps.configuration.outputs.execute == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: seqlane-source
           persist-credentials: false
-          # Temporary branch validation: use head.sha here together with a
-          # pull_request trigger, then restore base.sha after validation.
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Check out pull request head
         if: steps.configuration.outputs.execute == 'true'
@@ -88,6 +85,42 @@ jobs:
         working-directory: seqlane-source
         run: pnpm exec nx build seqlane-cli
 
+      - name: Index pull request for semantic search
+        if: steps.configuration.outputs.execute == 'true'
+        working-directory: seqlane-source
+        env:
+          REVIEW_TARGET: ${{ github.workspace }}/review-target
+          ZVEC_GREP_HOME: ${{ runner.temp }}/zvec-grep
+          ZVEC_GREP_MODEL_CACHE: ${{ runner.temp }}/zvec-grep-model-cache
+        run: |
+          pnpm dlx @zvec/zvec-grep@0.2.1 index "$REVIEW_TARGET" \
+            --mode direct \
+            --embedding local/potion-code-16m-v2
+
+      - name: Start zvec-grep
+        if: steps.configuration.outputs.execute == 'true'
+        id: zvec-grep
+        timeout-minutes: 2
+        working-directory: seqlane-source
+        env:
+          ZVEC_GREP_HOME: ${{ runner.temp }}/zvec-grep
+          ZVEC_GREP_MODEL_CACHE: ${{ runner.temp }}/zvec-grep-model-cache
+        run: |
+          pnpm dlx @zvec/zvec-grep@0.2.1 server run --listen 127.0.0.1:7999 \
+            > "$RUNNER_TEMP/zvec-grep.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/zvec-grep.pid"
+          echo "started=true" >> "$GITHUB_OUTPUT"
+
+          for attempt in $(seq 1 30); do
+            if pnpm dlx @zvec/zvec-grep@0.2.1 server status --check-ready > /dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "zvec-grep did not become ready. Detailed server logs are not printed to the public workflow log."
+          exit 1
+
       - name: Install OpenCode
         if: steps.configuration.outputs.execute == 'true'
         working-directory: seqlane-source
@@ -110,7 +143,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENCODE_DISABLE_PROJECT_CONFIG: "true"
           OPENCODE_CONFIG_CONTENT: >-
-            {"model":"openai/gpt-5.6-luna","permission":{"*":"deny","StructuredOutput":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","bash":"deny","external_directory":"deny"}}
+            {"model":"openai/gpt-5.6-luna","mcp":{"zvec_grep":{"type":"remote","url":"http://127.0.0.1:7999/mcp","enabled":true,"oauth":false,"timeout":10000}},"permission":{"*":"deny","StructuredOutput":"allow","zvec_grep_zvec_grep_search":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","bash":"deny","external_directory":"deny"}}
         run: |
           opencode serve --hostname 127.0.0.1 --port 4096 --print-logs > "$RUNNER_TEMP/opencode.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/opencode.pid"
@@ -249,6 +282,12 @@ jobs:
         run: |
           kill "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
           wait "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
+
+      - name: Stop zvec-grep
+        if: always() && steps.zvec-grep.outputs.started == 'true'
+        run: |
+          kill "$(cat "$RUNNER_TEMP/zvec-grep.pid")" 2> /dev/null || true
+          wait "$(cat "$RUNNER_TEMP/zvec-grep.pid")" 2> /dev/null || true
 
       - name: Fail when Seqlane execution fails
         if: steps.configuration.outputs.execute == 'true' && steps.seqlane.outcome != 'success'

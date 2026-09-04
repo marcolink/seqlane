@@ -309,8 +309,8 @@ const sharedReviewTaskInstructions = [
   "Work non-interactively. Do not ask questions, solicit choices, use an ask or question tool, or wait for a response.",
   "When evidence is sufficient, return the final response immediately; the runtime validates it against the supplied output schema.",
   "This is a read-only analysis task. Do not execute scripts, tests, builds, package managers, formatters, linters, validators, Git commands, shell commands, or other execution tools. Do not modify files.",
-  "Use only the supplied review data and targeted read, glob, or grep when needed. Start with the supplied patch and do not use glob or grep to rediscover changed files or recreate the diff.",
-  "Use workspace-relative paths for read, glob, and grep, starting from the current review workspace. Treat repository as identity metadata, not a filesystem path prefix; never search parent directories, runner paths, the Seqlane source checkout, or any path outside the review workspace.",
+  "Use only the supplied review data and targeted read, glob, grep, or available read-only indexed search when needed. Start with the supplied patch and do not use workspace tools to rediscover changed files or recreate the diff.",
+  "Use workspace-relative paths for read, glob, and grep, starting from the current review workspace. For indexed search, use repository exactly as the workspace root. Never search parent directories, runner paths, the Seqlane source checkout, or any path outside the review workspace.",
 ];
 
 const reviewProcessInstructions = [
