@@ -142,6 +142,30 @@ describe("EffectCompiler plan preparation", () => {
     ).toEqual([[], []]);
   });
 
+  it("lowers conflicting workspace access into execution dependencies", () => {
+    const compiled = new EffectCompiler().compileWorkflow(
+      plan([
+        task("writer", [], {}, "exclusive"),
+        task("reader", [], {}, "shared"),
+        task("result", ["reader", "writer"]),
+      ]),
+      {
+        executors: new Map(),
+        workspaceResources: new Map([
+          ["reader", { key: "/checkout" }],
+          ["writer", { key: "/checkout" }],
+        ]),
+      },
+    );
+
+    expect(compiled.program.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "reader", dependsOn: [] }),
+        expect.objectContaining({ id: "writer", dependsOn: ["reader"] }),
+      ]),
+    );
+  });
+
   it.each([
     [
       "duplicate Plan node IDs",

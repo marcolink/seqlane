@@ -44,6 +44,7 @@ import {
   lowerReuseSessionOrdering,
   withLoweredPlanNodes,
 } from "../session/session-ordering.js";
+import { lowerWorkspaceOrdering } from "../workspace/workspace-ordering.js";
 
 export interface PreparedPlan {
   readonly plan: Plan;
@@ -130,7 +131,10 @@ export class EffectCompiler {
   ): CompiledWorkflow {
     validatePlan(plan, options.taskDefinitions);
     const prepared = this.compile(plan, options.taskDefinitions);
-    const orderedNodes = lowerReuseSessionOrdering(prepared.orderedNodes);
+    const orderedNodes = lowerWorkspaceOrdering(
+      lowerReuseSessionOrdering(prepared.orderedNodes),
+      options.workspaceResources,
+    );
     const loweredPlan = withLoweredPlanNodes(plan, orderedNodes);
     assertValidationRegistries(
       plan,
