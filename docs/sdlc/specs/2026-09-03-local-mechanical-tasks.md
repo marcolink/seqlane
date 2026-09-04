@@ -5,11 +5,11 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
-  - adr.local-mechanical-tasks
+  - adr.mastra-local-mechanical-tasks
   - spec.executor-neutral-workflow-authoring
-  - spec.effect-runtime-integration
+  - spec.mastra-runtime-and-operational-integration
   - spec.seqlane-plan-ir-typed-dataflow
   - spec.invocation-admission-and-workspace-coordination
   - spec.autonomous-non-interactive-execution
@@ -30,8 +30,9 @@ typed dataflow, event, cancellation, and workspace contracts.
 - **Local task:** A task that defines `execute` and runs in the Seqlane process.
 - **Task context:** The Seqlane-owned value passed to a local task function.
 - **Command request:** One executable name and an ordered argv array.
-- **Subprocess gate:** The required subprocess behavior that the private Effect
-  platform support must provide before local tasks can continue.
+- **Subprocess gate:** The required subprocess behavior that Mastra's local
+  workspace or sandbox process support must provide before local tasks can
+  continue.
 
 ## Invariants
 
@@ -51,7 +52,8 @@ typed dataflow, event, cancellation, and workspace contracts.
 ## Subprocess feasibility gate
 
 Before public contracts or runtime execution code are added, evaluate the
-installed Effect platform with the matching private runtime dependencies.
+pinned Mastra Workspace or Sandbox process API with the matching private
+runtime dependencies.
 
 The evaluation passes only when a small private prototype proves all items:
 
@@ -60,13 +62,14 @@ The evaluation passes only when a small private prototype proves all items:
 3. Collect separate standard output and standard error with byte limits.
 4. Return the exit code after both streams close.
 5. Interrupt the process from the invocation `AbortSignal`.
-6. Wait for child termination before the Effect scope and workspace lease close.
+6. Wait for child termination before the runtime scope and workspace lease
+   close.
 7. Map spawn, stream, exit, and interruption errors to typed Seqlane errors.
 
-Run the dependency security preflight before adding private platform packages.
-If any item cannot be met, stop this delivery and make the runtime engine
-support the required behavior before resuming. Do not use a subprocess fallback
-for this delivery.
+Run the dependency security preflight before adding private Mastra packages. If
+any item cannot be met, stop this delivery and make the Mastra runtime support
+the required behavior before resuming. Do not add an Effect or Node subprocess
+fallback for this delivery.
 
 ## Public contracts
 
@@ -121,18 +124,23 @@ delivery.
 
 ## Runtime contracts
 
-The compiler dispatches local task nodes to a dedicated local-task invocation
-path. This path reuses existing binding resolution, schema parsing, workspace
-admission, generic events, result retention, and typed invocation failure.
+The local-task runtime path reuses existing binding resolution, schema parsing,
+workspace admission, generic events, result retention, and typed invocation
+failure.
 
 The path does not call executor lookup, model preflight, session preflight, or
 checkpoint publication.
 
 The runtime provides `TaskContext.exec()` only during one local invocation. Its
-Effect implementation has one scoped child process per call. The process uses
-the canonical workspace as `cwd`, the invocation signal for interruption, and
-bounded stream collection. A non-zero exit is returned to the local task. The
-task decides if that exit is an expected result or an error.
+Mastra `LocalSandbox` implementation has one child process per call. The
+process uses the canonical workspace as `cwd`, the invocation signal for
+interruption, and bounded stream collection. A non-zero exit is returned to the
+local task. The task decides if that exit is an expected result or an error.
+
+The Mastra Plan compiler does not yet dispatch local task definitions through
+this path. Local-task dispatch from Mastra-compiled Plans is tracked by
+`task.mastra-local-task-dispatch`. Repeat support remains outside this
+migration slice.
 
 The initial implementation supports only foreground processes. `execute` must
 await `exec`. A future background-process API requires a separate decision.
@@ -174,9 +182,9 @@ git diff --check
 
 ## Traceability
 
-- [adr.local-mechanical-tasks](../adrs/2026-09-03-local-mechanical-tasks.md)
+- [adr.mastra-local-mechanical-tasks](../adrs/2026-09-04-mastra-local-mechanical-tasks.md)
 - [spec.executor-neutral-workflow-authoring](2026-09-02-executor-neutral-workflow-authoring.md)
-- [spec.effect-runtime-integration](2026-09-02-effect-runtime-integration.md)
+- [spec.mastra-runtime-and-operational-integration](2026-09-03-mastra-runtime-and-operational-integration.md)
 - [spec.seqlane-plan-ir-typed-dataflow](2026-09-02-seqlane-plan-ir-typed-dataflow.md)
 - [spec.invocation-admission-and-workspace-coordination](2026-09-02-invocation-admission-and-workspace-coordination.md)
 - [spec.autonomous-non-interactive-execution](2026-09-02-autonomous-non-interactive-execution.md)

@@ -309,6 +309,8 @@ export async function executeTaskNode(
           rawOutput = await executeLocalTask({
             definition: definition as LocalTaskDefinition<unknown, unknown>,
             input,
+            taskId: node.taskId,
+            invocationId,
             cwd:
               resource.key === "seqlane:runtime-workspace"
                 ? process.cwd()
