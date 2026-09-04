@@ -3,8 +3,19 @@
 Private runtime boundary for compiling and executing Seqlane Plans. Effect is
 private infrastructure; its types do not cross this package boundary.
 
-The runtime validates task inputs and outputs, resolves bindings, emits bounded
-consumer events, and retains results until their final consumer completes.
+### Community Mastra dependency boundary
+
+The runtime pins `@mastra/core@1.64.0`. The installed package exposes the
+workflow API from `@mastra/core/workflows`, including `createStep` and
+`createWorkflow`, for the next migration slice. The package declares
+Apache-2.0 licensing. Mastra paths under `ee/` are enterprise-only and are
+rejected by the runtime boundary tests.
+
+The Enterprise boundary guard scans production source and package manifests in
+`apps/` and `libs/`. It rejects static and side-effect imports, export-from
+declarations, `require` calls, and dynamic imports of `ee/` paths. The runtime
+validates task inputs and outputs, resolves bindings, emits bounded consumer
+events, and retains results until their final consumer completes.
 
 ### Local task execution
 

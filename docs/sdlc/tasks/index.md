@@ -146,7 +146,7 @@
 | [task.boundary-verification-and-documentation](./2026-09-02-boundary-verification-and-documentation.md) | Verify Boundaries and Complete the Migration | completed | 2026-09-02 | core |
 | [task.verify-boundaries-and-documentation](./2026-09-02-verify-boundaries-and-documentation.md) | Verify boundaries and document built-in workflows | completed | 2026-09-02 | core |
 | [task.wire-opencode-execution-into-runner](./2026-09-02-wire-opencode-execution-into-runner.md) | Wire OpenCode execution into the runner | completed | 2026-09-02 | core |
-| [task.mastra-community-dependencies](./2026-09-03-mastra-community-dependencies.md) | Add Community Mastra Dependencies and Boundary Guards | planned | 2026-09-03 | core |
+| [task.mastra-community-dependencies](./2026-09-03-mastra-community-dependencies.md) | Add Community Mastra Dependencies and Boundary Guards | completed | 2026-09-03 | core |
 | [task.model-preflight](./2026-09-03-model-preflight.md) | Add Executor Model Capabilities and Runtime Preflight | completed | 2026-09-03 | core |
 | [task.plan-model-selection](./2026-09-03-plan-model-selection.md) | Carry Session Model Selection Through Plan Contracts | completed | 2026-09-03 | core |
 | [task.mastra-plan-compiler](./2026-09-03-mastra-plan-compiler.md) | Compile Seqlane Plans to Mastra Workflows | planned | 2026-09-03 | core |
