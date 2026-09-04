@@ -1,5 +1,6 @@
 // @test-scope ../../../examples/pr-code-review.ts
 
+import { writeFile } from "node:fs/promises";
 import { buildWorkflow } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 
@@ -67,7 +68,7 @@ describe("pull-request code review example workflow", () => {
         type: "isolated",
         model: {
           model: { provider: "openai", model: "gpt-5.6-luna" },
-          reasoning: "high",
+          reasoning: "medium",
         },
       },
     });
@@ -80,7 +81,7 @@ describe("pull-request code review example workflow", () => {
             type: "isolated",
             model: {
               model: { provider: "openai", model: "gpt-5.6-luna" },
-              reasoning: "max",
+              reasoning: "high",
             },
           },
         }),
@@ -89,8 +90,8 @@ describe("pull-request code review example workflow", () => {
           session: {
             type: "isolated",
             model: {
-              model: { provider: "openai", model: "gpt-5.6-terra" },
-              reasoning: "medium",
+              model: { provider: "openai", model: "gpt-5.6-luna" },
+              reasoning: "high",
             },
           },
         }),
@@ -100,7 +101,7 @@ describe("pull-request code review example workflow", () => {
             type: "isolated",
             model: {
               model: { provider: "openai", model: "gpt-5.6-luna" },
-              reasoning: "medium",
+              reasoning: "high",
             },
           },
         }),
@@ -127,6 +128,8 @@ describe("pull-request code review example workflow", () => {
 
     const baseRevision = "a".repeat(40);
     const headRevision = "b".repeat(40);
+    const patchText =
+      "diff --git a/src/review.ts b/src/review.ts\n@@ -1 +1 @@\n-old\n+new\n";
     const requests: Array<{
       readonly command: string;
       readonly args?: readonly string[];
@@ -136,6 +139,7 @@ describe("pull-request code review example workflow", () => {
       { exitCode: 0, stdout: "", stderr: "" },
       { exitCode: 0, stdout: "M\tsrc/review.ts\n", stderr: "" },
       { exitCode: 0, stdout: " 1 file changed, 1 insertion(+)\n", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
       {
         exitCode: 2,
         stdout: "src/review.ts: trailing whitespace.\n",
@@ -156,8 +160,14 @@ describe("pull-request code review example workflow", () => {
       {
         exec: async (request) => {
           requests.push(request);
+          const output = request.args?.find((arg) =>
+            arg.startsWith("--output="),
+          );
           const response = responses.shift();
           if (response === undefined) throw new Error("Unexpected Git command");
+          if (output !== undefined) {
+            await writeFile(output.slice("--output=".length), patchText);
+          }
           return response;
         },
       },
@@ -192,6 +202,19 @@ describe("pull-request code review example workflow", () => {
           "diff",
           "--no-ext-diff",
           "--no-textconv",
+          "--no-color",
+          "--patch",
+          "--unified=20",
+          expect.stringMatching(/^--output=.+\/patch\.diff$/),
+          `${baseRevision}...${headRevision}`,
+        ],
+      },
+      {
+        command: "git",
+        args: [
+          "diff",
+          "--no-ext-diff",
+          "--no-textconv",
           "--check",
           `${baseRevision}...${headRevision}`,
         ],
@@ -205,6 +228,9 @@ describe("pull-request code review example workflow", () => {
       changedFilesTruncated: false,
       diffStat: " 1 file changed, 1 insertion(+)\n",
       diffStatTruncated: false,
+      patch: patchText,
+      patchByteLength: Buffer.byteLength(patchText),
+      patchTruncated: false,
       diffCheck: {
         exitCode: 2,
         stdout: "src/review.ts: trailing whitespace.\n",
@@ -230,11 +256,13 @@ describe("pull-request code review example workflow", () => {
       (_, index) => `M\tsrc/file-${index}.ts`,
     ).join("\n");
     const oversizedOutput = "x".repeat(8_001);
+    const oversizedPatch = "prefix\n" + "x".repeat(47_991) + "😀" + "\nrest";
     const responses = [
       { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
       { exitCode: 0, stdout: "", stderr: "" },
       { exitCode: 0, stdout: changedOutput, stderr: "" },
       { exitCode: 0, stdout: oversizedOutput, stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
       {
         exitCode: 2,
         stdout: oversizedOutput,
@@ -253,15 +281,21 @@ describe("pull-request code review example workflow", () => {
         },
       },
       {
-        exec: async () => {
+        exec: async (request) => {
+          const output = request.args?.find((arg) =>
+            arg.startsWith("--output="),
+          );
           const response = responses.shift();
           if (response === undefined) throw new Error("Unexpected Git command");
+          if (output !== undefined) {
+            await writeFile(output.slice("--output=".length), oversizedPatch);
+          }
           return response;
         },
       },
     );
 
-    expect(task.output.parse(result)).toEqual({
+    expect(task.output.parse(result)).toMatchObject({
       baseRevision,
       headRevision,
       changedFiles: Array.from(
@@ -272,6 +306,8 @@ describe("pull-request code review example workflow", () => {
       changedFilesTruncated: true,
       diffStat: oversizedOutput.slice(0, 7_999) + "…",
       diffStatTruncated: true,
+      patchByteLength: Buffer.byteLength(oversizedPatch),
+      patchTruncated: true,
       diffCheck: {
         exitCode: 2,
         stdout: oversizedOutput.slice(0, 7_999) + "…",
@@ -280,6 +316,129 @@ describe("pull-request code review example workflow", () => {
         stderrTruncated: true,
       },
     });
+    const parsed = task.output.parse(result) as { readonly patch: string };
+    expect(parsed.patch).toBe(
+      "prefix\n\n[patch truncated; omitted hunks were not reviewed]\n",
+    );
+    expect(parsed.patch).not.toContain("�");
+    expect(parsed.patch.length).toBeLessThan(48_256);
+  });
+
+  it("preserves complete UTF-8 patch lines and records patch size", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.git-evidence",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected local Git evidence task definition");
+    }
+
+    const baseRevision = "a".repeat(40);
+    const headRevision = "b".repeat(40);
+    const patchText =
+      "diff --git a/renamed.ts b/renamed.ts\nrename from old.ts\nrename to renamed.ts\nBinary files a/data.bin and b/data.bin differ\n";
+    const responses = [
+      { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      {
+        exitCode: 0,
+        stdout: "R100\told.ts\trenamed.ts\nM\tdata.bin\n",
+        stderr: "",
+      },
+      { exitCode: 0, stdout: " 2 files changed\n", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+    ];
+    const result = await task.execute(
+      {
+        repository: "/repo",
+        baseBranch: "release/2026.09",
+        baseRevision,
+        headRevision,
+        pullRequest: {
+          title: "Add automated review",
+          description: "Run Seqlane for every pull request.",
+        },
+      },
+      {
+        exec: async (request) => {
+          const output = request.args?.find((arg) =>
+            arg.startsWith("--output="),
+          );
+          const response = responses.shift();
+          if (response === undefined) throw new Error("Unexpected Git command");
+          if (output !== undefined) {
+            await writeFile(output.slice("--output=".length), patchText);
+          }
+          return response;
+        },
+      },
+    );
+
+    expect(task.output.parse(result)).toMatchObject({
+      baseRevision,
+      headRevision,
+      patch: patchText,
+      patchByteLength: Buffer.byteLength(patchText),
+      patchTruncated: false,
+    });
+  });
+
+  it("does not retain a partial first patch line when it exceeds the bound", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.git-evidence",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected local Git evidence task definition");
+    }
+
+    const baseRevision = "a".repeat(40);
+    const headRevision = "b".repeat(40);
+    const oversizedFirstLine = "x".repeat(48_000) + "\nrest";
+    const responses = [
+      { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "M\tsrc/review.ts\n", stderr: "" },
+      { exitCode: 0, stdout: " 1 file changed\n", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+    ];
+    const result = await task.execute(
+      {
+        repository: "/repo",
+        baseBranch: "release/2026.09",
+        baseRevision,
+        headRevision,
+        pullRequest: {
+          title: "Add automated review",
+          description: "Run Seqlane for every pull request.",
+        },
+      },
+      {
+        exec: async (request) => {
+          const output = request.args?.find((arg) =>
+            arg.startsWith("--output="),
+          );
+          const response = responses.shift();
+          if (response === undefined) throw new Error("Unexpected Git command");
+          if (output !== undefined) {
+            await writeFile(
+              output.slice("--output=".length),
+              oversizedFirstLine,
+            );
+          }
+          return response;
+        },
+      },
+    );
+
+    const parsed = task.output.parse(result) as {
+      readonly patch: string;
+      readonly patchTruncated: boolean;
+    };
+    expect(parsed.patchTruncated).toBe(true);
+    expect(parsed.patch).toBe(
+      "\n[patch truncated; omitted hunks were not reviewed]\n",
+    );
   });
 
   it("keeps every review task non-interactive", () => {
@@ -310,7 +469,7 @@ describe("pull-request code review example workflow", () => {
         "This is a read-only analysis task. Do not execute scripts, tests, builds, package managers, formatters, linters, validators, Git commands, shell commands, or other execution tools. Do not modify files.",
       );
       expect(task.instructions).toContain(
-        "Use only the supplied review data and read, glob, or grep for targeted file inspection when needed. Do not try to recreate the diff or verification evidence.",
+        "Use only the supplied review data and targeted read, glob, or grep when needed. Start with the supplied patch and do not use glob or grep to rediscover changed files or recreate the diff.",
       );
       expect(task.instructions).toContain(
         "Use workspace-relative paths for read, glob, and grep, starting from the current review workspace. Treat repository as identity metadata, not a filesystem path prefix; never search parent directories, runner paths, the Seqlane source checkout, or any path outside the review workspace.",
@@ -337,6 +496,13 @@ describe("pull-request code review example workflow", () => {
       if (task === undefined || typeof task.goal !== "function") {
         throw new Error(`Expected specialist task definition: ${taskId}`);
       }
+      expect(
+        (task.instructions ?? []).some((instruction) =>
+          instruction.includes(
+            "Review the supplied patch before using any workspace tools.",
+          ),
+        ),
+      ).toBe(true);
       expect(task.instructions).not.toContain("git diff");
     }
     expect(taskDefinitions.get("pr-code-review.summarize")?.workspace).toBe(
@@ -359,6 +525,16 @@ describe("pull-request code review example workflow", () => {
     expect(inspect.instructions).toContain(
       "Do not execute Git or shell commands to recreate evidence; the supplied gitEvidence already contains the local Git results.",
     );
+    expect(
+      (inspect.instructions ?? []).some((instruction) =>
+        instruction.includes(
+          "Review the supplied patch before using any workspace tools.",
+        ),
+      ),
+    ).toBe(true);
+    expect(inspect.instructions).toContain(
+      "If patchTruncated is true, report that omitted hunks were not reviewed and use targeted reads only where needed; never imply that the patch is complete.",
+    );
     expect(inspect.instructions).not.toContain("git diff");
 
     const reviewInput = {
@@ -375,10 +551,15 @@ describe("pull-request code review example workflow", () => {
         headRevision: "b".repeat(40),
         changedFiles: ["src/review.ts"],
         diffStat: "1 file changed\n",
+        patch: "diff --git a/src/review.ts b/src/review.ts\n",
+        patchByteLength: 43,
+        patchTruncated: false,
         diffCheck: {
           exitCode: 0,
           stdout: "",
           stderr: "",
+          stdoutTruncated: false,
+          stderrTruncated: false,
         },
       },
     };
@@ -386,6 +567,7 @@ describe("pull-request code review example workflow", () => {
     expect(inspectGoal).toContain(reviewInput.pullRequest.description);
     expect(inspectGoal).toContain('"baseBranch":"release/2026.09"');
     expect(inspectGoal).toContain('"diffCheck"');
+    expect(inspectGoal).toContain('"patch"');
 
     const change = {
       repository: reviewInput.repository,
