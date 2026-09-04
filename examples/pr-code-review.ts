@@ -169,7 +169,7 @@ async function readBoundedPatch(path: string): Promise<{
     const truncated = byteLength > MAX_PATCH_BYTES;
     if (truncated) {
       const lastNewline = bytes.lastIndexOf(10, end - 1);
-      if (lastNewline > 0) end = lastNewline + 1;
+      end = lastNewline >= 0 ? lastNewline + 1 : 0;
       while (end > 0) {
         try {
           new TextDecoder("utf-8", { fatal: true }).decode(

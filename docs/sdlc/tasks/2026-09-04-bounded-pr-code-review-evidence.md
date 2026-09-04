@@ -97,13 +97,15 @@ policy, and specialist fan-out topology.
 The deterministic review evidence task writes the exact Git patch to a
 run-scoped temporary file, then reads only a 48,000-byte UTF-8 and
 newline-aware model-facing prefix and records the original byte length and
-truncation state. Because the current direct-argv task context has no bounded
-file-output primitive, Git may transiently write a larger patch before the
-prefix is retained; cleanup removes that artifact after collection. Inspection
-and specialist prompts review the retained patch first while retaining
-targeted, read-only workspace inspection for missing context. Focused example
-tests cover direct argv, complete patch output, overflow metadata, UTF-8
-boundaries, rename/binary metadata, and patch-first guidance.
+truncation state. When no original newline fits within the retained prefix, no
+partial logical line is retained before the truncation marker. Because the
+current direct-argv task context has no bounded file-output primitive, Git may
+transiently write a larger patch before the prefix is retained; cleanup removes
+that artifact after collection. Inspection and specialist prompts review the
+retained patch first while retaining targeted, read-only workspace inspection
+for missing context. Focused example tests cover direct argv, complete patch
+output, overflow metadata, UTF-8 boundaries, oversized first lines,
+rename/binary metadata, and patch-first guidance.
 
 ## Traceability
 

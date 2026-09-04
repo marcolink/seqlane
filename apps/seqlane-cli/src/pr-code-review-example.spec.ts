@@ -256,7 +256,7 @@ describe("pull-request code review example workflow", () => {
       (_, index) => `M\tsrc/file-${index}.ts`,
     ).join("\n");
     const oversizedOutput = "x".repeat(8_001);
-    const oversizedPatch = "x".repeat(47_998) + "😀" + "\nrest";
+    const oversizedPatch = "prefix\n" + "x".repeat(47_991) + "😀" + "\nrest";
     const responses = [
       { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
       { exitCode: 0, stdout: "", stderr: "" },
@@ -317,8 +317,8 @@ describe("pull-request code review example workflow", () => {
       },
     });
     const parsed = task.output.parse(result) as { readonly patch: string };
-    expect(parsed.patch).toMatch(
-      /x+\n\[patch truncated; omitted hunks were not reviewed\]\n$/,
+    expect(parsed.patch).toBe(
+      "prefix\n\n[patch truncated; omitted hunks were not reviewed]\n",
     );
     expect(parsed.patch).not.toContain("�");
     expect(parsed.patch.length).toBeLessThan(48_256);
@@ -381,6 +381,64 @@ describe("pull-request code review example workflow", () => {
       patchByteLength: Buffer.byteLength(patchText),
       patchTruncated: false,
     });
+  });
+
+  it("does not retain a partial first patch line when it exceeds the bound", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.git-evidence",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected local Git evidence task definition");
+    }
+
+    const baseRevision = "a".repeat(40);
+    const headRevision = "b".repeat(40);
+    const oversizedFirstLine = "x".repeat(48_000) + "\nrest";
+    const responses = [
+      { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "M\tsrc/review.ts\n", stderr: "" },
+      { exitCode: 0, stdout: " 1 file changed\n", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+    ];
+    const result = await task.execute(
+      {
+        repository: "/repo",
+        baseBranch: "release/2026.09",
+        baseRevision,
+        headRevision,
+        pullRequest: {
+          title: "Add automated review",
+          description: "Run Seqlane for every pull request.",
+        },
+      },
+      {
+        exec: async (request) => {
+          const output = request.args?.find((arg) =>
+            arg.startsWith("--output="),
+          );
+          const response = responses.shift();
+          if (response === undefined) throw new Error("Unexpected Git command");
+          if (output !== undefined) {
+            await writeFile(
+              output.slice("--output=".length),
+              oversizedFirstLine,
+            );
+          }
+          return response;
+        },
+      },
+    );
+
+    const parsed = task.output.parse(result) as {
+      readonly patch: string;
+      readonly patchTruncated: boolean;
+    };
+    expect(parsed.patchTruncated).toBe(true);
+    expect(parsed.patch).toBe(
+      "\n[patch truncated; omitted hunks were not reviewed]\n",
+    );
   });
 
   it("keeps every review task non-interactive", () => {
