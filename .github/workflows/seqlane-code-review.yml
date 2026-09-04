@@ -61,8 +61,8 @@ jobs:
           fetch-depth: 0
           path: seqlane-source
           persist-credentials: false
-          # Previous behavior: ref: ${{ github.event.pull_request.base.sha }}
-          # Use main while testing new iterations of the code-review workflow.
+          # For testing a workflow iteration from the PR target branch, use:
+          # ref: ${{ github.event.pull_request.base.ref }}
           ref: main
 
       - name: Check out pull request head
