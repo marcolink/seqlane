@@ -1,7 +1,11 @@
 name: Seqlane code review
 
 on:
-  pull_request:
+  # Temporary branch validation: change this trigger to pull_request and the
+  # trusted-source ref below to head.sha, run validation, then restore both
+  # settings. pull_request exposes the OpenAI credential to pull-request code,
+  # so use this only for same-repository branch validation.
+  pull_request_target:
     types:
       - opened
       - reopened
@@ -47,7 +51,9 @@ jobs:
           fetch-depth: 0
           path: seqlane-source
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          # Temporary branch validation: use head.sha here together with a
+          # pull_request trigger, then restore base.sha after validation.
+          ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Check out pull request head
         if: steps.configuration.outputs.execute == 'true'

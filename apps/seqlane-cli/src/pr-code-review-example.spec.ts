@@ -68,7 +68,7 @@ describe("pull-request code review example workflow", () => {
         type: "isolated",
         model: {
           model: { provider: "openai", model: "gpt-5.6-luna" },
-          reasoning: "high",
+          reasoning: "medium",
         },
       },
     });
@@ -81,7 +81,7 @@ describe("pull-request code review example workflow", () => {
             type: "isolated",
             model: {
               model: { provider: "openai", model: "gpt-5.6-luna" },
-              reasoning: "max",
+              reasoning: "high",
             },
           },
         }),
@@ -90,8 +90,8 @@ describe("pull-request code review example workflow", () => {
           session: {
             type: "isolated",
             model: {
-              model: { provider: "openai", model: "gpt-5.6-terra" },
-              reasoning: "medium",
+              model: { provider: "openai", model: "gpt-5.6-luna" },
+              reasoning: "high",
             },
           },
         }),
@@ -101,7 +101,7 @@ describe("pull-request code review example workflow", () => {
             type: "isolated",
             model: {
               model: { provider: "openai", model: "gpt-5.6-luna" },
-              reasoning: "medium",
+              reasoning: "high",
             },
           },
         }),

@@ -62,10 +62,11 @@ rating. Review tasks only read supplied evidence and targeted workspace files;
 they do not execute scripts, tests, builds, package managers, Git, or shell
 commands. File inspection uses workspace-relative paths and stays inside the
 review workspace.
-Inspection uses an isolated `openai/gpt-5.6-luna` session with high reasoning.
-Each review lane uses an independent session with its configured OpenAI model
-and reasoning level; the final summary uses an isolated
-`openai/gpt-5.6-luna` session with high reasoning.
+Inspection uses an isolated `openai/gpt-5.6-luna` session with medium
+reasoning to extract the expected requirements and evidence. Each review lane
+uses an independent `openai/gpt-5.6-luna` session with high reasoning; the
+final summary uses an isolated `openai/gpt-5.6-luna` session with high
+reasoning.
 The current OpenCode tasks use `workspace: "shared"` because the author asserts
 they may overlap. This is not a read-only workspace boundary; configure the
 runtime accordingly.

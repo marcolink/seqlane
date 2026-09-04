@@ -515,7 +515,7 @@ export default createFlow({
     {
       session: isolated({
         model: openai("gpt-5.6-luna"),
-        reasoning: "high",
+        reasoning: "medium",
       }),
     },
   )
@@ -528,7 +528,7 @@ export default createFlow({
     {
       session: isolated({
         model: openai("gpt-5.6-luna"),
-        reasoning: "max",
+        reasoning: "high",
       }),
     },
   )
@@ -540,8 +540,8 @@ export default createFlow({
     }),
     {
       session: isolated({
-        model: openai("gpt-5.6-terra"),
-        reasoning: "medium",
+        model: openai("gpt-5.6-luna"),
+        reasoning: "high",
       }),
     },
   )
@@ -554,7 +554,7 @@ export default createFlow({
     {
       session: isolated({
         model: openai("gpt-5.6-luna"),
-        reasoning: "medium",
+        reasoning: "high",
       }),
     },
   )
