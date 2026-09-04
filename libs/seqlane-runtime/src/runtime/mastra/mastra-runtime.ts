@@ -1,7 +1,7 @@
 import { Mastra } from "@mastra/core/mastra";
 import type { AnyWorkflow } from "@mastra/core/workflows";
 import type { RunId, SeqlaneRunOutcome, WorkId } from "@seqlane/core";
-import { RuntimeError } from "@seqlane/core";
+import { RuntimeError, SeqlaneError } from "@seqlane/core";
 
 export interface MastraWorkflowRegistration {
   readonly key: string;
@@ -23,6 +23,11 @@ export interface MastraRuntime {
 export interface MastraActiveRun {
   readonly outcome: Promise<SeqlaneRunOutcome>;
   cancel(): Promise<void>;
+}
+
+export interface MastraRuntimeOptions {
+  /** Retrieves a typed failure captured before Mastra serializes it. */
+  readonly failureForRun?: (runId: RunId) => SeqlaneError | undefined;
 }
 
 function validateRegistrations(
@@ -48,7 +53,16 @@ function validateRegistrations(
   }
 }
 
-function failedOutcome(cause: unknown): SeqlaneRunOutcome {
+function failedOutcome(
+  cause: unknown,
+  typedFailure?: SeqlaneError,
+): SeqlaneRunOutcome {
+  if (typedFailure !== undefined) {
+    return { status: "failed", error: typedFailure };
+  }
+  if (cause instanceof SeqlaneError) {
+    return { status: "failed", error: cause };
+  }
   // Mastra serializes failed workflow errors before returning them. Restore
   // the message for the stable Seqlane error while retaining that payload as
   // the restored error's cause.
@@ -75,6 +89,7 @@ function normalizeResult(
     readonly result?: unknown;
     readonly error?: unknown;
   },
+  typedFailure?: SeqlaneError,
 ): SeqlaneRunOutcome {
   if (result.status === "success") {
     return {
@@ -84,7 +99,7 @@ function normalizeResult(
   }
 
   if (result.status === "failed") {
-    return failedOutcome(result.error);
+    return failedOutcome(result.error, typedFailure);
   }
 
   if (result.status === "canceled" || result.status === "cancelled") {
@@ -100,6 +115,7 @@ function normalizeResult(
 
 export function createMastraRuntime(
   registrations: readonly MastraWorkflowRegistration[],
+  options: MastraRuntimeOptions = {},
 ): MastraRuntime {
   validateRegistrations(registrations);
 
@@ -127,10 +143,14 @@ export function createMastraRuntime(
             return { status: "cancelled" } as const;
           }
           const result = await activeRun.start({ inputData: request.input });
-          return normalizeResult(request.workflowKey, result);
+          return normalizeResult(
+            request.workflowKey,
+            result,
+            options.failureForRun?.(request.runId),
+          );
         } catch (cause) {
           if (cancellationRequested) return { status: "cancelled" } as const;
-          return failedOutcome(cause);
+          return failedOutcome(cause, options.failureForRun?.(request.runId));
         }
       })();
 

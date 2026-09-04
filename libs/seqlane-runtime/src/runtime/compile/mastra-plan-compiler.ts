@@ -6,7 +6,9 @@ import type {
   PlanNode,
   PlanNodeId,
   RunId,
+  SeqlaneError,
   SeqlaneSchema,
+  TaskId,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
   WorkId,
@@ -30,6 +32,10 @@ import {
   workspaceAccessForPlanNode,
 } from "../workspace/workspace-ordering.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
+import {
+  toSeqlaneInvocationError,
+  type SeqlaneFailurePhase,
+} from "../execution/errors.js";
 
 const RESULT_STEP_ID = "__seqlane_result";
 const RESERVED_NODE_IDS = new Set([WORKFLOW_INPUT_NODE_ID, RESULT_STEP_ID]);
@@ -70,6 +76,8 @@ export interface MastraPlanCompilerOptions {
    * workspace behavior stays in later private runtime slices.
    */
   readonly executeInvocation?: MastraPlanInvocation;
+  /** Captures typed Seqlane failures before Mastra serializes them. */
+  readonly onFailure?: (failure: SeqlaneError) => void;
 }
 
 export interface MastraPlanStep {
@@ -166,6 +174,25 @@ function invocationKind(node: PlanNode): "task" | "validation" | "loop" {
   return "validation";
 }
 
+function taskIdForNode(node: PlanNode): TaskId {
+  if (node.type === "task") return node.taskId;
+  if (node.type === "validation.check" && node.source.type === "task") {
+    return node.source.taskId;
+  }
+  return node.nodeId;
+}
+
+function reportFailure(
+  node: PlanNode,
+  cause: unknown,
+  phase: SeqlaneFailurePhase,
+  options: MastraPlanCompilerOptions,
+): SeqlaneError {
+  const failure = toSeqlaneInvocationError(cause, phase, taskIdForNode(node));
+  options.onFailure?.(failure);
+  return failure;
+}
+
 function nodeLayers(orderedNodes: readonly PlanNode[]): readonly PlanNode[][] {
   const layers: PlanNode[][] = [];
   const layerByNodeId = new Map<string, number>();
@@ -244,7 +271,12 @@ function buildInvocationStep(
         workflowInput,
         getStepResult,
       );
-      const parsedInput = inputSchema?.parse(resolvedInput) ?? resolvedInput;
+      let parsedInput: unknown;
+      try {
+        parsedInput = inputSchema?.parse(resolvedInput) ?? resolvedInput;
+      } catch (cause) {
+        throw reportFailure(node, cause, "input", options);
+      }
       if (options.executeInvocation === undefined) {
         throw new Error(
           `No Mastra invocation handler is configured for Plan node "${node.nodeId}"`,
@@ -263,7 +295,11 @@ function buildInvocationStep(
         abortSignal,
         getStepResult,
       });
-      return outputSchema?.parse(rawOutput) ?? rawOutput;
+      try {
+        return outputSchema?.parse(rawOutput) ?? rawOutput;
+      } catch (cause) {
+        throw reportFailure(node, cause, "output", options);
+      }
     },
   });
 

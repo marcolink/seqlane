@@ -9,6 +9,7 @@ import type {
   RunId,
   InvocationId,
 } from "@seqlane/core";
+import { SeqlaneError } from "@seqlane/core";
 import {
   compilePlanToMastra,
   type CompiledMastraPlan,
@@ -141,6 +142,10 @@ export function emitMastraInvocationTopology(
 export function createMastraPlanExecution(
   options: MastraPlanExecutionOptions,
 ): MastraPlanExecution {
+  let typedFailure: SeqlaneError | undefined;
+  const captureFailure = (failure: SeqlaneError): void => {
+    typedFailure ??= failure;
+  };
   const legacy = new EffectCompiler().compileWorkflow(options.plan, {
     workId: options.workId,
     runId: options.runId,
@@ -167,54 +172,71 @@ export function createMastraPlanExecution(
     taskDefinitions: options.taskDefinitions,
     validatorDefinitions: options.validatorDefinitions,
     workspaceResources: options.workspaceResources,
+    onFailure: captureFailure,
     executeInvocation: async ({
       node,
       getStepResult,
       abortSignal,
       invocationId,
     }) => {
-      const results = dependencyResults(node, getStepResult);
-      const context = {
-        ...legacy.context,
-        results,
-        remainingConsumers: new Map(legacy.context.remainingConsumers),
-        failure: undefined,
-      };
-      if (node.type === "task") {
-        return executeTaskNode(context, node, abortSignal, {
-          invocationId,
+      try {
+        const results = dependencyResults(node, getStepResult);
+        const context = {
+          ...legacy.context,
           results,
-          remainingConsumers: context.remainingConsumers,
-          subject: { type: "task", taskId: node.taskId },
-        });
-      }
-      if (node.type === "validation.check") {
-        return executeValidationCheckNode(context, node, abortSignal, {
-          invocationId,
-          results,
-          remainingConsumers: context.remainingConsumers,
-        });
-      }
-      if (node.type === "validation.gate") {
-        const check = checks.get(node.checkNodeId);
-        if (check === undefined) {
-          throw new Error(`Validation gate "${node.nodeId}" has no check node`);
+          remainingConsumers: new Map(legacy.context.remainingConsumers),
+          failure: undefined,
+        };
+        if (node.type === "task") {
+          return await executeTaskNode(context, node, abortSignal, {
+            invocationId,
+            results,
+            remainingConsumers: context.remainingConsumers,
+            subject: { type: "task", taskId: node.taskId },
+          });
         }
-        return executeValidationGateNode(context, node, check, abortSignal, {
-          invocationId,
-          results,
-          remainingConsumers: context.remainingConsumers,
-        });
+        if (node.type === "validation.check") {
+          return await executeValidationCheckNode(context, node, abortSignal, {
+            invocationId,
+            results,
+            remainingConsumers: context.remainingConsumers,
+          });
+        }
+        if (node.type === "validation.gate") {
+          const check = checks.get(node.checkNodeId);
+          if (check === undefined) {
+            throw new Error(
+              `Validation gate "${node.nodeId}" has no check node`,
+            );
+          }
+          return await executeValidationGateNode(
+            context,
+            node,
+            check,
+            abortSignal,
+            {
+              invocationId,
+              results,
+              remainingConsumers: context.remainingConsumers,
+            },
+          );
+        }
+        return await executeRepeatNode(context, node, abortSignal);
+      } catch (cause) {
+        if (cause instanceof SeqlaneError) captureFailure(cause);
+        throw cause;
       }
-      return executeRepeatNode(context, node, abortSignal);
     },
   });
 
   return {
     legacy,
     compiled,
-    runtime: createMastraRuntime([
-      { key: compiled.key, workflow: compiled.workflow },
-    ]),
+    runtime: createMastraRuntime(
+      [{ key: compiled.key, workflow: compiled.workflow }],
+      {
+        failureForRun: () => typedFailure,
+      },
+    ),
   };
 }
