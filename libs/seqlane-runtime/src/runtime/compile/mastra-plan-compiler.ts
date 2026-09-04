@@ -1,4 +1,5 @@
 import { createStep, createWorkflow } from "@mastra/core/workflows";
+import type { RequestContext } from "@mastra/core/request-context";
 import type { AnyWorkflow, Step } from "@mastra/core/workflows";
 import type {
   InvocationId,
@@ -50,6 +51,7 @@ export interface MastraPlanInvocationContext {
   readonly resourceId?: string;
   readonly workflowId: string;
   readonly abortSignal: AbortSignal;
+  readonly requestContext?: RequestContext;
   readonly getStepResult: <Output = unknown>(nodeId: string) => Output;
 }
 
@@ -309,6 +311,7 @@ function buildInvocationStep(
       resourceId,
       workflowId,
       abortSignal,
+      requestContext,
     }) => {
       const workflowInput = getInitData<unknown>();
       const resolvedInput = resolveStepInput(
@@ -346,6 +349,7 @@ function buildInvocationStep(
         ...(resourceId === undefined ? {} : { resourceId }),
         workflowId,
         abortSignal,
+        requestContext,
         getStepResult,
       });
       try {

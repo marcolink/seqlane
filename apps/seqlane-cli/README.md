@@ -74,11 +74,11 @@ seqlane status <run-id> --server-url http://127.0.0.1:4111
 seqlane cancel <run-id> --server-url http://127.0.0.1:4111
 ```
 
-`run` prints the Work and Run identifiers before the final result. `status`
-reads the canonical Mastra run record. `cancel` sends the idempotent Mastra
-cancellation request. `run --server-url` selects this operational path. The
-default `run` path remains the temporary runner bridge until task 15 wires the
-Seqlane execution resolver into the owned host.
+`run` prints the Work and Run identifiers before progress output. It owns a
+loopback operational host by default and uses the same Mastra server path as
+`run --server-url`, which connects to an existing host. `status` reads the
+canonical Mastra run record. `cancel` sends the idempotent Mastra cancellation
+request.
 
 ## Community Studio
 

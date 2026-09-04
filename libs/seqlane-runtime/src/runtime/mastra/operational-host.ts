@@ -4,14 +4,29 @@ import { serve as serveNode, type ServerType } from "@hono/node-server";
 import { MastraServer } from "@mastra/hono";
 import type { MastraCompositeStore } from "@mastra/core/storage";
 import { LibSQLStore } from "@mastra/libsql";
+import { isJsonValue } from "@seqlane/core";
 import type {
   Plan,
+  RuntimeProfileReference,
+  SeqlaneEventSink,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
   WorkflowDefinition,
 } from "@seqlane/core";
+import type { SeqlanePlanSnapshot } from "@seqlane/events";
 import { Hono } from "hono";
-import { compilePlanToMastra } from "../compile/mastra-plan-compiler.js";
+import {
+  compilePlanToMastra,
+  type MastraPlanInvocation,
+} from "../compile/mastra-plan-compiler.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
+import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
+import { resolveRuntimeProfile } from "../../runner/profile/runtime-profile.js";
+import type { RuntimeSessionUiAvailable } from "../../runner/runtime-session-ui.js";
+import { planContainsAgentWork } from "../../runner/run.js";
+import { createSeqlanePlanSnapshot } from "../../runner/workflow/plan-snapshot.js";
+import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
+import { createMastraPlanInvocationHandler } from "./mastra-execution.js";
 import {
   createMastraComposition,
   type MastraWorkflowRegistration,
@@ -23,6 +38,14 @@ export interface OperationalWorkflowRegistration {
   readonly workflow: unknown;
 }
 
+export interface OperationalEventSink extends SeqlaneEventSink {
+  emitPlan(plan: SeqlanePlanSnapshot, workId: string, runId: string): void;
+}
+
+export type OperationalSessionUiNotifier = (
+  notification: RuntimeSessionUiAvailable,
+) => void | Promise<void>;
+
 export interface OperationalWorkflowSource {
   readonly key: string;
   readonly plan: Plan;
@@ -30,6 +53,11 @@ export interface OperationalWorkflowSource {
   readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
+  readonly eventSink?: (context: {
+    readonly workId: string;
+    readonly runId: string;
+  }) => OperationalEventSink;
+  readonly onSessionUiAvailable?: OperationalSessionUiNotifier;
 }
 
 export interface OperationalHostOptions {
@@ -121,12 +149,100 @@ function storageFromUrl(url: string): MastraCompositeStore {
 export function createOperationalWorkflow(
   source: OperationalWorkflowSource,
 ): OperationalWorkflowRegistration {
+  const executeInvocation = createOperationalInvocationHandler(source);
   const compiled = compilePlanToMastra(source.plan, {
     workflow: source.workflow,
     taskDefinitions: source.taskDefinitions,
     validatorDefinitions: source.validatorDefinitions,
+    executeInvocation,
   });
   return { key: source.key, workflow: compiled.workflow };
+}
+
+const noExecutionEvents: OperationalEventSink = {
+  emit: () => undefined,
+  emitPlan: () => undefined,
+};
+
+function requestContextValue(
+  requestContext: { get(key: string): unknown } | undefined,
+  key: string,
+): unknown {
+  return requestContext?.get(key);
+}
+
+function runtimeProfileFromContext(
+  requestContext: { get(key: string): unknown } | undefined,
+): RuntimeProfileReference {
+  const id = requestContextValue(requestContext, "seqlane.runtimeId");
+  const workspace = requestContextValue(requestContext, "seqlane.workspace");
+  return {
+    id: typeof id === "string" && id.length > 0 ? id : "local",
+    ...(typeof workspace === "string" && workspace.length > 0
+      ? { workspace }
+      : {}),
+  };
+}
+
+function createOperationalInvocationHandler(
+  source: OperationalWorkflowSource,
+): MastraPlanInvocation {
+  const preparedByRun = new Map<
+    string,
+    Promise<ReturnType<typeof createMastraPlanInvocationHandler>>
+  >();
+
+  return async (context) => {
+    const pending =
+      preparedByRun.get(context.runId) ??
+      (async () => {
+        if (!isJsonValue(context.workflowInput)) {
+          throw new TypeError("Operational workflow input must be JSON");
+        }
+        const workId = context.resourceId ?? "unknown-work";
+        const events: OperationalEventSink =
+          source.eventSink?.({ workId, runId: context.runId }) ??
+          noExecutionEvents;
+        const profile = runtimeProfileFromContext(context.requestContext);
+        if (profile.id === "local" && planContainsAgentWork(source.plan)) {
+          throw new Error(
+            'Runtime profile "local" is not configured for agent workflows',
+          );
+        }
+        const execution = await resolveRuntimeProfile(
+          profile,
+          source.taskDefinitions,
+          context.abortSignal,
+          context.workflowInput,
+          source.onSessionUiAvailable,
+        );
+        const prepared = new PlanCompiler().compileWorkflow(source.plan, {
+          workId,
+          runId: context.runId,
+          workflowInput: context.workflowInput,
+          createInvocationId: (nodeId) =>
+            `${source.plan.workflow.id}:${nodeId}`,
+          executors: execution.executors,
+          sessionResolver: execution.sessionResolver,
+          workspaceResources: execution.workspaceResources,
+          taskDefinitions: execution.taskDefinitions,
+          validatorDefinitions: source.validatorDefinitions,
+          events,
+        });
+        await preflightCompiledWorkflowModels(prepared);
+        await resolveCompiledWorkflowSessions(prepared);
+        if (source.eventSink !== undefined) {
+          events.emitPlan(
+            createSeqlanePlanSnapshot(source.plan),
+            workId,
+            context.runId,
+          );
+        }
+        return createMastraPlanInvocationHandler(prepared, source.plan);
+      })();
+    preparedByRun.set(context.runId, pending);
+    return (await pending)(context);
+  };
 }
 
 function asMastraRegistrations(

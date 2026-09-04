@@ -11,7 +11,11 @@ import { resolve } from "node:path";
 import { closeSync, openSync, readSync } from "node:fs";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import { createExecutionEventBridge } from "@seqlane/runtime";
-import { OperationalClient } from "../operational-client.js";
+import {
+  OperationalClient,
+  OperationalClientError,
+} from "../operational-client.js";
+import { startOwnedOperationalHost } from "../operational-command-host.js";
 import { createRecordingConsumer } from "../recording.js";
 import {
   connectTerminalResize,
@@ -32,6 +36,41 @@ const MAX_INPUT_FILE_BYTES = 1_048_576;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function remoteError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return new Error(error.message);
+  }
+  try {
+    return new Error(JSON.stringify(error));
+  } catch {
+    return new Error(String(error));
+  }
+}
+
+async function cancelOperationalRun(
+  client: OperationalClient,
+  runId: string,
+  workflowId: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      await client.cancelRun(runId, workflowId);
+      return;
+    } catch (error) {
+      if (!(error instanceof OperationalClientError) || error.status !== 404) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
 }
 
 function parseJsonInput(value: string): JsonValue {
@@ -151,6 +190,18 @@ export default class RunCommand extends Command {
     "server-url": Flags.string({
       description: "Existing operational server URL",
     }),
+    hostname: Flags.string({
+      description: "Loopback hostname for an owned operational host",
+      default: "127.0.0.1",
+    }),
+    port: Flags.integer({
+      description: "Loopback port for an owned operational host",
+      default: 0,
+    }),
+    "storage-url": Flags.string({
+      description: "Mastra LibSQL storage URL for an owned host",
+      default: "file:./.seqlane/mastra.db",
+    }),
     dry: Flags.boolean({
       description: "Print the calculated Plan without executing workflow tasks",
     }),
@@ -234,26 +285,58 @@ export default class RunCommand extends Command {
       },
     );
 
-    if (!flags.dry && flags["server-url"] !== undefined) {
+    if (!flags.dry) {
       const workId = randomUUID();
       const runId = randomUUID();
       const events = createExecutionEventBridge(async (event) => {
         dispatcher.consume(event);
       });
-      events.emit({ type: "run.started", workId, runId });
       let client: OperationalClient | undefined;
+      let ownedHost:
+        Awaited<ReturnType<typeof startOwnedOperationalHost>> | undefined;
       let cancellationRequested = false;
       let exitStatus = 1;
       const onSignal = (): void => {
         cancellationRequested = true;
-        void client
-          ?.cancelRun(runId, request.workflow.id)
-          .catch(() => undefined);
+        void (
+          client === undefined
+            ? Promise.resolve()
+            : cancelOperationalRun(client, runId, request.workflow.id)
+        ).catch(() => undefined);
       };
       process.once("SIGINT", onSignal);
       process.once("SIGTERM", onSignal);
       try {
-        client = new OperationalClient(flags["server-url"]);
+        ownedHost =
+          flags["server-url"] === undefined
+            ? await startOwnedOperationalHost({
+                roots: workflowRootsFromFlags(flags),
+                workflow: request.workflow,
+                workflowInput: request.input,
+                host: flags.hostname,
+                port: flags.port,
+                storageUrl: flags["storage-url"],
+                eventSink: () => events,
+                onSessionUiAvailable: (notification) => {
+                  if (renderer?.handleRuntimeSessionUi !== undefined) {
+                    renderer.handleRuntimeSessionUi(notification);
+                    return;
+                  }
+                  capabilities.stderr.write(
+                    `Seqlane session UI: ${notification.browserUrl}\n`,
+                  );
+                },
+              })
+            : undefined;
+        client = new OperationalClient(
+          flags["server-url"] ?? ownedHost?.address ?? "",
+        );
+        if (cancellationRequested) {
+          void cancelOperationalRun(client, runId, request.workflow.id).catch(
+            () => undefined,
+          );
+        }
+        events.emit({ type: "run.started", workId, runId });
         const result = await client.startRun({
           workflowId: request.workflow.id,
           runId,
@@ -283,10 +366,11 @@ export default class RunCommand extends Command {
             workId,
             runId,
             error: new RuntimeError(
-              result.error ??
-                new Error(
-                  `Operational run ended with status "${result.status}"`,
-                ),
+              result.error === undefined
+                ? new Error(
+                    `Operational run ended with status "${result.status}"`,
+                  )
+                : remoteError(result.error),
             ),
           });
         }
@@ -295,11 +379,12 @@ export default class RunCommand extends Command {
           type: "run.failed",
           workId,
           runId,
-          error: new RuntimeError(error),
+          error: new RuntimeError(remoteError(error)),
         });
       } finally {
         process.removeListener("SIGINT", onSignal);
         process.removeListener("SIGTERM", onSignal);
+        await ownedHost?.close().catch(() => undefined);
       }
       await events.flush();
       await dispatcher.flush();
@@ -314,6 +399,7 @@ export default class RunCommand extends Command {
         disconnectResize();
       }
       process.exitCode = exitStatus;
+      if (ownedHost !== undefined) process.exit(exitStatus);
       return;
     }
 

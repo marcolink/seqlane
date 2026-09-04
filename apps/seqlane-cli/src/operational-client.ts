@@ -111,7 +111,7 @@ export class OperationalClient {
 
   async listWorkflows(): Promise<readonly string[]> {
     const workflows = await this.request(
-      "/workflows",
+      "/api/workflows",
       { method: "GET" },
       workflowListSchema,
     );
@@ -120,7 +120,7 @@ export class OperationalClient {
 
   async resolveWorkflow(workflowId: string): Promise<string> {
     const workflows = await this.request(
-      "/workflows",
+      "/api/workflows",
       { method: "GET" },
       workflowListSchema,
     );
@@ -148,7 +148,7 @@ export class OperationalClient {
     );
     const query = new URLSearchParams({ runId: options.runId });
     return this.request(
-      `/workflows/${workflowId}/start-async?${query.toString()}`,
+      `/api/workflows/${workflowId}/start-async?${query.toString()}`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -190,7 +190,7 @@ export class OperationalClient {
       const encodedWorkflow = encodeURIComponent(candidate);
       try {
         return await this.request(
-          `/workflows/${encodedWorkflow}/runs/${encodeURIComponent(runId)}`,
+          `/api/workflows/${encodedWorkflow}/runs/${encodeURIComponent(runId)}`,
           { method: "GET" },
           runResponseSchema,
         );
@@ -222,7 +222,7 @@ export class OperationalClient {
       await this.resolveWorkflow(resolvedWorkflow),
     );
     const response = await this.request(
-      `/workflows/${workflow}/runs/${encodeURIComponent(runId)}/cancel`,
+      `/api/workflows/${workflow}/runs/${encodeURIComponent(runId)}/cancel`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },

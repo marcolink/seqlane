@@ -2,6 +2,8 @@ import { Command, Flags } from "@oclif/core";
 import {
   createOperationalHost,
   createOperationalWorkflow,
+  type OperationalEventSink,
+  type OperationalSessionUiNotifier,
 } from "@seqlane/runtime/operational-host";
 import { loadWorkflow } from "@seqlane/runtime/workflow";
 import {
@@ -16,6 +18,11 @@ function errorMessage(error: unknown): string {
 
 export async function loadOperationalWorkflows(
   roots: WorkflowRoots,
+  eventSink?: (context: {
+    readonly workId: string;
+    readonly runId: string;
+  }) => OperationalEventSink,
+  onSessionUiAvailable?: OperationalSessionUiNotifier,
 ): Promise<readonly ReturnType<typeof createOperationalWorkflow>[]> {
   const descriptors = discoverWorkflowDescriptors(roots);
   const registrations = [];
@@ -28,6 +35,8 @@ export async function loadOperationalWorkflows(
         workflow: loaded.definition,
         taskDefinitions: loaded.taskDefinitions,
         validatorDefinitions: loaded.validatorDefinitions,
+        eventSink,
+        onSessionUiAvailable,
       }),
     );
   }

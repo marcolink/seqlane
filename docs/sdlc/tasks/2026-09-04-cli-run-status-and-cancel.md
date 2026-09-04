@@ -1,7 +1,7 @@
 ---
 id: task.cli-run-status-and-cancel
 title: Run, Inspect, and Cancel Through the Operational Host
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-04
@@ -89,20 +89,14 @@ runtime state.
 
 ## Outcome
 
-In progress. Added a validated private operational client and the `status` and
-`cancel` commands. `run --server-url` now submits through Mastra's
-`start-async` route, prints Work and Run identifiers, preserves normalized
-terminal output, and maps success, cancellation, and failure to the stable
-CLI exit statuses. Without `--server-url`, `run` still uses the existing
-runner as a temporary bridge so the established runtime-profile and interaction
-contracts remain intact.
-
-Remaining work: the owned `seqlane run` path must execute Seqlane task
-resolvers inside the one Mastra host. The current host registers compiled
-workflow steps, but task 14 does not yet provide the per-run executor,
-session, and workspace resolver needed by those steps. Remove the runner
-bridge when that resolver is available; this is the named removal condition
-for task 15.
+Completed. Added the validated private operational client and the `status` and
+`cancel` commands. `run` now uses Mastra's `start-async` route in both modes:
+it owns a loopback host when no server URL is provided and connects to an
+existing host otherwise. The owned host resolves the Seqlane runtime profile,
+workspace resources, model selections, and sessions for each run. It publishes
+the canonical Plan and progress events through the existing CLI renderer and
+recording path. It maps success, cancellation, and failure to the stable CLI
+exit statuses and closes one-shot host resources before exit.
 
 ## Traceability
 

@@ -45,7 +45,7 @@ describe("OperationalClient", () => {
 
     expect(result).toEqual({ status: "success", result: { ok: true } });
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "http://127.0.0.1:4111/workflows/repository%3Afixture/start-async?runId=run-1",
+      "http://127.0.0.1:4111/api/workflows/repository%3Afixture/start-async?runId=run-1",
       expect.objectContaining({ method: "POST" }),
     );
     const init = fetchMock.mock.calls[1]?.[1];
@@ -100,7 +100,7 @@ describe("OperationalClient", () => {
       new OperationalClient("http://localhost:4111").cancelRun("run-1"),
     ).resolves.toBe("Workflow run cancelled");
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "http://localhost:4111/workflows/user%3Afixture/runs/run-1/cancel",
+      "http://localhost:4111/api/workflows/user%3Afixture/runs/run-1/cancel",
       expect.objectContaining({ method: "POST" }),
     );
   });

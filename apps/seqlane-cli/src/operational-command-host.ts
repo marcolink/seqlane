@@ -3,6 +3,8 @@ import {
   createOperationalHost,
   createOperationalWorkflow,
   type OperationalHost,
+  type OperationalEventSink,
+  type OperationalSessionUiNotifier,
 } from "@seqlane/runtime/operational-host";
 import { loadWorkflow } from "@seqlane/runtime/workflow";
 import { loadOperationalWorkflows } from "./commands/serve.js";
@@ -15,12 +17,23 @@ export interface OwnedOperationalHostOptions {
   readonly storageUrl?: string;
   readonly host?: string;
   readonly port?: number;
+  readonly eventSink?: (context: {
+    readonly workId: string;
+    readonly runId: string;
+  }) => OperationalEventSink;
+  readonly onSessionUiAvailable?: OperationalSessionUiNotifier;
 }
 
 export async function startOwnedOperationalHost(
   options: OwnedOperationalHostOptions,
 ): Promise<OperationalHost> {
-  const workflows = [...(await loadOperationalWorkflows(options.roots))];
+  const workflows = [
+    ...(await loadOperationalWorkflows(
+      options.roots,
+      options.eventSink,
+      options.onSessionUiAvailable,
+    )),
+  ];
   if (
     options.workflow !== undefined &&
     !workflows.some(({ key }) => key === options.workflow?.id)
@@ -35,6 +48,8 @@ export async function startOwnedOperationalHost(
         plan: loaded.plan,
         taskDefinitions: loaded.taskDefinitions,
         validatorDefinitions: loaded.validatorDefinitions,
+        eventSink: options.eventSink,
+        onSessionUiAvailable: options.onSessionUiAvailable,
       }),
     );
   }
