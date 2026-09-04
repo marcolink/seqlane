@@ -41,6 +41,7 @@ type TextResult =
 
 interface PermissionScope {
   requested: boolean;
+  rejectInteraction?: (reason?: unknown) => void;
 }
 
 function createExecutionQueue(): <T>(
@@ -113,6 +114,7 @@ async function streamAgent(
   agent: AcpAgent,
   prompt: string,
   request: AgentAdapterRequest,
+  interaction: Promise<never>,
 ): Promise<string> {
   const streamAbortController = new AbortController();
   const streamSignal = AbortSignal.any([
@@ -176,7 +178,7 @@ async function streamAgent(
   let failure: unknown;
   try {
     while (true) {
-      const next = await Promise.race([readNext(), cancellation]);
+      const next = await Promise.race([readNext(), cancellation, interaction]);
       if (next.done) break;
       const textDelta = readTextDelta(next.value);
       if (textDelta !== undefined) {
@@ -205,7 +207,7 @@ async function streamAgent(
         request.onActivity?.(activity);
       });
     }
-    const result = await textResult;
+    const result = await Promise.race([textResult, interaction]);
     if (result.status === "rejected") throw result.cause;
     if (
       textEncoder.encode(result.value).byteLength > MAX_RESPONSE_TEXT_LENGTH
@@ -253,6 +255,9 @@ export function createAcpAdapter(
     onPermissionRequest: async () => {
       if (activePermissionScope !== undefined) {
         activePermissionScope.requested = true;
+        activePermissionScope.rejectInteraction?.(
+          new InteractionRequiredError("user-input"),
+        );
       }
       return { outcome: { outcome: "cancelled" } };
     },
@@ -288,8 +293,12 @@ export function createAcpAdapter(
           while (true) {
             attempts += 1;
             let text: string;
+            const interaction = new Promise<never>((_resolve, reject) => {
+              permissionScope.rejectInteraction = reject;
+            });
+            void interaction.catch(() => undefined);
             try {
-              text = await streamAgent(agent, prompt, request);
+              text = await streamAgent(agent, prompt, request, interaction);
             } catch (cause) {
               if (permissionScope.requested) {
                 throw new InteractionRequiredError("user-input");
@@ -307,6 +316,8 @@ export function createAcpAdapter(
                 "stream execution failed",
                 cause,
               );
+            } finally {
+              permissionScope.rejectInteraction = undefined;
             }
             if (permissionScope.requested) {
               throw new InteractionRequiredError("user-input");
