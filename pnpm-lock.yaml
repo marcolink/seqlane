@@ -157,7 +157,7 @@ importers:
         version: link:../../libs/seqlane-runtime
       mastra:
         specifier: 1.27.3
-        version: 1.27.3(@hono/node-server@2.1.1(hono@4.13.7))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4)
+        version: 1.27.3(@hono/node-server@2.1.1(hono@4.13.5))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4)
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -219,9 +219,18 @@ importers:
 
   libs/seqlane-runtime:
     dependencies:
+      '@hono/node-server':
+        specifier: 2.1.1
+        version: 2.1.1(hono@4.13.5)
       '@mastra/core':
         specifier: 1.64.0
         version: 1.64.0(express@5.2.1)(zod@4.5.4)
+      '@mastra/hono':
+        specifier: 1.7.6
+        version: 1.7.6(@hono/node-server@2.1.1(hono@4.13.5))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(hono@4.13.5)(zod@4.5.4)
+      '@mastra/libsql':
+        specifier: 1.22.3
+        version: 1.22.3(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))
       '@mastra/mcp':
         specifier: 1.15.0
         version: 1.15.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
@@ -229,8 +238,8 @@ importers:
         specifier: 1.17.4
         version: 1.17.4(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
       '@mastra/server':
-        specifier: 1.63.2
-        version: 1.63.2(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
+        specifier: 1.64.0
+        version: 1.64.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
       '@seqlane/core':
         specifier: workspace:*
         version: link:../seqlane-core
@@ -240,6 +249,9 @@ importers:
       '@seqlane/opencode':
         specifier: workspace:*
         version: link:../seqlane-opencode
+      hono:
+        specifier: 4.13.5
+        version: 4.13.5
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -1430,6 +1442,63 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==, tarball: https://registry.npmjs.org/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz}
 
+  '@libsql/client@0.17.4':
+    resolution: {integrity: sha512-lYayFWasDV78A+TjlEhr6ubb3odBV6OHjb+wdp8VQcyWWAEIjuwbCHaraEUS4m4yWoo0BvZo96It4VdzZRmRWw==, tarball: https://registry.npmjs.org/@libsql/client/-/client-0.17.4.tgz}
+
+  '@libsql/core@0.17.4':
+    resolution: {integrity: sha512-LqF9gIvnJ38nmAH1y/ChizHqDO/MO1wLgA96XrraulEEbqXxLjleSH92YWTolbuJKgPUmGu4aJk9W3UnAcxLOQ==, tarball: https://registry.npmjs.org/@libsql/core/-/core-0.17.4.tgz}
+
+  '@libsql/darwin-arm64@0.5.29':
+    resolution: {integrity: sha512-K+2RIB1OGFPYQbfay48GakLhqf3ArcbHqPFu7EZiaUcRgFcdw8RoltsMyvbj5ix2fY0HV3Q3Ioa/ByvQdaSM0A==, tarball: https://registry.npmjs.org/@libsql/darwin-arm64/-/darwin-arm64-0.5.29.tgz}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@libsql/darwin-x64@0.5.29':
+    resolution: {integrity: sha512-OtT+KFHsKFy1R5FVadr8FJ2Bb1mghtXTyJkxv0trocq7NuHntSki1eUbxpO5ezJesDvBlqFjnWaYYY516QNLhQ==, tarball: https://registry.npmjs.org/@libsql/darwin-x64/-/darwin-x64-0.5.29.tgz}
+    cpu: [x64]
+    os: [darwin]
+
+  '@libsql/hrana-client@0.10.0':
+    resolution: {integrity: sha512-OoA4EMqRAC7kn7V2P6EQqRcpZf2W+AjsNIyCizBg339Tq/aMC7sRnzs3SklderhmQWAqEzvv8A2vhxVmWpkVvw==, tarball: https://registry.npmjs.org/@libsql/hrana-client/-/hrana-client-0.10.0.tgz}
+
+  '@libsql/isomorphic-ws@0.1.5':
+    resolution: {integrity: sha512-DtLWIH29onUYR00i0GlQ3UdcTRC6EP4u9w/h9LxpUZJWRMARk6dQwZ6Jkd+QdwVpuAOrdxt18v0K2uIYR3fwFg==, tarball: https://registry.npmjs.org/@libsql/isomorphic-ws/-/isomorphic-ws-0.1.5.tgz}
+
+  '@libsql/linux-arm-gnueabihf@0.5.29':
+    resolution: {integrity: sha512-CD4n4zj7SJTHso4nf5cuMoWoMSS7asn5hHygsDuhRl8jjjCTT3yE+xdUvI4J7zsyb53VO5ISh4cwwOtf6k2UhQ==, tarball: https://registry.npmjs.org/@libsql/linux-arm-gnueabihf/-/linux-arm-gnueabihf-0.5.29.tgz}
+    cpu: [arm]
+    os: [linux]
+
+  '@libsql/linux-arm-musleabihf@0.5.29':
+    resolution: {integrity: sha512-2Z9qBVpEJV7OeflzIR3+l5yAd4uTOLxklScYTwpZnkm2vDSGlC1PRlueLaufc4EFITkLKXK2MWBpexuNJfMVcg==, tarball: https://registry.npmjs.org/@libsql/linux-arm-musleabihf/-/linux-arm-musleabihf-0.5.29.tgz}
+    cpu: [arm]
+    os: [linux]
+
+  '@libsql/linux-arm64-gnu@0.5.29':
+    resolution: {integrity: sha512-gURBqaiXIGGwFNEaUj8Ldk7Hps4STtG+31aEidCk5evMMdtsdfL3HPCpvys+ZF/tkOs2MWlRWoSq7SOuCE9k3w==, tarball: https://registry.npmjs.org/@libsql/linux-arm64-gnu/-/linux-arm64-gnu-0.5.29.tgz}
+    cpu: [arm64]
+    os: [linux]
+
+  '@libsql/linux-arm64-musl@0.5.29':
+    resolution: {integrity: sha512-fwgYZ0H8mUkyVqXZHF3mT/92iIh1N94Owi/f66cPVNsk9BdGKq5gVpoKO+7UxaNzuEH1roJp2QEwsCZMvBLpqg==, tarball: https://registry.npmjs.org/@libsql/linux-arm64-musl/-/linux-arm64-musl-0.5.29.tgz}
+    cpu: [arm64]
+    os: [linux]
+
+  '@libsql/linux-x64-gnu@0.5.29':
+    resolution: {integrity: sha512-y14V0vY0nmMC6G0pHeJcEarcnGU2H6cm21ZceRkacWHvQAEhAG0latQkCtoS2njFOXiYIg+JYPfAoWKbi82rkg==, tarball: https://registry.npmjs.org/@libsql/linux-x64-gnu/-/linux-x64-gnu-0.5.29.tgz}
+    cpu: [x64]
+    os: [linux]
+
+  '@libsql/linux-x64-musl@0.5.29':
+    resolution: {integrity: sha512-gquqwA/39tH4pFl+J9n3SOMSymjX+6kZ3kWgY3b94nXFTwac9bnFNMffIomgvlFaC4ArVqMnOZD3nuJ3H3VO1w==, tarball: https://registry.npmjs.org/@libsql/linux-x64-musl/-/linux-x64-musl-0.5.29.tgz}
+    cpu: [x64]
+    os: [linux]
+
+  '@libsql/win32-x64-msvc@0.5.29':
+    resolution: {integrity: sha512-4/0CvEdhi6+KjMxMaVbFM2n2Z44escBRoEYpR+gZg64DdetzGnYm8mcNLcoySaDJZNaBd6wz5DNdgRmcI4hXcg==, tarball: https://registry.npmjs.org/@libsql/win32-x64-msvc/-/win32-x64-msvc-0.5.29.tgz}
+    cpu: [x64]
+    os: [win32]
+
   '@lukeed/csprng@1.1.0':
     resolution: {integrity: sha512-Z7C/xXCiGWsg0KuKsHTKJxbWhpI3Vs5GwLfOean7MGyVFGqdRgBbAjOCh6u4bbjPc/8MJ2pZmK/0DLdCbivLDA==, tarball: https://registry.npmjs.org/@lukeed/csprng/-/csprng-1.1.0.tgz}
     engines: {node: '>=8'}
@@ -1456,6 +1525,19 @@ packages:
     peerDependencies:
       '@mastra/core': '>=1.50.0-0 <2.0.0-0'
 
+  '@mastra/hono@1.7.6':
+    resolution: {integrity: sha512-GHjcdQD0gTNUL8YPe63Sz5Kmbr5iYFHz+qYzpJoxaJhQkYlygKjyIb7zWuTcx8AYZFkjs7WNog7Hv/m2/iVXug==, tarball: https://registry.npmjs.org/@mastra/hono/-/hono-1.7.6.tgz}
+    engines: {node: '>=22.13.0'}
+    peerDependencies:
+      '@mastra/core': '>=1.50.0-0 <2.0.0-0'
+      hono: ^4.12.8
+
+  '@mastra/libsql@1.22.3':
+    resolution: {integrity: sha512-XFAUq3lPW6ujQUgs9YADYsvwfr6W8Te8Y1Cq3UJKs2hAZMIwN9xY9heJsDpJ76a6VzR6TF8hLxQBiLLrfIUV/A==, tarball: https://registry.npmjs.org/@mastra/libsql/-/libsql-1.22.3.tgz}
+    engines: {node: '>=22.13.0'}
+    peerDependencies:
+      '@mastra/core': '>=1.63.1-0 <2.0.0-0'
+
   '@mastra/loggers@1.3.1':
     resolution: {integrity: sha512-+Si2AQO7cEGWqIWu9RyzErW1/5VilAY98yCL+ISbR26tLF8NZ6AM9r874i7rX8jk29eUbJKNcVd6asgM6JJOBA==, tarball: https://registry.npmjs.org/@mastra/loggers/-/loggers-1.3.1.tgz}
     engines: {node: '>=22.13.0'}
@@ -1479,13 +1561,6 @@ packages:
     resolution: {integrity: sha512-uGGQlb/QAIgghHf/FQLfnpHbUMXWWJDFlv0FQ/p0K6TjT8OVdWC9uNPdwQmFYu8Fzut4Z+LmzNkJ5S378/41Ew==, tarball: https://registry.npmjs.org/@mastra/schema-compat/-/schema-compat-1.3.8.tgz}
     engines: {node: '>=22.13.0'}
     peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
-
-  '@mastra/server@1.63.2':
-    resolution: {integrity: sha512-Bered/g7K+MhDKdYb3qkmtTS93Hf/Qb78EZGxGQSwVjizuPRguFJZr5nTckE4VzQxqY6Tg7v4Jqjc6afugO3oQ==, tarball: https://registry.npmjs.org/@mastra/server/-/server-1.63.2.tgz}
-    engines: {node: '>=22.13.0'}
-    peerDependencies:
-      '@mastra/core': '>=1.50.0-0 <2.0.0-0'
       zod: ^3.25.0 || ^4.0.0
 
   '@mastra/server@1.64.0':
@@ -1543,6 +1618,9 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
       '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
+
+  '@neon-rs/load@0.0.4':
+    resolution: {integrity: sha512-kTPhdZyTQxB+2wpiRcFWrDcejc4JI6tkPuS7UZCG4l6Zvc5kU/gGQ/ozvHTh1XR5tS+UlfAfGuPajjzQjCiHCw==, tarball: https://registry.npmjs.org/@neon-rs/load/-/load-0.0.4.tgz}
 
   '@node-rs/xxhash-android-arm-eabi@1.7.7':
     resolution: {integrity: sha512-9uOAXzMmayilkSmoSgrtZDKG2a4E8I0f58Ydm0/us2ubfUGqBr6AjaxzRjipuDBGeNZYYQP1wmoUzLAmuUajIQ==, tarball: https://registry.npmjs.org/@node-rs/xxhash-android-arm-eabi/-/xxhash-android-arm-eabi-1.7.7.tgz}
@@ -2493,6 +2571,9 @@ packages:
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==, tarball: https://registry.npmjs.org/@types/unist/-/unist-3.0.3.tgz}
 
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==, tarball: https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz}
+
   '@types/yargs-parser@21.0.3':
     resolution: {integrity: sha512-I4q9QU9MQv4oEOz4tAHJtNz1cwuLxn2F3xcc2iV5WdqLPpUnj30aUuxt1mAxYTG+oe8CZMV/+6rU4S4gRDzqtQ==, tarball: https://registry.npmjs.org/@types/yargs-parser/-/yargs-parser-21.0.3.tgz}
 
@@ -3261,6 +3342,10 @@ packages:
     resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==, tarball: https://registry.npmjs.org/dequal/-/dequal-2.0.3.tgz}
     engines: {node: '>=6'}
 
+  detect-libc@2.0.2:
+    resolution: {integrity: sha512-UX6sGumvvqSaXgdKGUsgZWqcUyIXZ/vZTrlRT/iobiKhGL0zL4d3osHj3uqllWJK+i+sixDS/3COVEOFbupFyw==, tarball: https://registry.npmjs.org/detect-libc/-/detect-libc-2.0.2.tgz}
+    engines: {node: '>=8'}
+
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==, tarball: https://registry.npmjs.org/detect-libc/-/detect-libc-2.1.2.tgz}
     engines: {node: '>=8'}
@@ -3570,6 +3655,9 @@ packages:
       picomatch:
         optional: true
 
+  fetch-to-node@2.1.0:
+    resolution: {integrity: sha512-Wq05j6LE1GrWpT2t1YbCkyFY6xKRJq3hx/oRJdWEJpZlik3g25MmdJS6RFm49iiMJw6zpZuBOrgihOgy2jGyAA==, tarball: https://registry.npmjs.org/fetch-to-node/-/fetch-to-node-2.1.0.tgz}
+
   figures@3.2.0:
     resolution: {integrity: sha512-yaduQFRKLXYOGgEn6AZau90j3ggSOyiqXU0F9JZfeXYhNa+Jk4X+s45A2zg5jns87GAFa34BBm2kXw4XpNcbdg==, tarball: https://registry.npmjs.org/figures/-/figures-3.2.0.tgz}
     engines: {node: '>=8'}
@@ -3748,8 +3836,8 @@ packages:
   help-me@5.0.0:
     resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==, tarball: https://registry.npmjs.org/help-me/-/help-me-5.0.0.tgz}
 
-  hono@4.13.7:
-    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==, tarball: https://registry.npmjs.org/hono/-/hono-4.13.7.tgz}
+  hono@4.13.5:
+    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==, tarball: https://registry.npmjs.org/hono/-/hono-4.13.5.tgz}
     engines: {node: '>=16.9.0'}
 
   html-escaper@2.0.2:
@@ -4040,6 +4128,9 @@ packages:
   jpeg-js@0.4.4:
     resolution: {integrity: sha512-WZzeDOEtTOBK4Mdsar0IqEU5sMr3vSV2RqkAIzUEV2BHnUfKGyswWFPFwK5EeDo93K3FohSHbLAjj0s1Wzd+dg==, tarball: https://registry.npmjs.org/jpeg-js/-/jpeg-js-0.4.4.tgz}
 
+  js-base64@3.9.3:
+    resolution: {integrity: sha512-uwYQp+VJ38FVvtim6qNbit6e9uT6dwWQ4Y1+H9TxhW5hcHjpHwoxlR0nMpqUmIFOmu4VqMxwdJA88gIVuZJQ/g==, tarball: https://registry.npmjs.org/js-base64/-/js-base64-3.9.3.tgz}
+
   js-tokens@10.0.0:
     resolution: {integrity: sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q==, tarball: https://registry.npmjs.org/js-tokens/-/js-tokens-10.0.0.tgz}
 
@@ -4121,6 +4212,11 @@ packages:
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==, tarball: https://registry.npmjs.org/levn/-/levn-0.4.1.tgz}
     engines: {node: '>= 0.8.0'}
+
+  libsql@0.5.29:
+    resolution: {integrity: sha512-8lMP8iMgiBzzoNbAPQ59qdVcj6UaE/Vnm+fiwX4doX4Narook0a4GPKWBEv+CR8a1OwbfkgL18uBfBjWdF0Fzg==, tarball: https://registry.npmjs.org/libsql/-/libsql-0.5.29.tgz}
+    cpu: [x64, arm64, wasm32, arm]
+    os: [darwin, linux, win32]
 
   lightningcss-android-arm64@1.33.0:
     resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==, tarball: https://registry.npmjs.org/lightningcss-android-arm64/-/lightningcss-android-arm64-1.33.0.tgz}
@@ -4729,6 +4825,9 @@ packages:
   process@0.11.10:
     resolution: {integrity: sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A==, tarball: https://registry.npmjs.org/process/-/process-0.11.10.tgz}
     engines: {node: '>= 0.6.0'}
+
+  promise-limit@2.7.0:
+    resolution: {integrity: sha512-7nJ6v5lnJsXwGprnGXga4wx6d1POjvi5Qmf1ivTRxTjH4Z/9Czja/UCMLVmB9N93GeWOU93XaFaEt6jbuoagNw==, tarball: https://registry.npmjs.org/promise-limit/-/promise-limit-2.7.0.tgz}
 
   proxy-addr@2.0.7:
     resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==, tarball: https://registry.npmjs.org/proxy-addr/-/proxy-addr-2.0.7.tgz}
@@ -6678,14 +6777,14 @@ snapshots:
 
   '@expo/sudo-prompt@9.3.2': {}
 
-  '@hono/node-server@2.1.1(hono@4.13.7)':
+  '@hono/node-server@2.1.1(hono@4.13.5)':
     dependencies:
-      hono: 4.13.7
+      hono: 4.13.5
 
-  '@hono/node-ws@1.3.1(@hono/node-server@2.1.1(hono@4.13.7))(hono@4.13.7)':
+  '@hono/node-ws@1.3.1(@hono/node-server@2.1.1(hono@4.13.5))(hono@4.13.5)':
     dependencies:
-      '@hono/node-server': 2.1.1(hono@4.13.7)
-      hono: 4.13.7
+      '@hono/node-server': 2.1.1(hono@4.13.5)
+      hono: 4.13.5
       ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
@@ -6892,6 +6991,64 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
+  '@libsql/client@0.17.4':
+    dependencies:
+      '@libsql/core': 0.17.4
+      '@libsql/hrana-client': 0.10.0
+      js-base64: 3.9.3
+      libsql: 0.5.29
+      promise-limit: 2.7.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@libsql/core@0.17.4':
+    dependencies:
+      js-base64: 3.9.3
+
+  '@libsql/darwin-arm64@0.5.29':
+    optional: true
+
+  '@libsql/darwin-x64@0.5.29':
+    optional: true
+
+  '@libsql/hrana-client@0.10.0':
+    dependencies:
+      '@libsql/isomorphic-ws': 0.1.5
+      js-base64: 3.9.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@libsql/isomorphic-ws@0.1.5':
+    dependencies:
+      '@types/ws': 8.18.1
+      ws: 8.21.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@libsql/linux-arm-gnueabihf@0.5.29':
+    optional: true
+
+  '@libsql/linux-arm-musleabihf@0.5.29':
+    optional: true
+
+  '@libsql/linux-arm64-gnu@0.5.29':
+    optional: true
+
+  '@libsql/linux-arm64-musl@0.5.29':
+    optional: true
+
+  '@libsql/linux-x64-gnu@0.5.29':
+    optional: true
+
+  '@libsql/linux-x64-musl@0.5.29':
+    optional: true
+
+  '@libsql/win32-x64-msvc@0.5.29':
+    optional: true
+
   '@lukeed/csprng@1.1.0': {}
 
   '@lukeed/uuid@2.0.1':
@@ -6950,12 +7107,12 @@ snapshots:
       - utf-8-validate
       - workflow
 
-  '@mastra/deployer@1.64.0(@hono/node-server@2.1.1(hono@4.13.7))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4)':
+  '@mastra/deployer@1.64.0(@hono/node-server@2.1.1(hono@4.13.5))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4)':
     dependencies:
       '@babel/core': 8.0.1
       '@babel/preset-typescript': 8.0.1(@babel/core@8.0.1)
       '@babel/traverse': 8.0.4
-      '@hono/node-ws': 1.3.1(@hono/node-server@2.1.1(hono@4.13.7))(hono@4.13.7)
+      '@hono/node-ws': 1.3.1(@hono/node-server@2.1.1(hono@4.13.5))(hono@4.13.5)
       '@mastra/core': 1.64.0(express@5.2.1)(zod@4.5.4)
       '@mastra/server': 1.64.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
       '@optimize-lodash/rollup-plugin': 5.1.0(rollup@4.63.1)
@@ -6970,7 +7127,7 @@ snapshots:
       find-workspaces: 0.3.1
       fs-extra: 11.4.0
       gray-matter: 4.0.3
-      hono: 4.13.7
+      hono: 4.13.5
       local-pkg: 1.2.1
       resolve.exports: 2.0.3
       rollup: 4.63.1
@@ -6987,6 +7144,28 @@ snapshots:
       - typescript
       - utf-8-validate
       - zod
+
+  '@mastra/hono@1.7.6(@hono/node-server@2.1.1(hono@4.13.5))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(hono@4.13.5)(zod@4.5.4)':
+    dependencies:
+      '@hono/node-ws': 1.3.1(@hono/node-server@2.1.1(hono@4.13.5))(hono@4.13.5)
+      '@mastra/core': 1.64.0(express@5.2.1)(zod@4.5.4)
+      '@mastra/server': 1.64.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
+      fetch-to-node: 2.1.0
+      hono: 4.13.5
+      ws: 8.21.3
+    transitivePeerDependencies:
+      - '@hono/node-server'
+      - bufferutil
+      - utf-8-validate
+      - zod
+
+  '@mastra/libsql@1.22.3(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))':
+    dependencies:
+      '@libsql/client': 0.17.4
+      '@mastra/core': 1.64.0(express@5.2.1)(zod@4.5.4)
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
   '@mastra/loggers@1.3.1(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))':
     dependencies:
@@ -7019,16 +7198,10 @@ snapshots:
       zod: 4.5.4
       zod-from-json-schema: 0.5.6
 
-  '@mastra/server@1.63.2(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)':
-    dependencies:
-      '@mastra/core': 1.64.0(express@5.2.1)(zod@4.5.4)
-      hono: 4.13.7
-      zod: 4.5.4
-
   '@mastra/server@1.64.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)':
     dependencies:
       '@mastra/core': 1.64.0(express@5.2.1)(zod@4.5.4)
-      hono: 4.13.7
+      hono: 4.13.5
       zod: 4.5.4
 
   '@modelcontextprotocol/core@2.0.0':
@@ -7043,7 +7216,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.30.0(zod@4.5.4)':
     dependencies:
-      '@hono/node-server': 2.1.1(hono@4.13.7)
+      '@hono/node-server': 2.1.1(hono@4.13.5)
       ajv: 8.20.0
       ajv-formats: 3.0.1
       content-type: 1.0.5
@@ -7053,7 +7226,7 @@ snapshots:
       eventsource-parser: 3.1.1
       express: 5.2.1
       express-rate-limit: 8.7.0(express@5.2.1)
-      hono: 4.13.7
+      hono: 4.13.5
       jose: 6.2.12
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -7090,6 +7263,8 @@ snapshots:
       '@emnapi/runtime': 1.11.2
       '@tybys/wasm-util': 0.10.3
     optional: true
+
+  '@neon-rs/load@0.0.4': {}
 
   '@node-rs/xxhash-android-arm-eabi@1.7.7':
     optional: true
@@ -7946,6 +8121,10 @@ snapshots:
 
   '@types/unist@3.0.3': {}
 
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 24.13.2
+
   '@types/yargs-parser@21.0.3': {}
 
   '@types/yargs@17.0.35':
@@ -8682,6 +8861,8 @@ snapshots:
 
   dequal@2.0.3: {}
 
+  detect-libc@2.0.2: {}
+
   detect-libc@2.1.2: {}
 
   detect-newline@3.1.0: {}
@@ -9030,6 +9211,8 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.7
 
+  fetch-to-node@2.1.0: {}
+
   figures@3.2.0:
     dependencies:
       escape-string-regexp: 1.0.5
@@ -9209,7 +9392,7 @@ snapshots:
 
   help-me@5.0.0: {}
 
-  hono@4.13.7: {}
+  hono@4.13.5: {}
 
   html-escaper@2.0.2: {}
 
@@ -9631,6 +9814,8 @@ snapshots:
 
   jpeg-js@0.4.4: {}
 
+  js-base64@3.9.3: {}
+
   js-tokens@10.0.0: {}
 
   js-tokens@4.0.0: {}
@@ -9700,6 +9885,21 @@ snapshots:
     dependencies:
       prelude-ls: 1.2.1
       type-check: 0.4.0
+
+  libsql@0.5.29:
+    dependencies:
+      '@neon-rs/load': 0.0.4
+      detect-libc: 2.0.2
+    optionalDependencies:
+      '@libsql/darwin-arm64': 0.5.29
+      '@libsql/darwin-x64': 0.5.29
+      '@libsql/linux-arm-gnueabihf': 0.5.29
+      '@libsql/linux-arm-musleabihf': 0.5.29
+      '@libsql/linux-arm64-gnu': 0.5.29
+      '@libsql/linux-arm64-musl': 0.5.29
+      '@libsql/linux-x64-gnu': 0.5.29
+      '@libsql/linux-x64-musl': 0.5.29
+      '@libsql/win32-x64-msvc': 0.5.29
 
   lightningcss-android-arm64@1.33.0:
     optional: true
@@ -9799,14 +9999,14 @@ snapshots:
 
   markdown-table@3.0.4: {}
 
-  mastra@1.27.3(@hono/node-server@2.1.1(hono@4.13.7))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4):
+  mastra@1.27.3(@hono/node-server@2.1.1(hono@4.13.5))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4):
     dependencies:
       '@babel/parser': 8.0.4
       '@babel/types': 8.0.4
       '@clack/prompts': 1.7.0
       '@expo/devcert': 1.2.1
       '@mastra/core': 1.64.0(express@5.2.1)(zod@4.5.4)
-      '@mastra/deployer': 1.64.0(@hono/node-server@2.1.1(hono@4.13.7))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4)
+      '@mastra/deployer': 1.64.0(@hono/node-server@2.1.1(hono@4.13.5))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4)
       '@mastra/loggers': 1.3.1(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))
       archiver: 8.0.0
       commander: 14.0.3
@@ -10584,6 +10784,8 @@ snapshots:
   process-warning@5.1.0: {}
 
   process@0.11.10: {}
+
+  promise-limit@2.7.0: {}
 
   proxy-addr@2.0.7:
     dependencies:

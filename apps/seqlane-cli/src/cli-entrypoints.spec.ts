@@ -7,6 +7,7 @@
 // @test-scope ./commands/studio.ts
 // @test-scope ./commands/list.ts
 // @test-scope ./commands/plan.ts
+// @test-scope ./commands/serve.ts
 // @test-scope ./cli-contracts.ts
 // @test-scope ../../../examples/minimal-workflow.ts
 // @test-scope ../../../examples/local-only.ts
@@ -655,6 +656,35 @@ describe("seqlane CLI entrypoints", () => {
       }
     },
   );
+
+  it("starts and cleanly stops the built operational host", async () => {
+    const fixture = createDiscoveryFixture();
+    try {
+      const result = await runCli(
+        productionEntry,
+        [
+          "serve",
+          "--port",
+          "0",
+          "--storage-url",
+          "file::memory:",
+          "--repository-root",
+          fixture.repositoryRoot,
+          "--user-root",
+          fixture.userRoot,
+        ],
+        (child) => child.kill("SIGTERM"),
+        "Seqlane operational host:",
+      );
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("Seqlane operational host:");
+      expect(result.stdout).toContain("Seqlane readiness:");
+      expect(result.stderr).toBe("");
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
 
   it("runs compiled commands through the installed entrypoint", async () => {
     const fake = await startFakeOpenCodeServer("success");

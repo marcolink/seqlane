@@ -1,11 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Mastra } from "@mastra/core/mastra";
 import { RequestContext } from "@mastra/core/request-context";
-import { InMemoryStore } from "@mastra/core/storage";
+import type { MastraCompositeStore } from "@mastra/core/storage";
 import type { AnyWorkflow } from "@mastra/core/workflows";
-import { MastraStorageExporter, Observability } from "@mastra/observability";
 import type { RunId, SeqlaneRunOutcome, WorkId } from "@seqlane/core";
 import { RuntimeError, SeqlaneError } from "@seqlane/core";
+import {
+  createMastraComposition,
+  type MastraWorkflowRegistration,
+} from "./mastra-composition.js";
 import {
   registerMastraServer,
   type MastraMcpDispatcherOptions,
@@ -13,10 +16,7 @@ import {
   type MastraServerRequestContext,
 } from "./mastra-server.js";
 
-export interface MastraWorkflowRegistration {
-  readonly key: string;
-  readonly workflow: AnyWorkflow;
-}
+export type { MastraWorkflowRegistration } from "./mastra-composition.js";
 
 export interface MastraRunRequest {
   readonly workflowKey: string;
@@ -42,6 +42,7 @@ export interface MastraRuntime {
   start(request: MastraRunRequest, context?: MastraRunContext): MastraActiveRun;
   inspect(request: MastraRunRequest): Promise<MastraRuntimeInspection>;
   readonly server: MastraRuntimeServer;
+  shutdown(): Promise<void>;
 }
 
 export interface MastraActiveRun {
@@ -50,6 +51,8 @@ export interface MastraActiveRun {
 }
 
 export interface MastraRuntimeOptions {
+  /** Overrides the default in-memory storage for an isolated runtime. */
+  readonly storage?: MastraCompositeStore;
   /** Registers reusable workflow definitions with the Mastra server and MCP adapter. */
   readonly exposeServer?: boolean;
   /** Bounds concurrent MCP dispatch and gives each invocation a deadline. */
@@ -221,26 +224,8 @@ function createMastraRuntimeCore(
   readonly runtime: Omit<MastraRuntime, "server">;
 } {
   validateRegistrations(registrations);
-
-  const workflows: Record<string, AnyWorkflow> = Object.fromEntries(
-    registrations.map(({ key, workflow }) => [key, workflow]),
-  );
-  const storage = new InMemoryStore({ id: "seqlane-runtime-storage" });
-  const observability = new Observability({
-    configs: {
-      default: {
-        serviceName: "seqlane-runtime",
-        exporters: [new MastraStorageExporter()],
-        requestContextKeys: [WORK_ID_CONTEXT_KEY, RUN_ID_CONTEXT_KEY],
-      },
-    },
-  });
-  const mastra = new Mastra({
-    workflows,
-    storage,
-    observability,
-    logger: false,
-  });
+  const composition = createMastraComposition(registrations, options.storage);
+  const { mastra, workflows, storage, observability } = composition;
   async function flushObservability(): Promise<void> {
     await observability.flush();
   }
@@ -367,6 +352,7 @@ function createMastraRuntimeCore(
           })) ?? null,
       };
     },
+    shutdown: composition.shutdown,
   };
 
   return { mastra, workflows, runtime };

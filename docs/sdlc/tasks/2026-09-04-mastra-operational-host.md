@@ -1,7 +1,7 @@
 ---
 id: task.mastra-operational-host
 title: Add the Durable Mastra Operational Host
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
@@ -24,10 +24,10 @@ Run registered Seqlane workflows through one durable Mastra server process.
 
 ## Delivery
 
-- Stack order: 16
-- Branch: `mastra-16-operational-host`
-- Pull request base: `mastra-15-operational-data-bounds`
-- Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
+- Stack order: 14
+- Branch: `mastra-14-operational-host`
+- Pull request base: `mastra-13-workflow-discovery-plan`
+- Implementation agent: primary implementation after the fresh `gpt-5.6-luna` subagent reached its usage limit
 - Delivery unit: exactly one task branch and one pull request
 
 ## Upstream requirements
@@ -93,7 +93,24 @@ Seqlane server or canonical state store.
 
 ## Outcome
 
-Not started.
+Implemented in PR #29.
+
+- Added a private Mastra composition root with Community Hono server
+  registration, tracing, and a durable LibSQL storage adapter.
+- Added `seqlane serve` with workflow discovery, strict loopback binding,
+  health and readiness endpoints, storage configuration, and signal-safe
+  shutdown.
+- Exposed the standard Mastra HTTP and MCP routes through one operational host.
+- Kept the in-memory direct-run composition as a named bridge for task 15;
+  the operational host is the durable process boundary and does not add a
+  second Seqlane run store.
+- Added host lifecycle, restart-persistence, route registration, malformed
+  configuration, public-boundary, and built CLI end-to-end coverage.
+
+Verification: `pnpm typecheck`, `pnpm test`, `pnpm exec nx test:e2e
+seqlane-cli`, `pnpm lint`, `pnpm format:check`, `pnpm test:mapping`,
+`pnpm exec nx sync:check`, `pnpm docs:validate`, `pnpm build`, and
+`git diff --check` pass.
 
 ## Traceability
 

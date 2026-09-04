@@ -44,6 +44,26 @@ Direct file and module references remain supported by `seqlane run` and
 `seqlane plan`. A module reference can include an export name as
 `<module-specifier>#<export-name>`.
 
+## Operational host
+
+Start the foreground Mastra operational host for all discovered workflows:
+
+```sh
+seqlane serve
+```
+
+The host uses durable LibSQL storage at `.seqlane/mastra.db`. It binds to
+`127.0.0.1:4111` and exposes Mastra API routes, health at `/healthz`, and
+readiness at `/readyz`:
+
+```sh
+seqlane serve --port 4112 --storage-url file:./.seqlane/mastra.db
+```
+
+Only loopback hostnames are accepted. The command loads and validates all
+discovered workflow descriptors before the host starts listening. Press
+`Ctrl-C` to close the HTTP server, flush tracing, and close storage.
+
 ## Community Studio
 
 Start the upstream Mastra Community Studio:

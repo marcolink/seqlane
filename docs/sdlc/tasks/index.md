@@ -173,7 +173,7 @@
 | [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |
 | [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | completed | 2026-09-03 | core |
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
-| [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | planned | 2026-09-04 | core |
+| [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | completed | 2026-09-04 | core |
 | [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | completed | 2026-09-04 | core |
 | [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
 | [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | planned | 2026-09-04 | core |
