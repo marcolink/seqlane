@@ -73,9 +73,10 @@ const gitStatus = defineTask({
 ```
 
 `exec` uses the canonical workflow workspace and does not invoke a shell. It
-captures bounded stdout and stderr. Local tasks must await foreground,
-non-interactive commands. The V1 API has no Git helper or mutation APIs, shell
-support, background process API, or command policy.
+captures bounded stdout and stderr and returns normalized timing,
+timeout/cancellation, truncation, task, and invocation metadata. Local tasks
+must await foreground, non-interactive commands. The V1 API has no Git helper
+or mutation APIs, shell support, background process API, or command policy.
 
 This fan-out/fan-in workflow shares source context without merging session
 histories. The synthesis task explicitly reuses `context`; branch outputs are

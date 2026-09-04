@@ -1,13 +1,14 @@
 ---
 id: task.mastra-deterministic-shell
 title: Run Deterministic Shell Tasks Through Mastra
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - spec.mastra-runtime-and-operational-integration
+  - spec.local-mechanical-tasks
 supersedes: []
 ---
 
@@ -40,6 +41,8 @@ the Mastra runtime integration contract.
 
 - Agent execution.
 - General shell-string parsing unless explicitly required by the public contract.
+- Dispatch local task definitions from Mastra-compiled Plans.
+- Repeat support.
 
 ## Implementation plan
 
@@ -69,7 +72,27 @@ the Mastra runtime integration contract.
 
 Deterministic tasks use Mastra process primitives exclusively.
 
+## Outcome
+
+Deterministic local task invocations now use the pinned Mastra `LocalSandbox`
+process path with direct command arguments. Results normalize exit status,
+bounded output, timing, timeout, cancellation, task identity, and invocation
+identity. The replaced Effect subprocess implementation, prototype, tests, and
+direct platform dependencies were removed. The public workflow and task
+contracts remain free of Mastra types.
+
+The Mastra Plan compiler does not yet dispatch local task definitions through
+this process path. That integration is tracked in
+`task.mastra-local-task-dispatch`. Repeat support remains a separate future
+change.
+
+Focused runtime tests, runtime typecheck, runtime lint, test mapping, and the
+lockfile-only dependency synchronization passed. The repository-wide gates
+remain for the stacked migration validation.
+
 ## Traceability
 
 - [spec.mastra-runtime-and-operational-integration](../specs/2026-09-03-mastra-runtime-and-operational-integration.md)
+- [spec.local-mechanical-tasks](../specs/2026-09-03-local-mechanical-tasks.md)
 - [task.mastra-plan-compiler](./2026-09-03-mastra-plan-compiler.md)
+- [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md)
