@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -67,11 +67,12 @@ the Mastra runtime integration contract.
 
 ## Completion criteria
 
-Static Seqlane Plans can execute through compiled Mastra workflows with no
-fallback inside the new compiler path. The compiler validates and orders the
-Plan, creates one inspectable Mastra step per Plan invocation, resolves typed
-Seqlane bindings, validates step input and output schemas, and resolves the
-declared workflow output.
+Static non-repeat Seqlane Plans can execute through compiled Mastra workflows
+with no fallback inside the new compiler path. The compiler validates and
+orders the Plan, creates one inspectable Mastra step per Plan invocation,
+resolves typed Seqlane bindings, validates step input and output schemas, and
+resolves the declared workflow output. Repeat nodes are rejected explicitly
+until a dedicated Mastra-native repeat lowering is added.
 
 The existing Effect compiler remains for agent, shell, session, and workspace
 callers that are outside this task's scope. Its replacement and removal are
@@ -84,7 +85,9 @@ Implemented the private Mastra Plan compiler in
 compiled workflow registration with deterministic step IDs and Seqlane
 metadata, preserves dependency-layer parallelism, and runs through the task 2
 Mastra runtime spine. Focused behavior, malformed-input, compatibility, and
-public-boundary tests cover the implementation.
+public-boundary tests cover the implementation. Repeat nodes are explicitly
+rejected because their Mastra-native lowering is deferred to a dedicated
+change.
 
 ## Traceability
 

@@ -167,6 +167,46 @@ describe("Mastra Plan compiler", () => {
     expect(() => compilePlanToMastra(cyclic)).toThrow(/cycle/i);
   });
 
+  it("rejects repeat nodes before creating a Mastra workflow", () => {
+    const repeatNode: Extract<PlanNode, { type: "repeat" }> = {
+      type: "repeat",
+      nodeId: "repeat:1",
+      input: { passed: false },
+      dependsOn: [],
+      maximumIterations: 2,
+      body: {
+        inputNodeId: "repeat:1:input",
+        nodes: [
+          task("repeat:1/body:1", ["repeat:1:input"], {
+            type: "ref",
+            nodeId: "repeat:1:input",
+            path: [],
+          }) as Extract<PlanNode, { type: "task" }>,
+        ],
+        output: {
+          type: "ref",
+          nodeId: "repeat:1/body:1",
+          path: ["output"],
+        },
+        until: {
+          type: "ref",
+          nodeId: "repeat:1/body:1",
+          path: ["output", "passed"],
+        },
+      },
+    };
+
+    expect(() =>
+      compilePlanToMastra(
+        plan([repeatNode], {
+          type: "ref",
+          nodeId: "repeat:1",
+          path: ["output"],
+        }),
+      ),
+    ).toThrow('Mastra Plan compiler does not support repeat node "repeat:1"');
+  });
+
   it("normalizes typed input failures through Mastra's workflow result", async () => {
     const source = plan([task("source")], {
       type: "ref",

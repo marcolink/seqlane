@@ -233,10 +233,20 @@ function buildInvocationStep(
   return step;
 }
 
+function assertMastraSupportedPlan(plan: Plan): void {
+  const repeat = plan.nodes.find((node) => node.type === "repeat");
+  if (repeat?.type === "repeat") {
+    throw new Error(
+      `Mastra Plan compiler does not support repeat node "${repeat.nodeId}"`,
+    );
+  }
+}
+
 export function compilePlanToMastra(
   plan: Plan,
   options: MastraPlanCompilerOptions = {},
 ): CompiledMastraPlan {
+  assertMastraSupportedPlan(plan);
   validatePlan(plan, options.taskDefinitions);
   const orderedNodes = orderPlanNodes(plan, true, options.taskDefinitions);
   const invocationSteps = orderedNodes.map((node) => ({
