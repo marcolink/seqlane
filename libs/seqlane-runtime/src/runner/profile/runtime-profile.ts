@@ -6,11 +6,10 @@ import type {
   TaskDefinitionRegistry,
 } from "@seqlane/core";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
-import { createAcpAdapter, parseAcpLaunchConfiguration } from "@seqlane/acp";
 import type { AgentAdapter } from "@seqlane/agent-adapter";
 import {
+  createOpenCodeAdapter,
   createOpenCodeModelCapabilities,
-  createOpenCodeRun,
   resolveOpenCodeBrowserUiUrl,
 } from "@seqlane/opencode";
 import type { ExecutorResolvers } from "../../runtime/execution/executor.js";
@@ -62,8 +61,9 @@ async function reportSessionUi(
 }
 
 function createSessionUiExecutor(
-  executor: SeqlaneExecutor,
-  browserUrl: string | undefined,
+  adapter: AgentAdapter,
+  taskDefinitions: TaskDefinitionRegistry,
+  effectiveSelection: ModelSelection | undefined,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
 ): SeqlaneExecutor {
   let reported = false;
@@ -72,13 +72,18 @@ function createSessionUiExecutor(
     execute: async (request) => {
       if (!reported) {
         reported = true;
-        await reportSessionUi(
-          request.invocationId,
-          browserUrl,
-          onSessionUiAvailable,
-        );
+        const browserUrl =
+          onSessionUiAvailable === undefined
+            ? undefined
+            : await adapter.sessionUi?.();
+        await reportSessionUi(request.invocationId, browserUrl, onSessionUiAvailable);
       }
-      return executor.execute(request);
+      return executeAgentAdapterRequest(
+        adapter,
+        taskDefinitions,
+        effectiveSelection,
+        request,
+      );
     },
   };
 }
@@ -110,113 +115,67 @@ export function executeAgentAdapterRequest(
 
 function createOpenCodeSession(
   taskDefinitions: TaskDefinitionRegistry,
-  run: Awaited<ReturnType<typeof createOpenCodeRun>>,
+  adapter: AgentAdapter,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
 ): ResolvedExecutorSession {
-  const acpConfiguration = createAcpConfiguration(
-    run.workspace,
-    effectiveSelection,
-  );
-  const acpAdapter = createAcpAdapter(acpConfiguration, {
-    structuredOutputRetryCount: 2,
-  });
+  const captureCheckpoint = adapter.captureCheckpoint;
+  const fork = adapter.fork;
   return {
     key: Symbol("opencode-executor-session"),
     ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: createSessionUiExecutor(
-      {
-        execute: (request) =>
-          executeAgentAdapterRequest(
-            acpAdapter,
-            taskDefinitions,
-            effectiveSelection,
-            request,
-          ),
-      },
-      run.browserUrl,
+      adapter,
+      taskDefinitions,
+      effectiveSelection,
       onSessionUiAvailable,
     ),
-    checkpoint: () => run.checkpoint(),
-    fork: async ({ checkpoint, effectiveSelection: branchSelection }) => {
-      const selection = branchSelection ?? effectiveSelection;
-      return createOpenCodeSession(
-        taskDefinitions,
-        await run.fork(checkpoint, selection),
-        onSessionUiAvailable,
-        selection,
-      );
-    },
+    ...(captureCheckpoint === undefined
+      ? {}
+      : { checkpoint: captureCheckpoint }),
+    ...(fork === undefined
+      ? {}
+      : {
+          fork: async ({
+            checkpoint,
+            effectiveSelection: branchSelection,
+          }) => {
+            const selection = branchSelection ?? effectiveSelection;
+            return createOpenCodeSession(
+              taskDefinitions,
+              await fork({
+                checkpoint,
+                ...(selection === undefined
+                  ? {}
+                  : { modelSelection: selection }),
+              }),
+              onSessionUiAvailable,
+              selection,
+            );
+          },
+        }),
   };
 }
 
 function createLazyOpenCodeSession(
   taskDefinitions: TaskDefinitionRegistry,
-  connection: Parameters<typeof createOpenCodeRun>[0],
+  connection: Parameters<typeof createOpenCodeAdapter>[0],
   signal: AbortSignal,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
 ): ResolvedExecutorSession {
-  let run: Promise<Awaited<ReturnType<typeof createOpenCodeRun>>> | undefined;
-
-  const resolveRun = () =>
-    (run ??= createOpenCodeRun(connection, signal, effectiveSelection));
-  const acpAdapter = createAcpAdapter(
-    createAcpConfiguration(connection.workspace, effectiveSelection),
-    {
-      structuredOutputRetryCount: 2,
-    },
-  );
-  let reported = false;
-
-  return {
-    key: Symbol("isolated-opencode-executor-session"),
-    ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
-    executor: {
-      async execute(request) {
-        const resolved = await resolveRun();
-        if (!reported) {
-          reported = true;
-          await reportSessionUi(
-            request.invocationId,
-            resolved.browserUrl,
-            onSessionUiAvailable,
-          );
-        }
-        return executeAgentAdapterRequest(
-          acpAdapter,
-          taskDefinitions,
-          effectiveSelection,
-          request,
-        );
-      },
-    },
-    checkpoint: async () => (await resolveRun()).checkpoint(),
-    fork: async ({ checkpoint, effectiveSelection: branchSelection }) => {
-      const selection = branchSelection ?? effectiveSelection;
-      return createOpenCodeSession(
-        taskDefinitions,
-        await (await resolveRun()).fork(checkpoint, selection),
-        onSessionUiAvailable,
-        selection,
-      );
-    },
-  };
-}
-
-function createAcpConfiguration(
-  workspace: string | undefined,
-  selection: ModelSelection | undefined,
-) {
-  return parseAcpLaunchConfiguration({
-    id: "seqlane-runtime-agent",
-    description: "Configured Seqlane agent",
-    command: "opencode",
-    args: ["acp"],
-    persistSession: true,
-    ...(workspace === undefined ? {} : { cwd: workspace }),
-    ...(selection === undefined ? {} : { model: selection.model.model }),
+  const adapter = createOpenCodeAdapter(connection, {
+    signal,
+    ...(effectiveSelection === undefined
+      ? {}
+      : { modelSelection: effectiveSelection }),
   });
+  return createOpenCodeSession(
+    taskDefinitions,
+    adapter,
+    onSessionUiAvailable,
+    effectiveSelection,
+  );
 }
 
 /** Resolves private adapter state after the generic profile crosses IPC. */

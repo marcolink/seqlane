@@ -1,8 +1,9 @@
 import type {
-  TaskDefinitionRegistry,
-  SeqlaneInvocationMetrics,
-} from "@seqlane/core";
-import { getOpenCodeTask } from "./task.js";
+  AgentActivity,
+  AgentAdapter,
+  AgentAdapterRequest,
+} from "@seqlane/agent-adapter";
+import type { ModelSelection } from "@seqlane/core";
 import { buildOpenCodePrompt } from "./task-prompt.js";
 import {
   buildStructuredOutputPrompt,
@@ -15,24 +16,19 @@ import {
   validatePromptJson,
 } from "./structured-output-parser.js";
 import { StructuredOutputValidationError } from "./errors.js";
-import type { OpenCodeRun } from "./session.js";
 import type { ResolvedStructuredOutput } from "./structured-output-strategy.js";
 import type {
   OpenCodeActivity,
-  OpenCodeBackgroundProcess,
-  OpenCodeUncertainActivity,
+  OpenCodeConnection,
+  OpenCodeRun,
 } from "./protocol.js";
+import { createOpenCodeRun } from "./session.js";
 
-export interface OpenCodeExecutorRequest {
-  readonly invocationId: string;
-  readonly taskId: string;
-  readonly input: unknown;
-  readonly signal: AbortSignal;
-  readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
-  readonly onDiagnostic?: (message: string) => void;
-  readonly onActivity?: (activity: OpenCodeActivity) => void;
-  readonly onUncertainActivity?: (activity: OpenCodeUncertainActivity) => void;
-  readonly onBackgroundProcess?: (process: OpenCodeBackgroundProcess) => void;
+export interface OpenCodeAdapterOptions {
+  /** Runtime-wide cancellation for session creation and session operations. */
+  readonly signal?: AbortSignal;
+  /** Pins one model selection to every prompt in this adapter session. */
+  readonly modelSelection?: ModelSelection;
 }
 
 function promptStrategyDiagnostic(
@@ -57,18 +53,39 @@ function promptStrategyDiagnostic(
   );
 }
 
-export interface OpenCodeExecutor {
-  execute(request: OpenCodeExecutorRequest): Promise<unknown>;
+function normalizeActivity(activity: OpenCodeActivity): AgentActivity {
+  return {
+    activityId: activity.activityId,
+    kind: activity.kind,
+    name: activity.name,
+    state: activity.state,
+    ...(activity.input === undefined ? {} : { input: activity.input }),
+    ...(activity.output === undefined ? {} : { output: activity.output }),
+    ...(activity.message === undefined ? {} : { message: activity.message }),
+  };
 }
 
-export function createOpenCodeExecutor(
-  tasks: TaskDefinitionRegistry,
-  run: OpenCodeRun,
-): OpenCodeExecutor {
+function createAdapterForRun(
+  resolveRun: (signal: AbortSignal) => Promise<OpenCodeRun>,
+  configuredSelection: ModelSelection | undefined,
+  sessionUi: () => Promise<string | undefined>,
+  hasSessionUi: boolean,
+): AgentAdapter {
   return {
-    async execute(request) {
-      const task = getOpenCodeTask(tasks, request.taskId);
-      const schema = toOpenCodeJsonSchema(task);
+    capabilities: {
+      execute: true,
+      modelSelection: true,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: true,
+      fork: true,
+      activity: true,
+      sessionUi: hasSessionUi,
+    },
+
+    async execute(request: AgentAdapterRequest): Promise<unknown> {
+      const schema = toOpenCodeJsonSchema(request.task);
+      const run = await resolveRun(request.signal);
       const selection = await run.structuredOutput?.();
       const strategy = selection?.strategy ?? "native";
       const retryCount = selection?.retryCount ?? 0;
@@ -76,8 +93,11 @@ export function createOpenCodeExecutor(
         selection === undefined
           ? undefined
           : promptStrategyDiagnostic(selection);
-      if (diagnostic !== undefined) request.onDiagnostic?.(diagnostic);
-      const basePrompt = buildOpenCodePrompt(task, request.input);
+      if (diagnostic !== undefined) {
+        request.onDiagnostic?.({ code: "structured-output", message: diagnostic });
+      }
+
+      const basePrompt = buildOpenCodePrompt(request.task, request.input);
       let promptText =
         strategy === "prompt"
           ? buildStructuredOutputPrompt(basePrompt, schema)
@@ -96,15 +116,14 @@ export function createOpenCodeExecutor(
           ...(lastIssues === undefined
             ? {}
             : { tools: { "*": false, StructuredOutput: true } }),
+          selection: request.modelSelection ?? configuredSelection,
           signal: request.signal,
-          onActivity: request.onActivity,
-          onUncertainActivity: request.onUncertainActivity,
-          ...(request.onBackgroundProcess === undefined
-            ? {}
-            : { onBackgroundProcess: request.onBackgroundProcess }),
+          onActivity: (activity) =>
+            request.onActivity?.(normalizeActivity(activity)),
         });
-        if (response.metrics !== undefined)
+        if (response.metrics !== undefined) {
           request.onMetrics?.(response.metrics);
+        }
         if (strategy === "native") {
           selection?.report?.({
             type: "completed",
@@ -116,7 +135,7 @@ export function createOpenCodeExecutor(
 
         try {
           const parsed = parsePromptJson(response.text ?? "");
-          const output = validatePromptJson(parsed, task.output);
+          const output = validatePromptJson(parsed, request.task.output);
           selection?.report?.({
             type: "completed",
             attempt: attempts,
@@ -157,5 +176,56 @@ export function createOpenCodeExecutor(
         }
       }
     },
+
+    ...(hasSessionUi ? { sessionUi } : {}),
+    captureCheckpoint: async () =>
+      (await resolveRun(new AbortController().signal)).checkpoint(),
+    fork: async ({ checkpoint, modelSelection }) => {
+      const child = await (
+        await resolveRun(new AbortController().signal)
+      ).fork(checkpoint, modelSelection ?? configuredSelection);
+      return createAdapterForRun(
+        () => Promise.resolve(child),
+        modelSelection ?? configuredSelection,
+        async () => child.browserUrl,
+        child.browserUrl !== undefined,
+      );
+    },
   };
+}
+
+/** Test seam for the adapter contract; production uses the SDK-backed factory below. */
+export function createOpenCodeAdapterForRun(
+  run: OpenCodeRun,
+  modelSelection?: ModelSelection,
+): AgentAdapter {
+  return createAdapterForRun(
+    () => Promise.resolve(run),
+    modelSelection,
+    async () => run.browserUrl,
+    run.browserUrl !== undefined,
+  );
+}
+
+/** Creates the sole OpenCode task adapter backed by the OpenCode SDK. */
+export function createOpenCodeAdapter(
+  connection: OpenCodeConnection,
+  options: OpenCodeAdapterOptions = {},
+): AgentAdapter {
+  let run: Promise<OpenCodeRun> | undefined;
+  const resolveRun = (signal: AbortSignal): Promise<OpenCodeRun> =>
+    (run ??= createOpenCodeRun(
+      connection,
+      options.signal ?? signal,
+      options.modelSelection,
+    ));
+
+  return createAdapterForRun(
+    resolveRun,
+    options.modelSelection,
+    async () =>
+      (await resolveRun(options.signal ?? new AbortController().signal))
+        .browserUrl,
+    connection.browserUiUrl !== undefined,
+  );
 }

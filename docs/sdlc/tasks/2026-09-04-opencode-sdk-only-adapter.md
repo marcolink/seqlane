@@ -1,7 +1,7 @@
 ---
 id: task.opencode-sdk-only-adapter
 title: Restore the OpenCode SDK-Only Adapter
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
@@ -85,7 +85,13 @@ through the supported OpenCode SDK.
 
 ## Outcome
 
-Planned.
+Completed. Added the private SDK-backed `AgentAdapter` implementation for
+`@seqlane/opencode`, moved OpenCode execution behind that boundary, preserved
+structured output, model selection, activity, cancellation, interaction
+failures, workspace, endpoint, checkpoint, fork, and session UI behavior, and
+removed the runtime's ACP execution path and the superseded executor module.
+Focused adapter and runtime tests, package builds, test mapping, and SDLC
+validation pass.
 
 ## Traceability
 

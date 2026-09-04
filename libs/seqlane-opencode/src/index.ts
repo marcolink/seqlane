@@ -1,15 +1,7 @@
 export type { JsonSchema } from "./task.js";
 export { resolveOpenCodeBrowserUiUrl } from "./browser-ui.js";
-export { createOpenCodeRun } from "./session.js";
-export type {
-  OpenCodeActivity,
-  OpenCodePrompt,
-  OpenCodePromptResult,
-  OpenCodeRun,
-  OpenCodeUncertainActivity,
-} from "./session.js";
-export { createOpenCodeExecutor } from "./executor.js";
-export type { OpenCodeExecutor, OpenCodeExecutorRequest } from "./executor.js";
+export { createOpenCodeAdapter } from "./adapter.js";
+export type { OpenCodeAdapterOptions } from "./adapter.js";
 export { createOpenCodeModelCapabilities } from "./model-capabilities.js";
 export type { OpenCodeModelCapabilities } from "./model-capabilities.js";
 
