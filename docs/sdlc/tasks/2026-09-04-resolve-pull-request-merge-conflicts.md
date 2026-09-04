@@ -34,6 +34,8 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - Run the Seqlane workflow only when Git reports merge conflicts.
 - Make sure that all conflicts are resolved before a commit and push.
 - Reject unexpected workspace edits and concurrent head-branch changes.
+- Reject staged conflict markers and bound rebase conflict-resolution attempts.
+- Verify the pinned OpenCode archive before extraction.
 - Add contract tests and operator documentation.
 
 ## Out of scope
@@ -80,7 +82,8 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - The workflow rejects edits outside the initial conflict-file list.
 - The workflow commits and pushes only after all conflicts are resolved.
 - A rebased branch uses a force push protected by an exact remote-head lease.
-- A remote base-branch or head-branch update prevents the push.
+- The workflow checks the base revision before it pushes. The exact lease
+  prevents an unexpected remote-head update.
 - The focused tests and documentation checks pass.
 
 ## Outcome
@@ -98,9 +101,15 @@ cannot use shell commands or external paths.
 After the agent finishes, the workflow rejects unexpected edits, new files,
 unresolved conflicts, and whitespace errors. A rebase can stop at more than
 one conflicting commit. The workflow repeats the agent resolution for each
-stop. It stops OpenCode before GitHub authentication. It also compares both
-remote revisions with the captured revisions before it pushes. A rebase uses an
-exact force-with-lease check.
+stop, up to five attempts. It rejects conflict-marker lines after staging. The
+workflow validates paths in the resolution checkout, including ignored
+untracked paths. It stops OpenCode before GitHub authentication.
+
+The workflow downloads a pinned OpenCode release archive and checks its
+SHA-256 before extraction. It checks the base revision before a push. The exact
+force-with-lease check prevents an unexpected remote-head update. A base update
+after the check can make the result stale, but it cannot overwrite the base
+branch.
 
 The focused tests, full test suite, build, type checks, lint, formatting, YAML
 parse, SDLC checks, and Git diff check pass. Lint reports two existing warnings
