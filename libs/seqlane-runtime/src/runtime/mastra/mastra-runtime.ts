@@ -152,6 +152,10 @@ export function createMastraRuntime(
           }
           const result = await activeRun.start({ inputData: request.input });
           options.onWorkflowResult?.(request, result);
+          if (cancellationRequested) {
+            await activeRun.cancel();
+            return { status: "cancelled" } as const;
+          }
           return normalizeResult(
             request.workflowKey,
             result,

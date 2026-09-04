@@ -25,7 +25,7 @@ import { mastraRuntimeSpineWorkflow } from "../../../fixtures/mastra-runtime-spi
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import { createMastraPlanExecution } from "./mastra-execution.js";
 import { emitMastraInvocationTopology } from "./mastra-execution.js";
-import { createMastraRuntime } from "./mastra-runtime.js";
+import { createMastraRuntime, type MastraRuntime } from "./mastra-runtime.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 
 const publicEntryPoint = fileURLToPath(
@@ -247,6 +247,28 @@ describe("private Mastra runtime spine", () => {
 
     await startedPromise;
     await active.cancel();
+    await expect(active.outcome).resolves.toEqual({ status: "cancelled" });
+  });
+
+  it("prefers cancellation when it races with successful completion", async () => {
+    const activeRun: { current?: ReturnType<MastraRuntime["start"]> } = {};
+    const runtime = createMastraRuntime(
+      [{ key: "fixture", workflow: mastraRuntimeSpineWorkflow }],
+      {
+        onWorkflowResult: () => {
+          void activeRun.current?.cancel();
+        },
+      },
+    );
+
+    const active = runtime.start({
+      workflowKey: "fixture",
+      input: { fail: false },
+      workId: "work-cancel-race",
+      runId: "run-cancel-race",
+    });
+    activeRun.current = active;
+
     await expect(active.outcome).resolves.toEqual({ status: "cancelled" });
   });
 
