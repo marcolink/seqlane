@@ -1,11 +1,17 @@
 import { createStep, createWorkflow } from "@mastra/core/workflows";
 import type { AnyWorkflow, Step } from "@mastra/core/workflows";
 import type {
+  InvocationId,
   Plan,
   PlanNode,
+  PlanNodeId,
+  RunId,
+  SeqlaneError,
   SeqlaneSchema,
+  TaskId,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
+  WorkId,
   WorkflowDefinition,
 } from "@seqlane/core";
 import { z } from "zod";
@@ -26,6 +32,10 @@ import {
   workspaceAccessForPlanNode,
 } from "../workspace/workspace-ordering.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
+import {
+  toSeqlaneInvocationError,
+  type SeqlaneFailurePhase,
+} from "../execution/errors.js";
 
 const RESULT_STEP_ID = "__seqlane_result";
 const RESERVED_NODE_IDS = new Set([WORKFLOW_INPUT_NODE_ID, RESULT_STEP_ID]);
@@ -34,7 +44,9 @@ export interface MastraPlanInvocationContext {
   readonly node: PlanNode;
   readonly input: unknown;
   readonly workflowInput: unknown;
+  readonly workId: WorkId;
   readonly runId: string;
+  readonly invocationId: InvocationId;
   readonly resourceId?: string;
   readonly workflowId: string;
   readonly abortSignal: AbortSignal;
@@ -44,6 +56,14 @@ export interface MastraPlanInvocationContext {
 export type MastraPlanInvocation = (
   context: MastraPlanInvocationContext,
 ) => Promise<unknown>;
+
+export interface MastraPlanInputValidationFailureContext {
+  readonly node: PlanNode;
+  readonly workId: WorkId;
+  readonly runId: RunId;
+  readonly invocationId: InvocationId;
+  readonly error: SeqlaneError;
+}
 
 export interface MastraPlanCompilerOptions {
   /** The Seqlane schemas used to validate workflow input and output. */
@@ -55,11 +75,21 @@ export interface MastraPlanCompilerOptions {
   readonly taskSchemas?: TaskSchemaRegistry;
   /** Resolved runtime workspace identities used for static conflict lowering. */
   readonly workspaceResources?: WorkspaceResourceRegistry;
+  /** Correlation identities allocated for this workflow run. */
+  readonly workId?: WorkId;
+  readonly runId?: RunId;
+  readonly createInvocationId?: (nodeId: PlanNodeId) => InvocationId;
   /**
    * Executes one already-bound Seqlane invocation. Agent, shell, session, and
    * workspace behavior stays in later private runtime slices.
    */
   readonly executeInvocation?: MastraPlanInvocation;
+  /** Captures typed Seqlane failures before Mastra serializes them. */
+  readonly onFailure?: (failure: SeqlaneError) => void;
+  /** Reports compiler-level input failures that occur before invocation execution. */
+  readonly onInputValidationFailure?: (
+    context: MastraPlanInputValidationFailureContext,
+  ) => void;
 }
 
 export interface MastraPlanStep {
@@ -74,6 +104,7 @@ export interface CompiledMastraPlan {
   readonly invocationSteps: readonly MastraPlanStep[];
   readonly resultStep: Step;
   readonly workflow: AnyWorkflow;
+  readonly invocationIds: ReadonlyMap<PlanNodeId, InvocationId>;
 }
 
 function schemaForMastra(schema: SeqlaneSchema | undefined): z.ZodType {
@@ -155,6 +186,58 @@ function invocationKind(node: PlanNode): "task" | "validation" | "loop" {
   return "validation";
 }
 
+function taskIdForNode(node: PlanNode): TaskId {
+  if (node.type === "task") return node.taskId;
+  if (node.type === "validation.check" && node.source.type === "task") {
+    return node.source.taskId;
+  }
+  return node.nodeId;
+}
+
+function reportFailure(
+  node: PlanNode,
+  cause: unknown,
+  phase: SeqlaneFailurePhase,
+  options: MastraPlanCompilerOptions,
+): SeqlaneError {
+  const failure = toSeqlaneInvocationError(cause, phase, taskIdForNode(node));
+  options.onFailure?.(failure);
+  return failure;
+}
+
+function reportWorkflowFailure(
+  cause: unknown,
+  phase: SeqlaneFailurePhase,
+  workflowId: string,
+  options: MastraPlanCompilerOptions,
+): SeqlaneError {
+  const failure = toSeqlaneInvocationError(cause, phase, workflowId);
+  options.onFailure?.(failure);
+  return failure;
+}
+
+function schemaForWorkflowMastra(
+  schema: SeqlaneSchema | undefined,
+  phase: Extract<SeqlaneFailurePhase, "input" | "output">,
+  workflowId: string,
+  options: MastraPlanCompilerOptions,
+): z.ZodType {
+  if (schema === undefined) return schemaForMastra(undefined);
+
+  const invalid = Symbol("invalid workflow schema value");
+  return z.preprocess(
+    (value) => {
+      try {
+        return schema.parse(value);
+      } catch (cause) {
+        reportWorkflowFailure(cause, phase, workflowId, options);
+        return invalid;
+      }
+    },
+    z.custom((value) => value !== invalid),
+  );
+}
+
 function nodeLayers(orderedNodes: readonly PlanNode[]): readonly PlanNode[][] {
   const layers: PlanNode[][] = [];
   const layerByNodeId = new Map<string, number>();
@@ -187,6 +270,7 @@ function resolveStepInput(
 
 function buildInvocationStep(
   node: PlanNode,
+  invocationId: InvocationId,
   options: MastraPlanCompilerOptions,
 ): Step {
   const inputSchema = schemaForNodeInput(node, options);
@@ -201,6 +285,7 @@ function buildInvocationStep(
     metadata: {
       seqlane: {
         planNodeId: node.nodeId,
+        invocationId,
         invocationKind: invocationKind(node),
         ...(node.type === "task" ? { taskId: node.taskId } : {}),
         dependsOn: [...node.dependsOn],
@@ -231,7 +316,20 @@ function buildInvocationStep(
         workflowInput,
         getStepResult,
       );
-      const parsedInput = inputSchema?.parse(resolvedInput) ?? resolvedInput;
+      let parsedInput: unknown;
+      try {
+        parsedInput = inputSchema?.parse(resolvedInput) ?? resolvedInput;
+      } catch (cause) {
+        const error = reportFailure(node, cause, "input", options);
+        options.onInputValidationFailure?.({
+          node,
+          workId: resourceId ?? options.workId ?? "unknown-work",
+          runId,
+          invocationId,
+          error,
+        });
+        throw error;
+      }
       if (options.executeInvocation === undefined) {
         throw new Error(
           `No Mastra invocation handler is configured for Plan node "${node.nodeId}"`,
@@ -242,13 +340,19 @@ function buildInvocationStep(
         node,
         input: parsedInput,
         workflowInput,
+        workId: resourceId ?? options.workId ?? "unknown-work",
         runId,
+        invocationId,
         ...(resourceId === undefined ? {} : { resourceId }),
         workflowId,
         abortSignal,
         getStepResult,
       });
-      return outputSchema?.parse(rawOutput) ?? rawOutput;
+      try {
+        return outputSchema?.parse(rawOutput) ?? rawOutput;
+      } catch (cause) {
+        throw reportFailure(node, cause, "output", options);
+      }
     },
   });
 
@@ -307,19 +411,41 @@ export function compilePlanToMastra(
     options.workspaceResources,
   );
   const loweredPlan = withLoweredPlanNodes(plan, orderedNodes);
-  const invocationSteps = orderedNodes.map((node) => ({
-    nodeId: node.nodeId,
-    step: buildInvocationStep(node, options),
-  }));
+  const invocationIds = new Map<PlanNodeId, InvocationId>();
+  for (const node of orderedNodes) {
+    invocationIds.set(
+      node.nodeId,
+      options.createInvocationId?.(node.nodeId) ??
+        `${plan.workflow.id}:${node.nodeId}`,
+    );
+  }
+  const invocationSteps = orderedNodes.map((node) => {
+    const invocationId = invocationIds.get(node.nodeId);
+    if (invocationId === undefined) {
+      throw new Error(
+        `No Invocation ID allocated for Plan node "${node.nodeId}"`,
+      );
+    }
+    return {
+      nodeId: node.nodeId,
+      step: buildInvocationStep(node, invocationId, options),
+    };
+  });
   const stepsByNodeId = new Map(
     invocationSteps.map(({ nodeId, step }) => [nodeId, step]),
   );
 
-  const workflowInputSchema = schemaForMastra(
+  const workflowInputSchema = schemaForWorkflowMastra(
     options.workflowInputSchema ?? options.workflow?.input,
+    "input",
+    plan.workflow.id,
+    options,
   );
-  const workflowOutputSchema = schemaForMastra(
+  const workflowOutputSchema = schemaForWorkflowMastra(
     options.workflowOutputSchema ?? options.workflow?.output,
+    "output",
+    plan.workflow.id,
+    options,
   );
   const resultStep = createStep({
     id: RESULT_STEP_ID,
@@ -340,11 +466,15 @@ export function compilePlanToMastra(
         results.set(node.nodeId, getStepResult(node.nodeId));
       }
       const output = resolveBinding(plan.output, workflowInput, results);
-      return (
-        options.workflow?.output?.parse(output) ??
-        options.workflowOutputSchema?.parse(output) ??
-        output
-      );
+      try {
+        return (
+          options.workflow?.output?.parse(output) ??
+          options.workflowOutputSchema?.parse(output) ??
+          output
+        );
+      } catch (cause) {
+        throw reportWorkflowFailure(cause, "output", plan.workflow.id, options);
+      }
     },
   });
 
@@ -376,6 +506,7 @@ export function compilePlanToMastra(
     invocationSteps,
     resultStep,
     workflow: workflow.commit(),
+    invocationIds,
   };
 }
 

@@ -162,7 +162,7 @@
 | [task.mastra-workspace-constraints](./2026-09-03-mastra-workspace-constraints.md) | Lower Workspace Constraints Into the Mastra Graph | completed | 2026-09-03 | core |
 | [task.mastra-session-semantics](./2026-09-03-mastra-session-semantics.md) | Map Seqlane Session Semantics to Mastra | completed | 2026-09-03 | core |
 | [task.session-model-pinning](./2026-09-03-session-model-pinning.md) | Pin Effective Selections Across Runtime Sessions | completed | 2026-09-03 | core |
-| [task.mastra-identity-events](./2026-09-03-mastra-identity-events.md) | Preserve Identity and Normalized Execution Events | planned | 2026-09-03 | core |
+| [task.mastra-identity-events](./2026-09-03-mastra-identity-events.md) | Preserve Identity and Normalized Execution Events | completed | 2026-09-03 | core |
 | [task.effect-v3-subprocess-gate](./2026-09-03-effect-v3-subprocess-gate.md) | Prove the Private Effect Subprocess Contract | completed | 2026-09-03 | core |
 | [task.model-observability](./2026-09-03-model-observability.md) | Record Effective Model Selections in Observability | completed | 2026-09-03 | core |
 | [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md) | Remove Superseded Runtime Architecture | planned | 2026-09-03 | core |
