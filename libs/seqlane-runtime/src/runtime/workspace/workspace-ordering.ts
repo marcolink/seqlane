@@ -1,4 +1,4 @@
-import type { PlanNode, PlanNodeId, TaskNode } from "@seqlane/core";
+import type { PlanNode, PlanNodeId, RepeatNode, TaskNode } from "@seqlane/core";
 import type { WorkspaceResourceRegistry } from "./workspace-resource.js";
 
 const DEFAULT_WORKSPACE_RESOURCE = "seqlane:runtime-workspace";
@@ -34,27 +34,74 @@ function taskWorkspace(
   return { policy, resourceKey };
 }
 
+function workspaceAccessesForNode(
+  node: PlanNode,
+  workspaceResources: WorkspaceResourceRegistry | undefined,
+): readonly ResolvedWorkspaceAccess[] {
+  if (node.type === "task") {
+    return [
+      {
+        ...taskWorkspace(node.taskId, node.workspace, workspaceResources),
+        nodeId: node.nodeId,
+      },
+    ];
+  }
+  if (node.type === "validation.check" && node.source.type === "task") {
+    return [
+      {
+        ...taskWorkspace(
+          node.source.taskId,
+          node.source.workspace,
+          workspaceResources,
+        ),
+        nodeId: node.nodeId,
+      },
+    ];
+  }
+  if (node.type === "repeat") {
+    return workspaceAccessesForRepeat(node, workspaceResources);
+  }
+  return [];
+}
+
+function workspaceAccessesForRepeat(
+  node: RepeatNode,
+  workspaceResources: WorkspaceResourceRegistry | undefined,
+): readonly ResolvedWorkspaceAccess[] {
+  const accesses = new Map<string, WorkspaceAccess>();
+  for (const bodyNode of node.body.nodes) {
+    const access =
+      bodyNode.type === "task"
+        ? taskWorkspace(bodyNode.taskId, bodyNode.workspace, workspaceResources)
+        : bodyNode.type === "validation.check" &&
+            bodyNode.source.type === "task"
+          ? taskWorkspace(
+              bodyNode.source.taskId,
+              bodyNode.source.workspace,
+              workspaceResources,
+            )
+          : undefined;
+    if (access === undefined) continue;
+    const previous = accesses.get(access.resourceKey);
+    accesses.set(access.resourceKey, {
+      resourceKey: access.resourceKey,
+      policy:
+        previous?.policy === "exclusive" || access.policy === "exclusive"
+          ? "exclusive"
+          : "shared",
+    });
+  }
+  return [...accesses.values()].map((access) => ({
+    ...access,
+    nodeId: node.nodeId,
+  }));
+}
+
 function workspaceAccessForNode(
   node: PlanNode,
   workspaceResources: WorkspaceResourceRegistry | undefined,
 ): ResolvedWorkspaceAccess | undefined {
-  if (node.type === "task") {
-    return {
-      ...taskWorkspace(node.taskId, node.workspace, workspaceResources),
-      nodeId: node.nodeId,
-    };
-  }
-  if (node.type === "validation.check" && node.source.type === "task") {
-    return {
-      ...taskWorkspace(
-        node.source.taskId,
-        node.source.workspace,
-        workspaceResources,
-      ),
-      nodeId: node.nodeId,
-    };
-  }
-  return undefined;
+  return workspaceAccessesForNode(node, workspaceResources)[0];
 }
 
 function conflicts(left: WorkspaceAccess, right: WorkspaceAccess): boolean {
@@ -142,33 +189,42 @@ export function lowerWorkspaceOrdering(
   workspaceResources?: WorkspaceResourceRegistry,
 ): readonly PlanNode[] {
   const accesses = nodes.map((node) =>
-    workspaceAccessForNode(node, workspaceResources),
+    workspaceAccessesForNode(node, workspaceResources),
   );
   const dependencies = new Map(
     nodes.map((node) => [node.nodeId, new Set(node.dependsOn)]),
   );
 
   for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
-    const left = accesses[leftIndex];
-    if (left === undefined) continue;
+    const left = accesses[leftIndex] ?? [];
     for (
       let rightIndex = leftIndex + 1;
       rightIndex < nodes.length;
       rightIndex += 1
     ) {
-      const right = accesses[rightIndex];
-      if (right === undefined || !conflicts(left, right)) continue;
-
-      // Existing data/session ordering already serializes the pair in either
-      // direction. Keep that order instead of adding a contradictory edge.
+      const right = accesses[rightIndex] ?? [];
       if (
-        hasDependencyPath(dependencies, left.nodeId, right.nodeId) ||
-        hasDependencyPath(dependencies, right.nodeId, left.nodeId)
+        !left.some((leftAccess) =>
+          right.some((rightAccess) => conflicts(leftAccess, rightAccess)),
+        )
       ) {
         continue;
       }
 
-      dependencies.get(right.nodeId)?.add(left.nodeId);
+      const leftNodeId = nodes[leftIndex]?.nodeId;
+      const rightNodeId = nodes[rightIndex]?.nodeId;
+      if (leftNodeId === undefined || rightNodeId === undefined) continue;
+
+      // Existing data/session ordering already serializes the pair in either
+      // direction. Keep that order instead of adding a contradictory edge.
+      if (
+        hasDependencyPath(dependencies, leftNodeId, rightNodeId) ||
+        hasDependencyPath(dependencies, rightNodeId, leftNodeId)
+      ) {
+        continue;
+      }
+
+      dependencies.get(rightNodeId)?.add(leftNodeId);
     }
   }
 

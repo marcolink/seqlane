@@ -99,6 +99,54 @@ function readTaskDefinition(taskId: string): TaskDefinition {
 }
 
 describe("workspace admission", () => {
+  it("keeps direct task execution behind dynamic workspace admission", async () => {
+    const started = deferred<void>();
+    const context = createExecutionContext({
+      workId: "work",
+      runId: "run",
+      createInvocationId: (nodeId) => nodeId,
+      workflowInput: undefined,
+      executors: new Map([
+        [
+          "test",
+          {
+            execute: async () => {
+              started.resolve();
+              return {};
+            },
+          },
+        ],
+      ]),
+      taskDefinitions: new Map([["writer", writeTaskDefinition("writer")]]),
+      workspaceResources: new Map([["writer", workspace]]),
+    });
+    const externalLease = await context.workspaceLocks.acquire(
+      workspace,
+      "exclusive",
+    );
+
+    const execution = executeTaskNode(
+      context,
+      writeTask("writer"),
+      new AbortController().signal,
+      {
+        invocationId: "writer",
+        results: context.results,
+        remainingConsumers: context.remainingConsumers,
+        subject: { type: "task", taskId: "writer" },
+      },
+    );
+    const startState = await Promise.race([
+      started.promise.then(() => "started"),
+      new Promise((resolve) => setTimeout(() => resolve("pending"), 0)),
+    ]);
+
+    externalLease.release();
+    await started.promise;
+    await execution;
+    expect(startState).toBe("pending");
+  });
+
   it("uses the run workspace resource when a task has no explicit resource", async () => {
     let executed = false;
     const context = createExecutionContext({

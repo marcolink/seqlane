@@ -113,6 +113,26 @@ describe("exclusive session locks", () => {
     });
   });
 
+  it("removes a cancelled invocation from the session queue", async () => {
+    const locks = new SessionLockRegistry();
+    const active = await locks.acquire(session);
+    const controller = new AbortController();
+    const waiting = locks.acquire(
+      session,
+      undefined,
+      Number.MAX_SAFE_INTEGER,
+      controller.signal,
+    );
+
+    await expectPending(waiting);
+    controller.abort(new Error("cancelled"));
+    await expect(waiting).rejects.toThrow("cancelled");
+
+    active.release();
+    const next = await locks.acquire(session);
+    next.release();
+  });
+
   it("releases a failed shared session before marking a waiting task active", async () => {
     const activeInvocations: string[] = [];
     const firstExecutorStarted = deferred<void>();

@@ -190,12 +190,14 @@ export class EffectCompiler {
               results: context.results,
               remainingConsumers: context.remainingConsumers,
               subject: { type: "task", taskId: node.taskId },
+              workspaceAdmission: "graph",
             });
           } else if (node.type === "validation.check") {
             await executeValidationCheckNode(context, node, abortSignal, {
               invocationId: invocationIdForNode(context, node),
               results: context.results,
               remainingConsumers: context.remainingConsumers,
+              workspaceAdmission: "graph",
             });
           } else {
             const checkNode = checkNodes.get(node.checkNodeId);

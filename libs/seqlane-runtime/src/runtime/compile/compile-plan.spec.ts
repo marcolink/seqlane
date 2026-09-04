@@ -5,6 +5,7 @@
 import type {
   Plan,
   PlanNode,
+  SeqlaneEvent,
   TaskDefinition,
   SeqlaneSchema,
   ValidationNode,
@@ -857,6 +858,51 @@ describe("EffectCompiler workflow compilation", () => {
       "result",
       "__seqlane_result",
     ]);
+  });
+
+  it("bypasses runtime workspace admission for graph-lowered top-level tasks", async () => {
+    let executed = false;
+    const events: SeqlaneEvent[] = [];
+    const workspace = { key: "/checkout" };
+    const compiled = new EffectCompiler().compileWorkflow(
+      plan([task("writer", [], {}, "exclusive")]),
+      {
+        createInvocationId: (nodeId) => nodeId,
+        executors: new Map([
+          [
+            "test-executor",
+            {
+              execute: async () => {
+                executed = true;
+                return { written: true };
+              },
+            },
+          ],
+        ]),
+        workspaceResources: new Map([["writer", workspace]]),
+        events: { emit: (event) => events.push(event) },
+      },
+    );
+    const externalLease = await compiled.context.workspaceLocks.acquire(
+      workspace,
+      "exclusive",
+    );
+
+    const execution = executeSequentialProgram(compiled.program);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const executedBeforeRelease = executed;
+    externalLease.release();
+    const result = await execution;
+
+    expect(executedBeforeRelease).toBe(true);
+    expect(result.status).toBe("success");
+    expect(
+      events
+        .filter((event) => event.type === "invocation.progress")
+        .map((event) => event.phase),
+    ).toEqual(
+      expect.arrayContaining(["workspace_admitted", "workspace_released"]),
+    );
   });
 
   it("executes admitted independent nodes before either one completes", async () => {
