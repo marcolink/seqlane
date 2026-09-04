@@ -161,13 +161,12 @@ jobs:
           echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
           echo "needs_push=true" >> "$GITHUB_OUTPUT"
 
-      - name: Create non-Git agent workspace
+      - name: Create empty non-Git agent workspace
         if: steps.integration.outputs.has_conflicts == 'true'
         env:
           AGENT_WORKSPACE: ${{ runner.temp }}/seqlane-agent-workspace
         run: |
           mkdir "$AGENT_WORKSPACE"
-          rsync --archive --exclude='.git' resolution-target/ "$AGENT_WORKSPACE/"
 
       - name: Set up pnpm
         if: steps.integration.outputs.has_conflicts == 'true'
@@ -272,6 +271,40 @@ jobs:
               "$RUNNER_TEMP/seqlane-conflict-files" \
               > "$RUNNER_TEMP/seqlane-conflict-files.json"
 
+            node -e '
+              const { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } = require("node:fs");
+              const { dirname, join, relative, resolve, sep } = require("node:path");
+              const targetRoot = resolve(process.env.RESOLUTION_TARGET);
+              const agentRoot = resolve(process.env.AGENT_WORKSPACE);
+              function safePath(root, path) {
+                const candidate = resolve(root, path);
+                if (relative(root, candidate).startsWith("..") || candidate === root) {
+                  throw new Error(`Unsafe conflict path: ${path}`);
+                }
+                return candidate;
+              }
+              function regularFile(root, path) {
+                let current = root;
+                for (const part of path.split("/")) {
+                  current = join(current, part);
+                  const stat = lstatSync(current);
+                  if (stat.isSymbolicLink()) throw new Error(`Symlink is not allowed: ${path}`);
+                }
+                if (!lstatSync(current).isFile()) throw new Error(`Conflict path is not a regular file: ${path}`);
+                return current;
+              }
+              if (!lstatSync(agentRoot).isDirectory() || lstatSync(agentRoot).isSymbolicLink()) {
+                throw new Error("Agent workspace is not a regular directory.");
+              }
+              for (const entry of readdirSync(agentRoot)) rmSync(join(agentRoot, entry), { recursive: true, force: true });
+              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
+                const source = regularFile(targetRoot, path);
+                const target = safePath(agentRoot, path);
+                mkdirSync(dirname(target), { recursive: true });
+                writeFileSync(target, readFileSync(source));
+              }
+            '
+
             WORKFLOW_INPUT=$(jq --null-input --compact-output \
               --arg repository "$AGENT_WORKSPACE" \
               --argjson pullRequestNumber "$PR_NUMBER" \
@@ -300,22 +333,32 @@ jobs:
               --record "$RUNNER_TEMP/seqlane-conflict-resolution-$ATTEMPT.jsonl"
 
             node -e '
-              const { cpSync, existsSync, mkdirSync, readFileSync, rmSync } = require("node:fs");
-              const { dirname, resolve, sep } = require("node:path");
+              const { lstatSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+              const { dirname, join, relative, resolve } = require("node:path");
               const targetRoot = resolve(process.env.RESOLUTION_TARGET);
               const agentRoot = resolve(process.env.AGENT_WORKSPACE);
-              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
-                const source = resolve(agentRoot, path);
-                const target = resolve(targetRoot, path);
-                if (!source.startsWith(`${agentRoot}${sep}`) || !target.startsWith(`${targetRoot}${sep}`)) {
+              function safePath(root, path) {
+                const candidate = resolve(root, path);
+                if (relative(root, candidate).startsWith("..") || candidate === root) {
                   throw new Error(`Unsafe conflict path: ${path}`);
                 }
-                if (existsSync(source)) {
-                  mkdirSync(dirname(target), { recursive: true });
-                  cpSync(source, target);
-                } else {
-                  rmSync(target, { force: true });
+                return candidate;
+              }
+              function regularFile(root, path) {
+                let current = root;
+                for (const part of path.split("/")) {
+                  current = join(current, part);
+                  const stat = lstatSync(current);
+                  if (stat.isSymbolicLink()) throw new Error(`Symlink is not allowed: ${path}`);
                 }
+                if (!lstatSync(current).isFile()) throw new Error(`Conflict path is not a regular file: ${path}`);
+                return current;
+              }
+              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
+                const source = regularFile(agentRoot, path);
+                const target = safePath(targetRoot, path);
+                mkdirSync(dirname(target), { recursive: true });
+                writeFileSync(target, readFileSync(source));
               }
             '
 
@@ -349,7 +392,7 @@ jobs:
               const { execFileSync } = require("node:child_process");
               const { readFileSync } = require("node:fs");
               const paths = readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean);
-              const marker = /^(?:<<<<<<<(?: .*)?|=======|>>>>>>>(?: .*)?)\r?$/m;
+              const marker = /^(?:<{7,}(?: .*)?|\|{7,}(?: .*)?|={7,}|>{7,}(?: .*)?)\r?$/m;
               for (const path of paths) {
                 try {
                   const content = execFileSync("git", ["show", `:${path}`], {
