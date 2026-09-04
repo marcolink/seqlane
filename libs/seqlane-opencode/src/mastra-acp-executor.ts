@@ -1,7 +1,11 @@
 import { AcpAgent, type AcpAgentOptions } from "@mastra/acp";
 import type { AgentStreamOptions } from "@mastra/core/agent";
 import type { MessageListInput } from "@mastra/core/agent/message-list";
-import type { ModelSelection, TaskDefinitionRegistry } from "@seqlane/core";
+import {
+  InteractionRequiredError,
+  type ModelSelection,
+  type TaskDefinitionRegistry,
+} from "@seqlane/core";
 import { getOpenCodeTask } from "./task.js";
 import {
   buildOpenCodePrompt,
@@ -157,6 +161,7 @@ export function createMastraAcpExecutor(
   options: MastraAcpExecutorOptions,
 ): OpenCodeExecutor {
   const createAgent = options.createAgent ?? createDefaultAgent;
+  let permissionRequested = false;
   const agent = createAgent({
     id: "seqlane-opencode-acp",
     name: "Seqlane OpenCode ACP agent",
@@ -168,13 +173,17 @@ export function createMastraAcpExecutor(
       ? {}
       : { model: modelId(options.selection) }),
     persistSession: true,
-    onPermissionRequest: cancelPermissionRequest,
+    onPermissionRequest: async (request) => {
+      permissionRequested = true;
+      return cancelPermissionRequest(request);
+    },
   });
   let structuredDiagnosticReported = false;
   let reasoningDiagnosticReported = false;
 
   return {
     async execute(request) {
+      permissionRequested = false;
       const task = getOpenCodeTask(tasks, request.taskId);
       const schema = toOpenCodeJsonSchema(task);
       const structured =
@@ -199,7 +208,18 @@ export function createMastraAcpExecutor(
       while (true) {
         attempts += 1;
         const startedAt = Date.now();
-        const text = await promptAgent(agent, promptText, request);
+        let text: string;
+        try {
+          text = await promptAgent(agent, promptText, request);
+        } catch (cause) {
+          if (permissionRequested) {
+            throw new InteractionRequiredError("user-input");
+          }
+          throw cause;
+        }
+        if (permissionRequested) {
+          throw new InteractionRequiredError("user-input");
+        }
         request.onMetrics?.({
           durationMs: Math.max(0, Date.now() - startedAt),
           ...(options.selection === undefined

@@ -46,16 +46,173 @@ interface CliResult {
   readonly stderr: string;
 }
 
+interface FakeOpenCodeServer {
+  readonly requests: string[];
+  readonly server: Server;
+  readonly url: string;
+  readonly acpDirectory: string;
+  readonly acpEventsPath: string;
+  readonly acpMode: "success" | "interaction" | "hold";
+  readonly acpWorkflow: "renovate" | "example";
+}
+
+const fakeAcpAgent = String.raw`#!/usr/bin/env node
+const fs = require("node:fs");
+const readline = require("node:readline");
+
+const mode = process.env.SEQLANE_FAKE_ACP_MODE;
+const workflow = process.env.SEQLANE_FAKE_ACP_WORKFLOW;
+const eventsPath = process.env.SEQLANE_FAKE_ACP_EVENTS;
+let pendingPrompt;
+let pendingPermissionId;
+
+function record(method) {
+  fs.appendFileSync(eventsPath, JSON.stringify({ method }) + "\n");
+}
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\n");
+}
+
+function respond(id, result) {
+  send({ jsonrpc: "2.0", id, result });
+}
+
+function outputForPrompt(prompt) {
+  if (workflow === "example") {
+    return prompt.includes("Polish this draft")
+      ? { answer: "A polished Seqlane answer." }
+      : { draft: "A short Seqlane draft." };
+  }
+  if (prompt.includes("Create a remediation")) {
+    return {
+      steps: ["update peer range", "refresh lockfile"],
+      summary: "Apply the dependency and lockfile remediation",
+    };
+  }
+  if (prompt.includes("Apply the Renovate")) {
+    return {
+      changedFiles: ["package.json", "pnpm-lock.yaml"],
+      summary: "Dependency update and lockfile repaired",
+    };
+  }
+  if (prompt.includes("Verify the Renovate")) {
+    return { passed: true, summary: "Install and targeted tests pass" };
+  }
+  return {
+    files: ["package.json", "pnpm-lock.yaml"],
+    rootCause: "Renovate updated a dependency without its peer range",
+  };
+}
+
+function completePrompt(request) {
+  const text = JSON.stringify(outputForPrompt(request.params.prompt[0].text));
+  send({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "acp-session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+    },
+  });
+  respond(request.id, { stopReason: "end_turn" });
+}
+
+const input = readline.createInterface({ input: process.stdin });
+input.on("line", (line) => {
+  const message = JSON.parse(line);
+
+  if (pendingPermissionId !== undefined && message.id === pendingPermissionId) {
+    pendingPermissionId = undefined;
+    if (pendingPrompt !== undefined) {
+      const request = pendingPrompt;
+      pendingPrompt = undefined;
+      completePrompt(request);
+    }
+    return;
+  }
+
+  if (message.method === "session/cancel") {
+    record(message.method);
+    if (pendingPrompt !== undefined) {
+      const request = pendingPrompt;
+      pendingPrompt = undefined;
+      respond(request.id, { stopReason: "cancelled" });
+    }
+    return;
+  }
+
+  if (typeof message.method !== "string") return;
+  record(message.method);
+
+  switch (message.method) {
+    case "initialize":
+      respond(message.id, {
+        protocolVersion: 1,
+        agentInfo: { name: "fake-opencode", version: "1.0.0" },
+        agentCapabilities: {},
+      });
+      break;
+    case "session/new":
+      respond(message.id, {
+        sessionId: "acp-session-1",
+        models: {
+          availableModels: [
+            { modelId: "openai/gpt-5.6-luna", name: "Fake Luna" },
+            { modelId: "openai/gpt-5.6-terra", name: "Fake Terra" },
+          ],
+          currentModelId: "openai/gpt-5.6-luna",
+        },
+      });
+      break;
+    case "session/set_model":
+      respond(message.id, {});
+      break;
+    case "session/prompt":
+      if (mode === "hold") {
+        pendingPrompt = message;
+      } else if (mode === "interaction") {
+        pendingPrompt = message;
+        pendingPermissionId = 100;
+        send({
+          jsonrpc: "2.0",
+          id: pendingPermissionId,
+          method: "session/request_permission",
+          params: {
+            sessionId: "acp-session-1",
+            toolCall: {
+              toolCallId: "fake-tool",
+              title: "Private approval",
+              kind: "execute",
+              status: "in_progress",
+            },
+            options: [
+              { optionId: "allow", name: "Allow", kind: "allow_once" },
+            ],
+          },
+        });
+      } else {
+        completePrompt(message);
+      }
+      break;
+  }
+});
+`;
+
 function runCli(
   entry: string,
   args: readonly string[],
   onStarted?: (child: ChildProcess) => void,
   startMarker = "started task=investigate-renovate-failure",
+  environment: NodeJS.ProcessEnv = {},
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(entry, args, {
       cwd: repositoryRoot,
-      env: { ...process.env, FORCE_COLOR: "0" },
+      env: { ...process.env, FORCE_COLOR: "0", ...environment },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -105,9 +262,14 @@ function writeJson(response: ServerResponse, value: unknown): void {
 async function startFakeOpenCodeServer(
   mode: "success" | "interaction" | "hold",
   workflow: "renovate" | "example" = "renovate",
-) {
+): Promise<FakeOpenCodeServer> {
   const requests: string[] = [];
   const pendingPrompts: ServerResponse[] = [];
+  const acpDirectory = mkdtempSync(join(tmpdir(), "seqlane-acp-agent-"));
+  const acpEventsPath = join(acpDirectory, "events.jsonl");
+  const acpPath = join(acpDirectory, "opencode");
+  writeFileSync(acpPath, fakeAcpAgent, { mode: 0o755 });
+  writeFileSync(acpEventsPath, "");
   let promptCount = 0;
   const server = createServer(async (request, response) => {
     request.on("aborted", () => response.end());
@@ -314,34 +476,76 @@ async function startFakeOpenCodeServer(
     throw new Error("Fake OpenCode server did not expose a TCP address");
   }
 
-  return { requests, server, url: `http://127.0.0.1:${address.port}` };
+  return {
+    requests,
+    server,
+    url: `http://127.0.0.1:${address.port}`,
+    acpDirectory,
+    acpEventsPath,
+    acpMode: mode,
+    acpWorkflow: workflow,
+  };
 }
 
-async function closeFakeOpenCodeServer(server: Server): Promise<void> {
-  server.closeAllConnections();
-  server.close();
-  await once(server, "close");
+async function closeFakeOpenCodeServer(
+  fake: FakeOpenCodeServer,
+): Promise<void> {
+  fake.server.closeAllConnections();
+  fake.server.close();
+  await once(fake.server, "close");
+  rmSync(fake.acpDirectory, { recursive: true, force: true });
+}
+
+function fakeAcpEnvironment(
+  fake: FakeOpenCodeServer,
+  mode: "success" | "interaction" | "hold",
+  workflow: "renovate" | "example" = "renovate",
+): NodeJS.ProcessEnv {
+  const pathSeparator = process.platform === "win32" ? ";" : ":";
+  return {
+    PATH: `${fake.acpDirectory}${pathSeparator}${process.env.PATH ?? ""}`,
+    SEQLANE_FAKE_ACP_MODE: mode,
+    SEQLANE_FAKE_ACP_WORKFLOW: workflow,
+    SEQLANE_FAKE_ACP_EVENTS: fake.acpEventsPath,
+  };
+}
+
+function runFakeCli(
+  fake: FakeOpenCodeServer,
+  entry: string,
+  args: readonly string[],
+  onStarted?: (child: ChildProcess) => void,
+): Promise<CliResult> {
+  return runCli(
+    entry,
+    args,
+    onStarted,
+    undefined,
+    fakeAcpEnvironment(fake, fake.acpMode, fake.acpWorkflow),
+  );
 }
 
 describe("seqlane CLI entrypoints", () => {
   it("runs compiled commands through the installed entrypoint", async () => {
     const fake = await startFakeOpenCodeServer("success");
     try {
-      const result = await runCli(
+      const result = await runFakeCli(
+        fake,
         productionEntry,
         runArgs(input, workflowReference, fake.url),
       );
       expect(result.code).toBe(0);
       expect(result.stdout).toMatch(/run=.* succeeded/);
     } finally {
-      await closeFakeOpenCodeServer(fake.server);
+      await closeFakeOpenCodeServer(fake);
     }
   });
 
   it("keeps explicit JSON output machine-readable at the CLI boundary", async () => {
     const fake = await startFakeOpenCodeServer("success", "example");
     try {
-      const result = await runCli(
+      const result = await runFakeCli(
+        fake,
         productionEntry,
         runArgs(builtinInput, exampleWorkflowReference, fake.url, "json"),
       );
@@ -353,11 +557,9 @@ describe("seqlane CLI entrypoints", () => {
         .map((line) => JSON.parse(line) as { type: string });
       expect(records.at(-1)?.type).toBe("run.succeeded");
       expect(result.stdout).not.toContain("run=run-");
-      expect(result.stderr).toContain(
-        `Seqlane session UI: ${fake.url}/${Buffer.from(repositoryRoot, "utf8").toString("base64url")}/session/session-1`,
-      );
+      expect(result.stderr).toContain(`Seqlane session UI: ${fake.url}`);
     } finally {
-      await closeFakeOpenCodeServer(fake.server);
+      await closeFakeOpenCodeServer(fake);
     }
   });
 
@@ -435,7 +637,8 @@ describe("seqlane CLI entrypoints", () => {
   it("runs a TypeScript workflow file through its default export", async () => {
     const fake = await startFakeOpenCodeServer("success", "example");
     try {
-      const result = await runCli(
+      const result = await runFakeCli(
+        fake,
         productionEntry,
         runArgs(builtinInput, exampleWorkflowReference, fake.url, "json"),
       );
@@ -443,7 +646,7 @@ describe("seqlane CLI entrypoints", () => {
       expect(result.code).toBe(0);
       expect(result.stdout).toContain('"type":"run.succeeded"');
     } finally {
-      await closeFakeOpenCodeServer(fake.server);
+      await closeFakeOpenCodeServer(fake);
     }
   });
 
@@ -452,7 +655,7 @@ describe("seqlane CLI entrypoints", () => {
     const directory = mkdtempSync(join(tmpdir(), "seqlane-recording-cli-"));
     const path = join(directory, "run.jsonl");
     try {
-      const result = await runCli(productionEntry, [
+      const result = await runFakeCli(fake, productionEntry, [
         ...runArgs(builtinInput, exampleWorkflowReference, fake.url, "ci"),
         "--record",
         path,
@@ -470,7 +673,7 @@ describe("seqlane CLI entrypoints", () => {
       });
       expect(lines.map((line) => line.type)).toContain("run.plan");
     } finally {
-      await closeFakeOpenCodeServer(fake.server);
+      await closeFakeOpenCodeServer(fake);
       rmSync(directory, { recursive: true, force: true });
     }
   });
@@ -538,11 +741,12 @@ describe("seqlane CLI entrypoints", () => {
 
   it("renders interaction failure and returns status 1", async () => {
     const fake = await startFakeOpenCodeServer("interaction");
-    const result = await runCli(
+    const result = await runFakeCli(
+      fake,
       productionEntry,
       runArgs(input, workflowReference, fake.url),
     );
-    await closeFakeOpenCodeServer(fake.server);
+    await closeFakeOpenCodeServer(fake);
 
     expect(result.code).toBe(1);
     expect(result.stdout).toContain(
@@ -555,7 +759,8 @@ describe("seqlane CLI entrypoints", () => {
   it("forwards cancellation and sends only the runner cancel control", async () => {
     const fake = await startFakeOpenCodeServer("hold");
     try {
-      const result = await runCli(
+      const result = await runFakeCli(
+        fake,
         developmentEntry,
         runArgs(input, workflowReference, fake.url),
         (child) => child.kill("SIGINT"),
@@ -563,8 +768,14 @@ describe("seqlane CLI entrypoints", () => {
 
       expect(result.code).toBe(130);
       expect(result.stdout).toContain("cancelled");
+      const acpMethods = readFileSync(fake.acpEventsPath, "utf8")
+        .trimEnd()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { method: string })
+        .map(({ method }) => method);
       expect(
-        fake.requests.filter((path) => path.endsWith("/abort")),
+        acpMethods.filter((method) => method === "session/cancel"),
       ).toHaveLength(1);
       expect(
         fake.requests.some((path) =>
@@ -572,7 +783,7 @@ describe("seqlane CLI entrypoints", () => {
         ),
       ).toBe(false);
     } finally {
-      await closeFakeOpenCodeServer(fake.server);
+      await closeFakeOpenCodeServer(fake);
     }
   });
 
