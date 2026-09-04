@@ -107,6 +107,15 @@ function task(id: string, workspace: "shared" | "exclusive"): TaskDefinition {
   };
 }
 
+function openCodeOptions(url: string) {
+  return {
+    adapterConfiguration: {
+      adapter: "opencode" as const,
+      url,
+    },
+  };
+}
+
 describe("resolveRuntimeProfile", () => {
   it("does not forward model selection to adapters without that capability", async () => {
     const source = task("source", "shared");
@@ -227,6 +236,8 @@ describe("resolveRuntimeProfile", () => {
         tasks,
         new AbortController().signal,
         null,
+        undefined,
+        openCodeOptions(server.url),
       );
 
       expect(execution).not.toHaveProperty("enforcedWorkspaceCapabilities");
@@ -257,6 +268,8 @@ describe("resolveRuntimeProfile", () => {
         tasks,
         new AbortController().signal,
         null,
+        undefined,
+        openCodeOptions(server.url),
       );
       const selection = {
         model: { provider: "anthropic", model: "claude-sonnet-4-6" },
@@ -287,6 +300,8 @@ describe("resolveRuntimeProfile", () => {
         tasks,
         new AbortController().signal,
         null,
+        undefined,
+        openCodeOptions(server.url),
       );
 
       await expect(
