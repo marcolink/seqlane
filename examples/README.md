@@ -91,20 +91,24 @@ revision. It checks out the pull-request head separately as the review target.
 The workflow reads the pull request's configured base branch and immutable base
 revision from the event, then reviews the explicit base-to-head range in a
 separate checkout. A local workflow task validates the requested Git range and
-collects bounded changed-file, diff-stat, and whitespace-check evidence with
-explicit overflow metadata. Inspection produces bounded requirements and
-evidence;
-specialist lanes run in independent sessions and verify that evidence against
-the target workspace before the final synthesis, which preserves the exact
-repository and base/head identity fields from inspection. The workflow installs and
-builds the checked-out Seqlane source, but does not install dependencies or
-execute repository scripts from the separate review target. OpenCode ignores
-project runtime configuration during the review and receives a read-only tool
-policy. The workflow updates one marked pull-request comment with the report
-and records the report verdict without failing the review job when it is
-`request-changes`. Configured secret values are redacted from CI output,
-workflow summaries, and GitHub annotations. The review runtime denies access
-outside the review workspace and blocks environment files.
+collects bounded changed-file, diff-stat, unified-patch, and whitespace-check
+evidence with explicit overflow metadata. Inspection and specialist lanes
+review the supplied patch first and use targeted workspace reads only when the
+patch is truncated or surrounding context is needed. Inspection produces
+bounded requirements and evidence; specialist lanes run in independent
+sessions and verify that evidence against the target workspace before the final
+synthesis, which preserves the exact repository and base/head identity fields
+from inspection. The workflow installs and builds the checked-out Seqlane
+source, but does not install dependencies or execute repository scripts from
+the separate review target. OpenCode ignores project runtime configuration
+during the review and receives a read-only tool policy. The workflow updates
+one marked pull-request comment with the report and records the report verdict
+without failing the review job when it is `request-changes`. Configured secret
+values are redacted from CI output, workflow summaries, and GitHub annotations.
+The review runtime denies access outside the review workspace and blocks
+environment files. Git writes the complete patch to a run-scoped temporary file
+before the retained model-facing patch is bounded; the temporary file can be
+larger than the 48,000-byte evidence limit and is removed after collection.
 
 `all-features.ts` is the compact feature tour. It uses typed input/output,
 shared and exclusive workspaces, isolated/reused/branched sessions, explicit
