@@ -101,11 +101,20 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).toContain("cwd: process.env.RESOLUTION_TARGET");
     expect(workflow).toContain('"--others", "--ignored"');
     expect(workflow).toContain("Conflict marker remains in ${path}.");
+    expect(workflow).toContain(
+      "/^(?:<<<<<<<(?: .*)?|=======|>>>>>>>(?: .*)?)\\r?$/m",
+    );
     expect(workflow).toContain("MAX_REBASE_ATTEMPTS=5");
     expect(workflow).toContain(
       'git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA"',
     );
     expect(workflow).toContain("OPENCODE_ARCHIVE_SHA256");
     expect(workflow).not.toContain("https://opencode.ai/install | bash");
+  });
+
+  it("detects standalone conflict separators with CRLF endings", () => {
+    const marker = /^(?:<<<<<<<(?: .*)?|=======|>>>>>>>(?: .*)?)\r?$/m;
+
+    expect(marker.test("resolved\r\n=======\r\ncontent\r\n")).toBe(true);
   });
 });

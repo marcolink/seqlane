@@ -31,10 +31,12 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - Accept only open pull requests with a head branch in this repository.
 - Apply the selected integration strategy to the current base and head
   revisions.
-- Run the Seqlane workflow only when Git reports merge conflicts.
+- Run the Seqlane workflow only when Git reports merge conflicts, in a non-Git
+  staging workspace.
 - Make sure that all conflicts are resolved before a commit and push.
 - Reject unexpected workspace edits and concurrent head-branch changes.
-- Reject staged conflict markers and bound rebase conflict-resolution attempts.
+- Reject staged conflict markers, including CRLF marker lines, and bound
+  rebase conflict-resolution attempts.
 - Verify the pinned OpenCode archive before extraction.
 - Add contract tests and operator documentation.
 
@@ -96,12 +98,14 @@ The workflow accepts an open same-repository pull request. Dispatch requires a
 choice between `rebase` and `merge`, and defaults that choice to `rebase`. It
 applies the selected strategy to the captured base and head revisions. Seqlane
 runs only when Git reports conflicts. The agent can read and edit files, but it
-cannot use shell commands or external paths.
+cannot use shell commands or external paths. It runs in a non-Git staging copy,
+so it cannot write Git metadata.
 
 After the agent finishes, the workflow rejects unexpected edits, new files,
 unresolved conflicts, and whitespace errors. A rebase can stop at more than
 one conflicting commit. The workflow repeats the agent resolution for each
-stop, up to five attempts. It rejects conflict-marker lines after staging. The
+stop, up to five attempts, and skips redundant empty commits. It rejects
+conflict-marker lines after staging, including CRLF marker lines. The
 workflow validates paths in the resolution checkout, including ignored
 untracked paths. It stops OpenCode before GitHub authentication.
 

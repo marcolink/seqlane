@@ -161,6 +161,14 @@ jobs:
           echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
           echo "needs_push=true" >> "$GITHUB_OUTPUT"
 
+      - name: Create non-Git agent workspace
+        if: steps.integration.outputs.has_conflicts == 'true'
+        env:
+          AGENT_WORKSPACE: ${{ runner.temp }}/seqlane-agent-workspace
+        run: |
+          mkdir "$AGENT_WORKSPACE"
+          rsync --archive --exclude='.git' resolution-target/ "$AGENT_WORKSPACE/"
+
       - name: Set up pnpm
         if: steps.integration.outputs.has_conflicts == 'true'
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -211,12 +219,12 @@ jobs:
         if: steps.integration.outputs.has_conflicts == 'true'
         id: opencode
         timeout-minutes: 2
-        working-directory: resolution-target
+        working-directory: ${{ runner.temp }}/seqlane-agent-workspace
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENCODE_DISABLE_PROJECT_CONFIG: "true"
           OPENCODE_CONFIG_CONTENT: >-
-            {"model":"openai/gpt-5.6-terra","permission":{"*":"deny","StructuredOutput":"allow","read":{"*":"allow",".git/**":"deny","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","edit":"allow","write":"allow","bash":"deny","external_directory":"deny"}}
+            {"model":"openai/gpt-5.6-terra","permission":{"*":"deny","StructuredOutput":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","edit":"allow","write":"allow","bash":"deny","external_directory":"deny"}}
         run: |
           opencode serve --hostname 127.0.0.1 --port 4096 --print-logs > "$RUNNER_TEMP/opencode.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/opencode.pid"
@@ -244,6 +252,7 @@ jobs:
           HEAD_REVISION: ${{ steps.pull-request.outputs.head_sha }}
           PR_NUMBER: ${{ steps.pull-request.outputs.number }}
           RESOLUTION_STRATEGY: ${{ inputs.resolution_strategy }}
+          AGENT_WORKSPACE: ${{ runner.temp }}/seqlane-agent-workspace
           RESOLUTION_TARGET: ${{ github.workspace }}/resolution-target
           SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -264,7 +273,7 @@ jobs:
               > "$RUNNER_TEMP/seqlane-conflict-files.json"
 
             WORKFLOW_INPUT=$(jq --null-input --compact-output \
-              --arg repository "$RESOLUTION_TARGET" \
+              --arg repository "$AGENT_WORKSPACE" \
               --argjson pullRequestNumber "$PR_NUMBER" \
               --arg strategy "$RESOLUTION_STRATEGY" \
               --arg baseBranch "$BASE_BRANCH" \
@@ -286,9 +295,29 @@ jobs:
             ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/resolve-merge-conflicts.ts" \
               --input "$WORKFLOW_INPUT" \
               --runtime http://127.0.0.1:4096 \
-              --workspace "$RESOLUTION_TARGET" \
+              --workspace "$AGENT_WORKSPACE" \
               --output ci \
               --record "$RUNNER_TEMP/seqlane-conflict-resolution-$ATTEMPT.jsonl"
+
+            node -e '
+              const { cpSync, existsSync, mkdirSync, readFileSync, rmSync } = require("node:fs");
+              const { dirname, resolve, sep } = require("node:path");
+              const targetRoot = resolve(process.env.RESOLUTION_TARGET);
+              const agentRoot = resolve(process.env.AGENT_WORKSPACE);
+              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
+                const source = resolve(agentRoot, path);
+                const target = resolve(targetRoot, path);
+                if (!source.startsWith(`${agentRoot}${sep}`) || !target.startsWith(`${targetRoot}${sep}`)) {
+                  throw new Error(`Unsafe conflict path: ${path}`);
+                }
+                if (existsSync(source)) {
+                  mkdirSync(dirname(target), { recursive: true });
+                  cpSync(source, target);
+                } else {
+                  rmSync(target, { force: true });
+                }
+              }
+            '
 
             node -e '
               const { execFileSync } = require("node:child_process");
@@ -320,7 +349,7 @@ jobs:
               const { execFileSync } = require("node:child_process");
               const { readFileSync } = require("node:fs");
               const paths = readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean);
-              const marker = /(^|\n)(<<<<<<<|=======|>>>>>>>)( |$)/;
+              const marker = /^(?:<<<<<<<(?: .*)?|=======|>>>>>>>(?: .*)?)\r?$/m;
               for (const path of paths) {
                 try {
                   const content = execFileSync("git", ["show", `:${path}`], {
@@ -349,6 +378,22 @@ jobs:
               break
             fi
             if [ -z "$(git -C "$RESOLUTION_TARGET" diff --name-only --diff-filter=U)" ]; then
+              if git -C "$RESOLUTION_TARGET" diff --quiet && git -C "$RESOLUTION_TARGET" diff --cached --quiet; then
+                if ! git -C "$RESOLUTION_TARGET" rebase --skip; then
+                  echo "::error::The rebase could not skip an empty commit."
+                  exit 1
+                fi
+                if [ -n "$(git -C "$RESOLUTION_TARGET" diff --name-only --diff-filter=U)" ]; then
+                  ATTEMPT=$((ATTEMPT + 1))
+                  continue
+                fi
+                if [ -d "$(git -C "$RESOLUTION_TARGET" rev-parse --git-path rebase-merge)" ] || \
+                  [ -d "$(git -C "$RESOLUTION_TARGET" rev-parse --git-path rebase-apply)" ]; then
+                  echo "::error::The rebase stopped without merge conflicts after skipping an empty commit."
+                  exit 1
+                fi
+                break
+              fi
               echo "::error::The rebase stopped without merge conflicts."
               exit 1
             fi
