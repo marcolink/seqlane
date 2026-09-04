@@ -90,8 +90,8 @@ the GitHub Actions job summary. This identifies the exact workflow revision
 that GitHub executed, independently of the reviewed pull-request revision.
 
 The workflow uses `pull_request_target`, runs the trusted workflow definition
-from the base branch, and checks out the trusted Seqlane source from the base
-revision. It checks out the pull-request head separately as the review target.
+from the base branch, and always checks out the trusted Seqlane source from
+`main`. It checks out the pull-request head separately as the review target.
 When a pull request closes, the workflow triggers a cancellation event that
 uses the same concurrency group to cancel any active review, while its review
 job is skipped.
