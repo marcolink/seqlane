@@ -85,6 +85,10 @@ non-draft pull requests from branches in this repository. Configure the
 `OPENAI_API_KEY` Actions secret to enable it. Without the secret, the workflow
 reports a successful skip.
 
+Every review job logs and adds the workflow definition ref and immutable SHA to
+the GitHub Actions job summary. This identifies the exact workflow revision
+that GitHub executed, independently of the reviewed pull-request revision.
+
 The workflow normally uses `pull_request_target`, runs the trusted workflow
 definition from the base branch, and checks out the trusted Seqlane source from
 the base revision. It checks out the pull-request head separately as the review

@@ -31,6 +31,20 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Report workflow definition revision
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          echo "Workflow definition: $WORKFLOW_REF"
+          echo "Workflow definition SHA: $WORKFLOW_SHA"
+          {
+            echo "### Workflow definition"
+            echo
+            echo "- Ref: \`$WORKFLOW_REF\`"
+            echo "- SHA: \`$WORKFLOW_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Check OpenAI credentials
         id: configuration
         env:
