@@ -12,6 +12,7 @@ supersedes:
   - spec.effect-runtime-integration
   - spec.local-development-studio-trust-and-lifecycle
   - spec.local-read-only-execution-studio
+  - spec.studio-vite-development-and-isolated-replay
 ---
 
 # Mastra Runtime and Operational Integration
