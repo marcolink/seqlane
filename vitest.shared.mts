@@ -5,6 +5,10 @@ const workspaceRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export const workspaceAliases = [
   {
+    find: "@seqlane/acp",
+    replacement: resolve(workspaceRoot, "libs/seqlane-acp/src/index.ts"),
+  },
+  {
     find: "@seqlane/core/models",
     replacement: resolve(
       workspaceRoot,

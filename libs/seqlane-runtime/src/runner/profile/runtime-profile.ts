@@ -5,8 +5,9 @@ import type {
   TaskDefinitionRegistry,
 } from "@seqlane/core";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
+import { createAcpExecutor, parseAcpLaunchConfiguration } from "@seqlane/acp";
+import type { AcpExecutor } from "@seqlane/acp";
 import {
-  createOpenCodeExecutor,
   createOpenCodeModelCapabilities,
   createOpenCodeRun,
   resolveOpenCodeBrowserUiUrl,
@@ -81,20 +82,36 @@ function createSessionUiExecutor(
   };
 }
 
+function executeAcpRequest(
+  executor: AcpExecutor,
+  request: ExecutorRequest,
+): Promise<unknown> {
+  return executor.execute({
+    ...request,
+    onDiagnostic: (diagnostic) => request.onDiagnostic?.(diagnostic.message),
+  });
+}
+
 function createOpenCodeSession(
   taskDefinitions: TaskDefinitionRegistry,
   run: Awaited<ReturnType<typeof createOpenCodeRun>>,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
 ): ResolvedExecutorSession {
+  const acpConfiguration = createAcpConfiguration(
+    run.workspace,
+    effectiveSelection,
+  );
+  const acpExecutor = createAcpExecutor(taskDefinitions, acpConfiguration, {
+    structuredOutputRetryCount: 2,
+  });
   return {
     key: Symbol("opencode-executor-session"),
     ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: createSessionUiExecutor(
-      // This session is backed by the configured OpenCode endpoint. The
-      // transitional ACP bridge is local-only and has no native checkpoint or
-      // fork contract, so it must not replace this SDK adapter here.
-      createOpenCodeExecutor(taskDefinitions, run),
+      {
+        execute: (request) => executeAcpRequest(acpExecutor, request),
+      },
       run.browserUrl,
       onSessionUiAvailable,
     ),
@@ -122,6 +139,13 @@ function createLazyOpenCodeSession(
 
   const resolveRun = () =>
     (run ??= createOpenCodeRun(connection, signal, effectiveSelection));
+  const acpExecutor = createAcpExecutor(
+    taskDefinitions,
+    createAcpConfiguration(connection.workspace, effectiveSelection),
+    {
+      structuredOutputRetryCount: 2,
+    },
+  );
   let reported = false;
 
   return {
@@ -138,9 +162,7 @@ function createLazyOpenCodeSession(
             onSessionUiAvailable,
           );
         }
-        return createOpenCodeExecutor(taskDefinitions, resolved).execute(
-          request,
-        );
+        return executeAcpRequest(acpExecutor, request);
       },
     },
     checkpoint: async () => (await resolveRun()).checkpoint(),
@@ -154,6 +176,21 @@ function createLazyOpenCodeSession(
       );
     },
   };
+}
+
+function createAcpConfiguration(
+  workspace: string | undefined,
+  selection: ModelSelection | undefined,
+) {
+  return parseAcpLaunchConfiguration({
+    id: "seqlane-runtime-agent",
+    description: "Configured Seqlane agent",
+    command: "opencode",
+    args: ["acp"],
+    persistSession: true,
+    ...(workspace === undefined ? {} : { cwd: workspace }),
+    ...(selection === undefined ? {} : { model: selection.model.model }),
+  });
 }
 
 /** Resolves private adapter state after the generic profile crosses IPC. */

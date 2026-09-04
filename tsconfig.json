@@ -7,6 +7,9 @@
       "path": "./libs/seqlane-core"
     },
     {
+      "path": "./libs/seqlane-acp"
+    },
+    {
       "path": "./libs/seqlane-events"
     },
     {

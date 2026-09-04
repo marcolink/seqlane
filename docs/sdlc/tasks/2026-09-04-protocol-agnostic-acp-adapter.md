@@ -1,7 +1,7 @@
 ---
 id: task.protocol-agnostic-acp-adapter
 title: Implement a Protocol-Agnostic ACP Adapter
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
@@ -84,7 +84,12 @@ defaults, types, prompts, or session behavior.
 
 ## Outcome
 
-Planned.
+Completed. Added the private `@seqlane/acp` adapter with validated generic
+launch configuration, Seqlane-owned errors and diagnostics, ACP stream
+activity mapping, cancellation propagation, non-interactive permission
+rejection, structured-output validation, and malformed-input tests. Removed
+ACP ownership and exports from `@seqlane/opencode` and moved its interim ACP
+composition to the private runtime profile boundary.
 
 ## Traceability
 
