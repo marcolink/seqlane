@@ -18,7 +18,7 @@ import {
   OutputValidationError,
   ValidationFailedError,
 } from "@seqlane/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createStep, createWorkflow } from "@mastra/core/workflows";
 import { z } from "zod";
 import { mastraRuntimeSpineWorkflow } from "../../../fixtures/mastra-runtime-spine-workflow.js";
@@ -351,6 +351,131 @@ describe("private Mastra runtime spine", () => {
     expect(inspection.workflowRun).toMatchObject({
       snapshot: { status: "canceled" },
     });
+  });
+
+  it("waits for Mastra run creation before completing cancellation", async () => {
+    let createRunStarted!: () => void;
+    const createRunStartedPromise = new Promise<void>((resolve) => {
+      createRunStarted = resolve;
+    });
+    let releaseCreateRun!: () => void;
+    const createRunRelease = new Promise<void>((resolve) => {
+      releaseCreateRun = resolve;
+    });
+    const step = createStep({
+      id: "pending-create-run-step",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+      execute: async () => null,
+    });
+    const workflow = createWorkflow({
+      id: "pending-create-run-workflow",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(step)
+      .commit();
+    const createRun = workflow.createRun.bind(workflow);
+    const createRunSpy = vi
+      .spyOn(workflow, "createRun")
+      .mockImplementation(async (options) => {
+        createRunStarted();
+        await createRunRelease;
+        return createRun(options);
+      });
+
+    try {
+      const runtime = createMastraRuntime([{ key: workflow.id, workflow }]);
+      const active = runtime.start({
+        workflowKey: workflow.id,
+        input: null,
+        workId: "work-pending-cancel",
+        runId: "run-pending-cancel",
+      });
+
+      await createRunStartedPromise;
+      const firstCancellation = active.cancel();
+      const secondCancellation = active.cancel();
+      expect(secondCancellation).toBe(firstCancellation);
+
+      let cancellationCompleted = false;
+      void firstCancellation.then(() => {
+        cancellationCompleted = true;
+      });
+      await Promise.resolve();
+      expect(cancellationCompleted).toBe(false);
+
+      releaseCreateRun();
+      await expect(firstCancellation).resolves.toBeUndefined();
+      await expect(active.outcome).resolves.toEqual({ status: "cancelled" });
+      expect(createRunSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseCreateRun();
+      createRunSpy.mockRestore();
+    }
+  });
+
+  it("makes repeated cancellation await one Mastra cancellation", async () => {
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const step = createStep({
+      id: "repeated-cancellation",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+      execute: async ({ abortSignal }) => {
+        started();
+        await new Promise<never>((_resolve, reject) => {
+          abortSignal.addEventListener(
+            "abort",
+            () => reject(new Error("step aborted")),
+            { once: true },
+          );
+        });
+        return null;
+      },
+    });
+    const workflow = createWorkflow({
+      id: "repeated-cancellation-workflow",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(step)
+      .commit();
+    const createRun = workflow.createRun.bind(workflow);
+    let mastraCancelSpy!: ReturnType<typeof vi.fn>;
+    const createRunSpy = vi
+      .spyOn(workflow, "createRun")
+      .mockImplementation(async (options) => {
+        const run = await createRun(options);
+        mastraCancelSpy = vi.spyOn(run, "cancel");
+        return run;
+      });
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }]);
+    const active = runtime.start({
+      workflowKey: workflow.id,
+      input: null,
+      workId: "work-repeated-cancel",
+      runId: "run-repeated-cancel",
+    });
+
+    try {
+      await startedPromise;
+      const firstCancellation = active.cancel();
+      const secondCancellation = active.cancel();
+      const thirdCancellation = active.cancel();
+
+      expect(secondCancellation).toBe(firstCancellation);
+      expect(thirdCancellation).toBe(firstCancellation);
+      await expect(
+        Promise.all([firstCancellation, secondCancellation, thirdCancellation]),
+      ).resolves.toEqual([undefined, undefined, undefined]);
+      await expect(active.outcome).resolves.toEqual({ status: "cancelled" });
+      expect(mastraCancelSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      createRunSpy.mockRestore();
+    }
   });
 
   it("prefers cancellation when it races with successful completion", async () => {

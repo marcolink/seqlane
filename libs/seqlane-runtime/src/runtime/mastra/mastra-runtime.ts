@@ -186,8 +186,28 @@ export function createMastraRuntime(
       }
       runStarted = true;
 
-      let activeRun: Awaited<ReturnType<AnyWorkflow["createRun"]>> | undefined;
+      type ActiveMastraRun = Awaited<ReturnType<AnyWorkflow["createRun"]>>;
+      let activeRun: ActiveMastraRun | undefined;
       let cancellationRequested = false;
+      let mastraCancellationInvoked = false;
+      let resolveActiveRun!: (run: ActiveMastraRun | undefined) => void;
+      const activeRunReady = new Promise<ActiveMastraRun | undefined>(
+        (resolve) => {
+          resolveActiveRun = resolve;
+        },
+      );
+      let cancellation: Promise<void> | undefined;
+
+      const requestCancellation = (): Promise<void> => {
+        cancellationRequested = true;
+        cancellation ??= activeRunReady.then(async (run) => {
+          if (run === undefined || mastraCancellationInvoked) return;
+          mastraCancellationInvoked = true;
+          await run.cancel();
+        });
+        return cancellation;
+      };
+
       const outcome = (async () => {
         try {
           const workflow = mastra.getWorkflow(request.workflowKey);
@@ -196,8 +216,9 @@ export function createMastraRuntime(
             resourceId: request.workId,
             shouldPersistSnapshot: () => true,
           });
+          resolveActiveRun(activeRun);
           if (cancellationRequested) {
-            await activeRun.cancel();
+            await requestCancellation();
             return { status: "cancelled" } as const;
           }
           const requestContext = new RequestContext([
@@ -217,7 +238,7 @@ export function createMastraRuntime(
           });
           options.onWorkflowResult?.(request, result);
           if (cancellationRequested) {
-            await activeRun.cancel();
+            await requestCancellation();
             return { status: "cancelled" } as const;
           }
           return normalizeResult(
@@ -226,6 +247,7 @@ export function createMastraRuntime(
             options.failureForRun?.(request.runId),
           );
         } catch (cause) {
+          resolveActiveRun(undefined);
           if (cancellationRequested) return { status: "cancelled" } as const;
           return failedOutcome(cause, options.failureForRun?.(request.runId));
         } finally {
@@ -235,10 +257,7 @@ export function createMastraRuntime(
 
       return {
         outcome,
-        cancel: async () => {
-          cancellationRequested = true;
-          await activeRun?.cancel();
-        },
+        cancel: requestCancellation,
       };
     },
     async inspect(request) {
