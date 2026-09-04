@@ -40,6 +40,10 @@ import { executeRepeatNode } from "../invocation/repeat-execution.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import { validatePlan } from "../validation/plan-validation.js";
+import {
+  lowerReuseSessionOrdering,
+  withLoweredPlanNodes,
+} from "../session/session-ordering.js";
 
 export interface PreparedPlan {
   readonly plan: Plan;
@@ -126,6 +130,8 @@ export class EffectCompiler {
   ): CompiledWorkflow {
     validatePlan(plan, options.taskDefinitions);
     const prepared = this.compile(plan, options.taskDefinitions);
+    const orderedNodes = lowerReuseSessionOrdering(prepared.orderedNodes);
+    const loweredPlan = withLoweredPlanNodes(plan, orderedNodes);
     assertValidationRegistries(
       plan,
       options.taskDefinitions,
@@ -146,7 +152,7 @@ export class EffectCompiler {
       events: options.events,
     });
 
-    for (const node of prepared.orderedNodes) {
+    for (const node of orderedNodes) {
       const invocationId = context.createInvocationId(node.nodeId);
       context.invocationIds.set(node.nodeId, invocationId);
       invocationCreationOrdinal(context, invocationId);
@@ -165,7 +171,7 @@ export class EffectCompiler {
     );
     const steps: SequentialProgramStep[] = [];
 
-    for (const node of prepared.orderedNodes) {
+    for (const node of orderedNodes) {
       steps.push({
         id: node.nodeId,
         dependsOn: node.dependsOn,
@@ -213,7 +219,7 @@ export class EffectCompiler {
 
     steps.push({
       id: "__seqlane_result",
-      dependsOn: prepared.orderedNodes.map((node) => node.nodeId),
+      dependsOn: orderedNodes.map((node) => node.nodeId),
       execute: async () => {
         try {
           context.workflowResult = resolveBinding(
@@ -240,8 +246,8 @@ export class EffectCompiler {
     });
 
     return {
-      plan,
-      orderedNodes: prepared.orderedNodes,
+      plan: loweredPlan,
+      orderedNodes,
       context,
       program: createSequentialProgram({ steps }),
     };
