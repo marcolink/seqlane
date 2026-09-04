@@ -1,7 +1,7 @@
 ---
 id: task.mastra-runtime-spine
 title: Create the Mastra Runtime Spine
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
@@ -68,6 +68,17 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 A minimal Mastra workflow runs behind a private Seqlane boundary.
+
+## Outcome
+
+Added the private Mastra registration and run boundary in
+`libs/seqlane-runtime/src/runtime/mastra/mastra-runtime.ts`. The boundary
+registers Community Mastra workflows, starts runs with Seqlane Work and Run
+identity, and normalizes successful and failed workflow results into stable
+Seqlane outcomes while preserving failure causes. Added a minimal Mastra
+fixture workflow and focused integration and public-boundary tests. No Plan
+compiler, agent, shell, session, workspace, server, MCP, or Studio migration
+was included.
 
 ## Traceability
 

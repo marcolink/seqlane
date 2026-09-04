@@ -5,9 +5,9 @@ private infrastructure; its types do not cross this package boundary.
 
 ### Community Mastra dependency boundary
 
-The runtime pins `@mastra/core@1.64.0`. The installed package exposes the
-workflow API from `@mastra/core/workflows`, including `createStep` and
-`createWorkflow`, for the next migration slice. The package declares
+The runtime pins `@mastra/core@1.64.0`. The private integration registers and
+runs workflows through the workflow API from `@mastra/core/workflows`, using
+`createStep` and `createWorkflow`. The package declares
 Apache-2.0 licensing. Mastra paths under `ee/` are enterprise-only and are
 rejected by the runtime boundary tests.
 
