@@ -78,7 +78,6 @@ export type PlanValidationIssueCode =
   | "session-model-conflict"
   | "invalid-session-source"
   | "missing-session-dependency"
-  | "duplicate-session-reuse"
   | "forbidden-permission-configuration"
   | "invalid-task-execution"
   | "local-task-session"
@@ -323,27 +322,6 @@ function resolveSessionSelections(
     if (node.type === "task") resolve(node.nodeId);
   }
   return selections;
-}
-
-function validateReuseConsumers(
-  nodes: readonly PlanNode[],
-  issues: PlanValidationIssue[],
-): void {
-  const consumersBySource = new Map<string, string[]>();
-  for (const node of nodes) {
-    if (node.type !== "task" || node.session?.type !== "reuse") continue;
-    const consumers = consumersBySource.get(node.session.from) ?? [];
-    consumers.push(node.nodeId);
-    consumersBySource.set(node.session.from, consumers);
-  }
-  for (const [source, consumers] of consumersBySource) {
-    if (consumers.length < 2) continue;
-    addIssue(
-      issues,
-      "duplicate-session-reuse",
-      `Session checkpoint "${source}" has more than one reuse consumer: ${consumers.join(", ")}`,
-    );
-  }
 }
 
 function validateReferences(
@@ -857,7 +835,6 @@ function validateRepeat(
       node.nodeId,
     );
   }
-  validateReuseConsumers(node.body.nodes, issues);
 }
 
 export function validatePlan(
@@ -954,8 +931,6 @@ export function validatePlan(
   resolveSessionSelections(plan.nodes, nodesById, issues);
 
   validateReferences(plan.output, undefined, nodesById, issues);
-
-  validateReuseConsumers(plan.nodes, issues);
 
   const cycle =
     issues.length === 0 ? dependencyCycle(plan.nodes, nodesById) : undefined;

@@ -4,13 +4,13 @@ import type {
   WorkflowDefinition,
 } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
-import { createMastraAcpExecutor } from "./mastra-acp-executor.js";
+import { createOpenCodeExecutor } from "./executor.js";
 import { createOpenCodeRun, type OpenCodeConnection } from "./session.js";
 
 export interface OpenCodeRunnerExecution {
   readonly executors: ReadonlyMap<
     string,
-    ReturnType<typeof createMastraAcpExecutor>
+    ReturnType<typeof createOpenCodeExecutor>
   >;
   readonly taskSchemas: TaskSchemaRegistry;
 }
@@ -28,9 +28,10 @@ export function createOpenCodeRunnerExecution<Input, Output>(
   return async (_input, connection, signal) => {
     const built = buildWorkflow(workflow);
     const run = await createOpenCodeRun(connection, signal);
-    const executor = createMastraAcpExecutor(built.taskDefinitions, {
-      workspace: run.workspace,
-    });
+    // OpenCodeConnection is an SDK endpoint/session contract. Keep this
+    // runner on the native adapter until a separate generic ACP adapter can
+    // carry endpoint, checkpoint, and fork semantics without OpenCode coupling.
+    const executor = createOpenCodeExecutor(built.taskDefinitions, run);
 
     return {
       executors: new Map([["opencode", executor]]),
