@@ -114,6 +114,8 @@ jobs:
             --max-filesize 1M \
             --glob '*.ts' \
             --glob '*.tsx' \
+            --glob '*.mts' \
+            --glob '*.cts' \
             --glob '*.js' \
             --glob '*.jsx' \
             --glob '*.json' \
@@ -133,6 +135,7 @@ jobs:
             --glob '!**/vendor/**' \
             --glob '!**/.env' \
             --glob '!**/.env.*' \
+            --glob '!**/.envrc' \
             --glob '!**/.npmrc' \
             --glob '!**/id_*' \
             --glob '!**/*.pem' \
