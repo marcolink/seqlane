@@ -8,7 +8,7 @@ import {
   assertNoForbiddenEnterpriseImports,
   assertNoMastraImports,
   publicPackageBoundaryFiles,
-  runtimeProductionSourceFiles,
+  repositoryProductionSourceFiles,
 } from "./community-dependency-guards.js";
 
 const repositoryRoot = fileURLToPath(
@@ -16,6 +16,14 @@ const repositoryRoot = fileURLToPath(
 );
 const forbiddenImportFixture = fileURLToPath(
   new URL("../../../fixtures/forbidden-ee-import.ts", import.meta.url),
+);
+const forbiddenSyntaxFixtures = [
+  "forbidden-ee-side-effect-import.ts",
+  "forbidden-ee-export-from.ts",
+  "forbidden-ee-require.cjs",
+  "forbidden-ee-dynamic-import.ts",
+].map((name) =>
+  fileURLToPath(new URL(`../../../fixtures/${name}`, import.meta.url)),
 );
 
 describe("Community Mastra dependency boundary", () => {
@@ -28,9 +36,9 @@ describe("Community Mastra dependency boundary", () => {
     assertNoMastraImports(publicPackageBoundaryFiles(repositoryRoot));
   });
 
-  it("keeps runtime production imports outside the Enterprise Edition path", () => {
+  it("keeps repository production imports outside the Enterprise Edition path", () => {
     assertNoForbiddenEnterpriseImports(
-      runtimeProductionSourceFiles(repositoryRoot),
+      repositoryProductionSourceFiles(repositoryRoot),
     );
   });
 
@@ -42,6 +50,16 @@ describe("Community Mastra dependency boundary", () => {
       assertNoForbiddenEnterpriseImports([forbiddenImportFixture]),
     ).toThrow("Mastra Enterprise Edition import is forbidden");
   });
+
+  it.each(forbiddenSyntaxFixtures)(
+    "fails for every supported Enterprise Edition import syntax: %s",
+    (fixture) => {
+      expect(readFileSync(fixture, "utf8")).toContain("@mastra/core/ee/auth");
+      expect(() => assertNoForbiddenEnterpriseImports([fixture])).toThrow(
+        "Mastra Enterprise Edition import is forbidden",
+      );
+    },
+  );
 
   it("records the installed Community package license and workflow export evidence", () => {
     const packageManifest = readFileSync(

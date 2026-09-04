@@ -3,6 +3,10 @@ import { extname, join, resolve } from "node:path";
 
 const ignoredDirectories = new Set(["dist", "node_modules", "out-tsc"]);
 const sourceExtensions = new Set([".cjs", ".js", ".mjs", ".ts", ".tsx"]);
+const testFilePattern = /\.(?:spec|test)\.[^.]+$/;
+const fixtureDirectoryPattern = /[\\/]fixtures[\\/]/;
+const forbiddenEnterpriseImportPattern =
+  /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)["'][^"']*\/ee(?:\/|["'])/g;
 
 export interface BoundaryViolation {
   readonly path: string;
@@ -62,10 +66,16 @@ export function publicPackageBoundaryFiles(repositoryRoot: string): string[] {
   );
 }
 
-export function runtimeProductionSourceFiles(repositoryRoot: string): string[] {
-  return filesUnder(resolve(repositoryRoot, "libs/seqlane-runtime/src")).filter(
-    (path) => !path.endsWith(".spec.ts") && !path.endsWith(".test.ts"),
-  );
+export function repositoryProductionSourceFiles(
+  repositoryRoot: string,
+): string[] {
+  return ["apps", "libs"]
+    .flatMap((directory) => filesUnder(resolve(repositoryRoot, directory)))
+    .filter(isProductionFile);
+}
+
+function isProductionFile(path: string): boolean {
+  return !testFilePattern.test(path) && !fixtureDirectoryPattern.test(path);
 }
 
 export function assertNoMastraImports(paths: readonly string[]): void {
@@ -80,9 +90,6 @@ export function assertNoForbiddenEnterpriseImports(
 ): void {
   throwForViolations(
     "Mastra Enterprise Edition import is forbidden",
-    violationsIn(
-      paths,
-      /(?:from\s*|import\s*\(|require\s*\()\s*["'][^"']*\/ee(?:\/|["'])/g,
-    ),
+    violationsIn(paths, forbiddenEnterpriseImportPattern),
   );
 }

@@ -11,8 +11,11 @@ workflow API from `@mastra/core/workflows`, including `createStep` and
 Apache-2.0 licensing. Mastra paths under `ee/` are enterprise-only and are
 rejected by the runtime boundary tests.
 
-The runtime validates task inputs and outputs, resolves bindings, emits bounded
-consumer events, and retains results until their final consumer completes.
+The Enterprise boundary guard scans production source and package manifests in
+`apps/` and `libs/`. It rejects static and side-effect imports, export-from
+declarations, `require` calls, and dynamic imports of `ee/` paths. The runtime
+validates task inputs and outputs, resolves bindings, emits bounded consumer
+events, and retains results until their final consumer completes.
 
 ### Local task execution
 
