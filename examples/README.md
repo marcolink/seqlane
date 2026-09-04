@@ -138,16 +138,17 @@ revision. If Git reports no merge conflicts, the merge strategy stops without a
 commit.
 
 If conflicts exist, `resolve-merge-conflicts.ts` receives the exact conflict
-paths and both immutable revisions. Its exclusive agent task runs in a non-Git
-staging copy. The OpenCode policy denies shell commands, external paths, and
-project configuration. The workflow copies back only the supplied conflict
-files.
+paths and both immutable revisions. Its exclusive agent task runs in a fresh,
+non-Git staging workspace that contains only regular conflict files. The
+OpenCode policy denies shell commands, external paths, and project
+configuration. The workflow rejects symlinks and copies back only the supplied
+conflict files.
 
 After Seqlane finishes, the workflow rejects new files and edits outside the
 initial conflict list. It also rejects unresolved conflicts and Git whitespace
 errors. It rejects staged Git conflict markers. A rebase can use no more than
-five conflict-resolution attempts and skips redundant empty commits. The
-workflow stops OpenCode before it
+five conflict-resolution attempts and skips redundant empty commits. It detects
+default, diff3, and longer conflict markers. The workflow stops OpenCode before it
 configures GitHub credentials. Then it creates one merge commit or pushes the
 rebased history.
 

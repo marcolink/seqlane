@@ -102,8 +102,10 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).toContain('"--others", "--ignored"');
     expect(workflow).toContain("Conflict marker remains in ${path}.");
     expect(workflow).toContain(
-      "/^(?:<<<<<<<(?: .*)?|=======|>>>>>>>(?: .*)?)\\r?$/m",
+      "/^(?:<{7,}(?: .*)?|\\|{7,}(?: .*)?|={7,}|>{7,}(?: .*)?)\\r?$/m",
     );
+    expect(workflow).toContain("for (const entry of readdirSync(agentRoot))");
+    expect(workflow).toContain("Symlink is not allowed: ${path}");
     expect(workflow).toContain("MAX_REBASE_ATTEMPTS=5");
     expect(workflow).toContain(
       'git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA"',
@@ -112,9 +114,11 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).not.toContain("https://opencode.ai/install | bash");
   });
 
-  it("detects standalone conflict separators with CRLF endings", () => {
-    const marker = /^(?:<<<<<<<(?: .*)?|=======|>>>>>>>(?: .*)?)\r?$/m;
+  it("detects diff3 and non-default conflict markers with CRLF endings", () => {
+    const marker = /^(?:<{7,}(?: .*)?|\|{7,}(?: .*)?|={7,}|>{7,}(?: .*)?)\r?$/m;
 
     expect(marker.test("resolved\r\n=======\r\ncontent\r\n")).toBe(true);
+    expect(marker.test("||||||| base\r\n")).toBe(true);
+    expect(marker.test("<<<<<<<<<<< HEAD\r\n")).toBe(true);
   });
 });
