@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -83,7 +83,17 @@ Focused ACP success, malformed-output, cancellation, activity, configuration,
 and missing-task tests pass. Mastra and OpenCode types remain private to the
 adapter boundary.
 
+## Supersession note
+
+[spec.agent-adapter-boundary-and-capabilities](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md)
+supersedes this task's interim ACP/OpenCode design. This task remains a
+completed historical delivery record.
+
+The follow-up specification owns the deferred architecture work from PR 19.
+Later Mastra stack tasks do not inherit or repeat that work.
+
 ## Traceability
 
 - [spec.mastra-runtime-and-operational-integration](../specs/2026-09-03-mastra-runtime-and-operational-integration.md)
+- [spec.agent-adapter-boundary-and-capabilities](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md)
 - [task.mastra-deterministic-shell](./2026-09-03-mastra-deterministic-shell.md)

@@ -1,11 +1,11 @@
 ---
 id: spec.opencode-executor-integration
 title: OpenCode Executor Integration
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - adr.opencode-executor-integration
 supersedes: []
@@ -242,3 +242,4 @@ spec.opencode-executor-integration does not implement:
 ## Traceability
 
 - [adr.opencode-executor-integration](../adrs/2026-09-02-opencode-executor-integration.md)
+- Superseded by [spec.agent-adapter-boundary-and-capabilities](./2026-09-04-agent-adapter-boundary-and-capabilities.md).
