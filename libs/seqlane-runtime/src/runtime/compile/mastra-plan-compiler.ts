@@ -12,12 +12,14 @@ import { z } from "zod";
 import {
   resolveBinding,
   referencedNodeIds,
+  WORKFLOW_INPUT_NODE_ID,
 } from "../plan/binding-resolution.js";
 import { getTaskSchema, type TaskSchemaRegistry } from "../plan/task-schema.js";
 import { orderPlanNodes } from "../plan/plan-ordering.js";
 import { validatePlan } from "../validation/plan-validation.js";
 
 const RESULT_STEP_ID = "__seqlane_result";
+const RESERVED_NODE_IDS = new Set([WORKFLOW_INPUT_NODE_ID, RESULT_STEP_ID]);
 
 export interface MastraPlanInvocationContext {
   readonly node: PlanNode;
@@ -234,11 +236,40 @@ function buildInvocationStep(
 }
 
 function assertMastraSupportedPlan(plan: Plan): void {
+  for (const node of plan.nodes) {
+    if (RESERVED_NODE_IDS.has(node.nodeId)) {
+      throw new Error(
+        `Mastra Plan compiler does not support reserved node ID "${node.nodeId}"`,
+      );
+    }
+  }
+
   const repeat = plan.nodes.find((node) => node.type === "repeat");
   if (repeat?.type === "repeat") {
     throw new Error(
       `Mastra Plan compiler does not support repeat node "${repeat.nodeId}"`,
     );
+  }
+}
+
+function assertValidationRegistries(
+  plan: Plan,
+  options: MastraPlanCompilerOptions,
+): void {
+  for (const node of plan.nodes) {
+    if (node.type !== "validation.check") continue;
+
+    if (node.source.type === "mechanical") {
+      if (!options.validatorDefinitions?.has(node.source.validatorId)) {
+        throw new Error(
+          `No validator "${node.source.validatorId}" is registered`,
+        );
+      }
+    } else if (!options.taskDefinitions?.has(node.source.taskId)) {
+      throw new Error(
+        `No evaluator task definition registered for "${node.source.taskId}"`,
+      );
+    }
   }
 }
 
@@ -248,6 +279,7 @@ export function compilePlanToMastra(
 ): CompiledMastraPlan {
   assertMastraSupportedPlan(plan);
   validatePlan(plan, options.taskDefinitions);
+  assertValidationRegistries(plan, options);
   const orderedNodes = orderPlanNodes(plan, true, options.taskDefinitions);
   const invocationSteps = orderedNodes.map((node) => ({
     nodeId: node.nodeId,

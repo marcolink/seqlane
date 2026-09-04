@@ -4,7 +4,12 @@
 // @test-scope ../plan/binding-resolution.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { Plan, PlanNode, TaskDefinition } from "@seqlane/core";
+import type {
+  Plan,
+  PlanNode,
+  TaskDefinition,
+  ValidationSource,
+} from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
@@ -47,6 +52,19 @@ function definitions(...ids: string[]): ReadonlyMap<string, TaskDefinition> {
       },
     ]),
   );
+}
+
+function validationCheck(
+  nodeId: string,
+  source: ValidationSource,
+): Extract<PlanNode, { type: "validation.check" }> {
+  return {
+    type: "validation.check",
+    nodeId,
+    source,
+    input: {},
+    dependsOn: [],
+  };
 }
 
 describe("Mastra Plan compiler", () => {
@@ -165,6 +183,58 @@ describe("Mastra Plan compiler", () => {
     });
 
     expect(() => compilePlanToMastra(cyclic)).toThrow(/cycle/i);
+  });
+
+  it.each(["__seqlane_input", "__seqlane_result"])(
+    "rejects reserved node ID %s before creating a Mastra workflow",
+    (nodeId) => {
+      expect(() =>
+        compilePlanToMastra(
+          plan([task(nodeId)], {
+            type: "ref",
+            nodeId,
+            path: ["output"],
+          }),
+        ),
+      ).toThrow(`reserved node ID "${nodeId}"`);
+    },
+  );
+
+  it("rejects a missing mechanical validator before creating a Mastra workflow", () => {
+    const check = validationCheck("check", {
+      type: "mechanical",
+      validatorId: "missing-validator",
+    });
+
+    expect(() =>
+      compilePlanToMastra(
+        plan([check], {
+          type: "ref",
+          nodeId: check.nodeId,
+          path: ["output"],
+        }),
+      ),
+    ).toThrow('No validator "missing-validator" is registered');
+  });
+
+  it("rejects a missing evaluator task before creating a Mastra workflow", () => {
+    const check = validationCheck("check", {
+      type: "task",
+      taskId: "missing-evaluator",
+      workspace: "shared",
+    });
+
+    expect(() =>
+      compilePlanToMastra(
+        plan([check], {
+          type: "ref",
+          nodeId: check.nodeId,
+          path: ["output"],
+        }),
+      ),
+    ).toThrow(
+      'No evaluator task definition registered for "missing-evaluator"',
+    );
   });
 
   it("rejects repeat nodes before creating a Mastra workflow", () => {
