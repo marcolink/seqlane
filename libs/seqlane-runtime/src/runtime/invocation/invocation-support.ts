@@ -20,6 +20,8 @@ export interface TaskExecutionOptions {
   readonly results: Map<string, unknown>;
   readonly remainingConsumers: Map<string, number>;
   readonly subject: SeqlaneInvocationSubject;
+  /** `graph` means static workspace conflicts are already dependency edges. */
+  readonly workspaceAdmission?: "dynamic" | "graph";
   readonly iteration?: number;
   readonly validateOutput?: (output: unknown) => unknown;
 }
@@ -28,6 +30,8 @@ export interface ValidationExecutionOptions {
   readonly invocationId: InvocationId;
   readonly results: Map<string, unknown>;
   readonly remainingConsumers: Map<string, number>;
+  /** `graph` means static workspace conflicts are already dependency edges. */
+  readonly workspaceAdmission?: "dynamic" | "graph";
   readonly iteration?: number;
 }
 

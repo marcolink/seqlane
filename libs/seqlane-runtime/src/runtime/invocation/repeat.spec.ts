@@ -129,6 +129,27 @@ function compile(
 }
 
 describe("conditioned repeat execution", () => {
+  it("keeps repeat-body tasks behind dynamic workspace admission", async () => {
+    let executed = false;
+    const compiled = compile(repeatPlan(1), async () => {
+      executed = true;
+      return { passed: true };
+    });
+    const externalLease = await compiled.context.workspaceLocks.acquire(
+      { key: "seqlane:runtime-workspace" },
+      "exclusive",
+    );
+
+    const execution = runCompiledWorkflow(compiled);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const executedBeforeRelease = executed;
+
+    externalLease.release();
+    await expect(execution).resolves.toMatchObject({ status: "succeeded" });
+    expect(executedBeforeRelease).toBe(false);
+    expect(executed).toBe(true);
+  });
+
   it("returns after the first successful iteration", async () => {
     let executions = 0;
     const compiled = compile(repeatPlan(3), async () => {
