@@ -22,6 +22,7 @@ const forbiddenSyntaxFixtures = [
   "forbidden-ee-export-from.ts",
   "forbidden-ee-require.cjs",
   "forbidden-ee-dynamic-import.ts",
+  "forbidden-ee-import.mts",
 ].map((name) =>
   fileURLToPath(new URL(`../../../fixtures/${name}`, import.meta.url)),
 );

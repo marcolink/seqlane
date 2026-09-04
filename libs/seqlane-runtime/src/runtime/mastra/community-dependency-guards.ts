@@ -2,7 +2,14 @@ import { readFileSync, readdirSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 
 const ignoredDirectories = new Set(["dist", "node_modules", "out-tsc"]);
-const sourceExtensions = new Set([".cjs", ".js", ".mjs", ".ts", ".tsx"]);
+const sourceExtensions = new Set([
+  ".cjs",
+  ".js",
+  ".mjs",
+  ".mts",
+  ".ts",
+  ".tsx",
+]);
 const testFilePattern = /\.(?:spec|test)\.[^.]+$/;
 const fixtureDirectoryPattern = /[\\/]fixtures[\\/]/;
 const forbiddenEnterpriseImportPattern =
