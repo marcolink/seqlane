@@ -57,6 +57,14 @@ export type MastraPlanInvocation = (
   context: MastraPlanInvocationContext,
 ) => Promise<unknown>;
 
+export interface MastraPlanInputValidationFailureContext {
+  readonly node: PlanNode;
+  readonly workId: WorkId;
+  readonly runId: RunId;
+  readonly invocationId: InvocationId;
+  readonly error: SeqlaneError;
+}
+
 export interface MastraPlanCompilerOptions {
   /** The Seqlane schemas used to validate workflow input and output. */
   readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
@@ -78,6 +86,10 @@ export interface MastraPlanCompilerOptions {
   readonly executeInvocation?: MastraPlanInvocation;
   /** Captures typed Seqlane failures before Mastra serializes them. */
   readonly onFailure?: (failure: SeqlaneError) => void;
+  /** Reports compiler-level input failures that occur before invocation execution. */
+  readonly onInputValidationFailure?: (
+    context: MastraPlanInputValidationFailureContext,
+  ) => void;
 }
 
 export interface MastraPlanStep {
@@ -275,7 +287,15 @@ function buildInvocationStep(
       try {
         parsedInput = inputSchema?.parse(resolvedInput) ?? resolvedInput;
       } catch (cause) {
-        throw reportFailure(node, cause, "input", options);
+        const error = reportFailure(node, cause, "input", options);
+        options.onInputValidationFailure?.({
+          node,
+          workId: resourceId ?? options.workId ?? "unknown-work",
+          runId,
+          invocationId,
+          error,
+        });
+        throw error;
       }
       if (options.executeInvocation === undefined) {
         throw new Error(

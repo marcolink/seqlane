@@ -15,6 +15,13 @@ export interface MastraRunRequest {
   readonly runId: RunId;
 }
 
+export interface MastraWorkflowResult {
+  readonly status: string;
+  readonly result?: unknown;
+  readonly error?: unknown;
+  readonly steps?: Readonly<Record<string, { readonly status?: string }>>;
+}
+
 export interface MastraRuntime {
   run(request: MastraRunRequest): Promise<SeqlaneRunOutcome>;
   start(request: MastraRunRequest): MastraActiveRun;
@@ -28,6 +35,11 @@ export interface MastraActiveRun {
 export interface MastraRuntimeOptions {
   /** Retrieves a typed failure captured before Mastra serializes it. */
   readonly failureForRun?: (runId: RunId) => SeqlaneError | undefined;
+  /** Observes Mastra step statuses before the result is normalized. */
+  readonly onWorkflowResult?: (
+    request: MastraRunRequest,
+    result: MastraWorkflowResult,
+  ) => void;
 }
 
 function validateRegistrations(
@@ -84,11 +96,7 @@ function failedOutcome(
 
 function normalizeResult(
   workflowKey: string,
-  result: {
-    readonly status: string;
-    readonly result?: unknown;
-    readonly error?: unknown;
-  },
+  result: MastraWorkflowResult,
   typedFailure?: SeqlaneError,
 ): SeqlaneRunOutcome {
   if (result.status === "success") {
@@ -143,6 +151,7 @@ export function createMastraRuntime(
             return { status: "cancelled" } as const;
           }
           const result = await activeRun.start({ inputData: request.input });
+          options.onWorkflowResult?.(request, result);
           return normalizeResult(
             request.workflowKey,
             result,

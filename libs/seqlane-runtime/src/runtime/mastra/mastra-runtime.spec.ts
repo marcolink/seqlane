@@ -1,3 +1,4 @@
+// @test-scope ../compile/mastra-plan-compiler.ts
 // @test-scope ./mastra-runtime.ts
 // @test-scope ./mastra-execution.ts
 
@@ -5,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type {
   Plan,
+  SeqlaneEvent,
   SeqlaneSchema,
   TaskDefinition,
   TaskDefinitionRegistry,
@@ -22,7 +24,9 @@ import { z } from "zod";
 import { mastraRuntimeSpineWorkflow } from "../../../fixtures/mastra-runtime-spine-workflow.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import { createMastraPlanExecution } from "./mastra-execution.js";
+import { emitMastraInvocationTopology } from "./mastra-execution.js";
 import { createMastraRuntime } from "./mastra-runtime.js";
+import type { ExecutorRequest } from "../execution/executor.js";
 
 const publicEntryPoint = fileURLToPath(
   new URL("../../index.ts", import.meta.url),
@@ -73,6 +77,31 @@ function validationPlan(): Plan {
   };
 }
 
+function dependentTaskPlan(): Plan {
+  return {
+    workflow: { id: "fixture-dependent" },
+    nodes: [
+      {
+        type: "task",
+        taskId: "fixture-task",
+        nodeId: "fixture-upstream:1",
+        workspace: "shared",
+        input: {},
+        dependsOn: [],
+      },
+      {
+        type: "task",
+        taskId: "fixture-task",
+        nodeId: "fixture-downstream:1",
+        workspace: "shared",
+        input: {},
+        dependsOn: ["fixture-upstream:1"],
+      },
+    ],
+    output: { type: "ref", nodeId: "fixture-downstream:1", path: [] },
+  };
+}
+
 function fixtureTaskDefinitions(
   input: SeqlaneSchema = passthroughSchema,
   output: SeqlaneSchema = passthroughSchema,
@@ -90,11 +119,13 @@ async function runMastraPlan(options: {
   readonly plan: Plan;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
-  readonly executor?: () => Promise<unknown>;
+  readonly executor?: (request: ExecutorRequest) => Promise<unknown>;
+  readonly events?: SeqlaneEvent[];
 }) {
   const executor = {
-    execute: async () => options.executor?.(),
+    execute: async (request: ExecutorRequest) => options.executor?.(request),
   };
+  const events = { emit: (event: SeqlaneEvent) => options.events?.push(event) };
   const execution = createMastraPlanExecution({
     plan: options.plan,
     workflowInput: {},
@@ -108,9 +139,10 @@ async function runMastraPlan(options: {
     workspaceResources: new Map(),
     taskDefinitions: options.taskDefinitions,
     validatorDefinitions: options.validatorDefinitions,
-    events: { emit: () => undefined },
+    events,
   });
   await resolveCompiledWorkflowSessions(execution.legacy);
+  emitMastraInvocationTopology(execution.compiled, execution.legacy, events);
   return execution.runtime.run({
     workflowKey: options.plan.workflow.id,
     input: {},
@@ -296,5 +328,59 @@ describe("private Mastra runtime spine", () => {
         expect(outcome.error.cause, testCase.name).toBeInstanceOf(Error);
       }
     }
+  });
+
+  it("emits a terminal lifecycle for compiler-level input failures", async () => {
+    const events: SeqlaneEvent[] = [];
+    const outcome = await runMastraPlan({
+      plan: taskPlan("fixture-input-lifecycle"),
+      taskDefinitions: fixtureTaskDefinitions({
+        parse: () => {
+          throw new Error("invalid fixture input");
+        },
+      }),
+      events,
+    });
+
+    expect(outcome.status).toBe("failed");
+    expect(events.map(({ type }) => type)).toEqual([
+      "invocation.created",
+      "invocation.started",
+      "invocation.failed",
+    ]);
+    expect(events[1]).toMatchObject({
+      workId: "fixture-work",
+      runId: "fixture-run",
+      invocationId: "fixture-task:1",
+      subject: { type: "task", taskId: "fixture-task" },
+    });
+    expect(events[2]).toMatchObject({
+      invocationId: "fixture-task:1",
+      disposition: "fail_run",
+    });
+  });
+
+  it("closes Mastra-skipped dependent invocations", async () => {
+    const events: SeqlaneEvent[] = [];
+    const outcome = await runMastraPlan({
+      plan: dependentTaskPlan(),
+      taskDefinitions: fixtureTaskDefinitions(),
+      events,
+      executor: async ({ invocationId }) => {
+        if (invocationId === "fixture-upstream:1") {
+          throw new Error("fixture upstream failed");
+        }
+        return { value: "done" };
+      },
+    });
+
+    expect(outcome.status).toBe("failed");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "invocation.skipped",
+        invocationId: "fixture-downstream:1",
+        dependencyIds: ["fixture-upstream:1"],
+      }),
+    );
   });
 });
