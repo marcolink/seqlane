@@ -17,6 +17,9 @@ declarations, `require` calls, and dynamic imports of `ee/` paths. The runtime
 validates task inputs and outputs, resolves bindings, emits bounded consumer
 events, and retains results until their final consumer completes.
 
+The Mastra compiler currently rejects repeat nodes until a dedicated
+Mastra-native repeat lowering is added.
+
 ### Local task execution
 
 A task with `execute` runs through the local invocation path. The runtime parses
