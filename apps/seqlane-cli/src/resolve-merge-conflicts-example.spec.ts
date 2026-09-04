@@ -1,7 +1,6 @@
 // @test-scope ../../../examples/resolve-merge-conflicts.ts
 
 import { buildWorkflow } from "@seqlane/core";
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const { default: resolveMergeConflictsWorkflow } = await import(
@@ -87,45 +86,5 @@ describe("merge-conflict resolution example workflow", () => {
     expect(task.goal(validInput)).toContain(
       "The selected integration strategy is rebase.",
     );
-  });
-
-  it("enforces conflict-resolution safety invariants in the workflow", async () => {
-    const workflow = await readFile(
-      new URL(
-        "../../../.github/workflows/seqlane-resolve-merge-conflicts.yml",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-
-    expect(workflow).toContain("cwd: process.env.RESOLUTION_TARGET");
-    expect(workflow).toContain('"--others", "--ignored"');
-    expect(workflow).toContain("Conflict marker remains in ${path}.");
-    expect(workflow).toContain(
-      "/^(?:<{7,}(?: .*)?|\\|{7,}(?: .*)?|={7,}|>{7,}(?: .*)?)\\r?$/m",
-    );
-    expect(workflow).toContain("for (const entry of readdirSync(agentRoot))");
-    expect(workflow).toContain("Symlink is not allowed: ${path}");
-    expect(workflow).toContain("MAX_REBASE_ATTEMPTS=5");
-    expect(workflow).toContain("maximumFileBytes = 512 * 1024");
-    expect(workflow).toContain("maximumTotalBytes = 2 * 1024 * 1024");
-    expect(workflow).toContain("rmSync, statSync, writeFileSync");
-    expect(workflow).toContain(
-      'git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA"',
-    );
-    expect(workflow).toContain("OPENCODE_ARCHIVE_SHA256");
-    expect(workflow).toContain(
-      "install --lockfile-only --ignore-scripts --ignore-pnpmfile",
-    );
-    expect(workflow).toContain("docker run --rm --network bridge");
-    expect(workflow).not.toContain("https://opencode.ai/install | bash");
-  });
-
-  it("detects diff3 and non-default conflict markers with CRLF endings", () => {
-    const marker = /^(?:<{7,}(?: .*)?|\|{7,}(?: .*)?|={7,}|>{7,}(?: .*)?)\r?$/m;
-
-    expect(marker.test("resolved\r\n=======\r\ncontent\r\n")).toBe(true);
-    expect(marker.test("||||||| base\r\n")).toBe(true);
-    expect(marker.test("<<<<<<<<<<< HEAD\r\n")).toBe(true);
   });
 });

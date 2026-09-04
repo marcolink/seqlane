@@ -90,10 +90,8 @@ the GitHub Actions job summary. This identifies the exact workflow revision
 that GitHub executed, independently of the reviewed pull-request revision.
 
 The workflow uses `pull_request_target`, runs the trusted workflow definition
-from the base branch, and checks out the resolved trusted base revision as the
-Seqlane source for automatic runs. It checks out the pull-request head
-separately as the review target. Manual branch runs use the selected branch's
-workflow and source revision for trusted branch testing.
+from the base branch, and checks out the trusted Seqlane source from the base
+revision. It checks out the pull-request head separately as the review target.
 When a pull request closes, the workflow triggers a cancellation event that
 uses the same concurrency group to cancel any active review, while its review
 job is skipped.
@@ -110,43 +108,10 @@ repository and base/head identity fields from its supplied review context. The
 workflow installs and builds the checked-out Seqlane
 source, but does not install dependencies or execute repository scripts from
 the separate review target. OpenCode ignores project runtime configuration
-during the review and receives a read-only tool policy. The workflow reads a
-bounded set of recent issue and review comments, updates one marked
-pull-request comment with the report, and records the report verdict without
-failing the review job when it is `request-changes`. It accepts review reruns
-and disposition commands only from reviewers with GitHub `OWNER`, `MEMBER`, or
-`COLLABORATOR` association. Editing a disposition comment also reruns the
-review so removing a command removes its policy decision.
-
-```text
-/seqlane review
-/seqlane wont-fix F-123 reason: accepted risk
-/seqlane fixed F-123
-/seqlane downgrade F-123 optional reason: low impact
-```
-
-`fixed` is verified against the current pull-request head. `wont-fix` and
-`downgrade` are recorded with the actor, effective timestamp, reason, and
-commit context; they do not remove the finding from the report, but an
-authorized disposition does remove it as a merge-blocking finding. Previous
-reports are accepted only from the Seqlane bot identity and use a compact,
-schema-validated snapshot. Snapshot or comment truncation is recorded as a
-review limitation. Configured secret values are redacted from CI output,
-workflow summaries, and GitHub annotations.
-
-To exercise the workflow and Seqlane source from a feature branch, run the
-workflow manually with that branch selected:
-
-```sh
-gh workflow run "Seqlane code review" \
-  --ref my-review-branch \
-  -f pull_request_number=123
-```
-
-Automatic pull-request and comment-triggered runs continue to use the trusted
-base revision for the workflow source. The manual path is intended for
-trusted branch testing and uses the selected branch's workflow and Seqlane
-source revision.
+during the review and receives a read-only tool policy. The workflow updates
+one marked pull-request comment with the report and records the report verdict
+without failing the review job when it is `request-changes`. Configured secret
+values are redacted from CI output, workflow summaries, and GitHub annotations.
 The review runtime denies access outside the review workspace and blocks
 environment files. Git writes the complete patch to a run-scoped temporary file
 before the retained model-facing patch is bounded; the temporary file can be
@@ -173,30 +138,15 @@ revision. If Git reports no merge conflicts, the merge strategy stops without a
 commit.
 
 If conflicts exist, `resolve-merge-conflicts.ts` receives the exact conflict
-paths and both immutable revisions. Its exclusive agent task runs in a fresh,
-non-Git staging workspace that contains only regular conflict files. The
-OpenCode policy denies shell commands, external paths, and project
-configuration. The workflow rejects symlinks and copies back only the supplied
-conflict files.
-
-Lockfile conflicts are text-resolved by the agent. The workflow does not run a
-package manager in the pull-request checkout.
+paths and both immutable revisions. Its exclusive agent task can read and edit
+the checkout. The OpenCode policy denies shell commands, external paths, and
+project configuration. The task must edit only the supplied conflict files.
 
 After Seqlane finishes, the workflow rejects new files and edits outside the
 initial conflict list. It also rejects unresolved conflicts and Git whitespace
-errors. It rejects staged Git conflict markers. A rebase can use no more than
-five conflict-resolution attempts and skips redundant empty commits. It detects
-default, diff3, and longer conflict markers. The workflow stops OpenCode before it
-configures GitHub credentials. Then it creates one merge commit or pushes the
-rebased history.
-
-The workflow checks the captured base revision before it pushes. The exact
-force-with-lease protects the remote head revision. A base update after that
-check can make the result stale, but it cannot overwrite the base branch.
-
-The workflow downloads the pinned OpenCode release archive over HTTPS. It
-checks the archive SHA-256 before extraction. It does not run a remote installer
-script.
+errors. The workflow stops OpenCode before it configures GitHub credentials.
+Then it creates one merge commit or pushes the rebased history. If the remote
+base or head changed during the run, the workflow rejects the push.
 
 The workflow configures `Seqlane conflict resolver` as the Git committer. A
 merge commit uses that name as its author. A rebase preserves each original

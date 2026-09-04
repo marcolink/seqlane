@@ -31,13 +31,9 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - Accept only open pull requests with a head branch in this repository.
 - Apply the selected integration strategy to the current base and head
   revisions.
-- Run the Seqlane workflow only when Git reports merge conflicts, in a fresh
-  non-Git staging workspace that contains only regular conflict files.
+- Run the Seqlane workflow only when Git reports merge conflicts.
 - Make sure that all conflicts are resolved before a commit and push.
 - Reject unexpected workspace edits and concurrent head-branch changes.
-- Reject staged conflict markers, including CRLF, diff3, and longer marker
-  lines, and bound rebase conflict-resolution attempts.
-- Verify the pinned OpenCode archive before extraction.
 - Add contract tests and operator documentation.
 
 ## Out of scope
@@ -84,8 +80,7 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - The workflow rejects edits outside the initial conflict-file list.
 - The workflow commits and pushes only after all conflicts are resolved.
 - A rebased branch uses a force push protected by an exact remote-head lease.
-- The workflow checks the base revision before it pushes. The exact lease
-  prevents an unexpected remote-head update.
+- A remote base-branch or head-branch update prevents the push.
 - The focused tests and documentation checks pass.
 
 ## Outcome
@@ -98,25 +93,14 @@ The workflow accepts an open same-repository pull request. Dispatch requires a
 choice between `rebase` and `merge`, and defaults that choice to `rebase`. It
 applies the selected strategy to the captured base and head revisions. Seqlane
 runs only when Git reports conflicts. The agent can read and edit files, but it
-cannot use shell commands or external paths. It runs in a fresh non-Git staging
-copy that contains only the conflict files. The workflow rejects symlinks, so
-the agent cannot write Git metadata or escape the staging boundary.
+cannot use shell commands or external paths.
 
 After the agent finishes, the workflow rejects unexpected edits, new files,
 unresolved conflicts, and whitespace errors. A rebase can stop at more than
 one conflicting commit. The workflow repeats the agent resolution for each
-stop, up to five attempts, and skips redundant empty commits. It rejects
-conflict-marker lines after staging, including CRLF, diff3, and longer marker
-lines. The
-workflow validates paths in the resolution checkout, including ignored
-untracked paths. It stops OpenCode before GitHub authentication.
-
-
-The workflow downloads a pinned OpenCode release archive and checks its
-SHA-256 before extraction. It checks the base revision before a push. The exact
-force-with-lease check prevents an unexpected remote-head update. A base update
-after the check can make the result stale, but it cannot overwrite the base
-branch.
+stop. It stops OpenCode before GitHub authentication. It also compares both
+remote revisions with the captured revisions before it pushes. A rebase uses an
+exact force-with-lease check.
 
 The focused tests, full test suite, build, type checks, lint, formatting, YAML
 parse, SDLC checks, and Git diff check pass. Lint reports two existing warnings
