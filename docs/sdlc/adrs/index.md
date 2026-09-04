@@ -24,5 +24,6 @@
 | [adr.effect-private-runtime-engine](./2026-09-02-effect-private-runtime-engine.md) | Use Effect as Seqlane's Private Runtime Engine | superseded | 2026-09-02 | core |
 | [adr.mastra-internal-workflow-engine](./2026-09-02-mastra-internal-workflow-engine.md) | Use Mastra as Seqlane’s Internal Workflow Engine | superseded | 2026-09-02 | core |
 | [adr.model-selection-and-session-model-semantics](./2026-09-03-model-selection-and-session-model-semantics.md) | Model Selection and Session Model Semantics | accepted | 2026-09-03 | core |
-| [adr.local-mechanical-tasks](./2026-09-03-local-mechanical-tasks.md) | Run Local Mechanical Tasks Without an Agent | accepted | 2026-09-03 | core |
+| [adr.local-mechanical-tasks](./2026-09-03-local-mechanical-tasks.md) | Run Local Mechanical Tasks Without an Agent | superseded | 2026-09-03 | core |
+| [adr.mastra-local-mechanical-tasks](./2026-09-04-mastra-local-mechanical-tasks.md) | Run Local Mechanical Tasks Through Mastra LocalSandbox | accepted | 2026-09-04 | core |
 | [adr.seqlane-action-library-boundary](./2026-09-06-seqlane-action-library-boundary.md) | Use an Action-Specific Library for Merge-Conflict Resolution | accepted | 2026-09-06 | core |

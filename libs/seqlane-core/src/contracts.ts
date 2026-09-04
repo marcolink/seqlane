@@ -96,12 +96,31 @@ export interface TaskExecResult {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  /** Stable Seqlane identity for the task that requested the process. */
+  readonly taskId?: TaskId;
+  /** Stable Seqlane identity for the invocation that requested the process. */
+  readonly invocationId?: InvocationId;
+  /** Wall-clock time when process execution started, in milliseconds since epoch. */
+  readonly startedAt?: number;
+  /** Wall-clock time when process execution ended, in milliseconds since epoch. */
+  readonly endedAt?: number;
+  /** Wall-clock process duration in milliseconds. */
+  readonly durationMs?: number;
+  /** Normalized process outcome, including timeout and cancellation. */
+  readonly outcome?: "completed" | "timed_out" | "cancelled";
+  readonly timedOut?: boolean;
+  readonly cancelled?: boolean;
+  /** Whether the bounded capture dropped older output for this stream. */
+  readonly stdoutTruncated?: boolean;
+  readonly stderrTruncated?: boolean;
 }
 
 export interface TaskContext {
   exec(request: {
     readonly command: string;
     readonly args?: readonly string[];
+    /** Optional foreground process timeout in milliseconds. */
+    readonly timeoutMs?: number;
   }): Promise<TaskExecResult>;
 }
 

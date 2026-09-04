@@ -168,7 +168,7 @@
 | [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md) | Remove Superseded Runtime Architecture | planned | 2026-09-03 | core |
 | [task.mastra-community-studio](./2026-09-03-mastra-community-studio.md) | Replace the Dedicated Studio With Mastra Community Studio | planned | 2026-09-03 | core |
 | [task.mastra-agent-acp](./2026-09-03-mastra-agent-acp.md) | Run Agent Tasks Through Mastra ACP | planned | 2026-09-03 | core |
-| [task.mastra-deterministic-shell](./2026-09-03-mastra-deterministic-shell.md) | Run Deterministic Shell Tasks Through Mastra | planned | 2026-09-03 | core |
+| [task.mastra-deterministic-shell](./2026-09-03-mastra-deterministic-shell.md) | Run Deterministic Shell Tasks Through Mastra | completed | 2026-09-03 | core |
 | [task.effect-local-task-execution](./2026-09-03-effect-local-task-execution.md) | Run Local Tasks Through the Private Effect Runtime | completed | 2026-09-03 | core |
 | [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |
 | [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | planned | 2026-09-03 | core |
@@ -191,3 +191,4 @@
 | [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |
 | [task.harden-seqlane-action-push-and-cleanup](./2026-09-07-harden-seqlane-action-push-and-cleanup.md) | Harden Seqlane Action Push and Cleanup | completed | 2026-09-07 | core |
 | [task.seqlane-action-resolution-summaries](./2026-09-07-seqlane-action-resolution-summaries.md) | Publish Human-Readable Merge Resolution Summaries | completed | 2026-09-07 | core |
+| [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
