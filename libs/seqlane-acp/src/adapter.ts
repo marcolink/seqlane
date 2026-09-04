@@ -1,14 +1,10 @@
-import { AcpAgent as MastraAcpAgent, type AcpAgentOptions } from "@mastra/acp";
-import type { AgentStreamOptions } from "@mastra/core/agent";
-import type { MessageListInput } from "@mastra/core/agent/message-list";
+import { AcpAgent as MastraAcpAgent } from "@mastra/acp";
+import { InteractionRequiredError } from "@seqlane/core";
+import type { AgentAdapter, AgentAdapterRequest } from "@seqlane/agent-adapter";
 import {
-  InteractionRequiredError,
-  type TaskDefinitionRegistry,
-} from "@seqlane/core";
-import {
-  type AcpExecutor,
+  type AcpAgent,
+  type AcpAgentFactoryOptions,
   type AcpExecutorOptions,
-  type AcpExecutorRequest,
   type AcpLaunchConfiguration,
   parseAcpLaunchConfiguration,
 } from "./contracts.js";
@@ -23,31 +19,30 @@ import {
   buildStructuredOutputPrompt,
   buildStructuredOutputRepairPrompt,
 } from "./prompt.js";
-import { getAgentTask, toJsonSchema } from "./task.js";
+import { toJsonSchema } from "./task.js";
 import { reportAcpStreamChunk } from "./stream.js";
 
-interface AcpStream {
-  readonly fullStream: ReadableStream<unknown>;
-  readonly text: Promise<string>;
-}
-
-interface AcpAgent {
-  stream(
-    messages: MessageListInput,
-    options: Pick<AgentStreamOptions, "abortSignal" | "runId">,
-  ): Promise<AcpStream>;
-}
-
-type CreateAcpAgent = (options: AcpAgentOptions) => AcpAgent;
-
-function createDefaultAgent(options: AcpAgentOptions): AcpAgent {
-  return new MastraAcpAgent(options);
+function createDefaultAgent(options: AcpAgentFactoryOptions): AcpAgent {
+  const agent = new MastraAcpAgent({
+    ...options,
+    ...(options.onPermissionRequest === undefined
+      ? {}
+      : {
+          onPermissionRequest: async (request) => {
+            const response = await options.onPermissionRequest?.(request);
+            return response ?? { outcome: { outcome: "cancelled" } };
+          },
+        }),
+  });
+  return {
+    stream: (messages, streamOptions) => agent.stream(messages, streamOptions),
+  };
 }
 
 async function streamAgent(
   agent: AcpAgent,
   prompt: string,
-  request: AcpExecutorRequest,
+  request: AgentAdapterRequest,
 ): Promise<string> {
   const stream = await agent.stream([{ role: "user", content: prompt }], {
     abortSignal: request.signal,
@@ -82,13 +77,10 @@ async function streamAgent(
   return stream.text;
 }
 
-export function createAcpExecutor(
-  tasks: TaskDefinitionRegistry,
+export function createAcpAdapter(
   configuration: AcpLaunchConfiguration,
-  options: AcpExecutorOptions & {
-    readonly createAgent?: CreateAcpAgent;
-  } = {},
-): AcpExecutor {
+  options: AcpExecutorOptions = {},
+): AgentAdapter {
   const validatedConfiguration = parseAcpLaunchConfiguration(configuration);
   const createAgent = options.createAgent ?? createDefaultAgent;
   let permissionRequested = false;
@@ -104,10 +96,9 @@ export function createAcpExecutor(
   return {
     async execute(request) {
       permissionRequested = false;
-      const task = getAgentTask(tasks, request.taskId);
-      const schema = toJsonSchema(task);
+      const schema = toJsonSchema(request.task);
       let prompt = buildStructuredOutputPrompt(
-        buildAgentPrompt(task, request.input),
+        buildAgentPrompt(request.task, request.input),
         schema,
       );
       let attempts = 0;
@@ -145,11 +136,17 @@ export function createAcpExecutor(
           ...(validatedConfiguration.model === undefined
             ? {}
             : { model: validatedConfiguration.model }),
+          ...(request.modelSelection === undefined
+            ? {}
+            : {
+                provider: request.modelSelection.model.provider,
+                modelSelection: request.modelSelection,
+              }),
         });
         try {
           return validateStructuredOutput(
             parseStructuredOutput(text),
-            task.output,
+            request.task.output,
           );
         } catch (cause) {
           const validationError =
@@ -183,6 +180,16 @@ export function createAcpExecutor(
           });
         }
       }
+    },
+    capabilities: {
+      execute: true,
+      modelSelection: validatedConfiguration.model !== undefined,
+      structuredOutput: true,
+      sessionReuse: validatedConfiguration.persistSession,
+      checkpoint: false,
+      fork: false,
+      activity: true,
+      sessionUi: false,
     },
   };
 }

@@ -1,12 +1,13 @@
 import type {
+  AgentTaskDefinition,
   JsonValue,
   ModelSelection,
   RuntimeProfileReference,
   TaskDefinitionRegistry,
 } from "@seqlane/core";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
-import { createAcpExecutor, parseAcpLaunchConfiguration } from "@seqlane/acp";
-import type { AcpExecutor } from "@seqlane/acp";
+import { createAcpAdapter, parseAcpLaunchConfiguration } from "@seqlane/acp";
+import type { AgentAdapter } from "@seqlane/agent-adapter";
 import {
   createOpenCodeModelCapabilities,
   createOpenCodeRun,
@@ -82,13 +83,28 @@ function createSessionUiExecutor(
   };
 }
 
-function executeAcpRequest(
-  executor: AcpExecutor,
+function executeAgentAdapterRequest(
+  adapter: AgentAdapter,
+  taskDefinitions: TaskDefinitionRegistry,
+  effectiveSelection: ModelSelection | undefined,
   request: ExecutorRequest,
 ): Promise<unknown> {
-  return executor.execute({
-    ...request,
+  const task = taskDefinitions.get(request.taskId);
+  if (task === undefined || typeof task.goal !== "function") {
+    throw new Error(`No agent task definition found for "${request.taskId}"`);
+  }
+  const agentTask = task as AgentTaskDefinition;
+  return adapter.execute({
+    invocationId: request.invocationId,
+    task: agentTask,
+    input: request.input,
+    ...(effectiveSelection === undefined
+      ? {}
+      : { modelSelection: effectiveSelection }),
+    signal: request.signal,
+    onMetrics: request.onMetrics,
     onDiagnostic: (diagnostic) => request.onDiagnostic?.(diagnostic.message),
+    onActivity: request.onActivity,
   });
 }
 
@@ -102,7 +118,7 @@ function createOpenCodeSession(
     run.workspace,
     effectiveSelection,
   );
-  const acpExecutor = createAcpExecutor(taskDefinitions, acpConfiguration, {
+  const acpAdapter = createAcpAdapter(acpConfiguration, {
     structuredOutputRetryCount: 2,
   });
   return {
@@ -110,7 +126,13 @@ function createOpenCodeSession(
     ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: createSessionUiExecutor(
       {
-        execute: (request) => executeAcpRequest(acpExecutor, request),
+        execute: (request) =>
+          executeAgentAdapterRequest(
+            acpAdapter,
+            taskDefinitions,
+            effectiveSelection,
+            request,
+          ),
       },
       run.browserUrl,
       onSessionUiAvailable,
@@ -139,8 +161,7 @@ function createLazyOpenCodeSession(
 
   const resolveRun = () =>
     (run ??= createOpenCodeRun(connection, signal, effectiveSelection));
-  const acpExecutor = createAcpExecutor(
-    taskDefinitions,
+  const acpAdapter = createAcpAdapter(
     createAcpConfiguration(connection.workspace, effectiveSelection),
     {
       structuredOutputRetryCount: 2,
@@ -162,7 +183,12 @@ function createLazyOpenCodeSession(
             onSessionUiAvailable,
           );
         }
-        return executeAcpRequest(acpExecutor, request);
+        return executeAgentAdapterRequest(
+          acpAdapter,
+          taskDefinitions,
+          effectiveSelection,
+          request,
+        );
       },
     },
     checkpoint: async () => (await resolveRun()).checkpoint(),

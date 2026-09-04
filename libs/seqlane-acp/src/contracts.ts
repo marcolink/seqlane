@@ -1,4 +1,3 @@
-import type { SeqlaneInvocationMetrics } from "@seqlane/core";
 import { z } from "zod";
 import { AcpAdapterError } from "./errors.js";
 
@@ -20,40 +19,31 @@ export type AcpLaunchConfiguration = z.output<
   typeof acpLaunchConfigurationSchema
 >;
 
-export type AcpActivityState = "started" | "progress" | "succeeded" | "failed";
-
-export interface AcpActivity {
-  readonly activityId: string;
-  readonly kind: "tool";
-  readonly name: string;
-  readonly state: AcpActivityState;
-  readonly input?: unknown;
-  readonly output?: unknown;
-  readonly message?: string;
+export interface AcpAgentStream {
+  readonly fullStream: ReadableStream<unknown>;
+  readonly text: Promise<string>;
 }
 
-export interface AcpExecutorRequest {
-  readonly invocationId: string;
-  readonly taskId: string;
-  readonly input: unknown;
-  readonly signal: AbortSignal;
-  readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
-  readonly onDiagnostic?: (diagnostic: AcpDiagnostic) => void;
-  readonly onActivity?: (activity: AcpActivity) => void;
+export interface AcpAgent {
+  stream(
+    messages: { readonly role: "user"; readonly content: string }[],
+    options: { readonly abortSignal?: AbortSignal; readonly runId?: string },
+  ): Promise<AcpAgentStream>;
 }
 
-export interface AcpExecutor {
-  execute(request: AcpExecutorRequest): Promise<unknown>;
+export interface AcpAgentFactoryOptions extends AcpLaunchConfiguration {
+  readonly onPermissionRequest?: (
+    request: unknown,
+  ) => Promise<{ readonly outcome: { readonly outcome: "cancelled" } }>;
 }
 
-export interface AcpDiagnostic {
-  readonly code: "structured-output";
-  readonly message: string;
-}
+export type AcpAgentFactory = (options: AcpAgentFactoryOptions) => AcpAgent;
 
 export interface AcpExecutorOptions {
   /** Number of local structured-output repair attempts. */
   readonly structuredOutputRetryCount?: number;
+  /** Private test seam for a controlled ACP implementation. */
+  readonly createAgent?: AcpAgentFactory;
 }
 
 export function parseAcpLaunchConfiguration(

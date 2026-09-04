@@ -84,13 +84,15 @@ defaults, types, prompts, or session behavior.
 
 ## Outcome
 
-Completed. Added the private `@seqlane/acp` adapter with validated generic
-launch configuration, Seqlane-owned errors and diagnostics, ACP stream
+Completed. Added the private `@seqlane/agent-adapter` contract with required
+execution, normalized activity and diagnostic callbacks, declared capabilities,
+and optional session operations. Added the private `@seqlane/acp` implementation
+with validated generic launch configuration, Seqlane-owned errors, ACP stream
 activity mapping, cancellation propagation, non-interactive permission
-rejection, structured-output validation, and malformed-input tests. Removed
-ACP ownership and exports from `@seqlane/opencode` and moved its interim ACP
-composition to the private runtime profile boundary. Delivered in commit
-`c3e04a0` and [PR #32](https://github.com/marcolink/seqlane/pull/32).
+rejection, structured-output validation, and malformed-input tests. Removed ACP
+ownership and exports from `@seqlane/opencode`; the runtime profile now composes
+the generic adapter without exposing ACP or vendor types through public
+contracts. Delivered in [PR #32](https://github.com/marcolink/seqlane/pull/32).
 
 ## Traceability
 

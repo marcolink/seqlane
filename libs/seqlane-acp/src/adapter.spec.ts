@@ -6,17 +6,20 @@
 // @test-scope ./stream.ts
 // @test-scope ./task.ts
 
-import type { AcpAgentOptions } from "@mastra/acp";
-import type { TaskDefinition, TaskDefinitionRegistry } from "@seqlane/core";
+import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
+import type { AgentTaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createAcpExecutor } from "./adapter.js";
-import { parseAcpLaunchConfiguration } from "./contracts.js";
+import { createAcpAdapter } from "./adapter.js";
+import {
+  parseAcpLaunchConfiguration,
+  type AcpAgentFactoryOptions,
+} from "./contracts.js";
 import { AcpAdapterError, AcpMalformedStreamError } from "./errors.js";
 
 const outputSchema = z.object({ value: z.string() });
 
-function task(): TaskDefinition {
+function task(): AgentTaskDefinition {
   return {
     id: "agent-task",
     input: z.string(),
@@ -59,14 +62,10 @@ type TestAgent = {
   ): Promise<ReturnType<typeof stream>>;
 };
 
-function request(
-  overrides: Partial<
-    Parameters<ReturnType<typeof createAcpExecutor>["execute"]>[0]
-  > = {},
-) {
+function request(overrides: Partial<AgentAdapterRequest> = {}) {
   return {
     invocationId: "invocation-1",
-    taskId: "agent-task",
+    task: task(),
     input: "the input",
     signal: new AbortController().signal,
     ...overrides,
@@ -77,11 +76,10 @@ function createTestExecutor(
   outputs: string[],
   options: {
     readonly chunks?: readonly unknown[];
-    readonly createAgent?: (options: AcpAgentOptions) => TestAgent;
+    readonly createAgent?: (options: AcpAgentFactoryOptions) => TestAgent;
   } = {},
 ) {
-  const tasks: TaskDefinitionRegistry = new Map([["agent-task", task()]]);
-  return createAcpExecutor(tasks, configuration(), {
+  return createAcpAdapter(configuration(), {
     structuredOutputRetryCount: 1,
     createAgent:
       options.createAgent ??
@@ -108,6 +106,14 @@ describe("private ACP adapter", () => {
             toolCallId: "call-1",
             toolName: "read_file",
             argsTextDelta: "AGENTS.md",
+          },
+        },
+        {
+          type: "tool-call-delta",
+          payload: {
+            toolCallId: "call-1",
+            toolName: "read_file",
+            argsTextDelta: "\nREADME.md",
           },
         },
         {
@@ -141,11 +147,122 @@ describe("private ACP adapter", () => {
         activityId: "call-1",
         kind: "tool",
         name: "read_file",
+        state: "progress",
+        input: "\nREADME.md",
+      },
+      {
+        activityId: "call-1",
+        kind: "tool",
+        name: "read_file",
         state: "succeeded",
         output: "ok",
       },
     ]);
     expect(metrics[0]).toMatchObject({ durationMs: expect.any(Number) });
+  });
+
+  it("maps failed tool activity and preserves generic ACP configuration", async () => {
+    let agentOptions: AcpAgentFactoryOptions | undefined;
+    const activities: unknown[] = [];
+    const executor = createAcpAdapter(
+      configuration({
+        id: "other-acp",
+        description: "Another ACP implementation",
+        command: "custom-acp",
+        args: ["--stdio", "--profile", "safe"],
+        env: { ACP_TOKEN: "secret" },
+        cwd: "/workspace",
+        persistSession: false,
+        model: "vendor-model-id",
+      }),
+      {
+        createAgent: (options) => {
+          agentOptions = options;
+          return {
+            stream: async () =>
+              stream('{"value":"done"}', [
+                {
+                  type: "tool-call-delta",
+                  payload: {
+                    toolCallId: "call-2",
+                    toolName: "run_command",
+                  },
+                },
+                {
+                  type: "tool-result",
+                  payload: {
+                    toolCallId: "call-2",
+                    toolName: "run_command",
+                    result: "permission denied",
+                    isError: true,
+                  },
+                },
+              ]),
+          };
+        },
+      },
+    );
+
+    await expect(
+      executor.execute(
+        request({ onActivity: (activity) => activities.push(activity) }),
+      ),
+    ).resolves.toEqual({ value: "done" });
+    expect(agentOptions).toMatchObject({
+      id: "other-acp",
+      description: "Another ACP implementation",
+      command: "custom-acp",
+      args: ["--stdio", "--profile", "safe"],
+      env: { ACP_TOKEN: "secret" },
+      cwd: "/workspace",
+      persistSession: false,
+      model: "vendor-model-id",
+    });
+    expect(activities).toEqual([
+      {
+        activityId: "call-2",
+        kind: "tool",
+        name: "run_command",
+        state: "started",
+      },
+      {
+        activityId: "call-2",
+        kind: "tool",
+        name: "run_command",
+        state: "failed",
+        output: "permission denied",
+        message: "Tool failed",
+      },
+    ]);
+    expect(executor.capabilities).toEqual({
+      execute: true,
+      modelSelection: true,
+      structuredOutput: true,
+      sessionReuse: false,
+      checkpoint: false,
+      fork: false,
+      activity: true,
+      sessionUi: false,
+    });
+  });
+
+  it("repairs structured output and reports the normalized diagnostic", async () => {
+    const diagnostics: unknown[] = [];
+    const executor = createTestExecutor(["not json", '{"value":"repaired"}']);
+
+    await expect(
+      executor.execute(
+        request({
+          onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+        }),
+      ),
+    ).resolves.toEqual({ value: "repaired" });
+    expect(diagnostics).toEqual([
+      {
+        code: "structured-output",
+        message: "ACP structured output was repaired after attempt 1",
+      },
+    ]);
   });
 
   it("passes cancellation to the ACP stream and normalizes the failure", async () => {
@@ -186,10 +303,10 @@ describe("private ACP adapter", () => {
 
   it("rejects unresolved permission requests without selecting an option", async () => {
     type PermissionRequest = Parameters<
-      NonNullable<AcpAgentOptions["onPermissionRequest"]>
+      NonNullable<AcpAgentFactoryOptions["onPermissionRequest"]>
     >[0];
     let onPermissionRequest:
-      NonNullable<AcpAgentOptions["onPermissionRequest"]> | undefined;
+      NonNullable<AcpAgentFactoryOptions["onPermissionRequest"]> | undefined;
     const permissionRequest: PermissionRequest = {
       sessionId: "session-1",
       toolCall: { toolCallId: "tool-1", title: "Run command" },

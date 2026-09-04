@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AcpActivity } from "./contracts.js";
+import type { AgentActivity } from "@seqlane/agent-adapter";
 import { AcpMalformedStreamError } from "./errors.js";
 
 const toolCallSchema = z.object({
@@ -52,7 +52,7 @@ function parseToolChunk(value: unknown): ToolCall | ToolResult | undefined {
 export function reportAcpStreamChunk(
   value: unknown,
   activities: Map<string, string>,
-  onActivity: ((activity: AcpActivity) => void) | undefined,
+  onActivity: ((activity: AgentActivity) => void) | undefined,
 ): void {
   const chunk = parseToolChunk(value);
   if (chunk === undefined) return;
