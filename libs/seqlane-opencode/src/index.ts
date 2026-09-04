@@ -10,6 +10,8 @@ export type {
 } from "./session.js";
 export { createOpenCodeExecutor } from "./executor.js";
 export type { OpenCodeExecutor, OpenCodeExecutorRequest } from "./executor.js";
+export { createMastraAcpExecutor } from "./mastra-acp-executor.js";
+export type { MastraAcpExecutorOptions } from "./mastra-acp-executor.js";
 export { createOpenCodeModelCapabilities } from "./model-capabilities.js";
 export type { OpenCodeModelCapabilities } from "./model-capabilities.js";
 

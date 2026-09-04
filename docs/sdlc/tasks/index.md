@@ -167,7 +167,7 @@
 | [task.model-observability](./2026-09-03-model-observability.md) | Record Effective Model Selections in Observability | completed | 2026-09-03 | core |
 | [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md) | Remove Superseded Runtime Architecture | planned | 2026-09-03 | core |
 | [task.mastra-community-studio](./2026-09-03-mastra-community-studio.md) | Replace the Dedicated Studio With Mastra Community Studio | planned | 2026-09-03 | core |
-| [task.mastra-agent-acp](./2026-09-03-mastra-agent-acp.md) | Run Agent Tasks Through Mastra ACP | planned | 2026-09-03 | core |
+| [task.mastra-agent-acp](./2026-09-03-mastra-agent-acp.md) | Run Agent Tasks Through Mastra ACP | completed | 2026-09-03 | core |
 | [task.mastra-deterministic-shell](./2026-09-03-mastra-deterministic-shell.md) | Run Deterministic Shell Tasks Through Mastra | completed | 2026-09-03 | core |
 | [task.effect-local-task-execution](./2026-09-03-effect-local-task-execution.md) | Run Local Tasks Through the Private Effect Runtime | completed | 2026-09-03 | core |
 | [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |

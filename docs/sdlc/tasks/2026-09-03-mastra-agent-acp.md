@@ -1,7 +1,7 @@
 ---
 id: task.mastra-agent-acp
 title: Run Agent Tasks Through Mastra ACP
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
@@ -68,6 +68,20 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 The representative agent task executes through Mastra ACP with only documented native escape hatches.
+
+## Outcome
+
+Agent task execution now routes through the pinned Mastra ACP adapter before any
+native OpenCode path. The adapter preserves the selected provider and model,
+repository task instructions, structured-output validation and repair,
+cancellation, activity reporting, and invocation metrics. Mastra ACP's current
+capability gaps for native structured-output readback and portable reasoning
+variants are reported as diagnostics; the native adapter remains available only
+for those documented gaps.
+
+Focused ACP success, malformed-output, cancellation, activity, configuration,
+and missing-task tests pass. Mastra and OpenCode types remain private to the
+adapter boundary.
 
 ## Traceability
 
