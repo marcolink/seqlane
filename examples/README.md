@@ -121,7 +121,10 @@ before the retained model-facing patch is bounded; the temporary file can be
 larger than the 48,000-byte evidence limit and is removed after collection.
 For the zvec-grep evaluation, the workflow builds a local semantic index of the
 review target, starts a loopback-only MCP server, and permits only its
-read-only search tool.
+read-only search tool. Indexing uses a review-source allowlist and explicitly
+excludes dependency, generated, cache, environment, credential, and key paths;
+in particular, `node_modules` is never indexed. Default zvec-grep and
+repository ignore rules remain enabled.
 
 `all-features.ts` is the compact feature tour. It uses typed input/output,
 shared and exclusive workspaces, isolated/reused/branched sessions, explicit

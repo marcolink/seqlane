@@ -109,7 +109,41 @@ jobs:
         run: |
           pnpm dlx @zvec/zvec-grep@0.2.1 index "$REVIEW_TARGET" \
             --mode direct \
-            --embedding local/potion-code-16m-v2
+            --embedding local/potion-code-16m-v2 \
+            --hidden \
+            --max-filesize 1M \
+            --glob '*.ts' \
+            --glob '*.tsx' \
+            --glob '*.js' \
+            --glob '*.jsx' \
+            --glob '*.json' \
+            --glob '*.yaml' \
+            --glob '*.yml' \
+            --glob '*.md' \
+            --glob '*.css' \
+            --glob '*.html' \
+            --glob '*.sh' \
+            --glob '.github/**' \
+            --glob '!**/node_modules/**' \
+            --glob '!**/dist/**' \
+            --glob '!**/build/**' \
+            --glob '!**/coverage/**' \
+            --glob '!**/.cache/**' \
+            --glob '!**/.next/**' \
+            --glob '!**/vendor/**' \
+            --glob '!**/.env' \
+            --glob '!**/.env.*' \
+            --glob '!**/.npmrc' \
+            --glob '!**/id_*' \
+            --glob '!**/*.pem' \
+            --glob '!**/*.key' \
+            --glob '!**/*.p12' \
+            --glob '!**/*.pfx' \
+            --glob '!**/secrets/**' \
+            --glob '!**/private/**' \
+            --glob '!**/credentials/**' \
+            --glob '!**/*secret*.json' \
+            --glob '!**/*credential*.json'
 
       - name: Start zvec-grep
         if: steps.configuration.outputs.execute == 'true'
