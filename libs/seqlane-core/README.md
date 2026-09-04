@@ -4,6 +4,28 @@ Public Seqlane contracts and serializable Plan IR.
 
 This package is intentionally independent of Mastra. Runtime integration belongs in `@seqlane/runtime` and must not leak into this public boundary.
 
+### Workflow discovery descriptors
+
+Workflow composition uses ordinary TypeScript imports. Discovery is a separate
+CLI feature for reusable repository and user workflows.
+
+Put repository descriptors in `.seqlane/workflows/*.json`. Put user
+descriptors in `~/.config/seqlane/workflows/*.json`. A descriptor is a strict
+JSON object with this shape:
+
+```json
+{
+  "name": "review",
+  "moduleSpecifier": "./review.ts",
+  "exportName": "default",
+  "description": "Review a change"
+}
+```
+
+The module reference is relative to the descriptor file. The CLI qualifies
+discovered names with `repository:` or `user:`. It rejects an ambiguous
+unqualified name instead of choosing a scope silently.
+
 `SeqlaneSchema` is the small Mastra-independent schema contract used by the
 runtime to validate external task inputs and outputs.
 

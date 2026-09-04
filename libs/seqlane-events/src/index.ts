@@ -4,6 +4,7 @@ export {
   isJsonValue,
   isSeqlaneExecutionEvent,
   isValidationIssue,
+  seqlanePlanSnapshotSchema,
   seqlaneExecutionEventSchema,
 } from "./validation.js";
 export { serializeSeqlaneError } from "./errors.js";

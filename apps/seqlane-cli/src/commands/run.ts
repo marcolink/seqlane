@@ -1,13 +1,6 @@
 import { Args, Command, Flags } from "@oclif/core";
-import {
-  isJsonValue,
-  type JsonValue,
-  type RunRequest,
-  type WorkflowReference,
-} from "@seqlane/core";
+import { isJsonValue, type JsonValue, type RunRequest } from "@seqlane/core";
 import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
-import { extname, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { launchRunner } from "../runner-client.js";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import { createRecordingConsumer } from "../recording.js";
@@ -17,65 +10,18 @@ import {
   createOutputCapabilities,
 } from "../output.js";
 import { parseOutputMode } from "../output-mode.js";
+import { workflowRootsFromFlags } from "./list.js";
+import {
+  discoverWorkflowDescriptors,
+  resolveWorkflowSelection,
+  type WorkflowRoots,
+} from "../workflow-discovery.js";
+import { isDirectWorkflowReference } from "../workflow-reference.js";
 
 const localRuntimeId = "local";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function parseWorkflowReference(value: string): WorkflowReference {
-  const separator = value.lastIndexOf("#");
-  if (separator === -1) {
-    return {
-      id: value,
-      moduleSpecifier: resolveWorkflowFile(value),
-      exportName: "default",
-    };
-  }
-
-  if (separator === 0 || separator === value.length - 1) {
-    throw new Error(
-      "workflow must be a workflow file or <module-specifier>#<export-name>",
-    );
-  }
-
-  const moduleSpecifier = value.slice(0, separator);
-  const exportName = value.slice(separator + 1);
-  let resolvedModuleSpecifier = moduleSpecifier;
-
-  if (moduleSpecifier.startsWith(".") || moduleSpecifier.startsWith("/")) {
-    resolvedModuleSpecifier = pathToFileURL(
-      resolve(process.cwd(), moduleSpecifier),
-    ).href;
-  } else if (moduleSpecifier.startsWith("file:")) {
-    resolvedModuleSpecifier = new URL(moduleSpecifier).href;
-  }
-
-  return {
-    id: value,
-    moduleSpecifier: resolvedModuleSpecifier,
-    exportName,
-  };
-}
-
-function resolveWorkflowFile(value: string): string {
-  let path: string;
-  try {
-    path = value.startsWith("file:")
-      ? fileURLToPath(value)
-      : resolve(process.cwd(), value);
-  } catch {
-    throw new Error("workflow file reference must be a valid path or file URL");
-  }
-
-  if (!new Set([".ts", ".mts", ".js", ".mjs"]).has(extname(path))) {
-    throw new Error(
-      "workflow file must use a .ts, .mts, .js, or .mjs extension",
-    );
-  }
-
-  return pathToFileURL(path).href;
 }
 
 function parseJsonInput(value: string): JsonValue {
@@ -90,16 +36,20 @@ function parseJsonInput(value: string): JsonValue {
   return parsed;
 }
 
-function createRunRequest(
+export function createRunRequest(
   workflow: string,
   input: string,
   runtime: string | undefined,
   workspace: string | undefined,
   dryRun: boolean,
+  roots: WorkflowRoots,
 ): RunRequest {
+  const workflows = isDirectWorkflowReference(workflow)
+    ? []
+    : discoverWorkflowDescriptors(roots);
   return {
     type: "run.start",
-    workflow: parseWorkflowReference(workflow),
+    workflow: resolveWorkflowSelection(workflow, workflows).reference,
     input: parseJsonInput(input),
     runtime: {
       id: runtime ?? localRuntimeId,
@@ -110,16 +60,17 @@ function createRunRequest(
 }
 
 export default class RunCommand extends Command {
-  static override description =
-    "Run one explicitly selected workflow in a fresh runner";
+  static override description = "Run one selected workflow in a fresh runner";
 
   static override examples = [
     '<%= config.bin %> run ./examples/minimal-workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local',
+    '<%= config.bin %> run repository:review --input \'{"topic":"Seqlane"}\'',
   ];
 
   static override args = {
     workflow: Args.string({
-      description: "workflow file or <module-specifier>#<export-name>",
+      description:
+        "qualified or unique workflow name, or direct file/module reference",
       required: true,
     }),
   };
@@ -147,6 +98,12 @@ export default class RunCommand extends Command {
     dry: Flags.boolean({
       description: "Print the calculated Plan without executing workflow tasks",
     }),
+    "repository-root": Flags.string({
+      description: "Repository workflow descriptor root",
+    }),
+    "user-root": Flags.string({
+      description: "User workflow descriptor root",
+    }),
   };
 
   async run(): Promise<void> {
@@ -160,6 +117,7 @@ export default class RunCommand extends Command {
         flags.runtime,
         flags.workspace,
         flags.dry,
+        workflowRootsFromFlags(flags),
       );
     } catch (error) {
       this.error(errorMessage(error));

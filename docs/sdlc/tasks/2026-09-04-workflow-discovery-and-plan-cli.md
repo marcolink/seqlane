@@ -1,7 +1,7 @@
 ---
 id: task.workflow-discovery-and-plan-cli
 title: Add Workflow Discovery and Plan Commands
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
@@ -89,7 +89,19 @@ precedence or runtime work.
 
 ## Outcome
 
-Not started.
+Implemented repository and user descriptor discovery with strict Zod
+validation. Qualified names, unique names, ambiguity errors, and direct module
+references now use one workflow resolution path.
+
+Added `seqlane list` and `seqlane plan` with human and validated JSON output.
+The `run` command now accepts the same discovered names. List does not import
+workflow modules. Plan compiles the selected workflow without executing tasks,
+processes, executors, or models.
+
+Updated the CLI and core documentation. Verified the implementation with the
+full repository typecheck, test, lint, build, format, Nx sync, and SDLC gates.
+The built CLI end-to-end suite passed 25 tests, and the test-mapping check
+passed 154 mappings.
 
 ## Traceability
 
