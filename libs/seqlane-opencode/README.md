@@ -4,8 +4,9 @@ Private adapter for the initial Seqlane agent runtime. Workflow authors use
 `@seqlane/core`; adapter SDK, session, and endpoint details stay
 private.
 
-The adapter creates runtime sessions using the selected runtime's existing
-configuration. It does not receive, derive, merge, or apply Seqlane per-task
+Agent tasks use the pinned Mastra ACP adapter with the selected workspace and
+model configuration. The adapter creates runtime sessions using the selected
+runtime's existing configuration. It does not receive, derive, merge, or apply Seqlane per-task
 permission rules. Runtime configuration is authoritative for tools,
 filesystem, shell, network, MCP, skills, and approvals.
 
