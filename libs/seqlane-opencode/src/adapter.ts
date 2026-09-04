@@ -94,7 +94,10 @@ function createAdapterForRun(
           ? undefined
           : promptStrategyDiagnostic(selection);
       if (diagnostic !== undefined) {
-        request.onDiagnostic?.({ code: "structured-output", message: diagnostic });
+        request.onDiagnostic?.({
+          code: "structured-output",
+          message: diagnostic,
+        });
       }
 
       const basePrompt = buildOpenCodePrompt(request.task, request.input);

@@ -76,7 +76,11 @@ function createSessionUiExecutor(
           onSessionUiAvailable === undefined
             ? undefined
             : await adapter.sessionUi?.();
-        await reportSessionUi(request.invocationId, browserUrl, onSessionUiAvailable);
+        await reportSessionUi(
+          request.invocationId,
+          browserUrl,
+          onSessionUiAvailable,
+        );
       }
       return executeAgentAdapterRequest(
         adapter,
@@ -136,10 +140,7 @@ function createOpenCodeSession(
     ...(fork === undefined
       ? {}
       : {
-          fork: async ({
-            checkpoint,
-            effectiveSelection: branchSelection,
-          }) => {
+          fork: async ({ checkpoint, effectiveSelection: branchSelection }) => {
             const selection = branchSelection ?? effectiveSelection;
             return createOpenCodeSession(
               taskDefinitions,

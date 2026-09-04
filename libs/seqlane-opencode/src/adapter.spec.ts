@@ -7,9 +7,7 @@ import {
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import {
-  createOpenCodeAdapterForRun,
-} from "./adapter.js";
+import { createOpenCodeAdapterForRun } from "./adapter.js";
 import type { OpenCodePrompt, OpenCodeRun } from "./protocol.js";
 
 const task: AgentTaskDefinition = {
@@ -41,7 +39,10 @@ function createRun(
 ): OpenCodeRun {
   return {
     prompt,
-    checkpoint: async () => ({ sessionId: "session-1", messageId: "message-1" }),
+    checkpoint: async () => ({
+      sessionId: "session-1",
+      messageId: "message-1",
+    }),
     fork: async () => {
       throw new Error("fork is not used by adapter execution tests");
     },
@@ -97,7 +98,9 @@ describe("OpenCode AgentAdapter", () => {
     ).resolves.toEqual({ result: "done" });
 
     expect(prompts[0]?.text).toContain("Process demo");
-    expect(prompts[0]?.text).toContain("Task instruction: Keep the change small");
+    expect(prompts[0]?.text).toContain(
+      "Task instruction: Keep the change small",
+    );
     expect(prompts[0]?.selection).toBeUndefined();
     expect(activities).toEqual([
       {
@@ -137,23 +140,19 @@ describe("OpenCode AgentAdapter", () => {
     const promptCalled = new Promise<void>((resolve) => {
       resolvePromptCalled = resolve;
     });
-    const run = createRun(
-      async (prompt) => {
-        receivedSignal = prompt.signal;
-        resolvePromptCalled();
-        return new Promise<never>((_resolve, reject) => {
-          prompt.signal?.addEventListener(
-            "abort",
-            () => reject(prompt.signal?.reason ?? new Error("cancelled")),
-            { once: true },
-          );
-        });
-      },
-    );
+    const run = createRun(async (prompt) => {
+      receivedSignal = prompt.signal;
+      resolvePromptCalled();
+      return new Promise<never>((_resolve, reject) => {
+        prompt.signal?.addEventListener(
+          "abort",
+          () => reject(prompt.signal?.reason ?? new Error("cancelled")),
+          { once: true },
+        );
+      });
+    });
     const adapter = createOpenCodeAdapterForRun(run);
-    const execution = adapter.execute(
-      request({ signal: controller.signal }),
-    );
+    const execution = adapter.execute(request({ signal: controller.signal }));
 
     await promptCalled;
     controller.abort(new Error("cancelled by caller"));
