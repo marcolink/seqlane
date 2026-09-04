@@ -6,7 +6,10 @@ import type { ModelSelection, PlanNode, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
-import { resolveCompiledWorkflowSessions } from "./session-preflight.js";
+import {
+  resolveCompiledWorkflowSessions,
+  UnsupportedSessionCapabilityError,
+} from "./session-preflight.js";
 import type {
   ResolvedExecutorSession,
   SessionResolver,
@@ -51,6 +54,54 @@ function sharedSessionResolver(
 }
 
 describe("shared-session order preflight", () => {
+  it("rejects an unsupported branch before resolving an adapter session", async () => {
+    let resolved = 0;
+    const source = task("source");
+    const branch = {
+      ...task("branch", ["source"]),
+      session: { type: "branch" as const, from: "source" },
+    };
+    const compiled = new PlanCompiler().compileWorkflow(
+      {
+        workflow: { id: "unsupported-branch" },
+        nodes: [source, branch],
+        output: { type: "ref", nodeId: "branch", path: [] },
+      },
+      {
+        createInvocationId: (nodeId) => `inv:${nodeId}`,
+        executors: new Map([["test", { execute: async () => ({}) }]]),
+        sessionResolver: {
+          adapterCapabilities: {
+            execute: true,
+            modelSelection: false,
+            structuredOutput: true,
+            sessionReuse: true,
+            checkpoint: false,
+            fork: false,
+            activity: false,
+            sessionUi: false,
+          },
+          resolve: async () => {
+            resolved += 1;
+            return {
+              key: Symbol("unreachable"),
+              executor: { execute: async () => ({}) },
+            };
+          },
+        },
+        taskDefinitions: new Map([
+          [source.taskId, taskDefinition(source.taskId)],
+          [branch.taskId, taskDefinition(branch.taskId)],
+        ]),
+      },
+    );
+
+    await expect(
+      resolveCompiledWorkflowSessions(compiled),
+    ).rejects.toBeInstanceOf(UnsupportedSessionCapabilityError);
+    expect(resolved).toBe(0);
+  });
+
   it("accepts a shared-session pair with a transitive DAG dependency", async () => {
     const executor = { execute: async () => ({}) };
     const compiled = new PlanCompiler().compileWorkflow(

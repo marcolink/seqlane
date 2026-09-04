@@ -4,6 +4,7 @@ import type {
   TaskDefinition,
   TaskDefinitionRegistry,
 } from "@seqlane/core";
+import type { AgentAdapterCapabilities } from "@seqlane/agent-adapter";
 import type { SeqlaneExecutor } from "../execution/executor.js";
 import type { ExecutorModelCapabilities } from "../execution/executor.js";
 
@@ -52,6 +53,8 @@ export class SessionModelSelectionMismatchError extends Error {
 }
 
 export interface SessionResolver {
+  /** Capabilities resolved from the selected private adapter configuration. */
+  readonly adapterCapabilities?: AgentAdapterCapabilities;
   readonly modelCapabilities?: ExecutorModelCapabilities;
   resolve(request: {
     readonly invocationId: InvocationId;

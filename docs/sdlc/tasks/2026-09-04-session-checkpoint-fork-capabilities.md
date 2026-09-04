@@ -1,11 +1,11 @@
 ---
 id: task.session-checkpoint-fork-capabilities
 title: Map Session, Checkpoint, and Fork Capabilities
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
@@ -85,7 +85,14 @@ each adapter and active configuration.
 
 ## Outcome
 
-Planned.
+Completed. Added private adapter capability preflight and run/configuration
+bound checkpoint validation. Shared-session, checkpoint, and exact-fork
+requirements now fail before session resolution when unsupported, while
+OpenCode uses its native checkpoint/fork operations and ACP declares no
+checkpoint or fork support. Runtime tests, dependent typechecks, and lint
+pass.
+
+The task branch is prepared for pull request delivery.
 
 ## Traceability
 
