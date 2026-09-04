@@ -1,11 +1,11 @@
 ---
 id: adr.local-mechanical-tasks
 title: Run Local Mechanical Tasks Without an Agent
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - adr.executor-neutral-workflow-authoring
   - adr.effect-private-runtime-engine
@@ -137,6 +137,7 @@ network policy, background local processes, or an Effect runtime migration.
 
 ## Traceability
 
+- [adr.mastra-local-mechanical-tasks](./2026-09-04-mastra-local-mechanical-tasks.md)
 - [adr.executor-neutral-workflow-authoring](./2026-09-02-executor-neutral-workflow-authoring.md)
 - [adr.effect-private-runtime-engine](./2026-09-02-effect-private-runtime-engine.md)
 - [adr.seqlane-plan-ir-and-typed-dataflow](./2026-09-02-seqlane-plan-ir-and-typed-dataflow.md)
