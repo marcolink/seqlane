@@ -1,10 +1,7 @@
 name: Seqlane code review
 
 on:
-  # TEMPORARY: validate this branch's workflow and source. Restore
-  # pull_request_target and base.sha before merging. pull_request exposes the
-  # OpenAI credential to pull-request code, so this is limited to same-repo PRs.
-  pull_request:
+  pull_request_target:
     types:
       - opened
       - reopened
@@ -57,14 +54,14 @@ jobs:
             echo "execute=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check out Seqlane source under test
+      - name: Check out trusted Seqlane source
         if: steps.configuration.outputs.execute == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: seqlane-source
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Check out pull request head
         if: steps.configuration.outputs.execute == 'true'

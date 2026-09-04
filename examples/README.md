@@ -89,15 +89,12 @@ Every review job logs and adds the workflow definition ref and immutable SHA to
 the GitHub Actions job summary. This identifies the exact workflow revision
 that GitHub executed, independently of the reviewed pull-request revision.
 
-The workflow normally uses `pull_request_target`, runs the trusted workflow
-definition from the base branch, and checks out the trusted Seqlane source from
-the base revision. It checks out the pull-request head separately as the review
-target. The current zvec-grep evaluation temporarily uses `pull_request` and
-checks out the Seqlane source from the pull-request head so the integration can
-be exercised. Restore `pull_request_target` and the base revision before
-merging that evaluation change. When a pull request closes, the workflow
-triggers a cancellation event that uses the same concurrency group to cancel
-any active review, while its review job is skipped.
+The workflow uses `pull_request_target`, runs the trusted workflow definition
+from the base branch, and checks out the trusted Seqlane source from the base
+revision. It checks out the pull-request head separately as the review target.
+When a pull request closes, the workflow triggers a cancellation event that
+uses the same concurrency group to cancel any active review, while its review
+job is skipped.
 
 The workflow reads the pull request's configured base branch and immutable base
 revision from the event, then reviews the explicit base-to-head range in a
