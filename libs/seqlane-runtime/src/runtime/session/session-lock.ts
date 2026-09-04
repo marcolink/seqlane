@@ -49,7 +49,6 @@ export class SessionLockRegistry {
 
     onWaiting?.();
     return new Promise((resolve, reject) => {
-      let waitingEntry!: WaitingSessionLock;
       const cleanup = (): void => {
         signal?.removeEventListener("abort", onAbort);
       };
@@ -70,7 +69,7 @@ export class SessionLockRegistry {
         );
         this.#notifyChange();
       };
-      waitingEntry = {
+      const waitingEntry: WaitingSessionLock = {
         creationOrdinal,
         resolve: resolveWaiting,
         reject: rejectWaiting,
