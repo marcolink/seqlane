@@ -8,6 +8,7 @@ import type {
   WorkId,
   RunId,
   InvocationId,
+  WorkflowDefinition,
 } from "@seqlane/core";
 import { SeqlaneError } from "@seqlane/core";
 import {
@@ -55,6 +56,7 @@ export interface MastraPlanExecutionOptions {
   readonly workspaceResources: WorkspaceResourceRegistry;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
+  readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
   readonly events: SeqlaneEventSink;
 }
 
@@ -150,12 +152,21 @@ function emitMastraNonTerminalInvocations(
   result: MastraWorkflowResult,
   events: SeqlaneEventSink,
 ): void {
+  const workflowCancelled =
+    result.status === "canceled" || result.status === "cancelled";
   for (const node of compiled.orderedNodes) {
     const status = result.steps?.[node.nodeId]?.status;
     const skippedAfterFailure =
       result.status === "failed" && status === undefined;
+    const cancelledBeforeTerminal =
+      workflowCancelled &&
+      (status === undefined ||
+        status === "skipped" ||
+        status === "canceled" ||
+        status === "cancelled");
     if (
       !skippedAfterFailure &&
+      !cancelledBeforeTerminal &&
       status !== "skipped" &&
       status !== "canceled" &&
       status !== "cancelled"
@@ -164,7 +175,15 @@ function emitMastraNonTerminalInvocations(
     }
 
     const invocationId = invocationIdForNode(legacy.context, node);
-    if (status === "skipped" || skippedAfterFailure) {
+    if (cancelledBeforeTerminal) {
+      events.emit({
+        type: "invocation.cancelled",
+        workId: legacy.context.workId,
+        runId: legacy.context.runId,
+        invocationId,
+        reason: "Mastra cancelled invocation before execution completed",
+      });
+    } else if (status === "skipped" || skippedAfterFailure) {
       events.emit({
         type: "invocation.skipped",
         workId: legacy.context.workId,
@@ -220,6 +239,7 @@ export function createMastraPlanExecution(
     taskDefinitions: options.taskDefinitions,
     validatorDefinitions: options.validatorDefinitions,
     workspaceResources: options.workspaceResources,
+    workflow: options.workflow,
     onFailure: captureFailure,
     onInputValidationFailure: ({
       node,

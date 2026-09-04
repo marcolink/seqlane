@@ -119,13 +119,30 @@ async function runMastraPlan(options: {
   readonly plan: Plan;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
+  readonly workflow?: { input: SeqlaneSchema; output: SeqlaneSchema };
+  readonly executor?: (request: ExecutorRequest) => Promise<unknown>;
+  readonly events?: SeqlaneEvent[];
+}) {
+  const active = await startMastraPlan(options);
+  return active.outcome;
+}
+
+async function startMastraPlan(options: {
+  readonly plan: Plan;
+  readonly taskDefinitions?: TaskDefinitionRegistry;
+  readonly validatorDefinitions?: ValidatorDefinitionRegistry;
+  readonly workflow?: { input: SeqlaneSchema; output: SeqlaneSchema };
   readonly executor?: (request: ExecutorRequest) => Promise<unknown>;
   readonly events?: SeqlaneEvent[];
 }) {
   const executor = {
     execute: async (request: ExecutorRequest) => options.executor?.(request),
   };
-  const events = { emit: (event: SeqlaneEvent) => options.events?.push(event) };
+  const events = {
+    emit: (event: SeqlaneEvent) => {
+      options.events?.push(event);
+    },
+  };
   const execution = createMastraPlanExecution({
     plan: options.plan,
     workflowInput: {},
@@ -139,11 +156,12 @@ async function runMastraPlan(options: {
     workspaceResources: new Map(),
     taskDefinitions: options.taskDefinitions,
     validatorDefinitions: options.validatorDefinitions,
+    workflow: options.workflow,
     events,
   });
   await resolveCompiledWorkflowSessions(execution.legacy);
   emitMastraInvocationTopology(execution.compiled, execution.legacy, events);
-  return execution.runtime.run({
+  return execution.runtime.start({
     workflowKey: options.plan.workflow.id,
     input: {},
     workId: "fixture-work",
@@ -293,6 +311,18 @@ describe("private Mastra runtime spine", () => {
         taskDefinitions: fixtureTaskDefinitions(inputFailure),
       },
       {
+        name: "workflow input validation",
+        error: InputValidationError,
+        category: "InputValidationError",
+        hasCause: true,
+        plan: taskPlan("fixture-workflow-input-failure"),
+        taskDefinitions: fixtureTaskDefinitions(),
+        workflow: {
+          input: inputFailure,
+          output: passthroughSchema,
+        },
+      },
+      {
         name: "executor",
         error: ExecutorError,
         category: "ExecutorError",
@@ -314,6 +344,19 @@ describe("private Mastra runtime spine", () => {
           outputFailure,
         ),
         executor: async () => ({ value: "invalid" }),
+      },
+      {
+        name: "workflow output validation",
+        error: OutputValidationError,
+        category: "OutputValidationError",
+        hasCause: true,
+        plan: taskPlan("fixture-workflow-output-failure"),
+        taskDefinitions: fixtureTaskDefinitions(),
+        workflow: {
+          input: passthroughSchema,
+          output: outputFailure,
+        },
+        executor: async () => ({ value: "valid task output" }),
       },
       {
         name: "validation gate",
@@ -402,6 +445,46 @@ describe("private Mastra runtime spine", () => {
         type: "invocation.skipped",
         invocationId: "fixture-downstream:1",
         dependencyIds: ["fixture-upstream:1"],
+      }),
+    );
+  });
+
+  it("cancels dependent invocations that Mastra leaves unstarted", async () => {
+    const events: SeqlaneEvent[] = [];
+    let executorStarted!: () => void;
+    const executorStartedPromise = new Promise<void>((resolve) => {
+      executorStarted = resolve;
+    });
+    const active = await startMastraPlan({
+      plan: dependentTaskPlan(),
+      taskDefinitions: fixtureTaskDefinitions(),
+      events,
+      executor: async ({ signal }) => {
+        executorStarted();
+        return new Promise<never>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new Error("fixture invocation cancelled")),
+            { once: true },
+          );
+        });
+      },
+    });
+    await executorStartedPromise;
+    await active.cancel();
+
+    await expect(active.outcome).resolves.toEqual({ status: "cancelled" });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "invocation.cancelled",
+        invocationId: "fixture-downstream:1",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "invocation.skipped",
+        invocationId: "fixture-downstream:1",
+        reason: expect.stringContaining("upstream failure"),
       }),
     );
   });

@@ -159,6 +159,13 @@ export async function startRun(
       request.input,
       (notification) => sendRuntimeSessionUi(host, notification),
     );
+    const workflowDefinition =
+      typeof loadedWorkflow.workflow === "object" &&
+      loadedWorkflow.workflow !== null &&
+      "input" in loadedWorkflow.workflow &&
+      "output" in loadedWorkflow.workflow
+        ? loadedWorkflow.workflow
+        : undefined;
     const mastraExecution = createMastraPlanExecution({
       plan: loadedWorkflow.plan,
       workId,
@@ -169,6 +176,7 @@ export async function startRun(
       workspaceResources: execution.workspaceResources,
       taskDefinitions: execution.taskDefinitions,
       validatorDefinitions: loadedWorkflow.validatorDefinitions,
+      workflow: workflowDefinition,
       events,
       createInvocationId,
     });

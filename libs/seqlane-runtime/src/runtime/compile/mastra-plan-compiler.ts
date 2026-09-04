@@ -205,6 +205,39 @@ function reportFailure(
   return failure;
 }
 
+function reportWorkflowFailure(
+  cause: unknown,
+  phase: SeqlaneFailurePhase,
+  workflowId: string,
+  options: MastraPlanCompilerOptions,
+): SeqlaneError {
+  const failure = toSeqlaneInvocationError(cause, phase, workflowId);
+  options.onFailure?.(failure);
+  return failure;
+}
+
+function schemaForWorkflowMastra(
+  schema: SeqlaneSchema | undefined,
+  phase: Extract<SeqlaneFailurePhase, "input" | "output">,
+  workflowId: string,
+  options: MastraPlanCompilerOptions,
+): z.ZodType {
+  if (schema === undefined) return schemaForMastra(undefined);
+
+  const invalid = Symbol("invalid workflow schema value");
+  return z.preprocess(
+    (value) => {
+      try {
+        return schema.parse(value);
+      } catch (cause) {
+        reportWorkflowFailure(cause, phase, workflowId, options);
+        return invalid;
+      }
+    },
+    z.custom((value) => value !== invalid),
+  );
+}
+
 function nodeLayers(orderedNodes: readonly PlanNode[]): readonly PlanNode[][] {
   const layers: PlanNode[][] = [];
   const layerByNodeId = new Map<string, number>();
@@ -402,11 +435,17 @@ export function compilePlanToMastra(
     invocationSteps.map(({ nodeId, step }) => [nodeId, step]),
   );
 
-  const workflowInputSchema = schemaForMastra(
+  const workflowInputSchema = schemaForWorkflowMastra(
     options.workflowInputSchema ?? options.workflow?.input,
+    "input",
+    plan.workflow.id,
+    options,
   );
-  const workflowOutputSchema = schemaForMastra(
+  const workflowOutputSchema = schemaForWorkflowMastra(
     options.workflowOutputSchema ?? options.workflow?.output,
+    "output",
+    plan.workflow.id,
+    options,
   );
   const resultStep = createStep({
     id: RESULT_STEP_ID,
@@ -427,11 +466,15 @@ export function compilePlanToMastra(
         results.set(node.nodeId, getStepResult(node.nodeId));
       }
       const output = resolveBinding(plan.output, workflowInput, results);
-      return (
-        options.workflow?.output?.parse(output) ??
-        options.workflowOutputSchema?.parse(output) ??
-        output
-      );
+      try {
+        return (
+          options.workflow?.output?.parse(output) ??
+          options.workflowOutputSchema?.parse(output) ??
+          output
+        );
+      } catch (cause) {
+        throw reportWorkflowFailure(cause, "output", plan.workflow.id, options);
+      }
     },
   });
 
