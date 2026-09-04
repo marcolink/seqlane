@@ -14,6 +14,12 @@ export {
   encodeRuntimeSessionUiAvailable,
 } from "./runner/runtime-session-ui.js";
 export type { RuntimeSessionUiAvailable } from "./runner/runtime-session-ui.js";
+export { createExecutionEventBridge } from "./runner/event-bridge.js";
+export type {
+  ExecutionEventBridge,
+  ExecutionEventBridgeOptions,
+  SendExecutionEvent,
+} from "./runner/event-bridge.js";
 export {
   startCompiledWorkflow,
   runCompiledWorkflow,

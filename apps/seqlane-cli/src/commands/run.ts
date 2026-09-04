@@ -1,10 +1,17 @@
 import { Args, Command, Flags } from "@oclif/core";
-import { isJsonValue, type JsonValue, type RunRequest } from "@seqlane/core";
+import {
+  isJsonValue,
+  RuntimeError,
+  type JsonValue,
+  type RunRequest,
+} from "@seqlane/core";
 import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { closeSync, openSync, readSync } from "node:fs";
-import { launchRunner } from "../runner-client.js";
 import { createEventDispatcher } from "../event-dispatcher.js";
+import { createExecutionEventBridge } from "@seqlane/runtime";
+import { OperationalClient } from "../operational-client.js";
 import { createRecordingConsumer } from "../recording.js";
 import {
   connectTerminalResize,
@@ -141,6 +148,9 @@ export default class RunCommand extends Command {
     record: Flags.string({
       description: "Write bounded canonical execution events to a new file",
     }),
+    "server-url": Flags.string({
+      description: "Existing operational server URL",
+    }),
     dry: Flags.boolean({
       description: "Print the calculated Plan without executing workflow tasks",
     }),
@@ -223,6 +233,91 @@ export default class RunCommand extends Command {
         onDiagnostic: (message) => capabilities.stderr.write(message + "\n"),
       },
     );
+
+    if (!flags.dry && flags["server-url"] !== undefined) {
+      const workId = randomUUID();
+      const runId = randomUUID();
+      const events = createExecutionEventBridge(async (event) => {
+        dispatcher.consume(event);
+      });
+      events.emit({ type: "run.started", workId, runId });
+      let client: OperationalClient | undefined;
+      let cancellationRequested = false;
+      let exitStatus = 1;
+      const onSignal = (): void => {
+        cancellationRequested = true;
+        void client
+          ?.cancelRun(runId, request.workflow.id)
+          .catch(() => undefined);
+      };
+      process.once("SIGINT", onSignal);
+      process.once("SIGTERM", onSignal);
+      try {
+        client = new OperationalClient(flags["server-url"]);
+        const result = await client.startRun({
+          workflowId: request.workflow.id,
+          runId,
+          workId,
+          input: request.input,
+          runtimeId: request.runtime.id,
+          workspace: request.runtime.workspace,
+        });
+        if (
+          cancellationRequested ||
+          result.status === "canceled" ||
+          result.status === "cancelled"
+        ) {
+          events.emit({ type: "run.cancelled", workId, runId });
+          exitStatus = 130;
+        } else if (result.status === "success" && isJsonValue(result.result)) {
+          events.emit({
+            type: "run.succeeded",
+            workId,
+            runId,
+            output: result.result,
+          });
+          exitStatus = 0;
+        } else {
+          events.emit({
+            type: "run.failed",
+            workId,
+            runId,
+            error: new RuntimeError(
+              result.error ??
+                new Error(
+                  `Operational run ended with status "${result.status}"`,
+                ),
+            ),
+          });
+        }
+      } catch (error) {
+        events.emit({
+          type: "run.failed",
+          workId,
+          runId,
+          error: new RuntimeError(error),
+        });
+      } finally {
+        process.removeListener("SIGINT", onSignal);
+        process.removeListener("SIGTERM", onSignal);
+      }
+      await events.flush();
+      await dispatcher.flush();
+      await dispatcher.close();
+      try {
+        await renderer?.finish();
+      } catch (error) {
+        capabilities.stderr.write(
+          "seqlane output error: " + errorMessage(error) + "\n",
+        );
+      } finally {
+        disconnectResize();
+      }
+      process.exitCode = exitStatus;
+      return;
+    }
+
+    const { launchRunner } = await import("../runner-client.js");
     const client = launchRunner(request, {
       onExecutionEvent: (event) => dispatcher.consume(event),
       onRuntimeSessionUiAvailable: (notification) => {
