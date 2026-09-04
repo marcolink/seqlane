@@ -56,6 +56,9 @@ describe("pull-request code review example workflow", () => {
       dependsOn: [],
     });
     expect(reviewLanes).toHaveLength(3);
+    for (const reviewLane of reviewLanes) {
+      expect(reviewLane.dependsOn).toEqual([gitEvidence?.nodeId]);
+    }
     expect(reviewLanes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

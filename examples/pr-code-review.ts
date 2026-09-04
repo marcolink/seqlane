@@ -435,7 +435,11 @@ export default createFlow({
     correctnessReviewTask,
     ({ input, tasks }) => ({
       review: {
-        ...input,
+        repository: input.repository,
+        baseBranch: input.baseBranch,
+        baseRevision: input.baseRevision,
+        headRevision: input.headRevision,
+        pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
       },
     }),
@@ -451,7 +455,11 @@ export default createFlow({
     maintainabilityReviewTask,
     ({ input, tasks }) => ({
       review: {
-        ...input,
+        repository: input.repository,
+        baseBranch: input.baseBranch,
+        baseRevision: input.baseRevision,
+        headRevision: input.headRevision,
+        pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
       },
     }),
@@ -467,7 +475,11 @@ export default createFlow({
     riskReviewTask,
     ({ input, tasks }) => ({
       review: {
-        ...input,
+        repository: input.repository,
+        baseBranch: input.baseBranch,
+        baseRevision: input.baseRevision,
+        headRevision: input.headRevision,
+        pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
       },
     }),
@@ -483,7 +495,11 @@ export default createFlow({
     synthesizeReviewTask,
     ({ input, tasks }) => ({
       review: {
-        ...input,
+        repository: input.repository,
+        baseBranch: input.baseBranch,
+        baseRevision: input.baseRevision,
+        headRevision: input.headRevision,
+        pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
       },
       correctness: tasks.correctness.output,
