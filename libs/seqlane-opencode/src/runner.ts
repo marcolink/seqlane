@@ -4,13 +4,13 @@ import type {
   WorkflowDefinition,
 } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
-import { createOpenCodeExecutor } from "./executor.js";
+import { createMastraAcpExecutor } from "./mastra-acp-executor.js";
 import { createOpenCodeRun, type OpenCodeConnection } from "./session.js";
 
 export interface OpenCodeRunnerExecution {
   readonly executors: ReadonlyMap<
     string,
-    ReturnType<typeof createOpenCodeExecutor>
+    ReturnType<typeof createMastraAcpExecutor>
   >;
   readonly taskSchemas: TaskSchemaRegistry;
 }
@@ -28,7 +28,9 @@ export function createOpenCodeRunnerExecution<Input, Output>(
   return async (_input, connection, signal) => {
     const built = buildWorkflow(workflow);
     const run = await createOpenCodeRun(connection, signal);
-    const executor = createOpenCodeExecutor(built.taskDefinitions, run);
+    const executor = createMastraAcpExecutor(built.taskDefinitions, {
+      workspace: run.workspace,
+    });
 
     return {
       executors: new Map([["opencode", executor]]),
