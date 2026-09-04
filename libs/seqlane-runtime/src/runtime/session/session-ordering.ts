@@ -1,4 +1,4 @@
-import type { PlanNode } from "@seqlane/core";
+import type { Plan, PlanNode } from "@seqlane/core";
 
 /**
  * Adds deterministic graph edges between consumers that reuse one session.
@@ -35,4 +35,16 @@ export function lowerReuseSessionOrdering(
 
     return dependsOn === node.dependsOn ? node : { ...node, dependsOn };
   });
+}
+
+/** Returns a Plan whose top-level nodes carry the lowered execution edges. */
+export function withLoweredPlanNodes(
+  plan: Plan,
+  loweredNodes: readonly PlanNode[],
+): Plan {
+  const loweredById = new Map(loweredNodes.map((node) => [node.nodeId, node]));
+  return {
+    ...plan,
+    nodes: plan.nodes.map((node) => loweredById.get(node.nodeId) ?? node),
+  };
 }

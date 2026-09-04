@@ -4,11 +4,20 @@ Private adapter for the initial Seqlane agent runtime. Workflow authors use
 `@seqlane/core`; adapter SDK, session, and endpoint details stay
 private.
 
-Agent tasks use the pinned Mastra ACP adapter with the selected workspace and
-model configuration. The adapter creates runtime sessions using the selected
-runtime's existing configuration. It does not receive, derive, merge, or apply Seqlane per-task
-permission rules. Runtime configuration is authoritative for tools,
-filesystem, shell, network, MCP, skills, and approvals.
+Configured OpenCode sessions currently use the native SDK adapter. The SDK is
+the private owner of OpenCode endpoints, session checkpoints, and forks. This
+keeps the configured runtime URL and session history authoritative.
+
+`mastra-acp-executor.ts` is a transitional, local-only bridge for the Mastra
+migration. Mastra ACP 0.4 starts an ACP command with a working directory; it
+does not connect to an existing OpenCode URL or provide OpenCode checkpoint and
+fork semantics. Keep this bridge separate from the SDK adapter. A future
+generic ACP adapter can own ACP lifecycle behavior without becoming the
+OpenCode adapter.
+
+The adapter does not receive, derive, merge, or apply Seqlane per-task
+permission rules. Runtime configuration is authoritative for tools, filesystem,
+shell, network, MCP, skills, and approvals.
 
 The adapter submits structured-output prompts, observes activity, handles
 cancellation, and converts unsupported interactive requests into the generic

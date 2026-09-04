@@ -40,7 +40,10 @@ import { executeRepeatNode } from "../invocation/repeat-execution.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import { validatePlan } from "../validation/plan-validation.js";
-import { lowerReuseSessionOrdering } from "../session/session-ordering.js";
+import {
+  lowerReuseSessionOrdering,
+  withLoweredPlanNodes,
+} from "../session/session-ordering.js";
 
 export interface PreparedPlan {
   readonly plan: Plan;
@@ -128,6 +131,7 @@ export class EffectCompiler {
     validatePlan(plan, options.taskDefinitions);
     const prepared = this.compile(plan, options.taskDefinitions);
     const orderedNodes = lowerReuseSessionOrdering(prepared.orderedNodes);
+    const loweredPlan = withLoweredPlanNodes(plan, orderedNodes);
     assertValidationRegistries(
       plan,
       options.taskDefinitions,
@@ -242,7 +246,7 @@ export class EffectCompiler {
     });
 
     return {
-      plan,
+      plan: loweredPlan,
       orderedNodes,
       context,
       program: createSequentialProgram({ steps }),
