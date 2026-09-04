@@ -1,7 +1,7 @@
 name: Seqlane code review
 
 on:
-  pull_request_target:
+  pull_request:
     types:
       - opened
       - reopened
@@ -47,7 +47,7 @@ jobs:
           fetch-depth: 0
           path: seqlane-source
           persist-credentials: false
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Check out pull request head
         if: steps.configuration.outputs.execute == 'true'
