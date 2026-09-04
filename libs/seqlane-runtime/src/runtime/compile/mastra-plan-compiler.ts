@@ -17,6 +17,10 @@ import {
 import { getTaskSchema, type TaskSchemaRegistry } from "../plan/task-schema.js";
 import { orderPlanNodes } from "../plan/plan-ordering.js";
 import { validatePlan } from "../validation/plan-validation.js";
+import {
+  lowerReuseSessionOrdering,
+  withLoweredPlanNodes,
+} from "../session/session-ordering.js";
 
 const RESULT_STEP_ID = "__seqlane_result";
 const RESERVED_NODE_IDS = new Set([WORKFLOW_INPUT_NODE_ID, RESULT_STEP_ID]);
@@ -280,7 +284,10 @@ export function compilePlanToMastra(
   assertMastraSupportedPlan(plan);
   validatePlan(plan, options.taskDefinitions);
   assertValidationRegistries(plan, options);
-  const orderedNodes = orderPlanNodes(plan, true, options.taskDefinitions);
+  const orderedNodes = lowerReuseSessionOrdering(
+    orderPlanNodes(plan, true, options.taskDefinitions),
+  );
+  const loweredPlan = withLoweredPlanNodes(plan, orderedNodes);
   const invocationSteps = orderedNodes.map((node) => ({
     nodeId: node.nodeId,
     step: buildInvocationStep(node, options),
@@ -345,7 +352,7 @@ export function compilePlanToMastra(
 
   return {
     key: plan.workflow.id,
-    plan,
+    plan: loweredPlan,
     orderedNodes,
     invocationSteps,
     resultStep,

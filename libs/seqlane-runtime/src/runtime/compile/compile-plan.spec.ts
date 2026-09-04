@@ -320,7 +320,7 @@ describe("EffectCompiler plan preparation", () => {
     expect(() => compilePlan(source)).toThrow(/cycle/i);
   });
 
-  it("rejects two reuse consumers of one session checkpoint", () => {
+  it("serializes multiple reuse consumers of one session checkpoint", () => {
     const source = task("source");
     const first = {
       ...task("first", ["source"]),
@@ -331,9 +331,22 @@ describe("EffectCompiler plan preparation", () => {
       session: { type: "reuse" as const, from: "source" },
     };
 
-    expect(() => validatePlan(plan([source, first, second]))).toThrow(
-      /one reuse consumer/i,
-    );
+    const sourcePlan = plan([source, first, second]);
+    expect(() => validatePlan(sourcePlan)).not.toThrow();
+
+    const compiled = new EffectCompiler().compileWorkflow(sourcePlan, {
+      executors: new Map(),
+    });
+    expect(
+      compiled.orderedNodes.map((node) => [node.nodeId, node.dependsOn]),
+    ).toEqual([
+      ["source", []],
+      ["first", ["source"]],
+      ["second", ["source", "first"]],
+    ]);
+    expect(
+      compiled.plan.nodes.find((node) => node.nodeId === "second"),
+    ).toMatchObject({ dependsOn: ["source", "first"] });
   });
 
   it("accepts statically resolvable session selections and model changes on branches", () => {

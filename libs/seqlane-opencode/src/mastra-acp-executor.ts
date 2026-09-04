@@ -141,7 +141,17 @@ function reasoningDiagnostic(
   );
 }
 
-/** Runs OpenCode through Mastra ACP before any native SDK adapter is considered. */
+/**
+ * Transitional, local-only ACP bridge for the initial Mastra integration.
+ *
+ * This adapter deliberately accepts a workspace, not an OpenCode connection:
+ * Mastra ACP 0.4 starts a command locally and does not expose OpenCode's
+ * remote endpoint or native checkpoint/fork semantics. Keep it separate from
+ * `createOpenCodeExecutor`, which owns the OpenCode SDK session contract.
+ * A future generic ACP adapter can reuse the ACP lifecycle without making
+ * OpenCode-specific assumptions; do not use this bridge for a session that
+ * promises configured endpoints or native checkpoint branching.
+ */
 export function createMastraAcpExecutor(
   tasks: TaskDefinitionRegistry,
   options: MastraAcpExecutorOptions,

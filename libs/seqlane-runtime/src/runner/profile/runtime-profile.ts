@@ -6,7 +6,7 @@ import type {
 } from "@seqlane/core";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
 import {
-  createMastraAcpExecutor,
+  createOpenCodeExecutor,
   createOpenCodeModelCapabilities,
   createOpenCodeRun,
   resolveOpenCodeBrowserUiUrl,
@@ -91,10 +91,10 @@ function createOpenCodeSession(
     key: Symbol("opencode-executor-session"),
     ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: createSessionUiExecutor(
-      createMastraAcpExecutor(taskDefinitions, {
-        workspace: run.workspace,
-        selection: effectiveSelection,
-      }),
+      // This session is backed by the configured OpenCode endpoint. The
+      // transitional ACP bridge is local-only and has no native checkpoint or
+      // fork contract, so it must not replace this SDK adapter here.
+      createOpenCodeExecutor(taskDefinitions, run),
       run.browserUrl,
       onSessionUiAvailable,
     ),
@@ -122,10 +122,6 @@ function createLazyOpenCodeSession(
 
   const resolveRun = () =>
     (run ??= createOpenCodeRun(connection, signal, effectiveSelection));
-  const acpExecutor = createMastraAcpExecutor(taskDefinitions, {
-    workspace: connection.workspace,
-    selection: effectiveSelection,
-  });
   let reported = false;
 
   return {
@@ -133,15 +129,18 @@ function createLazyOpenCodeSession(
     ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: {
       async execute(request) {
+        const resolved = await resolveRun();
         if (!reported) {
           reported = true;
           await reportSessionUi(
             request.invocationId,
-            connection.browserUiUrl,
+            resolved.browserUrl,
             onSessionUiAvailable,
           );
         }
-        return acpExecutor.execute(request);
+        return createOpenCodeExecutor(taskDefinitions, resolved).execute(
+          request,
+        );
       },
     },
     checkpoint: async () => (await resolveRun()).checkpoint(),
