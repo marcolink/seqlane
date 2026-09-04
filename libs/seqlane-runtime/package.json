@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@mastra/core": "1.64.0",
+    "@mastra/observability": "1.17.4",
     "@seqlane/core": "workspace:*",
     "@seqlane/events": "workspace:*",
     "@seqlane/opencode": "workspace:*",

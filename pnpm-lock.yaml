@@ -310,6 +310,9 @@ importers:
       '@mastra/core':
         specifier: 1.64.0
         version: 1.64.0(zod@4.5.4)
+      '@mastra/observability':
+        specifier: 1.17.4
+        version: 1.17.4(@mastra/core@1.64.0(zod@4.5.4))(zod@4.5.4)
       '@seqlane/core':
         specifier: workspace:*
         version: link:../seqlane-core
@@ -1405,6 +1408,13 @@ packages:
     resolution: {integrity: sha512-+fuvDeORYWIb+SJrGQlXQi6r1JCxd05g3SNCDepnO910j4uqxMWf5s22Ta0sRSR5zbKRx2NUZoWPAfQt2xF4hQ==, tarball: https://registry.npmjs.org/@mastra/core/-/core-1.64.0.tgz}
     engines: {node: '>=22.13.0'}
     peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
+
+  '@mastra/observability@1.17.4':
+    resolution: {integrity: sha512-7TzbNNPR6h1LPUPW+kPkqqBKyubF9fZapGWJF4Y2f5JAhGva8Qj/NX0hbDgx54hqtvkTNh56+flAerwuNf1mMw==, tarball: https://registry.npmjs.org/@mastra/observability/-/observability-1.17.4.tgz}
+    engines: {node: '>=22.13.0'}
+    peerDependencies:
+      '@mastra/core': '>=1.16.0-0 <2.0.0-0'
       zod: ^3.25.0 || ^4.0.0
 
   '@mastra/schema-compat@1.3.8':
@@ -6122,6 +6132,11 @@ snapshots:
       - supports-color
       - utf-8-validate
       - workflow
+
+  '@mastra/observability@1.17.4(@mastra/core@1.64.0(zod@4.5.4))(zod@4.5.4)':
+    dependencies:
+      '@mastra/core': 1.64.0(zod@4.5.4)
+      zod: 4.5.4
 
   '@mastra/schema-compat@1.3.8(zod@4.5.4)':
     dependencies:

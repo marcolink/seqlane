@@ -1,5 +1,9 @@
+import { createHash } from "node:crypto";
 import { Mastra } from "@mastra/core/mastra";
+import { RequestContext } from "@mastra/core/request-context";
+import { InMemoryStore } from "@mastra/core/storage";
 import type { AnyWorkflow } from "@mastra/core/workflows";
+import { MastraStorageExporter, Observability } from "@mastra/observability";
 import type { RunId, SeqlaneRunOutcome, WorkId } from "@seqlane/core";
 import { RuntimeError, SeqlaneError } from "@seqlane/core";
 
@@ -25,6 +29,7 @@ export interface MastraWorkflowResult {
 export interface MastraRuntime {
   run(request: MastraRunRequest): Promise<SeqlaneRunOutcome>;
   start(request: MastraRunRequest): MastraActiveRun;
+  inspect(request: MastraRunRequest): Promise<MastraRuntimeInspection>;
 }
 
 export interface MastraActiveRun {
@@ -40,6 +45,22 @@ export interface MastraRuntimeOptions {
     request: MastraRunRequest,
     result: MastraWorkflowResult,
   ) => void;
+}
+
+export interface MastraRuntimeInspection {
+  readonly workflowRun: unknown;
+  readonly trace: unknown;
+}
+
+const WORK_ID_CONTEXT_KEY = "seqlane.workId";
+const RUN_ID_CONTEXT_KEY = "seqlane.runId";
+const TRACE_ID_LENGTH = 32;
+
+function traceIdForRun(runId: RunId): string {
+  return createHash("sha256")
+    .update(runId)
+    .digest("hex")
+    .slice(0, TRACE_ID_LENGTH);
 }
 
 function validateRegistrations(
@@ -130,30 +151,94 @@ export function createMastraRuntime(
   const workflows: Record<string, AnyWorkflow> = Object.fromEntries(
     registrations.map(({ key, workflow }) => [key, workflow]),
   );
-  const mastra = new Mastra({ workflows, logger: false });
+  const storage = new InMemoryStore({ id: "seqlane-runtime-storage" });
+  const observability = new Observability({
+    configs: {
+      default: {
+        serviceName: "seqlane-runtime",
+        exporters: [new MastraStorageExporter()],
+        requestContextKeys: [WORK_ID_CONTEXT_KEY, RUN_ID_CONTEXT_KEY],
+      },
+    },
+  });
+  const mastra = new Mastra({
+    workflows,
+    storage,
+    observability,
+    logger: false,
+  });
+
+  async function flushObservability(): Promise<void> {
+    await observability.flush();
+  }
+
+  let runStarted = false;
 
   return {
     run(request) {
       return this.start(request).outcome;
     },
     start(request) {
-      let activeRun: Awaited<ReturnType<AnyWorkflow["createRun"]>> | undefined;
+      if (runStarted) {
+        throw new TypeError(
+          "A Mastra runtime instance can execute only one workflow run",
+        );
+      }
+      runStarted = true;
+
+      type ActiveMastraRun = Awaited<ReturnType<AnyWorkflow["createRun"]>>;
+      let activeRun: ActiveMastraRun | undefined;
       let cancellationRequested = false;
+      let mastraCancellationInvoked = false;
+      let resolveActiveRun!: (run: ActiveMastraRun | undefined) => void;
+      const activeRunReady = new Promise<ActiveMastraRun | undefined>(
+        (resolve) => {
+          resolveActiveRun = resolve;
+        },
+      );
+      let cancellation: Promise<void> | undefined;
+
+      const requestCancellation = (): Promise<void> => {
+        cancellationRequested = true;
+        cancellation ??= activeRunReady.then(async (run) => {
+          if (run === undefined || mastraCancellationInvoked) return;
+          mastraCancellationInvoked = true;
+          await run.cancel();
+        });
+        return cancellation;
+      };
+
       const outcome = (async () => {
         try {
           const workflow = mastra.getWorkflow(request.workflowKey);
           activeRun = await workflow.createRun({
             runId: request.runId,
             resourceId: request.workId,
+            shouldPersistSnapshot: () => true,
           });
+          resolveActiveRun(activeRun);
           if (cancellationRequested) {
-            await activeRun.cancel();
+            await requestCancellation();
             return { status: "cancelled" } as const;
           }
-          const result = await activeRun.start({ inputData: request.input });
+          const requestContext = new RequestContext([
+            [WORK_ID_CONTEXT_KEY, request.workId],
+            [RUN_ID_CONTEXT_KEY, request.runId],
+          ]);
+          const result = await activeRun.start({
+            inputData: request.input,
+            requestContext,
+            tracingOptions: {
+              metadata: {
+                [WORK_ID_CONTEXT_KEY]: request.workId,
+                [RUN_ID_CONTEXT_KEY]: request.runId,
+              },
+              traceId: traceIdForRun(request.runId),
+            },
+          });
           options.onWorkflowResult?.(request, result);
           if (cancellationRequested) {
-            await activeRun.cancel();
+            await requestCancellation();
             return { status: "cancelled" } as const;
           }
           return normalizeResult(
@@ -162,17 +247,33 @@ export function createMastraRuntime(
             options.failureForRun?.(request.runId),
           );
         } catch (cause) {
+          resolveActiveRun(undefined);
           if (cancellationRequested) return { status: "cancelled" } as const;
           return failedOutcome(cause, options.failureForRun?.(request.runId));
+        } finally {
+          await flushObservability();
         }
       })();
 
       return {
         outcome,
-        cancel: async () => {
-          cancellationRequested = true;
-          await activeRun?.cancel();
-        },
+        cancel: requestCancellation,
+      };
+    },
+    async inspect(request) {
+      const workflow = mastra.getWorkflow(request.workflowKey);
+      const workflowStorage = await storage.getStore("workflows");
+      const observabilityStorage = await storage.getStore("observability");
+      return {
+        workflowRun:
+          (await workflowStorage?.getWorkflowRunById({
+            runId: request.runId,
+            workflowName: workflow.id,
+          })) ?? null,
+        trace:
+          (await observabilityStorage?.getTrace({
+            traceId: traceIdForRun(request.runId),
+          })) ?? null,
       };
     },
   };
