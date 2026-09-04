@@ -62,11 +62,11 @@ rating. Review tasks only read supplied evidence and targeted workspace files;
 they do not execute scripts, tests, builds, package managers, Git, or shell
 commands. File inspection uses workspace-relative paths and stays inside the
 review workspace.
-Inspection uses an isolated `openai/gpt-5.6-luna` session with medium
-reasoning to extract the expected requirements and evidence. Each review lane
-uses an independent `openai/gpt-5.6-luna` session with high reasoning; the
-final summary uses an isolated `openai/gpt-5.6-luna` session with high
-reasoning.
+Each review lane uses an independent `openai/gpt-5.6-luna` session with high
+reasoning; the final summary uses an isolated `openai/gpt-5.6-luna` session
+with high reasoning. The pull-request description remains the author-owned
+statement of intent; no intermediate task rewrites it into generated
+requirements or evidence.
 The current OpenCode tasks use `workspace: "shared"` because the author asserts
 they may overlap. This is not a read-only workspace boundary; configure the
 runtime accordingly.
@@ -85,6 +85,10 @@ non-draft pull requests from branches in this repository. Configure the
 `OPENAI_API_KEY` Actions secret to enable it. Without the secret, the workflow
 reports a successful skip.
 
+Every review job logs and adds the workflow definition ref and immutable SHA to
+the GitHub Actions job summary. This identifies the exact workflow revision
+that GitHub executed, independently of the reviewed pull-request revision.
+
 The workflow uses `pull_request_target`, runs the trusted workflow definition
 from the base branch, and checks out the trusted Seqlane source from the base
 revision. It checks out the pull-request head separately as the review target.
@@ -96,13 +100,12 @@ The workflow reads the pull request's configured base branch and immutable base
 revision from the event, then reviews the explicit base-to-head range in a
 separate checkout. A local workflow task validates the requested Git range and
 collects bounded changed-file, diff-stat, unified-patch, and whitespace-check
-evidence with explicit overflow metadata. Inspection and specialist lanes
-review the supplied patch first and use targeted workspace reads only when the
-patch is truncated or surrounding context is needed. Inspection produces
-bounded requirements and evidence; specialist lanes run in independent
-sessions and verify that evidence against the target workspace before the final
-synthesis, which preserves the exact repository and base/head identity fields
-from inspection. The workflow installs and builds the checked-out Seqlane
+evidence with explicit overflow metadata. Specialist lanes review the supplied
+patch and pull-request description first, then use targeted workspace reads
+only when the patch is truncated or surrounding context is needed. They run in
+independent sessions before the final synthesis, which preserves the exact
+repository and base/head identity fields from its supplied review context. The
+workflow installs and builds the checked-out Seqlane
 source, but does not install dependencies or execute repository scripts from
 the separate review target. OpenCode ignores project runtime configuration
 during the review and receives a read-only tool policy. The workflow updates
@@ -113,6 +116,12 @@ The review runtime denies access outside the review workspace and blocks
 environment files. Git writes the complete patch to a run-scoped temporary file
 before the retained model-facing patch is bounded; the temporary file can be
 larger than the 48,000-byte evidence limit and is removed after collection.
+For the zvec-grep evaluation, the workflow builds a local semantic index of the
+review target, starts a loopback-only MCP server, and permits only its
+read-only search tool. Indexing uses a review-source allowlist and explicitly
+excludes dependency, generated, cache, environment, credential, and key paths;
+in particular, `node_modules` is never indexed. Default zvec-grep and
+repository ignore rules remain enabled.
 
 `all-features.ts` is the compact feature tour. It uses typed input/output,
 shared and exclusive workspaces, isolated/reused/branched sessions, explicit

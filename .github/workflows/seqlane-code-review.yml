@@ -1,10 +1,6 @@
 name: Seqlane code review
 
 on:
-  # Temporary branch validation: change this trigger to pull_request and the
-  # trusted-source ref below to head.sha, run validation, then restore both
-  # settings. pull_request exposes the OpenAI credential to pull-request code,
-  # so use this only for same-repository branch validation.
   pull_request_target:
     types:
       - opened
@@ -32,6 +28,20 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Report workflow definition revision
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          echo "Workflow definition: $WORKFLOW_REF"
+          echo "Workflow definition SHA: $WORKFLOW_SHA"
+          {
+            echo "### Workflow definition"
+            echo
+            echo "- Ref: \`$WORKFLOW_REF\`"
+            echo "- SHA: \`$WORKFLOW_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Check OpenAI credentials
         id: configuration
         env:
@@ -51,8 +61,6 @@ jobs:
           fetch-depth: 0
           path: seqlane-source
           persist-credentials: false
-          # Temporary branch validation: use head.sha here together with a
-          # pull_request trigger, then restore base.sha after validation.
           ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Check out pull request head
@@ -88,6 +96,79 @@ jobs:
         working-directory: seqlane-source
         run: pnpm exec nx build seqlane-cli
 
+      - name: Index pull request for semantic search
+        if: steps.configuration.outputs.execute == 'true'
+        working-directory: seqlane-source
+        env:
+          REVIEW_TARGET: ${{ github.workspace }}/review-target
+          ZVEC_GREP_HOME: ${{ runner.temp }}/zvec-grep
+          ZVEC_GREP_MODEL_CACHE: ${{ runner.temp }}/zvec-grep-model-cache
+        run: |
+          pnpm dlx @zvec/zvec-grep@0.2.1 index "$REVIEW_TARGET" \
+            --mode direct \
+            --embedding local/potion-code-16m-v2 \
+            --hidden \
+            --max-filesize 1M \
+            --glob '*.ts' \
+            --glob '*.tsx' \
+            --glob '*.mts' \
+            --glob '*.cts' \
+            --glob '*.js' \
+            --glob '*.jsx' \
+            --glob '*.json' \
+            --glob '*.yaml' \
+            --glob '*.yml' \
+            --glob '*.md' \
+            --glob '*.css' \
+            --glob '*.html' \
+            --glob '*.sh' \
+            --glob '.github/**' \
+            --glob '!**/node_modules/**' \
+            --glob '!**/dist/**' \
+            --glob '!**/build/**' \
+            --glob '!**/coverage/**' \
+            --glob '!**/.cache/**' \
+            --glob '!**/.next/**' \
+            --glob '!**/vendor/**' \
+            --glob '!**/.env' \
+            --glob '!**/.env.*' \
+            --glob '!**/.envrc' \
+            --glob '!**/.npmrc' \
+            --glob '!**/id_*' \
+            --glob '!**/*.pem' \
+            --glob '!**/*.key' \
+            --glob '!**/*.p12' \
+            --glob '!**/*.pfx' \
+            --glob '!**/secrets/**' \
+            --glob '!**/private/**' \
+            --glob '!**/credentials/**' \
+            --glob '!**/*secret*.json' \
+            --glob '!**/*credential*.json'
+
+      - name: Start zvec-grep
+        if: steps.configuration.outputs.execute == 'true'
+        id: zvec-grep
+        timeout-minutes: 2
+        working-directory: seqlane-source
+        env:
+          ZVEC_GREP_HOME: ${{ runner.temp }}/zvec-grep
+          ZVEC_GREP_MODEL_CACHE: ${{ runner.temp }}/zvec-grep-model-cache
+        run: |
+          pnpm dlx @zvec/zvec-grep@0.2.1 server run --listen 127.0.0.1:7999 \
+            > "$RUNNER_TEMP/zvec-grep.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/zvec-grep.pid"
+          echo "started=true" >> "$GITHUB_OUTPUT"
+
+          for attempt in $(seq 1 30); do
+            if pnpm dlx @zvec/zvec-grep@0.2.1 server status --check-ready > /dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "zvec-grep did not become ready. Detailed server logs are not printed to the public workflow log."
+          exit 1
+
       - name: Install OpenCode
         if: steps.configuration.outputs.execute == 'true'
         working-directory: seqlane-source
@@ -110,7 +191,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENCODE_DISABLE_PROJECT_CONFIG: "true"
           OPENCODE_CONFIG_CONTENT: >-
-            {"model":"openai/gpt-5.6-luna","permission":{"*":"deny","StructuredOutput":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","bash":"deny","external_directory":"deny"}}
+            {"model":"openai/gpt-5.6-luna","mcp":{"zvec_grep":{"type":"remote","url":"http://127.0.0.1:7999/mcp","enabled":true,"oauth":false,"timeout":10000}},"permission":{"*":"deny","StructuredOutput":"allow","zvec_grep_zvec_grep_search":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","bash":"deny","external_directory":"deny"}}
         run: |
           opencode serve --hostname 127.0.0.1 --port 4096 --print-logs > "$RUNNER_TEMP/opencode.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/opencode.pid"
@@ -249,6 +330,12 @@ jobs:
         run: |
           kill "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
           wait "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
+
+      - name: Stop zvec-grep
+        if: always() && steps.zvec-grep.outputs.started == 'true'
+        run: |
+          kill "$(cat "$RUNNER_TEMP/zvec-grep.pid")" 2> /dev/null || true
+          wait "$(cat "$RUNNER_TEMP/zvec-grep.pid")" 2> /dev/null || true
 
       - name: Fail when Seqlane execution fails
         if: steps.configuration.outputs.execute == 'true' && steps.seqlane.outcome != 'success'
