@@ -175,6 +175,48 @@ describe("Mastra Plan compiler", () => {
     ]);
   });
 
+  it("passes Work, Run, and Invocation identity to Mastra steps", async () => {
+    const source = plan([task("source")], {
+      type: "ref",
+      nodeId: "source",
+      path: ["output"],
+    });
+    const identities: unknown[] = [];
+    const compiled = compilePlanToMastra(source, {
+      taskDefinitions: definitions("source"),
+      workflow: { input: z.object({}), output: taskOutput },
+      workId: "work-identity",
+      runId: "run-identity",
+      createInvocationId: (nodeId) => `invocation:${nodeId}`,
+      executeInvocation: async (context) => {
+        identities.push({
+          workId: context.workId,
+          runId: context.runId,
+          invocationId: context.invocationId,
+          workflowId: context.workflowId,
+        });
+        return { value: 1 };
+      },
+    });
+
+    await expect(
+      (
+        await compiled.workflow.createRun({
+          runId: "run-identity",
+          resourceId: "work-identity",
+        })
+      ).start({ inputData: {} }),
+    ).resolves.toMatchObject({ status: "success" });
+    expect(identities).toEqual([
+      {
+        workId: "work-identity",
+        runId: "run-identity",
+        invocationId: "invocation:source",
+        workflowId: "mastra-plan-compiler",
+      },
+    ]);
+  });
+
   it("rejects malformed plans before creating a Mastra workflow", () => {
     const cyclic = plan([task("a", ["b"]), task("b", ["a"])], {
       type: "ref",
