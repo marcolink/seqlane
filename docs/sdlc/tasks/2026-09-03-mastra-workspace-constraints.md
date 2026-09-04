@@ -1,7 +1,7 @@
 ---
 id: task.mastra-workspace-constraints
 title: Lower Workspace Constraints Into the Mastra Graph
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-03
@@ -68,6 +68,19 @@ the Mastra runtime integration contract.
 ## Completion criteria
 
 Workspace ordering is expressed through Mastra-compatible execution structure without a competing scheduler.
+
+## Outcome
+
+Static workspace access conflicts now lower into Seqlane and Mastra workflow
+dependencies. Exclusive access is serialized against earlier access to the same
+resolved workspace resource. Compatible shared access and access to separate
+resources remain concurrent. The existing runtime admission path remains only
+for dynamic constraints that cannot be known during compilation. Workspace
+policy remains separate from tool authorization.
+
+Focused workspace ordering, compiler, admission, and deterministic-process
+tests pass. The implementation rejects dependency cycles before execution and
+preserves the public Mastra boundary.
 
 ## Traceability
 

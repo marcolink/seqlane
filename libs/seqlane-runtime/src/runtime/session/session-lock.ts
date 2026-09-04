@@ -14,7 +14,7 @@ export class QuarantinedSessionError extends Error {
 interface WaitingSessionLock {
   readonly creationOrdinal: number;
   readonly resolve: (lease: SessionLockLease) => void;
-  readonly reject: (cause: QuarantinedSessionError) => void;
+  readonly reject: (cause: unknown) => void;
 }
 
 interface SessionLockState {
@@ -32,10 +32,16 @@ export class SessionLockRegistry {
     session: ResolvedExecutorSession,
     onWaiting?: () => void,
     creationOrdinal = Number.MAX_SAFE_INTEGER,
+    signal?: AbortSignal,
   ): Promise<SessionLockLease> {
     const state = this.#locks.get(session.key) ?? this.#createState(session);
     if (state.quarantined !== undefined) {
       return Promise.reject(state.quarantined);
+    }
+    if (signal?.aborted) {
+      return Promise.reject(
+        signal.reason ?? new Error("Session admission cancelled"),
+      );
     }
     if (!state.busy) {
       return Promise.resolve(this.#createLease(session.key, state));
@@ -43,7 +49,33 @@ export class SessionLockRegistry {
 
     onWaiting?.();
     return new Promise((resolve, reject) => {
-      state.waiting.push({ creationOrdinal, resolve, reject });
+      const cleanup = (): void => {
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const resolveWaiting = (lease: SessionLockLease): void => {
+        cleanup();
+        resolve(lease);
+      };
+      const rejectWaiting = (cause: unknown): void => {
+        cleanup();
+        reject(cause);
+      };
+      const onAbort = (): void => {
+        const index = state.waiting.indexOf(waitingEntry);
+        if (index === -1) return;
+        state.waiting.splice(index, 1);
+        rejectWaiting(
+          signal?.reason ?? new Error("Session admission cancelled"),
+        );
+        this.#notifyChange();
+      };
+      const waitingEntry: WaitingSessionLock = {
+        creationOrdinal,
+        resolve: resolveWaiting,
+        reject: rejectWaiting,
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      state.waiting.push(waitingEntry);
       state.waiting.sort(
         (first, second) => first.creationOrdinal - second.creationOrdinal,
       );

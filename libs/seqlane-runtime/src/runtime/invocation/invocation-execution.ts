@@ -84,6 +84,7 @@ export async function executeTaskNode(
   let workspaceLease: WorkspaceLockLease | undefined;
   let unconfirmedActivity: SeqlaneUncertainActivity | undefined;
   let unconfirmedTermination: UnconfirmedInvocationTerminationError | undefined;
+  let workspaceAdmitted = false;
   let workspaceWaitingReported = false;
   let sessionWaitingReported = false;
   const reportWorkspaceWaiting = (
@@ -128,18 +129,34 @@ export async function executeTaskNode(
       isLocalTask || context.sessionResolver === undefined
         ? undefined
         : sessionForInvocation(context.resolvedSessions, invocationId);
-    const admission = await context.jointAdmissions.acquire({
-      signal: abortSignal,
-      session,
-      workspace: resource,
-      workspacePolicy: node.workspace,
-      invocationId,
-      creationOrdinal,
-      onWorkspaceWaiting: reportWorkspaceWaiting,
-      onSessionWaiting: reportSessionWaiting,
-    });
-    workspaceLease = admission.workspaceLease;
-    sessionLease = admission.sessionLease;
+    if (options.workspaceAdmission === "graph") {
+      if (abortSignal.aborted) {
+        throw abortSignal.reason ?? new Error("Task execution cancelled");
+      }
+      sessionLease =
+        session === undefined
+          ? undefined
+          : await context.sessionLocks.acquire(
+              session,
+              reportSessionWaiting,
+              creationOrdinal,
+              abortSignal,
+            );
+    } else {
+      const admission = await context.jointAdmissions.acquire({
+        signal: abortSignal,
+        session,
+        workspace: resource,
+        workspacePolicy: node.workspace,
+        invocationId,
+        creationOrdinal,
+        onWorkspaceWaiting: reportWorkspaceWaiting,
+        onSessionWaiting: reportSessionWaiting,
+      });
+      workspaceLease = admission.workspaceLease;
+      sessionLease = admission.sessionLease;
+    }
+    workspaceAdmitted = true;
     context.events.emit({
       type: "invocation.progress",
       workId: context.workId,
@@ -453,7 +470,7 @@ export async function executeTaskNode(
     if (unconfirmedActivity === undefined) {
       sessionLease?.release();
       workspaceLease?.release();
-      if (workspaceLease !== undefined) {
+      if (workspaceAdmitted) {
         context.events.emit({
           type: "invocation.progress",
           workId: context.workId,
