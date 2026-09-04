@@ -92,6 +92,7 @@ failures, workspace, endpoint, checkpoint, fork, and session UI behavior, and
 removed the runtime's ACP execution path and the superseded executor module.
 Focused adapter and runtime tests, package builds, test mapping, and SDLC
 validation pass.
+Delivered in [PR #37](https://github.com/marcolink/seqlane/pull/37).
 
 ## Traceability
 
