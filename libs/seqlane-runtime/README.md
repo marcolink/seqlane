@@ -23,12 +23,10 @@ Mastra-native repeat lowering is added.
 ### Local task execution
 
 A task with `execute` runs through the local invocation path. The runtime parses
-its typed input, admits the canonical workspace, and provides a scoped
-`TaskContext.exec` capability. Each call uses a Mastra `LocalSandbox` process
-with an executable and direct argv, never a shell, and captures bounded stdout
-and stderr. Results include Seqlane task and invocation identity, timing,
-truncation, timeout, and cancellation metadata. The workspace lease remains
-held until the process terminates.
+its typed input and provides a scoped `TaskContext.exec` capability. Each call
+uses a Mastra `LocalSandbox` process with an executable and direct argv, never a
+shell, and captures bounded stdout and stderr. Results include Seqlane task and
+invocation identity, timing, truncation, timeout, and cancellation metadata.
 
 Local tasks do not resolve an agent executor, model, session, or checkpoint, and
 their generic invocation results contain no model or token metrics. V1 is
@@ -41,12 +39,14 @@ task waits while an exclusive task is active. Omitted policy resolves to
 `exclusive`. Workspace policy neither grants nor restricts filesystem, shell,
 network, MCP, skill, or custom-tool access.
 
-Admission requires completed dependencies, an available executor session, a
-compatible workspace policy, and global capacity. Session and workspace leases
-are admitted atomically: a waiting invocation retains neither resource.
-Seqlane holds both leases through executor requests, retries, tracked children,
-processes, cancellation, and cleanup. Queue order uses invocation creation
-order. Events report workspace waiting, admission, and release.
+Top-level Plan tasks rely on graph dependencies for statically known workspace
+constraints and do not acquire a redundant runtime workspace lease. Dynamically
+created work, including repeat-body tasks and direct invocation calls, still
+uses atomic session and workspace admission. A waiting dynamic invocation
+retains neither resource. Seqlane holds its leases through executor requests,
+tracked children, processes, cancellation, and cleanup. Queue order uses
+invocation creation order. Events report workspace waiting, admission, and
+release.
 
 After a successful agent turn and all tracked activity, the runtime publishes
 its private checkpoint. `reuse()` keeps the source session; `branch()` eagerly

@@ -21,6 +21,11 @@ import {
   lowerReuseSessionOrdering,
   withLoweredPlanNodes,
 } from "../session/session-ordering.js";
+import {
+  lowerWorkspaceOrdering,
+  workspaceAccessForPlanNode,
+} from "../workspace/workspace-ordering.js";
+import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 
 const RESULT_STEP_ID = "__seqlane_result";
 const RESERVED_NODE_IDS = new Set([WORKFLOW_INPUT_NODE_ID, RESULT_STEP_ID]);
@@ -48,6 +53,8 @@ export interface MastraPlanCompilerOptions {
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
+  /** Resolved runtime workspace identities used for static conflict lowering. */
+  readonly workspaceResources?: WorkspaceResourceRegistry;
   /**
    * Executes one already-bound Seqlane invocation. Agent, shell, session, and
    * workspace behavior stays in later private runtime slices.
@@ -199,6 +206,15 @@ function buildInvocationStep(
         dependsOn: [...node.dependsOn],
         ...(inputSchema === undefined ? {} : { typedInput: true }),
         ...(outputSchema === undefined ? {} : { typedOutput: true }),
+        ...(workspaceAccessForPlanNode(node, options.workspaceResources) ===
+        undefined
+          ? {}
+          : {
+              workspace: workspaceAccessForPlanNode(
+                node,
+                options.workspaceResources,
+              ),
+            }),
       },
     },
     execute: async ({
@@ -284,8 +300,11 @@ export function compilePlanToMastra(
   assertMastraSupportedPlan(plan);
   validatePlan(plan, options.taskDefinitions);
   assertValidationRegistries(plan, options);
-  const orderedNodes = lowerReuseSessionOrdering(
-    orderPlanNodes(plan, true, options.taskDefinitions),
+  const orderedNodes = lowerWorkspaceOrdering(
+    lowerReuseSessionOrdering(
+      orderPlanNodes(plan, true, options.taskDefinitions),
+    ),
+    options.workspaceResources,
   );
   const loweredPlan = withLoweredPlanNodes(plan, orderedNodes);
   const invocationSteps = orderedNodes.map((node) => ({

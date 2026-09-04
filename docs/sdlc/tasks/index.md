@@ -159,7 +159,7 @@
 | [task.mastra-migration-foundation](./2026-09-03-mastra-migration-foundation.md) | Establish the Mastra Migration Foundation | completed | 2026-09-03 | core |
 | [task.mastra-server-mcp](./2026-09-03-mastra-server-mcp.md) | Expose Workflows Through Mastra Server and MCP | planned | 2026-09-03 | core |
 | [task.opencode-model-forks](./2026-09-03-opencode-model-forks.md) | Initialize OpenCode Fork Models Before Prompting | completed | 2026-09-03 | core |
-| [task.mastra-workspace-constraints](./2026-09-03-mastra-workspace-constraints.md) | Lower Workspace Constraints Into the Mastra Graph | planned | 2026-09-03 | core |
+| [task.mastra-workspace-constraints](./2026-09-03-mastra-workspace-constraints.md) | Lower Workspace Constraints Into the Mastra Graph | completed | 2026-09-03 | core |
 | [task.mastra-session-semantics](./2026-09-03-mastra-session-semantics.md) | Map Seqlane Session Semantics to Mastra | completed | 2026-09-03 | core |
 | [task.session-model-pinning](./2026-09-03-session-model-pinning.md) | Pin Effective Selections Across Runtime Sessions | completed | 2026-09-03 | core |
 | [task.mastra-identity-events](./2026-09-03-mastra-identity-events.md) | Preserve Identity and Normalized Execution Events | planned | 2026-09-03 | core |
