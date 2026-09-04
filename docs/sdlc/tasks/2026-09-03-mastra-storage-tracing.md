@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-04
+updated: 2026-09-05
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -71,12 +71,14 @@ package public boundary.
 The runtime uses in-memory storage for the current local execution path. A
 durable deployment-specific Mastra store remains an integration concern for a
 later server/runtime configuration task. No Seqlane run store or trace mirror
-was added.
+was added. Each private runtime accepts one run and retains its records while
+the execution owns that runtime.
 
 Focused verification covers persisted workflow state, workflow and step trace
-spans, identity metadata, public-boundary checks, and the existing cancellation
-and failure normalization behavior. The Community `@mastra/observability`
-package is pinned to `1.17.4`; no enterprise or `/ee/` import is used.
+spans, deterministic trace identity, and identity metadata. It also covers
+successful, failed, and cancelled snapshots. The Community
+`@mastra/observability` package is pinned to `1.17.4`; no enterprise or `/ee/`
+import is used.
 
 ## Acceptance criteria
 

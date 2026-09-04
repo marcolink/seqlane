@@ -192,16 +192,50 @@ describe("private Mastra runtime spine", () => {
     });
   });
 
+  it("enforces one workflow run per private runtime instance", async () => {
+    const runtime = createMastraRuntime([
+      { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
+    ]);
+
+    await expect(
+      runtime.run({
+        workflowKey: "fixture",
+        input: { fail: false },
+        workId: "work-single-use",
+        runId: "run-single-use",
+      }),
+    ).resolves.toMatchObject({ status: "succeeded" });
+
+    expect(() =>
+      runtime.start({
+        workflowKey: "fixture",
+        input: { fail: false },
+        workId: "work-second-run",
+        runId: "run-second-run",
+      }),
+    ).toThrowError(
+      new TypeError(
+        "A Mastra runtime instance can execute only one workflow run",
+      ),
+    );
+  });
+
   it("normalizes a Mastra workflow failure without exposing Mastra details", async () => {
     const runtime = createMastraRuntime([
       { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
     ]);
 
-    const outcome = await runtime.run({
+    const request = {
       workflowKey: "fixture",
       input: { fail: true },
       workId: "work-failure",
       runId: "run-failure",
+    } as const;
+    const outcome = await runtime.run(request);
+
+    const inspection = await runtime.inspect(request);
+    expect(inspection.workflowRun).toMatchObject({
+      snapshot: { status: "failed" },
     });
 
     expect(outcome.status).toBe("failed");
@@ -227,7 +261,7 @@ describe("private Mastra runtime spine", () => {
     expect(readFileSync(publicEntryPoint, "utf8")).not.toContain("@mastra/");
   });
 
-  it("persists the run and trace in Mastra storage with Seqlane correlation", async () => {
+  it("persists run and step spans with Seqlane correlation and deterministic trace IDs", async () => {
     const runtime = createMastraRuntime([
       { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
     ]);
@@ -249,8 +283,17 @@ describe("private Mastra runtime spine", () => {
       snapshot: { status: "success" },
     });
     expect(inspection.trace).toMatchObject({
+      traceId: "b8b823647f156c1a2861e90135d57111",
       spans: expect.arrayContaining([
         expect.objectContaining({
+          spanType: "workflow_run",
+          metadata: expect.objectContaining({
+            "seqlane.workId": request.workId,
+            "seqlane.runId": request.runId,
+          }),
+        }),
+        expect.objectContaining({
+          spanType: "workflow_step",
           metadata: expect.objectContaining({
             "seqlane.workId": request.workId,
             "seqlane.runId": request.runId,
@@ -299,6 +342,15 @@ describe("private Mastra runtime spine", () => {
     await startedPromise;
     await active.cancel();
     await expect(active.outcome).resolves.toEqual({ status: "cancelled" });
+    const inspection = await runtime.inspect({
+      workflowKey: workflow.id,
+      input: null,
+      workId: "work-cancel",
+      runId: "run-cancel",
+    });
+    expect(inspection.workflowRun).toMatchObject({
+      snapshot: { status: "canceled" },
+    });
   });
 
   it("prefers cancellation when it races with successful completion", async () => {

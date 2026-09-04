@@ -172,11 +172,20 @@ export function createMastraRuntime(
     await observability.flush();
   }
 
+  let runStarted = false;
+
   return {
     run(request) {
       return this.start(request).outcome;
     },
     start(request) {
+      if (runStarted) {
+        throw new TypeError(
+          "A Mastra runtime instance can execute only one workflow run",
+        );
+      }
+      runStarted = true;
+
       let activeRun: Awaited<ReturnType<AnyWorkflow["createRun"]>> | undefined;
       let cancellationRequested = false;
       const outcome = (async () => {

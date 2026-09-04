@@ -20,6 +20,9 @@ events, and retains results until their final consumer completes.
 The Mastra compiler currently rejects repeat nodes until a dedicated
 Mastra-native repeat lowering is added.
 
+Each private Mastra runtime accepts one workflow run. Its in-memory storage
+remains available for inspection while the execution owns that runtime.
+
 ### Local task execution
 
 A task with `execute` runs through the local invocation path. The runtime parses
