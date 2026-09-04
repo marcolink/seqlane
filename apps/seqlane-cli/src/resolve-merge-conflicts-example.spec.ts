@@ -1,6 +1,7 @@
 // @test-scope ../../../examples/resolve-merge-conflicts.ts
 
 import { buildWorkflow } from "@seqlane/core";
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const { default: resolveMergeConflictsWorkflow } = await import(
@@ -86,5 +87,25 @@ describe("merge-conflict resolution example workflow", () => {
     expect(task.goal(validInput)).toContain(
       "The selected integration strategy is rebase.",
     );
+  });
+
+  it("enforces conflict-resolution safety invariants in the workflow", async () => {
+    const workflow = await readFile(
+      new URL(
+        "../../../.github/workflows/seqlane-resolve-merge-conflicts.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(workflow).toContain("cwd: process.env.RESOLUTION_TARGET");
+    expect(workflow).toContain('"--others", "--ignored"');
+    expect(workflow).toContain("Conflict marker remains in ${path}.");
+    expect(workflow).toContain("MAX_REBASE_ATTEMPTS=5");
+    expect(workflow).toContain(
+      'git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA"',
+    );
+    expect(workflow).toContain("OPENCODE_ARCHIVE_SHA256");
+    expect(workflow).not.toContain("https://opencode.ai/install | bash");
   });
 });

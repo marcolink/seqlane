@@ -144,9 +144,18 @@ project configuration. The task must edit only the supplied conflict files.
 
 After Seqlane finishes, the workflow rejects new files and edits outside the
 initial conflict list. It also rejects unresolved conflicts and Git whitespace
-errors. The workflow stops OpenCode before it configures GitHub credentials.
-Then it creates one merge commit or pushes the rebased history. If the remote
-base or head changed during the run, the workflow rejects the push.
+errors. It rejects staged Git conflict markers. A rebase can use no more than
+five conflict-resolution attempts. The workflow stops OpenCode before it
+configures GitHub credentials. Then it creates one merge commit or pushes the
+rebased history.
+
+The workflow checks the captured base revision before it pushes. The exact
+force-with-lease protects the remote head revision. A base update after that
+check can make the result stale, but it cannot overwrite the base branch.
+
+The workflow downloads the pinned OpenCode release archive over HTTPS. It
+checks the archive SHA-256 before extraction. It does not run a remote installer
+script.
 
 The workflow configures `Seqlane conflict resolver` as the Git committer. A
 merge commit uses that name as its author. A rebase preserves each original
