@@ -25,7 +25,7 @@ export interface MastraRunRequest {
   readonly runId: RunId;
 }
 
-export interface MastraRunContext extends MastraServerRequestContext {}
+export type MastraRunContext = MastraServerRequestContext;
 
 export interface MastraWorkflowResult {
   readonly status: string;

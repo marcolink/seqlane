@@ -13,6 +13,8 @@ export const MCP_SERVER_ID = "seqlane-workflows";
 const MCP_ABORT_SIGNAL_CONTEXT_KEY = "seqlane.mcp.abortSignal";
 
 export interface MastraServerRequestContext {
+  // Preserve the caller's RequestContext schema across the private boundary.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly requestContext: RequestContext<any>;
   readonly abortSignal: AbortSignal;
 }
@@ -20,6 +22,8 @@ export interface MastraServerRequestContext {
 export interface MastraMcpInvocation {
   readonly workflowKey: string;
   readonly input: unknown;
+  // Preserve the caller's RequestContext schema across the private boundary.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly requestContext: RequestContext<any>;
   readonly abortSignal: AbortSignal;
 }
