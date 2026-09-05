@@ -39,7 +39,7 @@ export function saveState(key, value) {
 }
 
 export function getState(key) {
-  return process.env[`STATE_${key.toUpperCase()}`] ?? "";
+  return process.env[`STATE_${key}`] ?? "";
 }
 
 export async function assertDirectory(directory) {
@@ -85,24 +85,18 @@ function processGroupIsAlive(pid) {
     process.kill(-pid, 0);
     return true;
   } catch (error) {
-    if (error?.code !== "ESRCH" && error?.code !== "EINVAL") return true;
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch (fallbackError) {
-      return fallbackError?.code === "EPERM";
-    }
+    return error?.code === "EPERM";
   }
 }
 
 function signalProcessGroup(pid, signal) {
   try {
     process.kill(-pid, signal);
-    return;
+    return true;
   } catch (error) {
-    if (error?.code !== "ESRCH" && error?.code !== "EINVAL") throw error;
+    if (error?.code === "ESRCH" || error?.code === "EINVAL") return false;
+    throw error;
   }
-  process.kill(pid, signal);
 }
 
 async function waitForProcessGroupExit(pid, timeoutMilliseconds) {
@@ -119,7 +113,7 @@ export async function terminateProcessGroup(pidValue) {
   if (!processGroupIsAlive(pid)) return true;
 
   try {
-    signalProcessGroup(pid, "SIGTERM");
+    if (!signalProcessGroup(pid, "SIGTERM")) return true;
   } catch (error) {
     if (error?.code === "ESRCH") return true;
     throw error;
@@ -128,7 +122,7 @@ export async function terminateProcessGroup(pidValue) {
   if (await waitForProcessGroupExit(pid, 5_000)) return true;
 
   try {
-    signalProcessGroup(pid, "SIGKILL");
+    if (!signalProcessGroup(pid, "SIGKILL")) return true;
   } catch (error) {
     if (error?.code === "ESRCH") return true;
     throw error;
