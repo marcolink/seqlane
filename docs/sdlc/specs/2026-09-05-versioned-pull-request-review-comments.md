@@ -124,7 +124,10 @@ unrelated comment edits.
 Comment collection must preserve recognized command lines even when it bounds
 the surrounding comment body. It must retain the latest commands before
 optional context when it applies the final comment bound. It must mark history
-as truncated if older command lines do not fit.
+as truncated if older command lines do not fit. The collector must enforce one
+aggregate command-count and text budget across the retained history. Before it
+applies that budget, it must retain only the latest command for each finding
+and authorization class.
 
 ### requirement-human-projection
 

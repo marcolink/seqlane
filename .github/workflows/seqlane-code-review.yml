@@ -184,17 +184,19 @@ jobs:
             --slurpfile review "$RUNNER_TEMP/seqlane-review-comments.json" '
               def recognized_disposition_lines($body):
                 [$body | split("\n")[] |
-                  select(test(
-                    "^\\s*/seqlane\\s+(fixed|wont-fix|downgrade)\\s+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})(\\s|$)";
+                  . as $line |
+                  ($line | capture(
+                    "^\\s*/seqlane\\s+(fixed|wont-fix|downgrade)\\s+(?<findingId>F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})(\\s|$)";
                     "i"
-                  ))];
-              def bounded_command_projection($lines; $limit):
-                reduce ($lines | reverse[]) as $line
-                  ({lines: [], used: 0, truncated: false};
-                    (($line | length) +
-                      (if (.lines | length) == 0 then 0 else 1 end)) as $cost |
+                  )) as $match |
+                  {line: $line, findingId: $match.findingId}];
+              def bounded_command_projection($commands; $limit):
+                reduce ($commands | reverse[]) as $command
+                  ({commands: [], used: 0, truncated: false};
+                    (($command.line | length) +
+                      (if (.commands | length) == 0 then 0 else 1 end)) as $cost |
                     if (.used + $cost) <= $limit then
-                      .lines = [$line] + .lines |
+                      .commands = [$command] + .commands |
                       .used += $cost
                     else
                       .truncated = true
@@ -207,32 +209,25 @@ jobs:
                     (.user.login // "") == "github-actions[bot]") and
                    ($body | contains("<!-- seqlane-code-review -->"))) as $trustedReport |
                   (if $trustedReport then 65536 else 2000 end) as $bodyLimit |
-                  (recognized_disposition_lines($body) |
-                    bounded_command_projection(.; 63535)) as $commandProjection |
-                  ($commandProjection.lines | join("\n")) as $commandBody |
-                  ([$body[:2000] | split("\n")[] |
-                    select((ascii_downcase | contains("/seqlane")) | not)] |
-                    join("\n")) as $bodyContext |
-                  (if $trustedReport then
-                    $body[:65536]
-                  else
-                    (
-                      $bodyContext[:(65536 - ($commandBody | length) -
-                        (if ($commandBody | length) == 0 or ($bodyContext | length) == 0 then 0 else 1 end))] +
-                      (if ($commandBody | length) == 0 or ($bodyContext | length) == 0 then "" else "\n" end) +
-                      $commandBody
-                    )
-                  end) as $boundedBody |
                   {
+                    _key: ($kind + ":" + (.id | tostring)),
+                    _trustedReport: $trustedReport,
+                    _trustedBody: (if $trustedReport then $body[:65536] else "" end),
+                    _bodyContext: (
+                      [$body[:2000] | split("\n")[] |
+                        select((ascii_downcase | contains("/seqlane")) | not)] |
+                        join("\n")
+                    ),
+                    _commandLines: (
+                      if $trustedReport then []
+                      else recognized_disposition_lines($body)
+                      end
+                    ),
+                    _sourceBodyTruncated: (($body | length) > $bodyLimit),
                     id: (.id | tostring),
                     kind: $kind,
                     author: (.user.login // "unknown"),
                     authorAssociation: (.author_association // "NONE"),
-                    body: $boundedBody,
-                    bodyTruncated: (
-                      (($body | length) > $bodyLimit) or
-                      $commandProjection.truncated
-                    ),
                     createdAt: (.created_at // "")
                   }
                   + (if .updated_at then {updatedAt: .updated_at} else {} end)
@@ -245,12 +240,64 @@ jobs:
               ([
                 normalize($issue; "issue"),
                 normalize($review; "review")
-              ] | add | sort_by(.updatedAt // .createdAt)) as $comments
+              ] | add | sort_by(.updatedAt // .createdAt)) as $allComments
+              | ($allComments[-200:]) as $comments
+              | ([$comments[] as $comment |
+                  $comment._commandLines[] |
+                  . + {
+                    key: $comment._key,
+                    authorized: (
+                      $comment.authorAssociation == "OWNER" or
+                      $comment.authorAssociation == "MEMBER" or
+                      $comment.authorAssociation == "COLLABORATOR"
+                    )
+                  }] | to_entries |
+                  map(.value + {
+                    order: .key,
+                    identity: (
+                      .value.findingId + ":" +
+                      (if .value.authorized then "authorized" else "unauthorized" end)
+                    )
+                  })) as $allCommands
+              | (reduce $allCommands[] as $command
+                  ({}; .[$command.identity] = $command) |
+                  [.[]] | sort_by(.order)) as $latestCommands
+              | (bounded_command_projection($latestCommands[-200:]; 63535)) as $commandProjection
+              | ($commandProjection.commands) as $commands
               | {
-                  comments: ($comments | .[-200:]),
+                  comments: [
+                    $comments[] as $comment |
+                    ([$commands[] | select(.key == $comment._key) | .line]) as $commentCommands |
+                    ($commentCommands | join("\n")) as $commandBody |
+                    ($comment._bodyContext[:(65536 - ($commandBody | length) -
+                      (if ($commandBody | length) == 0 or ($comment._bodyContext | length) == 0 then 0 else 1 end))]) as $bodyContext |
+                    $comment |
+                    .body = (
+                      if ._trustedReport then ._trustedBody
+                      else
+                        $bodyContext +
+                        (if ($commandBody | length) == 0 or ($bodyContext | length) == 0 then "" else "\n" end) +
+                        $commandBody
+                      end
+                    ) |
+                    .bodyTruncated = (
+                      ._sourceBodyTruncated or
+                      (($commentCommands | length) < (._commandLines | length))
+                    ) |
+                    del(
+                      ._key,
+                      ._trustedReport,
+                      ._trustedBody,
+                      ._bodyContext,
+                      ._commandLines,
+                      ._sourceBodyTruncated
+                    )
+                  ],
                   truncated: (
-                    ($comments | length) >= 200 or
-                    any($comments[]; .bodyTruncated == true)
+                    ($allComments | length) >= 200 or
+                    any($comments[]; ._sourceBodyTruncated) or
+                    ($latestCommands | length) > 200 or
+                    $commandProjection.truncated
                   )
                 }
             ' > "$RUNNER_TEMP/seqlane-review-history.json"

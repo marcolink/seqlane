@@ -102,7 +102,8 @@ Run identity prevents stale same-head publication, and duplicate temporary IDs
 collapse before stable ID allocation. Per-pull-request workflow serialization
 prevents concurrent comment creation or update.
 Legacy IDs also deduplicate during migration. Command lines survive comment
-body truncation, and state compaction is visible in both report layers.
+body truncation. One aggregate budget keeps the latest command for each finding
+and authorization class. State compaction is visible in both report layers.
 The human projection includes command help, label emojis, and plain Markdown
 sections for required changes.
 
