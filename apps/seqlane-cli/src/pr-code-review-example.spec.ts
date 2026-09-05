@@ -76,14 +76,27 @@ function createReport(findings: readonly object[]) {
   };
 }
 
-function createV3ReviewComment(state: object): string {
+function createV3ReviewComment(
+  state: Record<string, unknown>,
+  metadataOverrides: Record<string, unknown> = {},
+): string {
   const envelope = JSON.stringify({
     schemaVersion: 3,
     encoding: "gzip+base64",
     data: gzipSync(JSON.stringify(state)).toString("base64"),
   });
+  const metadata = JSON.stringify({
+    schemaVersion: 3,
+    pullRequestNumber: state.pullRequestNumber,
+    reviewedRevision: state.reviewedRevision,
+    ...(state.previousReviewedRevision === undefined
+      ? {}
+      : { previousReviewedRevision: state.previousReviewedRevision }),
+    ...metadataOverrides,
+  });
   return [
     "<!-- seqlane-code-review -->",
+    `<!-- seqlane-code-review-meta-v3: ${metadata} -->`,
     "<!-- seqlane-code-review-state-v3-start -->",
     "```json",
     envelope,
@@ -527,6 +540,60 @@ describe("pull-request code review example workflow", () => {
 
     expect(result.previousState).toBeUndefined();
     expect(result.previousReviewedRevision).toBeUndefined();
+  });
+
+  it("rejects ambiguous or mismatched version 3 state framing", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+    const state = {
+      schemaVersion: 3,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 1,
+      findings: [],
+      limitations: [],
+      truncated: false,
+    };
+    const validComment = createV3ReviewComment(state);
+    const stateBlock = validComment.match(
+      /<!-- seqlane-code-review-state-v3-start -->[\s\S]*?<!-- seqlane-code-review-state-v3-end -->/,
+    )?.[0];
+    if (stateBlock === undefined) throw new Error("Expected state block");
+
+    const comments = [
+      `${validComment}\n${stateBlock}`,
+      createV3ReviewComment(state, { reviewedRevision: "c".repeat(40) }),
+    ];
+
+    for (const [index, body] of comments.entries()) {
+      const result = await task.execute(
+        {
+          pullRequestNumber: 44,
+          reviewHistory: {
+            comments: [
+              {
+                id: `report-${index}`,
+                kind: "issue",
+                author: "github-actions[bot]",
+                authorAssociation: "NONE",
+                body,
+                createdAt: "2026-09-05T10:00:00Z",
+              },
+            ],
+            truncated: false,
+          },
+        },
+        {},
+      );
+
+      expect(result.previousState).toBeUndefined();
+      expect(result.previousReviewedRevision).toBeUndefined();
+    }
   });
 
   it("ignores malformed commands and caps valid dispositions", async () => {

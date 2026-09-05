@@ -59,8 +59,9 @@ report revision.
 
 ### requirement-state-contract
 
-The authoritative comment must contain one bounded state block. A strict Zod
-schema must validate the decoded state before use.
+The authoritative comment must contain exactly one metadata marker and one
+bounded state block. A strict Zod schema must validate the decoded state before
+use. The state identity must match the metadata identity.
 
 The state must contain these fields:
 
@@ -122,6 +123,10 @@ incomplete.
 The projection shows at most 20 retained findings and 10 verification entries.
 The state block retains the complete bounded state when the projection omits
 items.
+
+The projection must neutralize model-controlled text before Markdown renders
+it. Active Critical and Required findings must remain visible before inactive
+history when the projection reaches its limit.
 
 ### requirement-bounds
 

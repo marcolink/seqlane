@@ -543,8 +543,16 @@ jobs:
               else
                 $text
               end;
+            def safe_text:
+              tostring
+              | gsub("&"; "&amp;")
+              | gsub("<"; "&lt;")
+              | gsub(">"; "&gt;")
+              | gsub("`"; "&#96;")
+              | gsub("@"; "@&#8203;")
+              | gsub("[\\r\\n]+"; " ");
             def cell:
-              tostring | gsub("[\\r\\n]+"; " ") | gsub("\\|"; "\\\\|");
+              safe_text | gsub("\\|"; "\\|");
             def active:
               .status == "new" or .status == "open" or
               .status == "addressed" or .status == "reopened";
@@ -555,6 +563,9 @@ jobs:
               if . == "reopened" then 0 elif . == "new" then 1
               elif . == "addressed" then 2 elif . == "open" then 3
               elif . == "resolved" then 4 else 5 end;
+            def projection_rank:
+              if active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required") then 0
+              elif active then 1 else 2 end;
             def severity_label:
               if . == "critical" then "Critical" elif . == "required" then "Required"
               elif . == "optional" then "Advisory" else "Informational" end;
@@ -569,6 +580,7 @@ jobs:
               elif . == "security" then "🔒 Security" else "⚡ Performance" end;
             . as $report |
             ($report.findings | sort_by(
+              projection_rank,
               (.effectiveSeverity | severity_rank),
               (.status | status_rank),
               .id
@@ -586,7 +598,7 @@ jobs:
               "",
               "Static review of `\($report.headRevision[:8])`\(if $report.previousReviewedRevision then " · Compared with `\($report.previousReviewedRevision[:8])`" else "" end)",
               "",
-              (shorten($report.summary; 1200))
+              (shorten($report.summary; 1200) | safe_text)
             ]
             + (if $report.previousReviewedRevision then [
               "",
@@ -612,19 +624,19 @@ jobs:
             + [
               $visibleFindings[] |
               select(active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required")) |
-              "<details>\n<summary><strong>\(.id) · \(.status | status_label) · \(.summary | cell)</strong></summary>\n\n**Recommendation:** \(shorten(.recommendation; 600))\(if .file then "\n\n**Location:** `\(.file)\(if .line then ":\(.line)" else "" end)`" else "" end)\(if .dispositionBy then "\n\n**Human decision:** \(.disposition) by @\(.dispositionBy)\(if .dispositionReason then " — \(.dispositionReason)" else "" end)" else "" end)\n\n</details>"
+              "<details>\n<summary><strong>\(.id) · \(.status | status_label) · \(.summary | cell)</strong></summary>\n\n**Recommendation:** \(shorten(.recommendation; 600) | safe_text)\(if .file then "\n\n**Location:** `\(.file | safe_text)\(if .line then ":\(.line)" else "" end)`" else "" end)\(if .dispositionBy then "\n\n**Human decision:** \(.disposition | safe_text) by \(("@" + .dispositionBy) | safe_text)\(if .dispositionReason then " — \(.dispositionReason | safe_text)" else "" end)" else "" end)\n\n</details>"
             ]
             + (if ($report.limitations | length) == 0 then [] else [
               "",
               "## Review limitations",
-              ($report.limitations[] | "- ⚠️ \(shorten(.; 500))")
+              ($report.limitations[] | "- ⚠️ \(shorten(.; 500) | safe_text)")
             ] end)
             + (if ($report.verification | length) == 0 then [] else [
               "",
               "<details>",
               "<summary>Verification evidence (showing up to 10 entries)</summary>",
               "",
-              ($report.verification[:10][] | "- 🔎 \(shorten(.; 500))"),
+              ($report.verification[:10][] | "- 🔎 \(shorten(.; 500) | safe_text)"),
               "",
               "</details>"
             ] end)

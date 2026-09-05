@@ -222,6 +222,15 @@ const reviewStateEnvelopeSchema = z
   })
   .strict();
 
+const reviewCommentMetadataSchema = z
+  .object({
+    schemaVersion: z.literal(3),
+    pullRequestNumber: z.number().int().positive(),
+    reviewedRevision: gitRevisionSchema,
+    previousReviewedRevision: gitRevisionSchema.optional(),
+  })
+  .strict();
+
 const reviewHistoryOutputSchema = z.object({
   comments: z.array(reviewCommentSchema).max(200),
   commentIds: z.array(z.string().min(1).max(128)).max(200),
@@ -397,13 +406,24 @@ function parseReviewState(
 ): z.infer<typeof reviewStateSchema> | undefined {
   if (comment === undefined || !isReviewReportComment(comment))
     return undefined;
-  const stateBlock = comment.body.match(
-    /<!-- seqlane-code-review-state-v3-start -->\s*```json\s*([^\r\n]+)\s*```\s*<!-- seqlane-code-review-state-v3-end -->/,
-  );
-  if (stateBlock === null) return undefined;
+  const stateBlocks = [
+    ...comment.body.matchAll(
+      /<!-- seqlane-code-review-state-v3-start -->\s*```json\s*([^\r\n]+)\s*```\s*<!-- seqlane-code-review-state-v3-end -->/g,
+    ),
+  ];
+  const metadataMarkers = [
+    ...comment.body.matchAll(
+      /<!-- seqlane-code-review-meta-v3: ([^\r\n]+) -->/g,
+    ),
+  ];
+  if (stateBlocks.length !== 1 || metadataMarkers.length !== 1)
+    return undefined;
 
   try {
-    const envelopeValue: unknown = JSON.parse(stateBlock[1]!);
+    const metadataValue: unknown = JSON.parse(metadataMarkers[0]![1]!);
+    const metadata = reviewCommentMetadataSchema.safeParse(metadataValue);
+    if (!metadata.success) return undefined;
+    const envelopeValue: unknown = JSON.parse(stateBlocks[0]![1]!);
     const envelope = reviewStateEnvelopeSchema.safeParse(envelopeValue);
     if (!envelope.success) return undefined;
     const decodedText = gunzipSync(Buffer.from(envelope.data.data, "base64"), {
@@ -411,7 +431,16 @@ function parseReviewState(
     }).toString("utf8");
     const decoded: unknown = JSON.parse(decodedText);
     const parsed = reviewStateSchema.safeParse(decoded);
-    return parsed.success ? parsed.data : undefined;
+    if (!parsed.success) return undefined;
+    if (
+      parsed.data.pullRequestNumber !== metadata.data.pullRequestNumber ||
+      parsed.data.reviewedRevision !== metadata.data.reviewedRevision ||
+      parsed.data.previousReviewedRevision !==
+        metadata.data.previousReviewedRevision
+    ) {
+      return undefined;
+    }
+    return parsed.data;
   } catch {
     return undefined;
   }

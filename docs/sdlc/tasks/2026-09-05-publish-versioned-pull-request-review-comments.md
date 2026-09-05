@@ -91,7 +91,9 @@ lifecycle transitions, human dispositions, limitations, and the final verdict.
 The publisher updates only a trusted GitHub Actions bot comment. It checks the
 live pull-request head before each write. The visible projection shows at most
 20 findings and 10 verification entries. The state retains the complete
-bounded finding set and run audit data.
+bounded finding set and run audit data. Active blockers take priority in the
+visible projection. Model-controlled text is neutralized before rendering.
+The reader rejects duplicate state framing and metadata identity mismatches.
 
 Legacy version 1 and version 2 reports migrate to stable version 3 IDs. Tests
 cover malformed state, ID allocation, disposition overflow, current-head fix
