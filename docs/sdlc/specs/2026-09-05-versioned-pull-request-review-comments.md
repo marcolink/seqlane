@@ -119,6 +119,10 @@ The projection can omit internal ratings and run evidence. It must show a
 deterministic limitation notice when retained evidence or history is
 incomplete.
 
+The projection shows at most 20 retained findings and 10 verification entries.
+The state block retains the complete bounded state when the projection omits
+items.
+
 ### requirement-bounds
 
 The state and human projection must have explicit size and item limits. The

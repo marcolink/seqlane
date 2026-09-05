@@ -573,6 +573,7 @@ jobs:
               (.status | status_rank),
               .id
             )) as $findings |
+            ($findings[:20]) as $visibleFindings |
             ($findings | map(select(active))) as $active |
             ($active | map(select(.effectiveSeverity == "critical" or .effectiveSeverity == "required")) | length) as $blockers |
             ($active | map(select(.effectiveSeverity == "optional" or .effectiveSeverity == "nit")) | length) as $advisories |
@@ -594,18 +595,22 @@ jobs:
             + [
               "",
               "## Findings",
-              (if ($findings | length) == 0 then
+              (if ($visibleFindings | length) == 0 then
                 "✅ No findings."
               else
                 "| ID | Severity | Status | Area | Finding |\n| --- | --- | --- | --- | --- |"
               end)
             ]
-            + (if ($findings | length) == 0 then [] else [
-              $findings[] |
+            + (if ($visibleFindings | length) == 0 then [] else [
+              $visibleFindings[] |
                 "| `\(.id)` | \(if .severity == .effectiveSeverity then (.severity | severity_label) else "\(.severity | severity_label) → \(.effectiveSeverity | severity_label)" end) | \(.status | status_label) | \(.axis | area_label) | \(shorten(.summary; 360) | cell) |"
             ] end)
+            + (if ($findings | length) > ($visibleFindings | length) then [
+              "",
+              "⚠️ Showing \($visibleFindings | length) of \($findings | length) retained findings. The machine-readable state contains the complete bounded set."
+            ] else [] end)
             + [
-              $findings[] |
+              $visibleFindings[] |
               select(active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required")) |
               "<details>\n<summary><strong>\(.id) · \(.status | status_label) · \(.summary | cell)</strong></summary>\n\n**Recommendation:** \(shorten(.recommendation; 600))\(if .file then "\n\n**Location:** `\(.file)\(if .line then ":\(.line)" else "" end)`" else "" end)\(if .dispositionBy then "\n\n**Human decision:** \(.disposition) by @\(.dispositionBy)\(if .dispositionReason then " — \(.dispositionReason)" else "" end)" else "" end)\n\n</details>"
             ]
@@ -613,6 +618,15 @@ jobs:
               "",
               "## Review limitations",
               ($report.limitations[] | "- ⚠️ \(shorten(.; 500))")
+            ] end)
+            + (if ($report.verification | length) == 0 then [] else [
+              "",
+              "<details>",
+              "<summary>Verification evidence (showing up to 10 entries)</summary>",
+              "",
+              ($report.verification[:10][] | "- 🔎 \(shorten(.; 500))"),
+              "",
+              "</details>"
             ] end)
             + [
               "",

@@ -1,7 +1,7 @@
 ---
 id: task.publish-versioned-pull-request-review-comments
 title: Publish Versioned Pull Request Review Comments
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-05
@@ -83,9 +83,26 @@ Implement all requirements in
 
 ## Outcome
 
-Implementation is in progress.
+The review workflow now publishes one concise comment with a strict, bounded
+version 3 state block. A history task verifies retained findings before the
+three specialist lanes run. The local finalizer owns stable finding IDs,
+lifecycle transitions, human dispositions, limitations, and the final verdict.
+
+The publisher updates only a trusted GitHub Actions bot comment. It checks the
+live pull-request head before each write. The visible projection shows at most
+20 findings and 10 verification entries. The state retains the complete
+bounded finding set and run audit data.
+
+Legacy version 1 and version 2 reports migrate to stable version 3 IDs. Tests
+cover malformed state, ID allocation, disposition overflow, current-head fix
+verification, stale metadata, truncation continuity, command-level Git output
+bounds, and lifecycle transitions. The branch workflow restored version 3
+state, kept existing IDs, compared consecutive reviewed commits, and published
+the updated comment successfully.
 
 ## Traceability
 
 - Contract: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md)
 - Source proposal: [Seqlane review template](https://github.com/marcolink/seqlane/issues/45)
+- Delivery: [pull request 44](https://github.com/marcolink/seqlane/pull/44)
+- Proof: [GitHub Actions run 33966564431](https://github.com/marcolink/seqlane/actions/runs/33966564431)
