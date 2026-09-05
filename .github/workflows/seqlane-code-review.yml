@@ -345,6 +345,76 @@ jobs:
                 }
             ' > "$RUNNER_TEMP/seqlane-review-history.json"
 
+      - name: Mark existing review as in progress
+        if: steps.pull-request.outputs.eligible == 'true'
+        id: review-progress
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pull-request.outputs.number }}
+          EXPECTED_HEAD: ${{ steps.pull-request.outputs.head_revision }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/seqlane-progress-live-pull-request.json"
+          if ! jq --exit-status \
+            --arg head "$EXPECTED_HEAD" \
+            --arg repository "$GITHUB_REPOSITORY" '
+              .state == "open" and
+              .draft == false and
+              .head.repo.full_name == $repository and
+              .head.sha == $head
+            ' "$RUNNER_TEMP/seqlane-progress-live-pull-request.json" > /dev/null; then
+            echo "::error::The pull request changed before the review-progress marker could be written."
+            exit 1
+          fi
+
+          COMMENT_ID=$(for page in 1 2; do
+            gh api \
+              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
+              --jq '.[] | select(
+                ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
+                (.body | contains("<!-- seqlane-code-review -->"))
+              ) | .id'
+          done | head -n 1)
+
+          if [ -z "$COMMENT_ID" ]; then
+            echo "marked=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            > "$RUNNER_TEMP/seqlane-progress-comment.json"
+          COMMENT_BODY=$(jq --raw-output '.body // ""' \
+            "$RUNNER_TEMP/seqlane-progress-comment.json")
+          MARKER_START='<!-- seqlane-review-in-progress-start -->'
+          MARKER_END='<!-- seqlane-review-in-progress-end -->'
+
+          if printf '%s' "$COMMENT_BODY" | grep -Fq "$MARKER_START" &&
+             printf '%s' "$COMMENT_BODY" | grep -Fq "$MARKER_END"; then
+            printf '%s' "$COMMENT_ID" > "$RUNNER_TEMP/seqlane-progress-comment-id"
+            echo "marked=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PROGRESS_NOTE=$(printf '%s\n' \
+            "$MARKER_START" \
+            "# ⏳ Another Seqlane review is currently in progress" \
+            "" \
+            "This report is being refreshed for a newer review run and will be updated when it finishes." \
+            "$MARKER_END")
+          jq --null-input \
+            --arg note "$PROGRESS_NOTE" \
+            --arg body "$COMMENT_BODY" \
+            '{body: ($note + "\n\n" + $body)}' \
+            > "$RUNNER_TEMP/seqlane-progress-comment-payload.json"
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            --input "$RUNNER_TEMP/seqlane-progress-comment-payload.json" \
+            > /dev/null
+
+          printf '%s' "$COMMENT_ID" > "$RUNNER_TEMP/seqlane-progress-comment-id"
+          echo "marked=true" >> "$GITHUB_OUTPUT"
+
       - name: Check out Seqlane source
         if: steps.pull-request.outputs.eligible == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -566,11 +636,100 @@ jobs:
             "$RUNNER_TEMP/seqlane-code-review.jsonl" \
             > "$RUNNER_TEMP/seqlane-code-review-result.json"
 
+          RUN_METRICS=$(jq --slurp --compact-output '
+            . as $events |
+            ([$events[] |
+              select(.type == "run.succeeded" or .type == "run.failed" or .type == "run.cancelled")
+            ] | last) as $runEnd |
+            ([$events[] | select(.type == "run.started")] | first) as $runStart |
+            def epoch_ms:
+              sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 * 1000;
+            def elapsed_ms($start; $finish):
+              if ($start == null or $finish == null) then 0
+              else (($finish | epoch_ms) - ($start | epoch_ms))
+              end;
+            def task_metrics($id):
+              [$events[] |
+                select(
+                  .type == "invocation.output" and
+                  .invocationId == $id and
+                  .channel == "task" and
+                  .metrics != null
+                )
+              ] | last | .metrics // {};
+            def task_result_state($id):
+              if ([$events[] | select(.type == "invocation.succeeded" and .invocationId == $id)] | length) > 0 then "succeeded"
+              elif ([$events[] | select(.type == "invocation.failed" and .invocationId == $id)] | length) > 0 then "failed"
+              elif ([$events[] | select(.type == "invocation.cancelled" and .invocationId == $id)] | length) > 0 then "cancelled"
+              elif ([$events[] | select(.type == "invocation.skipped" and .invocationId == $id)] | length) > 0 then "skipped"
+              else null end;
+            def task_duration($id; $taskMetrics):
+              if $taskMetrics.durationMs != null then $taskMetrics.durationMs
+              else
+                ([$events[] | select(.type == "invocation.started" and .invocationId == $id) | .metadata.occurredAt] | first) as $start |
+                ([$events[] | select(
+                  .invocationId == $id and
+                  (.type == "invocation.succeeded" or .type == "invocation.failed" or
+                   .type == "invocation.cancelled" or .type == "invocation.skipped")
+                ) | .metadata.occurredAt] | last) as $finish |
+                elapsed_ms($start; $finish)
+              end;
+            def sum_tokens($tasks):
+              reduce $tasks[] as $task
+                ({input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0};
+                  ($task.tokens // {}) as $tokens |
+                  .input += ($tokens.input // 0) |
+                  .output += ($tokens.output // 0) |
+                  .reasoning += ($tokens.reasoning // 0) |
+                  .cacheRead += ($tokens.cacheRead // 0) |
+                  .cacheWrite += ($tokens.cacheWrite // 0)
+                ) |
+              .total = (.input + .output + .reasoning + .cacheRead + .cacheWrite);
+            ([$events[] | select(.type == "invocation.created" and .kind == "task")] |
+              unique_by(.invocationId) |
+              map(
+                . as $created |
+                (task_metrics($created.invocationId)) as $metrics |
+                (task_result_state($created.invocationId)) as $resultState |
+                select($resultState != null) |
+                {
+                  invocationId: $created.invocationId,
+                  task: $created.label,
+                  resultState: $resultState,
+                  durationMs: task_duration($created.invocationId; $metrics)
+                }
+                + (if $created.taskId != null then {taskId: $created.taskId} else {} end)
+                + (if ($metrics.model // $metrics.modelSelection.model.model // null) != null then
+                    {model: ($metrics.model // $metrics.modelSelection.model.model)}
+                  else {} end)
+                + (if ($metrics.provider // $metrics.modelSelection.model.provider // null) != null then
+                    {provider: ($metrics.provider // $metrics.modelSelection.model.provider)}
+                  else {} end)
+                + (if $metrics.tokens != null then {tokens: $metrics.tokens} else {} end)
+                + (if $metrics.cost != null then {cost: $metrics.cost} else {} end)
+              )
+            ) as $tasks |
+            {
+              schemaVersion: 1,
+              runId: ($runEnd.runId // "unknown"),
+              outcome: (if $runEnd.type == "run.failed" then "failed"
+                elif $runEnd.type == "run.cancelled" then "cancelled"
+                else "succeeded" end),
+              durationMs: elapsed_ms($runStart.metadata.occurredAt; $runEnd.metadata.occurredAt),
+              totalCost: ($tasks | map(.cost // 0) | add // 0),
+              totalTokens: sum_tokens($tasks),
+              tasks: $tasks
+            }
+          ' "$RUNNER_TEMP/seqlane-code-review.jsonl")
+          RUN_METRICS_PRETTY=$(printf '%s' "$RUN_METRICS" | jq .)
+          printf '%s\n' "$RUN_METRICS" > "$RUNNER_TEMP/seqlane-code-review-metrics.json"
+
           COMPLETED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           REVIEW_STATE=$(jq --compact-output \
             --arg runId "$GITHUB_RUN_ID" \
             --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
-            --arg completedAt "$COMPLETED_AT" '
+            --arg completedAt "$COMPLETED_AT" \
+            --argjson runMetrics "$RUN_METRICS" '
             {
               schemaVersion: 3,
               pullRequestNumber,
@@ -583,7 +742,8 @@ jobs:
               run: {
                 id: $runId,
                 attempt: $runAttempt,
-                completedAt: $completedAt
+                completedAt: $completedAt,
+                metrics: $runMetrics
               }
             }
             + (if .previousReviewedRevision then
@@ -659,6 +819,7 @@ jobs:
           jq --raw-output \
             --arg metadata "$REVIEW_METADATA" \
             --arg stateEnvelope "$REVIEW_STATE_ENVELOPE" \
+            --arg runMetricsJson "$RUN_METRICS_PRETTY" \
             --arg compactionNotice "$STATE_COMPACTION_NOTICE" \
             --argjson stateCompacted "$STATE_COMPACTED" '
             def shorten($value; $limit):
@@ -798,6 +959,16 @@ jobs:
               "Allowed severities: `critical`, `required`, `optional`, and `nit`.",
               "Command names and finding IDs are case-insensitive."
             ]
+            + [
+              "",
+              "## Run metrics",
+              "",
+              "Mechanically aggregated from Seqlane execution events:",
+              "",
+              "```json",
+              $runMetricsJson,
+              "```"
+            ]
             + (if ($report.verification | length) == 0 then [] else [
               "",
               "<details>",
@@ -903,6 +1074,43 @@ jobs:
           fi
 
           echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Clear review in-progress marker
+        if: always() && steps.pull-request.outputs.eligible == 'true' && steps.review-progress.outputs.marked == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          COMMENT_ID=$(cat "$RUNNER_TEMP/seqlane-progress-comment-id")
+          MARKER_START='<!-- seqlane-review-in-progress-start -->'
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            > "$RUNNER_TEMP/seqlane-progress-comment-latest.json"
+          COMMENT_AUTHOR=$(jq --raw-output '.user.login // ""' \
+            "$RUNNER_TEMP/seqlane-progress-comment-latest.json")
+          if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then
+            echo "::error::The Seqlane review comment is no longer owned by the trusted bot."
+            exit 1
+          fi
+
+          if ! jq --raw-output '.body // ""' \
+            "$RUNNER_TEMP/seqlane-progress-comment-latest.json" | grep -Fq "$MARKER_START"; then
+            echo "The review-progress marker was already removed by report publication."
+            exit 0
+          fi
+
+          jq --raw-output '
+            (.body // "")
+            | gsub("(?s)<!-- seqlane-review-in-progress-start -->.*?<!-- seqlane-review-in-progress-end -->\\n?"; "")
+          ' "$RUNNER_TEMP/seqlane-progress-comment-latest.json" \
+            > "$RUNNER_TEMP/seqlane-progress-comment-cleared.txt"
+          jq --null-input \
+            --rawfile body "$RUNNER_TEMP/seqlane-progress-comment-cleared.txt" \
+            '{body: $body}' \
+            > "$RUNNER_TEMP/seqlane-progress-comment-payload.json"
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            --input "$RUNNER_TEMP/seqlane-progress-comment-payload.json" \
+            > /dev/null
 
       - name: Stop OpenCode
         if: always() && steps.opencode.outputs.started == 'true'

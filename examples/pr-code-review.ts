@@ -167,6 +167,52 @@ const reviewReportFindingSchema = synthesizedReviewFindingSchema.extend({
   aliases: z.array(reviewFindingIdSchema).max(8).default([]),
 });
 
+const reviewRunTokensSchema = z
+  .object({
+    input: z.number().int().nonnegative(),
+    output: z.number().int().nonnegative(),
+    reasoning: z.number().int().nonnegative(),
+    cacheRead: z.number().int().nonnegative(),
+    cacheWrite: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+const reviewRunTaskMetricsSchema = z
+  .object({
+    invocationId: z.string().min(1).max(256),
+    task: z.string().min(1).max(512),
+    taskId: z.string().min(1).max(256).optional(),
+    resultState: z.enum([
+      "queued",
+      "waiting",
+      "active",
+      "retrying",
+      "succeeded",
+      "failed",
+      "skipped",
+      "cancelled",
+    ]),
+    durationMs: z.number().nonnegative(),
+    model: z.string().min(1).max(256).optional(),
+    provider: z.string().min(1).max(256).optional(),
+    tokens: reviewRunTokensSchema.optional(),
+    cost: z.number().nonnegative().optional(),
+  })
+  .strict();
+
+const reviewRunMetricsSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    runId: z.string().min(1).max(128),
+    outcome: z.enum(["succeeded", "failed", "cancelled"]),
+    durationMs: z.number().nonnegative(),
+    totalCost: z.number().nonnegative(),
+    totalTokens: reviewRunTokensSchema,
+    tasks: z.array(reviewRunTaskMetricsSchema).max(40),
+  })
+  .strict();
+
 const reviewStateSchema = z
   .object({
     schemaVersion: z.literal(3),
@@ -183,6 +229,7 @@ const reviewStateSchema = z
         id: z.string().min(1).max(128),
         attempt: z.number().int().positive(),
         completedAt: z.string().min(1).max(64),
+        metrics: reviewRunMetricsSchema.optional(),
       })
       .strict()
       .optional(),

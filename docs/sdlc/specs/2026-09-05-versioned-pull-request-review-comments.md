@@ -25,6 +25,8 @@ state.
 - Prevent an old run from replacing a review for a newer head revision.
 - Give each finding one stable publisher-owned identifier.
 - Preserve human dispositions without treating a claim as verified evidence.
+- Show when a new review is refreshing an existing authoritative comment.
+- Preserve deterministic per-run task cost and usage metrics for reviewers.
 
 ## Non-goals
 
@@ -72,7 +74,27 @@ The state must contain these fields:
 - the next finding index;
 - retained findings and lifecycle metadata;
 - review limitations;
-- bounded run audit metadata.
+- bounded run audit metadata, including optional per-task run metrics.
+
+### requirement-run-status-and-metrics
+
+When a new eligible review starts and a trusted authoritative comment already
+exists, the workflow must prepend a prominent, machine-detectable in-progress
+notice to that comment. The notice must be removed after the new report is
+published. Cleanup must also remove it when execution fails or is cancelled so
+an interrupted run cannot leave a stale status.
+
+The publisher must mechanically derive one metrics object for each completed
+review run from the serialized execution events. Each task entry must include
+the task identity, result state, duration, and any available model, provider,
+token, and cost values. The object must include run duration, total cost, and
+token totals. The publisher must not use an agent to calculate or interpret
+these values.
+
+The human comment must show the metrics object as a plain JSON code block. The
+same validated object must be stored under the run audit data so the next
+review can retain it. Missing provider metrics must remain absent rather than
+being represented as fabricated zero usage.
 
 ### requirement-stable-identity
 

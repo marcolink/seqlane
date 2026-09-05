@@ -150,13 +150,18 @@ to `Reopened`.
 The visible comment is a human-readable projection. A collapsed JSON code
 block stores the canonical version 3 state as bounded gzip and Base64 data.
 The state includes full commit IDs, lifecycle data, dispositions, and run audit
-data. Previous state is accepted only from a marked comment by the GitHub
-Actions bot and only after strict schema validation. Legacy snapshots remain
-readable for migration. State or comment truncation appears in the review
-limitations. The publisher checks the live pull-request head immediately
-before it writes the comment. It refuses to publish a stale result. Configured
-secret values are redacted from CI output, workflow summaries, and GitHub
-annotations.
+data. The run audit data also stores a plain, mechanically generated metrics
+object with task result state, duration, model, tokens, and cost totals. The
+same JSON object is shown in the human comment under `Run metrics`, with cost
+split by task. No agent calculates these values. When a new review starts and a
+trusted report already exists, the workflow temporarily prepends a prominent
+in-progress notice. It removes that notice after publication or cleanup.
+Previous state is accepted only from a marked comment by the GitHub Actions bot
+and only after strict schema validation. Legacy snapshots remain readable for
+migration. State or comment truncation appears in the review limitations. The
+publisher checks the live pull-request head immediately before it writes the
+comment. It refuses to publish a stale result. Configured secret values are
+redacted from CI output, workflow summaries, and GitHub annotations.
 
 To exercise the workflow and Seqlane source from a feature branch, run the
 workflow manually with that branch selected:

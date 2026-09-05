@@ -487,6 +487,45 @@ describe("pull-request code review example workflow", () => {
       ],
       limitations: [],
       truncated: false,
+      run: {
+        id: "123",
+        attempt: 1,
+        completedAt: "2026-09-05T10:00:00.000Z",
+        metrics: {
+          schemaVersion: 1,
+          runId: "run-1",
+          outcome: "succeeded",
+          durationMs: 42,
+          totalCost: 0.0042,
+          totalTokens: {
+            input: 20,
+            output: 12,
+            reasoning: 8,
+            cacheRead: 2,
+            cacheWrite: 0,
+            total: 42,
+          },
+          tasks: [
+            {
+              invocationId: "review-1",
+              task: "Correctness review",
+              resultState: "succeeded",
+              durationMs: 42,
+              model: "gpt-5.6-luna",
+              provider: "openai",
+              tokens: {
+                input: 20,
+                output: 12,
+                reasoning: 8,
+                cacheRead: 2,
+                cacheWrite: 0,
+                total: 42,
+              },
+              cost: 0.0042,
+            },
+          ],
+        },
+      },
     };
     const result = await task.execute(
       {

@@ -164,3 +164,4 @@
 | [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
 | [task.resolve-pull-request-merge-conflicts](./2026-09-04-resolve-pull-request-merge-conflicts.md) | Resolve Pull Request Merge Conflicts | completed | 2026-09-04 | core |
 | [task.publish-versioned-pull-request-review-comments](./2026-09-05-publish-versioned-pull-request-review-comments.md) | Publish Versioned Pull Request Review Comments | completed | 2026-09-05 | core |
+| [task.review-progress-and-run-metrics](./2026-09-05-review-progress-and-run-metrics.md) | Show Review Progress and Persist Run Metrics | completed | 2026-09-05 | core |
