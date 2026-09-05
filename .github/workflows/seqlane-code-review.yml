@@ -1018,7 +1018,8 @@ jobs:
               ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
               (.body | contains("<!-- seqlane-code-review -->"))
             ) | .id' \
-            | jq --raw-input --slurp 'split("\n") | map(select(length > 0)) | .[0] // empty')
+            | head -n 1 \
+            | jq --raw-output)
 
           REPORT_HEAD=$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")
           if [ -n "$COMMENT_ID" ]; then
