@@ -83,6 +83,9 @@ The finalizer must not reuse an index. A retained or reopened finding keeps its
 identifier. Review agents can reference prior identifiers but cannot allocate
 new final identifiers.
 
+The finalizer must collapse duplicate temporary identifiers before it assigns
+stable identifiers.
+
 ### requirement-lifecycle
 
 Each retained finding has one lifecycle status:
@@ -161,7 +164,9 @@ The state payload uses compact JSON. The publisher can use a bounded
 `gzip+base64` wrapper when direct JSON exceeds the state budget.
 
 Run timestamps and identifiers are audit data. They do not decide publication
-order. The live pull-request head and full Git revisions decide eligibility.
+order across revisions. The live pull-request head and full Git revisions
+decide eligibility. For the same reviewed revision, the GitHub run ID and
+attempt prevent an older run from replacing a newer publication.
 
 The human status and severity labels are deterministic projections of the
 validated state. Model output cannot select the final verdict or active

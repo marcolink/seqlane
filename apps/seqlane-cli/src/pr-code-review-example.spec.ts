@@ -568,6 +568,7 @@ describe("pull-request code review example workflow", () => {
     const comments = [
       `${validComment}\n${stateBlock}`,
       createV3ReviewComment(state, { reviewedRevision: "c".repeat(40) }),
+      createV3ReviewComment(state, { run: { id: "123", attempt: 1 } }),
     ];
 
     for (const [index, body] of comments.entries()) {
@@ -1743,6 +1744,45 @@ describe("pull-request code review example workflow", () => {
       "40 lower-priority finding(s) were omitted because the report is bounded to 40 findings.",
     );
     expect(result.stateTruncated).toBe(true);
+  });
+
+  it("deduplicates temporary finding identifiers before allocating stable IDs", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+    const duplicate = {
+      id: "F-duplicate",
+      axis: "correctness",
+      severity: "required",
+      effectiveSeverity: "required",
+      disposition: "open",
+      summary: "Duplicate current finding",
+      recommendation: "Keep one stable finding.",
+    };
+
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [],
+          commentIds: [],
+          truncated: false,
+          dispositions: [],
+        }),
+        report: createReport([duplicate, duplicate]),
+      },
+      {},
+    );
+
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "SEQ-PR44-001",
+        aliases: ["F-duplicate"],
+      }),
+    ]);
+    expect(result.nextFindingIndex).toBe(2);
   });
 
   it("reopens a historical finding when an edited command targets another finding", async () => {

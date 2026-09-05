@@ -513,7 +513,11 @@ jobs:
             {
               schemaVersion: 3,
               pullRequestNumber: $pullRequestNumber,
-              reviewedRevision: $reviewedRevision
+              reviewedRevision: $reviewedRevision,
+              run: {
+                id: env.GITHUB_RUN_ID,
+                attempt: (env.GITHUB_RUN_ATTEMPT | tonumber)
+              }
             }
             + (if $previousReviewedRevision == "" then {}
                else {previousReviewedRevision: $previousReviewedRevision} end)
@@ -660,16 +664,43 @@ jobs:
               ) | .id'
           done | head -n 1)
 
+          REPORT_HEAD=$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")
           if [ -n "$COMMENT_ID" ]; then
-            COMMENT_AUTHOR=$(gh api \
-              "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
-              --jq '.user.login')
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+              > "$RUNNER_TEMP/seqlane-existing-comment.json"
+            COMMENT_AUTHOR=$(jq --raw-output '.user.login' \
+              "$RUNNER_TEMP/seqlane-existing-comment.json")
             if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then
               COMMENT_ID=""
+            else
+              EXISTING_RUN=$(jq --raw-output --arg head "$REPORT_HEAD" '
+                .body
+                | split("\n")[]
+                | select(startswith("<!-- seqlane-code-review-meta-v3: "))
+                | sub("^<!-- seqlane-code-review-meta-v3: "; "")
+                | sub(" -->$"; "")
+                | fromjson?
+                | select(
+                    .reviewedRevision == $head and
+                    ((.run.id? // "") | test("^[0-9]+$")) and
+                    ((.run.attempt? | type) == "number")
+                  )
+                | [.run.id, (.run.attempt | tostring)]
+                | @tsv
+              ' "$RUNNER_TEMP/seqlane-existing-comment.json" | head -n 1)
+              EXISTING_RUN_ID=$(printf '%s' "$EXISTING_RUN" | cut -f 1)
+              EXISTING_RUN_ATTEMPT=$(printf '%s' "$EXISTING_RUN" | cut -f 2)
+              if [ -n "$EXISTING_RUN_ID" ] &&
+                 { [ "$EXISTING_RUN_ID" -gt "$GITHUB_RUN_ID" ] ||
+                   { [ "$EXISTING_RUN_ID" -eq "$GITHUB_RUN_ID" ] &&
+                     [ "$EXISTING_RUN_ATTEMPT" -ge "$GITHUB_RUN_ATTEMPT" ]; }; }; then
+                echo "::notice::A newer same-head Seqlane review is already published; skipping this stale write."
+                echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
             fi
           fi
 
-          REPORT_HEAD=$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
             > "$RUNNER_TEMP/seqlane-live-pull-request.json"
           if ! jq --exit-status \

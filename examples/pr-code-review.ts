@@ -228,6 +228,13 @@ const reviewCommentMetadataSchema = z
     pullRequestNumber: z.number().int().positive(),
     reviewedRevision: gitRevisionSchema,
     previousReviewedRevision: gitRevisionSchema.optional(),
+    run: z
+      .object({
+        id: z.string().regex(/^\d+$/).max(128),
+        attempt: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -437,6 +444,14 @@ function parseReviewState(
       parsed.data.reviewedRevision !== metadata.data.reviewedRevision ||
       parsed.data.previousReviewedRevision !==
         metadata.data.previousReviewedRevision
+    ) {
+      return undefined;
+    }
+    if (
+      metadata.data.run !== undefined &&
+      (parsed.data.run === undefined ||
+        parsed.data.run.id !== metadata.data.run.id ||
+        parsed.data.run.attempt !== metadata.data.run.attempt)
     ) {
       return undefined;
     }
@@ -1200,9 +1215,13 @@ const applyReviewDispositionTask = defineTask({
     };
 
     const currentIds = new Set<string>();
+    const currentSourceIds = new Set<string>();
     const findings: ReviewReportFinding[] = [];
     for (const synthesized of report.findings) {
       const previous = findPrevious(synthesized.id);
+      const sourceId = previous?.id ?? synthesized.id;
+      if (currentSourceIds.has(sourceId)) continue;
+      currentSourceIds.add(sourceId);
       const id = previous?.id ?? allocateFindingId();
       if (currentIds.has(id)) continue;
       currentIds.add(id);

@@ -98,6 +98,8 @@ The workflow passes review input through a JSON file. Resolved fixes require
 fresh current-head proof, and removed dispositions reopen stale resolved state.
 Edited comments are eligible only when their current or previous body contains
 a recognized review command.
+Run identity prevents stale same-head publication, and duplicate temporary IDs
+collapse before stable ID allocation.
 
 Legacy version 1 and version 2 reports migrate to stable version 3 IDs. Tests
 cover malformed state, ID allocation, disposition overflow, current-head fix
