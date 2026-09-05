@@ -56,9 +56,10 @@ opencode serve --hostname 127.0.0.1 --port 4096 --print-logs
 `pr-code-review.ts` is an autonomous pull-request code-review workflow. It
 uses the supplied base branch for context and compares the matching explicit
 base and head revisions, using the pull-request title and description as
-untrusted author-supplied context. It runs correctness,
-maintainability, and risk lanes in parallel before producing a five-axis
-rating. Review tasks only read supplied evidence and targeted workspace files;
+untrusted author-supplied context. It verifies previous findings first. It
+then runs correctness, maintainability, and risk lanes in parallel before it
+produces a five-axis rating. Review tasks only read supplied evidence and
+targeted workspace files;
 they do not execute scripts, tests, builds, package managers, Git, or shell
 commands. File inspection uses workspace-relative paths and stays inside the
 review workspace.
@@ -73,7 +74,7 @@ runtime accordingly.
 
 ```sh
 pnpm exec node apps/seqlane-cli/bin/run.js run examples/pr-code-review.ts \
-  --input '{"repository":"/path/to/repository","baseBranch":"release/2026.09","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
+  --input '{"repository":"/path/to/repository","baseBranch":"release/2026.09","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"number":123,"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
   --runtime http://127.0.0.1:4096 \
   --workspace /path/to/repository
 ```
@@ -113,8 +114,8 @@ workflow installs and builds the checked-out Seqlane
 source, but does not install dependencies or execute repository scripts from
 the separate review target. OpenCode ignores project runtime configuration
 during the review and receives a read-only tool policy. The workflow reads a
-bounded set of recent issue and review comments, updates one marked
-pull-request comment with the report, and records the report verdict without
+bounded set of recent issue and review comments. It updates one marked comment
+from the trusted GitHub Actions bot. It records the report verdict without
 failing the review job when it is `request-changes`. It accepts review reruns
 and disposition commands only from reviewers with GitHub `OWNER`, `MEMBER`, or
 `COLLABORATOR` association. Editing a disposition comment also reruns the
@@ -127,21 +128,32 @@ larger than the 48,000-byte evidence limit and is removed after collection.
 
 ```text
 /seqlane review
-/seqlane wont-fix F-123 reason: accepted risk
-/seqlane fixed F-123
-/seqlane downgrade F-123 optional reason: low impact
+/seqlane wont-fix SEQ-PR123-001 reason: accepted risk
+/seqlane fixed SEQ-PR123-002
+/seqlane downgrade SEQ-PR123-003 optional reason: low impact
 ```
 
-`fixed` is verified against the current pull-request head. `wont-fix` and
-`downgrade` are recorded with the actor, effective timestamp, reason, and
-commit context; they do not remove the finding from the report, but an
-authorized disposition does remove it as a merge-blocking finding. Previous
-reports are accepted only from the Seqlane bot identity and use a compact,
-schema-validated snapshot. Snapshot or comment truncation is recorded as a
-review limitation. The visible report and retained snapshot have bounded
-finding and text counts, and trusted snapshot decompression has a fixed output
-limit. Configured secret values are redacted from CI output,
-workflow summaries, and GitHub annotations.
+The publisher assigns each finding a permanent `SEQ-PR<PR>-<index>` ID. It
+does not reuse an ID for a different finding. It retains old `F-*` IDs as
+aliases when it migrates a version 1 or version 2 report.
+
+`fixed` changes a finding to `Addressed`. The finding stays active until the
+independent history task verifies the fix against the current head. A verified
+fix changes the status to `Resolved`. `wont-fix` changes the status to
+`Dismissed`. `downgrade` keeps the finding active with a lower effective
+severity. If a resolved or dismissed problem appears again, its status changes
+to `Reopened`.
+
+The visible comment is a human-readable projection. A collapsed JSON code
+block stores the canonical version 3 state as bounded gzip and Base64 data.
+The state includes full commit IDs, lifecycle data, dispositions, and run audit
+data. Previous state is accepted only from a marked comment by the GitHub
+Actions bot and only after strict schema validation. Legacy snapshots remain
+readable for migration. State or comment truncation appears in the review
+limitations. The publisher checks the live pull-request head immediately
+before it writes the comment. It refuses to publish a stale result. Configured
+secret values are redacted from CI output, workflow summaries, and GitHub
+annotations.
 
 To exercise the workflow and Seqlane source from a feature branch, run the
 workflow manually with that branch selected:

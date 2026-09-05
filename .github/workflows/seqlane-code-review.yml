@@ -42,8 +42,11 @@ jobs:
          (github.event.action == 'created' &&
           (contains(github.event.comment.body, '/seqlane review') ||
            contains(github.event.comment.body, '/seqlane fixed F-') ||
+           contains(github.event.comment.body, '/seqlane fixed SEQ-PR') ||
            contains(github.event.comment.body, '/seqlane wont-fix F-') ||
-           contains(github.event.comment.body, '/seqlane downgrade F-')) &&
+           contains(github.event.comment.body, '/seqlane wont-fix SEQ-PR') ||
+           contains(github.event.comment.body, '/seqlane downgrade F-') ||
+           contains(github.event.comment.body, '/seqlane downgrade SEQ-PR')) &&
           (github.event.comment.author_association == 'OWNER' ||
            github.event.comment.author_association == 'MEMBER' ||
            github.event.comment.author_association == 'COLLABORATOR')) ||
@@ -89,7 +92,7 @@ jobs:
             exit 0
           fi
 
-          if printf '%s\n' "$COMMENT_BODY" | grep -Eq '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|fixed[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$)|wont-fix[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$)|downgrade[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$))' ; then
+          if printf '%s\n' "$COMMENT_BODY" | grep -Eq '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|(fixed|wont-fix|downgrade)[[:space:]]+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})([[:space:]]|$))' ; then
             echo "execute=true" >> "$GITHUB_OUTPUT"
           else
             echo "execute=false" >> "$GITHUB_OUTPUT"
@@ -143,11 +146,11 @@ jobs:
           fi
 
           if [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            jq '{title: (.title // ""), description: (.body // "")}' \
+            jq '{number, title: (.title // ""), description: (.body // "")}' \
               "$RUNNER_TEMP/seqlane-pull-request.json" \
               > "$RUNNER_TEMP/seqlane-pull-request-context.json"
           else
-            jq '{title: (.pull_request.title // ""), description: (.pull_request.body // "")}' \
+            jq '{number: .pull_request.number, title: (.pull_request.title // ""), description: (.pull_request.body // "")}' \
               "$GITHUB_EVENT_PATH" \
               > "$RUNNER_TEMP/seqlane-pull-request-context.json"
           fi
@@ -443,109 +446,96 @@ jobs:
           PR_NUMBER: ${{ steps.pull-request.outputs.number }}
         run: |
           COMMENT_MAX_BYTES=60000
-          REPORT_SNAPSHOT_MAX_CHARS=20000
+          REVIEW_STATE_MAX_CHARS=20000
 
           jq --slurp \
             'map(select(.type == "run.succeeded")) | last | .output' \
             "$RUNNER_TEMP/seqlane-code-review.jsonl" \
             > "$RUNNER_TEMP/seqlane-code-review-result.json"
 
-          REPORT_SNAPSHOT=$(jq --compact-output '
+          COMPLETED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REVIEW_STATE=$(jq --compact-output \
+            --arg runId "$GITHUB_RUN_ID" \
+            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg completedAt "$COMPLETED_AT" '
+            {
+              schemaVersion: 3,
+              pullRequestNumber,
+              baseRevision,
+              reviewedRevision: .headRevision,
+              nextFindingIndex,
+              findings,
+              limitations,
+              truncated: .stateTruncated,
+              run: {
+                id: $runId,
+                attempt: $runAttempt,
+                completedAt: $completedAt
+              }
+            }
+            + (if .previousReviewedRevision then
+                {previousReviewedRevision}
+              else {} end)
+          ' "$RUNNER_TEMP/seqlane-code-review-result.json")
+          REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
+
+          if [ "${#REVIEW_STATE_PAYLOAD}" -gt "$REVIEW_STATE_MAX_CHARS" ]; then
+            REVIEW_STATE=$(printf '%s' "$REVIEW_STATE" | jq --compact-output '
             def shorten($value; $limit):
               if ($value | length) > $limit then
                 ($value[:($limit - 1)] + "…")
               else
                 $value
               end;
-            . as $report |
-            {
-              headRevision: $report.headRevision,
-              findings: [
-                $report.findings[] |
-                {
-                  id,
-                  axis,
-                  severity,
-                  effectiveSeverity,
-                  disposition,
-                  summary: shorten(.summary; 320),
-                  recommendation: shorten(.recommendation; 320)
-                }
-                + (if .file then {file: shorten(.file; 256)} else {} end)
-                + (if .line then {line} else {} end)
-                + (if .dispositionReason then {dispositionReason: shorten(.dispositionReason; 320)} else {} end)
-                + (if .dispositionBy then {dispositionBy} else {} end)
-                + (if .dispositionAt then {dispositionAt} else {} end)
-                + (if .dispositionCommentId then {dispositionCommentId} else {} end)
-                + (if .dispositionCommit then {dispositionCommit} else {} end)
-                + (if .evidenceHeadRevision then {evidenceHeadRevision} else {} end)
-              ],
-              truncated: any($report.findings[];
-                ((.summary | length) > 320) or
-                ((.recommendation | length) > 320) or
-                ((.file // "" | length) > 256) or
-                ((.dispositionReason // "" | length) > 320)
+            .findings |= map(
+              .summary = shorten(.summary; 320)
+              | .recommendation = shorten(.recommendation; 320)
+              | if .file then .file = shorten(.file; 256) else . end
+              | if .dispositionReason then
+                  .dispositionReason = shorten(.dispositionReason; 320)
+                else . end
+            )
+            | .truncated = true
+          ')
+            REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
+          fi
+
+          if [ "${#REVIEW_STATE_PAYLOAD}" -gt "$REVIEW_STATE_MAX_CHARS" ]; then
+            REVIEW_STATE=$(printf '%s' "$REVIEW_STATE" | jq --compact-output '
+              .findings |= map(
+                .summary = "Historical finding retained in compact state."
+                | .recommendation = "Re-evaluate this finding against the current head."
+                | del(.file, .line, .dispositionReason)
               )
-            }
-          ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
-
-          if [ "${#REPORT_SNAPSHOT}" -gt "$REPORT_SNAPSHOT_MAX_CHARS" ]; then
-            REPORT_SNAPSHOT=$(jq --compact-output '
-              . as $report |
-              {
-                headRevision: $report.headRevision,
-                findings: [
-                  $report.findings[] |
-                  {
-                    id,
-                    axis,
-                    severity,
-                    effectiveSeverity,
-                    disposition,
-                    summary: "Historical finding retained from compact snapshot.",
-                    recommendation: "Re-evaluate this finding against the current head."
-                  }
-                  + (if .dispositionCommentId then {dispositionCommentId} else {} end)
-                  + (if .evidenceHeadRevision then {evidenceHeadRevision} else {} end)
-                ],
-                truncated: true
-              }
-            ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
+              | .truncated = true
+            ')
+            REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
           fi
 
-          if [ "${#REPORT_SNAPSHOT}" -gt "$REPORT_SNAPSHOT_MAX_CHARS" ]; then
-            REPORT_SNAPSHOT=$(jq --compact-output '
-              . as $report |
-              {
-                headRevision: $report.headRevision,
-                findings: [
-                  $report.findings[:20][] |
-                  {
-                    id,
-                    axis,
-                    severity,
-                    effectiveSeverity,
-                    disposition,
-                    summary: "Historical finding retained from compact snapshot.",
-                    recommendation: "Re-evaluate this finding against the current head."
-                  }
-                  + (if .dispositionCommentId then {dispositionCommentId} else {} end)
-                  + (if .evidenceHeadRevision then {evidenceHeadRevision} else {} end)
-                ],
-                truncated: true
-              }
-            ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
-          fi
-
-          if [ "${#REPORT_SNAPSHOT}" -gt "$REPORT_SNAPSHOT_MAX_CHARS" ]; then
-            echo "::error::The bounded Seqlane report snapshot is too large to publish safely."
+          if [ "${#REVIEW_STATE_PAYLOAD}" -gt "$REVIEW_STATE_MAX_CHARS" ]; then
+            echo "::error::The bounded Seqlane review state is too large to publish safely."
             exit 1
           fi
 
+          REVIEW_STATE_ENVELOPE=$(jq --compact-output --null-input \
+            --arg data "$REVIEW_STATE_PAYLOAD" \
+            '{schemaVersion: 3, encoding: "gzip+base64", data: $data}')
+          REVIEW_METADATA=$(jq --compact-output --null-input \
+            --argjson pullRequestNumber "$PR_NUMBER" \
+            --arg reviewedRevision "$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")" \
+            --arg previousReviewedRevision "$(jq --raw-output '.previousReviewedRevision // ""' "$RUNNER_TEMP/seqlane-code-review-result.json")" '
+            {
+              schemaVersion: 3,
+              pullRequestNumber: $pullRequestNumber,
+              reviewedRevision: $reviewedRevision
+            }
+            + (if $previousReviewedRevision == "" then {}
+               else {previousReviewedRevision: $previousReviewedRevision} end)
+          ')
+
           jq --raw-output \
-            --arg reportSnapshot "$REPORT_SNAPSHOT" \
-            --argjson maxFindings 20 \
-            --argjson maxVerification 10 '
+            --arg metadata "$REVIEW_METADATA" \
+            --arg stateEnvelope "$REVIEW_STATE_ENVELOPE" '
             def shorten($value; $limit):
               ($value // "") as $text |
               if ($text | length) > $limit then
@@ -553,51 +543,92 @@ jobs:
               else
                 $text
               end;
-            [
+            def cell:
+              tostring | gsub("[\\r\\n]+"; " ") | gsub("\\|"; "\\\\|");
+            def active:
+              .status == "new" or .status == "open" or
+              .status == "addressed" or .status == "reopened";
+            def severity_rank:
+              if . == "critical" then 0 elif . == "required" then 1
+              elif . == "optional" then 2 else 3 end;
+            def status_rank:
+              if . == "reopened" then 0 elif . == "new" then 1
+              elif . == "addressed" then 2 elif . == "open" then 3
+              elif . == "resolved" then 4 else 5 end;
+            def severity_label:
+              if . == "critical" then "Critical" elif . == "required" then "Required"
+              elif . == "optional" then "Advisory" else "Informational" end;
+            def status_label:
+              if . == "new" then "New" elif . == "open" then "Open"
+              elif . == "addressed" then "Addressed" elif . == "resolved" then "Resolved"
+              elif . == "reopened" then "Reopened" else "Dismissed" end;
+            def area_label:
+              if . == "correctness" then "🧭 Correctness"
+              elif . == "readability" then "📝 Readability"
+              elif . == "architecture" then "🏗️ Architecture"
+              elif . == "security" then "🔒 Security" else "⚡ Performance" end;
+            . as $report |
+            ($report.findings | sort_by(
+              (.effectiveSeverity | severity_rank),
+              (.status | status_rank),
+              .id
+            )) as $findings |
+            ($findings | map(select(active))) as $active |
+            ($active | map(select(.effectiveSeverity == "critical" or .effectiveSeverity == "required")) | length) as $blockers |
+            ($active | map(select(.effectiveSeverity == "optional" or .effectiveSeverity == "nit")) | length) as $advisories |
+            ([
               "<!-- seqlane-code-review -->",
-              "<!-- seqlane-code-review-head: \(.headRevision) -->",
-              ("<!-- seqlane-code-review-report-v2: " + $reportSnapshot + " -->"),
-              "## 🧪 Seqlane reviewer",
+              ("<!-- seqlane-code-review-meta-v3: " + $metadata + " -->"),
+              "# Seqlane review",
               "",
-              "**Verdict:** \(if .verdict == "approve" then "✅ approve" else "🛑 request-changes" end) · **Rating:** ⭐ \(.overallRating)/5",
+              "**Verdict:** \(if $report.verdict == "approve" then "✅ Approve" else "🛑 Changes requested" end) · **Blockers:** \($blockers) · **Advisories:** \($advisories)",
               "",
-              (shorten(.summary; 1200)),
+              "Static review of `\($report.headRevision[:8])`\(if $report.previousReviewedRevision then " · Compared with `\($report.previousReviewedRevision[:8])`" else "" end)",
               "",
-              "### Ratings",
-              (.ratings[:5][] |
-                "- " +
-                (if .rating >= 4 then "✅" elif .rating == 3 then "🟡" else "🔴" end) +
-                " **\(.axis):** \(.rating)/5 — \(shorten(.rationale; 360))"),
+              (shorten($report.summary; 1200))
+            ]
+            + (if $report.previousReviewedRevision then [
               "",
-              "### Findings",
-              (if (.findings | length) == 0 then
+              "**Delta:** \([$findings[] | select(.status == "new")] | length) new · \([$findings[] | select(.status == "open")] | length) open · \([$findings[] | select(.status == "addressed")] | length) addressed · \([$findings[] | select(.status == "resolved")] | length) resolved · \([$findings[] | select(.status == "reopened")] | length) reopened · \([$findings[] | select(.status == "dismissed")] | length) dismissed"
+            ] else [] end)
+            + [
+              "",
+              "## Findings",
+              (if ($findings | length) == 0 then
                 "✅ No findings."
               else
-                (.findings[:$maxFindings][] |
-                  (if .disposition == "fixed" then "✅" elif .disposition == "wont-fix" then "⚪" elif .disposition == "downgraded" then "🟡" elif .severity == "critical" then "🚨" elif .severity == "required" then "🔴" elif .severity == "optional" then "🟡" else "💡" end) as $icon |
-                  (if .severity == .effectiveSeverity then .severity else "\(.severity) → \(.effectiveSeverity)" end) as $severity |
-                  "- \($icon) **\(.id)** · **\($severity)** · **\(.axis)** — \(shorten(.summary; 360))" +
-                  (if .file then
-                    " (`\(shorten(.file; 256))\(if .line then ":\(.line)" else "" end)`)"
-                  else "" end) +
-                  "\n  - **Recommendation:** \(shorten(.recommendation; 480))" +
-                  (if .disposition != "open" then
-                    "\n  - **Disposition:** \(.disposition)" +
-                    (if .dispositionBy then " by @\(shorten(.dispositionBy; 256))" else "" end) +
-                    (if .dispositionReason then " — \(shorten(.dispositionReason; 320))" else "" end)
-                  else "" end))
-              end),
-              (if (.findings | length) > $maxFindings then
-                "⚠️ Showing the first \($maxFindings) findings; the trusted snapshot contains the bounded historical state."
-              else empty end),
-              "",
-              "### Verification",
-              (if (.verification | length) == 0 then
-                "⚠️ No verification evidence reported."
-              else
-                (.verification[:$maxVerification][] | "- 🔎 \(shorten(.; 360))")
+                "| ID | Severity | Status | Area | Finding |\n| --- | --- | --- | --- | --- |"
               end)
-            ] | .[]
+            ]
+            + (if ($findings | length) == 0 then [] else [
+              $findings[] |
+                "| `\(.id)` | \(if .severity == .effectiveSeverity then (.severity | severity_label) else "\(.severity | severity_label) → \(.effectiveSeverity | severity_label)" end) | \(.status | status_label) | \(.axis | area_label) | \(shorten(.summary; 360) | cell) |"
+            ] end)
+            + [
+              $findings[] |
+              select(active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required")) |
+              "<details>\n<summary><strong>\(.id) · \(.status | status_label) · \(.summary | cell)</strong></summary>\n\n**Recommendation:** \(shorten(.recommendation; 600))\(if .file then "\n\n**Location:** `\(.file)\(if .line then ":\(.line)" else "" end)`" else "" end)\(if .dispositionBy then "\n\n**Human decision:** \(.disposition) by @\(.dispositionBy)\(if .dispositionReason then " — \(.dispositionReason)" else "" end)" else "" end)\n\n</details>"
+            ]
+            + (if ($report.limitations | length) == 0 then [] else [
+              "",
+              "## Review limitations",
+              ($report.limitations[] | "- ⚠️ \(shorten(.; 500))")
+            ] end)
+            + [
+              "",
+              "<details>",
+              "<summary>Machine-readable review state</summary>",
+              "",
+              "<!-- seqlane-code-review-state-v3-start -->",
+              "```json",
+              $stateEnvelope,
+              "```",
+              "<!-- seqlane-code-review-state-v3-end -->",
+              "",
+              "</details>",
+              "",
+              "_Static review only. Review agents did not execute pull-request code, tests, builds, scripts, or checks._"
+            ]) | .[]
           ' "$RUNNER_TEMP/seqlane-code-review-result.json" \
             > "$RUNNER_TEMP/seqlane-code-review.md"
 
@@ -611,8 +642,35 @@ jobs:
           COMMENT_ID=$(for page in 1 2; do
             gh api \
               "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              --jq '.[] | select(.body | contains("<!-- seqlane-code-review -->")) | .id'
+              --jq '.[] | select(
+                ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
+                (.body | contains("<!-- seqlane-code-review -->"))
+              ) | .id'
           done | head -n 1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            COMMENT_AUTHOR=$(gh api \
+              "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+              --jq '.user.login')
+            if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then
+              COMMENT_ID=""
+            fi
+          fi
+
+          REPORT_HEAD=$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/seqlane-live-pull-request.json"
+          if ! jq --exit-status \
+            --arg head "$REPORT_HEAD" \
+            --arg repository "$GITHUB_REPOSITORY" '
+              .state == "open" and
+              .draft == false and
+              .head.repo.full_name == $repository and
+              .head.sha == $head
+            ' "$RUNNER_TEMP/seqlane-live-pull-request.json" > /dev/null; then
+            echo "::error::The pull request changed after review; refusing to publish stale state."
+            exit 1
+          fi
 
           if [ -n "$COMMENT_ID" ]; then
             gh api --method PATCH \

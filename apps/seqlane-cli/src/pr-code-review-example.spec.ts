@@ -22,6 +22,7 @@ function createReviewInput(
     baseRevision,
     headRevision,
     pullRequest: {
+      number: 44,
       title: "Review history test",
       description: "Exercise deterministic review policy handling.",
     },
@@ -43,8 +44,14 @@ function createReviewInput(
         stdoutTruncated: false,
         stderrTruncated: false,
       },
+      previousRevisionComparable: false,
     },
     reviewHistory,
+    historyVerification: {
+      headRevision,
+      verifications: [],
+      limitations: [],
+    },
   };
 }
 
@@ -69,6 +76,22 @@ function createReport(findings: readonly object[]) {
   };
 }
 
+function createV3ReviewComment(state: object): string {
+  const envelope = JSON.stringify({
+    schemaVersion: 3,
+    encoding: "gzip+base64",
+    data: gzipSync(JSON.stringify(state)).toString("base64"),
+  });
+  return [
+    "<!-- seqlane-code-review -->",
+    "<!-- seqlane-code-review-state-v3-start -->",
+    "```json",
+    envelope,
+    "```",
+    "<!-- seqlane-code-review-state-v3-end -->",
+  ].join("\n");
+}
+
 describe("pull-request code review example workflow", () => {
   it("requires explicit revisions and pull-request context", () => {
     const input = {
@@ -77,6 +100,7 @@ describe("pull-request code review example workflow", () => {
       baseRevision: "a".repeat(40),
       headRevision: "b".repeat(40),
       pullRequest: {
+        number: 44,
         title: "Add automated review",
         description: "Run Seqlane for every pull request.",
       },
@@ -110,21 +134,25 @@ describe("pull-request code review example workflow", () => {
       (node) =>
         node.type === "task" && node.taskId === "pr-code-review.git-evidence",
     );
+    const historyVerification = plan.nodes.find(
+      (node) =>
+        node.type === "task" && node.taskId === "pr-code-review.verify-history",
+    );
     const applyDispositions = plan.nodes.find(
       (node) =>
         node.type === "task" &&
         node.taskId === "pr-code-review.apply-dispositions",
     );
-
-    expect(gitEvidence).toMatchObject({
-      execution: "local",
-      workspace: "shared",
-      dependsOn: [],
-    });
     const reviewContext = plan.nodes.find(
       (node) =>
         node.type === "task" && node.taskId === "pr-code-review.review-context",
     );
+
+    expect(gitEvidence).toMatchObject({
+      execution: "local",
+      workspace: "shared",
+      dependsOn: [reviewContext?.nodeId],
+    });
     expect(reviewContext).toMatchObject({
       execution: "local",
       workspace: "shared",
@@ -134,16 +162,29 @@ describe("pull-request code review example workflow", () => {
       expect.arrayContaining([
         gitEvidence?.nodeId,
         reviewContext?.nodeId,
+        historyVerification?.nodeId,
         summarize?.nodeId,
       ]),
     );
-    expect(applyDispositions?.dependsOn).toHaveLength(3);
+    expect(applyDispositions?.dependsOn).toHaveLength(4);
+    expect(historyVerification).toMatchObject({
+      workspace: "shared",
+      dependsOn: expect.arrayContaining([
+        gitEvidence?.nodeId,
+        reviewContext?.nodeId,
+      ]),
+    });
+    expect(historyVerification?.dependsOn).toHaveLength(2);
     expect(reviewLanes).toHaveLength(3);
     for (const reviewLane of reviewLanes) {
       expect(reviewLane.dependsOn).toEqual(
-        expect.arrayContaining([gitEvidence?.nodeId, reviewContext?.nodeId]),
+        expect.arrayContaining([
+          gitEvidence?.nodeId,
+          reviewContext?.nodeId,
+          historyVerification?.nodeId,
+        ]),
       );
-      expect(reviewLane.dependsOn).toHaveLength(2);
+      expect(reviewLane.dependsOn).toHaveLength(3);
     }
     expect(reviewLanes).toEqual(
       expect.arrayContaining([
@@ -215,60 +256,63 @@ describe("pull-request code review example workflow", () => {
 
     const result = await task.execute(
       {
-        comments: [
-          {
-            id: "2",
-            kind: "issue",
-            author: "contributor",
-            authorAssociation: "CONTRIBUTOR",
-            body: "/seqlane wont-fix F-123 reason: not authorized",
-            createdAt: "2026-09-05T10:00:00Z",
-          },
-          {
-            id: "3",
-            kind: "issue",
-            author: "maintainer",
-            authorAssociation: "MEMBER",
-            body: "/seqlane downgrade F-123 optional reason: low impact",
-            createdAt: "2026-09-05T11:00:00Z",
-            commitId: "a".repeat(40),
-          },
-          {
-            id: "4",
-            kind: "issue",
-            author: "github-actions",
-            authorAssociation: "NONE",
-            body: [
-              "<!-- seqlane-code-review -->",
-              `<!-- seqlane-code-review-report-v1: ${Buffer.from(
-                JSON.stringify({
-                  headRevision: "a".repeat(40),
-                  findings: [
-                    {
-                      id: "F-456",
-                      axis: "correctness",
-                      severity: "required",
-                      effectiveSeverity: "required",
-                      disposition: "open",
-                      summary: "Old finding",
-                      recommendation: "Fix the old finding.",
-                    },
-                  ],
-                }),
-              ).toString("base64")} -->`,
-            ].join("\n"),
-            createdAt: "2026-09-05T12:00:00Z",
-          },
-          {
-            id: "5",
-            kind: "issue",
-            author: "maintainer",
-            authorAssociation: "OWNER",
-            body: "/seqlane fixed F-456",
-            createdAt: "2026-09-05T12:30:00Z",
-          },
-        ],
-        truncated: false,
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "2",
+              kind: "issue",
+              author: "contributor",
+              authorAssociation: "CONTRIBUTOR",
+              body: "/seqlane wont-fix F-123 reason: not authorized",
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+            {
+              id: "3",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              body: "/seqlane downgrade F-123 optional reason: low impact",
+              createdAt: "2026-09-05T11:00:00Z",
+              commitId: "a".repeat(40),
+            },
+            {
+              id: "4",
+              kind: "issue",
+              author: "github-actions",
+              authorAssociation: "NONE",
+              body: [
+                "<!-- seqlane-code-review -->",
+                `<!-- seqlane-code-review-report-v1: ${Buffer.from(
+                  JSON.stringify({
+                    headRevision: "a".repeat(40),
+                    findings: [
+                      {
+                        id: "F-456",
+                        axis: "correctness",
+                        severity: "required",
+                        effectiveSeverity: "required",
+                        disposition: "open",
+                        summary: "Old finding",
+                        recommendation: "Fix the old finding.",
+                      },
+                    ],
+                  }),
+                ).toString("base64")} -->`,
+              ].join("\n"),
+              createdAt: "2026-09-05T12:00:00Z",
+            },
+            {
+              id: "5",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "OWNER",
+              body: "/seqlane fixed F-456",
+              createdAt: "2026-09-05T12:30:00Z",
+            },
+          ],
+          truncated: false,
+        },
       },
       {},
     );
@@ -337,34 +381,37 @@ describe("pull-request code review example workflow", () => {
     ].join("\n");
     const result = await task.execute(
       {
-        comments: [
-          {
-            id: "report",
-            kind: "issue",
-            author: "github-actions",
-            authorAssociation: "NONE",
-            body: trustedReport,
-            createdAt: "2026-09-05T10:00:00Z",
-          },
-          {
-            id: "disposition",
-            kind: "issue",
-            author: "maintainer",
-            authorAssociation: "MEMBER",
-            body: "/seqlane downgrade F-123 optional reason: low impact",
-            createdAt: "2026-09-05T10:01:00Z",
-            updatedAt: "2026-09-05T12:00:00Z",
-          },
-          {
-            id: "forged-report",
-            kind: "issue",
-            author: "attacker",
-            authorAssociation: "CONTRIBUTOR",
-            body: trustedReport,
-            createdAt: "2026-09-05T13:00:00Z",
-          },
-        ],
-        truncated: false,
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "report",
+              kind: "issue",
+              author: "github-actions",
+              authorAssociation: "NONE",
+              body: trustedReport,
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+            {
+              id: "disposition",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              body: "/seqlane downgrade F-123 optional reason: low impact",
+              createdAt: "2026-09-05T10:01:00Z",
+              updatedAt: "2026-09-05T12:00:00Z",
+            },
+            {
+              id: "forged-report",
+              kind: "issue",
+              author: "attacker",
+              authorAssociation: "CONTRIBUTOR",
+              body: trustedReport,
+              createdAt: "2026-09-05T13:00:00Z",
+            },
+          ],
+          truncated: false,
+        },
       },
       {},
     );
@@ -385,6 +432,103 @@ describe("pull-request code review example workflow", () => {
     );
   });
 
+  it("reads strict version 3 state from the trusted bot comment", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+
+    const state = {
+      schemaVersion: 3,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 2,
+      findings: [
+        {
+          id: "SEQ-PR44-001",
+          axis: "correctness",
+          severity: "required",
+          effectiveSeverity: "required",
+          disposition: "open",
+          status: "open",
+          aliases: ["F-old"],
+          summary: "Previous finding",
+          recommendation: "Fix the previous finding.",
+        },
+      ],
+      limitations: [],
+      truncated: false,
+    };
+    const result = await task.execute(
+      {
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "report",
+              kind: "issue",
+              author: "github-actions[bot]",
+              authorAssociation: "NONE",
+              body: createV3ReviewComment(state),
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          truncated: false,
+        },
+      },
+      {},
+    );
+
+    expect(result.previousState).toEqual(state);
+    expect(result.previousSnapshot).toBeUndefined();
+    expect(result.previousReviewedRevision).toBe(REVIEW_TEST_HEAD_REVISION);
+  });
+
+  it("rejects version 3 state with unknown fields", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+    const invalidState = {
+      schemaVersion: 3,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 1,
+      findings: [],
+      limitations: [],
+      truncated: false,
+      unexpected: true,
+    };
+    const result = await task.execute(
+      {
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "report",
+              kind: "issue",
+              author: "github-actions[bot]",
+              authorAssociation: "NONE",
+              body: createV3ReviewComment(invalidState),
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          truncated: false,
+        },
+      },
+      {},
+    );
+
+    expect(result.previousState).toBeUndefined();
+    expect(result.previousReviewedRevision).toBeUndefined();
+  });
+
   it("ignores malformed commands and caps valid dispositions", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.review-context",
@@ -402,17 +546,20 @@ describe("pull-request code review example workflow", () => {
     ];
     const result = await task.execute(
       {
-        comments: [
-          {
-            id: "commands",
-            kind: "issue",
-            author: "maintainer",
-            authorAssociation: "OWNER",
-            body: commands.join("\n"),
-            createdAt: "2026-09-05T10:00:00Z",
-          },
-        ],
-        truncated: false,
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "commands",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "OWNER",
+              body: commands.join("\n"),
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          truncated: false,
+        },
       },
       {},
     );
@@ -442,20 +589,23 @@ describe("pull-request code review example workflow", () => {
     const oversizedSnapshot = gzipSync("x".repeat(512_001)).toString("base64");
     const result = await task.execute(
       {
-        comments: [
-          {
-            id: "oversized-report",
-            kind: "issue",
-            author: "github-actions",
-            authorAssociation: "NONE",
-            body: [
-              "<!-- seqlane-code-review -->",
-              `<!-- seqlane-code-review-report-v2: ${oversizedSnapshot} -->`,
-            ].join("\n"),
-            createdAt: "2026-09-05T10:00:00Z",
-          },
-        ],
-        truncated: false,
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "oversized-report",
+              kind: "issue",
+              author: "github-actions",
+              authorAssociation: "NONE",
+              body: [
+                "<!-- seqlane-code-review -->",
+                `<!-- seqlane-code-review-report-v2: ${oversizedSnapshot} -->`,
+              ].join("\n"),
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          truncated: false,
+        },
       },
       {},
     );
@@ -498,6 +648,7 @@ describe("pull-request code review example workflow", () => {
         baseRevision,
         headRevision,
         pullRequest: {
+          number: 44,
           title: "Add automated review",
           description: "Run Seqlane for every pull request.",
         },
@@ -568,6 +719,69 @@ describe("pull-request code review example workflow", () => {
         stdoutTruncated: false,
         stderrTruncated: false,
       },
+      previousRevisionComparable: false,
+    });
+  });
+
+  it("uses only an ancestor review revision as the comparable predecessor", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.git-evidence",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected local Git evidence task definition");
+    }
+    const previousRevision = "c".repeat(40);
+    const requests: Array<{ command: string; args?: readonly string[] }> = [];
+    const responses = [
+      { exitCode: 0, stdout: `${REVIEW_TEST_HEAD_REVISION}\n`, stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+    ];
+    const result = await task.execute(
+      {
+        repository: "/repo",
+        baseBranch: "main",
+        baseRevision: REVIEW_TEST_BASE_REVISION,
+        headRevision: REVIEW_TEST_HEAD_REVISION,
+        pullRequest: {
+          number: 44,
+          title: "Compare reviews",
+          description: "Compare with a prior review.",
+        },
+        normalizedReviewHistory: {
+          comments: [],
+          commentIds: [],
+          truncated: false,
+          dispositions: [],
+          previousReviewedRevision: previousRevision,
+        },
+      },
+      {
+        exec: async (request) => {
+          requests.push(request);
+          const response = responses.shift();
+          if (response === undefined) throw new Error("Unexpected Git command");
+          return response;
+        },
+      },
+    );
+
+    expect(requests.at(-1)).toEqual({
+      command: "git",
+      args: [
+        "merge-base",
+        "--is-ancestor",
+        previousRevision,
+        REVIEW_TEST_HEAD_REVISION,
+      ],
+    });
+    expect(result).toMatchObject({
+      previousReviewedRevision: previousRevision,
+      previousRevisionComparable: true,
     });
   });
 
@@ -606,6 +820,7 @@ describe("pull-request code review example workflow", () => {
         baseRevision,
         headRevision,
         pullRequest: {
+          number: 44,
           title: "Add automated review",
           description: "Run Seqlane for every pull request.",
         },
@@ -679,6 +894,7 @@ describe("pull-request code review example workflow", () => {
         baseRevision,
         headRevision,
         pullRequest: {
+          number: 44,
           title: "Add automated review",
           description: "Run Seqlane for every pull request.",
         },
@@ -727,6 +943,7 @@ describe("pull-request code review example workflow", () => {
         baseRevision,
         headRevision,
         pullRequest: {
+          number: 44,
           title: "Add automated review",
           description: "Run Seqlane for every pull request.",
         },
@@ -834,6 +1051,7 @@ describe("pull-request code review example workflow", () => {
           baseRevision: revision,
           headRevision: "b".repeat(40),
           pullRequest: {
+            number: 44,
             title: "Add automated review",
             description: "Run Seqlane for every pull request.",
           },
@@ -855,6 +1073,7 @@ describe("pull-request code review example workflow", () => {
               stdoutTruncated: false,
               stderrTruncated: false,
             },
+            previousRevisionComparable: false,
           },
           reviewHistory: {
             comments: [],
@@ -920,6 +1139,11 @@ describe("pull-request code review example workflow", () => {
               ],
             },
           },
+          historyVerification: {
+            headRevision: "b".repeat(40),
+            verifications: [],
+            limitations: [],
+          },
         },
         report: {
           repository: "/repo",
@@ -967,20 +1191,26 @@ describe("pull-request code review example workflow", () => {
     expect(result.findings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "F-123",
+          id: "SEQ-PR44-003",
+          aliases: ["F-123"],
           disposition: "wont-fix",
+          status: "dismissed",
           effectiveSeverity: "required",
           dispositionBy: "maintainer",
         }),
         expect.objectContaining({
-          id: "F-124",
+          id: "SEQ-PR44-002",
+          aliases: ["F-124"],
           disposition: "downgraded",
+          status: "open",
           effectiveSeverity: "optional",
           dispositionBy: "maintainer",
         }),
         expect.objectContaining({
-          id: "F-125",
+          id: "SEQ-PR44-001",
+          aliases: ["F-125"],
           disposition: "wont-fix",
+          status: "dismissed",
           dispositionReason: "Previously accepted risk",
         }),
       ]),
@@ -1005,6 +1235,7 @@ describe("pull-request code review example workflow", () => {
           baseRevision,
           headRevision,
           pullRequest: {
+            number: 44,
             title: "Fix review history",
             description: "Keep historical findings visible.",
           },
@@ -1026,6 +1257,7 @@ describe("pull-request code review example workflow", () => {
               stdoutTruncated: false,
               stderrTruncated: false,
             },
+            previousRevisionComparable: false,
           },
           reviewHistory: {
             comments: [],
@@ -1058,6 +1290,11 @@ describe("pull-request code review example workflow", () => {
               ],
             },
           },
+          historyVerification: {
+            headRevision,
+            verifications: [],
+            limitations: [],
+          },
         },
         report: {
           repository: "/repo",
@@ -1084,11 +1321,158 @@ describe("pull-request code review example workflow", () => {
     expect(result.verdict).toBe("request-changes");
     expect(result.findings).toEqual([
       expect.objectContaining({
-        id: "F-126",
-        disposition: "open",
+        id: "SEQ-PR44-001",
+        aliases: ["F-126"],
+        disposition: "fixed",
+        status: "addressed",
         effectiveSeverity: "required",
       }),
     ]);
+  });
+
+  it("resolves a fixed finding only with finding-specific current-head verification", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+    const previousFinding = {
+      id: "SEQ-PR44-001",
+      axis: "correctness",
+      severity: "required",
+      effectiveSeverity: "required",
+      disposition: "open",
+      status: "open",
+      aliases: ["F-126"],
+      summary: "Historical correctness finding",
+      recommendation: "Fix the historical finding.",
+    };
+    const review = createReviewInput({
+      comments: [],
+      commentIds: ["fixed-comment"],
+      truncated: false,
+      dispositions: [
+        {
+          findingId: "SEQ-PR44-001",
+          action: "fixed",
+          commentId: "fixed-comment",
+          author: "maintainer",
+          authorAssociation: "MEMBER",
+          authorized: true,
+          createdAt: "2026-09-05T10:00:00Z",
+          effectiveAt: "2026-09-05T10:00:00Z",
+        },
+      ],
+      previousState: {
+        schemaVersion: 3,
+        pullRequestNumber: 44,
+        baseRevision: REVIEW_TEST_BASE_REVISION,
+        reviewedRevision: REVIEW_TEST_BASE_REVISION,
+        nextFindingIndex: 2,
+        findings: [previousFinding],
+        limitations: [],
+        truncated: false,
+      },
+    });
+    const result = await task.execute(
+      {
+        review: {
+          ...review,
+          historyVerification: {
+            headRevision: REVIEW_TEST_HEAD_REVISION,
+            verifications: [
+              {
+                findingId: "SEQ-PR44-001",
+                headRevision: REVIEW_TEST_HEAD_REVISION,
+                outcome: "resolved",
+                evidence: "The guarded branch now rejects the invalid input.",
+              },
+            ],
+            limitations: [],
+          },
+        },
+        report: createReport([]),
+      },
+      {},
+    );
+
+    expect(result.verdict).toBe("approve");
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "SEQ-PR44-001",
+        disposition: "fixed",
+        status: "resolved",
+        dispositionBy: "maintainer",
+      }),
+    ]);
+  });
+
+  it("replaces stale disposition reason and commit metadata", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [],
+          commentIds: ["decision"],
+          truncated: false,
+          dispositions: [
+            {
+              findingId: "SEQ-PR44-001",
+              action: "wont-fix",
+              reason: "New reason",
+              commentId: "decision",
+              author: "maintainer",
+              authorAssociation: "OWNER",
+              authorized: true,
+              createdAt: "2026-09-05T10:00:00Z",
+              effectiveAt: "2026-09-05T11:00:00Z",
+            },
+          ],
+          previousState: {
+            schemaVersion: 3,
+            pullRequestNumber: 44,
+            baseRevision: REVIEW_TEST_BASE_REVISION,
+            reviewedRevision: REVIEW_TEST_BASE_REVISION,
+            nextFindingIndex: 2,
+            findings: [
+              {
+                id: "SEQ-PR44-001",
+                axis: "security",
+                severity: "required",
+                effectiveSeverity: "required",
+                disposition: "wont-fix",
+                dispositionReason: "Old reason",
+                dispositionBy: "maintainer",
+                dispositionAt: "2026-09-05T10:00:00Z",
+                dispositionCommentId: "decision",
+                dispositionCommit: REVIEW_TEST_BASE_REVISION,
+                status: "dismissed",
+                aliases: [],
+                summary: "Accepted risk",
+                recommendation: "Document the risk.",
+              },
+            ],
+            limitations: [],
+            truncated: false,
+          },
+        }),
+        report: createReport([]),
+      },
+      {},
+    );
+
+    expect(result.findings[0]).toMatchObject({
+      disposition: "wont-fix",
+      dispositionReason: "New reason",
+      status: "dismissed",
+    });
+    expect(result.findings[0]?.dispositionCommit).toBeUndefined();
   });
 
   it("bounds merged current and historical findings", async () => {
@@ -1136,11 +1520,21 @@ describe("pull-request code review example workflow", () => {
 
     expect(result.findings).toHaveLength(40);
     expect(result.findings.map((finding) => finding.id)).toEqual(
+      Array.from(
+        { length: 40 },
+        (_, index) => `SEQ-PR44-${String(index + 41).padStart(3, "0")}`,
+      ),
+    );
+    expect(result.findings.map((finding) => finding.aliases[0])).toEqual(
       currentFindings.map((finding) => finding.id),
     );
-    expect(result.verification).toContain(
+    expect(result.limitations).toContain(
       "40 lower-priority finding(s) were omitted because the report is bounded to 40 findings.",
     );
+    expect(result.limitations[0]).toBe(
+      "40 lower-priority finding(s) were omitted because the report is bounded to 40 findings.",
+    );
+    expect(result.stateTruncated).toBe(true);
   });
 
   it("reopens a historical finding when an edited command targets another finding", async () => {
@@ -1206,7 +1600,8 @@ describe("pull-request code review example workflow", () => {
     expect(result.verdict).toBe("request-changes");
     expect(result.findings).toEqual([
       expect.objectContaining({
-        id: "F-128",
+        id: "SEQ-PR44-001",
+        aliases: ["F-128"],
         disposition: "open",
         effectiveSeverity: "required",
       }),
@@ -1259,8 +1654,10 @@ describe("pull-request code review example workflow", () => {
     expect(result.verdict).toBe("request-changes");
     expect(result.findings).toEqual([
       expect.objectContaining({
-        id: "F-130",
-        disposition: "open",
+        id: "SEQ-PR44-001",
+        aliases: ["F-130"],
+        disposition: "fixed",
+        status: "addressed",
         effectiveSeverity: "required",
       }),
     ]);
@@ -1283,6 +1680,7 @@ describe("pull-request code review example workflow", () => {
           baseRevision: revision,
           headRevision: "b".repeat(40),
           pullRequest: {
+            number: 44,
             title: "Reconcile edited comments",
             description: "Remove stale policy decisions.",
           },
@@ -1304,6 +1702,7 @@ describe("pull-request code review example workflow", () => {
               stdoutTruncated: false,
               stderrTruncated: false,
             },
+            previousRevisionComparable: false,
           },
           reviewHistory: {
             comments: [
@@ -1339,6 +1738,11 @@ describe("pull-request code review example workflow", () => {
               ],
             },
           },
+          historyVerification: {
+            headRevision: "b".repeat(40),
+            verifications: [],
+            limitations: [],
+          },
         },
         report: {
           repository: "/repo",
@@ -1365,7 +1769,8 @@ describe("pull-request code review example workflow", () => {
     expect(result.verdict).toBe("request-changes");
     expect(result.findings).toEqual([
       expect.objectContaining({
-        id: "F-127",
+        id: "SEQ-PR44-001",
+        aliases: ["F-127"],
         disposition: "open",
         effectiveSeverity: "required",
       }),
