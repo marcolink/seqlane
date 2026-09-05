@@ -524,6 +524,7 @@ jobs:
               "",
               "### Ratings",
               (.ratings[] |
+                "- " +
                 (if .rating >= 4 then "✅" elif .rating == 3 then "🟡" else "🔴" end) +
                 " **\(.axis):** \(.rating)/5 — \(.rationale)"),
               "",
@@ -534,11 +535,11 @@ jobs:
                 (.findings[] |
                   (if .disposition == "fixed" then "✅" elif .disposition == "wont-fix" then "⚪" elif .disposition == "downgraded" then "🟡" elif .severity == "critical" then "🚨" elif .severity == "required" then "🔴" elif .severity == "optional" then "🟡" else "💡" end) as $icon |
                   (if .severity == .effectiveSeverity then .severity else "\(.severity) → \(.effectiveSeverity)" end) as $severity |
-                  " \($icon) **\(.id)** · **\($severity)** · **\(.axis)** — \(.summary)" +
+                  "- \($icon) **\(.id)** · **\($severity)** · **\(.axis)** — \(.summary)" +
                   (if .file then
                     " (`\(.file)\(if .line then ":\(.line)" else "" end)`)"
                   else "" end) +
-                  "\n  - \(.recommendation)" +
+                  "\n  - **Recommendation:** \(.recommendation)" +
                   (if .disposition != "open" then
                     "\n  - **Disposition:** \(.disposition)" +
                     (if .dispositionBy then " by @\(.dispositionBy)" else "" end) +
@@ -550,7 +551,7 @@ jobs:
               (if (.verification | length) == 0 then
                 "⚠️ No verification evidence reported."
               else
-                (.verification[] | "🔎 \(.)")
+                (.verification[] | "- 🔎 \(.)")
               end)
             ] | .[]
           ' "$RUNNER_TEMP/seqlane-code-review-result.json" \
