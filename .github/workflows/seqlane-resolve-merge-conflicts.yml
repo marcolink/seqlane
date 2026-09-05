@@ -275,7 +275,7 @@ jobs:
               > "$RUNNER_TEMP/seqlane-conflict-files.json"
 
             node -e '
-              const { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } = require("node:fs");
+              const { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
               const { dirname, join, relative, resolve, sep } = require("node:path");
               const targetRoot = resolve(process.env.RESOLUTION_TARGET);
               const agentRoot = resolve(process.env.AGENT_WORKSPACE);
