@@ -21,7 +21,7 @@ import {
   runCompiledWorkflow,
   startCompiledWorkflow,
 } from "../../index.js";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 
 const schema = <T>(): SeqlaneSchema<T> => ({
@@ -98,7 +98,7 @@ function compile(
     };
   } = {},
 ) {
-  return new EffectCompiler().compileWorkflow(plan, {
+  return new PlanCompiler().compileWorkflow(plan, {
     workflowInput: { value: "candidate" },
     createInvocationId: (nodeId) => nodeId,
     executors: new Map([

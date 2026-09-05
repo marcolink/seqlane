@@ -12,7 +12,7 @@ import type {
   ValueBinding,
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
-import { EffectCompiler, compilePlan } from "./compile-plan.js";
+import { PlanCompiler, compilePlan } from "./compile-plan.js";
 import { executeSequentialProgram } from "../execution/program.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 import { WORKFLOW_INPUT_NODE_ID } from "../plan/binding-resolution.js";
@@ -80,7 +80,7 @@ function plan(nodes: readonly PlanNode[], output?: ValueBinding): Plan {
   };
 }
 
-describe("EffectCompiler plan preparation", () => {
+describe("PlanCompiler plan preparation", () => {
   it("orders a linear DAG topologically", () => {
     const source = plan([task("c", ["b"]), task("a"), task("b", ["a"])]);
 
@@ -101,7 +101,7 @@ describe("EffectCompiler plan preparation", () => {
       task("left", ["start"]),
     ]);
 
-    const result = new EffectCompiler().compile(source);
+    const result = new PlanCompiler().compile(source);
 
     expect(result.orderedNodes.map(({ nodeId }) => nodeId)).toEqual([
       "start",
@@ -120,11 +120,11 @@ describe("EffectCompiler plan preparation", () => {
   });
 
   it("does not add execution dependencies from Plan declaration order", () => {
-    const first = new EffectCompiler().compileWorkflow(
+    const first = new PlanCompiler().compileWorkflow(
       plan([task("z"), task("a"), task("result", ["a", "z"])]),
       { executors: new Map() },
     );
-    const second = new EffectCompiler().compileWorkflow(
+    const second = new PlanCompiler().compileWorkflow(
       plan([task("a"), task("z"), task("result", ["a", "z"])]),
       { executors: new Map() },
     );
@@ -144,7 +144,7 @@ describe("EffectCompiler plan preparation", () => {
   });
 
   it("lowers conflicting workspace access into execution dependencies", () => {
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([
         task("writer", [], {}, "exclusive"),
         task("reader", [], {}, "shared"),
@@ -359,7 +359,7 @@ describe("EffectCompiler plan preparation", () => {
     const sourcePlan = plan([source, first, second]);
     expect(() => validatePlan(sourcePlan)).not.toThrow();
 
-    const compiled = new EffectCompiler().compileWorkflow(sourcePlan, {
+    const compiled = new PlanCompiler().compileWorkflow(sourcePlan, {
       executors: new Map(),
     });
     expect(
@@ -494,7 +494,7 @@ describe("EffectCompiler plan preparation", () => {
 
   it("prepares validation nodes for runtime execution", () => {
     expect(() =>
-      new EffectCompiler().compileWorkflow(plan([validationCheck("check")]), {
+      new PlanCompiler().compileWorkflow(plan([validationCheck("check")]), {
         createInvocationId: (nodeId) => nodeId,
         executors: new Map(),
         validatorDefinitions: new Map([
@@ -841,13 +841,13 @@ describe("EffectCompiler plan preparation", () => {
   });
 });
 
-describe("EffectCompiler workflow compilation", () => {
+describe("PlanCompiler workflow compilation", () => {
   function executablePlan(): Plan {
     return plan([task("z"), task("a"), task("result", ["a", "z"])]);
   }
 
   it("creates one typed generated step plus the result step", () => {
-    const compiled = new EffectCompiler().compileWorkflow(executablePlan(), {
+    const compiled = new PlanCompiler().compileWorkflow(executablePlan(), {
       createInvocationId: (nodeId) => nodeId,
       executors: new Map(),
     });
@@ -864,7 +864,7 @@ describe("EffectCompiler workflow compilation", () => {
     let executed = false;
     const events: SeqlaneEvent[] = [];
     const workspace = { key: "/checkout" };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([task("writer", [], {}, "exclusive")]),
       {
         createInvocationId: (nodeId) => nodeId,
@@ -933,7 +933,7 @@ describe("EffectCompiler workflow compilation", () => {
       },
     };
     const schema: SeqlaneSchema = { parse: (value) => value };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([
         task("z", [], {}, "shared"),
         task("a", [], {}, "shared"),
@@ -1012,7 +1012,7 @@ describe("EffectCompiler workflow compilation", () => {
 
   it("does not execute a dependent task after its predecessor fails", async () => {
     const executedTaskIds: string[] = [];
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([task("dependent", ["predecessor"]), task("predecessor")]),
       {
         createInvocationId: (nodeId) => nodeId,
@@ -1044,7 +1044,7 @@ describe("EffectCompiler workflow compilation", () => {
 
   it("allocates runtime invocation IDs without changing Plan-node bindings", async () => {
     const requests: ExecutorRequest[] = [];
-    const compiled = new EffectCompiler().compileWorkflow(executablePlan(), {
+    const compiled = new PlanCompiler().compileWorkflow(executablePlan(), {
       createInvocationId: (nodeId) => `inv:${nodeId}`,
       executors: new Map([
         [
@@ -1093,7 +1093,7 @@ describe("EffectCompiler workflow compilation", () => {
         },
       ]),
     );
-    const compiled = new EffectCompiler().compileWorkflow(executablePlan(), {
+    const compiled = new PlanCompiler().compileWorkflow(executablePlan(), {
       createInvocationId: (nodeId) => `inv:${nodeId}`,
       executors: new Map([
         [
@@ -1152,7 +1152,7 @@ describe("EffectCompiler workflow compilation", () => {
         path: ["answer"],
       },
     });
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([consumer, source]),
       {
         workflowInput: { request: { value: "from-input" } },
@@ -1209,7 +1209,7 @@ describe("EffectCompiler workflow compilation", () => {
 
   it("fails before invoking an executor when task input validation fails", async () => {
     let calls = 0;
-    const compiled = new EffectCompiler().compileWorkflow(plan([task("a")]), {
+    const compiled = new PlanCompiler().compileWorkflow(plan([task("a")]), {
       createInvocationId: (nodeId) => nodeId,
       executors: new Map([
         [
@@ -1243,7 +1243,7 @@ describe("EffectCompiler workflow compilation", () => {
   });
 
   it("fails and does not store output when output validation fails", async () => {
-    const compiled = new EffectCompiler().compileWorkflow(plan([task("a")]), {
+    const compiled = new PlanCompiler().compileWorkflow(plan([task("a")]), {
       createInvocationId: (nodeId) => nodeId,
       executors: new Map([
         ["test-executor", { execute: async () => ({ ok: false }) }],

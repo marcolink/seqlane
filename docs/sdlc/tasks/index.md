@@ -165,7 +165,7 @@
 | [task.mastra-identity-events](./2026-09-03-mastra-identity-events.md) | Preserve Identity and Normalized Execution Events | completed | 2026-09-03 | core |
 | [task.effect-v3-subprocess-gate](./2026-09-03-effect-v3-subprocess-gate.md) | Prove the Private Effect Subprocess Contract | completed | 2026-09-03 | core |
 | [task.model-observability](./2026-09-03-model-observability.md) | Record Effective Model Selections in Observability | completed | 2026-09-03 | core |
-| [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md) | Remove Superseded Runtime Architecture | planned | 2026-09-03 | core |
+| [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md) | Remove Superseded Runtime Architecture | completed | 2026-09-03 | core |
 | [task.mastra-community-studio](./2026-09-03-mastra-community-studio.md) | Replace the Dedicated Studio With Mastra Community Studio | completed | 2026-09-03 | core |
 | [task.mastra-agent-acp](./2026-09-03-mastra-agent-acp.md) | Run Agent Tasks Through Mastra ACP | completed | 2026-09-03 | core |
 | [task.mastra-deterministic-shell](./2026-09-03-mastra-deterministic-shell.md) | Run Deterministic Shell Tasks Through Mastra | completed | 2026-09-03 | core |

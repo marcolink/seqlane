@@ -9,8 +9,8 @@ import { RuntimeError, SeqlaneError } from "@seqlane/core";
 import {
   registerMastraServer,
   type MastraMcpDispatcherOptions,
-  type MastraServerRequestContext,
   type MastraRuntimeServer,
+  type MastraServerRequestContext,
 } from "./mastra-server.js";
 
 export interface MastraWorkflowRegistration {
