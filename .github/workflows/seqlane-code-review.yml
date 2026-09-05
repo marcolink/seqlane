@@ -1,6 +1,9 @@
 name: Seqlane code review
 
 on:
+  # Normal pull-request and comment events use the trusted workflow definition
+  # from the repository's base/default branch (main for this project). Keep
+  # branch-specific execution explicit through workflow_dispatch below.
   pull_request_target:
     types:
       - opened
@@ -13,6 +16,8 @@ on:
       - created
       - edited
   workflow_dispatch:
+    # To test this workflow from a PR branch, dispatch it with:
+    # gh workflow run "Seqlane code review" --ref <branch> -f pull_request_number=<number>
     inputs:
       pull_request_number:
         description: Pull request number to review
@@ -38,20 +43,10 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
-       (
-         (github.event.action == 'created' &&
-          (contains(github.event.comment.body, '/seqlane review') ||
-           contains(github.event.comment.body, '/seqlane fixed F-') ||
-           contains(github.event.comment.body, '/seqlane wont-fix F-') ||
-           contains(github.event.comment.body, '/seqlane downgrade F-')) &&
-          (github.event.comment.author_association == 'OWNER' ||
-           github.event.comment.author_association == 'MEMBER' ||
-           github.event.comment.author_association == 'COLLABORATOR')) ||
-         (github.event.action == 'edited' &&
-          (github.event.comment.author_association == 'OWNER' ||
-           github.event.comment.author_association == 'MEMBER' ||
-           github.event.comment.author_association == 'COLLABORATOR'))
-       )) ||
+       (github.event.action == 'created' || github.event.action == 'edited') &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR')) ||
       (github.event_name == 'workflow_dispatch' &&
        github.event.inputs.pull_request_number != '')
     runs-on: ubuntu-latest
@@ -78,18 +73,14 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action }}
           COMMENT_BODY: ${{ github.event.comment.body }}
+          PREVIOUS_COMMENT_BODY: ${{ github.event.changes.body.from }}
         run: |
           if [ "$EVENT_NAME" != "issue_comment" ]; then
             echo "execute=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ "$EVENT_ACTION" = "edited" ]; then
-            echo "execute=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if printf '%s\n' "$COMMENT_BODY" | grep -Eq '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|fixed[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$)|wont-fix[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$)|downgrade[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$))' ; then
+          if printf '%s\n%s\n' "$COMMENT_BODY" "$PREVIOUS_COMMENT_BODY" | grep -Eqi '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|(fixed|wont-fix|downgrade)[[:space:]]+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})([[:space:]]|$))' ; then
             echo "execute=true" >> "$GITHUB_OUTPUT"
           else
             echo "execute=false" >> "$GITHUB_OUTPUT"
@@ -120,6 +111,7 @@ jobs:
           EVENT_HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           EVENT_DRAFT: ${{ github.event.pull_request.draft }}
+          EVENT_STATE: ${{ github.event.pull_request.state }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -131,25 +123,27 @@ jobs:
             HEAD_REVISION=$(jq --raw-output '.head.sha' "$RUNNER_TEMP/seqlane-pull-request.json")
             HEAD_REPOSITORY=$(jq --raw-output '.head.repo.full_name' "$RUNNER_TEMP/seqlane-pull-request.json")
             DRAFT=$(jq --raw-output '.draft' "$RUNNER_TEMP/seqlane-pull-request.json")
+            STATE=$(jq --raw-output '.state' "$RUNNER_TEMP/seqlane-pull-request.json")
           else
             BASE_BRANCH="$EVENT_BASE_BRANCH"
             BASE_REVISION="$EVENT_BASE_REVISION"
             HEAD_REVISION="$EVENT_HEAD_REVISION"
             HEAD_REPOSITORY="$EVENT_HEAD_REPOSITORY"
             DRAFT="$EVENT_DRAFT"
+            STATE="$EVENT_STATE"
           fi
 
           if [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            jq '{title: (.title // ""), description: (.body // "")}' \
+            jq '{number, title: (.title // ""), description: (.body // "")}' \
               "$RUNNER_TEMP/seqlane-pull-request.json" \
               > "$RUNNER_TEMP/seqlane-pull-request-context.json"
           else
-            jq '{title: (.pull_request.title // ""), description: (.pull_request.body // "")}' \
+            jq '{number: .pull_request.number, title: (.pull_request.title // ""), description: (.pull_request.body // "")}' \
               "$GITHUB_EVENT_PATH" \
               > "$RUNNER_TEMP/seqlane-pull-request-context.json"
           fi
 
-          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ] || [ "$DRAFT" = "true" ]; then
+          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ] || [ "$DRAFT" = "true" ] || [ "$STATE" != "open" ]; then
             echo "eligible=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -172,41 +166,97 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for page in 1 2; do
-            gh api \
-              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              > "$RUNNER_TEMP/seqlane-issue-comments-$page.json"
-          done
-          for page in 1 2; do
-            gh api \
-              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              > "$RUNNER_TEMP/seqlane-review-comments-$page.json"
-          done
-          jq -s 'add' \
-            "$RUNNER_TEMP/seqlane-issue-comments-1.json" \
-            "$RUNNER_TEMP/seqlane-issue-comments-2.json" \
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
+            --jq 'map(
+              (.body // "") as $body |
+              .body = $body[:65536] |
+              ._seqlane_source_body_truncated = (($body | length) > 65536)
+            )' \
+            | jq -s 'add' \
             > "$RUNNER_TEMP/seqlane-issue-comments.json"
-          jq -s 'add' \
-            "$RUNNER_TEMP/seqlane-review-comments-1.json" \
-            "$RUNNER_TEMP/seqlane-review-comments-2.json" \
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
+            --jq 'map(
+              (.body // "") as $body |
+              .body = $body[:65536] |
+              ._seqlane_source_body_truncated = (($body | length) > 65536)
+            )' \
+            | jq -s 'add' \
             > "$RUNNER_TEMP/seqlane-review-comments.json"
           jq -n \
             --slurpfile issue "$RUNNER_TEMP/seqlane-issue-comments.json" \
             --slurpfile review "$RUNNER_TEMP/seqlane-review-comments.json" '
-              def normalize($items; $kind):
-                ($items[0] // []) | map(
+              def disposition_command($comment; $line):
+                ($line | capture(
+                  "^\\s*/seqlane\\s+(?<action>fixed|wont-fix|downgrade)\\s+(?<findingId>F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})(?:\\s+(?<remainder>.*))?\\s*$";
+                  "i"
+                )) as $match |
+                ($match.action | ascii_downcase) as $action |
+                (if $action == "downgrade" then
+                  (try (($match.remainder // "") | capture(
+                    "^(?:to\\s+)?(?<severity>critical|required|optional|nit)(?:\\s+(?:reason\\s*[:=]\\s*)?.*)?$";
+                    "i"
+                  ) | .severity | ascii_downcase) catch null)
+                else null end) as $severity |
+                if $action == "downgrade" and $severity == null then empty else
+                ($comment.authorAssociation == "OWNER" or
+                  $comment.authorAssociation == "MEMBER" or
+                  $comment.authorAssociation == "COLLABORATOR") as $authorized |
+                {
+                  key: $comment._key,
+                  line: $line,
+                  identity: (
+                    ($match.findingId | ascii_downcase) + ":" +
+                    (if $authorized then "authorized" else "unauthorized" end)
+                  ),
+                  omission: ({
+                    key: $comment._key,
+                    findingId: $match.findingId,
+                    action: $action,
+                    authorized: $authorized
+                  } + (if $severity == null then {} else
+                    {effectiveSeverity: $severity}
+                  end))
+                }
+                end;
+              def trim_commands($countLimit; $characterLimit):
+                until(
+                  ((.order | length) <= $countLimit and
+                    .characters <= $characterLimit);
+                  .order[0] as $identity |
+                  .byIdentity[$identity] as $omitted |
+                  .omittedCommands =
+                    ((.omittedCommands + [$omitted.omission])[-200:]) |
+                  .commandsOmitted = true |
+                  .characters -= (($omitted.line | length) + 1) |
+                  del(.byIdentity[$identity]) |
+                  .order = .order[1:]
+                );
+              def normalize($item; $kind):
+                $item |
                   (.body // "") as $body |
                   (((.user.login // "") == "github-actions" or
                     (.user.login // "") == "github-actions[bot]") and
                    ($body | contains("<!-- seqlane-code-review -->"))) as $trustedReport |
                   (if $trustedReport then 65536 else 2000 end) as $bodyLimit |
                   {
+                    _key: ($kind + ":" + (.id | tostring)),
+                    _trustedBody: (if $trustedReport then $body[:65536] else "" end),
+                    _body: (if $trustedReport then "" else $body end),
+                    _bodyContext: (
+                      [$body[:2000] | split("\n")[] |
+                        select((ascii_downcase | contains("/seqlane")) | not)] |
+                        join("\n")
+                    ),
+                    _sourceBodyTruncated: (
+                      ._seqlane_source_body_truncated == true or
+                      ($body | length) > $bodyLimit
+                    ),
                     id: (.id | tostring),
                     kind: $kind,
                     author: (.user.login // "unknown"),
                     authorAssociation: (.author_association // "NONE"),
-                    body: ($body[:$bodyLimit]),
-                    bodyTruncated: (($body | length) > $bodyLimit),
                     createdAt: (.created_at // "")
                   }
                   + (if .updated_at then {updatedAt: .updated_at} else {} end)
@@ -215,20 +265,157 @@ jobs:
                   + (if (.line | type) == "number" then {line: .line} else {} end)
                   + (if .commit_id then {commitId: .commit_id} else {} end)
                   + (if .in_reply_to_id then {inReplyTo: (.in_reply_to_id | tostring)} else {} end)
-                );
+                ;
               ([
-                normalize($issue; "issue"),
-                normalize($review; "review")
-              ] | add | sort_by(.updatedAt // .createdAt)) as $comments
+                (($issue[0] // [])[] | {kind: "issue", item: .}),
+                (($review[0] // [])[] | {kind: "review", item: .})
+              ] |
+                group_by(.kind + ":" + (.item.id | tostring)) |
+                map(sort_by(.item.updated_at // .item.created_at) | .[-1]) |
+                sort_by(.item.updated_at // .item.created_at)) as $allSources
+              | ($allSources[-200:] |
+                  map(normalize(.item; .kind))) as $comments
+              | (reduce (
+                  $comments[] as $comment |
+                  ($comment._body | splits("\n")) as $line |
+                  disposition_command($comment; $line)
+                ) as $command
+                ({
+                  byIdentity: {},
+                  order: [],
+                  characters: 0,
+                  omittedCommands: [],
+                  commandsOmitted: false
+                };
+                  (.byIdentity[$command.identity] // null) as $superseded |
+                  if $superseded == null then . else
+                    .characters -= (($superseded.line | length) + 1) |
+                    .order -= [$command.identity] |
+                    del(.byIdentity[$command.identity])
+                  end |
+                  .byIdentity[$command.identity] = $command |
+                  .order += [$command.identity] |
+                  .characters += (($command.line | length) + 1) |
+                  trim_commands(200; 63535)
+                )) as $commandState
+              | ([$commandState.order[] as $identity |
+                  $commandState.byIdentity[$identity]]) as $commands
               | {
-                  comments: ($comments | .[-200:]),
+                  comments: [
+                    $comments[] as $comment |
+                    ([$commands[] | select(.key == $comment._key) | .line]) as $commentCommands |
+                    ($commentCommands | join("\n")) as $commandBody |
+                    ($comment._bodyContext[:(65536 - ($commandBody | length) -
+                      (if ($commandBody | length) == 0 or ($comment._bodyContext | length) == 0 then 0 else 1 end))]) as $bodyContext |
+                    $comment |
+                    .body = (
+                      if (._trustedBody | length) > 0 then ._trustedBody
+                      else
+                        $bodyContext +
+                        (if ($commandBody | length) == 0 or ($bodyContext | length) == 0 then "" else "\n" end) +
+                        $commandBody
+                      end
+                    ) |
+                    .bodyTruncated = (
+                      ._sourceBodyTruncated
+                    ) |
+                    .omittedDispositionCommands = [
+                      $commandState.omittedCommands[] |
+                      select(.key == $comment._key) |
+                      del(.key)
+                    ] |
+                    del(
+                      ._key,
+                      ._trustedBody,
+                      ._body,
+                      ._bodyContext,
+                      ._sourceBodyTruncated
+                    )
+                  ],
                   truncated: (
-                    (($issue[0] // []) | length) >= 200 or
-                    (($review[0] // []) | length) >= 200 or
-                    any($comments[]; .bodyTruncated == true)
+                    ($allSources | length) >= 200 or
+                    any($comments[]; ._sourceBodyTruncated) or
+                    $commandState.commandsOmitted
                   )
                 }
             ' > "$RUNNER_TEMP/seqlane-review-history.json"
+
+      - name: Mark existing review as in progress
+        if: steps.pull-request.outputs.eligible == 'true'
+        id: review-progress
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pull-request.outputs.number }}
+          EXPECTED_HEAD: ${{ steps.pull-request.outputs.head_revision }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/seqlane-progress-live-pull-request.json"
+          if ! jq --exit-status \
+            --arg head "$EXPECTED_HEAD" \
+            --arg repository "$GITHUB_REPOSITORY" '
+              .state == "open" and
+              .draft == false and
+              .head.repo.full_name == $repository and
+              .head.sha == $head
+            ' "$RUNNER_TEMP/seqlane-progress-live-pull-request.json" > /dev/null; then
+            echo "::error::The pull request changed before the review-progress marker could be written."
+            exit 1
+          fi
+
+          COMMENT_ID=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
+            --jq '.[] | select(
+              ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
+              (.body | contains("<!-- seqlane-code-review -->"))
+            ) | .id' \
+            | jq --raw-input --slurp 'split("\n") | map(select(length > 0)) | .[0] // empty')
+
+          if [ -z "$COMMENT_ID" ]; then
+            echo "marked=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            > "$RUNNER_TEMP/seqlane-progress-comment.json"
+          COMMENT_BODY=$(jq --raw-output '.body // ""' \
+            "$RUNNER_TEMP/seqlane-progress-comment.json")
+          MARKER_START='<!-- seqlane-review-in-progress-start -->'
+          MARKER_END='<!-- seqlane-review-in-progress-end -->'
+          MARKER_RUN="<!-- seqlane-review-in-progress-run: $RUN_ID -->"
+
+          if printf '%s' "$COMMENT_BODY" | grep -Fq "$MARKER_START" &&
+             printf '%s' "$COMMENT_BODY" | grep -Fq "$MARKER_END" &&
+             printf '%s' "$COMMENT_BODY" | grep -Fq "$MARKER_RUN"; then
+            printf '%s' "$COMMENT_ID" > "$RUNNER_TEMP/seqlane-progress-comment-id"
+            echo "marked=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PROGRESS_NOTE=$(printf '%s\n' \
+            "$MARKER_START" \
+            "$MARKER_RUN" \
+            "# ⏳ Another Seqlane review is currently in progress" \
+            "" \
+            "This report is being refreshed for a newer review run and will be updated when it finishes." \
+            "$MARKER_END")
+          CLEAN_BODY=$(jq --raw-output '
+            (.body // "")
+            | gsub("(?s)<!-- seqlane-review-in-progress-start -->.*?<!-- seqlane-review-in-progress-end -->\\n?"; "")
+          ' "$RUNNER_TEMP/seqlane-progress-comment.json")
+          jq --null-input \
+            --arg note "$PROGRESS_NOTE" \
+            --arg body "$CLEAN_BODY" \
+            '{body: ($note + "\n\n" + $body)}' \
+            > "$RUNNER_TEMP/seqlane-progress-comment-payload.json"
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            --input "$RUNNER_TEMP/seqlane-progress-comment-payload.json" \
+            > /dev/null
+
+          printf '%s' "$COMMENT_ID" > "$RUNNER_TEMP/seqlane-progress-comment-id"
+          echo "marked=true" >> "$GITHUB_OUTPUT"
 
       - name: Check out Seqlane source
         if: steps.pull-request.outputs.eligible == 'true'
@@ -397,7 +584,7 @@ jobs:
           REVIEW_HISTORY_PATH: ${{ runner.temp }}/seqlane-review-history.json
           SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          WORKFLOW_INPUT=$(jq --compact-output \
+          jq --compact-output \
             --slurpfile reviewHistory "$REVIEW_HISTORY_PATH" \
             --slurpfile pullRequest "$RUNNER_TEMP/seqlane-pull-request-context.json" \
             --arg repository "$REVIEW_TARGET" \
@@ -411,10 +598,11 @@ jobs:
               headRevision: $headRevision,
               reviewHistory: $reviewHistory[0],
               pullRequest: $pullRequest[0]
-            }' "$GITHUB_EVENT_PATH")
+            }' "$GITHUB_EVENT_PATH" \
+            > "$RUNNER_TEMP/seqlane-workflow-input.json"
 
           ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts" \
-            --input "$WORKFLOW_INPUT" \
+            --input-file "$RUNNER_TEMP/seqlane-workflow-input.json" \
             --runtime http://127.0.0.1:4096 \
             --workspace "$REVIEW_TARGET" \
             --output ci \
@@ -440,130 +628,448 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.pull-request.outputs.number }}
         run: |
+          COMMENT_MAX_BYTES=60000
+          REVIEW_STATE_MAX_CHARS=20000
+          STATE_COMPACTION_NOTICE="The machine-readable review state was compacted to fit the publication limit."
+          STATE_COMPACTED=false
+
           jq --slurp \
             'map(select(.type == "run.succeeded")) | last | .output' \
             "$RUNNER_TEMP/seqlane-code-review.jsonl" \
             > "$RUNNER_TEMP/seqlane-code-review-result.json"
 
-          REPORT_SNAPSHOT=$(jq --compact-output '
+          RUN_METRICS=$(jq --slurp --compact-output '
+            . as $events |
+            ([$events[] |
+              select(.type == "run.succeeded" or .type == "run.failed" or .type == "run.cancelled")
+            ] | last) as $runEnd |
+            ([$events[] | select(.type == "run.started")] | first) as $runStart |
+            def epoch_ms:
+              sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 * 1000;
+            def elapsed_ms($start; $finish):
+              if ($start == null or $finish == null) then 0
+              else (($finish | epoch_ms) - ($start | epoch_ms))
+              end;
+            def task_metrics($id):
+              [$events[] |
+                select(
+                  .type == "invocation.output" and
+                  .invocationId == $id and
+                  .channel == "task" and
+                  .metrics != null
+                )
+              ] | last | .metrics // {};
+            def task_result_state($id):
+              if ([$events[] | select(.type == "invocation.succeeded" and .invocationId == $id)] | length) > 0 then "succeeded"
+              elif ([$events[] | select(.type == "invocation.failed" and .invocationId == $id)] | length) > 0 then "failed"
+              elif ([$events[] | select(.type == "invocation.cancelled" and .invocationId == $id)] | length) > 0 then "cancelled"
+              elif ([$events[] | select(.type == "invocation.skipped" and .invocationId == $id)] | length) > 0 then "skipped"
+              else null end;
+            def task_duration($id; $taskMetrics):
+              if $taskMetrics.durationMs != null then $taskMetrics.durationMs
+              else
+                ([$events[] | select(.type == "invocation.started" and .invocationId == $id) | .metadata.occurredAt] | first) as $start |
+                ([$events[] | select(.type == "invocation.created" and .invocationId == $id) | .metadata.occurredAt] | first) as $created |
+                ([$events[] | select(
+                  .invocationId == $id and
+                  (.type == "invocation.succeeded" or .type == "invocation.failed" or
+                   .type == "invocation.cancelled" or .type == "invocation.skipped")
+                ) | .metadata.occurredAt] | last) as $finish |
+                elapsed_ms(($start // $created); $finish)
+              end;
+            def sum_tokens($tasks):
+              reduce $tasks[] as $task
+                ({input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0};
+                  ($task.tokens // {}) as $tokens |
+                  .input += ($tokens.input // 0) |
+                  .output += ($tokens.output // 0) |
+                  .reasoning += ($tokens.reasoning // 0) |
+                  .cacheRead += ($tokens.cacheRead // 0) |
+                  .cacheWrite += ($tokens.cacheWrite // 0)
+                ) |
+              .total = (.input + .output + .reasoning + .cacheRead + .cacheWrite);
+            ([$events[] | select(.type == "invocation.created" and .kind == "task")] |
+              unique_by(.invocationId) |
+              map(
+                . as $created |
+                (task_metrics($created.invocationId)) as $metrics |
+                (task_result_state($created.invocationId)) as $resultState |
+                select($resultState != null) |
+                {
+                  invocationId: $created.invocationId,
+                  task: $created.label,
+                  resultState: $resultState,
+                  durationMs: task_duration($created.invocationId; $metrics)
+                }
+                + (if $created.taskId != null then {taskId: $created.taskId} else {} end)
+                + (if ($metrics.model // $metrics.modelSelection.model.model // null) != null then
+                    {model: ($metrics.model // $metrics.modelSelection.model.model)}
+                  else {} end)
+                + (if ($metrics.provider // $metrics.modelSelection.model.provider // null) != null then
+                    {provider: ($metrics.provider // $metrics.modelSelection.model.provider)}
+                  else {} end)
+                + (if $metrics.tokens != null then {tokens: $metrics.tokens} else {} end)
+                + (if $metrics.cost != null then {cost: $metrics.cost} else {} end)
+              )
+            ) as $tasks |
+            {
+              schemaVersion: 1,
+              runId: ($runEnd.runId // "unknown"),
+              outcome: (if $runEnd.type == "run.failed" then "failed"
+                elif $runEnd.type == "run.cancelled" then "cancelled"
+                else "succeeded" end),
+              durationMs: elapsed_ms($runStart.metadata.occurredAt; $runEnd.metadata.occurredAt),
+              totalCost: ($tasks | map(.cost // 0) | add // 0),
+              totalTokens: sum_tokens($tasks),
+              tasks: $tasks
+            }
+          ' "$RUNNER_TEMP/seqlane-code-review.jsonl")
+          RUN_METRICS_PRETTY=$(printf '%s' "$RUN_METRICS" | jq .)
+          RUN_METRICS_TOTAL_COST=$(printf '%.6f' \
+            "$(printf '%s' "$RUN_METRICS" | jq --raw-output '.totalCost')")
+          printf '%s\n' "$RUN_METRICS" > "$RUNNER_TEMP/seqlane-code-review-metrics.json"
+
+          COMPLETED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REVIEW_STATE=$(jq --compact-output \
+            --arg runId "$GITHUB_RUN_ID" \
+            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg completedAt "$COMPLETED_AT" \
+            --argjson runMetrics "$RUN_METRICS" '
+            {
+              schemaVersion: 3,
+              pullRequestNumber,
+              baseRevision,
+              reviewedRevision: .headRevision,
+              nextFindingIndex,
+              findings,
+              limitations,
+              truncated: .stateTruncated,
+              run: {
+                id: $runId,
+                attempt: $runAttempt,
+                completedAt: $completedAt,
+                metrics: $runMetrics
+              }
+            }
+            + (if .previousReviewedRevision then
+                {previousReviewedRevision}
+              else {} end)
+          ' "$RUNNER_TEMP/seqlane-code-review-result.json")
+          REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
+
+          if [ "${#REVIEW_STATE_PAYLOAD}" -gt "$REVIEW_STATE_MAX_CHARS" ]; then
+            STATE_COMPACTED=true
+            REVIEW_STATE=$(printf '%s' "$REVIEW_STATE" | jq --compact-output \
+              --arg notice "$STATE_COMPACTION_NOTICE" '
             def shorten($value; $limit):
               if ($value | length) > $limit then
                 ($value[:($limit - 1)] + "…")
               else
                 $value
               end;
-            . as $report |
-            {
-              headRevision: $report.headRevision,
-              findings: [
-                $report.findings[] |
-                {
-                  id,
-                  axis,
-                  severity,
-                  effectiveSeverity,
-                  disposition,
-                  summary: shorten(.summary; 320),
-                  recommendation: shorten(.recommendation; 320)
-                }
-                + (if .file then {file: shorten(.file; 256)} else {} end)
-                + (if .line then {line} else {} end)
-                + (if .dispositionReason then {dispositionReason: shorten(.dispositionReason; 320)} else {} end)
-                + (if .dispositionBy then {dispositionBy} else {} end)
-                + (if .dispositionAt then {dispositionAt} else {} end)
-                + (if .dispositionCommentId then {dispositionCommentId} else {} end)
-                + (if .dispositionCommit then {dispositionCommit} else {} end)
-              ],
-              truncated: any($report.findings[];
-                ((.summary | length) > 320) or
-                ((.recommendation | length) > 320) or
-                ((.file // "" | length) > 256) or
-                ((.dispositionReason // "" | length) > 320)
-              )
-            }
-          ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
-
-          if [ "${#REPORT_SNAPSHOT}" -gt 24000 ]; then
-            REPORT_SNAPSHOT=$(jq --compact-output '
-              . as $report |
-              {
-                headRevision: $report.headRevision,
-                findings: [
-                  $report.findings[] |
-                  {
-                    id,
-                    axis,
-                    severity,
-                    effectiveSeverity,
-                    disposition,
-                    summary: "Historical finding retained from compact snapshot.",
-                    recommendation: "Re-evaluate this finding against the current head."
-                  }
-                  + (if .dispositionCommentId then {dispositionCommentId} else {} end)
-                ],
-                truncated: true
-              }
-            ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
+            .findings |= map(
+              .summary = shorten(.summary; 320)
+              | .recommendation = shorten(.recommendation; 320)
+              | if .file then .file = shorten(.file; 256) else . end
+              | if .dispositionReason then
+                  .dispositionReason = shorten(.dispositionReason; 320)
+                else . end
+            )
+            | .limitations = ((.limitations | map(select(. != $notice)))[:19] + [$notice])
+            | .truncated = true
+          ')
+            REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
           fi
 
-          if [ "${#REPORT_SNAPSHOT}" -gt 60000 ]; then
-            echo "::error::The bounded Seqlane report snapshot is too large to publish safely."
+          if [ "${#REVIEW_STATE_PAYLOAD}" -gt "$REVIEW_STATE_MAX_CHARS" ]; then
+            STATE_COMPACTED=true
+            REVIEW_STATE=$(printf '%s' "$REVIEW_STATE" | jq --compact-output \
+              --arg notice "$STATE_COMPACTION_NOTICE" '
+              .findings |= map(
+                .summary = "Historical finding retained in compact state."
+                | .recommendation = "Re-evaluate this finding against the current head."
+                | del(.file, .line, .dispositionReason)
+              )
+              | .limitations = ((.limitations | map(select(. != $notice)))[:19] + [$notice])
+              | .truncated = true
+            ')
+            REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
+          fi
+
+          if [ "${#REVIEW_STATE_PAYLOAD}" -gt "$REVIEW_STATE_MAX_CHARS" ]; then
+            echo "::error::The bounded Seqlane review state is too large to publish safely."
             exit 1
           fi
 
-          jq --raw-output --arg reportSnapshot "$REPORT_SNAPSHOT" '
-            [
+          REVIEW_STATE_ENVELOPE=$(jq --compact-output --null-input \
+            --arg data "$REVIEW_STATE_PAYLOAD" \
+            '{schemaVersion: 3, encoding: "gzip+base64", data: $data}')
+          REVIEW_METADATA=$(jq --compact-output --null-input \
+            --argjson pullRequestNumber "$PR_NUMBER" \
+            --arg reviewedRevision "$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")" \
+            --arg previousReviewedRevision "$(jq --raw-output '.previousReviewedRevision // ""' "$RUNNER_TEMP/seqlane-code-review-result.json")" '
+            {
+              schemaVersion: 3,
+              pullRequestNumber: $pullRequestNumber,
+              reviewedRevision: $reviewedRevision,
+              run: {
+                id: env.GITHUB_RUN_ID,
+                attempt: (env.GITHUB_RUN_ATTEMPT | tonumber)
+              }
+            }
+            + (if $previousReviewedRevision == "" then {}
+               else {previousReviewedRevision: $previousReviewedRevision} end)
+          ')
+
+          jq --raw-output \
+            --arg metadata "$REVIEW_METADATA" \
+            --arg stateEnvelope "$REVIEW_STATE_ENVELOPE" \
+            --arg runMetricsJson "$RUN_METRICS_PRETTY" \
+            --arg runMetricsTotalCost "$RUN_METRICS_TOTAL_COST" \
+            --arg compactionNotice "$STATE_COMPACTION_NOTICE" \
+            --argjson stateCompacted "$STATE_COMPACTED" '
+            def shorten($value; $limit):
+              ($value // "") as $text |
+              if ($text | length) > $limit then
+                ($text[:($limit - 1)] + "…")
+              else
+                $text
+              end;
+            def safe_text:
+              tostring
+              | gsub("&"; "&amp;")
+              | gsub("<"; "&lt;")
+              | gsub(">"; "&gt;")
+              | gsub("`"; "&#96;")
+              | gsub("@"; "@&#8203;")
+              | gsub("[\\r\\n]+"; " ");
+            def cell:
+              safe_text | gsub("\\|"; "\\|");
+            def active:
+              .status == "new" or .status == "open" or
+              .status == "addressed" or .status == "reopened";
+            def severity_rank:
+              if . == "critical" then 0 elif . == "required" then 1
+              elif . == "optional" then 2 else 3 end;
+            def status_rank:
+              if . == "reopened" then 0 elif . == "new" then 1
+              elif . == "addressed" then 2 elif . == "open" then 3
+              elif . == "resolved" then 4 else 5 end;
+            def projection_rank:
+              if active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required") then 0
+              elif active then 1 else 2 end;
+            def severity_label:
+              if . == "critical" then "🔴 Critical" elif . == "required" then "🟠 Required"
+              elif . == "optional" then "🟡 Advisory" else "🔵 Informational" end;
+            def status_label:
+              if . == "new" then "🆕 New" elif . == "open" then "⏳ Open"
+              elif . == "addressed" then "🛠️ Addressed" elif . == "resolved" then "✅ Resolved"
+              elif . == "reopened" then "🔁 Reopened" else "➖ Dismissed" end;
+            def area_label:
+              if . == "correctness" then "🎯 Correctness"
+              elif . == "readability" then "📖 Readability"
+              elif . == "architecture" then "🏗️ Architecture"
+              elif . == "security" then "🔐 Security" else "⚡ Performance" end;
+            . as $report |
+            (if $stateCompacted then
+              (($report.limitations | map(select(. != $compactionNotice)))[:19] +
+                [$compactionNotice])
+            else
+              $report.limitations[:20]
+            end) as $limitations |
+            ($report.findings | sort_by(
+              projection_rank,
+              (.effectiveSeverity | severity_rank),
+              (.status | status_rank),
+              .id
+            )) as $findings |
+            ($findings[:20]) as $visibleFindings |
+            ($findings | map(select(active))) as $active |
+            ($active | map(select(.effectiveSeverity == "critical" or .effectiveSeverity == "required")) | length) as $blockers |
+            ($active | map(select(.effectiveSeverity == "optional")) | length) as $advisories |
+            ([
               "<!-- seqlane-code-review -->",
-              "<!-- seqlane-code-review-head: \(.headRevision) -->",
-              ("<!-- seqlane-code-review-report-v2: " + $reportSnapshot + " -->"),
-              "## 🧪 Seqlane reviewer",
+              ("<!-- seqlane-code-review-meta-v3: " + $metadata + " -->"),
+              "# Seqlane review",
               "",
-              "**Verdict:** \(if .verdict == "approve" then "✅ approve" else "🛑 request-changes" end) · **Rating:** ⭐ \(.overallRating)/5",
+              ("**\(if $report.verdict == "approve" then "✅ Approved" else "🛑 Changes requested" end)**" +
+                (if $blockers == 0 then "" else " · **\($blockers) blocker\(if $blockers == 1 then "" else "s" end)**" end) +
+                (if $advisories == 0 then "" else " · **\($advisories) advisor\(if $advisories == 1 then "y" else "ies" end)**" end) +
+                "  "),
+              "Static review of `\($report.headRevision[:8])`\(if $report.previousReviewedRevision then " · Compared with `\($report.previousReviewedRevision[:8])`" else "" end)",
               "",
-              .summary,
+              (shorten($report.summary; 1200) | safe_text)
+            ]
+            + (if $report.previousReviewedRevision then [
               "",
-              "### Ratings",
-              (.ratings[] |
-                "- " +
-                (if .rating >= 4 then "✅" elif .rating == 3 then "🟡" else "🔴" end) +
-                " **\(.axis):** \(.rating)/5 — \(.rationale)"),
+              "> **Review delta:** 🆕 \([$findings[] | select(.status == "new")] | length) new · ⏳ \([$findings[] | select(.status == "open")] | length) open · 🛠️ \([$findings[] | select(.status == "addressed")] | length) addressed · ✅ \([$findings[] | select(.status == "resolved")] | length) resolved · 🔁 \([$findings[] | select(.status == "reopened")] | length) reopened · ➖ \([$findings[] | select(.status == "dismissed")] | length) dismissed"
+            ] else [] end)
+            + [
               "",
-              "### Findings",
-              (if (.findings | length) == 0 then
+              "## Findings",
+              (if ($visibleFindings | length) == 0 then
                 "✅ No findings."
               else
-                (.findings[] |
-                  (if .disposition == "fixed" then "✅" elif .disposition == "wont-fix" then "⚪" elif .disposition == "downgraded" then "🟡" elif .severity == "critical" then "🚨" elif .severity == "required" then "🔴" elif .severity == "optional" then "🟡" else "💡" end) as $icon |
-                  (if .severity == .effectiveSeverity then .severity else "\(.severity) → \(.effectiveSeverity)" end) as $severity |
-                  "- \($icon) **\(.id)** · **\($severity)** · **\(.axis)** — \(.summary)" +
-                  (if .file then
-                    " (`\(.file)\(if .line then ":\(.line)" else "" end)`)"
-                  else "" end) +
-                  "\n  - **Recommendation:** \(.recommendation)" +
-                  (if .disposition != "open" then
-                    "\n  - **Disposition:** \(.disposition)" +
-                    (if .dispositionBy then " by @\(.dispositionBy)" else "" end) +
-                    (if .dispositionReason then " — \(.dispositionReason)" else "" end)
-                  else "" end))
-              end),
-              "",
-              "### Verification",
-              (if (.verification | length) == 0 then
-                "⚠️ No verification evidence reported."
-              else
-                (.verification[] | "- 🔎 \(.)")
+                "| ID | Severity | Status | Area | Finding |\n| --- | --- | --- | --- | --- |"
               end)
-            ] | .[]
+            ]
+            + (if ($visibleFindings | length) == 0 then [] else [
+              $visibleFindings[] |
+                "| `\(.id)` | \(if .severity == .effectiveSeverity then (.severity | severity_label) else "\(.severity | severity_label) → \(.effectiveSeverity | severity_label)" end) | \(.status | status_label) | \(.axis | area_label) | \(shorten(.summary; 360) | cell) |"
+            ] end)
+            + (if ($findings | length) > ($visibleFindings | length) then [
+              "",
+              "⚠️ Showing \($visibleFindings | length) of \($findings | length) retained findings. The machine-readable state contains the complete bounded set."
+            ] else [] end)
+            + (([$visibleFindings[] |
+                select(active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required"))]) as $required |
+              if ($required | length) == 0 then [] else
+                ["", "## Required changes"] +
+                [$required[] |
+                  "",
+                  "#### `\(.id)` \(.effectiveSeverity | severity_label) · \(.axis | area_label) — _\(shorten(.summary; 180) | safe_text)_",
+                  "",
+                  (if .file then
+                    "`\(.file | safe_text)\(if .line then ":\(.line)" else "" end)`"
+                  else
+                    "_No precise source location was supplied._"
+                  end),
+                  "",
+                  (shorten(.summary; 600) | safe_text),
+                  (if .status == "addressed" then
+                    "\nA fix was reported, but this finding remains active until current-head verification confirms resolution."
+                  elif .status == "reopened" then
+                    "\nThis finding was previously resolved or dismissed, but it is active again in the reviewed source."
+                  else "" end),
+                  (if .dispositionBy then
+                    "\n**Human decision:** \(.disposition | safe_text) by \(("@" + .dispositionBy) | safe_text)\(if .dispositionReason then " — \(.dispositionReason | safe_text)" else "" end)"
+                  else "" end),
+                  "",
+                  "**To resolve:** \(shorten(.recommendation; 600) | safe_text)"
+                ]
+              end)
+            + (if ($limitations | length) == 0 then [] else [
+              "",
+              "## Review limitations",
+              ($limitations[] | "- ⚠️ \(shorten(.; 500) | safe_text)")
+            ] end)
+            + [
+              "",
+              "## Available commands",
+              "",
+              "- `/seqlane review` — run the review again.",
+              "- `/seqlane fixed <finding-id> [reason: <text>]` — report a fix for verification.",
+              "- `/seqlane wont-fix <finding-id> [reason: <text>]` — accept or reject a finding.",
+              "- `/seqlane downgrade <finding-id> <severity> [reason: <text>]` — lower its effective severity.",
+              "",
+              "Allowed severities: `critical`, `required`, `optional`, and `nit`.",
+              "Command names and finding IDs are case-insensitive."
+            ]
+            + [
+              "",
+              "<details>",
+              ("<summary>Run metrics · total cost: $" + $runMetricsTotalCost + "</summary>"),
+              "",
+              "Mechanically aggregated from Seqlane execution events:",
+              "",
+              "```json",
+              $runMetricsJson,
+              "```",
+              "",
+              "</details>"
+            ]
+            + (if ($report.verification | length) == 0 then [] else [
+              "",
+              "<details>",
+              "<summary>Verification evidence (showing up to 10 entries)</summary>",
+              "",
+              ($report.verification[:10][] | "- 🔎 \(shorten(.; 500) | safe_text)"),
+              "",
+              "</details>"
+            ] end)
+            + [
+              "",
+              "<details>",
+              "<summary>Machine-readable review state</summary>",
+              "",
+              "<!-- seqlane-code-review-state-v3-start -->",
+              "```json",
+              $stateEnvelope,
+              "```",
+              "<!-- seqlane-code-review-state-v3-end -->",
+              "",
+              "</details>",
+              "",
+              "_Static review only. Review agents did not execute pull-request code, tests, builds, scripts, or checks._"
+            ]) | .[]
           ' "$RUNNER_TEMP/seqlane-code-review-result.json" \
             > "$RUNNER_TEMP/seqlane-code-review.md"
 
+          if [ "$(wc -c < "$RUNNER_TEMP/seqlane-code-review.md")" -gt "$COMMENT_MAX_BYTES" ]; then
+            echo "::error::The rendered Seqlane report is too large to publish safely."
+            exit 1
+          fi
+
           cat "$RUNNER_TEMP/seqlane-code-review.md" >> "$GITHUB_STEP_SUMMARY"
 
-          COMMENT_ID=$(for page in 1 2; do
-            gh api \
-              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              --jq '.[] | select(.body | contains("<!-- seqlane-code-review -->")) | .id'
-          done | head -n 1)
+          COMMENT_ID=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
+            --jq '.[] | select(
+              ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
+              (.body | contains("<!-- seqlane-code-review -->"))
+            ) | .id' \
+            | jq --raw-input --slurp 'split("\n") | map(select(length > 0)) | .[0] // empty')
+
+          REPORT_HEAD=$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+              > "$RUNNER_TEMP/seqlane-existing-comment.json"
+            COMMENT_AUTHOR=$(jq --raw-output '.user.login' \
+              "$RUNNER_TEMP/seqlane-existing-comment.json")
+            if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then
+              COMMENT_ID=""
+            else
+              EXISTING_RUN=$(jq --raw-output --arg head "$REPORT_HEAD" '
+                .body
+                | split("\n")[]
+                | select(startswith("<!-- seqlane-code-review-meta-v3: "))
+                | sub("^<!-- seqlane-code-review-meta-v3: "; "")
+                | sub(" -->$"; "")
+                | fromjson?
+                | select(
+                    .reviewedRevision == $head and
+                    ((.run.id? // "") | test("^[0-9]+$")) and
+                    ((.run.attempt? | type) == "number")
+                  )
+                | [.run.id, (.run.attempt | tostring)]
+                | @tsv
+              ' "$RUNNER_TEMP/seqlane-existing-comment.json" | head -n 1)
+              EXISTING_RUN_ID=$(printf '%s' "$EXISTING_RUN" | cut -f 1)
+              EXISTING_RUN_ATTEMPT=$(printf '%s' "$EXISTING_RUN" | cut -f 2)
+              if [ -n "$EXISTING_RUN_ID" ] &&
+                 { [ "$EXISTING_RUN_ID" -gt "$GITHUB_RUN_ID" ] ||
+                   { [ "$EXISTING_RUN_ID" -eq "$GITHUB_RUN_ID" ] &&
+                     [ "$EXISTING_RUN_ATTEMPT" -ge "$GITHUB_RUN_ATTEMPT" ]; }; }; then
+                echo "::notice::A newer same-head Seqlane review is already published; skipping this stale write."
+                echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/seqlane-live-pull-request.json"
+          if ! jq --exit-status \
+            --arg head "$REPORT_HEAD" \
+            --arg repository "$GITHUB_REPOSITORY" '
+              .state == "open" and
+              .draft == false and
+              .head.repo.full_name == $repository and
+              .head.sha == $head
+            ' "$RUNNER_TEMP/seqlane-live-pull-request.json" > /dev/null; then
+            echo "::error::The pull request changed after review; refusing to publish stale state."
+            exit 1
+          fi
 
           if [ -n "$COMMENT_ID" ]; then
             gh api --method PATCH \
@@ -576,6 +1082,50 @@ jobs:
           fi
 
           echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Clear review in-progress marker
+        if: always() && steps.pull-request.outputs.eligible == 'true' && steps.review-progress.outputs.marked == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          COMMENT_ID=$(cat "$RUNNER_TEMP/seqlane-progress-comment-id")
+          MARKER_START='<!-- seqlane-review-in-progress-start -->'
+          MARKER_RUN="<!-- seqlane-review-in-progress-run: $RUN_ID -->"
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            > "$RUNNER_TEMP/seqlane-progress-comment-latest.json"
+          COMMENT_AUTHOR=$(jq --raw-output '.user.login // ""' \
+            "$RUNNER_TEMP/seqlane-progress-comment-latest.json")
+          if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then
+            echo "::error::The Seqlane review comment is no longer owned by the trusted bot."
+            exit 1
+          fi
+
+          COMMENT_BODY=$(jq --raw-output '.body // ""' \
+            "$RUNNER_TEMP/seqlane-progress-comment-latest.json")
+          if ! printf '%s' "$COMMENT_BODY" | grep -Fq "$MARKER_START"; then
+            echo "The review-progress marker was already removed by report publication."
+            exit 0
+          fi
+          if ! printf '%s' "$COMMENT_BODY" | grep -Fq "$MARKER_RUN"; then
+            echo "A newer review owns the review-progress marker; leaving it in place."
+            exit 0
+          fi
+
+          jq --raw-output '
+            (.body // "")
+            | gsub("(?s)<!-- seqlane-review-in-progress-start -->.*?<!-- seqlane-review-in-progress-end -->\\n?"; "")
+          ' "$RUNNER_TEMP/seqlane-progress-comment-latest.json" \
+            > "$RUNNER_TEMP/seqlane-progress-comment-cleared.txt"
+          jq --null-input \
+            --rawfile body "$RUNNER_TEMP/seqlane-progress-comment-cleared.txt" \
+            '{body: $body}' \
+            > "$RUNNER_TEMP/seqlane-progress-comment-payload.json"
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            --input "$RUNNER_TEMP/seqlane-progress-comment-payload.json" \
+            > /dev/null
 
       - name: Stop OpenCode
         if: always() && steps.opencode.outputs.started == 'true'
