@@ -349,9 +349,7 @@ describe("private Mastra runtime spine", () => {
     })
       .then(step)
       .commit();
-    const runtime = createMastraRuntime([
-      { key: "fixture", workflow },
-    ]);
+    const runtime = createMastraRuntime([{ key: "fixture", workflow }]);
 
     await expect(
       runtime.server.executeMcpTool("seqlane-workflows", "run_fixture", {
