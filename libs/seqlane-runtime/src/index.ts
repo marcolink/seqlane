@@ -1,16 +1,5 @@
 export { compilePlan } from "./runtime/compile/compile-plan.js";
 export type { PreparedPlan } from "./runtime/compile/compile-plan.js";
-export {
-  compileBuiltWorkflowToMastra,
-  compilePlanToMastra,
-} from "./runtime/compile/mastra-plan-compiler.js";
-export type {
-  CompiledMastraPlan,
-  MastraPlanCompilerOptions,
-  MastraPlanInvocation,
-  MastraPlanInvocationContext,
-  MastraPlanStep,
-} from "./runtime/compile/mastra-plan-compiler.js";
 export { orderPlanNodes } from "./runtime/plan/plan-ordering.js";
 export {
   PlanValidationError,

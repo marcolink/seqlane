@@ -76,8 +76,9 @@ Mastra's Community server route handlers now discover the registered Seqlane
 workflows. A Community `MCPServer` is registered with Mastra and exposes each
 workflow as a validated `run_<workflowKey>` tool. The private runtime adapter
 keeps Mastra types behind the integration boundary, and focused tests cover
-workflow discovery, MCP invocation, and malformed tool input. Workflow
-descriptions are supplied for the MCP contract by the compiler and fixtures.
+workflow discovery, MCP invocation, and malformed tool input. Every registered
+workflow must provide a non-empty description for the MCP contract; the
+runtime rejects registrations that do not meet this requirement.
 
 The old generic server and MCP transport surface was not present on this
 branch, so no additional transport deletion was required.

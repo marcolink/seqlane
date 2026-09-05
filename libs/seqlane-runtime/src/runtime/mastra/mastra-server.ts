@@ -33,6 +33,17 @@ export function registerMastraServer(
   mastra: Mastra,
   workflows: Record<string, AnyWorkflow>,
 ): MastraRuntimeServer {
+  for (const [key, workflow] of Object.entries(workflows)) {
+    if (
+      typeof workflow.description !== "string" ||
+      workflow.description.trim().length === 0
+    ) {
+      throw new TypeError(
+        `Mastra workflow "${key}" must define a non-empty description before MCP registration`,
+      );
+    }
+  }
+
   const mcpServer = new MCPServer({
     id: MCP_SERVER_ID,
     name: "Seqlane Workflows",

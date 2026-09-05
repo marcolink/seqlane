@@ -331,8 +331,26 @@ describe("private Mastra runtime spine", () => {
   });
 
   it("rejects malformed MCP tool input through Mastra validation", async () => {
+    let executions = 0;
+    const step = createStep({
+      id: "validated-fixture-step",
+      inputSchema: z.object({ fail: z.boolean() }),
+      outputSchema: z.object({ value: z.string() }),
+      execute: async () => {
+        executions += 1;
+        return { value: "executed" };
+      },
+    });
+    const workflow = createWorkflow({
+      id: "validated-fixture",
+      description: "Validates MCP input without executing malformed calls.",
+      inputSchema: z.object({ fail: z.boolean() }),
+      outputSchema: z.object({ value: z.string() }),
+    })
+      .then(step)
+      .commit();
     const runtime = createMastraRuntime([
-      { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
+      { key: "fixture", workflow },
     ]);
 
     await expect(
@@ -345,6 +363,19 @@ describe("private Mastra runtime spine", () => {
         message: expect.stringContaining("Tool validation failed"),
       },
     });
+    expect(executions).toBe(0);
+  });
+
+  it("rejects workflows without descriptions before MCP registration", () => {
+    const workflow = createWorkflow({
+      id: "undocumented-fixture",
+      inputSchema: z.object({}),
+      outputSchema: z.object({}),
+    }).commit();
+
+    expect(() => createMastraRuntime([{ key: "fixture", workflow }])).toThrow(
+      /must define a non-empty description/,
+    );
   });
 
   it("normalizes cancellation from an active Mastra run", async () => {
@@ -415,6 +446,7 @@ describe("private Mastra runtime spine", () => {
     });
     const workflow = createWorkflow({
       id: "pending-create-run-workflow",
+      description: "Tests cancellation while creating a Mastra run.",
       inputSchema: z.unknown(),
       outputSchema: z.unknown(),
     })
@@ -483,6 +515,7 @@ describe("private Mastra runtime spine", () => {
     });
     const workflow = createWorkflow({
       id: "repeated-cancellation-workflow",
+      description: "Tests repeated Mastra run cancellation.",
       inputSchema: z.unknown(),
       outputSchema: z.unknown(),
     })
