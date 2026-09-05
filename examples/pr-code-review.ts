@@ -54,6 +54,7 @@ const reviewCommentSchema = z.object({
   authorAssociation: z.string().min(1).max(64),
   body: z.string().max(65_536),
   bodyTruncated: z.boolean().optional(),
+  commandsTruncated: z.boolean().optional(),
   createdAt: z.string().min(1).max(64),
   updatedAt: z.string().min(1).max(64).optional(),
   url: z.string().url().max(2_000).optional(),
@@ -1179,6 +1180,15 @@ const applyReviewDispositionTask = defineTask({
       if (finding.dispositionCommentId === undefined) return false;
       if (dispositionFor(finding)?.commentId === finding.dispositionCommentId)
         return true;
+      if (
+        review.reviewHistory.comments.some(
+          (comment) =>
+            comment.id === finding.dispositionCommentId &&
+            comment.commandsTruncated === true,
+        )
+      ) {
+        return true;
+      }
       return (
         review.reviewHistory.truncated &&
         !review.reviewHistory.commentIds.includes(finding.dispositionCommentId)

@@ -127,7 +127,11 @@ optional context when it applies the final comment bound. It must mark history
 as truncated if older command lines do not fit. The collector must enforce one
 aggregate command-count and text budget across the retained history. Before it
 applies that budget, it must retain only the latest command for each finding
-and authorization class.
+and authorization class. The collector must mark each comment that loses a
+command to the aggregate budget. Lifecycle reconciliation must preserve a
+prior disposition when its authorizing comment has this marker. It must still
+reopen the finding when the command was removed or retargeted without
+projection loss.
 
 ### requirement-human-projection
 

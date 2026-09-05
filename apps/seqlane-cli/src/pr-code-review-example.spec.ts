@@ -1977,6 +1977,72 @@ describe("pull-request code review example workflow", () => {
     );
   });
 
+  it("preserves a disposition omitted by bounded command projection", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [
+            {
+              id: "bounded-command-comment",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              body: "",
+              commandsTruncated: true,
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          commentIds: ["bounded-command-comment"],
+          truncated: true,
+          dispositions: [],
+          previousState: {
+            schemaVersion: 3,
+            pullRequestNumber: 44,
+            baseRevision: REVIEW_TEST_BASE_REVISION,
+            reviewedRevision: REVIEW_TEST_BASE_REVISION,
+            nextFindingIndex: 2,
+            findings: [
+              {
+                id: "SEQ-PR44-001",
+                axis: "correctness",
+                severity: "required",
+                effectiveSeverity: "required",
+                disposition: "wont-fix",
+                dispositionBy: "maintainer",
+                dispositionAt: "2026-09-05T10:00:00Z",
+                dispositionCommentId: "bounded-command-comment",
+                status: "dismissed",
+                aliases: [],
+                summary: "Accepted historical finding",
+                recommendation: "Keep the explicit policy decision.",
+              },
+            ],
+            limitations: [],
+            truncated: false,
+          },
+        }),
+        report: createReport([]),
+      },
+      {},
+    );
+
+    expect(result.verdict).toBe("approve");
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "SEQ-PR44-001",
+        disposition: "wont-fix",
+        status: "dismissed",
+      }),
+    ]);
+  });
+
   it("does not accept a fixed finding without current-head evidence", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.apply-dispositions",

@@ -182,26 +182,33 @@ jobs:
           jq -n \
             --slurpfile issue "$RUNNER_TEMP/seqlane-issue-comments.json" \
             --slurpfile review "$RUNNER_TEMP/seqlane-review-comments.json" '
-              def recognized_disposition_lines($body):
-                [$body | split("\n")[] |
-                  . as $line |
-                  ($line | capture(
-                    "^\\s*/seqlane\\s+(fixed|wont-fix|downgrade)\\s+(?<findingId>F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})(\\s|$)";
-                    "i"
-                  )) as $match |
-                  {line: $line, findingId: $match.findingId}];
-              def bounded_command_projection($commands; $limit):
-                reduce ($commands | reverse[]) as $command
-                  ({commands: [], used: 0, truncated: false};
-                    (($command.line | length) +
-                      (if (.commands | length) == 0 then 0 else 1 end)) as $cost |
-                    if (.used + $cost) <= $limit then
-                      .commands = [$command] + .commands |
-                      .used += $cost
-                    else
-                      .truncated = true
-                    end
-                  );
+              def disposition_command($comment; $line):
+                ($line | capture(
+                  "^\\s*/seqlane\\s+(fixed|wont-fix|downgrade)\\s+(?<findingId>F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})(\\s|$)";
+                  "i"
+                )) as $match |
+                ($comment.authorAssociation == "OWNER" or
+                  $comment.authorAssociation == "MEMBER" or
+                  $comment.authorAssociation == "COLLABORATOR") as $authorized |
+                {
+                  key: $comment._key,
+                  line: $line,
+                  identity: (
+                    $match.findingId + ":" +
+                    (if $authorized then "authorized" else "unauthorized" end)
+                  )
+                };
+              def trim_commands($countLimit; $characterLimit):
+                until(
+                  ((.order | length) <= $countLimit and
+                    .characters <= $characterLimit);
+                  .order[0] as $identity |
+                  .byIdentity[$identity] as $omitted |
+                  .omittedCommentKeys[$omitted.key] = true |
+                  .characters -= (($omitted.line | length) + 1) |
+                  del(.byIdentity[$identity]) |
+                  .order = .order[1:]
+                );
               def normalize($items; $kind):
                 ($items[0] // []) | map(
                   (.body // "") as $body |
@@ -211,17 +218,12 @@ jobs:
                   (if $trustedReport then 65536 else 2000 end) as $bodyLimit |
                   {
                     _key: ($kind + ":" + (.id | tostring)),
-                    _trustedReport: $trustedReport,
                     _trustedBody: (if $trustedReport then $body[:65536] else "" end),
+                    _body: (if $trustedReport then "" else $body end),
                     _bodyContext: (
                       [$body[:2000] | split("\n")[] |
                         select((ascii_downcase | contains("/seqlane")) | not)] |
                         join("\n")
-                    ),
-                    _commandLines: (
-                      if $trustedReport then []
-                      else recognized_disposition_lines($body)
-                      end
                     ),
                     _sourceBodyTruncated: (($body | length) > $bodyLimit),
                     id: (.id | tostring),
@@ -242,28 +244,30 @@ jobs:
                 normalize($review; "review")
               ] | add | sort_by(.updatedAt // .createdAt)) as $allComments
               | ($allComments[-200:]) as $comments
-              | ([$comments[] as $comment |
-                  $comment._commandLines[] |
-                  . + {
-                    key: $comment._key,
-                    authorized: (
-                      $comment.authorAssociation == "OWNER" or
-                      $comment.authorAssociation == "MEMBER" or
-                      $comment.authorAssociation == "COLLABORATOR"
-                    )
-                  }] | to_entries |
-                  map(.value + {
-                    order: .key,
-                    identity: (
-                      .value.findingId + ":" +
-                      (if .value.authorized then "authorized" else "unauthorized" end)
-                    )
-                  })) as $allCommands
-              | (reduce $allCommands[] as $command
-                  ({}; .[$command.identity] = $command) |
-                  [.[]] | sort_by(.order)) as $latestCommands
-              | (bounded_command_projection($latestCommands[-200:]; 63535)) as $commandProjection
-              | ($commandProjection.commands) as $commands
+              | (reduce (
+                  $comments[] as $comment |
+                  ($comment._body | splits("\n")) as $line |
+                  disposition_command($comment; $line)
+                ) as $command
+                ({
+                  byIdentity: {},
+                  order: [],
+                  characters: 0,
+                  omittedCommentKeys: {}
+                };
+                  (.byIdentity[$command.identity] // null) as $superseded |
+                  if $superseded == null then . else
+                    .characters -= (($superseded.line | length) + 1) |
+                    .order -= [$command.identity] |
+                    del(.byIdentity[$command.identity])
+                  end |
+                  .byIdentity[$command.identity] = $command |
+                  .order += [$command.identity] |
+                  .characters += (($command.line | length) + 1) |
+                  trim_commands(200; 63535)
+                )) as $commandState
+              | ([$commandState.order[] as $identity |
+                  $commandState.byIdentity[$identity]]) as $commands
               | {
                   comments: [
                     $comments[] as $comment |
@@ -273,7 +277,7 @@ jobs:
                       (if ($commandBody | length) == 0 or ($comment._bodyContext | length) == 0 then 0 else 1 end))]) as $bodyContext |
                     $comment |
                     .body = (
-                      if ._trustedReport then ._trustedBody
+                      if (._trustedBody | length) > 0 then ._trustedBody
                       else
                         $bodyContext +
                         (if ($commandBody | length) == 0 or ($bodyContext | length) == 0 then "" else "\n" end) +
@@ -281,23 +285,22 @@ jobs:
                       end
                     ) |
                     .bodyTruncated = (
-                      ._sourceBodyTruncated or
-                      (($commentCommands | length) < (._commandLines | length))
+                      ._sourceBodyTruncated
                     ) |
+                    .commandsTruncated =
+                      ($commandState.omittedCommentKeys[._key] == true) |
                     del(
                       ._key,
-                      ._trustedReport,
                       ._trustedBody,
+                      ._body,
                       ._bodyContext,
-                      ._commandLines,
                       ._sourceBodyTruncated
                     )
                   ],
                   truncated: (
                     ($allComments | length) >= 200 or
                     any($comments[]; ._sourceBodyTruncated) or
-                    ($latestCommands | length) > 200 or
-                    $commandProjection.truncated
+                    (($commandState.omittedCommentKeys | keys | length) > 0)
                   )
                 }
             ' > "$RUNNER_TEMP/seqlane-review-history.json"
