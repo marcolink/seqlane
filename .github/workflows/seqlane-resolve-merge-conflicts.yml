@@ -373,6 +373,30 @@ jobs:
               }
             '
 
+            if node -e '
+              const { readFileSync } = require("node:fs");
+              process.exit(readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").includes("pnpm-lock.yaml") ? 0 : 1);
+            '; then
+              LOCKFILE_WORKSPACE="$RUNNER_TEMP/seqlane-lockfile-workspace"
+              export LOCKFILE_WORKSPACE
+              mkdir "$LOCKFILE_WORKSPACE"
+              node -e '
+                const { execFileSync } = require("node:child_process");
+                const { lstatSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+                const { dirname, resolve, relative } = require("node:path");
+                const root = resolve(process.env.RESOLUTION_TARGET);
+                const output = resolve(process.env.LOCKFILE_WORKSPACE);
+                const paths = execFileSync("git", ["ls-files", "-z", "--", "pnpm-lock.yaml", "pnpm-workspace.yaml", ":(glob)**/package.json"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
+                for (const path of paths) {
+                  const source = resolve(root, path); const target = resolve(output, path);
+                  if (relative(root, source).startsWith("..") || relative(output, target).startsWith("..") || lstatSync(source).isSymbolicLink() || !lstatSync(source).isFile()) throw new Error(`Unsafe pnpm input: ${path}`);
+                  mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, readFileSync(source));
+                }
+              '
+              docker run --rm --network bridge --mount "type=bind,source=$LOCKFILE_WORKSPACE,target=/workspace" --workdir /workspace node:24-bookworm-slim sh -c 'corepack enable && pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile'
+              cp "$LOCKFILE_WORKSPACE/pnpm-lock.yaml" "$RESOLUTION_TARGET/pnpm-lock.yaml"
+            fi
+
             node -e '
               const { execFileSync } = require("node:child_process");
               const { readFileSync } = require("node:fs");
