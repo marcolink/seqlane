@@ -1785,6 +1785,54 @@ describe("pull-request code review example workflow", () => {
     expect(result.nextFindingIndex).toBe(2);
   });
 
+  it("deduplicates legacy identities during version 3 migration", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+    const duplicate = {
+      id: "F-legacy",
+      axis: "correctness",
+      severity: "required",
+      effectiveSeverity: "required",
+      disposition: "open",
+      summary: "Duplicate legacy finding",
+      recommendation: "Migrate one stable finding.",
+    };
+
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [],
+          commentIds: [],
+          truncated: false,
+          dispositions: [],
+          previousSnapshot: {
+            headRevision: REVIEW_TEST_BASE_REVISION,
+            findings: [duplicate, duplicate],
+            truncated: false,
+          },
+        }),
+        report: createReport([]),
+      },
+      {},
+    );
+
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "SEQ-PR44-001",
+        aliases: ["F-legacy"],
+      }),
+    ]);
+    expect(result.nextFindingIndex).toBe(2);
+    expect(result.stateTruncated).toBe(true);
+    expect(result.limitations).toContain(
+      "1 duplicate historical finding(s) were omitted during state migration.",
+    );
+  });
+
   it("reopens a historical finding when an edited command targets another finding", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.apply-dispositions",

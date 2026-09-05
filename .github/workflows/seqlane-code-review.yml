@@ -191,12 +191,22 @@ jobs:
                     (.user.login // "") == "github-actions[bot]") and
                    ($body | contains("<!-- seqlane-code-review -->"))) as $trustedReport |
                   (if $trustedReport then 65536 else 2000 end) as $bodyLimit |
+                  (if $trustedReport then
+                    $body[:65536]
+                  else
+                    (
+                      $body[:2000] + "\n" +
+                      ([$body | split("\n")[] |
+                        select(ascii_downcase | contains("/seqlane"))] |
+                       unique | join("\n"))
+                    )[:65536]
+                  end) as $boundedBody |
                   {
                     id: (.id | tostring),
                     kind: $kind,
                     author: (.user.login // "unknown"),
                     authorAssociation: (.author_association // "NONE"),
-                    body: ($body[:$bodyLimit]),
+                    body: $boundedBody,
                     bodyTruncated: (($body | length) > $bodyLimit),
                     createdAt: (.created_at // "")
                   }
@@ -433,6 +443,8 @@ jobs:
         run: |
           COMMENT_MAX_BYTES=60000
           REVIEW_STATE_MAX_CHARS=20000
+          STATE_COMPACTION_NOTICE="The machine-readable review state was compacted to fit the publication limit."
+          STATE_COMPACTED=false
 
           jq --slurp \
             'map(select(.type == "run.succeeded")) | last | .output' \
@@ -466,7 +478,9 @@ jobs:
           REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
 
           if [ "${#REVIEW_STATE_PAYLOAD}" -gt "$REVIEW_STATE_MAX_CHARS" ]; then
-            REVIEW_STATE=$(printf '%s' "$REVIEW_STATE" | jq --compact-output '
+            STATE_COMPACTED=true
+            REVIEW_STATE=$(printf '%s' "$REVIEW_STATE" | jq --compact-output \
+              --arg notice "$STATE_COMPACTION_NOTICE" '
             def shorten($value; $limit):
               if ($value | length) > $limit then
                 ($value[:($limit - 1)] + "…")
@@ -481,18 +495,22 @@ jobs:
                   .dispositionReason = shorten(.dispositionReason; 320)
                 else . end
             )
+            | .limitations = ((.limitations | map(select(. != $notice)))[:19] + [$notice])
             | .truncated = true
           ')
             REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
           fi
 
           if [ "${#REVIEW_STATE_PAYLOAD}" -gt "$REVIEW_STATE_MAX_CHARS" ]; then
-            REVIEW_STATE=$(printf '%s' "$REVIEW_STATE" | jq --compact-output '
+            STATE_COMPACTED=true
+            REVIEW_STATE=$(printf '%s' "$REVIEW_STATE" | jq --compact-output \
+              --arg notice "$STATE_COMPACTION_NOTICE" '
               .findings |= map(
                 .summary = "Historical finding retained in compact state."
                 | .recommendation = "Re-evaluate this finding against the current head."
                 | del(.file, .line, .dispositionReason)
               )
+              | .limitations = ((.limitations | map(select(. != $notice)))[:19] + [$notice])
               | .truncated = true
             ')
             REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
@@ -525,7 +543,9 @@ jobs:
 
           jq --raw-output \
             --arg metadata "$REVIEW_METADATA" \
-            --arg stateEnvelope "$REVIEW_STATE_ENVELOPE" '
+            --arg stateEnvelope "$REVIEW_STATE_ENVELOPE" \
+            --arg compactionNotice "$STATE_COMPACTION_NOTICE" \
+            --argjson stateCompacted "$STATE_COMPACTED" '
             def shorten($value; $limit):
               ($value // "") as $text |
               if ($text | length) > $limit then
@@ -569,6 +589,8 @@ jobs:
               elif . == "architecture" then "🏗️ Architecture"
               elif . == "security" then "🔒 Security" else "⚡ Performance" end;
             . as $report |
+            (($report.limitations | map(select(. != $compactionNotice)))[:19] +
+              (if $stateCompacted then [$compactionNotice] else [] end)) as $limitations |
             ($report.findings | sort_by(
               projection_rank,
               (.effectiveSeverity | severity_rank),
@@ -616,10 +638,10 @@ jobs:
               select(active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required")) |
               "<details>\n<summary><strong>\(.id) · \(.status | status_label) · \(.summary | cell)</strong></summary>\n\n**Recommendation:** \(shorten(.recommendation; 600) | safe_text)\(if .file then "\n\n**Location:** `\(.file | safe_text)\(if .line then ":\(.line)" else "" end)`" else "" end)\(if .dispositionBy then "\n\n**Human decision:** \(.disposition | safe_text) by \(("@" + .dispositionBy) | safe_text)\(if .dispositionReason then " — \(.dispositionReason | safe_text)" else "" end)" else "" end)\n\n</details>"
             ]
-            + (if ($report.limitations | length) == 0 then [] else [
+            + (if ($limitations | length) == 0 then [] else [
               "",
               "## Review limitations",
-              ($report.limitations[] | "- ⚠️ \(shorten(.; 500) | safe_text)")
+              ($limitations[] | "- ⚠️ \(shorten(.; 500) | safe_text)")
             ] end)
             + (if ($report.verification | length) == 0 then [] else [
               "",

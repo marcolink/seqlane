@@ -101,6 +101,8 @@ a recognized review command.
 Run identity prevents stale same-head publication, and duplicate temporary IDs
 collapse before stable ID allocation. Per-pull-request workflow serialization
 prevents concurrent comment creation or update.
+Legacy IDs also deduplicate during migration. Command lines survive comment
+body truncation, and state compaction is visible in both report layers.
 
 Legacy version 1 and version 2 reports migrate to stable version 3 IDs. Tests
 cover malformed state, ID allocation, disposition overflow, current-head fix

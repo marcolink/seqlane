@@ -1125,7 +1125,18 @@ const applyReviewDispositionTask = defineTask({
         aliases: [],
       })) ??
       [];
-    const previousFindings = previousSource.map((finding) => {
+    const previousIdentities = new Set<string>();
+    let duplicateHistoricalFindings = 0;
+    const uniquePreviousSource = previousSource.filter((finding) => {
+      const identities = [finding.id, ...finding.aliases];
+      if (identities.some((identity) => previousIdentities.has(identity))) {
+        duplicateHistoricalFindings++;
+        return false;
+      }
+      for (const identity of identities) previousIdentities.add(identity);
+      return true;
+    });
+    const previousFindings = uniquePreviousSource.map((finding) => {
       if (isStableFindingId(finding.id, review.pullRequest.number)) {
         const parsedIndex = Number(finding.id.split("-").at(-1));
         if (Number.isSafeInteger(parsedIndex)) {
@@ -1380,6 +1391,11 @@ const applyReviewDispositionTask = defineTask({
         `${findingsOverflow} lower-priority finding(s) were omitted because the report is bounded to ${MAX_REVIEW_FINDINGS} findings.`,
       );
     }
+    if (duplicateHistoricalFindings > 0) {
+      limitations.push(
+        `${duplicateHistoricalFindings} duplicate historical finding(s) were omitted during state migration.`,
+      );
+    }
     limitations.push(...review.historyVerification.limitations);
 
     return {
@@ -1402,6 +1418,7 @@ const applyReviewDispositionTask = defineTask({
       limitations: [...new Set(limitations)].slice(0, 20),
       stateTruncated:
         findingsOverflow > 0 ||
+        duplicateHistoricalFindings > 0 ||
         review.reviewHistory.previousState?.truncated === true ||
         review.reviewHistory.previousSnapshot?.truncated === true,
     };

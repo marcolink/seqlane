@@ -83,8 +83,9 @@ The finalizer must not reuse an index. A retained or reopened finding keeps its
 identifier. Review agents can reference prior identifiers but cannot allocate
 new final identifiers.
 
-The finalizer must collapse duplicate temporary identifiers before it assigns
-stable identifiers.
+The finalizer must collapse duplicate temporary and legacy identifiers before
+it assigns stable identifiers. Legacy deduplication must mark the state as
+truncated and add a limitation.
 
 ### requirement-lifecycle
 
@@ -119,6 +120,9 @@ An edited comment triggers review only when its current or previous body has a
 recognized command. This permits command removal without running reviews for
 unrelated comment edits.
 
+Comment collection must preserve recognized command lines even when it bounds
+the surrounding comment body.
+
 ### requirement-human-projection
 
 The human projection must show the verdict, active counts, reviewed revision,
@@ -145,6 +149,9 @@ findings.
 
 The publisher must reject an oversized final comment. Snapshot decompression
 must stop at the configured output limit.
+
+If the publisher compacts state, it must add the compaction limitation to the
+persisted state and the human projection in the same publication.
 
 The workflow must pass bounded review input through a file. It must not place
 the complete comment history in one command-line argument.
