@@ -166,7 +166,9 @@ The state payload uses compact JSON. The publisher can use a bounded
 Run timestamps and identifiers are audit data. They do not decide publication
 order across revisions. The live pull-request head and full Git revisions
 decide eligibility. For the same reviewed revision, the GitHub run ID and
-attempt prevent an older run from replacing a newer publication.
+attempt prevent an older run from replacing a newer publication. The workflow
+serializes runs for one pull request so comment lookup and publication cannot
+overlap.
 
 The human status and severity labels are deterministic projections of the
 validated state. Model output cannot select the final verdict or active
