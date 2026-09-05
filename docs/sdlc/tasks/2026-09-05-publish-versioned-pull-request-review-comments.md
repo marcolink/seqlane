@@ -96,6 +96,8 @@ visible projection. Model-controlled text is neutralized before rendering.
 The reader rejects duplicate state framing and metadata identity mismatches.
 The workflow passes review input through a JSON file. Resolved fixes require
 fresh current-head proof, and removed dispositions reopen stale resolved state.
+Edited comments are eligible only when their current or previous body contains
+a recognized review command.
 
 Legacy version 1 and version 2 reports migrate to stable version 3 IDs. Tests
 cover malformed state, ID allocation, disposition overflow, current-head fix

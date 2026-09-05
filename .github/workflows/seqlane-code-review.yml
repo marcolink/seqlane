@@ -38,23 +38,12 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
-       (
-         (github.event.action == 'created' &&
-          (contains(github.event.comment.body, '/seqlane review') ||
-           contains(github.event.comment.body, '/seqlane fixed F-') ||
-           contains(github.event.comment.body, '/seqlane fixed SEQ-PR') ||
-           contains(github.event.comment.body, '/seqlane wont-fix F-') ||
-           contains(github.event.comment.body, '/seqlane wont-fix SEQ-PR') ||
-           contains(github.event.comment.body, '/seqlane downgrade F-') ||
-           contains(github.event.comment.body, '/seqlane downgrade SEQ-PR')) &&
-          (github.event.comment.author_association == 'OWNER' ||
-           github.event.comment.author_association == 'MEMBER' ||
-           github.event.comment.author_association == 'COLLABORATOR')) ||
-         (github.event.action == 'edited' &&
-          (github.event.comment.author_association == 'OWNER' ||
-           github.event.comment.author_association == 'MEMBER' ||
-           github.event.comment.author_association == 'COLLABORATOR'))
-       )) ||
+       (github.event.action == 'created' || github.event.action == 'edited') &&
+       (contains(github.event.comment.body, '/seqlane') ||
+        contains(github.event.changes.body.from, '/seqlane')) &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR')) ||
       (github.event_name == 'workflow_dispatch' &&
        github.event.inputs.pull_request_number != '')
     runs-on: ubuntu-latest
@@ -81,18 +70,14 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action }}
           COMMENT_BODY: ${{ github.event.comment.body }}
+          PREVIOUS_COMMENT_BODY: ${{ github.event.changes.body.from }}
         run: |
           if [ "$EVENT_NAME" != "issue_comment" ]; then
             echo "execute=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ "$EVENT_ACTION" = "edited" ]; then
-            echo "execute=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if printf '%s\n' "$COMMENT_BODY" | grep -Eq '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|(fixed|wont-fix|downgrade)[[:space:]]+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})([[:space:]]|$))' ; then
+          if printf '%s\n%s\n' "$COMMENT_BODY" "$PREVIOUS_COMMENT_BODY" | grep -Eqi '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|(fixed|wont-fix|downgrade)[[:space:]]+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})([[:space:]]|$))' ; then
             echo "execute=true" >> "$GITHUB_OUTPUT"
           else
             echo "execute=false" >> "$GITHUB_OUTPUT"

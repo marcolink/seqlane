@@ -112,6 +112,10 @@ Only a `resolved` result for the current head can set the finding to
 finding active. Removing or retargeting the authorizing disposition reopens a
 previously resolved finding.
 
+An edited comment triggers review only when its current or previous body has a
+recognized command. This permits command removal without running reviews for
+unrelated comment edits.
+
 ### requirement-human-projection
 
 The human projection must show the verdict, active counts, reviewed revision,
