@@ -175,16 +175,20 @@ jobs:
           for page in 1 2; do
             gh api \
               "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              --jq '.[] | @json'
-          done > "$RUNNER_TEMP/seqlane-issue-comments.ndjson"
+              > "$RUNNER_TEMP/seqlane-issue-comments-$page.json"
+          done
           for page in 1 2; do
             gh api \
               "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              --jq '.[] | @json'
-          done > "$RUNNER_TEMP/seqlane-review-comments.ndjson"
-          jq -s 'map(fromjson)' "$RUNNER_TEMP/seqlane-issue-comments.ndjson" \
+              > "$RUNNER_TEMP/seqlane-review-comments-$page.json"
+          done
+          jq -s 'add' \
+            "$RUNNER_TEMP/seqlane-issue-comments-1.json" \
+            "$RUNNER_TEMP/seqlane-issue-comments-2.json" \
             > "$RUNNER_TEMP/seqlane-issue-comments.json"
-          jq -s 'map(fromjson)' "$RUNNER_TEMP/seqlane-review-comments.ndjson" \
+          jq -s 'add' \
+            "$RUNNER_TEMP/seqlane-review-comments-1.json" \
+            "$RUNNER_TEMP/seqlane-review-comments-2.json" \
             > "$RUNNER_TEMP/seqlane-review-comments.json"
           jq -n \
             --slurpfile issue "$RUNNER_TEMP/seqlane-issue-comments.json" \
