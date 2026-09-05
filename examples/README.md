@@ -156,9 +156,9 @@ The state includes full commit IDs, lifecycle data, dispositions, the latest
 run audit, and a cumulative run summary. Each completed run also gets an
 immutable trusted-bot audit comment with a mechanically generated metrics
 object containing task result state, duration, model, tokens, and cost totals.
-The latest JSON object is shown in the human comment under `Run metrics`,
-together with the absolute cumulative cost for the pull request and the
-latest-run cost. No agent calculates these values. Existing single-run and
+All retained run metrics are shown as a JSON array in the human comment under
+`Run metrics`, together with the absolute cumulative cost for the pull request
+and the latest-run cost. No agent calculates these values. Existing single-run and
 append-only-history v3 state is migrated to audit comments when the next
 report is published. The publisher re-reads the trusted report immediately
 before writing and skips stale concurrent writes. When a new review starts and

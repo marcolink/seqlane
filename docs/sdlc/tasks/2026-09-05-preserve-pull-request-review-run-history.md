@@ -27,7 +27,7 @@ Implement [requirement-run-status-and-metrics](../specs/2026-09-05-versioned-pul
 - Publish one immutable audit comment for each completed run.
 - Migrate legacy single-`run` and append-only `runs` v3 state on the next publication.
 - Keep the authoritative state bounded with only the latest run and summary.
-- Keep the latest run metrics JSON block in the human projection.
+- Keep every run's metrics in a JSON array in the human projection.
 - Render cumulative pull-request cost and latest-run cost from retained history.
 - Re-read the trusted report before publication and skip stale concurrent writes.
 - Reject ambiguous states containing both `run` and `runs`.
@@ -66,7 +66,7 @@ Implement [requirement-run-status-and-metrics](../specs/2026-09-05-versioned-pul
 - Consecutive publications retain every prior run audit record.
 - Legacy single-run state is not discarded during migration.
 - The comment shows absolute pull-request cost and latest-run cost.
-- The latest run's plain JSON metrics remain available to reviewers.
+- Every run's plain JSON metrics remain available to reviewers as one list.
 
 ## Outcome
 
@@ -74,7 +74,7 @@ The workflow now stores each completed run in an immutable audit comment,
 migrates prior state history, keeps the authoritative state bounded, guards
 against stale concurrent publication, and rejects ambiguous run fields. The
 human projection shows cumulative pull-request cost and latest-run cost while
-retaining the latest run's plain JSON metrics.
+retaining every run's plain JSON metrics in one list.
 
 ## Traceability
 

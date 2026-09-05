@@ -101,10 +101,10 @@ published. The bounded state stores only the latest run and cumulative summary.
 Missing provider metrics must remain absent rather than being represented as
 fabricated zero usage.
 
-The human comment must show the latest metrics object as a plain JSON code
-block. It must also show the absolute cumulative cost for the pull request and
-the cost of the latest run. Both costs must be derived from the retained run
-history.
+The human comment must show every retained run metrics object in a plain JSON
+array code block. It must also show the absolute cumulative cost for the pull
+request and the cost of the latest run. Both costs must be derived from the
+retained run history.
 
 Before publication, the publisher must re-read the current trusted report and
 skip a stale write when its run metadata no longer matches the report read at

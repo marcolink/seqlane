@@ -727,7 +727,6 @@ jobs:
               tasks: $tasks
             }
           ' "$RUNNER_TEMP/seqlane-code-review.jsonl")
-          RUN_METRICS_PRETTY=$(printf '%s' "$RUN_METRICS" | jq .)
           RUN_METRICS_TOTAL_COST=$(printf '%.6f' \
             "$(printf '%s' "$RUN_METRICS" | jq --raw-output '.totalCost')")
           printf '%s\n' "$RUN_METRICS" > "$RUNNER_TEMP/seqlane-code-review-metrics.json"
@@ -856,6 +855,7 @@ jobs:
             map(select(.schemaVersion == 1 and (.runId | type) == "string")) |
             unique_by(.runId + "/" + (.attempt | tostring))
           ' "$RUNNER_TEMP/seqlane-live-issue-comments-after-audit.json")
+          RUN_METRICS_HISTORY_PRETTY=$(printf '%s' "$AUDIT_HISTORY" | jq '[.[] | .metrics]')
           PR_TOTAL_COST_RAW=$(printf '%s' "$AUDIT_HISTORY" | jq --raw-output '[.[] | .metrics.totalCost // 0] | add // 0')
           PR_TOTAL_COST=$(printf '%.6f' "$PR_TOTAL_COST_RAW")
           PR_RUN_COUNT=$(printf '%s' "$AUDIT_HISTORY" | jq --raw-output 'length')
@@ -961,7 +961,7 @@ jobs:
           jq --raw-output \
             --arg metadata "$REVIEW_METADATA" \
             --arg stateEnvelope "$REVIEW_STATE_ENVELOPE" \
-            --arg runMetricsJson "$RUN_METRICS_PRETTY" \
+            --arg runMetricsJson "$RUN_METRICS_HISTORY_PRETTY" \
             --arg runMetricsTotalCost "$RUN_METRICS_TOTAL_COST" \
             --arg prTotalCost "$PR_TOTAL_COST" \
             --arg compactionNotice "$STATE_COMPACTION_NOTICE" \
@@ -1106,7 +1106,7 @@ jobs:
             + [
               "",
               "<details>",
-              ("<summary>Run metrics · PR cost: $" + $prTotalCost + " · last run: $" + $runMetricsTotalCost + "</summary>"),
+              ("<summary>Run metrics (all runs) · PR cost: $" + $prTotalCost + " · last run: $" + $runMetricsTotalCost + "</summary>"),
               "",
               "Mechanically aggregated from Seqlane execution events:",
               "",
