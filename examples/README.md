@@ -196,11 +196,11 @@ pull-request number, select `rebase` or `merge`, and run the workflow from the
 default branch. The required strategy defaults to `rebase`. Configure the
 `OPENAI_API_KEY` Actions secret before you run it.
 
-The workflow accepts only a head branch in this repository. It applies the
-selected strategy to the current base revision and head revision in a separate
-checkout. A rebased branch uses `--force-with-lease` against its captured head
-revision. If Git reports no merge conflicts, the merge strategy stops without a
-commit.
+The workflow accepts only a head branch in this repository. It captures the
+live base branch revision and the pull-request head revision, then applies the
+selected strategy in a separate checkout. A rebased branch uses
+`--force-with-lease` against its captured head revision. If Git reports no
+merge conflicts, the merge strategy stops without a commit.
 
 If conflicts exist, `resolve-merge-conflicts.ts` receives the exact conflict
 paths and both immutable revisions. Its exclusive agent task runs in a fresh,
@@ -220,9 +220,10 @@ default, diff3, and longer conflict markers. The workflow stops OpenCode before 
 configures GitHub credentials. Then it creates one merge commit or pushes the
 rebased history.
 
-The workflow checks the captured base revision before it pushes. The exact
-force-with-lease protects the remote head revision. A base update after that
-check can make the result stale, but it cannot overwrite the base branch.
+The workflow checks the same live base revision that it captured before
+resolution immediately before it pushes. The exact force-with-lease protects
+the remote head revision. A base update after that check can make the result
+stale, but it cannot overwrite the base branch.
 
 The workflow downloads the pinned OpenCode release archive over HTTPS. It
 checks the archive SHA-256 before extraction. It does not run a remote installer

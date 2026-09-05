@@ -78,9 +78,15 @@ jobs:
             exit 1
           fi
 
+          BASE_REF=$(jq --raw-output '.base.ref' "$RUNNER_TEMP/pull-request.json")
           echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "base_ref=$(jq --raw-output '.base.ref' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
-          echo "base_sha=$(jq --raw-output '.base.sha' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
+          echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+          LIVE_BASE_SHA=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BASE_REF" --jq '.object.sha')
+          if ! [[ "$LIVE_BASE_SHA" =~ ^[0-9a-f]{40}$|^[0-9a-f]{64}$ ]]; then
+            echo "::error::The live base branch did not return a valid commit SHA."
+            exit 1
+          fi
+          echo "base_sha=$LIVE_BASE_SHA" >> "$GITHUB_OUTPUT"
           echo "head_ref=$(jq --raw-output '.head.ref' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
           echo "head_sha=$(jq --raw-output '.head.sha' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
 

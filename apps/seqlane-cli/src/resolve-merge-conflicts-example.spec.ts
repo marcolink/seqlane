@@ -101,6 +101,15 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).toContain("MAX_REBASE_ATTEMPTS=10");
     expect(workflow).toContain("diff --name-only --diff-filter=U -z");
     expect(workflow).toContain(
+      "gh api \"repos/$GITHUB_REPOSITORY/git/ref/heads/$BASE_REF\" --jq '.object.sha'",
+    );
+    expect(workflow).toContain(
+      'echo "base_sha=$LIVE_BASE_SHA" >> "$GITHUB_OUTPUT"',
+    );
+    expect(workflow).not.toContain(
+      'echo "base_sha=$(jq --raw-output \'.base.sha\' "$RUNNER_TEMP/pull-request.json")"',
+    );
+    expect(workflow).toContain(
       'validate-workspace "$RESOLUTION_TARGET" "$CONFLICT_FILES"',
     );
     expect(workflow).toContain(
