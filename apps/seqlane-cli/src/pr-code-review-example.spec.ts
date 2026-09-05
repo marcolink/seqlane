@@ -580,6 +580,53 @@ describe("pull-request code review example workflow", () => {
     expect(result.previousReviewedRevision).toBe(REVIEW_TEST_HEAD_REVISION);
   });
 
+  it("reads appended run history and validates metadata against its latest run", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+
+    const state = {
+      schemaVersion: 3,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 1,
+      findings: [],
+      limitations: [],
+      truncated: false,
+      runs: [
+        { id: "100", attempt: 1, completedAt: "2026-09-05T10:00:00Z" },
+        { id: "101", attempt: 1, completedAt: "2026-09-05T11:00:00Z" },
+      ],
+    };
+    const result = await task.execute(
+      {
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "report",
+              kind: "issue",
+              author: "github-actions[bot]",
+              authorAssociation: "NONE",
+              body: createV3ReviewComment(state, {
+                run: { id: "101", attempt: 1 },
+              }),
+              createdAt: "2026-09-05T11:00:00Z",
+            },
+          ],
+          truncated: false,
+        },
+      },
+      {},
+    );
+
+    expect(result.previousState).toEqual(state);
+  });
+
   it("rejects version 3 state with unknown fields", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.review-context",
@@ -1317,6 +1364,46 @@ describe("pull-request code review example workflow", () => {
                 effectiveAt: "2026-09-05T14:00:00Z",
               },
             ],
+            previousState: {
+              schemaVersion: 3,
+              pullRequestNumber: 44,
+              baseRevision: revision,
+              reviewedRevision: "b".repeat(40),
+              nextFindingIndex: 3,
+              findings: [
+                {
+                  id: "SEQ-PR44-001",
+                  axis: "architecture",
+                  severity: "required",
+                  effectiveSeverity: "required",
+                  disposition: "open",
+                  status: "open",
+                  aliases: ["F-125"],
+                  summary: "Previously found concern",
+                  recommendation: "Document the accepted risk.",
+                },
+                {
+                  id: "SEQ-PR44-002",
+                  axis: "readability",
+                  severity: "required",
+                  effectiveSeverity: "required",
+                  disposition: "open",
+                  status: "open",
+                  aliases: ["F-124"],
+                  summary: "Low impact issue",
+                  recommendation: "Simplify the branch.",
+                },
+              ],
+              limitations: [],
+              truncated: false,
+              runs: [
+                {
+                  id: "100",
+                  attempt: 1,
+                  completedAt: "2026-09-05T11:00:00Z",
+                },
+              ],
+            },
             previousSnapshot: {
               headRevision: revision,
               findings: [
@@ -1389,6 +1476,13 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(result.verdict).toBe("approve");
+    expect(result.runHistory).toEqual([
+      {
+        id: "100",
+        attempt: 1,
+        completedAt: "2026-09-05T11:00:00Z",
+      },
+    ]);
     expect(() => JSON.stringify(result)).not.toThrow();
     expect(result.findings).toEqual(
       expect.arrayContaining([

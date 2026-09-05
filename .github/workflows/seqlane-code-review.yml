@@ -745,17 +745,19 @@ jobs:
               findings,
               limitations,
               truncated: .stateTruncated,
-              run: {
+              runs: ((.runHistory // []) + [{
                 id: $runId,
                 attempt: $runAttempt,
                 completedAt: $completedAt,
                 metrics: $runMetrics
-              }
+              }])
             }
             + (if .previousReviewedRevision then
                 {previousReviewedRevision}
               else {} end)
           ' "$RUNNER_TEMP/seqlane-code-review-result.json")
+          PR_TOTAL_COST=$(printf '%.6f' \
+            "$(printf '%s' "$REVIEW_STATE" | jq --raw-output '[(.runs // [])[] | .metrics.totalCost // 0] | add // 0')")
           REVIEW_STATE_PAYLOAD=$(printf '%s' "$REVIEW_STATE" | gzip -c | base64 -w0)
 
           if [ "${#REVIEW_STATE_PAYLOAD}" -gt "$REVIEW_STATE_MAX_CHARS" ]; then
@@ -827,6 +829,7 @@ jobs:
             --arg stateEnvelope "$REVIEW_STATE_ENVELOPE" \
             --arg runMetricsJson "$RUN_METRICS_PRETTY" \
             --arg runMetricsTotalCost "$RUN_METRICS_TOTAL_COST" \
+            --arg prTotalCost "$PR_TOTAL_COST" \
             --arg compactionNotice "$STATE_COMPACTION_NOTICE" \
             --argjson stateCompacted "$STATE_COMPACTED" '
             def shorten($value; $limit):
@@ -969,9 +972,12 @@ jobs:
             + [
               "",
               "<details>",
-              ("<summary>Run metrics · total cost: $" + $runMetricsTotalCost + "</summary>"),
+              ("<summary>Run metrics · PR cost: $" + $prTotalCost + " · last run: $" + $runMetricsTotalCost + "</summary>"),
               "",
               "Mechanically aggregated from Seqlane execution events:",
+              "",
+              ("- Absolute PR cost: $" + $prTotalCost),
+              ("- Last run cost: $" + $runMetricsTotalCost),
               "",
               "```json",
               $runMetricsJson,
