@@ -63,8 +63,8 @@ pnpm exec seqlane run ./workflow.ts \
   --runtime http://127.0.0.1:4096
 ```
 
-Use `--input-file <path>` instead of `--input` for large JSON input. Specify
-exactly one input source.
+Use `--input-file <path>` instead of `--input` for JSON input up to 1 MiB.
+Specify exactly one input source.
 
 ### Run a local task
 

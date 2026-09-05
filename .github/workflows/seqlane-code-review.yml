@@ -166,33 +166,23 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for page in 1 2; do
-            gh api \
-              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              --jq 'map(
-                (.body // "") as $body |
-                .body = $body[:65536] |
-                ._seqlane_source_body_truncated = (($body | length) > 65536)
-              )' \
-              > "$RUNNER_TEMP/seqlane-issue-comments-$page.json"
-          done
-          for page in 1 2; do
-            gh api \
-              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              --jq 'map(
-                (.body // "") as $body |
-                .body = $body[:65536] |
-                ._seqlane_source_body_truncated = (($body | length) > 65536)
-              )' \
-              > "$RUNNER_TEMP/seqlane-review-comments-$page.json"
-          done
-          jq -s 'add' \
-            "$RUNNER_TEMP/seqlane-issue-comments-1.json" \
-            "$RUNNER_TEMP/seqlane-issue-comments-2.json" \
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
+            --jq 'map(
+              (.body // "") as $body |
+              .body = $body[:65536] |
+              ._seqlane_source_body_truncated = (($body | length) > 65536)
+            )' \
+            | jq -s 'add' \
             > "$RUNNER_TEMP/seqlane-issue-comments.json"
-          jq -s 'add' \
-            "$RUNNER_TEMP/seqlane-review-comments-1.json" \
-            "$RUNNER_TEMP/seqlane-review-comments-2.json" \
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
+            --jq 'map(
+              (.body // "") as $body |
+              .body = $body[:65536] |
+              ._seqlane_source_body_truncated = (($body | length) > 65536)
+            )' \
+            | jq -s 'add' \
             > "$RUNNER_TEMP/seqlane-review-comments.json"
           jq -n \
             --slurpfile issue "$RUNNER_TEMP/seqlane-issue-comments.json" \
@@ -374,14 +364,13 @@ jobs:
             exit 1
           fi
 
-          COMMENT_ID=$(for page in 1 2; do
-            gh api \
-              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              --jq '.[] | select(
-                ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
-                (.body | contains("<!-- seqlane-code-review -->"))
-              ) | .id'
-          done | head -n 1)
+          COMMENT_ID=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
+            --jq '.[] | select(
+              ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
+              (.body | contains("<!-- seqlane-code-review -->"))
+            ) | .id' \
+            | jq --raw-input --slurp 'split("\n") | map(select(length > 0)) | .[0] // empty')
 
           if [ -z "$COMMENT_ID" ]; then
             echo "marked=false" >> "$GITHUB_OUTPUT"
@@ -1023,14 +1012,13 @@ jobs:
 
           cat "$RUNNER_TEMP/seqlane-code-review.md" >> "$GITHUB_STEP_SUMMARY"
 
-          COMMENT_ID=$(for page in 1 2; do
-            gh api \
-              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
-              --jq '.[] | select(
-                ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
-                (.body | contains("<!-- seqlane-code-review -->"))
-              ) | .id'
-          done | head -n 1)
+          COMMENT_ID=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
+            --jq '.[] | select(
+              ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
+              (.body | contains("<!-- seqlane-code-review -->"))
+            ) | .id' \
+            | jq --raw-input --slurp 'split("\n") | map(select(length > 0)) | .[0] // empty')
 
           REPORT_HEAD=$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")
           if [ -n "$COMMENT_ID" ]; then

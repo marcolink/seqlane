@@ -623,6 +623,41 @@ function parseReviewDispositionCommands(
   return dispositions;
 }
 
+function parseOmittedReviewDispositionCommands(
+  comment: z.infer<typeof reviewCommentSchema>,
+): Array<z.infer<typeof reviewDispositionSchema>> {
+  const authorized = AUTHORIZED_REVIEW_ASSOCIATIONS.has(
+    comment.authorAssociation,
+  );
+  return (comment.omittedDispositionCommands ?? []).flatMap((command) => {
+    const parsed = reviewDispositionSchema.safeParse({
+      findingId: command.findingId,
+      action: command.action,
+      ...(command.effectiveSeverity === undefined
+        ? {}
+        : { effectiveSeverity: command.effectiveSeverity }),
+      commentId: comment.id,
+      author: comment.author,
+      authorAssociation: comment.authorAssociation,
+      authorized,
+      createdAt: comment.createdAt,
+      effectiveAt: effectiveCommentTime(comment),
+      ...(comment.commitId === undefined ? {} : { commitId: comment.commitId }),
+    });
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+function collectReviewDispositions(
+  comments: readonly z.infer<typeof reviewCommentSchema>[],
+  dispositions: readonly z.infer<typeof reviewDispositionSchema>[],
+): Array<z.infer<typeof reviewDispositionSchema>> {
+  return [
+    ...dispositions,
+    ...comments.flatMap(parseOmittedReviewDispositionCommands),
+  ];
+}
+
 const reviewContextInputSchema = z.object({
   pullRequestNumber: z.number().int().positive(),
   reviewHistory: reviewHistoryInputSchema,
@@ -660,7 +695,10 @@ const reviewContextTask = defineTask({
       string,
       z.infer<typeof reviewDispositionSchema>
     >();
-    for (const disposition of [...commentDispositions.values()].flat()) {
+    for (const disposition of collectReviewDispositions(
+      comments,
+      [...commentDispositions.values()].flat(),
+    )) {
       const key = `${findingIdentityKey(disposition.findingId)}:${disposition.authorized ? "authorized" : "unauthorized"}`;
       const existing = latestDispositionByFindingAndAuthorization.get(key);
       if (
@@ -735,6 +773,7 @@ const reviewContextTask = defineTask({
       (comment) =>
         comment.id === previousReport?.id ||
         (commentDispositions.get(comment.id)?.length ?? 0) > 0 ||
+        (comment.omittedDispositionCommands?.length ?? 0) > 0 ||
         previousDispositionCommentIds.has(comment.id),
     );
 
@@ -1170,7 +1209,10 @@ const applyReviewDispositionTask = defineTask({
       string,
       z.infer<typeof reviewDispositionSchema>
     >();
-    for (const disposition of review.reviewHistory.dispositions) {
+    for (const disposition of collectReviewDispositions(
+      review.reviewHistory.comments,
+      review.reviewHistory.dispositions,
+    )) {
       if (!disposition.authorized) continue;
       const dispositionKey = findingIdentityKey(disposition.findingId);
       const existing = latestAuthorized.get(dispositionKey);

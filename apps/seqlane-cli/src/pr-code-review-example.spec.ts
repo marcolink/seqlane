@@ -2165,6 +2165,64 @@ describe("pull-request code review example workflow", () => {
     ]);
   });
 
+  it("applies an omitted disposition to a current finding", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [
+            {
+              id: "bounded-current-command",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              body: "",
+              omittedDispositionCommands: [
+                {
+                  findingId: "SEQ-PR44-001",
+                  action: "wont-fix",
+                  authorized: true,
+                },
+              ],
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          commentIds: ["bounded-current-command"],
+          truncated: true,
+          dispositions: [],
+        }),
+        report: createReport([
+          {
+            id: "SEQ-PR44-001",
+            axis: "correctness",
+            severity: "required",
+            effectiveSeverity: "required",
+            disposition: "open",
+            status: "new",
+            aliases: [],
+            summary: "Current finding",
+            recommendation: "Review the accepted risk.",
+          },
+        ]),
+      },
+      {},
+    );
+
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "SEQ-PR44-001",
+        disposition: "wont-fix",
+        status: "dismissed",
+      }),
+    ]);
+  });
+
   it("reopens a removed disposition when another command was omitted", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.apply-dispositions",

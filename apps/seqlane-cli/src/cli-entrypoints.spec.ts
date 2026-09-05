@@ -428,6 +428,29 @@ describe("seqlane CLI entrypoints", () => {
     }
   });
 
+  it("rejects a JSON input file larger than 1 MiB before parsing", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "seqlane-input-limit-cli-"));
+    const path = join(directory, "input.json");
+    writeFileSync(path, Buffer.alloc(1_048_577, 32));
+
+    try {
+      const result = await runCli(productionEntry, [
+        "run",
+        exampleWorkflowReference,
+        "--input-file",
+        path,
+        "--dry",
+      ]);
+
+      expect(result.code).toBe(2);
+      expect(`${result.stdout}${result.stderr}`).toContain(
+        "--input-file could not be read: file exceeds the 1048576-byte limit",
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("requires exactly one workflow input source", async () => {
     const result = await runCli(productionEntry, [
       "run",

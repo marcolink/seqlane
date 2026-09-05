@@ -7,7 +7,7 @@ import {
 } from "@seqlane/core";
 import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
 import { dirname, extname, resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { launchRunner } from "../runner-client.js";
@@ -24,6 +24,7 @@ import { parseOutputMode } from "../output-mode.js";
 
 const packageRequire = createRequire(import.meta.url);
 const localRuntimeId = "local";
+const MAX_INPUT_FILE_BYTES = 1_048_576;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -107,12 +108,32 @@ function readJsonInput(
     throw new Error("specify exactly one of --input or --input-file");
   }
 
+  let fileDescriptor: number | undefined;
   try {
-    return readFileSync(resolve(inputFile), "utf8");
+    fileDescriptor = openSync(resolve(inputFile), "r");
+    const buffer = Buffer.allocUnsafe(MAX_INPUT_FILE_BYTES + 1);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const result = readSync(
+        fileDescriptor,
+        buffer,
+        bytesRead,
+        buffer.length - bytesRead,
+        bytesRead,
+      );
+      if (result === 0) break;
+      bytesRead += result;
+    }
+    if (bytesRead > MAX_INPUT_FILE_BYTES) {
+      throw new Error(`file exceeds the ${MAX_INPUT_FILE_BYTES}-byte limit`);
+    }
+    return buffer.subarray(0, bytesRead).toString("utf8");
   } catch (error) {
     throw new Error(`--input-file could not be read: ${errorMessage(error)}`, {
       cause: error,
     });
+  } finally {
+    if (fileDescriptor !== undefined) closeSync(fileDescriptor);
   }
 }
 
@@ -157,7 +178,7 @@ export default class RunCommand extends Command {
       description: "JSON workflow input",
     }),
     "input-file": Flags.string({
-      description: "Path to a JSON workflow input file",
+      description: "Path to a JSON workflow input file (maximum 1 MiB)",
     }),
     runtime: Flags.string({
       description: "Generic runtime profile identifier",
