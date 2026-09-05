@@ -181,6 +181,29 @@ describe("local task execution", () => {
     }
   });
 
+  it("collects more than 512 KiB with the default output limit", async () => {
+    const outputSize = 512_001;
+    const definition: LocalTaskDefinition = {
+      id: "local-large-output",
+      input: identitySchema,
+      output: identitySchema,
+      execute: async (_input, context) =>
+        context.exec({
+          command: process.execPath,
+          args: ["-e", `process.stdout.write('x'.repeat(${outputSize}))`],
+        }),
+    };
+    const compiled = compileLocal(
+      localPlan(localTaskNode(definition.id)),
+      definition,
+    );
+
+    await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
+      status: "succeeded",
+      result: { stdout: "x".repeat(outputSize) },
+    });
+  });
+
   it.each([0, 23])(
     "returns a %i process exit code as task output",
     async (exitCode) => {
