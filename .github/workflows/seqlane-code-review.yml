@@ -153,11 +153,6 @@ jobs:
           echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
           echo "base_revision=$BASE_REVISION" >> "$GITHUB_OUTPUT"
           echo "head_revision=$HEAD_REVISION" >> "$GITHUB_OUTPUT"
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "source_revision=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-          else
-            echo "source_revision=$BASE_REVISION" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Collect pull request review context
         if: steps.pull-request.outputs.eligible == 'true'
@@ -425,7 +420,12 @@ jobs:
           fetch-depth: 0
           path: seqlane-source
           persist-credentials: false
-          ref: ${{ steps.pull-request.outputs.source_revision }}
+          # Build and run Seqlane from the immutable revision of this workflow.
+          # pull_request_target and issue_comment can otherwise select an older
+          # PR base whose CLI does not support the workflow's current flags.
+          # To temporarily test a workflow change from a PR branch, dispatch
+          # it explicitly from that branch with the command shown above.
+          ref: ${{ github.workflow_sha }}
 
       - name: Check out pull request head
         if: steps.pull-request.outputs.eligible == 'true'
