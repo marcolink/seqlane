@@ -17,6 +17,22 @@ export interface CommunityStudioProcess {
   readonly process: ChildProcess;
 }
 
+export interface CommunityStudioExit {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+}
+
+export interface CommunityStudioSignalSource {
+  once(
+    signal: "SIGINT" | "SIGTERM",
+    listener: () => void,
+  ): CommunityStudioSignalSource;
+  removeListener(
+    signal: "SIGINT" | "SIGTERM",
+    listener: () => void,
+  ): CommunityStudioSignalSource;
+}
+
 function communityStudioEntryPoint(): string {
   try {
     return packageRequire.resolve("mastra");
@@ -56,9 +72,58 @@ export function launchCommunityStudio(
   );
 
   return {
-    address: `${serverProtocol}://127.0.0.1:${port}`,
+    address: `http://127.0.0.1:${port}`,
     process: child,
   };
+}
+
+export function waitForCommunityStudio(
+  child: ChildProcess,
+  signalSource: CommunityStudioSignalSource = process,
+): Promise<CommunityStudioExit> {
+  return new Promise((resolve, reject) => {
+    let shuttingDown = false;
+
+    const cleanup = (): void => {
+      child.removeListener("error", onError);
+      child.removeListener("exit", onExit);
+      signalSource.removeListener("SIGINT", onSigint);
+      signalSource.removeListener("SIGTERM", onSigterm);
+    };
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (
+      code: number | null,
+      signal: NodeJS.Signals | null,
+    ): void => {
+      cleanup();
+      resolve({ code, signal });
+    };
+    const onSignal = (signal: NodeJS.Signals): void => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      child.kill(signal);
+    };
+    const onSigint = (): void => onSignal("SIGINT");
+    const onSigterm = (): void => onSignal("SIGTERM");
+
+    child.once("error", onError);
+    child.once("exit", onExit);
+    signalSource.once("SIGINT", onSigint);
+    signalSource.once("SIGTERM", onSigterm);
+  });
+}
+
+export function communityStudioExitCode({
+  code,
+  signal,
+}: CommunityStudioExit): number {
+  if (code !== null) return code;
+  if (signal === "SIGINT") return 130;
+  if (signal === "SIGTERM") return 143;
+  return 1;
 }
 
 function errorMessage(error: unknown): string {
@@ -114,9 +179,9 @@ export default class StudioCommand extends Command {
 
     this.log(`Mastra Community Studio: ${studio.address}`);
 
-    await new Promise<void>((resolve, reject) => {
-      studio.process.once("error", reject);
-      studio.process.once("exit", () => resolve());
-    });
+    const exit = await waitForCommunityStudio(studio.process);
+    if (exit.code !== 0 || exit.signal !== null) {
+      process.exitCode = communityStudioExitCode(exit);
+    }
   }
 }
