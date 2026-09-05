@@ -74,7 +74,9 @@ The state must contain these fields:
 - the next finding index;
 - retained findings and lifecycle metadata;
 - review limitations;
-- bounded run audit metadata, including optional per-task run metrics.
+- the latest run audit record and a cumulative run summary;
+- immutable per-run audit comments containing optional per-task run metrics for
+  every completed review run.
 
 ### requirement-run-status-and-metrics
 
@@ -91,10 +93,23 @@ token, and cost values. The object must include run duration, total cost, and
 token totals. The publisher must not use an agent to calculate or interpret
 these values.
 
-The human comment must show the metrics object as a plain JSON code block. The
-same validated object must be stored under the run audit data so the next
-review can retain it. Missing provider metrics must remain absent rather than
-being represented as fabricated zero usage.
+Each completed run must be preserved in a separate immutable, trusted bot
+comment. A new run must not replace an earlier run's metrics. Existing v3
+states with a single run audit record or an append-only `runs` history remain
+valid and must migrate to immutable audit comments when the next report is
+published. The bounded state stores only the latest run and cumulative summary.
+Missing provider metrics must remain absent rather than being represented as
+fabricated zero usage.
+
+The human comment must show every retained run metrics object in a plain JSON
+array code block. It must also show the absolute cumulative cost for the pull
+request and the cost of the latest run. Both costs must be derived from the
+retained run history.
+
+Before publication, the publisher must re-read the current trusted report and
+skip a stale write when its run metadata no longer matches the report read at
+review start. Audit-comment publication must be idempotent by run ID and
+attempt.
 
 ### requirement-stable-identity
 

@@ -213,6 +213,22 @@ const reviewRunMetricsSchema = z
   })
   .strict();
 
+const reviewRunAuditSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    attempt: z.number().int().positive(),
+    completedAt: z.string().min(1).max(64),
+    metrics: reviewRunMetricsSchema.optional(),
+  })
+  .strict();
+
+const reviewRunSummarySchema = z
+  .object({
+    runCount: z.number().int().nonnegative(),
+    totalCost: z.number().nonnegative(),
+  })
+  .strict();
+
 const reviewStateSchema = z
   .object({
     schemaVersion: z.literal(3),
@@ -224,18 +240,22 @@ const reviewStateSchema = z
     findings: z.array(reviewReportFindingSchema.strict()).max(40),
     limitations: z.array(z.string().min(1).max(1_000)).max(20),
     truncated: z.boolean(),
-    run: z
-      .object({
-        id: z.string().min(1).max(128),
-        attempt: z.number().int().positive(),
-        completedAt: z.string().min(1).max(64),
-        metrics: reviewRunMetricsSchema.optional(),
-      })
-      .strict()
-      .optional(),
+    // `runs` is retained for migrating the first append-only state format.
+    // New states store the latest run and summary; full history lives in
+    // immutable run-metrics comments.
+    run: reviewRunAuditSchema.optional(),
+    runs: z.array(reviewRunAuditSchema).optional(),
+    runSummary: reviewRunSummarySchema.optional(),
   })
   .strict()
   .superRefine((state, context) => {
+    if (state.run !== undefined && state.runs !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["runs"],
+        message: "State cannot contain both run and runs",
+      });
+    }
     const identities = new Set<string>();
     let highestIndex = 0;
     for (const [findingIndex, finding] of state.findings.entries()) {
@@ -363,6 +383,7 @@ const codeReviewReportSchema = synthesizedReviewReportSchema.extend({
   findings: z.array(reviewReportFindingSchema).max(40),
   limitations: z.array(z.string().min(1).max(1_000)).max(20),
   stateTruncated: z.boolean(),
+  runHistory: z.array(reviewRunAuditSchema),
 });
 
 const MAX_GIT_TEXT_LENGTH = 8_000;
@@ -442,6 +463,13 @@ function compactReviewComment(
   };
 }
 
+function persistedRunHistory(
+  state: z.infer<typeof reviewStateSchema> | undefined,
+): readonly z.infer<typeof reviewRunAuditSchema>[] {
+  if (state?.runs !== undefined) return state.runs;
+  return state?.run === undefined ? [] : [state.run];
+}
+
 function parseReviewSnapshot(
   comment: z.infer<typeof reviewCommentSchema> | undefined,
 ): z.infer<typeof reviewSnapshotSchema> | undefined {
@@ -511,11 +539,12 @@ function parseReviewState(
     ) {
       return undefined;
     }
+    const latestRun = persistedRunHistory(parsed.data).at(-1);
     if (
       metadata.data.run !== undefined &&
-      (parsed.data.run === undefined ||
-        parsed.data.run.id !== metadata.data.run.id ||
-        parsed.data.run.attempt !== metadata.data.run.attempt)
+      (latestRun === undefined ||
+        latestRun.id !== metadata.data.run.id ||
+        latestRun.attempt !== metadata.data.run.attempt)
     ) {
       return undefined;
     }
@@ -1567,6 +1596,7 @@ const applyReviewDispositionTask = defineTask({
         duplicateHistoricalFindings > 0 ||
         review.reviewHistory.previousState?.truncated === true ||
         review.reviewHistory.previousSnapshot?.truncated === true,
+      runHistory: [...persistedRunHistory(review.reviewHistory.previousState)],
     };
   },
 });
