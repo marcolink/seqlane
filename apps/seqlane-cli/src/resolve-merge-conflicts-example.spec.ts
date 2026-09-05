@@ -107,12 +107,13 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).toContain("for (const entry of readdirSync(agentRoot))");
     expect(workflow).toContain("Symlink is not allowed: ${path}");
     expect(workflow).toContain("MAX_REBASE_ATTEMPTS=5");
+    expect(workflow).toContain("maximumFileBytes = 512 * 1024");
+    expect(workflow).toContain("maximumTotalBytes = 2 * 1024 * 1024");
     expect(workflow).toContain(
       'git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA"',
     );
     expect(workflow).toContain("OPENCODE_ARCHIVE_SHA256");
-    expect(workflow).toContain('paths.includes("pnpm-lock.yaml")');
-    expect(workflow).toContain("install --lockfile-only --ignore-scripts");
+    expect(workflow).not.toContain("install --lockfile-only --ignore-scripts");
     expect(workflow).not.toContain("https://opencode.ai/install | bash");
   });
 

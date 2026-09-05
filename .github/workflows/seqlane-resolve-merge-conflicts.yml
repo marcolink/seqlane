@@ -116,6 +116,8 @@ jobs:
           BASE_SHA: ${{ steps.pull-request.outputs.base_sha }}
           RESOLUTION_STRATEGY: ${{ inputs.resolution_strategy }}
         run: |
+          git config user.name "Seqlane conflict resolver"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git cat-file -e "$BASE_SHA^{commit}"
           if [ "$RESOLUTION_STRATEGY" != "rebase" ] && [ "$RESOLUTION_STRATEGY" != "merge" ]; then
             echo "::error::The resolution strategy must be rebase or merge."
@@ -277,6 +279,8 @@ jobs:
               const { dirname, join, relative, resolve, sep } = require("node:path");
               const targetRoot = resolve(process.env.RESOLUTION_TARGET);
               const agentRoot = resolve(process.env.AGENT_WORKSPACE);
+              const maximumFileBytes = 512 * 1024;
+              const maximumTotalBytes = 2 * 1024 * 1024;
               function safePath(root, path) {
                 const candidate = resolve(root, path);
                 if (relative(root, candidate).startsWith("..") || candidate === root) {
@@ -298,11 +302,17 @@ jobs:
                 throw new Error("Agent workspace is not a regular directory.");
               }
               for (const entry of readdirSync(agentRoot)) rmSync(join(agentRoot, entry), { recursive: true, force: true });
+              let totalBytes = 0;
               for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
                 const source = regularFile(targetRoot, path);
+                const size = statSync(source).size;
+                if (size > maximumFileBytes || totalBytes + size > maximumTotalBytes) throw new Error(`Conflict payload exceeds the configured size limit: ${path}`);
+                const contents = readFileSync(source);
+                if (contents.includes(0)) throw new Error(`Binary conflict file is not supported: ${path}`);
+                totalBytes += size;
                 const target = safePath(agentRoot, path);
                 mkdirSync(dirname(target), { recursive: true });
-                writeFileSync(target, readFileSync(source));
+                writeFileSync(target, contents);
               }
             '
 
@@ -362,14 +372,6 @@ jobs:
                 writeFileSync(target, readFileSync(source));
               }
             '
-
-            if node -e '
-              const { readFileSync } = require("node:fs");
-              const paths = readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0");
-              process.exit(paths.includes("pnpm-lock.yaml") ? 0 : 1);
-            '; then
-              pnpm --dir "$RESOLUTION_TARGET" install --lockfile-only --ignore-scripts
-            fi
 
             node -e '
               const { execFileSync } = require("node:child_process");
