@@ -2032,7 +2032,7 @@ describe("pull-request code review example workflow", () => {
     ]);
   });
 
-  it("reopens a finding when its disposition comment is edited to remove the command", async () => {
+  it("reopens a finding when its disposition command is removed despite resolved verification", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.apply-dispositions",
     );
@@ -2117,7 +2117,14 @@ describe("pull-request code review example workflow", () => {
           },
           historyVerification: {
             headRevision: "b".repeat(40),
-            verifications: [],
+            verifications: [
+              {
+                findingId: "SEQ-PR44-001",
+                headRevision: "b".repeat(40),
+                outcome: "resolved",
+                evidence: "The old implementation is no longer present.",
+              },
+            ],
             limitations: [],
           },
         },

@@ -114,7 +114,8 @@ evidence.
 Only a `resolved` result for the current head can set the finding to
 `resolved` or keep it resolved. A missing, stale, or uncertain result keeps the
 finding active. Removing or retargeting the authorizing disposition reopens a
-previously resolved finding.
+previously resolved finding, even when current-head verification reports that
+the original implementation is absent.
 
 An edited comment triggers review only when its current or previous body has a
 recognized command. This permits command removal without running reviews for

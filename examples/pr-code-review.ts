@@ -1278,6 +1278,13 @@ const applyReviewDispositionTask = defineTask({
         continue;
       }
       if (
+        previous.disposition !== "open" &&
+        !previousDispositionStillActive(previous)
+      ) {
+        findings.push(openFinding(previous, "reopened"));
+        continue;
+      }
+      if (
         verifiedOutcome === "present" &&
         previous.disposition !== "wont-fix"
       ) {
