@@ -1,6 +1,7 @@
 // @test-scope ../../../examples/pr-code-review.ts
 
 import { gzipSync } from "node:zlib";
+import { readFile } from "node:fs/promises";
 import { buildWorkflow } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 
@@ -106,6 +107,33 @@ function createV3ReviewComment(
 }
 
 describe("pull-request code review example workflow", () => {
+  it("keeps review tooling on the immutable workflow source", async () => {
+    const workflow = await readFile(
+      new URL(
+        "../../../.github/workflows/seqlane-code-review.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(workflow).toContain("pull_request_target:");
+    expect(workflow).toContain("issue_comment:");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("path: seqlane-source");
+    expect(workflow).toContain("ref: ${{ github.workflow_sha }}");
+    expect(workflow).not.toContain(
+      "ref: ${{ steps.pull-request.outputs.source_revision }}",
+    );
+    expect(workflow).toContain("path: review-target");
+    expect(workflow).toContain(
+      "ref: ${{ steps.pull-request.outputs.head_revision }}",
+    );
+    expect(workflow).toContain("working-directory: seqlane-source");
+    expect(workflow).toContain(
+      './apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts"',
+    );
+  });
+
   it("requires explicit revisions and pull-request context", () => {
     const input = {
       repository: "/repo",
