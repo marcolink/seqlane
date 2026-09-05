@@ -122,7 +122,8 @@ recognized command. This permits command removal without running reviews for
 unrelated comment edits.
 
 Comment collection must preserve recognized command lines even when it bounds
-the surrounding comment body.
+the surrounding comment body. It must place command lines before optional
+context when it applies the final comment bound.
 
 ### requirement-human-projection
 

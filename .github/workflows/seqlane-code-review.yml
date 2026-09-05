@@ -195,10 +195,10 @@ jobs:
                     $body[:65536]
                   else
                     (
-                      $body[:2000] + "\n" +
                       ([$body | split("\n")[] |
                         select(ascii_downcase | contains("/seqlane"))] |
-                       unique | join("\n"))
+                       unique | join("\n")) + "\n" +
+                      $body[:2000]
                     )[:65536]
                   end) as $boundedBody |
                   {
