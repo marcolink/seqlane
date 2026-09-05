@@ -162,7 +162,7 @@ workflow keeps only orchestration and rebase state transitions inline.
 After Seqlane finishes, the workflow rejects new files and edits outside the
 initial conflict list. It also rejects unresolved conflicts and Git whitespace
 errors. It rejects staged Git conflict markers. A rebase can use no more than
-five conflict-resolution attempts and skips redundant empty commits. It detects
+ten conflict-resolution attempts and skips redundant empty commits. It detects
 default, diff3, and longer conflict markers. The workflow stops OpenCode before it
 configures GitHub credentials. Then it creates one merge commit or pushes the
 rebased history.
