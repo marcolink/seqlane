@@ -106,6 +106,15 @@ function createV3ReviewComment(
   ].join("\n");
 }
 
+function workflowJobBlock(workflow: string, jobId: string): string {
+  const start = workflow.indexOf(`\n  ${jobId}:`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const remainingWorkflow = workflow.slice(start + 1);
+  const nextJobOffset = remainingWorkflow.search(/\n {2}\S/);
+  const end = nextJobOffset === -1 ? -1 : start + 1 + nextJobOffset;
+  return workflow.slice(start, end === -1 ? workflow.length : end);
+}
+
 describe("pull-request code review example workflow", () => {
   it("keeps review tooling on the immutable workflow source", async () => {
     const workflow = await readFile(
@@ -131,6 +140,77 @@ describe("pull-request code review example workflow", () => {
     expect(workflow).toContain("working-directory: seqlane-source");
     expect(workflow).toContain(
       './apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts"',
+    );
+  });
+
+  it("admits only real review requests before per-pull-request concurrency", async () => {
+    const workflow = await readFile(
+      new URL(
+        "../../../.github/workflows/seqlane-code-review.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const admission = workflowJobBlock(workflow, "admit-review");
+    const review = workflowJobBlock(workflow, "code-review");
+    const closeCancellation = workflowJobBlock(
+      workflow,
+      "cancel-closed-review",
+    );
+
+    expect(workflow).not.toMatch(/^concurrency:/m);
+    expect(admission).toContain("contents: none");
+    expect(admission).toContain("issues: none");
+    expect(admission).toContain("pull-requests: none");
+    expect(admission).toContain("PREVIOUS_COMMENT_BODY");
+    expect(admission).toContain("COMMENT_BODY");
+    expect(admission).toContain('[ "$EVENT_NAME" != "issue_comment" ]');
+    expect(admission).toContain('[ "$ISSUE_IS_PULL_REQUEST" != "true" ]');
+    expect(admission).toContain('[ "$EVENT_ACTION" != "created" ]');
+    expect(admission).toContain('[ "$EVENT_ACTION" != "edited" ]');
+    expect(admission).toContain("$COMMENT_AUTHOR_ASSOCIATION");
+    expect(admission).toContain('[ "$EVENT_ACTION" != "closed" ]');
+    expect(admission).toContain('[ "$EVENT_DRAFT" = "false" ]');
+    expect(admission).toContain(
+      '[ "$EVENT_REPOSITORY" = "$GITHUB_REPOSITORY" ]',
+    );
+    expect(admission).toContain('[ "$EVENT_PR_NUMBER" != "" ]');
+    expect(admission).toContain(
+      "grep -Eqi '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|(fixed|wont-fix|downgrade)[[:space:]]+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})([[:space:]]|$))'",
+    );
+    expect(admission).not.toContain("actions/checkout");
+
+    expect(review).toContain("needs: admit-review");
+    expect(review).toContain(
+      "if: needs.admit-review.outputs.eligible == 'true'",
+    );
+    expect(review).toContain(
+      "group: seqlane-code-review-${{ needs.admit-review.outputs.pull_request_number }}",
+    );
+    expect(review).toContain("cancel-in-progress: true");
+    expect(review).toContain("pull-requests: write");
+    expect(workflow.match(/^ {6}pull-requests: write$/gm)).toHaveLength(1);
+    expect(review).not.toContain("Validate review trigger");
+
+    expect(closeCancellation).toContain(
+      "if: github.event_name == 'pull_request_target' && github.event.action == 'closed'",
+    );
+    expect(closeCancellation).toContain(
+      "group: seqlane-code-review-${{ github.event.pull_request.number }}",
+    );
+    expect(closeCancellation).toContain("cancel-in-progress: true");
+    expect(closeCancellation).toContain("contents: none");
+    expect(closeCancellation).toContain("issues: none");
+    expect(closeCancellation).toContain("pull-requests: none");
+    expect(closeCancellation).not.toContain("actions/checkout");
+    expect(closeCancellation).not.toContain("Publish code review");
+
+    const reviewConcurrency = workflow.indexOf(
+      "\n    concurrency:",
+      workflow.indexOf("\n  code-review:"),
+    );
+    expect(workflow.indexOf("\n  admit-review:")).toBeLessThan(
+      reviewConcurrency,
     );
   });
 
