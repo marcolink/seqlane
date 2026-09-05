@@ -130,10 +130,11 @@ conflict set contains an agent-resolvable file.
 After the agent finishes, the workflow rejects unexpected edits, new files,
 unresolved conflicts, and whitespace errors. A rebase can stop at more than
 one conflicting commit. The workflow repeats the agent resolution for each
-stop, up to five attempts, and skips redundant empty commits. It regenerates a
-conflicted lockfile without involving the model and gives each regeneration a
-fresh temporary workspace. The checked-in typed workflow helper owns the
-canonical path, symlink, regular-file, size, workspace, and staged-content
+stop, up to ten conflict-resolution attempts, and skips redundant empty
+commits. It regenerates a conflicted lockfile without involving the model and
+gives each regeneration a fresh temporary workspace. The checked-in typed
+workflow helper owns the canonical path, symlink, regular-file, size,
+workspace, and staged-content
 validation. It rejects conflict-marker lines after staging,
 including CRLF, diff3, and longer marker lines. The
 workflow validates paths in the resolution checkout, including ignored

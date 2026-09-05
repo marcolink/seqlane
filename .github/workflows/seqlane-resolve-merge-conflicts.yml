@@ -285,7 +285,7 @@ jobs:
           PNPM_VERSION: ${{ steps.package-manager.outputs.pnpm_version }}
         run: |
           ATTEMPT=1
-          MAX_REBASE_ATTEMPTS=5
+          MAX_REBASE_ATTEMPTS=10
           while true; do
             if [ "$ATTEMPT" -gt "$MAX_REBASE_ATTEMPTS" ]; then
               echo "::error::The rebase exceeded $MAX_REBASE_ATTEMPTS conflict-resolution attempts."

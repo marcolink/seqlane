@@ -98,7 +98,7 @@ describe("merge-conflict resolution example workflow", () => {
       "utf8",
     );
 
-    expect(workflow).toContain("MAX_REBASE_ATTEMPTS=5");
+    expect(workflow).toContain("MAX_REBASE_ATTEMPTS=10");
     expect(workflow).toContain("diff --name-only --diff-filter=U -z");
     expect(workflow).toContain(
       'validate-workspace "$RESOLUTION_TARGET" "$CONFLICT_FILES"',
