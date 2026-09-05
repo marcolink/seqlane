@@ -180,8 +180,8 @@ export async function startRun(
       events,
       createInvocationId,
     });
-    await preflightCompiledWorkflowModels(mastraExecution.legacy);
-    await resolveCompiledWorkflowSessions(mastraExecution.legacy);
+    await preflightCompiledWorkflowModels(mastraExecution.prepared);
+    await resolveCompiledWorkflowSessions(mastraExecution.prepared);
 
     events.emitPlan(
       createSeqlanePlanSnapshot(mastraExecution.compiled.plan),
@@ -190,7 +190,7 @@ export async function startRun(
     );
     emitMastraInvocationTopology(
       mastraExecution.compiled,
-      mastraExecution.legacy,
+      mastraExecution.prepared,
       events,
     );
 

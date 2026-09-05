@@ -75,8 +75,9 @@ was added. Each private runtime accepts one run and retains its records while
 the execution owns that runtime.
 
 Focused verification covers persisted workflow state, workflow and step trace
-spans, deterministic trace identity, and identity metadata. It also covers
-successful, failed, and cancelled snapshots. The Community
+spans, deterministic trace identity, identity metadata, and public-boundary
+checks. It also covers successful, failed, and cancelled snapshots, including
+the existing cancellation and failure normalization behavior. The Community
 `@mastra/observability` package is pinned to `1.17.4`; no enterprise or `/ee/`
 import is used.
 

@@ -51,10 +51,13 @@ export interface PreparedPlan {
   readonly orderedNodes: readonly PlanNode[];
 }
 
-export interface CompiledWorkflow {
+export interface PreparedPlanExecution {
   readonly plan: Plan;
   readonly orderedNodes: readonly PlanNode[];
   readonly context: ExecutionContext;
+}
+
+export interface CompiledPlan extends PreparedPlanExecution {
   readonly program: SequentialProgram;
 }
 
@@ -112,7 +115,7 @@ function computeRemainingConsumers(plan: Plan): Map<string, number> {
   return remainingConsumers;
 }
 
-export class EffectCompiler {
+export class PlanCompiler {
   /** Prepare a Plan without constructing a workflow. */
   compile(plan: Plan, taskDefinitions?: TaskDefinitionRegistry): PreparedPlan {
     return {
@@ -125,10 +128,10 @@ export class EffectCompiler {
     return this.compile(plan);
   }
 
-  compileWorkflow(
+  prepareWorkflow(
     plan: Plan,
     options: CompileWorkflowOptions,
-  ): CompiledWorkflow {
+  ): PreparedPlanExecution {
     validatePlan(plan, options.taskDefinitions);
     const prepared = this.compile(plan, options.taskDefinitions);
     const orderedNodes = lowerWorkspaceOrdering(
@@ -161,6 +164,20 @@ export class EffectCompiler {
       context.invocationIds.set(node.nodeId, invocationId);
       invocationCreationOrdinal(context, invocationId);
     }
+
+    return {
+      plan: loweredPlan,
+      orderedNodes,
+      context,
+    };
+  }
+
+  compileWorkflow(plan: Plan, options: CompileWorkflowOptions): CompiledPlan {
+    const {
+      plan: loweredPlan,
+      orderedNodes,
+      context,
+    } = this.prepareWorkflow(plan, options);
     const checkNodes = new Map(
       plan.nodes
         .flatMap((node) => {
@@ -261,5 +278,5 @@ export class EffectCompiler {
 }
 
 export function compilePlan(plan: Plan): PreparedPlan {
-  return new EffectCompiler().compile(plan);
+  return new PlanCompiler().compile(plan);
 }

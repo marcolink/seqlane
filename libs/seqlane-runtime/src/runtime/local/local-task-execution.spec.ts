@@ -23,7 +23,7 @@ import {
   runCompiledWorkflow,
   startCompiledWorkflow,
 } from "../../index.js";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorResolvers } from "../execution/executor.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
@@ -70,7 +70,7 @@ function compileLocal(
   } = {},
 ) {
   const workspace = options.workspace ?? process.cwd();
-  return new EffectCompiler().compileWorkflow(plan, {
+  return new PlanCompiler().compileWorkflow(plan, {
     workId: "local-work",
     runId: "local-run",
     workflowInput: { value: "input" },
@@ -331,7 +331,7 @@ describe("local task execution", () => {
       };
       const firstNode = localTaskNode(first.id);
       const secondNode = localTaskNode(second.id);
-      const compiled = new EffectCompiler().compileWorkflow(
+      const compiled = new PlanCompiler().compileWorkflow(
         {
           workflow: { id: "local-admission" },
           nodes: [firstNode, secondNode],
@@ -370,7 +370,7 @@ describe("local task execution", () => {
       execute: async () => ({ complete: true }),
     };
     const repeatTaskId = "repeat:1/local-repeat:1";
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "local-repeat-workflow" },
         nodes: [

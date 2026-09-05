@@ -1,7 +1,7 @@
 import type { Plan, PlanNode, SeqlaneEvent } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { runCompiledWorkflow } from "../../index.js";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 
 function task(nodeId: string): PlanNode {
@@ -21,7 +21,7 @@ function compile(
   executor: (request: ExecutorRequest) => Promise<unknown>,
   events: SeqlaneEvent[],
 ) {
-  return new EffectCompiler().compileWorkflow(source, {
+  return new PlanCompiler().compileWorkflow(source, {
     workId: "test-work",
     runId: "run-1",
     createInvocationId: (nodeId) => nodeId,

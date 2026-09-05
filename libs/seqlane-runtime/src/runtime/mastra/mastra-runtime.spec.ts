@@ -161,8 +161,8 @@ async function startMastraPlan(options: {
     workflow: options.workflow,
     events,
   });
-  await resolveCompiledWorkflowSessions(execution.legacy);
-  emitMastraInvocationTopology(execution.compiled, execution.legacy, events);
+  await resolveCompiledWorkflowSessions(execution.prepared);
+  emitMastraInvocationTopology(execution.compiled, execution.prepared, events);
   return execution.runtime.start({
     workflowKey: options.plan.workflow.id,
     input: {},
@@ -287,6 +287,8 @@ describe("private Mastra runtime spine", () => {
         abortSignal: new AbortController().signal,
       }),
     ).rejects.toThrow("does not expose a Mastra server");
+
+    expect(execution.prepared).not.toHaveProperty("program");
   });
 
   it("persists run and step spans with Seqlane correlation and deterministic trace IDs", async () => {
