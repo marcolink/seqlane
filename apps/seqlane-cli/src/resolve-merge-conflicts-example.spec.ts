@@ -116,6 +116,21 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).not.toContain("https://opencode.ai/install | bash");
   });
 
+  it("provides a read-only pull-request conflict check", async () => {
+    const workflow = await readFile(
+      new URL(
+        "../../../.github/workflows/seqlane-check-merge-conflicts.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(workflow).toContain("pull_request_target");
+    expect(workflow).toContain("pull-requests: read");
+    expect(workflow).toContain("Seqlane conflict resolver");
+    expect(workflow).not.toContain("actions: write");
+  });
+
   it("detects diff3 and non-default conflict markers with CRLF endings", () => {
     const marker = /^(?:<{7,}(?: .*)?|\|{7,}(?: .*)?|={7,}|>{7,}(?: .*)?)\r?$/m;
 

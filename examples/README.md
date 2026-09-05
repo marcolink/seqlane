@@ -160,6 +160,10 @@ repository ignore rules remain enabled.
 
 ## Manual merge-conflict resolution
 
+`.github/workflows/seqlane-check-merge-conflicts.yml` is a read-only pull
+request check. It reports merge conflicts in the PR Checks list and directs a
+maintainer to the manual resolver. It does not start the resolver.
+
 `.github/workflows/seqlane-resolve-merge-conflicts.yml` resolves conflicts for
 an open pull request after a maintainer dispatches the workflow. Enter the
 pull-request number, select `rebase` or `merge`, and run the workflow from the
