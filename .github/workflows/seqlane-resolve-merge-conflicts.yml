@@ -184,11 +184,24 @@ jobs:
         run: |
           mkdir "$AGENT_WORKSPACE"
 
+      - name: Read trusted pnpm version
+        if: steps.integration.outputs.has_conflicts == 'true'
+        id: package-manager
+        working-directory: seqlane-source
+        run: |
+          PNPM_VERSION=$(node -e '
+            const { packageManager } = require("./package.json");
+            const match = typeof packageManager === "string" && /^pnpm@(\d+\.\d+\.\d+)$/.exec(packageManager);
+            if (!match) throw new Error("package.json must pin pnpm with an exact version.");
+            process.stdout.write(match[1]);
+          ')
+          echo "pnpm_version=$PNPM_VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Set up pnpm
         if: steps.integration.outputs.has_agent_conflicts == 'true'
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          version: 10.33.0
+          version: ${{ steps.package-manager.outputs.pnpm_version }}
 
       - name: Set up Node.js
         if: steps.integration.outputs.has_conflicts == 'true'
@@ -269,6 +282,7 @@ jobs:
           CONFLICT_FILES: ${{ runner.temp }}/seqlane-conflict-files
           AGENT_CONFLICT_FILES: ${{ runner.temp }}/seqlane-agent-conflict-files
           RESOLUTION_TARGET: ${{ github.workspace }}/resolution-target
+          PNPM_VERSION: ${{ steps.package-manager.outputs.pnpm_version }}
         run: |
           ATTEMPT=1
           MAX_REBASE_ATTEMPTS=5
@@ -348,7 +362,7 @@ jobs:
                 trap 'rm -rf -- "$LOCKFILE_WORKSPACE"' EXIT
                 node --experimental-strip-types "$PWD/scripts/resolve-merge-conflicts-workflow.ts" \
                   prepare-lockfile "$RESOLUTION_TARGET" "$LOCKFILE_WORKSPACE"
-                docker run --rm --network bridge --mount "type=bind,source=$LOCKFILE_WORKSPACE,target=/workspace" --workdir /workspace node@sha256:6642ef280aebc09c4541bee0b15c9f89f0f3f3c247ddee79ae1d37eddfdcbbaa sh -c 'COREPACK_ENABLE_PROJECT_SPEC=0 COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack install --global pnpm@10.33.0 && COREPACK_ENABLE_PROJECT_SPEC=0 pnpm --version | grep --fixed-strings --line-regexp 10.33.0 && COREPACK_ENABLE_PROJECT_SPEC=0 pnpm install --config.registry=https://registry.npmjs.org/ --lockfile-only --ignore-scripts --ignore-pnpmfile'
+                docker run --rm --network bridge --env "PNPM_VERSION=$PNPM_VERSION" --mount "type=bind,source=$LOCKFILE_WORKSPACE,target=/workspace" --workdir /workspace node@sha256:6642ef280aebc09c4541bee0b15c9f89f0f3f3c247ddee79ae1d37eddfdcbbaa sh -c 'COREPACK_ENABLE_PROJECT_SPEC=0 COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack enable && COREPACK_ENABLE_PROJECT_SPEC=0 COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack install --global "pnpm@$PNPM_VERSION" && test "$(COREPACK_ENABLE_PROJECT_SPEC=0 pnpm --version)" = "$PNPM_VERSION" && COREPACK_ENABLE_PROJECT_SPEC=0 pnpm install --config.registry=https://registry.npmjs.org/ --lockfile-only --ignore-scripts --ignore-pnpmfile'
                 cp "$LOCKFILE_WORKSPACE/pnpm-lock.yaml" "$RESOLUTION_TARGET/pnpm-lock.yaml"
               )
             fi
