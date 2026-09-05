@@ -10,10 +10,18 @@ import type { AnyWorkflow } from "@mastra/core/workflows";
 import type { ServerContext } from "@mastra/server/server-adapter";
 
 export const MCP_SERVER_ID = "seqlane-workflows";
+const MCP_ABORT_SIGNAL_CONTEXT_KEY = "seqlane.mcp.abortSignal";
+
+export interface MastraServerRequestContext {
+  readonly requestContext: RequestContext;
+  readonly abortSignal: AbortSignal;
+}
 
 export interface MastraMcpInvocation {
   readonly workflowKey: string;
   readonly input: unknown;
+  readonly requestContext: RequestContext;
+  readonly abortSignal: AbortSignal;
 }
 
 export type MastraMcpDispatcher = (
@@ -28,14 +36,21 @@ export interface MastraRuntimeServer {
     serverId: string,
     toolId: string,
     data: unknown,
+    context: MastraServerRequestContext,
   ): Promise<unknown>;
 }
 
-function serverContext(mastra: Mastra): ServerContext {
+function serverContext(
+  mastra: Mastra,
+  context?: MastraServerRequestContext,
+): ServerContext {
+  const requestContext = context?.requestContext ?? new RequestContext();
+  const abortSignal = context?.abortSignal ?? new AbortController().signal;
+  requestContext.setRaw(MCP_ABORT_SIGNAL_CONTEXT_KEY, abortSignal);
   return {
     mastra,
-    requestContext: new RequestContext(),
-    abortSignal: new AbortController().signal,
+    requestContext,
+    abortSignal,
   };
 }
 
@@ -62,10 +77,18 @@ export function registerMastraServer(
       id: toolId,
       description: `Run workflow '${key}'. Workflow description: ${workflow.description}`,
       inputSchema: workflow.inputSchema,
-      execute: async (input) =>
+      execute: async (input, context) =>
         dispatchMcpInvocation({
           workflowKey: key,
           input,
+          requestContext: context.requestContext,
+          abortSignal:
+            context.mcp?.extra.signal ??
+            context.abortSignal ??
+            (context.requestContext.getRaw(MCP_ABORT_SIGNAL_CONTEXT_KEY) as
+              | AbortSignal
+              | undefined) ??
+            new AbortController().signal,
         }),
     });
   }
@@ -91,9 +114,9 @@ export function registerMastraServer(
         serverId,
       });
     },
-    async executeMcpTool(serverId, toolId, data) {
+    async executeMcpTool(serverId, toolId, data, context) {
       return mcpRoutes.EXECUTE_MCP_SERVER_TOOL_ROUTE.handler({
-        ...serverContext(mastra),
+        ...serverContext(mastra, context),
         serverId,
         toolId,
         data,

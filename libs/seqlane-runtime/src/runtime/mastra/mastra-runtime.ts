@@ -8,6 +8,7 @@ import type { RunId, SeqlaneRunOutcome, WorkId } from "@seqlane/core";
 import { RuntimeError, SeqlaneError } from "@seqlane/core";
 import {
   registerMastraServer,
+  type MastraServerRequestContext,
   type MastraRuntimeServer,
 } from "./mastra-server.js";
 
@@ -23,6 +24,8 @@ export interface MastraRunRequest {
   readonly runId: RunId;
 }
 
+export interface MastraRunContext extends MastraServerRequestContext {}
+
 export interface MastraWorkflowResult {
   readonly status: string;
   readonly result?: unknown;
@@ -31,8 +34,11 @@ export interface MastraWorkflowResult {
 }
 
 export interface MastraRuntime {
-  run(request: MastraRunRequest): Promise<SeqlaneRunOutcome>;
-  start(request: MastraRunRequest): MastraActiveRun;
+  run(
+    request: MastraRunRequest,
+    context?: MastraRunContext,
+  ): Promise<SeqlaneRunOutcome>;
+  start(request: MastraRunRequest, context?: MastraRunContext): MastraActiveRun;
   inspect(request: MastraRunRequest): Promise<MastraRuntimeInspection>;
   readonly server: MastraRuntimeServer;
 }
@@ -155,7 +161,7 @@ export function createMastraRuntime(
   const server = registerMastraServer(
     runtime.mastra,
     runtime.workflows,
-    async ({ workflowKey, input }) => {
+    async ({ workflowKey, input, requestContext, abortSignal }) => {
       const registration = registrations.find(
         ({ key }) => key === workflowKey,
       );
@@ -167,12 +173,15 @@ export function createMastraRuntime(
         [registration],
         options,
       );
-      return invocationRuntime.runtime.run({
-        workflowKey,
-        input,
-        workId: `mcp-work-${randomUUID()}`,
-        runId: `mcp-run-${randomUUID()}`,
-      });
+      return invocationRuntime.runtime.run(
+        {
+          workflowKey,
+          input,
+          workId: `mcp-work-${randomUUID()}`,
+          runId: `mcp-run-${randomUUID()}`,
+        },
+        { requestContext, abortSignal },
+      );
     },
   );
 
@@ -215,10 +224,10 @@ function createMastraRuntimeCore(
   let runStarted = false;
 
   const runtime: Omit<MastraRuntime, "server"> = {
-    run(request) {
-      return this.start(request).outcome;
+    run(request, context) {
+      return this.start(request, context).outcome;
     },
-    start(request) {
+    start(request, context) {
       if (runStarted) {
         throw new TypeError(
           "A Mastra runtime instance can execute only one workflow run",
@@ -237,6 +246,7 @@ function createMastraRuntimeCore(
         },
       );
       let cancellation: Promise<void> | undefined;
+      let removeAbortListener: (() => void) | undefined;
 
       const requestCancellation = (): Promise<void> => {
         cancellationRequested = true;
@@ -247,6 +257,21 @@ function createMastraRuntimeCore(
         });
         return cancellation;
       };
+
+      if (context?.abortSignal !== undefined) {
+        const onAbort = (): void => {
+          void requestCancellation().catch(() => undefined);
+        };
+        if (context.abortSignal.aborted) {
+          onAbort();
+        } else {
+          context.abortSignal.addEventListener("abort", onAbort, {
+            once: true,
+          });
+          removeAbortListener = () =>
+            context.abortSignal?.removeEventListener("abort", onAbort);
+        }
+      }
 
       const outcome = (async () => {
         try {
@@ -261,10 +286,11 @@ function createMastraRuntimeCore(
             await requestCancellation();
             return { status: "cancelled" } as const;
           }
-          const requestContext = new RequestContext([
-            [WORK_ID_CONTEXT_KEY, request.workId],
-            [RUN_ID_CONTEXT_KEY, request.runId],
-          ]);
+          const requestContext = new RequestContext(
+            context?.requestContext?.entries(),
+          );
+          requestContext.setRaw(WORK_ID_CONTEXT_KEY, request.workId);
+          requestContext.setRaw(RUN_ID_CONTEXT_KEY, request.runId);
           const result = await activeRun.start({
             inputData: request.input,
             requestContext,
@@ -291,6 +317,7 @@ function createMastraRuntimeCore(
           if (cancellationRequested) return { status: "cancelled" } as const;
           return failedOutcome(cause, options.failureForRun?.(request.runId));
         } finally {
+          removeAbortListener?.();
           await flushObservability();
         }
       })();
