@@ -25,3 +25,4 @@
 | [spec.model-selection-and-session-model-semantics](./2026-09-03-model-selection-and-session-model-semantics.md) | Model Selection and Session Model Semantics | active | 2026-09-03 | core |
 | [spec.sdlc-documentation-system](./2026-09-03-sdlc-documentation-system.md) | SDLC documentation system | active | 2026-09-03 | core |
 | [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md) | Versioned Pull Request Review Comments | active | 2026-09-05 | core |
+| [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Mechanical Pull Request Review Dispositions | draft | 2026-09-06 | core |

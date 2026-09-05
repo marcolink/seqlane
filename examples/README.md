@@ -136,16 +136,8 @@ bounded model-facing evidence collector. Lockfile paths remain in changed-file
 metadata, but their contents are not reviewed. The retained patch uses ten
 lines of hunk context, is limited to 512,000 bytes, and does not materialize
 the complete diff.
-Each published review repeats the available command syntax below its findings.
-
-```text
-/seqlane review
-/seqlane wont-fix SEQ-PR123-001 reason: accepted risk
-/seqlane fixed SEQ-PR123-002
-/seqlane downgrade SEQ-PR123-003 optional reason: low impact
-```
-
-Command names and finding IDs are case-insensitive.
+Published review comments do not list slash-command syntax. This prevents the
+report from inviting commands while the command lifecycle is being revised.
 
 The publisher assigns each finding a permanent `SEQ-PR<PR>-<index>` ID. It
 does not reuse an ID for a different finding. It retains old `F-*` IDs as

@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-06
 upstream: []
 supersedes: []
 ---
@@ -174,9 +174,10 @@ projection loss.
 ### requirement-human-projection
 
 The human projection must show the verdict, active counts, reviewed revision,
-one findings table, and the available `/seqlane` commands. It must show plain
-Markdown sections for active Critical and Required findings. Each section must
-show the finding ID, severity, area, location, explanation, and resolution.
+and one findings table. It must not render slash-command syntax. It must show
+plain Markdown sections for active Critical and Required findings. Each section
+must show the finding ID, severity, area, location, explanation, and
+resolution.
 
 Severity and lifecycle labels must use the emoji vocabulary from the source
 review template.

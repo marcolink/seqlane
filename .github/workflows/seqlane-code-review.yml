@@ -1103,18 +1103,6 @@ jobs:
             ] end)
             + [
               "",
-              "## Available commands",
-              "",
-              "- `/seqlane review` — run the review again.",
-              "- `/seqlane fixed <finding-id> [reason: <text>]` — report a fix for verification.",
-              "- `/seqlane wont-fix <finding-id> [reason: <text>]` — accept or reject a finding.",
-              "- `/seqlane downgrade <finding-id> <severity> [reason: <text>]` — lower its effective severity.",
-              "",
-              "Allowed severities: `critical`, `required`, `optional`, and `nit`.",
-              "Command names and finding IDs are case-insensitive."
-            ]
-            + [
-              "",
               "<details>",
               ("<summary>Run metrics (all runs) · PR cost: $" + $prTotalCost + " · last run: $" + $runMetricsTotalCost + "</summary>"),
               "",
