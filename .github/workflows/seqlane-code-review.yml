@@ -733,33 +733,6 @@ jobs:
 
           RUN_AUDIT_MARKER_PREFIX='<!-- seqlane-code-review-run-metrics-v1: '
           RUN_AUDIT_MARKER_SUFFIX=' -->'
-          EXPECTED_REPORT_VERSION=$(jq --raw-output '
-            [.comments[] | .body |
-              try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson |
-                [.pullRequestNumber, .reviewedRevision] | @json)
-              catch null
-            ] | map(select(. != null)) | last // "{}"
-          ' "$REVIEW_HISTORY_PATH")
-          gh api --paginate --slurp \
-            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
-            | jq 'add' \
-            > "$RUNNER_TEMP/seqlane-live-issue-comments-before-publish.json"
-          CURRENT_REPORT_VERSION=$(jq --raw-output '
-            [.[] |
-              select(
-                ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
-                (.body | contains("<!-- seqlane-code-review -->"))
-              ) |
-              try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson |
-                [.pullRequestNumber, .reviewedRevision] | @json)
-              catch null
-            ] | map(select(. != null)) | first // "{}"
-          ' "$RUNNER_TEMP/seqlane-live-issue-comments-before-publish.json")
-          if [ "$CURRENT_REPORT_VERSION" != "$EXPECTED_REPORT_VERSION" ]; then
-            echo "::notice::A newer review changed the authoritative report while this run was executing; skipping this stale publication."
-            echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
           CURRENT_AUDIT_RECORD=$(jq --compact-output --null-input \
             --argjson pullRequestNumber "$PR_NUMBER" \
@@ -792,6 +765,10 @@ jobs:
                 metrics
               } + (if .reviewedRevision then {reviewedRevision} else {} end))) + [$current] |
              unique_by((.runId // .id) + "/" + ((.attempt // 0) | tostring))')
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
+            | jq 'add' \
+            > "$RUNNER_TEMP/seqlane-live-issue-comments-before-publish.json"
           AUDIT_HISTORY=$(jq --compact-output '
             [.[] |
               select(
@@ -829,22 +806,6 @@ jobs:
             "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
             | jq 'add' \
             > "$RUNNER_TEMP/seqlane-live-issue-comments-after-audit.json"
-          CURRENT_REPORT_VERSION=$(jq --raw-output '
-            [.[] |
-              select(
-                ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
-                (.body | contains("<!-- seqlane-code-review -->"))
-              ) |
-              try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson |
-                [.reviewedRevision, .run.id, .run.attempt] | @json)
-              catch null
-            ] | map(select(. != null)) | first // "{}"
-          ' "$RUNNER_TEMP/seqlane-live-issue-comments-after-audit.json")
-          if [ "$CURRENT_REPORT_VERSION" != "$EXPECTED_REPORT_VERSION" ]; then
-            echo "::notice::A newer review changed the authoritative report during audit publication; skipping this stale publication."
-            echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           AUDIT_HISTORY=$(jq --compact-output '
             [.[] |
               select(
@@ -1174,15 +1135,14 @@ jobs:
             if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then
               COMMENT_ID=""
             else
-              EXISTING_REPORT_VERSION=$(jq --raw-output '
+              EXISTING_REPORT_REVISION=$(jq --raw-output '
                 [ .body |
-                  try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson |
-                    [.pullRequestNumber, .reviewedRevision] | @json)
+                  try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson | .reviewedRevision)
                   catch null
-                ] | map(select(. != null)) | last // "{}"
+                ] | map(select(. != null)) | last // ""
               ' "$RUNNER_TEMP/seqlane-existing-comment.json")
-              if [ "$EXISTING_REPORT_VERSION" != "$EXPECTED_REPORT_VERSION" ]; then
-                echo "::notice::The authoritative report changed during publication; skipping this stale write."
+              if [ "$EXISTING_REPORT_REVISION" != "$REPORT_HEAD" ]; then
+                echo "::notice::The authoritative report targets a different revision; skipping this stale write."
                 echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
