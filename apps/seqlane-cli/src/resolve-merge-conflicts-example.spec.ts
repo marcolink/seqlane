@@ -109,6 +109,7 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).toContain("MAX_REBASE_ATTEMPTS=5");
     expect(workflow).toContain("maximumFileBytes = 512 * 1024");
     expect(workflow).toContain("maximumTotalBytes = 2 * 1024 * 1024");
+    expect(workflow).toContain("rmSync, statSync, writeFileSync");
     expect(workflow).toContain(
       'git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA"',
     );
