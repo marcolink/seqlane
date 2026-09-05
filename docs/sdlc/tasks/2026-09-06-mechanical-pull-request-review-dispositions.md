@@ -124,3 +124,4 @@ Planned.
 - Contract: [spec.mechanical-pull-request-review-dispositions](../specs/2026-09-06-mechanical-pull-request-review-dispositions.md)
 - Current contract: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md)
 - Prior delivery: [Publish Versioned Pull Request Review Comments](2026-09-05-publish-versioned-pull-request-review-comments.md)
+- Delivery: [pull request 58](https://github.com/marcolink/seqlane/pull/58)
