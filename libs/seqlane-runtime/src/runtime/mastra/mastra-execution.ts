@@ -200,7 +200,7 @@ function emitMastraNonTerminalInvocations(
         workId: legacy.context.workId,
         runId: legacy.context.runId,
         invocationId,
-          reason: "Mastra cancelled invocation",
+        reason: "Mastra cancelled invocation",
       });
     }
   }
