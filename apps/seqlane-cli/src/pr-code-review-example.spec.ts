@@ -982,7 +982,7 @@ describe("pull-request code review example workflow", () => {
       },
       {
         command: "bash",
-        args: ["-c", expect.stringContaining(`head -c ${48_000 + 1}`)],
+        args: ["-c", expect.stringContaining(`head -c ${512_000 + 1}`)],
       },
       {
         command: "bash",
@@ -991,6 +991,13 @@ describe("pull-request code review example workflow", () => {
     ]);
     expect(requests[2]?.args?.[1]).toContain(`head -c ${128_000 + 1}`);
     expect(requests[3]?.args?.[1]).toContain(`head -c ${8_000 + 1}`);
+    expect(requests[4]?.args?.[1]).toContain("--unified=10");
+    expect(requests[4]?.args?.[1]).toContain(
+      "':(exclude,glob)**/pnpm-lock.yaml'",
+    );
+    expect(requests[4]?.args?.[1]).toContain(
+      "':(exclude,glob)**/package-lock.json'",
+    );
     expect(requests[5]?.args?.[1]).toContain(`head -c ${8_000 + 1}`);
     expect(task.output.parse(result)).toEqual({
       baseRevision,
@@ -1093,7 +1100,7 @@ describe("pull-request code review example workflow", () => {
       "\nM\t" +
       "x".repeat(128_001);
     const oversizedOutput = "x".repeat(8_001);
-    const oversizedPatch = "prefix\n" + "x".repeat(47_991) + "😀" + "\nrest";
+    const oversizedPatch = "prefix\n" + "x".repeat(511_991) + "😀" + "\nrest";
     const responses = [
       { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
       { exitCode: 0, stdout: "", stderr: "" },
@@ -1138,7 +1145,7 @@ describe("pull-request code review example workflow", () => {
       changedFilesTruncated: true,
       diffStat: oversizedOutput.slice(0, 7_999) + "…",
       diffStatTruncated: true,
-      patchByteLength: 48_001,
+      patchByteLength: 512_001,
       patchTruncated: true,
       diffCheck: {
         exitCode: 2,
@@ -1153,7 +1160,7 @@ describe("pull-request code review example workflow", () => {
       "prefix\n\n[patch truncated; omitted hunks were not reviewed]\n",
     );
     expect(parsed.patch).not.toContain("�");
-    expect(parsed.patch.length).toBeLessThan(48_256);
+    expect(parsed.patch.length).toBeLessThan(512_256);
   });
 
   it("preserves complete UTF-8 patch lines and records patch size", async () => {
@@ -1220,7 +1227,7 @@ describe("pull-request code review example workflow", () => {
 
     const baseRevision = "a".repeat(40);
     const headRevision = "b".repeat(40);
-    const oversizedFirstLine = "x".repeat(48_000) + "\nrest";
+    const oversizedFirstLine = "x".repeat(512_000) + "\nrest";
     const responses = [
       { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
       { exitCode: 0, stdout: "", stderr: "" },

@@ -8,7 +8,7 @@ import {
   runEffectSubprocess,
 } from "./effect-subprocess.js";
 
-export const DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES = 64 * 1024;
+export const DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
 export interface LocalTaskExecutionRequest {
   readonly definition: LocalTaskDefinition<unknown, unknown>;
