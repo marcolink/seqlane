@@ -96,11 +96,17 @@ the resolved trusted base revision as the Seqlane source for automatic runs.
 It checks out the pull-request head separately as the review target. Manual
 branch runs use the selected branch's workflow and source revision for trusted
 branch testing.
-Runs for the same pull request cancel older in-progress work so only the latest
-review can publish. When a pull request closes, the workflow triggers a final
-skipped run in the same concurrency group; the publisher also checks the live
-pull-request state before it writes. Progress-marker cleanup is run-specific, so
-an older canceled run cannot remove a newer run's notice.
+The workflow first admits an event, before it enters per-pull-request
+concurrency. Only an eligible pull-request update, a trusted comment with a
+recognized `/seqlane` command, or a manual dispatch with a pull-request number
+can enter that group. Other comments, including the bot's report comment, do
+not cancel, queue, or block an active review. Eligible reviews for the same
+pull request cancel older in-progress work so only the latest review can
+publish. When a pull request closes, a no-op cancellation job joins the same
+group and interrupts active review work without starting a replacement review.
+The publisher also checks the live pull-request state before it writes.
+Progress-marker cleanup is run-specific, so an older canceled run cannot remove
+a newer run's notice.
 Only open pull requests are eligible for review; manual and comment-triggered
 runs for closed pull requests also skip the review.
 

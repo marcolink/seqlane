@@ -27,28 +27,95 @@ on:
 permissions:
   contents: read
   issues: read
-  pull-requests: write
-
-concurrency:
-  group: seqlane-code-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pull_request_number }}
-  cancel-in-progress: true
 
 jobs:
-  code-review:
-    name: Review pull request
+  admit-review:
+    name: Admit review request
+    # GitHub evaluates job conditions before assigning a runner. Keep ordinary
+    # issue comments from consuming a runner; the step below retains the exact
+    # command grammar because expressions do not support the required regex.
     if: >-
-      (github.event_name == 'pull_request_target' &&
-       github.event.action != 'closed' &&
-       github.event.pull_request.draft == false &&
-       github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'issue_comment' &&
-       github.event.issue.pull_request != null &&
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request != null &&
        (github.event.action == 'created' || github.event.action == 'edited') &&
        (github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR')) ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.pull_request_number != '')
+        github.event.comment.author_association == 'COLLABORATOR') &&
+       (contains(github.event.comment.body, '/seqlane') ||
+        contains(github.event.changes.body.from, '/seqlane')))
+    permissions:
+      contents: none
+      issues: none
+      pull-requests: none
+    outputs:
+      eligible: ${{ steps.admission.outputs.eligible }}
+      pull_request_number: ${{ steps.admission.outputs.pull_request_number }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate review admission
+        id: admission
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pull_request_number }}
+          EVENT_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          EVENT_DRAFT: ${{ github.event.pull_request.draft }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
+          COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PREVIOUS_COMMENT_BODY: ${{ github.event.changes.body.from }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request_target" ]; then
+            if [ "$EVENT_ACTION" != "closed" ] &&
+               [ "$EVENT_DRAFT" = "false" ] &&
+               [ "$EVENT_REPOSITORY" = "$GITHUB_REPOSITORY" ]; then
+              echo "eligible=true" >> "$GITHUB_OUTPUT"
+              echo "pull_request_number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+            else
+              echo "eligible=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$EVENT_PR_NUMBER" != "" ]; then
+              echo "eligible=true" >> "$GITHUB_OUTPUT"
+              echo "pull_request_number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+            else
+              echo "eligible=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" != "issue_comment" ] ||
+             [ "$ISSUE_IS_PULL_REQUEST" != "true" ] ||
+             { [ "$EVENT_ACTION" != "created" ] && [ "$EVENT_ACTION" != "edited" ]; } ||
+             { [ "$COMMENT_AUTHOR_ASSOCIATION" != "OWNER" ] &&
+               [ "$COMMENT_AUTHOR_ASSOCIATION" != "MEMBER" ] &&
+               [ "$COMMENT_AUTHOR_ASSOCIATION" != "COLLABORATOR" ]; }; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if printf '%s\n%s\n' "$COMMENT_BODY" "$PREVIOUS_COMMENT_BODY" | grep -Eqi '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|(fixed|wont-fix|downgrade)[[:space:]]+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})([[:space:]]|$))' ; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+            echo "pull_request_number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+          else
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  code-review:
+    name: Review pull request
+    needs: admit-review
+    if: needs.admit-review.outputs.eligible == 'true'
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    concurrency:
+      group: seqlane-code-review-${{ needs.admit-review.outputs.pull_request_number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -67,29 +134,8 @@ jobs:
             echo "- SHA: \`$WORKFLOW_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Validate review trigger
-        id: trigger
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_ACTION: ${{ github.event.action }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          PREVIOUS_COMMENT_BODY: ${{ github.event.changes.body.from }}
-        run: |
-          if [ "$EVENT_NAME" != "issue_comment" ]; then
-            echo "execute=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if printf '%s\n%s\n' "$COMMENT_BODY" "$PREVIOUS_COMMENT_BODY" | grep -Eqi '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|(fixed|wont-fix|downgrade)[[:space:]]+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})([[:space:]]|$))' ; then
-            echo "execute=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "execute=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping Seqlane code review because the comment contains no recognized command."
-          fi
-
       - name: Check OpenAI credentials
         id: configuration
-        if: steps.trigger.outputs.execute == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -1262,3 +1308,18 @@ jobs:
       - name: Fail when Seqlane execution fails
         if: steps.pull-request.outputs.eligible == 'true' && steps.seqlane.outcome != 'success'
         run: exit 1
+
+  cancel-closed-review:
+    name: Cancel review when pull request closes
+    if: github.event_name == 'pull_request_target' && github.event.action == 'closed'
+    permissions:
+      contents: none
+      issues: none
+      pull-requests: none
+    concurrency:
+      group: seqlane-code-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm closed pull request cancellation
+        run: echo "The closed pull request event canceled any active Seqlane review."

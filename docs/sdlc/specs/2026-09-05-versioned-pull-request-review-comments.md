@@ -214,6 +214,25 @@ The final note must state that the review agents did not execute pull-request
 code, tests, builds, scripts, or checks. The note must not claim that the
 workflow performed no Git operations.
 
+### requirement-workflow-admission-and-concurrency
+
+The workflow must admit an event before it enters the shared per-pull-request
+concurrency group. The admission job must not check out source or receive
+write permissions. It must admit non-closed `pull_request_target` events only
+for non-draft pull requests whose head repository is the current repository. It
+must admit `workflow_dispatch` only when a pull-request number is present. It
+must admit `issue_comment` only for pull requests, created or edited comments,
+and `OWNER`, `MEMBER`, or `COLLABORATOR` authors whose current or previous body
+contains the recognized `/seqlane review`, `/seqlane fixed`, `/seqlane wont-fix`,
+or `/seqlane downgrade` command under the existing command-matching rules.
+
+Only admitted review jobs may use the `seqlane-code-review-<pull-request>`
+concurrency group with `cancel-in-progress: true`. An irrelevant or
+unrecognized comment must not enter that group, cancel an active review, or
+queue behind one. A closed `pull_request_target` event must run a separate
+no-op cancellation job in the same group so it interrupts active review work
+without starting review or publisher steps.
+
 ## Detailed design or contracts
 
 The state block uses schema version 3. The publisher places the state in a
@@ -225,10 +244,13 @@ The state payload uses compact JSON. The publisher can use a bounded
 Run timestamps and identifiers are audit data. They do not decide publication
 order across revisions. The live pull-request head and full Git revisions
 decide eligibility. For the same reviewed revision, the GitHub run ID and
-attempt prevent an older run from replacing a newer publication. The workflow
-cancels older runs for one pull request so only the latest run can publish.
+attempt prevent an older run from replacing a newer publication. Admitted
+review jobs cancel older runs for one pull request so only the latest run can
+publish. A closed pull-request event uses a separate no-op job in that same
+group to interrupt active review work without starting review steps.
 Progress-marker cleanup is scoped to the owning run so an older cancelled run
-cannot remove a newer run's notice.
+cannot remove a newer run's notice. Irrelevant comments do not enter the
+concurrency group.
 
 The human status and severity labels are deterministic projections of the
 validated state. Model output cannot select the final verdict or active
@@ -243,6 +265,7 @@ counts.
 - Do not show a predecessor or delta when Git ancestry is not comparable.
 - Keep a claimed fix active when verification is absent or uncertain.
 - Keep all retained blocking findings before lower-priority history.
+- Do not let an irrelevant issue comment cancel or queue an active review.
 
 ## Migration
 
@@ -258,6 +281,7 @@ identifier. New reports and commands use the v3 identifier.
 - Add lifecycle transition and stable-identifier tests.
 - Add current-head fix-verification tests.
 - Add trusted-author and stale-head publication tests.
+- Add workflow admission and concurrency regression tests.
 - Execute the exact publisher script with bounded representative state.
 - Run the branch workflow against an open pull request.
 
@@ -269,8 +293,11 @@ identifier. New reports and commands use the v3 identifier.
 - A fix claim cannot resolve a finding without current-head verification.
 - An old or untrusted run cannot replace the authoritative comment.
 - Mandatory limitation notices remain visible after output bounds apply.
+- Irrelevant comments cannot enter review concurrency, while recognized
+  commands and pull-request updates remain serialized per pull request.
 
 ## Traceability
 
 - Source proposal: [Seqlane review template](https://github.com/marcolink/seqlane/issues/45)
 - Delivery: [task.publish-versioned-pull-request-review-comments](../tasks/2026-09-05-publish-versioned-pull-request-review-comments.md)
+- Delivery: [task.prevent-comment-triggered-review-cancellation](../tasks/2026-09-05-prevent-comment-triggered-review-cancellation.md)
