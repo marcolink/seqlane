@@ -1,5 +1,6 @@
 // @test-scope ../compile/mastra-plan-compiler.ts
 // @test-scope ./mastra-runtime.ts
+// @test-scope ./mastra-server.ts
 // @test-scope ./mastra-execution.ts
 
 import { readFileSync } from "node:fs";
@@ -20,6 +21,7 @@ import {
 } from "@seqlane/core";
 import { describe, expect, it, vi } from "vitest";
 import { createStep, createWorkflow } from "@mastra/core/workflows";
+import { RequestContext } from "@mastra/core/request-context";
 import { z } from "zod";
 import { mastraRuntimeSpineWorkflow } from "../../../fixtures/mastra-runtime-spine-workflow.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
@@ -261,6 +263,32 @@ describe("private Mastra runtime spine", () => {
     expect(readFileSync(publicEntryPoint, "utf8")).not.toContain("@mastra/");
   });
 
+  it("does not expose a run-bound compiled Plan through MCP", async () => {
+    const execution = createMastraPlanExecution({
+      plan: taskPlan("fixture-plan-mcp-boundary"),
+      workflowInput: {},
+      workId: "fixture-work",
+      runId: "fixture-run",
+      createInvocationId: (nodeId) => nodeId ?? "fixture-invocation",
+      executors: { agent: () => ({ execute: async () => undefined }) },
+      sessionResolver: {
+        resolve: async () => ({
+          key: Symbol("fixture-session"),
+          executor: { execute: async () => undefined },
+        }),
+      },
+      workspaceResources: new Map(),
+      events: { emit: () => undefined },
+    });
+
+    await expect(
+      execution.runtime.server.listMcpServers({
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+        abortSignal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("does not expose a Mastra server");
+  });
+
   it("persists run and step spans with Seqlane correlation and deterministic trace IDs", async () => {
     const runtime = createMastraRuntime([
       { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
@@ -303,6 +331,474 @@ describe("private Mastra runtime spine", () => {
     });
   });
 
+  it("exposes workflows through Mastra server routes and MCP", async () => {
+    const runtime = createMastraRuntime([
+      { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
+    ]);
+    const serverContext = {
+      requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+      abortSignal: new AbortController().signal,
+    };
+
+    const workflows = await runtime.server.listWorkflows(serverContext);
+    expect(workflows).toHaveProperty("fixture");
+
+    const servers = await runtime.server.listMcpServers(serverContext);
+    expect(servers).toMatchObject({
+      servers: [expect.objectContaining({ id: "seqlane-workflows" })],
+    });
+
+    const tools = await runtime.server.listMcpTools(
+      "seqlane-workflows",
+      serverContext,
+    );
+    expect(tools).toMatchObject({
+      tools: [expect.objectContaining({ name: "run_fixture" })],
+    });
+
+    const firstInvocation = await runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      "run_fixture",
+      { fail: false },
+      serverContext,
+    );
+    expect(firstInvocation).toMatchObject({
+      result: {
+        status: "succeeded",
+        result: {
+          value: "Mastra runtime spine fixture succeeded",
+          runId: expect.stringMatching(/^mcp-run-/),
+          workId: expect.stringMatching(/^mcp-work-/),
+        },
+      },
+    });
+
+    const secondInvocation = await runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      "run_fixture",
+      { fail: false },
+      serverContext,
+    );
+    expect(secondInvocation).toMatchObject({
+      result: {
+        status: "succeeded",
+        result: {
+          value: "Mastra runtime spine fixture succeeded",
+          runId: expect.stringMatching(/^mcp-run-/),
+          workId: expect.stringMatching(/^mcp-work-/),
+        },
+      },
+    });
+    expect(
+      (firstInvocation as { result: { result: { runId: string } } }).result
+        .result.runId,
+    ).not.toBe(
+      (secondInvocation as { result: { result: { runId: string } } }).result
+        .result.runId,
+    );
+  });
+
+  it("rejects malformed MCP tool input through Mastra validation", async () => {
+    let executions = 0;
+    const step = createStep({
+      id: "validated-fixture-step",
+      inputSchema: z.object({ fail: z.boolean() }),
+      outputSchema: z.object({ value: z.string() }),
+      execute: async () => {
+        executions += 1;
+        return { value: "executed" };
+      },
+    });
+    const workflow = createWorkflow({
+      id: "validated-fixture",
+      description: "Validates MCP input without executing malformed calls.",
+      inputSchema: z.object({ fail: z.boolean() }),
+      outputSchema: z.object({ value: z.string() }),
+    })
+      .then(step)
+      .commit();
+    const runtime = createMastraRuntime([{ key: "fixture", workflow }]);
+
+    await expect(
+      runtime.server.executeMcpTool(
+        "seqlane-workflows",
+        "run_fixture",
+        {
+          fail: "not-a-boolean",
+        },
+        {
+          requestContext: new RequestContext([
+            ["user", { id: "fixture-user" }],
+          ]),
+          abortSignal: new AbortController().signal,
+        },
+      ),
+    ).resolves.toMatchObject({
+      result: {
+        error: true,
+        message: expect.stringContaining("Tool validation failed"),
+      },
+    });
+    expect(executions).toBe(0);
+  });
+
+  it("propagates MCP cancellation into the canonical Mastra run", async () => {
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const step = createStep({
+      id: "mcp-cancellable-step",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+      execute: async ({ abortSignal }) => {
+        started();
+        await new Promise<never>((_resolve, reject) => {
+          abortSignal.addEventListener(
+            "abort",
+            () => reject(new Error("MCP step aborted")),
+            { once: true },
+          );
+        });
+        return null;
+      },
+    });
+    const workflow = createWorkflow({
+      id: "mcp-cancellable-workflow",
+      description: "Runs the MCP cancellation fixture.",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(step)
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }]);
+    const controller = new AbortController();
+    const invocation = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      {
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+        abortSignal: controller.signal,
+      },
+    );
+
+    await startedPromise;
+    controller.abort();
+
+    await expect(invocation).resolves.toMatchObject({
+      result: { status: "cancelled" },
+    });
+  });
+
+  it("releases dispatcher capacity for non-cooperative MCP workflows", async () => {
+    let startedCount = 0;
+    let firstStarted!: () => void;
+    const firstStartedPromise = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    let secondStarted!: () => void;
+    const secondStartedPromise = new Promise<void>((resolve) => {
+      secondStarted = resolve;
+    });
+    let release!: () => void;
+    const completion = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const step = createStep({
+      id: "mcp-non-cooperative-step",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+      execute: async () => {
+        startedCount += 1;
+        if (startedCount === 1) firstStarted();
+        if (startedCount === 2) secondStarted();
+        await completion;
+        return null;
+      },
+    });
+    const workflow = createWorkflow({
+      id: "mcp-non-cooperative-workflow",
+      description: "Runs the non-cooperative MCP fixture.",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(step)
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
+      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 10 },
+    });
+    const context = () => ({
+      requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+      abortSignal: new AbortController().signal,
+    });
+
+    const first = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      context(),
+    );
+    await firstStartedPromise;
+    await expect(first).rejects.toThrow(
+      "MCP workflow invocation deadline exceeded",
+    );
+
+    const second = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      context(),
+    );
+    await secondStartedPromise;
+    release();
+    await expect(second).resolves.toMatchObject({
+      result: { status: "succeeded" },
+    });
+    expect(startedCount).toBe(2);
+  });
+
+  it("runs MCP invocations through the canonical runtime identity hook", async () => {
+    const requests: Array<{ workId: string; runId: string }> = [];
+    const runtime = createMastraRuntime(
+      [{ key: "fixture", workflow: mastraRuntimeSpineWorkflow }],
+      {
+        onWorkflowResult: (request) => {
+          requests.push({ workId: request.workId, runId: request.runId });
+        },
+      },
+    );
+
+    await runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      "run_fixture",
+      { fail: false },
+      {
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+        abortSignal: new AbortController().signal,
+      },
+    );
+
+    expect(requests).toEqual([
+      {
+        workId: expect.stringMatching(/^mcp-work-/),
+        runId: expect.stringMatching(/^mcp-run-/),
+      },
+    ]);
+  });
+
+  it("bounds concurrent MCP workflow dispatch", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    let invocationCount = 0;
+    const startedResolvers: Array<() => void> = [];
+    const started = [
+      new Promise<void>((resolve) => startedResolvers.push(resolve)),
+      new Promise<void>((resolve) => startedResolvers.push(resolve)),
+    ];
+    const releases: Array<() => void> = [];
+    const step = createStep({
+      id: "mcp-bounded-step",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+      execute: async ({ abortSignal }) => {
+        const index = invocationCount++;
+        startedResolvers[index]?.();
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        try {
+          await new Promise<void>((resolve, reject) => {
+            releases[index] = resolve;
+            abortSignal.addEventListener(
+              "abort",
+              () => reject(new Error("bounded MCP invocation aborted")),
+              { once: true },
+            );
+          });
+        } finally {
+          active -= 1;
+        }
+        return null;
+      },
+    });
+    const workflow = createWorkflow({
+      id: "mcp-bounded-workflow",
+      description: "Runs the bounded MCP fixture.",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(step)
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
+      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 1_000 },
+    });
+    const requestContext = () =>
+      new RequestContext([["user", { id: "fixture-user" }]]);
+    const first = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      {
+        requestContext: requestContext(),
+        abortSignal: new AbortController().signal,
+      },
+    );
+    await started[0];
+    const second = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      {
+        requestContext: requestContext(),
+        abortSignal: new AbortController().signal,
+      },
+    );
+    await Promise.resolve();
+    expect(invocationCount).toBe(1);
+
+    releases[0]!();
+    await started[1];
+    releases[1]!();
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(maximumActive).toBe(1);
+  });
+
+  it("removes cancelled MCP invocations from the queue", async () => {
+    let active!: () => void;
+    const activePromise = new Promise<void>((resolve) => {
+      active = resolve;
+    });
+    let release!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let invocationCount = 0;
+    const step = createStep({
+      id: "mcp-queued-cancellation-step",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+      execute: async () => {
+        invocationCount += 1;
+        active();
+        await releasePromise;
+        return null;
+      },
+    });
+    const workflow = createWorkflow({
+      id: "mcp-queued-cancellation-workflow",
+      description: "Runs the queued cancellation fixture.",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(step)
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
+      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 1_000 },
+    });
+    const context = () => ({
+      requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+      abortSignal: new AbortController().signal,
+    });
+    const first = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      context(),
+    );
+    await activePromise;
+
+    const cancelledController = new AbortController();
+    const second = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      {
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+        abortSignal: cancelledController.signal,
+      },
+    );
+    cancelledController.abort();
+    await expect(second).rejects.toThrow(
+      "MCP workflow invocation was cancelled",
+    );
+
+    const third = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      context(),
+    );
+    release();
+    await expect(first).resolves.toMatchObject({
+      result: { status: "succeeded" },
+    });
+    await expect(third).resolves.toMatchObject({
+      result: { status: "succeeded" },
+    });
+    expect(invocationCount).toBe(2);
+  });
+
+  it("cancels MCP workflow dispatch at its deadline", async () => {
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const workflow = createWorkflow({
+      id: "mcp-deadline-workflow",
+      description: "Runs the MCP deadline fixture.",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(
+        createStep({
+          id: "mcp-deadline-step",
+          inputSchema: z.unknown(),
+          outputSchema: z.unknown(),
+          execute: async ({ abortSignal }) => {
+            started();
+            await new Promise<never>((_resolve, reject) => {
+              abortSignal.addEventListener(
+                "abort",
+                () => reject(new Error("deadline reached")),
+                { once: true },
+              );
+            });
+            return null;
+          },
+        }),
+      )
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
+      mcpDispatcher: { deadlineMs: 10 },
+    });
+    const invocation = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      {
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+        abortSignal: new AbortController().signal,
+      },
+    );
+
+    await startedPromise;
+    await expect(invocation).rejects.toThrow(
+      "MCP workflow invocation deadline exceeded",
+    );
+  });
+
+  it("rejects workflows without descriptions before MCP registration", () => {
+    const workflow = createWorkflow({
+      id: "undocumented-fixture",
+      inputSchema: z.object({}),
+      outputSchema: z.object({}),
+    }).commit();
+
+    expect(() => createMastraRuntime([{ key: "fixture", workflow }])).toThrow(
+      /must define a non-empty description/,
+    );
+  });
+
   it("normalizes cancellation from an active Mastra run", async () => {
     let started!: () => void;
     const startedPromise = new Promise<void>((resolve) => {
@@ -326,6 +822,7 @@ describe("private Mastra runtime spine", () => {
     });
     const workflow = createWorkflow({
       id: "cancellable-workflow",
+      description: "Runs the cancellable workflow fixture.",
       inputSchema: z.unknown(),
       outputSchema: z.unknown(),
     })
@@ -370,6 +867,7 @@ describe("private Mastra runtime spine", () => {
     });
     const workflow = createWorkflow({
       id: "pending-create-run-workflow",
+      description: "Tests cancellation while creating a Mastra run.",
       inputSchema: z.unknown(),
       outputSchema: z.unknown(),
     })
@@ -438,6 +936,7 @@ describe("private Mastra runtime spine", () => {
     });
     const workflow = createWorkflow({
       id: "repeated-cancellation-workflow",
+      description: "Tests repeated Mastra run cancellation.",
       inputSchema: z.unknown(),
       outputSchema: z.unknown(),
     })
