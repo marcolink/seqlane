@@ -162,6 +162,15 @@ describe("pull-request code review example workflow", () => {
     expect(admission).toContain("contents: none");
     expect(admission).toContain("issues: none");
     expect(admission).toContain("pull-requests: none");
+    expect(admission).toContain("github.event_name != 'issue_comment' ||");
+    expect(admission).toContain("github.event.issue.pull_request != null");
+    expect(admission).toContain("github.event.comment.author_association");
+    expect(admission).toContain(
+      "contains(github.event.comment.body, '/seqlane')",
+    );
+    expect(admission).toContain(
+      "contains(github.event.changes.body.from, '/seqlane')",
+    );
     expect(admission).toContain("PREVIOUS_COMMENT_BODY");
     expect(admission).toContain("COMMENT_BODY");
     expect(admission).toContain('[ "$EVENT_NAME" != "issue_comment" ]');
