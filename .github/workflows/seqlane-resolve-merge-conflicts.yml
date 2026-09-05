@@ -252,6 +252,7 @@ jobs:
           PR_NUMBER: ${{ steps.pull-request.outputs.number }}
           RESOLUTION_STRATEGY: ${{ inputs.resolution_strategy }}
           AGENT_WORKSPACE: ${{ runner.temp }}/seqlane-agent-workspace
+          CONFLICT_FILES: ${{ runner.temp }}/seqlane-conflict-files
           RESOLUTION_TARGET: ${{ github.workspace }}/resolution-target
           SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -442,9 +443,6 @@ jobs:
             fi
             ATTEMPT=$((ATTEMPT + 1))
           done
-        env:
-          CONFLICT_FILES: ${{ runner.temp }}/seqlane-conflict-files
-
       - name: Stop OpenCode
         if: always() && steps.opencode.outputs.started == 'true'
         run: |
