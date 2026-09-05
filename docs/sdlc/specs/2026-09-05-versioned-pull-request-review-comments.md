@@ -122,14 +122,19 @@ recognized command. This permits command removal without running reviews for
 unrelated comment edits.
 
 Comment collection must preserve recognized command lines even when it bounds
-the surrounding comment body. It must place command lines before optional
-context when it applies the final comment bound.
+the surrounding comment body. It must retain the latest commands before
+optional context when it applies the final comment bound. It must mark history
+as truncated if older command lines do not fit.
 
 ### requirement-human-projection
 
 The human projection must show the verdict, active counts, reviewed revision,
-and one findings table. It must show details for active Critical and Required
-findings.
+one findings table, and the available `/seqlane` commands. It must show plain
+Markdown sections for active Critical and Required findings. Each section must
+show the finding ID, severity, area, location, explanation, and resolution.
+
+Severity and lifecycle labels must use the emoji vocabulary from the source
+review template.
 
 The projection can omit internal ratings and run evidence. It must show a
 deterministic limitation notice when retained evidence or history is

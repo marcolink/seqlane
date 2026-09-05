@@ -39,8 +39,6 @@ jobs:
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
        (github.event.action == 'created' || github.event.action == 'edited') &&
-       (contains(github.event.comment.body, '/seqlane') ||
-        contains(github.event.changes.body.from, '/seqlane')) &&
        (github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR')) ||
@@ -184,6 +182,24 @@ jobs:
           jq -n \
             --slurpfile issue "$RUNNER_TEMP/seqlane-issue-comments.json" \
             --slurpfile review "$RUNNER_TEMP/seqlane-review-comments.json" '
+              def recognized_disposition_lines($body):
+                [$body | split("\n")[] |
+                  select(test(
+                    "^\\s*/seqlane\\s+(fixed|wont-fix|downgrade)\\s+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})(\\s|$)";
+                    "i"
+                  ))];
+              def bounded_command_projection($lines; $limit):
+                reduce ($lines | reverse[]) as $line
+                  ({lines: [], used: 0, truncated: false};
+                    (($line | length) +
+                      (if (.lines | length) == 0 then 0 else 1 end)) as $cost |
+                    if (.used + $cost) <= $limit then
+                      .lines = [$line] + .lines |
+                      .used += $cost
+                    else
+                      .truncated = true
+                    end
+                  );
               def normalize($items; $kind):
                 ($items[0] // []) | map(
                   (.body // "") as $body |
@@ -191,15 +207,21 @@ jobs:
                     (.user.login // "") == "github-actions[bot]") and
                    ($body | contains("<!-- seqlane-code-review -->"))) as $trustedReport |
                   (if $trustedReport then 65536 else 2000 end) as $bodyLimit |
+                  (recognized_disposition_lines($body) |
+                    bounded_command_projection(.; 63535)) as $commandProjection |
+                  ($commandProjection.lines | join("\n")) as $commandBody |
+                  ([$body[:2000] | split("\n")[] |
+                    select((ascii_downcase | contains("/seqlane")) | not)] |
+                    join("\n")) as $bodyContext |
                   (if $trustedReport then
                     $body[:65536]
                   else
                     (
-                      ([$body | split("\n")[] |
-                        select(ascii_downcase | contains("/seqlane"))] |
-                       unique | join("\n")) + "\n" +
-                      $body[:2000]
-                    )[:65536]
+                      $bodyContext[:(65536 - ($commandBody | length) -
+                        (if ($commandBody | length) == 0 or ($bodyContext | length) == 0 then 0 else 1 end))] +
+                      (if ($commandBody | length) == 0 or ($bodyContext | length) == 0 then "" else "\n" end) +
+                      $commandBody
+                    )
                   end) as $boundedBody |
                   {
                     id: (.id | tostring),
@@ -207,7 +229,10 @@ jobs:
                     author: (.user.login // "unknown"),
                     authorAssociation: (.author_association // "NONE"),
                     body: $boundedBody,
-                    bodyTruncated: (($body | length) > $bodyLimit),
+                    bodyTruncated: (
+                      (($body | length) > $bodyLimit) or
+                      $commandProjection.truncated
+                    ),
                     createdAt: (.created_at // "")
                   }
                   + (if .updated_at then {updatedAt: .updated_at} else {} end)
@@ -577,20 +602,24 @@ jobs:
               if active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required") then 0
               elif active then 1 else 2 end;
             def severity_label:
-              if . == "critical" then "Critical" elif . == "required" then "Required"
-              elif . == "optional" then "Advisory" else "Informational" end;
+              if . == "critical" then "🔴 Critical" elif . == "required" then "🟠 Required"
+              elif . == "optional" then "🟡 Advisory" else "🔵 Informational" end;
             def status_label:
-              if . == "new" then "New" elif . == "open" then "Open"
-              elif . == "addressed" then "Addressed" elif . == "resolved" then "Resolved"
-              elif . == "reopened" then "Reopened" else "Dismissed" end;
+              if . == "new" then "🆕 New" elif . == "open" then "⏳ Open"
+              elif . == "addressed" then "🛠️ Addressed" elif . == "resolved" then "✅ Resolved"
+              elif . == "reopened" then "🔁 Reopened" else "➖ Dismissed" end;
             def area_label:
-              if . == "correctness" then "🧭 Correctness"
-              elif . == "readability" then "📝 Readability"
+              if . == "correctness" then "🎯 Correctness"
+              elif . == "readability" then "📖 Readability"
               elif . == "architecture" then "🏗️ Architecture"
-              elif . == "security" then "🔒 Security" else "⚡ Performance" end;
+              elif . == "security" then "🔐 Security" else "⚡ Performance" end;
             . as $report |
-            (($report.limitations | map(select(. != $compactionNotice)))[:19] +
-              (if $stateCompacted then [$compactionNotice] else [] end)) as $limitations |
+            (if $stateCompacted then
+              (($report.limitations | map(select(. != $compactionNotice)))[:19] +
+                [$compactionNotice])
+            else
+              $report.limitations[:20]
+            end) as $limitations |
             ($report.findings | sort_by(
               projection_rank,
               (.effectiveSeverity | severity_rank),
@@ -600,21 +629,23 @@ jobs:
             ($findings[:20]) as $visibleFindings |
             ($findings | map(select(active))) as $active |
             ($active | map(select(.effectiveSeverity == "critical" or .effectiveSeverity == "required")) | length) as $blockers |
-            ($active | map(select(.effectiveSeverity == "optional" or .effectiveSeverity == "nit")) | length) as $advisories |
+            ($active | map(select(.effectiveSeverity == "optional")) | length) as $advisories |
             ([
               "<!-- seqlane-code-review -->",
               ("<!-- seqlane-code-review-meta-v3: " + $metadata + " -->"),
               "# Seqlane review",
               "",
-              "**Verdict:** \(if $report.verdict == "approve" then "✅ Approve" else "🛑 Changes requested" end) · **Blockers:** \($blockers) · **Advisories:** \($advisories)",
-              "",
+              ("**\(if $report.verdict == "approve" then "✅ Approved" else "🛑 Changes requested" end)**" +
+                (if $blockers == 0 then "" else " · **\($blockers) blocker\(if $blockers == 1 then "" else "s" end)**" end) +
+                (if $advisories == 0 then "" else " · **\($advisories) advisor\(if $advisories == 1 then "y" else "ies" end)**" end) +
+                "  "),
               "Static review of `\($report.headRevision[:8])`\(if $report.previousReviewedRevision then " · Compared with `\($report.previousReviewedRevision[:8])`" else "" end)",
               "",
               (shorten($report.summary; 1200) | safe_text)
             ]
             + (if $report.previousReviewedRevision then [
               "",
-              "**Delta:** \([$findings[] | select(.status == "new")] | length) new · \([$findings[] | select(.status == "open")] | length) open · \([$findings[] | select(.status == "addressed")] | length) addressed · \([$findings[] | select(.status == "resolved")] | length) resolved · \([$findings[] | select(.status == "reopened")] | length) reopened · \([$findings[] | select(.status == "dismissed")] | length) dismissed"
+              "> **Review delta:** 🆕 \([$findings[] | select(.status == "new")] | length) new · ⏳ \([$findings[] | select(.status == "open")] | length) open · 🛠️ \([$findings[] | select(.status == "addressed")] | length) addressed · ✅ \([$findings[] | select(.status == "resolved")] | length) resolved · 🔁 \([$findings[] | select(.status == "reopened")] | length) reopened · ➖ \([$findings[] | select(.status == "dismissed")] | length) dismissed"
             ] else [] end)
             + [
               "",
@@ -633,16 +664,49 @@ jobs:
               "",
               "⚠️ Showing \($visibleFindings | length) of \($findings | length) retained findings. The machine-readable state contains the complete bounded set."
             ] else [] end)
-            + [
-              $visibleFindings[] |
-              select(active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required")) |
-              "<details>\n<summary><strong>\(.id) · \(.status | status_label) · \(.summary | cell)</strong></summary>\n\n**Recommendation:** \(shorten(.recommendation; 600) | safe_text)\(if .file then "\n\n**Location:** `\(.file | safe_text)\(if .line then ":\(.line)" else "" end)`" else "" end)\(if .dispositionBy then "\n\n**Human decision:** \(.disposition | safe_text) by \(("@" + .dispositionBy) | safe_text)\(if .dispositionReason then " — \(.dispositionReason | safe_text)" else "" end)" else "" end)\n\n</details>"
-            ]
+            + (([$visibleFindings[] |
+                select(active and (.effectiveSeverity == "critical" or .effectiveSeverity == "required"))]) as $required |
+              if ($required | length) == 0 then [] else
+                ["", "## Required changes"] +
+                [$required[] |
+                  "",
+                  "#### `\(.id)` \(.effectiveSeverity | severity_label) · \(.axis | area_label) — _\(shorten(.summary; 180) | safe_text)_",
+                  "",
+                  (if .file then
+                    "`\(.file | safe_text)\(if .line then ":\(.line)" else "" end)`"
+                  else
+                    "_No precise source location was supplied._"
+                  end),
+                  "",
+                  (shorten(.summary; 600) | safe_text),
+                  (if .status == "addressed" then
+                    "\nA fix was reported, but this finding remains active until current-head verification confirms resolution."
+                  elif .status == "reopened" then
+                    "\nThis finding was previously resolved or dismissed, but it is active again in the reviewed source."
+                  else "" end),
+                  (if .dispositionBy then
+                    "\n**Human decision:** \(.disposition | safe_text) by \(("@" + .dispositionBy) | safe_text)\(if .dispositionReason then " — \(.dispositionReason | safe_text)" else "" end)"
+                  else "" end),
+                  "",
+                  "**To resolve:** \(shorten(.recommendation; 600) | safe_text)"
+                ]
+              end)
             + (if ($limitations | length) == 0 then [] else [
               "",
               "## Review limitations",
               ($limitations[] | "- ⚠️ \(shorten(.; 500) | safe_text)")
             ] end)
+            + [
+              "",
+              "## Available commands",
+              "",
+              "- `/seqlane review` — run the review again.",
+              "- `/seqlane fixed <finding-id> [reason: <text>]` — report a fix for verification.",
+              "- `/seqlane wont-fix <finding-id> [reason: <text>]` — accept or reject a finding.",
+              "- `/seqlane downgrade <finding-id> <severity> [reason: <text>]` — lower its effective severity.",
+              "",
+              "Allowed severities: `critical`, `required`, `optional`, and `nit`."
+            ]
             + (if ($report.verification | length) == 0 then [] else [
               "",
               "<details>",

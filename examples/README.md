@@ -125,6 +125,7 @@ The review runtime denies access outside the review workspace and blocks
 environment files. Git writes the complete patch to a run-scoped temporary file
 before the retained model-facing patch is bounded; the temporary file can be
 larger than the 48,000-byte evidence limit and is removed after collection.
+Each published review repeats the available command syntax below its findings.
 
 ```text
 /seqlane review
