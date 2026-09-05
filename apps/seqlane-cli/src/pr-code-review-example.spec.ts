@@ -55,9 +55,21 @@ describe("pull-request code review example workflow", () => {
       workspace: "shared",
       dependsOn: [],
     });
+    const reviewContext = plan.nodes.find(
+      (node) =>
+        node.type === "task" && node.taskId === "pr-code-review.review-context",
+    );
+    expect(reviewContext).toMatchObject({
+      execution: "local",
+      workspace: "shared",
+      dependsOn: [],
+    });
     expect(reviewLanes).toHaveLength(3);
     for (const reviewLane of reviewLanes) {
-      expect(reviewLane.dependsOn).toEqual([gitEvidence?.nodeId]);
+      expect(reviewLane.dependsOn).toEqual(
+        expect.arrayContaining([gitEvidence?.nodeId, reviewContext?.nodeId]),
+      );
+      expect(reviewLane.dependsOn).toHaveLength(2);
     }
     expect(reviewLanes).toEqual(
       expect.arrayContaining([
@@ -117,6 +129,93 @@ describe("pull-request code review example workflow", () => {
         expect.stringContaining("use repository exactly as the workspace root"),
       ]),
     );
+  });
+
+  it("normalizes review history and authorizes disposition commands", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+
+    const result = await task.execute(
+      {
+        comments: [
+          {
+            id: "2",
+            kind: "issue",
+            author: "contributor",
+            authorAssociation: "CONTRIBUTOR",
+            body: "/seqlane wont-fix F-123 reason: not authorized",
+            createdAt: "2026-09-05T10:00:00Z",
+          },
+          {
+            id: "3",
+            kind: "issue",
+            author: "maintainer",
+            authorAssociation: "MEMBER",
+            body: "/seqlane downgrade F-123 optional reason: low impact",
+            createdAt: "2026-09-05T11:00:00Z",
+            commitId: "a".repeat(40),
+          },
+          {
+            id: "4",
+            kind: "issue",
+            author: "maintainer",
+            authorAssociation: "OWNER",
+            body: [
+              "<!-- seqlane-code-review -->",
+              `<!-- seqlane-code-review-report-v1: ${Buffer.from(
+                JSON.stringify({
+                  headRevision: "a".repeat(40),
+                  findings: [
+                    {
+                      id: "F-456",
+                      axis: "correctness",
+                      severity: "required",
+                      effectiveSeverity: "required",
+                      disposition: "open",
+                      summary: "Old finding",
+                      recommendation: "Fix the old finding.",
+                    },
+                  ],
+                }),
+              ).toString("base64")} -->`,
+              "/seqlane fixed F-456",
+            ].join("\n"),
+            createdAt: "2026-09-05T12:00:00Z",
+          },
+        ],
+        truncated: false,
+      },
+      {},
+    );
+
+    expect(result.dispositions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          findingId: "F-123",
+          action: "wont-fix",
+          authorized: false,
+          author: "contributor",
+        }),
+        expect.objectContaining({
+          findingId: "F-123",
+          action: "downgrade",
+          effectiveSeverity: "optional",
+          authorized: true,
+          commitId: "a".repeat(40),
+        }),
+        expect.objectContaining({
+          findingId: "F-456",
+          action: "fixed",
+          authorized: true,
+        }),
+      ]),
+    );
+    expect(result.previousReport?.id).toBe("4");
+    expect(result.previousSnapshot?.findings[0]?.id).toBe("F-456");
   });
 
   it("collects deterministic Git review evidence with direct argv", async () => {
@@ -509,27 +608,183 @@ describe("pull-request code review example workflow", () => {
     );
   });
 
+  it("applies authorized wont-fix and downgrade decisions before the verdict", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+
+    const revision = "a".repeat(40);
+    const result = await task.execute(
+      {
+        review: {
+          repository: "/repo",
+          baseBranch: "release/2026.09",
+          baseRevision: revision,
+          headRevision: "b".repeat(40),
+          pullRequest: {
+            title: "Add automated review",
+            description: "Run Seqlane for every pull request.",
+          },
+          gitEvidence: {
+            baseRevision: revision,
+            headRevision: "b".repeat(40),
+            changedFiles: ["src/review.ts"],
+            changedFileCount: 1,
+            changedFilesTruncated: false,
+            diffStat: "1 file changed",
+            diffStatTruncated: false,
+            patch: "diff",
+            patchByteLength: 4,
+            patchTruncated: false,
+            diffCheck: {
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+              stdoutTruncated: false,
+              stderrTruncated: false,
+            },
+          },
+          reviewHistory: {
+            comments: [],
+            truncated: false,
+            dispositions: [
+              {
+                findingId: "F-123",
+                action: "wont-fix",
+                reason: "Accepted risk",
+                commentId: "comment-1",
+                author: "maintainer",
+                authorAssociation: "MEMBER",
+                authorized: true,
+                createdAt: "2026-09-05T12:00:00Z",
+              },
+              {
+                findingId: "F-124",
+                action: "downgrade",
+                effectiveSeverity: "optional",
+                reason: "Low impact",
+                commentId: "comment-2",
+                author: "maintainer",
+                authorAssociation: "OWNER",
+                authorized: true,
+                createdAt: "2026-09-05T13:00:00Z",
+              },
+              {
+                findingId: "F-125",
+                action: "wont-fix",
+                reason: "Previously accepted risk",
+                commentId: "comment-3",
+                author: "maintainer",
+                authorAssociation: "MEMBER",
+                authorized: true,
+                createdAt: "2026-09-05T14:00:00Z",
+              },
+            ],
+            previousSnapshot: {
+              headRevision: revision,
+              findings: [
+                {
+                  id: "F-125",
+                  axis: "architecture",
+                  severity: "required",
+                  effectiveSeverity: "required",
+                  disposition: "open",
+                  summary: "Previously found concern",
+                  recommendation: "Document the accepted risk.",
+                },
+              ],
+            },
+          },
+        },
+        report: {
+          repository: "/repo",
+          baseBranch: "release/2026.09",
+          baseRevision: revision,
+          headRevision: "b".repeat(40),
+          overallRating: 3,
+          verdict: "request-changes",
+          summary: "Two findings require a decision.",
+          ratings: [
+            "correctness",
+            "readability",
+            "architecture",
+            "security",
+            "performance",
+          ].map((axis) => ({ axis, rating: 3, rationale: "Moderate concern" })),
+          findings: [
+            {
+              id: "F-123",
+              axis: "security",
+              severity: "required",
+              effectiveSeverity: "required",
+              disposition: "open",
+              summary: "Accepted risk",
+              recommendation: "Document the risk.",
+            },
+            {
+              id: "F-124",
+              axis: "readability",
+              severity: "required",
+              effectiveSeverity: "required",
+              disposition: "open",
+              summary: "Low impact issue",
+              recommendation: "Simplify the branch.",
+            },
+          ],
+          verification: [],
+        },
+      },
+      {},
+    );
+
+    expect(result.verdict).toBe("approve");
+    expect(result.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "F-123",
+          disposition: "wont-fix",
+          effectiveSeverity: "required",
+          dispositionBy: "maintainer",
+        }),
+        expect.objectContaining({
+          id: "F-124",
+          disposition: "downgraded",
+          effectiveSeverity: "optional",
+          dispositionBy: "maintainer",
+        }),
+        expect.objectContaining({
+          id: "F-125",
+          disposition: "wont-fix",
+          dispositionReason: "Previously accepted risk",
+        }),
+      ]),
+    );
+  });
+
   it("preserves review identity fields in the final output binding", () => {
     const output = buildWorkflow(prCodeReviewWorkflow).plan.output;
     expect(output).toMatchObject({
       repository: {
         type: "ref",
-        nodeId: "pr-code-review.summarize:1",
+        nodeId: "pr-code-review.apply-dispositions:1",
         path: ["output", "repository"],
       },
       baseBranch: {
         type: "ref",
-        nodeId: "pr-code-review.summarize:1",
+        nodeId: "pr-code-review.apply-dispositions:1",
         path: ["output", "baseBranch"],
       },
       baseRevision: {
         type: "ref",
-        nodeId: "pr-code-review.summarize:1",
+        nodeId: "pr-code-review.apply-dispositions:1",
         path: ["output", "baseRevision"],
       },
       headRevision: {
         type: "ref",
-        nodeId: "pr-code-review.summarize:1",
+        nodeId: "pr-code-review.apply-dispositions:1",
         path: ["output", "headRevision"],
       },
     });

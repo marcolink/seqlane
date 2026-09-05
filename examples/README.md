@@ -108,10 +108,39 @@ repository and base/head identity fields from its supplied review context. The
 workflow installs and builds the checked-out Seqlane
 source, but does not install dependencies or execute repository scripts from
 the separate review target. OpenCode ignores project runtime configuration
-during the review and receives a read-only tool policy. The workflow updates
-one marked pull-request comment with the report and records the report verdict
-without failing the review job when it is `request-changes`. Configured secret
-values are redacted from CI output, workflow summaries, and GitHub annotations.
+during the review and receives a read-only tool policy. The workflow reads
+bounded issue and review comments, updates one marked pull-request comment with
+the report, and records the report verdict without failing the review job when
+it is `request-changes`. Reviewers with GitHub `OWNER`, `MEMBER`, or
+`COLLABORATOR` association can change a finding's policy state with a command
+comment:
+
+```text
+/seqlane wont-fix F-123 reason: accepted risk
+/seqlane fixed F-123
+/seqlane downgrade F-123 optional reason: low impact
+```
+
+`fixed` is verified against the current pull-request head. `wont-fix` and
+`downgrade` are recorded with the actor, timestamp, reason, and commit context;
+they do not remove the finding from the report, but an authorized disposition
+does remove it as a merge-blocking finding. A command comment triggers a new
+review. Configured secret values are redacted from CI output, workflow
+summaries, and GitHub annotations.
+
+To exercise the workflow and Seqlane source from a feature branch, run the
+workflow manually with that branch selected:
+
+```sh
+gh workflow run "Seqlane code review" \
+  --ref my-review-branch \
+  -f pull_request_number=123
+```
+
+Automatic pull-request and comment-triggered runs continue to use the trusted
+base revision for the workflow source. The manual path is intended for
+trusted branch testing and uses the selected branch's workflow and Seqlane
+source revision.
 The review runtime denies access outside the review workspace and blocks
 environment files. Git writes the complete patch to a run-scoped temporary file
 before the retained model-facing patch is bounded; the temporary file can be
