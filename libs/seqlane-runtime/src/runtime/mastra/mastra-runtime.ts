@@ -177,7 +177,7 @@ export function createMastraRuntime(
         [registration],
         options,
       );
-      return invocationRuntime.runtime.run(
+      const activeRun = invocationRuntime.runtime.start(
         {
           workflowKey,
           input,
@@ -186,6 +186,7 @@ export function createMastraRuntime(
         },
         { requestContext, abortSignal },
       );
+      return activeRun.outcome;
     },
   );
 

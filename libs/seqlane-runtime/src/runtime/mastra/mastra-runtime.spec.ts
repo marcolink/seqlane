@@ -515,6 +515,35 @@ describe("private Mastra runtime spine", () => {
     expect(executions).toBe(0);
   });
 
+  it("runs MCP invocations through the canonical runtime identity hook", async () => {
+    const requests: Array<{ workId: string; runId: string }> = [];
+    const runtime = createMastraRuntime(
+      [{ key: "fixture", workflow: mastraRuntimeSpineWorkflow }],
+      {
+        onWorkflowResult: (request) => {
+          requests.push({ workId: request.workId, runId: request.runId });
+        },
+      },
+    );
+
+    await runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      "run_fixture",
+      { fail: false },
+      {
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+        abortSignal: new AbortController().signal,
+      },
+    );
+
+    expect(requests).toEqual([
+      {
+        workId: expect.stringMatching(/^mcp-work-/),
+        runId: expect.stringMatching(/^mcp-run-/),
+      },
+    ]);
+  });
+
   it("rejects workflows without descriptions before MCP registration", () => {
     const workflow = createWorkflow({
       id: "undocumented-fixture",
