@@ -144,7 +144,7 @@ describe("PlanCompiler plan preparation", () => {
   });
 
   it("lowers conflicting workspace access into execution dependencies", () => {
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([
         task("writer", [], {}, "exclusive"),
         task("reader", [], {}, "shared"),
@@ -359,7 +359,7 @@ describe("PlanCompiler plan preparation", () => {
     const sourcePlan = plan([source, first, second]);
     expect(() => validatePlan(sourcePlan)).not.toThrow();
 
-    const compiled = new EffectCompiler().compileWorkflow(sourcePlan, {
+    const compiled = new PlanCompiler().compileWorkflow(sourcePlan, {
       executors: new Map(),
     });
     expect(
@@ -864,7 +864,7 @@ describe("PlanCompiler workflow compilation", () => {
     let executed = false;
     const events: SeqlaneEvent[] = [];
     const workspace = { key: "/checkout" };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([task("writer", [], {}, "exclusive")]),
       {
         createInvocationId: (nodeId) => nodeId,

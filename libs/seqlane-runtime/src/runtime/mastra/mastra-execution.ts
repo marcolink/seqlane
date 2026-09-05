@@ -189,7 +189,11 @@ function emitMastraNonTerminalInvocations(
         reason: skippedAfterFailure
           ? "Mastra did not execute invocation after an upstream failure"
           : "Mastra skipped invocation after an upstream failure",
-        dependencyIds: dependencyInvocationIds(prepared.context, compiled, node),
+        dependencyIds: dependencyInvocationIds(
+          prepared.context,
+          compiled,
+          node,
+        ),
       });
     } else {
       events.emit({

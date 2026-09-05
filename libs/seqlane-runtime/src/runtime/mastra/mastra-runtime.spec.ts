@@ -161,8 +161,8 @@ async function startMastraPlan(options: {
     workflow: options.workflow,
     events,
   });
-  await resolveCompiledWorkflowSessions(execution.legacy);
-  emitMastraInvocationTopology(execution.compiled, execution.legacy, events);
+  await resolveCompiledWorkflowSessions(execution.prepared);
+  emitMastraInvocationTopology(execution.compiled, execution.prepared, events);
   return execution.runtime.start({
     workflowKey: options.plan.workflow.id,
     input: {},
