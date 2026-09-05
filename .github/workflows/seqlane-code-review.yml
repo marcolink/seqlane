@@ -736,7 +736,7 @@ jobs:
           RUN_AUDIT_MARKER_SUFFIX=' -->'
           EXPECTED_REPORT_METADATA=$(jq --raw-output '
             [.comments[] | .body |
-              try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta)
+              try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson | tojson)
               catch null
             ] | map(select(. != null)) | last // "{}"
           ' "$REVIEW_HISTORY_PATH")
@@ -750,7 +750,7 @@ jobs:
                 ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
                 (.body | contains("<!-- seqlane-code-review -->"))
               ) |
-              try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta)
+              try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson | tojson)
               catch null
             ] | map(select(. != null)) | first // "{}"
           ' "$RUNNER_TEMP/seqlane-live-issue-comments-before-publish.json")
@@ -834,7 +834,7 @@ jobs:
                 ((.user.login == "github-actions") or (.user.login == "github-actions[bot]")) and
                 (.body | contains("<!-- seqlane-code-review -->"))
               ) |
-              try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta)
+              try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson | tojson)
               catch null
             ] | map(select(. != null)) | first // "{}"
           ' "$RUNNER_TEMP/seqlane-live-issue-comments-after-audit.json")
@@ -1173,7 +1173,7 @@ jobs:
             else
               EXISTING_REPORT_METADATA=$(jq --raw-output '
                 [ .body |
-                  try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta)
+                  try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson | tojson)
                   catch null
                 ] | map(select(. != null)) | last // "{}"
               ' "$RUNNER_TEMP/seqlane-existing-comment.json")
