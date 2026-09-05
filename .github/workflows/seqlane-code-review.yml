@@ -667,12 +667,13 @@ jobs:
               if $taskMetrics.durationMs != null then $taskMetrics.durationMs
               else
                 ([$events[] | select(.type == "invocation.started" and .invocationId == $id) | .metadata.occurredAt] | first) as $start |
+                ([$events[] | select(.type == "invocation.created" and .invocationId == $id) | .metadata.occurredAt] | first) as $created |
                 ([$events[] | select(
                   .invocationId == $id and
                   (.type == "invocation.succeeded" or .type == "invocation.failed" or
                    .type == "invocation.cancelled" or .type == "invocation.skipped")
                 ) | .metadata.occurredAt] | last) as $finish |
-                elapsed_ms($start; $finish)
+                elapsed_ms(($start // $created); $finish)
               end;
             def sum_tokens($tasks):
               reduce $tasks[] as $task
