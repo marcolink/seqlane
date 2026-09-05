@@ -8,6 +8,7 @@ import type { RunId, SeqlaneRunOutcome, WorkId } from "@seqlane/core";
 import { RuntimeError, SeqlaneError } from "@seqlane/core";
 import {
   registerMastraServer,
+  type MastraMcpDispatcherOptions,
   type MastraServerRequestContext,
   type MastraRuntimeServer,
 } from "./mastra-server.js";
@@ -40,7 +41,7 @@ export interface MastraRuntime {
   ): Promise<SeqlaneRunOutcome>;
   start(request: MastraRunRequest, context?: MastraRunContext): MastraActiveRun;
   inspect(request: MastraRunRequest): Promise<MastraRuntimeInspection>;
-  readonly server?: MastraRuntimeServer;
+  readonly server: MastraRuntimeServer;
 }
 
 export interface MastraActiveRun {
@@ -51,6 +52,8 @@ export interface MastraActiveRun {
 export interface MastraRuntimeOptions {
   /** Registers reusable workflow definitions with the Mastra server and MCP adapter. */
   readonly exposeServer?: boolean;
+  /** Bounds concurrent MCP dispatch and gives each invocation a deadline. */
+  readonly mcpDispatcher?: MastraMcpDispatcherOptions;
   /** Retrieves a typed failure captured before Mastra serializes it. */
   readonly failureForRun?: (runId: RunId) => SeqlaneError | undefined;
   /** Observes Mastra step statuses before the result is normalized. */
@@ -63,6 +66,21 @@ export interface MastraRuntimeOptions {
 export interface MastraRuntimeInspection {
   readonly workflowRun: unknown;
   readonly trace: unknown;
+}
+
+function unavailableMastraRuntimeServer(): MastraRuntimeServer {
+  const unavailable = (): Promise<never> =>
+    Promise.reject(
+      new Error(
+        "The one-shot compiled Plan runtime does not expose a Mastra server",
+      ),
+    );
+  return {
+    listWorkflows: unavailable,
+    listMcpServers: unavailable,
+    listMcpTools: unavailable,
+    executeMcpTool: unavailable,
+  };
 }
 
 const WORK_ID_CONTEXT_KEY = "seqlane.workId";
@@ -160,15 +178,15 @@ export function createMastraRuntime(
   options: MastraRuntimeOptions = {},
 ): MastraRuntime {
   const runtime = createMastraRuntimeCore(registrations, options);
-  if (options.exposeServer === false) return runtime.runtime;
+  if (options.exposeServer === false) {
+    return { ...runtime.runtime, server: unavailableMastraRuntimeServer() };
+  }
 
   const server = registerMastraServer(
     runtime.mastra,
     runtime.workflows,
     async ({ workflowKey, input, requestContext, abortSignal }) => {
-      const registration = registrations.find(
-        ({ key }) => key === workflowKey,
-      );
+      const registration = registrations.find(({ key }) => key === workflowKey);
       if (registration === undefined) {
         throw new TypeError(`Unknown Mastra workflow: "${workflowKey}"`);
       }
@@ -188,6 +206,7 @@ export function createMastraRuntime(
       );
       return activeRun.outcome;
     },
+    options.mcpDispatcher,
   );
 
   return { ...runtime.runtime, server };

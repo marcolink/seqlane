@@ -1,5 +1,6 @@
 // @test-scope ../compile/mastra-plan-compiler.ts
 // @test-scope ./mastra-runtime.ts
+// @test-scope ./mastra-server.ts
 // @test-scope ./mastra-execution.ts
 
 import { readFileSync } from "node:fs";
@@ -411,12 +412,19 @@ describe("private Mastra runtime spine", () => {
     const runtime = createMastraRuntime([{ key: "fixture", workflow }]);
 
     await expect(
-      runtime.server.executeMcpTool("seqlane-workflows", "run_fixture", {
-        fail: "not-a-boolean",
-      }, {
-        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
-        abortSignal: new AbortController().signal,
-      }),
+      runtime.server.executeMcpTool(
+        "seqlane-workflows",
+        "run_fixture",
+        {
+          fail: "not-a-boolean",
+        },
+        {
+          requestContext: new RequestContext([
+            ["user", { id: "fixture-user" }],
+          ]),
+          abortSignal: new AbortController().signal,
+        },
+      ),
     ).resolves.toMatchObject({
       result: {
         error: true,
@@ -462,9 +470,7 @@ describe("private Mastra runtime spine", () => {
       `run_${workflow.id}`,
       null,
       {
-        requestContext: new RequestContext([
-          ["user", { id: "fixture-user" }],
-        ]),
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
         abortSignal: controller.signal,
       },
     );
@@ -542,6 +548,131 @@ describe("private Mastra runtime spine", () => {
         runId: expect.stringMatching(/^mcp-run-/),
       },
     ]);
+  });
+
+  it("bounds concurrent MCP workflow dispatch", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    let invocationCount = 0;
+    const startedResolvers: Array<() => void> = [];
+    const started = [
+      new Promise<void>((resolve) => startedResolvers.push(resolve)),
+      new Promise<void>((resolve) => startedResolvers.push(resolve)),
+    ];
+    const releases: Array<() => void> = [];
+    const step = createStep({
+      id: "mcp-bounded-step",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+      execute: async ({ abortSignal }) => {
+        const index = invocationCount++;
+        startedResolvers[index]?.();
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        try {
+          await new Promise<void>((resolve, reject) => {
+            releases[index] = resolve;
+            abortSignal.addEventListener(
+              "abort",
+              () => reject(new Error("bounded MCP invocation aborted")),
+              { once: true },
+            );
+          });
+        } finally {
+          active -= 1;
+        }
+        return null;
+      },
+    });
+    const workflow = createWorkflow({
+      id: "mcp-bounded-workflow",
+      description: "Runs the bounded MCP fixture.",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(step)
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
+      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 1_000 },
+    });
+    const requestContext = () =>
+      new RequestContext([["user", { id: "fixture-user" }]]);
+    const first = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      {
+        requestContext: requestContext(),
+        abortSignal: new AbortController().signal,
+      },
+    );
+    await started[0];
+    const second = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      {
+        requestContext: requestContext(),
+        abortSignal: new AbortController().signal,
+      },
+    );
+    await Promise.resolve();
+    expect(invocationCount).toBe(1);
+
+    releases[0]!();
+    await started[1];
+    releases[1]!();
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(maximumActive).toBe(1);
+  });
+
+  it("cancels MCP workflow dispatch at its deadline", async () => {
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const workflow = createWorkflow({
+      id: "mcp-deadline-workflow",
+      description: "Runs the MCP deadline fixture.",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(
+        createStep({
+          id: "mcp-deadline-step",
+          inputSchema: z.unknown(),
+          outputSchema: z.unknown(),
+          execute: async ({ abortSignal }) => {
+            started();
+            await new Promise<never>((_resolve, reject) => {
+              abortSignal.addEventListener(
+                "abort",
+                () => reject(new Error("deadline reached")),
+                { once: true },
+              );
+            });
+            return null;
+          },
+        }),
+      )
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
+      mcpDispatcher: { deadlineMs: 10 },
+    });
+    const invocation = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      {
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+        abortSignal: new AbortController().signal,
+      },
+    );
+
+    await startedPromise;
+    await expect(invocation).resolves.toMatchObject({
+      result: { status: "cancelled" },
+    });
   });
 
   it("rejects workflows without descriptions before MCP registration", () => {

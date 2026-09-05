@@ -24,6 +24,7 @@ Each private Mastra runtime accepts one workflow run. Reusable workflow
 registrations expose MCP through fresh per-invocation runtimes. A compiled
 one-shot Plan runtime does not expose its run-bound workflow through MCP. Its
 MCP workflow execution also requires an authenticated request context. Its
+dispatcher applies bounded concurrency and a per-invocation deadline. Its
 in-memory storage remains available for inspection while the execution owns
 that runtime.
 

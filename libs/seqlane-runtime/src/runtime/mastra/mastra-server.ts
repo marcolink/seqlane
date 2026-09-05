@@ -28,6 +28,145 @@ export type MastraMcpDispatcher = (
   invocation: MastraMcpInvocation,
 ) => Promise<unknown>;
 
+export interface MastraMcpDispatcherOptions {
+  readonly maxConcurrent?: number;
+  readonly maxQueued?: number;
+  readonly deadlineMs?: number;
+}
+
+interface QueuedMcpInvocation {
+  readonly invocation: MastraMcpInvocation;
+  readonly controller: AbortController;
+  readonly resolve: (value: unknown) => void;
+  readonly reject: (cause: unknown) => void;
+  readonly cleanup: () => void;
+  started: boolean;
+  settled: boolean;
+}
+
+class BoundedMcpDispatcher {
+  private readonly maxConcurrent: number;
+  private readonly maxQueued: number;
+  private readonly deadlineMs: number;
+  private readonly queue: QueuedMcpInvocation[] = [];
+  private active = 0;
+
+  constructor(
+    private readonly dispatch: MastraMcpDispatcher,
+    options: MastraMcpDispatcherOptions = {},
+  ) {
+    this.maxConcurrent = options.maxConcurrent ?? 4;
+    this.maxQueued = options.maxQueued ?? 16;
+    this.deadlineMs = options.deadlineMs ?? 30_000;
+    if (this.maxConcurrent < 1 || !Number.isInteger(this.maxConcurrent)) {
+      throw new TypeError("MCP maxConcurrent must be a positive integer");
+    }
+    if (this.maxQueued < 0 || !Number.isInteger(this.maxQueued)) {
+      throw new TypeError("MCP maxQueued must be a non-negative integer");
+    }
+    if (this.deadlineMs < 1 || !Number.isFinite(this.deadlineMs)) {
+      throw new TypeError("MCP deadlineMs must be a positive number");
+    }
+  }
+
+  dispatchInvocation(invocation: MastraMcpInvocation): Promise<unknown> {
+    if (invocation.abortSignal.aborted) {
+      return Promise.reject(new Error("MCP workflow invocation was cancelled"));
+    }
+    if (
+      this.queue.length >= this.maxQueued &&
+      this.active >= this.maxConcurrent
+    ) {
+      return Promise.reject(new Error("MCP workflow dispatcher queue is full"));
+    }
+
+    const controller = new AbortController();
+    const onCallerAbort = (): void => {
+      controller.abort(invocation.abortSignal.reason);
+    };
+    invocation.abortSignal.addEventListener("abort", onCallerAbort, {
+      once: true,
+    });
+
+    let entry!: QueuedMcpInvocation;
+    const deadline = setTimeout(() => {
+      if (entry.started) {
+        controller.abort(
+          new Error("MCP workflow invocation deadline exceeded"),
+        );
+        return;
+      }
+      this.remove(entry);
+      this.reject(
+        entry,
+        new Error("MCP workflow invocation deadline exceeded"),
+      );
+    }, this.deadlineMs);
+    const cleanup = (): void => {
+      clearTimeout(deadline);
+      invocation.abortSignal.removeEventListener("abort", onCallerAbort);
+    };
+    const promise = new Promise<unknown>((resolve, reject) => {
+      entry = {
+        invocation,
+        controller,
+        resolve,
+        reject,
+        cleanup,
+        started: false,
+        settled: false,
+      };
+    });
+    this.queue.push(entry);
+    this.pump();
+    return promise;
+  }
+
+  private remove(entry: QueuedMcpInvocation): void {
+    const index = this.queue.indexOf(entry);
+    if (index >= 0) this.queue.splice(index, 1);
+  }
+
+  private reject(entry: QueuedMcpInvocation, cause: unknown): void {
+    if (entry.settled) return;
+    entry.settled = true;
+    entry.cleanup();
+    entry.reject(cause);
+  }
+
+  private pump(): void {
+    while (this.active < this.maxConcurrent) {
+      const entry = this.queue.shift();
+      if (entry === undefined) return;
+      if (entry.controller.signal.aborted) {
+        this.reject(entry, new Error("MCP workflow invocation was cancelled"));
+        continue;
+      }
+      entry.started = true;
+      this.active += 1;
+      void this.run(entry);
+    }
+  }
+
+  private async run(entry: QueuedMcpInvocation): Promise<void> {
+    try {
+      const result = await this.dispatch({
+        ...entry.invocation,
+        abortSignal: entry.controller.signal,
+      });
+      entry.settled = true;
+      entry.resolve(result);
+    } catch (cause) {
+      entry.settled = true;
+      entry.reject(cause);
+    } finally {
+      entry.cleanup();
+      this.active -= 1;
+      this.pump();
+    }
+  }
+}
+
 export interface MastraRuntimeServer {
   listWorkflows(): Promise<unknown>;
   listMcpServers(): Promise<unknown>;
@@ -77,6 +216,7 @@ export function registerMastraServer(
   mastra: Mastra,
   workflows: Record<string, AnyWorkflow>,
   dispatchMcpInvocation: MastraMcpDispatcher,
+  dispatcherOptions?: MastraMcpDispatcherOptions,
 ): MastraRuntimeServer {
   for (const [key, workflow] of Object.entries(workflows)) {
     if (
@@ -89,6 +229,10 @@ export function registerMastraServer(
     }
   }
 
+  const boundedDispatcher = new BoundedMcpDispatcher(
+    dispatchMcpInvocation,
+    dispatcherOptions,
+  );
   const tools: Record<string, ReturnType<typeof createTool>> = {};
   for (const [key, workflow] of Object.entries(workflows)) {
     const toolId = `run_${key}`;
@@ -99,17 +243,21 @@ export function registerMastraServer(
       execute: async (input, context) => {
         const authInfo = context.mcp?.extra.authInfo;
         assertAuthenticated(context.requestContext, authInfo);
-        return dispatchMcpInvocation({
+        const abortSignal =
+          context.mcp?.extra.signal ??
+          context.abortSignal ??
+          (context.requestContext.getRaw(MCP_ABORT_SIGNAL_CONTEXT_KEY) as
+            AbortSignal | undefined);
+        if (abortSignal === undefined) {
+          throw new Error(
+            "MCP workflow execution requires a request-bound abort signal",
+          );
+        }
+        return boundedDispatcher.dispatchInvocation({
           workflowKey: key,
           input,
           requestContext: context.requestContext,
-          abortSignal:
-            context.mcp?.extra.signal ??
-            context.abortSignal ??
-            (context.requestContext.getRaw(MCP_ABORT_SIGNAL_CONTEXT_KEY) as
-              | AbortSignal
-              | undefined) ??
-            new AbortController().signal,
+          abortSignal,
         });
       },
     });
