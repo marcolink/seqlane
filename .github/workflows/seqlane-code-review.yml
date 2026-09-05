@@ -1,6 +1,9 @@
 name: Seqlane code review
 
 on:
+  # Normal pull-request and comment events use the trusted workflow definition
+  # from the repository's base/default branch (main for this project). Keep
+  # branch-specific execution explicit through workflow_dispatch below.
   pull_request_target:
     types:
       - opened
@@ -13,6 +16,8 @@ on:
       - created
       - edited
   workflow_dispatch:
+    # To test this workflow from a PR branch, dispatch it with:
+    # gh workflow run "Seqlane code review" --ref <branch> -f pull_request_number=<number>
     inputs:
       pull_request_number:
         description: Pull request number to review

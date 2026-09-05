@@ -91,13 +91,15 @@ the GitHub Actions job summary. This identifies the exact workflow revision
 that GitHub executed, independently of the reviewed pull-request revision.
 
 The workflow uses `pull_request_target`, runs the trusted workflow definition
-from the base branch, and checks out the resolved trusted base revision as the
-Seqlane source for automatic runs. It checks out the pull-request head
-separately as the review target. Manual branch runs use the selected branch's
-workflow and source revision for trusted branch testing.
-When a pull request closes, the workflow triggers a cancellation event that
-uses the same concurrency group to cancel any active review, while its review
-job is skipped.
+from the base branch (the repository's normal base is `main`), and checks out
+the resolved trusted base revision as the Seqlane source for automatic runs.
+It checks out the pull-request head separately as the review target. Manual
+branch runs use the selected branch's workflow and source revision for trusted
+branch testing.
+Runs for the same pull request are serialized so comment lookup and publication
+cannot overlap. When a pull request closes, the workflow triggers a final
+skipped run in the same concurrency group; the publisher also checks the live
+pull-request state before it writes.
 Only open pull requests are eligible for review; manual and comment-triggered
 runs for closed pull requests also skip the review.
 
@@ -173,9 +175,8 @@ gh workflow run "Seqlane code review" \
 ```
 
 Automatic pull-request and comment-triggered runs continue to use the trusted
-base revision for the workflow source. The manual path is intended for
-trusted branch testing and uses the selected branch's workflow and Seqlane
-source revision.
+main/base workflow path. The manual path is intended for trusted branch
+testing and uses the selected branch's workflow and Seqlane source revision.
 The review runtime denies access outside the review workspace and blocks
 environment files. Git streams only a bounded patch prefix to the review task,
 which retains complete UTF-8 lines and does not materialize the full diff.
