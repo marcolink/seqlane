@@ -7,7 +7,11 @@ import {
 async function cleanup() {
   const pid = getState("pid");
   if (!pid) return;
-  if (!(await terminateProcessGroup(pid))) {
+  const identity = {
+    processGroupId: getState("process-group-id"),
+    processStartTime: getState("process-start-time"),
+  };
+  if (!(await terminateProcessGroup(pid, identity))) {
     console.warn(`OpenCode process group ${pid} did not stop cleanly`);
   }
 }

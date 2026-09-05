@@ -2,8 +2,8 @@ import {
   assertDirectory,
   getInput,
   getRunnerTempPath,
+  persistProcessState,
   reportFailure,
-  saveState,
   setOutput,
   spawnDetached,
   terminateProcessGroup,
@@ -24,7 +24,7 @@ async function main() {
   await assertDirectory(workingDirectory);
   const url = `http://${hostname}:${port}`;
   const logPath = getRunnerTempPath("opencode.log");
-  const pid = await spawnDetached({
+  const service = await spawnDetached({
     command: executable,
     args: ["serve", "--hostname", hostname, "--port", port, "--print-logs"],
     cwd: workingDirectory,
@@ -32,14 +32,13 @@ async function main() {
     logPath,
   });
 
-  await saveState("pid", String(pid));
-  await saveState("log-path", logPath);
+  await persistProcessState(service);
 
   try {
     await waitForHttpHealth(`${url}/global/health`, timeoutSeconds * 1_000);
   } catch (error) {
     try {
-      await terminateProcessGroup(pid);
+      await terminateProcessGroup(service.pid, service.identity);
     } catch (cleanupError) {
       console.warn(`OpenCode startup cleanup failed: ${cleanupError.message}`);
     }

@@ -1,5 +1,5 @@
 import { closeSync, openSync } from "node:fs";
-import { appendFile, mkdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { execFile, spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -42,6 +42,76 @@ export function getState(key) {
   return process.env[`STATE_${key}`] ?? "";
 }
 
+function positiveInteger(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : undefined;
+}
+
+function parseLinuxProcessIdentity(contents) {
+  const commandEnd = contents.lastIndexOf(")");
+  if (commandEnd < 0) throw new Error("Invalid Linux process metadata");
+  const fields = contents
+    .slice(commandEnd + 2)
+    .trim()
+    .split(/\s+/);
+  const processGroupId = positiveInteger(fields[2]);
+  const processStartTime = fields[19];
+  if (!processGroupId || !processStartTime) {
+    throw new Error("Incomplete Linux process metadata");
+  }
+  return { processGroupId, processStartTime };
+}
+
+async function readProcessIdentityFromPs(pid) {
+  const { stdout } = await execFileAsync(
+    "ps",
+    ["-o", "pid=", "-o", "pgid=", "-o", "lstart=", "-p", String(pid)],
+    { maxBuffer: 16 * 1024 },
+  );
+  const match = stdout.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+  const processGroupId = positiveInteger(match?.[2]);
+  const processStartTime = match?.[3]?.trim();
+  if (!processGroupId || !processStartTime) {
+    throw new Error("Incomplete process metadata");
+  }
+  return { processGroupId, processStartTime };
+}
+
+export async function readProcessIdentity(pidValue) {
+  const pid = positiveInteger(pidValue);
+  if (!pid) return undefined;
+  if (process.platform === "linux") {
+    return parseLinuxProcessIdentity(
+      await readFile(`/proc/${pid}/stat`, "utf8"),
+    );
+  }
+  if (process.platform === "darwin") return readProcessIdentityFromPs(pid);
+  return undefined;
+}
+
+function normalizeProcessIdentity(identity) {
+  if (!identity || typeof identity !== "object") return undefined;
+  const processGroupId = positiveInteger(identity.processGroupId);
+  const processStartTime =
+    typeof identity.processStartTime === "string"
+      ? identity.processStartTime.trim()
+      : "";
+  if (!processGroupId || !processStartTime) return undefined;
+  return { processGroupId, processStartTime };
+}
+
+async function processIdentityMatches(pid, expectedIdentity) {
+  try {
+    const currentIdentity = await readProcessIdentity(pid);
+    return (
+      currentIdentity?.processGroupId === expectedIdentity.processGroupId &&
+      currentIdentity?.processStartTime === expectedIdentity.processStartTime
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function assertDirectory(directory) {
   const details = await stat(directory);
   if (!details.isDirectory()) {
@@ -76,22 +146,36 @@ export async function spawnDetached({ command, args, cwd, env, logPath }) {
     throw new Error(`Could not determine the PID for ${command}`);
   }
 
+  let identity;
+  try {
+    identity = await readProcessIdentity(pid);
+  } catch (error) {
+    child.kill("SIGTERM");
+    throw new Error(`Could not verify the identity for ${command}`, {
+      cause: error,
+    });
+  }
+  if (!identity) {
+    child.kill("SIGTERM");
+    throw new Error(`Could not verify the identity for ${command}`);
+  }
+
   child.unref();
-  return pid;
+  return { pid, identity };
 }
 
-function processGroupIsAlive(pid) {
+function processGroupIsAlive(processGroupId) {
   try {
-    process.kill(-pid, 0);
+    process.kill(-processGroupId, 0);
     return true;
   } catch (error) {
     return error?.code === "EPERM";
   }
 }
 
-function signalProcessGroup(pid, signal) {
+function signalProcessGroup(processGroupId, signal) {
   try {
-    process.kill(-pid, signal);
+    process.kill(-processGroupId, signal);
     return true;
   } catch (error) {
     if (error?.code === "ESRCH" || error?.code === "EINVAL") return false;
@@ -99,35 +183,69 @@ function signalProcessGroup(pid, signal) {
   }
 }
 
-async function waitForProcessGroupExit(pid, timeoutMilliseconds) {
+async function waitForProcessGroupExit(processGroupId, timeoutMilliseconds) {
   const deadline = Date.now() + timeoutMilliseconds;
-  while (processGroupIsAlive(pid) && Date.now() < deadline) {
+  while (processGroupIsAlive(processGroupId) && Date.now() < deadline) {
     await sleep(100);
   }
-  return !processGroupIsAlive(pid);
+  return !processGroupIsAlive(processGroupId);
 }
 
-export async function terminateProcessGroup(pidValue) {
-  const pid = Number(pidValue);
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  if (!processGroupIsAlive(pid)) return true;
+export async function terminateProcessGroup(pidValue, expectedIdentity) {
+  const pid = positiveInteger(pidValue);
+  const identity = normalizeProcessIdentity(expectedIdentity);
+  if (!pid || !identity) return false;
+  if (!(await processIdentityMatches(pid, identity))) return true;
+  if (!processGroupIsAlive(identity.processGroupId)) return true;
 
   try {
-    if (!signalProcessGroup(pid, "SIGTERM")) return true;
+    if (!signalProcessGroup(identity.processGroupId, "SIGTERM")) return true;
   } catch (error) {
     if (error?.code === "ESRCH") return true;
     throw error;
   }
 
-  if (await waitForProcessGroupExit(pid, 5_000)) return true;
+  if (await waitForProcessGroupExit(identity.processGroupId, 5_000)) {
+    return true;
+  }
+
+  if (!(await processIdentityMatches(pid, identity))) return true;
 
   try {
-    if (!signalProcessGroup(pid, "SIGKILL")) return true;
+    if (!signalProcessGroup(identity.processGroupId, "SIGKILL")) return true;
   } catch (error) {
     if (error?.code === "ESRCH") return true;
     throw error;
   }
-  return waitForProcessGroupExit(pid, 2_000);
+  return waitForProcessGroupExit(identity.processGroupId, 2_000);
+}
+
+export async function persistProcessState({ pid, identity }) {
+  const normalizedIdentity = normalizeProcessIdentity(identity);
+  if (!normalizedIdentity) {
+    throw new Error("Cannot persist an unverified process identity");
+  }
+
+  try {
+    await saveState("pid", String(pid));
+    await saveState(
+      "process-group-id",
+      String(normalizedIdentity.processGroupId),
+    );
+    await saveState("process-start-time", normalizedIdentity.processStartTime);
+  } catch (error) {
+    try {
+      const stopped = await terminateProcessGroup(pid, normalizedIdentity);
+      if (!stopped) {
+        console.warn(
+          `Process group ${pid} could not be verified during cleanup`,
+        );
+      }
+    } catch (cleanupError) {
+      console.warn(`Startup cleanup failed: ${cleanupError.message}`);
+    }
+    throw error;
+  }
 }
 
 export async function waitForHttpHealth(url, timeoutMilliseconds) {
@@ -135,15 +253,20 @@ export async function waitForHttpHealth(url, timeoutMilliseconds) {
   while (Date.now() < deadline) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2_000);
+    let response;
     try {
-      const response = await fetch(url, { signal: controller.signal });
+      response = await fetch(url, { signal: controller.signal });
       if (response.ok) {
-        await response.body?.cancel();
         return;
       }
     } catch {
       // The service may still be starting.
     } finally {
+      try {
+        await response?.body?.cancel();
+      } catch {
+        // Ignore body cleanup failures while the service is starting.
+      }
       clearTimeout(timeout);
     }
     await sleep(1_000);

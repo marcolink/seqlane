@@ -2,9 +2,9 @@ import {
   assertDirectory,
   getInput,
   getRunnerTempPath,
+  persistProcessState,
   reportFailure,
   runReadinessCommand,
-  saveState,
   setOutput,
   spawnDetached,
   terminateProcessGroup,
@@ -45,7 +45,7 @@ async function main() {
   const packageSpec = `@zvec/zvec-grep@${version}`;
   const commandArgs = ["dlx", packageSpec, "server", "run", "--listen", listen];
   const logPath = getRunnerTempPath("zvec-grep.log");
-  const pid = await spawnDetached({
+  const service = await spawnDetached({
     command: packageManager,
     args: commandArgs,
     cwd: workingDirectory,
@@ -53,8 +53,7 @@ async function main() {
     logPath,
   });
 
-  await saveState("pid", String(pid));
-  await saveState("log-path", logPath);
+  await persistProcessState(service);
 
   try {
     await waitForCommandHealth(
@@ -70,7 +69,7 @@ async function main() {
     );
   } catch (error) {
     try {
-      await terminateProcessGroup(pid);
+      await terminateProcessGroup(service.pid, service.identity);
     } catch (cleanupError) {
       console.warn(`zvec-grep startup cleanup failed: ${cleanupError.message}`);
     }
