@@ -157,7 +157,7 @@
 | [task.local-task-contracts](./2026-09-03-local-task-contracts.md) | Define Local Task Contracts | completed | 2026-09-03 | core |
 | [task.model-contracts](./2026-09-03-model-contracts.md) | Define Model Refs, Reasoning, and Catalog Helpers | completed | 2026-09-03 | core |
 | [task.mastra-migration-foundation](./2026-09-03-mastra-migration-foundation.md) | Establish the Mastra Migration Foundation | completed | 2026-09-03 | core |
-| [task.mastra-server-mcp](./2026-09-03-mastra-server-mcp.md) | Expose Workflows Through Mastra Server and MCP | planned | 2026-09-03 | core |
+| [task.mastra-server-mcp](./2026-09-03-mastra-server-mcp.md) | Expose Workflows Through Mastra Server and MCP | completed | 2026-09-03 | core |
 | [task.opencode-model-forks](./2026-09-03-opencode-model-forks.md) | Initialize OpenCode Fork Models Before Prompting | completed | 2026-09-03 | core |
 | [task.mastra-workspace-constraints](./2026-09-03-mastra-workspace-constraints.md) | Lower Workspace Constraints Into the Mastra Graph | completed | 2026-09-03 | core |
 | [task.mastra-session-semantics](./2026-09-03-mastra-session-semantics.md) | Map Seqlane Session Semantics to Mastra | completed | 2026-09-03 | core |
@@ -182,3 +182,4 @@
 | [task.review-progress-and-run-metrics](./2026-09-05-review-progress-and-run-metrics.md) | Show Review Progress and Persist Run Metrics | completed | 2026-09-05 | core |
 | [task.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Apply Pull Request Review Dispositions Without Agent Runs | planned | 2026-09-06 | core |
 | [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
+| [task.investigate-mastra-mcp-runtime-reuse](./2026-09-05-investigate-mastra-mcp-runtime-reuse.md) | Investigate Mastra Runtime Reuse for MCP Invocations | planned | 2026-09-05 | core |

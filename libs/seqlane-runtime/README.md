@@ -20,8 +20,16 @@ events, and retains results until their final consumer completes.
 The Mastra compiler currently rejects repeat nodes until a dedicated
 Mastra-native repeat lowering is added.
 
-Each private Mastra runtime accepts one workflow run. Its in-memory storage
-remains available for inspection while the execution owns that runtime.
+Each private Mastra runtime accepts one workflow run. Reusable workflow
+registrations expose MCP through fresh per-invocation runtimes. A compiled
+one-shot Plan runtime does not expose its run-bound workflow through MCP. Its
+dispatcher applies bounded concurrency and a per-invocation deadline. Its
+in-memory storage remains available for inspection while the execution owns
+that runtime. Cancelled queued MCP invocations are removed immediately so
+they do not consume queue capacity. A deadline settles the caller and
+releases dispatcher capacity even if workflow code ignores cancellation.
+Server and discovery helpers receive the caller's `RequestContext` and
+`AbortSignal`; they do not synthesize a separate request context.
 
 ### Local task execution
 

@@ -480,6 +480,7 @@ export function compilePlanToMastra(
 
   let workflow: AnyWorkflow = createWorkflow({
     id: plan.workflow.id,
+    description: `Runs Seqlane workflow ${plan.workflow.id}.`,
     inputSchema: workflowInputSchema,
     outputSchema: workflowOutputSchema,
   }) as AnyWorkflow;

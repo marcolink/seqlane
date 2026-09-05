@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Mastra } from "@mastra/core/mastra";
 import { RequestContext } from "@mastra/core/request-context";
 import { InMemoryStore } from "@mastra/core/storage";
@@ -6,6 +6,12 @@ import type { AnyWorkflow } from "@mastra/core/workflows";
 import { MastraStorageExporter, Observability } from "@mastra/observability";
 import type { RunId, SeqlaneRunOutcome, WorkId } from "@seqlane/core";
 import { RuntimeError, SeqlaneError } from "@seqlane/core";
+import {
+  registerMastraServer,
+  type MastraMcpDispatcherOptions,
+  type MastraServerRequestContext,
+  type MastraRuntimeServer,
+} from "./mastra-server.js";
 
 export interface MastraWorkflowRegistration {
   readonly key: string;
@@ -19,6 +25,8 @@ export interface MastraRunRequest {
   readonly runId: RunId;
 }
 
+export type MastraRunContext = MastraServerRequestContext;
+
 export interface MastraWorkflowResult {
   readonly status: string;
   readonly result?: unknown;
@@ -27,9 +35,13 @@ export interface MastraWorkflowResult {
 }
 
 export interface MastraRuntime {
-  run(request: MastraRunRequest): Promise<SeqlaneRunOutcome>;
-  start(request: MastraRunRequest): MastraActiveRun;
+  run(
+    request: MastraRunRequest,
+    context?: MastraRunContext,
+  ): Promise<SeqlaneRunOutcome>;
+  start(request: MastraRunRequest, context?: MastraRunContext): MastraActiveRun;
   inspect(request: MastraRunRequest): Promise<MastraRuntimeInspection>;
+  readonly server: MastraRuntimeServer;
 }
 
 export interface MastraActiveRun {
@@ -38,6 +50,10 @@ export interface MastraActiveRun {
 }
 
 export interface MastraRuntimeOptions {
+  /** Registers reusable workflow definitions with the Mastra server and MCP adapter. */
+  readonly exposeServer?: boolean;
+  /** Bounds concurrent MCP dispatch and gives each invocation a deadline. */
+  readonly mcpDispatcher?: MastraMcpDispatcherOptions;
   /** Retrieves a typed failure captured before Mastra serializes it. */
   readonly failureForRun?: (runId: RunId) => SeqlaneError | undefined;
   /** Observes Mastra step statuses before the result is normalized. */
@@ -50,6 +66,21 @@ export interface MastraRuntimeOptions {
 export interface MastraRuntimeInspection {
   readonly workflowRun: unknown;
   readonly trace: unknown;
+}
+
+function unavailableMastraRuntimeServer(): MastraRuntimeServer {
+  const unavailable = (): Promise<never> =>
+    Promise.reject(
+      new Error(
+        "The one-shot compiled Plan runtime does not expose a Mastra server",
+      ),
+    );
+  return {
+    listWorkflows: unavailable,
+    listMcpServers: unavailable,
+    listMcpTools: unavailable,
+    executeMcpTool: unavailable,
+  };
 }
 
 const WORK_ID_CONTEXT_KEY = "seqlane.workId";
@@ -146,6 +177,49 @@ export function createMastraRuntime(
   registrations: readonly MastraWorkflowRegistration[],
   options: MastraRuntimeOptions = {},
 ): MastraRuntime {
+  const runtime = createMastraRuntimeCore(registrations, options);
+  if (options.exposeServer === false) {
+    return { ...runtime.runtime, server: unavailableMastraRuntimeServer() };
+  }
+
+  const server = registerMastraServer(
+    runtime.mastra,
+    runtime.workflows,
+    async ({ workflowKey, input, requestContext, abortSignal }) => {
+      const registration = registrations.find(({ key }) => key === workflowKey);
+      if (registration === undefined) {
+        throw new TypeError(`Unknown Mastra workflow: "${workflowKey}"`);
+      }
+
+      const invocationRuntime = createMastraRuntimeCore(
+        [registration],
+        options,
+      );
+      const activeRun = invocationRuntime.runtime.start(
+        {
+          workflowKey,
+          input,
+          workId: `mcp-work-${randomUUID()}`,
+          runId: `mcp-run-${randomUUID()}`,
+        },
+        { requestContext, abortSignal },
+      );
+      return activeRun.outcome;
+    },
+    options.mcpDispatcher,
+  );
+
+  return { ...runtime.runtime, server };
+}
+
+function createMastraRuntimeCore(
+  registrations: readonly MastraWorkflowRegistration[],
+  options: MastraRuntimeOptions,
+): {
+  readonly mastra: Mastra;
+  readonly workflows: Record<string, AnyWorkflow>;
+  readonly runtime: Omit<MastraRuntime, "server">;
+} {
   validateRegistrations(registrations);
 
   const workflows: Record<string, AnyWorkflow> = Object.fromEntries(
@@ -167,18 +241,17 @@ export function createMastraRuntime(
     observability,
     logger: false,
   });
-
   async function flushObservability(): Promise<void> {
     await observability.flush();
   }
 
   let runStarted = false;
 
-  return {
-    run(request) {
-      return this.start(request).outcome;
+  const runtime: Omit<MastraRuntime, "server"> = {
+    run(request, context) {
+      return this.start(request, context).outcome;
     },
-    start(request) {
+    start(request, context) {
       if (runStarted) {
         throw new TypeError(
           "A Mastra runtime instance can execute only one workflow run",
@@ -197,6 +270,7 @@ export function createMastraRuntime(
         },
       );
       let cancellation: Promise<void> | undefined;
+      let removeAbortListener: (() => void) | undefined;
 
       const requestCancellation = (): Promise<void> => {
         cancellationRequested = true;
@@ -207,6 +281,21 @@ export function createMastraRuntime(
         });
         return cancellation;
       };
+
+      if (context?.abortSignal !== undefined) {
+        const onAbort = (): void => {
+          void requestCancellation().catch(() => undefined);
+        };
+        if (context.abortSignal.aborted) {
+          onAbort();
+        } else {
+          context.abortSignal.addEventListener("abort", onAbort, {
+            once: true,
+          });
+          removeAbortListener = () =>
+            context.abortSignal?.removeEventListener("abort", onAbort);
+        }
+      }
 
       const outcome = (async () => {
         try {
@@ -221,10 +310,11 @@ export function createMastraRuntime(
             await requestCancellation();
             return { status: "cancelled" } as const;
           }
-          const requestContext = new RequestContext([
-            [WORK_ID_CONTEXT_KEY, request.workId],
-            [RUN_ID_CONTEXT_KEY, request.runId],
-          ]);
+          const requestContext = new RequestContext(
+            context?.requestContext?.entries(),
+          );
+          requestContext.setRaw(WORK_ID_CONTEXT_KEY, request.workId);
+          requestContext.setRaw(RUN_ID_CONTEXT_KEY, request.runId);
           const result = await activeRun.start({
             inputData: request.input,
             requestContext,
@@ -251,6 +341,7 @@ export function createMastraRuntime(
           if (cancellationRequested) return { status: "cancelled" } as const;
           return failedOutcome(cause, options.failureForRun?.(request.runId));
         } finally {
+          removeAbortListener?.();
           await flushObservability();
         }
       })();
@@ -277,4 +368,6 @@ export function createMastraRuntime(
       };
     },
   };
+
+  return { mastra, workflows, runtime };
 }
