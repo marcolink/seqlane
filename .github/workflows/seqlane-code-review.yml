@@ -1127,6 +1127,8 @@ jobs:
             | jq --raw-output)
 
           REPORT_HEAD=$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")
+          REPORT_PREVIOUS_HEAD=$(jq --raw-output '.previousReviewedRevision // ""' \
+            "$RUNNER_TEMP/seqlane-code-review-result.json")
           if [ -n "$COMMENT_ID" ]; then
             gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
               > "$RUNNER_TEMP/seqlane-existing-comment.json"
@@ -1141,7 +1143,8 @@ jobs:
                   catch null
                 ] | map(select(. != null)) | last // ""
               ' "$RUNNER_TEMP/seqlane-existing-comment.json")
-              if [ "$EXISTING_REPORT_REVISION" != "$REPORT_HEAD" ]; then
+              if [ "$EXISTING_REPORT_REVISION" != "$REPORT_HEAD" ] &&
+                 [ "$EXISTING_REPORT_REVISION" != "$REPORT_PREVIOUS_HEAD" ]; then
                 echo "::notice::The authoritative report targets a different revision; skipping this stale write."
                 echo "verdict=$(jq --raw-output '.verdict' "$RUNNER_TEMP/seqlane-code-review-result.json")" >> "$GITHUB_OUTPUT"
                 exit 0
