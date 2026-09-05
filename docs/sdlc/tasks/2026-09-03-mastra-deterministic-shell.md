@@ -77,9 +77,10 @@ Deterministic tasks use Mastra process primitives exclusively.
 Deterministic local task invocations now use the pinned Mastra `LocalSandbox`
 process path with direct command arguments. Results normalize exit status,
 bounded output, timing, timeout, cancellation, task identity, and invocation
-identity. The replaced Effect subprocess implementation, prototype, tests, and
-direct platform dependencies were removed. The public workflow and task
-contracts remain free of Mastra types.
+identity. The last production callers switched, and the replaced Effect
+subprocess implementation, prototype, tests, and direct platform dependencies
+were removed. The public workflow and task contracts remain free of Mastra
+types.
 
 The Mastra Plan compiler does not yet dispatch local task definitions through
 this process path. That integration is tracked in

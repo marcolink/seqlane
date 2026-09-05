@@ -10,8 +10,8 @@
 | [spec.executor-neutral-workflow-authoring](./2026-09-02-executor-neutral-workflow-authoring.md) | Executor-Neutral Workflow Authoring | active | 2026-09-02 | core |
 | [spec.fluent-seqlane-flow-dsl](./2026-09-02-fluent-seqlane-flow-dsl.md) | Fluent Seqlane Flow DSL and Conditioned Repeat | active | 2026-09-02 | core |
 | [spec.invocation-admission-and-workspace-coordination](./2026-09-02-invocation-admission-and-workspace-coordination.md) | Invocation Admission and Workspace Coordination | active | 2026-09-02 | core |
-| [spec.local-development-studio-trust-and-lifecycle](./2026-09-02-local-development-studio-trust-and-lifecycle.md) | Local Development Studio Trust and Lifecycle | active | 2026-09-02 | core |
-| [spec.local-read-only-execution-studio](./2026-09-02-local-read-only-execution-studio.md) | Local Read-Only Execution Studio | active | 2026-09-02 | core |
+| [spec.local-development-studio-trust-and-lifecycle](./2026-09-02-local-development-studio-trust-and-lifecycle.md) | Local Development Studio Trust and Lifecycle | superseded | 2026-09-02 | core |
+| [spec.local-read-only-execution-studio](./2026-09-02-local-read-only-execution-studio.md) | Local Read-Only Execution Studio | superseded | 2026-09-02 | core |
 | [spec.mastra-runtime-integration](./2026-09-02-mastra-runtime-integration.md) | Mastra Runtime Integration | superseded | 2026-09-02 | core |
 | [spec.opencode-executor-integration](./2026-09-02-opencode-executor-integration.md) | OpenCode Executor Integration | active | 2026-09-02 | core |
 | [spec.runtime-resolved-execution-profiles](./2026-09-02-runtime-resolved-execution-profiles.md) | Runtime-Resolved Agent Profiles | draft | 2026-09-02 | core |

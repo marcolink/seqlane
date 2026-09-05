@@ -22,13 +22,7 @@
       "path": "./apps/seqlane-cli"
     },
     {
-      "path": "./apps/seqlane-studio"
-    },
-    {
       "path": "./libs/seqlane-output"
-    },
-    {
-      "path": "./libs/seqlane-studio"
     },
     {
       "path": "./actions/resolve-merge-conflicts"
