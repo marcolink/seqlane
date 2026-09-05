@@ -12,7 +12,7 @@ import type {
 import { buildWorkflow } from "@seqlane/core";
 import { modelSelectionWorkflow } from "@seqlane/fixtures/model-selection-workflow";
 import { describe, expect, it } from "vitest";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import { preflightCompiledWorkflowModels } from "./model-preflight.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import type { ResolvedExecutorSession } from "../session/session-resolution.js";
@@ -75,7 +75,7 @@ describe("model-selection fixture integration", () => {
       }),
     };
     const built = buildWorkflow(modelSelectionWorkflow);
-    const compiled = new EffectCompiler().compileWorkflow(built.plan, {
+    const compiled = new PlanCompiler().compileWorkflow(built.plan, {
       createInvocationId: (nodeId) => nodeId,
       workflowInput: { label: "model-selection" },
       executors: new Map([["fixture-opencode", executor]]),
@@ -154,7 +154,7 @@ describe("model-selection fixture integration", () => {
     const executor: SeqlaneExecutor = {
       execute: async () => ({ label: "legacy" }),
     };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "legacy-model-plan" },
         nodes: [

@@ -12,7 +12,7 @@ import {
 } from "./program.js";
 import { invocationIdForNode, type ExecutionContext } from "./context.js";
 import { toSeqlaneInvocationError } from "./errors.js";
-import type { CompiledWorkflow } from "../compile/compile-plan.js";
+import type { CompiledPlan } from "../compile/compile-plan.js";
 import { taskIdCompatibility } from "../invocation/invocation-support.js";
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 20_000;
@@ -105,7 +105,7 @@ function emitInvocationTopology(
 }
 
 export function startCompiledWorkflow(
-  compiled: CompiledWorkflow,
+  compiled: CompiledPlan,
   options: StartCompiledWorkflowOptions = {},
 ): ActiveWorkflowRun {
   const { context } = compiled;
@@ -232,7 +232,7 @@ export function startCompiledWorkflow(
 }
 
 export async function runCompiledWorkflow(
-  compiled: CompiledWorkflow,
+  compiled: CompiledPlan,
 ): Promise<SeqlaneRunOutcome> {
   return startCompiledWorkflow(compiled).outcome;
 }

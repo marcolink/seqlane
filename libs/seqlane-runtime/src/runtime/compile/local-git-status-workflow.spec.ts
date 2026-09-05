@@ -22,7 +22,7 @@ import {
 import { createSeqlanePlanSnapshot } from "../../runner/workflow/plan-snapshot.js";
 import { startCompiledWorkflow } from "../execution/workflow-run.js";
 import type { ExecutorRequest } from "../execution/executor.js";
-import { EffectCompiler } from "./compile-plan.js";
+import { PlanCompiler } from "./compile-plan.js";
 function createEventBridge(
   events: SeqlaneExecutionEvent[],
 ): ExecutionEventBridge {
@@ -115,7 +115,7 @@ describe("local Git status workflow example", () => {
     bridge.emit({ type: "run.started", workId: "git-work", runId: "git-run" });
     bridge.emitPlan(snapshot, "git-work", "git-run");
     const agentRequests: ExecutorRequest[] = [];
-    const compiled = new EffectCompiler().compileWorkflow(built.plan, {
+    const compiled = new PlanCompiler().compileWorkflow(built.plan, {
       workId: "git-work",
       runId: "git-run",
       createInvocationId: (nodeId) => nodeId,

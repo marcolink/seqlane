@@ -4,8 +4,8 @@ import {
   executeSequentialProgram,
 } from "./program.js";
 
-describe("private Effect sequential runner", () => {
-  it("runs steps once in order with Effect interruption signals", async () => {
+describe("private sequential program runner", () => {
+  it("runs steps once in order with cancellation signals", async () => {
     const executions: string[] = [];
     const signals: AbortSignal[] = [];
     const program = createSequentialProgram({

@@ -4,7 +4,7 @@
 // @test-scope ./shared-session-order.ts
 import type { ModelSelection, PlanNode, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import { resolveCompiledWorkflowSessions } from "./session-preflight.js";
 import type {
@@ -53,7 +53,7 @@ function sharedSessionResolver(
 describe("shared-session order preflight", () => {
   it("accepts a shared-session pair with a transitive DAG dependency", async () => {
     const executor = { execute: async () => ({}) };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "shared-session-order" },
         nodes: [
@@ -103,7 +103,7 @@ describe("shared-session order preflight", () => {
         return {};
       },
     };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "unordered-shared-session" },
         nodes: [task("first"), task("second")],
@@ -161,7 +161,7 @@ describe("shared-session order preflight", () => {
         return { key: Symbol("branch"), executor: childExecutor };
       },
     };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "checkpoint-fanout" },
         nodes: [
@@ -219,7 +219,7 @@ describe("shared-session order preflight", () => {
       key: Symbol("parent"),
       executor: { execute: async () => ({}) },
     };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "session-selection-reuse" },
         nodes: [
@@ -292,7 +292,7 @@ describe("shared-session order preflight", () => {
         };
       },
     };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "session-selection-branch" },
         nodes: [
@@ -360,7 +360,7 @@ describe("shared-session order preflight", () => {
 
   it("fails a branch workflow when the source session cannot fork natively", async () => {
     const executor = { execute: async () => ({}) };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "unsupported-session-branch" },
         nodes: [

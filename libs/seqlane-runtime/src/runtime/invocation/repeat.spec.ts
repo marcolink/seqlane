@@ -16,7 +16,7 @@ import {
   runCompiledWorkflow,
   startCompiledWorkflow,
 } from "../../index.js";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 
@@ -121,7 +121,7 @@ function compile(
   executor: (request: ExecutorRequest) => Promise<unknown>,
   events?: { emit(event: SeqlaneEvent): void },
 ) {
-  return new EffectCompiler().compileWorkflow(source, {
+  return new PlanCompiler().compileWorkflow(source, {
     createInvocationId: (nodeId) => nodeId,
     executors: new Map([["test-executor", { execute: executor }]]),
     events,
@@ -187,7 +187,7 @@ describe("conditioned repeat execution", () => {
     const bodyTaskId = "repeat:1/body:1";
     let executions = 0;
     const taskSchema = { parse: (value: unknown) => value };
-    const compiled = new EffectCompiler().compileWorkflow(repeatPlan(2), {
+    const compiled = new PlanCompiler().compileWorkflow(repeatPlan(2), {
       createInvocationId: (nodeId) => nodeId,
       executors: new Map([
         [
@@ -242,7 +242,7 @@ describe("conditioned repeat execution", () => {
     const resolvedSelections: Array<ModelSelection | undefined> = [];
     const bodyTaskId = "repeat:1/body:1";
     const taskSchema = { parse: (value: unknown) => value };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       repeatPlan(1, { type: "isolated", model: selectedModel }),
       {
         createInvocationId: (nodeId) => nodeId,

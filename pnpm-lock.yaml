@@ -245,9 +245,6 @@ importers:
       '@seqlane/opencode':
         specifier: workspace:*
         version: link:../seqlane-opencode
-      effect:
-        specifier: 3.22.1
-        version: 3.22.1
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -3222,9 +3219,6 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==, tarball: https://registry.npmjs.org/ee-first/-/ee-first-1.1.1.tgz}
 
-  effect@3.22.1:
-    resolution: {integrity: sha512-TNoXushmPOBAjJlthF5d2QwnX2xBPEtcNJr5XKNKbRLbDvBcOYkXlYDfvGfSA0zriwLFuCll5MDtNMAdZL17PQ==, tarball: https://registry.npmjs.org/effect/-/effect-3.22.1.tgz}
-
   ejs@5.0.1:
     resolution: {integrity: sha512-COqBPFMxuPTPspXl2DkVYaDS3HtrD1GpzOGkNTJ1IYkifq/r9h8SVEFrjA3D9/VJGOEoMQcrlhpntcSUrM8k6A==, tarball: https://registry.npmjs.org/ejs/-/ejs-5.0.1.tgz}
     engines: {node: '>=0.12.18'}
@@ -3446,10 +3440,6 @@ packages:
 
   extend@3.0.2:
     resolution: {integrity: sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g==, tarball: https://registry.npmjs.org/extend/-/extend-3.0.2.tgz}
-
-  fast-check@3.23.2:
-    resolution: {integrity: sha512-h5+1OzzfCC3Ef7VbtKdcv7zsstUQwUDlYpUTvjeUsJAssPgLn7QzbboPtL5ro04Mq0rPOsMzl7q5hIbRs2wD1A==, tarball: https://registry.npmjs.org/fast-check/-/fast-check-3.23.2.tgz}
-    engines: {node: '>=8.0.0'}
 
   fast-copy@4.1.1:
     resolution: {integrity: sha512-A4QTJmuiztpGtr6AMeJts9R4hbj2ZBUwtOaKrG6rw2y7t6+IaJKjz5M3XDs8BUznxDH43FVc6A0y/gWlMl4UtA==, tarball: https://registry.npmjs.org/fast-copy/-/fast-copy-4.1.1.tgz}
@@ -4703,9 +4693,6 @@ packages:
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==, tarball: https://registry.npmjs.org/punycode/-/punycode-2.3.1.tgz}
     engines: {node: '>=6'}
-
-  pure-rand@6.1.0:
-    resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==, tarball: https://registry.npmjs.org/pure-rand/-/pure-rand-6.1.0.tgz}
 
   pure-rand@7.0.1:
     resolution: {integrity: sha512-oTUZM/NAZS8p7ANR3SHh30kXB+zK2r2BPcEn/awJIbOvq82WoMN4p62AWWp3Hhw50G0xMsw1mhIBLqHw64EcNQ==, tarball: https://registry.npmjs.org/pure-rand/-/pure-rand-7.0.1.tgz}
@@ -8630,11 +8617,6 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect@3.22.1:
-    dependencies:
-      '@standard-schema/spec': 1.1.0
-      fast-check: 3.23.2
-
   ejs@5.0.1: {}
 
   ejs@6.0.1: {}
@@ -8905,10 +8887,6 @@ snapshots:
       is-extendable: 0.1.1
 
   extend@3.0.2: {}
-
-  fast-check@3.23.2:
-    dependencies:
-      pure-rand: 6.1.0
 
   fast-copy@4.1.1: {}
 
@@ -10545,8 +10523,6 @@ snapshots:
       once: 1.4.0
 
   punycode@2.3.1: {}
-
-  pure-rand@6.1.0: {}
 
   pure-rand@7.0.1: {}
 
