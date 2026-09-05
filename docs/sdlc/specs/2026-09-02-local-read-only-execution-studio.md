@@ -1,17 +1,23 @@
 ---
 id: spec.local-read-only-execution-studio
 title: Local Read-Only Execution Studio
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-05
 upstream:
   - adr.local-read-only-execution-studio
 supersedes: []
 ---
 
 # Local Read-Only Execution Studio
+
+> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
+
+The dedicated Seqlane Studio service and its local event-forwarding contract
+were removed. Operational inspection now uses the upstream Mastra Community
+Studio.
 
 > Migrated from legacy technical specification `TS-013`.
 

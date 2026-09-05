@@ -10,6 +10,8 @@ upstream:
   - rfc.mastra-runtime-and-operational-foundation
 supersedes:
   - spec.effect-runtime-integration
+  - spec.local-development-studio-trust-and-lifecycle
+  - spec.local-read-only-execution-studio
 ---
 
 # Mastra Runtime and Operational Integration

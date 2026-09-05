@@ -1,17 +1,23 @@
 ---
 id: spec.local-development-studio-trust-and-lifecycle
 title: Local Development Studio Trust and Lifecycle
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-05
 upstream:
   - adr.local-development-studio-trust-and-lifecycle
 supersedes: []
 ---
 
 # Local Development Studio Trust and Lifecycle
+
+> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
+
+The implementation now launches the upstream Mastra Community Studio. The
+local Seqlane Studio service and `seqlane run --studio` contract described in
+this historical specification are not supported.
 
 > Migrated from legacy technical specification `TS-014`.
 

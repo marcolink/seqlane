@@ -6,15 +6,12 @@ import {
   type WorkflowReference,
 } from "@seqlane/core";
 import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
-import { dirname, extname, resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import { closeSync, openSync, readSync } from "node:fs";
-import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { launchRunner } from "../runner-client.js";
 import { createEventDispatcher } from "../event-dispatcher.js";
-import { createStudioPublisher } from "../studio-publisher.js";
 import { createRecordingConsumer } from "../recording.js";
-import { defaultStudioPort, startStudioSession } from "@seqlane/studio";
 import {
   connectTerminalResize,
   createCliRenderer,
@@ -22,7 +19,6 @@ import {
 } from "../output.js";
 import { parseOutputMode } from "../output-mode.js";
 
-const packageRequire = createRequire(import.meta.url);
 const localRuntimeId = "local";
 const MAX_INPUT_FILE_BYTES = 1_048_576;
 
@@ -162,7 +158,6 @@ export default class RunCommand extends Command {
 
   static override examples = [
     '<%= config.bin %> run ./examples/minimal-workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local',
-    '<%= config.bin %> run ./examples/minimal-workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local --studio',
   ];
 
   static override args = {
@@ -191,12 +186,6 @@ export default class RunCommand extends Command {
       options: ["auto", "human", "ci", "json"],
       default: "auto",
     }),
-    studio: Flags.boolean({
-      description: "Use the local Studio",
-    }),
-    studioPort: Flags.integer({
-      description: "Loopback port for the local Studio",
-    }),
     record: Flags.string({
       description: "Write bounded canonical execution events to a new file",
     }),
@@ -221,30 +210,7 @@ export default class RunCommand extends Command {
       this.error(errorMessage(error));
     }
 
-    let studioAddress: string | undefined;
-    let ownedStudio: Awaited<ReturnType<typeof startStudioSession>> | undefined;
-    if (flags.studio) {
-      const port = flags.studioPort ?? defaultStudioPort;
-      studioAddress = `http://127.0.0.1:${port}`;
-      try {
-        const health = await fetch(`${studioAddress}/health`);
-        if (!health.ok)
-          throw new Error(`Studio returned HTTP ${health.status}`);
-      } catch {
-        ownedStudio = await startStudioSession({
-          port,
-          clientRoot: dirname(
-            packageRequire.resolve("@seqlane/studio-app/client/index.html"),
-          ),
-        });
-        studioAddress = ownedStudio.address;
-      }
-    }
-
     const capabilities = createOutputCapabilities();
-    if (studioAddress !== undefined) {
-      capabilities.stderr.write(`Seqlane Studio: ${studioAddress}/\n`);
-    }
     const renderer = flags.dry
       ? undefined
       : createCliRenderer(parseOutputMode(flags.output), capabilities).renderer;
@@ -252,13 +218,6 @@ export default class RunCommand extends Command {
       renderer === undefined
         ? () => undefined
         : connectTerminalResize(renderer, process.stdout);
-    const studioPublisher =
-      studioAddress === undefined
-        ? undefined
-        : createStudioPublisher(studioAddress, request.workflow.id, {
-            onDiagnostic: (message) =>
-              capabilities.stderr.write(message + "\n"),
-          });
     let recordingConsumer: SeqlaneExecutionEventConsumer | undefined;
     if (flags.record !== undefined) {
       try {
@@ -267,7 +226,6 @@ export default class RunCommand extends Command {
           request.workflow.id,
         );
       } catch (error) {
-        await ownedStudio?.stop();
         this.error(`Could not create recording: ${errorMessage(error)}`);
       }
       capabilities.stderr.write(
@@ -298,9 +256,6 @@ export default class RunCommand extends Command {
     const dispatcher = createEventDispatcher(
       [
         { name: "output", consumer: outputConsumer },
-        ...(studioPublisher === undefined
-          ? []
-          : [{ name: "Studio", consumer: studioPublisher }]),
         ...(recordingConsumer === undefined
           ? []
           : [{ name: "recording", consumer: recordingConsumer }]),
@@ -342,7 +297,6 @@ export default class RunCommand extends Command {
     } finally {
       disconnectResize();
     }
-    await ownedStudio?.stop();
     process.exitCode = result.status;
   }
 }
