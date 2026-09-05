@@ -736,7 +736,7 @@ jobs:
           EXPECTED_REPORT_VERSION=$(jq --raw-output '
             [.comments[] | .body |
               try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson |
-                [.reviewedRevision, .run.id, .run.attempt] | @json)
+                [.pullRequestNumber, .reviewedRevision] | @json)
               catch null
             ] | map(select(. != null)) | last // "{}"
           ' "$REVIEW_HISTORY_PATH")
@@ -751,7 +751,7 @@ jobs:
                 (.body | contains("<!-- seqlane-code-review -->"))
               ) |
               try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson |
-                [.reviewedRevision, .run.id, .run.attempt] | @json)
+                [.pullRequestNumber, .reviewedRevision] | @json)
               catch null
             ] | map(select(. != null)) | first // "{}"
           ' "$RUNNER_TEMP/seqlane-live-issue-comments-before-publish.json")
@@ -1177,7 +1177,7 @@ jobs:
               EXISTING_REPORT_VERSION=$(jq --raw-output '
                 [ .body |
                   try (capture("<!-- seqlane-code-review-meta-v3: (?<meta>[^\\r\\n]+) -->").meta | fromjson |
-                    [.reviewedRevision, .run.id, .run.attempt] | @json)
+                    [.pullRequestNumber, .reviewedRevision] | @json)
                   catch null
                 ] | map(select(. != null)) | last // "{}"
               ' "$RUNNER_TEMP/seqlane-existing-comment.json")
