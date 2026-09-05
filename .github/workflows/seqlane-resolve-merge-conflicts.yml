@@ -255,6 +255,7 @@ jobs:
           RESOLUTION_STRATEGY: ${{ inputs.resolution_strategy }}
           AGENT_WORKSPACE: ${{ runner.temp }}/seqlane-agent-workspace
           CONFLICT_FILES: ${{ runner.temp }}/seqlane-conflict-files
+          AGENT_CONFLICT_FILES: ${{ runner.temp }}/seqlane-agent-conflict-files
           RESOLUTION_TARGET: ${{ github.workspace }}/resolution-target
           SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -273,6 +274,18 @@ jobs:
             jq --raw-input --slurp 'split("\u0000") | map(select(length > 0))' \
               "$RUNNER_TEMP/seqlane-conflict-files" \
               > "$RUNNER_TEMP/seqlane-conflict-files.json"
+
+            node -e '
+              const { readFileSync, writeFileSync } = require("node:fs");
+              const paths = readFileSync(process.env.CONFLICT_FILES, "utf8")
+                .split("\0")
+                .filter(Boolean);
+              const agentPaths = paths.filter((path) => path !== "pnpm-lock.yaml");
+              writeFileSync(process.env.AGENT_CONFLICT_FILES, agentPaths.join("\0"));
+            '
+            jq --raw-input --slurp 'split("\u0000") | map(select(length > 0))' \
+              "$RUNNER_TEMP/seqlane-agent-conflict-files" \
+              > "$RUNNER_TEMP/seqlane-agent-conflict-files.json"
 
             node -e '
               const { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
@@ -303,7 +316,7 @@ jobs:
               }
               for (const entry of readdirSync(agentRoot)) rmSync(join(agentRoot, entry), { recursive: true, force: true });
               let totalBytes = 0;
-              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
+              for (const path of readFileSync(process.env.AGENT_CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
                 const source = regularFile(targetRoot, path);
                 const size = statSync(source).size;
                 if (size > maximumFileBytes || totalBytes + size > maximumTotalBytes) throw new Error(`Conflict payload exceeds the configured size limit: ${path}`);
@@ -316,32 +329,39 @@ jobs:
               }
             '
 
-            WORKFLOW_INPUT=$(jq --null-input --compact-output \
-              --arg repository "$AGENT_WORKSPACE" \
-              --argjson pullRequestNumber "$PR_NUMBER" \
-              --arg strategy "$RESOLUTION_STRATEGY" \
-              --arg baseBranch "$BASE_BRANCH" \
-              --arg headBranch "$HEAD_BRANCH" \
-              --arg baseRevision "$BASE_REVISION" \
-              --arg headRevision "$HEAD_REVISION" \
-              --slurpfile conflictedFiles "$RUNNER_TEMP/seqlane-conflict-files.json" \
-              '{
-                repository: $repository,
-                pullRequestNumber: $pullRequestNumber,
-                strategy: $strategy,
-                baseBranch: $baseBranch,
-                headBranch: $headBranch,
-                baseRevision: $baseRevision,
-                headRevision: $headRevision,
-                conflictedFiles: $conflictedFiles[0]
-              }')
+            if node -e '
+              const { readFileSync } = require("node:fs");
+              process.exit(readFileSync(process.env.AGENT_CONFLICT_FILES, "utf8").length > 0 ? 0 : 1);
+            '; then
+              WORKFLOW_INPUT=$(jq --null-input --compact-output \
+                --arg repository "$AGENT_WORKSPACE" \
+                --argjson pullRequestNumber "$PR_NUMBER" \
+                --arg strategy "$RESOLUTION_STRATEGY" \
+                --arg baseBranch "$BASE_BRANCH" \
+                --arg headBranch "$HEAD_BRANCH" \
+                --arg baseRevision "$BASE_REVISION" \
+                --arg headRevision "$HEAD_REVISION" \
+                --slurpfile conflictedFiles "$RUNNER_TEMP/seqlane-agent-conflict-files.json" \
+                '{
+                  repository: $repository,
+                  pullRequestNumber: $pullRequestNumber,
+                  strategy: $strategy,
+                  baseBranch: $baseBranch,
+                  headBranch: $headBranch,
+                  baseRevision: $baseRevision,
+                  headRevision: $headRevision,
+                  conflictedFiles: $conflictedFiles[0]
+                }')
 
-            ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/resolve-merge-conflicts.ts" \
-              --input "$WORKFLOW_INPUT" \
-              --runtime http://127.0.0.1:4096 \
-              --workspace "$AGENT_WORKSPACE" \
-              --output ci \
-              --record "$RUNNER_TEMP/seqlane-conflict-resolution-$ATTEMPT.jsonl"
+              ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/resolve-merge-conflicts.ts" \
+                --input "$WORKFLOW_INPUT" \
+                --runtime http://127.0.0.1:4096 \
+                --workspace "$AGENT_WORKSPACE" \
+                --output ci \
+                --record "$RUNNER_TEMP/seqlane-conflict-resolution-$ATTEMPT.jsonl"
+            else
+              echo "No agent-resolvable conflict files; the lockfile will be regenerated mechanically."
+            fi
 
             node -e '
               const { lstatSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
@@ -365,7 +385,7 @@ jobs:
                 if (!lstatSync(current).isFile()) throw new Error(`Conflict path is not a regular file: ${path}`);
                 return current;
               }
-              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
+              for (const path of readFileSync(process.env.AGENT_CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
                 const source = regularFile(agentRoot, path);
                 const target = safePath(targetRoot, path);
                 mkdirSync(dirname(target), { recursive: true });
@@ -377,24 +397,26 @@ jobs:
               const { readFileSync } = require("node:fs");
               process.exit(readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").includes("pnpm-lock.yaml") ? 0 : 1);
             '; then
-              LOCKFILE_WORKSPACE="$RUNNER_TEMP/seqlane-lockfile-workspace"
-              export LOCKFILE_WORKSPACE
-              mkdir "$LOCKFILE_WORKSPACE"
-              node -e '
-                const { execFileSync } = require("node:child_process");
-                const { lstatSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
-                const { dirname, resolve, relative } = require("node:path");
-                const root = resolve(process.env.RESOLUTION_TARGET);
-                const output = resolve(process.env.LOCKFILE_WORKSPACE);
-                const paths = execFileSync("git", ["ls-files", "-z", "--", "pnpm-lock.yaml", "pnpm-workspace.yaml", ":(glob)**/package.json"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
-                for (const path of paths) {
-                  const source = resolve(root, path); const target = resolve(output, path);
-                  if (relative(root, source).startsWith("..") || relative(output, target).startsWith("..") || lstatSync(source).isSymbolicLink() || !lstatSync(source).isFile()) throw new Error(`Unsafe pnpm input: ${path}`);
-                  mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, readFileSync(source));
-                }
-              '
-              docker run --rm --network bridge --mount "type=bind,source=$LOCKFILE_WORKSPACE,target=/workspace" --workdir /workspace node:24-bookworm-slim sh -c 'corepack enable && pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile'
-              cp "$LOCKFILE_WORKSPACE/pnpm-lock.yaml" "$RESOLUTION_TARGET/pnpm-lock.yaml"
+              (
+                LOCKFILE_WORKSPACE=$(mktemp -d "$RUNNER_TEMP/seqlane-lockfile-workspace.XXXXXX")
+                export LOCKFILE_WORKSPACE
+                trap 'rm -rf -- "$LOCKFILE_WORKSPACE"' EXIT
+                node -e '
+                  const { execFileSync } = require("node:child_process");
+                  const { lstatSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+                  const { dirname, resolve, relative } = require("node:path");
+                  const root = resolve(process.env.RESOLUTION_TARGET);
+                  const output = resolve(process.env.LOCKFILE_WORKSPACE);
+                  const paths = execFileSync("git", ["ls-files", "-z", "--", "pnpm-lock.yaml", "pnpm-workspace.yaml", ":(glob)**/package.json"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
+                  for (const path of paths) {
+                    const source = resolve(root, path); const target = resolve(output, path);
+                    if (relative(root, source).startsWith("..") || relative(output, target).startsWith("..") || lstatSync(source).isSymbolicLink() || !lstatSync(source).isFile()) throw new Error(`Unsafe pnpm input: ${path}`);
+                    mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, readFileSync(source));
+                  }
+                '
+                docker run --rm --network bridge --mount "type=bind,source=$LOCKFILE_WORKSPACE,target=/workspace" --workdir /workspace node:24-bookworm-slim sh -c 'corepack enable && pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile'
+                cp "$LOCKFILE_WORKSPACE/pnpm-lock.yaml" "$RESOLUTION_TARGET/pnpm-lock.yaml"
+              )
             fi
 
             node -e '

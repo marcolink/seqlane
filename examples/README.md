@@ -137,15 +137,19 @@ checkout. A rebased branch uses `--force-with-lease` against its captured head
 revision. If Git reports no merge conflicts, the merge strategy stops without a
 commit.
 
-If conflicts exist, `resolve-merge-conflicts.ts` receives the exact conflict
-paths and both immutable revisions. Its exclusive agent task runs in a fresh,
-non-Git staging workspace that contains only regular conflict files. The
-OpenCode policy denies shell commands, external paths, and project
-configuration. The workflow rejects symlinks and copies back only the supplied
-conflict files.
+If conflicts exist, `resolve-merge-conflicts.ts` receives the current
+agent-resolvable conflict paths and both immutable revisions. Its exclusive
+agent task runs in a fresh, non-Git staging workspace that contains only
+regular agent-resolvable conflict files. `pnpm-lock.yaml` is excluded from
+model resolution because the workflow regenerates it mechanically when it is
+conflicted. The OpenCode policy denies shell commands, external paths, and
+project configuration. The workflow rejects symlinks and copies back only the
+agent-resolvable conflict files.
 
-Lockfile conflicts are text-resolved by the agent. The workflow does not run a
-package manager in the pull-request checkout.
+The full Git conflict list remains the workflow-owned staging and validation
+allowlist. Lockfile regeneration runs in a fresh temporary Docker workspace for
+each rebase stop, so it does not modify the pull-request checkout through a
+package-manager install.
 
 After Seqlane finishes, the workflow rejects new files and edits outside the
 initial conflict list. It also rejects unresolved conflicts and Git whitespace

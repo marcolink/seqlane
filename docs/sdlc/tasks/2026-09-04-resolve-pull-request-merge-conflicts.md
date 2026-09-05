@@ -32,7 +32,10 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - Apply the selected integration strategy to the current base and head
   revisions.
 - Run the Seqlane workflow only when Git reports merge conflicts, in a fresh
-  non-Git staging workspace that contains only regular conflict files.
+  non-Git staging workspace that contains only regular agent-resolvable
+  conflict files.
+- Exclude `pnpm-lock.yaml` from model resolution and regenerate it mechanically
+  in an isolated temporary workspace when it is conflicted.
 - Make sure that all conflicts are resolved before a commit and push.
 - Reject unexpected workspace edits and concurrent head-branch changes.
 - Reject staged conflict markers, including CRLF, diff3, and longer marker
@@ -53,8 +56,8 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 1. Define bounded input and output schemas for the conflict-resolution example.
 2. Define one exclusive agent task with explicit file-edit limits.
 3. Add contract tests for input validation, task policy, and model selection.
-4. Add the manual GitHub Actions workflow, strategy selection, and repository
-   safety gates.
+4. Add the manual GitHub Actions workflow, strategy selection, repository
+   safety gates, and isolated mechanical lockfile regeneration.
 5. Document the dispatch behavior, credentials, commit, and push rules.
 
 ## Affected areas
@@ -79,7 +82,9 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - The workflow stops for a closed pull request or a fork pull request.
 - The workflow validates the required strategy and defaults it to `rebase`.
 - The workflow does not create a merge commit when a merge has no conflicts.
-- Seqlane receives the current revisions and the exact conflict-file list.
+- Seqlane receives the current revisions and the exact agent-resolvable
+  conflict-file list. The complete Git conflict list remains the workflow-owned
+  staging and validation allowlist.
 - The agent can read and edit files, but it cannot use shell commands.
 - The workflow rejects edits outside the initial conflict-file list.
 - The workflow commits and pushes only after all conflicts are resolved.
@@ -99,15 +104,19 @@ choice between `rebase` and `merge`, and defaults that choice to `rebase`. It
 applies the selected strategy to the captured base and head revisions. Seqlane
 runs only when Git reports conflicts. The agent can read and edit files, but it
 cannot use shell commands or external paths. It runs in a fresh non-Git staging
-copy that contains only the conflict files. The workflow rejects symlinks, so
-the agent cannot write Git metadata or escape the staging boundary.
+copy that contains only the agent-resolvable conflict files. The workflow
+rejects symlinks, so the agent cannot write Git metadata or escape the staging
+boundary. A conflicted `pnpm-lock.yaml` is excluded from model resolution and
+regenerated mechanically in an isolated temporary workspace for that rebase
+stop.
 
 After the agent finishes, the workflow rejects unexpected edits, new files,
 unresolved conflicts, and whitespace errors. A rebase can stop at more than
 one conflicting commit. The workflow repeats the agent resolution for each
-stop, up to five attempts, and skips redundant empty commits. It rejects
-conflict-marker lines after staging, including CRLF, diff3, and longer marker
-lines. The
+stop, up to five attempts, and skips redundant empty commits. It regenerates a
+conflicted lockfile without involving the model and gives each regeneration a
+fresh temporary workspace. It rejects conflict-marker lines after staging,
+including CRLF, diff3, and longer marker lines. The
 workflow validates paths in the resolution checkout, including ignored
 untracked paths. It stops OpenCode before GitHub authentication.
 

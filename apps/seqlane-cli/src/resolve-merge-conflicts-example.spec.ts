@@ -110,6 +110,16 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).toContain("maximumFileBytes = 512 * 1024");
     expect(workflow).toContain("maximumTotalBytes = 2 * 1024 * 1024");
     expect(workflow).toContain("rmSync, statSync, writeFileSync");
+    expect(workflow).toContain('path !== "pnpm-lock.yaml"');
+    expect(workflow).toContain("AGENT_CONFLICT_FILES");
+    expect(workflow).toContain(
+      "No agent-resolvable conflict files; the lockfile will be regenerated mechanically.",
+    );
+    expect(workflow).toContain(
+      'mktemp -d "$RUNNER_TEMP/seqlane-lockfile-workspace.XXXXXX"',
+    );
+    expect(workflow).toContain("trap 'rm -rf -- \"$LOCKFILE_WORKSPACE\"' EXIT");
+    expect(workflow).not.toContain('mkdir "$LOCKFILE_WORKSPACE"');
     expect(workflow).toContain(
       'git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA"',
     );
