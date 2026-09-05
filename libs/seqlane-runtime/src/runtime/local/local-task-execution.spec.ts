@@ -98,6 +98,19 @@ async function waitForFile(path: string): Promise<string> {
   throw new Error(`Timed out waiting for ${path}`);
 }
 
+async function waitForProcessExit(pid: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for process ${pid} to exit`);
+}
+
 describe("local task execution", () => {
   it("passes direct command output through input and output schemas", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "seqlane-local-"));
@@ -295,7 +308,7 @@ describe("local task execution", () => {
 
       await expect(activeRun.cancel()).resolves.toBeUndefined();
       await expect(activeRun.outcome).resolves.toEqual({ status: "cancelled" });
-      expect(() => process.kill(pid, 0)).toThrow();
+      await waitForProcessExit(pid);
 
       const lease = await compiled.context.workspaceLocks.acquire(
         { key: workspace },

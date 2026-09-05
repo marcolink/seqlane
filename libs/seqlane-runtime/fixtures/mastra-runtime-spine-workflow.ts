@@ -27,6 +27,7 @@ const fixtureStep = createStep({
 
 export const mastraRuntimeSpineWorkflow = createWorkflow({
   id: "mastra-runtime-spine-fixture",
+  description: "Runs the Mastra runtime spine fixture.",
   inputSchema,
   outputSchema,
 })
