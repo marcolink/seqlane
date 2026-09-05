@@ -1409,22 +1409,5 @@ export default createFlow({
       report: tasks.summarize.output,
     }),
   )
-  .output(({ tasks }) => ({
-    overallRating: tasks.applyDispositions.output.overallRating,
-    verdict: tasks.applyDispositions.output.verdict,
-    summary: tasks.applyDispositions.output.summary,
-    ratings: tasks.applyDispositions.output.ratings,
-    findings: tasks.applyDispositions.output.findings,
-    verification: tasks.applyDispositions.output.verification,
-    repository: tasks.applyDispositions.output.repository,
-    baseBranch: tasks.applyDispositions.output.baseBranch,
-    baseRevision: tasks.applyDispositions.output.baseRevision,
-    headRevision: tasks.applyDispositions.output.headRevision,
-    pullRequestNumber: tasks.applyDispositions.output.pullRequestNumber,
-    previousReviewedRevision:
-      tasks.applyDispositions.output.previousReviewedRevision,
-    nextFindingIndex: tasks.applyDispositions.output.nextFindingIndex,
-    limitations: tasks.applyDispositions.output.limitations,
-    stateTruncated: tasks.applyDispositions.output.stateTruncated,
-  }))
+  .output(({ tasks }) => tasks.applyDispositions.output)
   .define();

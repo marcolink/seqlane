@@ -1777,29 +1777,12 @@ describe("pull-request code review example workflow", () => {
     ]);
   });
 
-  it("preserves review identity fields in the final output binding", () => {
+  it("returns the complete validated lifecycle report", () => {
     const output = buildWorkflow(prCodeReviewWorkflow).plan.output;
-    expect(output).toMatchObject({
-      repository: {
-        type: "ref",
-        nodeId: "pr-code-review.apply-dispositions:1",
-        path: ["output", "repository"],
-      },
-      baseBranch: {
-        type: "ref",
-        nodeId: "pr-code-review.apply-dispositions:1",
-        path: ["output", "baseBranch"],
-      },
-      baseRevision: {
-        type: "ref",
-        nodeId: "pr-code-review.apply-dispositions:1",
-        path: ["output", "baseRevision"],
-      },
-      headRevision: {
-        type: "ref",
-        nodeId: "pr-code-review.apply-dispositions:1",
-        path: ["output", "headRevision"],
-      },
+    expect(output).toEqual({
+      type: "ref",
+      nodeId: "pr-code-review.apply-dispositions:1",
+      path: ["output"],
     });
   });
 });
