@@ -20,18 +20,21 @@ Run registered Seqlane workflows through one durable Mastra server process.
 ## Dependencies
 
 - [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md)
+- [task.operational-data-bounds](./2026-09-05-operational-data-bounds.md)
 
 ## Delivery
 
-- Stack order: 14
-- Branch: `mastra-14-operational-host`
-- Pull request base: `mastra-13-workflow-discovery-plan`
+- Stack order: 16
+- Branch: `mastra-16-operational-host`
+- Pull request base: `mastra-15-operational-data-bounds`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
 ## Upstream requirements
 
 - `requirement-operational-host`
+- `requirement-local-operational-access`
+- `requirement-operational-data-bounds`
 - `requirement-storage-tracing`
 - `requirement-server-mcp`
 - `requirement-community-license`

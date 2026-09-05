@@ -1,11 +1,11 @@
 ---
 id: adr.local-development-studio-trust-and-lifecycle
 title: Simplify the Local Development Studio Trust and Lifecycle
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-05
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes:
@@ -13,6 +13,8 @@ supersedes:
 ---
 
 # Simplify the Local Development Studio Trust and Lifecycle
+
+> Superseded by [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md).
 
 ## Context
 

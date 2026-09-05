@@ -24,22 +24,23 @@ Connect Community Studio to a working Seqlane/Mastra host and its real runs.
 
 ## Delivery
 
-- Stack order: 17
-- Branch: `mastra-17-studio-run-inspection`
-- Pull request base: `mastra-16-mcp-transports`
+- Stack order: 19
+- Branch: `mastra-19-studio-run-inspection`
+- Pull request base: `mastra-18-mcp-transports`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
 ## Upstream requirements
 
 - `requirement-community-studio`
+- `requirement-local-operational-access`
 - `requirement-storage-tracing`
 - `requirement-cross-surface-run`
 
 ## Scope
 
 - Start an owned operational host when no external server URL is set.
-- Connect to an external host when its URL is set.
+- Connect to an external loopback host when its URL is set and reject other URLs.
 - Wait for host readiness before Community Studio starts.
 - Print the host and Studio URLs.
 - Stop only the host and Studio processes owned by the command.

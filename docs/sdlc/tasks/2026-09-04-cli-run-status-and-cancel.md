@@ -23,15 +23,16 @@ Complete the CLI run-control contract against canonical Mastra run state.
 
 ## Delivery
 
-- Stack order: 15
-- Branch: `mastra-15-cli-run-control`
-- Pull request base: `mastra-14-operational-host`
+- Stack order: 17
+- Branch: `mastra-17-cli-run-control`
+- Pull request base: `mastra-16-operational-host`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
 ## Upstream requirements
 
 - `requirement-cli-operator-commands`
+- `requirement-local-operational-access`
 - `requirement-cancellation-errors`
 - `requirement-identity-events`
 - `requirement-cross-surface-run`
@@ -39,7 +40,7 @@ Complete the CLI run-control contract against canonical Mastra run state.
 ## Scope
 
 - Submit `seqlane run` through the operational server path.
-- Support an explicit external server URL.
+- Support an explicit loopback server URL and reject non-loopback URLs.
 - Own a loopback host for the command lifetime when no server URL is set.
 - Print Work and Run identifiers before progress output.
 - Preserve human, CI, and JSON rendering and final exit statuses.

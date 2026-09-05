@@ -20,24 +20,27 @@ Make repository and user workflows discoverable and inspectable before a run.
 ## Dependencies
 
 - [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md)
+- [task.workflow-discovery-bounds](./2026-09-05-workflow-discovery-bounds.md)
 
 ## Delivery
 
-- Stack order: 13
-- Branch: `mastra-13-workflow-discovery-plan`
-- Pull request base: `mastra-operational-contracts`
+- Stack order: 14
+- Branch: `mastra-14-workflow-discovery-plan`
+- Pull request base: `mastra-13-workflow-discovery-bounds`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
 ## Upstream requirements
 
 - `requirement-workflow-discovery`
+- `requirement-workflow-discovery-bounds`
 - `requirement-cli-operator-commands`
 - `requirement-public-boundary`
 
 ## Scope
 
 - Define and document the default repository and user discovery roots.
+- Use the shared root-containment and discovery-limit policy.
 - Define one Zod-validated workflow descriptor format.
 - Preserve workflow name, scope, module reference, export name, and description.
 - Resolve `repository:<name>` and `user:<name>` references.

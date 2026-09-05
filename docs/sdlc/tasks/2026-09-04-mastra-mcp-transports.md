@@ -15,7 +15,7 @@ supersedes: []
 
 ## Objective
 
-Make the registered Seqlane MCP server usable by local and network clients.
+Make the registered Seqlane MCP server usable by local clients.
 
 ## Dependencies
 
@@ -24,28 +24,29 @@ Make the registered Seqlane MCP server usable by local and network clients.
 
 ## Delivery
 
-- Stack order: 16
-- Branch: `mastra-16-mcp-transports`
-- Pull request base: `mastra-15-cli-run-control`
+- Stack order: 18
+- Branch: `mastra-18-mcp-transports`
+- Pull request base: `mastra-17-cli-run-control`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
 ## Upstream requirements
 
 - `requirement-server-mcp`
+- `requirement-local-operational-access`
 - `requirement-cross-surface-run`
 - `requirement-community-license`
 - `requirement-public-boundary`
 
 ## Scope
 
-- Expose `seqlane-workflows` through Mastra's Streamable HTTP server route.
+- Expose `seqlane-workflows` through Mastra's loopback-only Streamable HTTP route.
 - Add `seqlane mcp` for Mastra's stdio transport.
 - Use the same workflow discovery and registration path for both transports.
 - Map each discovered workflow to one validated MCP tool.
 - Propagate Work, Run, and Invocation identities into storage and traces.
 - Return stable Seqlane results and normalized errors from tool execution.
-- Document client configuration for stdio and Streamable HTTP.
+- Document local client configuration for stdio and Streamable HTTP.
 - Delete in-process-only MCP invocation helpers after tests and callers switch.
 
 ## Out of scope

@@ -26,15 +26,17 @@ Prove that discovery, CLI, API, MCP, storage, tracing, and Studio share one run.
 
 ## Delivery
 
-- Stack order: 18
-- Branch: `mastra-18-operational-end-to-end`
-- Pull request base: `mastra-17-studio-run-inspection`
+- Stack order: 20
+- Branch: `mastra-20-operational-end-to-end`
+- Pull request base: `mastra-19-studio-run-inspection`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
 ## Upstream requirements
 
 - `requirement-cross-surface-run`
+- `requirement-local-operational-access`
+- `requirement-operational-data-bounds`
 - `requirement-storage-tracing`
 - `requirement-delete-replaced-code`
 - `requirement-community-license`
