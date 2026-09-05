@@ -164,11 +164,21 @@ jobs:
           for page in 1 2; do
             gh api \
               "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
+              --jq 'map(
+                (.body // "") as $body |
+                .body = $body[:65536] |
+                ._seqlane_source_body_truncated = (($body | length) > 65536)
+              )' \
               > "$RUNNER_TEMP/seqlane-issue-comments-$page.json"
           done
           for page in 1 2; do
             gh api \
               "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
+              --jq 'map(
+                (.body // "") as $body |
+                .body = $body[:65536] |
+                ._seqlane_source_body_truncated = (($body | length) > 65536)
+              )' \
               > "$RUNNER_TEMP/seqlane-review-comments-$page.json"
           done
           jq -s 'add' \
@@ -184,9 +194,17 @@ jobs:
             --slurpfile review "$RUNNER_TEMP/seqlane-review-comments.json" '
               def disposition_command($comment; $line):
                 ($line | capture(
-                  "^\\s*/seqlane\\s+(fixed|wont-fix|downgrade)\\s+(?<findingId>F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})(\\s|$)";
+                  "^\\s*/seqlane\\s+(?<action>fixed|wont-fix|downgrade)\\s+(?<findingId>F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})(?:\\s+(?<remainder>.*))?\\s*$";
                   "i"
                 )) as $match |
+                ($match.action | ascii_downcase) as $action |
+                (if $action == "downgrade" then
+                  (try (($match.remainder // "") | capture(
+                    "^(?:to\\s+)?(?<severity>critical|required|optional|nit)(?:\\s+(?:reason\\s*[:=]\\s*)?.*)?$";
+                    "i"
+                  ) | .severity | ascii_downcase) catch null)
+                else null end) as $severity |
+                if $action == "downgrade" and $severity == null then empty else
                 ($comment.authorAssociation == "OWNER" or
                   $comment.authorAssociation == "MEMBER" or
                   $comment.authorAssociation == "COLLABORATOR") as $authorized |
@@ -194,23 +212,34 @@ jobs:
                   key: $comment._key,
                   line: $line,
                   identity: (
-                    $match.findingId + ":" +
+                    ($match.findingId | ascii_downcase) + ":" +
                     (if $authorized then "authorized" else "unauthorized" end)
-                  )
-                };
+                  ),
+                  omission: ({
+                    key: $comment._key,
+                    findingId: $match.findingId,
+                    action: $action,
+                    authorized: $authorized
+                  } + (if $severity == null then {} else
+                    {effectiveSeverity: $severity}
+                  end))
+                }
+                end;
               def trim_commands($countLimit; $characterLimit):
                 until(
                   ((.order | length) <= $countLimit and
                     .characters <= $characterLimit);
                   .order[0] as $identity |
                   .byIdentity[$identity] as $omitted |
-                  .omittedCommentKeys[$omitted.key] = true |
+                  .omittedCommands =
+                    ((.omittedCommands + [$omitted.omission])[-200:]) |
+                  .commandsOmitted = true |
                   .characters -= (($omitted.line | length) + 1) |
                   del(.byIdentity[$identity]) |
                   .order = .order[1:]
                 );
-              def normalize($items; $kind):
-                ($items[0] // []) | map(
+              def normalize($item; $kind):
+                $item |
                   (.body // "") as $body |
                   (((.user.login // "") == "github-actions" or
                     (.user.login // "") == "github-actions[bot]") and
@@ -225,7 +254,10 @@ jobs:
                         select((ascii_downcase | contains("/seqlane")) | not)] |
                         join("\n")
                     ),
-                    _sourceBodyTruncated: (($body | length) > $bodyLimit),
+                    _sourceBodyTruncated: (
+                      ._seqlane_source_body_truncated == true or
+                      ($body | length) > $bodyLimit
+                    ),
                     id: (.id | tostring),
                     kind: $kind,
                     author: (.user.login // "unknown"),
@@ -238,12 +270,16 @@ jobs:
                   + (if (.line | type) == "number" then {line: .line} else {} end)
                   + (if .commit_id then {commitId: .commit_id} else {} end)
                   + (if .in_reply_to_id then {inReplyTo: (.in_reply_to_id | tostring)} else {} end)
-                );
+                ;
               ([
-                normalize($issue; "issue"),
-                normalize($review; "review")
-              ] | add | sort_by(.updatedAt // .createdAt)) as $allComments
-              | ($allComments[-200:]) as $comments
+                (($issue[0] // [])[] | {kind: "issue", item: .}),
+                (($review[0] // [])[] | {kind: "review", item: .})
+              ] |
+                group_by(.kind + ":" + (.item.id | tostring)) |
+                map(sort_by(.item.updated_at // .item.created_at) | .[-1]) |
+                sort_by(.item.updated_at // .item.created_at)) as $allSources
+              | ($allSources[-200:] |
+                  map(normalize(.item; .kind))) as $comments
               | (reduce (
                   $comments[] as $comment |
                   ($comment._body | splits("\n")) as $line |
@@ -253,7 +289,8 @@ jobs:
                   byIdentity: {},
                   order: [],
                   characters: 0,
-                  omittedCommentKeys: {}
+                  omittedCommands: [],
+                  commandsOmitted: false
                 };
                   (.byIdentity[$command.identity] // null) as $superseded |
                   if $superseded == null then . else
@@ -287,8 +324,11 @@ jobs:
                     .bodyTruncated = (
                       ._sourceBodyTruncated
                     ) |
-                    .commandsTruncated =
-                      ($commandState.omittedCommentKeys[._key] == true) |
+                    .omittedDispositionCommands = [
+                      $commandState.omittedCommands[] |
+                      select(.key == $comment._key) |
+                      del(.key)
+                    ] |
                     del(
                       ._key,
                       ._trustedBody,
@@ -298,9 +338,9 @@ jobs:
                     )
                   ],
                   truncated: (
-                    ($allComments | length) >= 200 or
+                    ($allSources | length) >= 200 or
                     any($comments[]; ._sourceBodyTruncated) or
-                    (($commandState.omittedCommentKeys | keys | length) > 0)
+                    $commandState.commandsOmitted
                   )
                 }
             ' > "$RUNNER_TEMP/seqlane-review-history.json"

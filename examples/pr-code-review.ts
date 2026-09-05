@@ -25,6 +25,14 @@ const reviewDispositionActionSchema = z.enum([
   "wont-fix",
   "downgrade",
 ]);
+const omittedDispositionCommandSchema = z
+  .object({
+    findingId: reviewFindingIdSchema,
+    action: reviewDispositionActionSchema,
+    authorized: z.boolean(),
+    effectiveSeverity: reviewSeveritySchema.optional(),
+  })
+  .strict();
 const reviewFindingDispositionSchema = z.enum([
   "open",
   "fixed",
@@ -54,7 +62,10 @@ const reviewCommentSchema = z.object({
   authorAssociation: z.string().min(1).max(64),
   body: z.string().max(65_536),
   bodyTruncated: z.boolean().optional(),
-  commandsTruncated: z.boolean().optional(),
+  omittedDispositionCommands: z
+    .array(omittedDispositionCommandSchema)
+    .max(200)
+    .optional(),
   createdAt: z.string().min(1).max(64),
   updatedAt: z.string().min(1).max(64).optional(),
   url: z.string().url().max(2_000).optional(),
@@ -1180,12 +1191,26 @@ const applyReviewDispositionTask = defineTask({
       if (finding.dispositionCommentId === undefined) return false;
       if (dispositionFor(finding)?.commentId === finding.dispositionCommentId)
         return true;
+      const expectedAction =
+        finding.disposition === "downgraded"
+          ? "downgrade"
+          : finding.disposition === "fixed" ||
+              finding.disposition === "wont-fix"
+            ? finding.disposition
+            : undefined;
       if (
-        review.reviewHistory.comments.some(
-          (comment) =>
-            comment.id === finding.dispositionCommentId &&
-            comment.commandsTruncated === true,
-        )
+        expectedAction !== undefined &&
+        review.reviewHistory.comments.some((comment) => {
+          if (comment.id !== finding.dispositionCommentId) return false;
+          return comment.omittedDispositionCommands?.some(
+            (command) =>
+              command.authorized &&
+              command.action === expectedAction &&
+              findingMatchesId(finding, command.findingId) &&
+              (expectedAction !== "downgrade" ||
+                command.effectiveSeverity === finding.effectiveSeverity),
+          );
+        })
       ) {
         return true;
       }

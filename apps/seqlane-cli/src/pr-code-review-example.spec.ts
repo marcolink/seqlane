@@ -1995,7 +1995,13 @@ describe("pull-request code review example workflow", () => {
               author: "maintainer",
               authorAssociation: "MEMBER",
               body: "",
-              commandsTruncated: true,
+              omittedDispositionCommands: [
+                {
+                  findingId: "SEQ-PR44-001",
+                  action: "wont-fix",
+                  authorized: true,
+                },
+              ],
               createdAt: "2026-09-05T10:00:00Z",
             },
           ],
@@ -2039,6 +2045,77 @@ describe("pull-request code review example workflow", () => {
         id: "SEQ-PR44-001",
         disposition: "wont-fix",
         status: "dismissed",
+      }),
+    ]);
+  });
+
+  it("reopens a removed disposition when another command was omitted", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [
+            {
+              id: "edited-command-comment",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              body: "",
+              omittedDispositionCommands: [
+                {
+                  findingId: "SEQ-PR44-002",
+                  action: "wont-fix",
+                  authorized: true,
+                },
+              ],
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          commentIds: ["edited-command-comment"],
+          truncated: true,
+          dispositions: [],
+          previousState: {
+            schemaVersion: 3,
+            pullRequestNumber: 44,
+            baseRevision: REVIEW_TEST_BASE_REVISION,
+            reviewedRevision: REVIEW_TEST_BASE_REVISION,
+            nextFindingIndex: 3,
+            findings: [
+              {
+                id: "SEQ-PR44-001",
+                axis: "correctness",
+                severity: "required",
+                effectiveSeverity: "required",
+                disposition: "wont-fix",
+                dispositionBy: "maintainer",
+                dispositionAt: "2026-09-05T10:00:00Z",
+                dispositionCommentId: "edited-command-comment",
+                status: "dismissed",
+                aliases: [],
+                summary: "Removed decision",
+                recommendation: "Reopen the removed decision.",
+              },
+            ],
+            limitations: [],
+            truncated: false,
+          },
+        }),
+        report: createReport([]),
+      },
+      {},
+    );
+
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "SEQ-PR44-001",
+        disposition: "open",
+        status: "reopened",
       }),
     ]);
   });

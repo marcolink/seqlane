@@ -103,9 +103,10 @@ collapse before stable ID allocation. Per-pull-request workflow serialization
 prevents concurrent comment creation or update.
 Legacy IDs also deduplicate during migration. Command lines survive comment
 body truncation. One aggregate budget keeps the latest command for each finding
-and authorization class. Per-comment omission metadata keeps bounded commands
-distinct from edited-away commands. State compaction is visible in both report
-layers.
+and authorization class. The collector caps source bodies before aggregation
+and records source truncation. Bounded command-level omission metadata keeps an
+omitted decision distinct from a different command removed from the same
+comment. State compaction is visible in both report layers.
 The human projection includes command help, label emojis, and plain Markdown
 sections for required changes.
 
