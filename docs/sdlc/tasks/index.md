@@ -173,9 +173,19 @@
 | [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |
 | [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | completed | 2026-09-03 | core |
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
+| [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | planned | 2026-09-04 | core |
+| [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | planned | 2026-09-04 | core |
 | [task.bounded-pr-code-review-evidence](./2026-09-04-bounded-pr-code-review-evidence.md) | Add Bounded Patch Evidence to Pull Request Reviews | completed | 2026-09-04 | core |
 | [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
+| [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
+| [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | planned | 2026-09-04 | core |
+| [task.mastra-operational-end-to-end](./2026-09-04-mastra-operational-end-to-end.md) | Prove One Run Across All Mastra Operational Surfaces | planned | 2026-09-04 | core |
 | [task.resolve-pull-request-merge-conflicts](./2026-09-04-resolve-pull-request-merge-conflicts.md) | Resolve Pull Request Merge Conflicts | completed | 2026-09-04 | core |
+| [task.mastra-mcp-transports](./2026-09-04-mastra-mcp-transports.md) | Run Seqlane Workflows Through Mastra MCP Transports | planned | 2026-09-04 | core |
+| [task.cli-run-status-and-cancel](./2026-09-04-cli-run-status-and-cancel.md) | Run, Inspect, and Cancel Through the Operational Host | planned | 2026-09-04 | core |
+| [task.operational-data-bounds](./2026-09-05-operational-data-bounds.md) | Bound Operational Data Retention and Queries | planned | 2026-09-05 | core |
+| [task.workflow-discovery-bounds](./2026-09-05-workflow-discovery-bounds.md) | Bound Workflow Discovery | planned | 2026-09-05 | core |
+| [task.investigate-mastra-mcp-runtime-reuse](./2026-09-05-investigate-mastra-mcp-runtime-reuse.md) | Investigate Mastra Runtime Reuse for MCP Invocations | planned | 2026-09-05 | core |
 | [task.preserve-pull-request-review-run-history](./2026-09-05-preserve-pull-request-review-run-history.md) | Preserve Pull Request Review Run History | completed | 2026-09-05 | core |
 | [task.prevent-comment-triggered-review-cancellation](./2026-09-05-prevent-comment-triggered-review-cancellation.md) | Prevent Irrelevant Comments from Cancelling Pull Request Reviews | completed | 2026-09-05 | core |
 | [task.publish-versioned-pull-request-review-comments](./2026-09-05-publish-versioned-pull-request-review-comments.md) | Publish Versioned Pull Request Review Comments | completed | 2026-09-05 | core |
@@ -191,5 +201,3 @@
 | [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |
 | [task.harden-seqlane-action-push-and-cleanup](./2026-09-07-harden-seqlane-action-push-and-cleanup.md) | Harden Seqlane Action Push and Cleanup | completed | 2026-09-07 | core |
 | [task.seqlane-action-resolution-summaries](./2026-09-07-seqlane-action-resolution-summaries.md) | Publish Human-Readable Merge Resolution Summaries | completed | 2026-09-07 | core |
-| [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
-| [task.investigate-mastra-mcp-runtime-reuse](./2026-09-05-investigate-mastra-mcp-runtime-reuse.md) | Investigate Mastra Runtime Reuse for MCP Invocations | planned | 2026-09-05 | core |

@@ -5,13 +5,15 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-05
 upstream:
   - rfc.mastra-runtime-and-operational-foundation
 supersedes:
   - spec.effect-runtime-integration
   - spec.local-development-studio-trust-and-lifecycle
   - spec.local-read-only-execution-studio
+  - spec.studio-vite-development-and-isolated-replay
+  - spec.dedicated-runner-process
 ---
 
 # Mastra Runtime and Operational Integration
@@ -122,6 +124,51 @@ Seqlane must not mirror complete run or trace state.
 Generic server and MCP behavior must use Mastra facilities. Seqlane may retain
 only domain registration and thin translation required to expose workflows.
 
+### requirement-workflow-discovery
+
+Operators must be able to list and plan repository- and user-scoped workflows
+without executing them. Discovery must preserve qualified scope, reject
+ambiguous unqualified names, validate descriptors before import, and retain
+direct module and file references.
+
+### requirement-workflow-discovery-bounds
+
+Workflow discovery must use explicitly configured depth, file, workflow-count,
+and startup-time budgets. It must not follow a symbolic link outside a declared
+root. It must report a typed limit or containment failure before registration.
+
+### requirement-cli-operator-commands
+
+The CLI must provide stable human and JSON commands to list, plan, run,
+inspect, and cancel workflows. These commands validate transport data and do
+not create a second runtime, run store, or trace store.
+
+### requirement-operational-host
+
+One foreground Mastra host must register discovered workflows and expose the
+canonical server, MCP, storage, and trace surfaces for its lifetime. A CLI may
+supervise that host but must not own its Mastra runtime state.
+
+### requirement-local-operational-access
+
+Unauthenticated operational surfaces are local only. They bind to loopback,
+and every configured host URL must be validated as `localhost`, `127.0.0.1`,
+or `[::1]` before connection. Remote, multi-user, or non-loopback access needs
+a separate authenticated authorization design.
+
+### requirement-operational-data-bounds
+
+Durable operational data must have an explicit retention and cleanup policy.
+Run, storage, and trace reads must use bounded result sizes and continuation or
+pagination. Cleanup must not remove an active run's required state.
+
+### requirement-cross-surface-run
+
+One workflow run started through CLI or MCP must retain the same Work and Run
+identity when observed through the server, storage, traces, and Community
+Studio. Each surface must read canonical Mastra state rather than a Seqlane
+projection or copy.
+
 ### requirement-community-studio
 
 `seqlane studio` must launch or connect to the upstream Mastra Community
@@ -217,6 +264,14 @@ removes it. No bridge may remain after the cleanup task.
 | 10 | `task.mastra-server-mcp` | `mastra-10-server-mcp` |
 | 11 | `task.mastra-community-studio` | `mastra-11-community-studio` |
 | 12 | `task.mastra-architectural-cleanup` | `mastra-12-architectural-cleanup` |
+| 13 | `task.workflow-discovery-bounds` | `mastra-13-workflow-discovery-bounds` |
+| 14 | `task.workflow-discovery-and-plan-cli` | `mastra-14-workflow-discovery-plan` |
+| 15 | `task.operational-data-bounds` | `mastra-15-operational-data-bounds` |
+| 16 | `task.mastra-operational-host` | `mastra-16-operational-host` |
+| 17 | `task.cli-run-status-and-cancel` | `mastra-17-cli-run-control` |
+| 18 | `task.mastra-mcp-transports` | `mastra-18-mcp-transports` |
+| 19 | `task.mastra-studio-run-inspection` | `mastra-19-studio-run-inspection` |
+| 20 | `task.mastra-operational-end-to-end` | `mastra-20-operational-end-to-end` |
 
 Task dependencies and Traceability links define execution order. The index and
 filename order are discovery aids only.
