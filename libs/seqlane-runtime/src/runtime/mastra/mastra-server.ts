@@ -13,14 +13,14 @@ export const MCP_SERVER_ID = "seqlane-workflows";
 const MCP_ABORT_SIGNAL_CONTEXT_KEY = "seqlane.mcp.abortSignal";
 
 export interface MastraServerRequestContext {
-  readonly requestContext: RequestContext;
+  readonly requestContext: RequestContext<any>;
   readonly abortSignal: AbortSignal;
 }
 
 export interface MastraMcpInvocation {
   readonly workflowKey: string;
   readonly input: unknown;
-  readonly requestContext: RequestContext;
+  readonly requestContext: RequestContext<any>;
   readonly abortSignal: AbortSignal;
 }
 
@@ -193,25 +193,6 @@ function serverContext(
   };
 }
 
-function isPresent(value: unknown): boolean {
-  return value !== undefined && value !== null;
-}
-
-function assertAuthenticated(
-  requestContext: RequestContext,
-  authInfo: unknown,
-): void {
-  if (
-    !isPresent(requestContext.get("user")) &&
-    !isPresent(requestContext.get("authInfo")) &&
-    !isPresent(authInfo)
-  ) {
-    throw new Error(
-      "MCP workflow execution requires an authenticated request context",
-    );
-  }
-}
-
 export function registerMastraServer(
   mastra: Mastra,
   workflows: Record<string, AnyWorkflow>,
@@ -241,8 +222,6 @@ export function registerMastraServer(
       description: `Run workflow '${key}'. Workflow description: ${workflow.description}`,
       inputSchema: workflow.inputSchema,
       execute: async (input, context) => {
-        const authInfo = context.mcp?.extra.authInfo;
-        assertAuthenticated(context.requestContext, authInfo);
         const abortSignal =
           context.mcp?.extra.signal ??
           context.abortSignal ??

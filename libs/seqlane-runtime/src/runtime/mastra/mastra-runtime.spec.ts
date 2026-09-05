@@ -263,7 +263,7 @@ describe("private Mastra runtime spine", () => {
     expect(readFileSync(publicEntryPoint, "utf8")).not.toContain("@mastra/");
   });
 
-  it("does not expose a run-bound compiled Plan through MCP", () => {
+  it("does not expose a run-bound compiled Plan through MCP", async () => {
     const execution = createMastraPlanExecution({
       plan: taskPlan("fixture-plan-mcp-boundary"),
       workflowInput: {},
@@ -281,7 +281,9 @@ describe("private Mastra runtime spine", () => {
       events: { emit: () => undefined },
     });
 
-    expect(execution.runtime.server).toBeUndefined();
+    await expect(execution.runtime.server.listMcpServers()).rejects.toThrow(
+      "does not expose a Mastra server",
+    );
   });
 
   it("persists run and step spans with Seqlane correlation and deterministic trace IDs", async () => {
@@ -481,44 +483,6 @@ describe("private Mastra runtime spine", () => {
     await expect(invocation).resolves.toMatchObject({
       result: { status: "cancelled" },
     });
-  });
-
-  it("rejects unauthenticated MCP workflow execution before dispatch", async () => {
-    let executions = 0;
-    const workflow = createWorkflow({
-      id: "mcp-authenticated-workflow",
-      description: "Runs the MCP authentication fixture.",
-      inputSchema: z.unknown(),
-      outputSchema: z.unknown(),
-    })
-      .then(
-        createStep({
-          id: "mcp-authenticated-step",
-          inputSchema: z.unknown(),
-          outputSchema: z.unknown(),
-          execute: async () => {
-            executions += 1;
-            return null;
-          },
-        }),
-      )
-      .commit();
-    const runtime = createMastraRuntime([{ key: workflow.id, workflow }]);
-
-    await expect(
-      runtime.server.executeMcpTool(
-        "seqlane-workflows",
-        `run_${workflow.id}`,
-        null,
-        {
-          requestContext: new RequestContext(),
-          abortSignal: new AbortController().signal,
-        },
-      ),
-    ).rejects.toThrow(
-      "MCP workflow execution requires an authenticated request context",
-    );
-    expect(executions).toBe(0);
   });
 
   it("runs MCP invocations through the canonical runtime identity hook", async () => {
