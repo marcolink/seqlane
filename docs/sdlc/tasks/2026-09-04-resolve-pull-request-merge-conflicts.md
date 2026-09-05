@@ -29,8 +29,8 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - Require a dispatch choice between `rebase` and `merge`, with `rebase` as
   the default.
 - Accept only open pull requests with a head branch in this repository.
-- Apply the selected integration strategy to the current base and head
-  revisions.
+- Capture the live base branch revision and apply the selected integration
+  strategy to it and the pull-request head revision.
 - Run the Seqlane workflow only when Git reports merge conflicts, in a fresh
   non-Git staging workspace that contains only regular agent-resolvable
   conflict files.
@@ -101,8 +101,8 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - The workflow rejects edits outside the initial conflict-file list.
 - The workflow commits and pushes only after all conflicts are resolved.
 - A rebased branch uses a force push protected by an exact remote-head lease.
-- The workflow checks the base revision before it pushes. The exact lease
-  prevents an unexpected remote-head update.
+- The workflow checks the captured live base revision before it pushes. The
+  exact lease prevents an unexpected remote-head update.
 - The focused tests and documentation checks pass.
 
 ## Outcome
@@ -113,7 +113,8 @@ its setup and trust-boundary blueprint.
 
 The workflow accepts an open same-repository pull request. Dispatch requires a
 choice between `rebase` and `merge`, and defaults that choice to `rebase`. It
-applies the selected strategy to the captured base and head revisions. Seqlane
+captures the live base branch revision and the pull-request head revision, then
+applies the selected strategy to those revisions. Seqlane
 runs only when Git reports conflicts. The agent can read and edit files, but it
 cannot use shell commands or external paths. It runs in a fresh non-Git staging
 copy that contains only the agent-resolvable conflict files. The workflow
@@ -145,10 +146,10 @@ The review hardening is recorded in commit `69d0215` and proposed in [PR
 
 
 The workflow downloads a pinned OpenCode release archive and checks its
-SHA-256 before extraction. It checks the base revision before a push. The exact
-force-with-lease check prevents an unexpected remote-head update. A base update
-after the check can make the result stale, but it cannot overwrite the base
-branch.
+SHA-256 before extraction. It checks the same captured live base revision before
+a push. The exact force-with-lease check prevents an unexpected remote-head
+update. A base update after the check can make the result stale, but it cannot
+overwrite the base branch.
 
 The focused tests, full test suite, build, type checks, lint, formatting, YAML
 parse, SDLC checks, and Git diff check pass. Lint reports two existing warnings
