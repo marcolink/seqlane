@@ -139,6 +139,9 @@ including CRLF, diff3, and longer marker lines. The
 workflow validates paths in the resolution checkout, including ignored
 untracked paths. It stops OpenCode before GitHub authentication.
 
+The review hardening is recorded in commit `69d0215` and proposed in [PR
+#46](https://github.com/marcolink/seqlane/pull/46).
+
 
 The workflow downloads a pinned OpenCode release archive and checks its
 SHA-256 before extraction. It checks the base revision before a push. The exact
