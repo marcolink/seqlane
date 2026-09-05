@@ -726,15 +726,17 @@ function addDispositionMetadata(
 function openFinding(
   finding: z.infer<typeof reviewReportFindingSchema>,
 ): z.infer<typeof reviewReportFindingSchema> {
+  const openFindingBase = { ...finding };
+  delete openFindingBase.dispositionReason;
+  delete openFindingBase.dispositionBy;
+  delete openFindingBase.dispositionAt;
+  delete openFindingBase.dispositionCommentId;
+  delete openFindingBase.dispositionCommit;
+
   return {
-    ...finding,
+    ...openFindingBase,
     effectiveSeverity: finding.severity,
     disposition: "open",
-    dispositionReason: undefined,
-    dispositionBy: undefined,
-    dispositionAt: undefined,
-    dispositionCommentId: undefined,
-    dispositionCommit: undefined,
   };
 }
 

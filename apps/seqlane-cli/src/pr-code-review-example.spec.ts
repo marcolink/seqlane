@@ -902,6 +902,7 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(result.verdict).toBe("approve");
+    expect(() => JSON.stringify(result)).not.toThrow();
     expect(result.findings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
