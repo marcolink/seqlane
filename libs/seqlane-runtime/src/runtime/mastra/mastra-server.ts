@@ -86,6 +86,12 @@ class BoundedMcpDispatcher {
 
     const controller = new AbortController();
     const onCallerAbort = (): void => {
+      if (!entry.started) {
+        this.remove(entry);
+        this.reject(entry, new Error("MCP workflow invocation was cancelled"));
+        this.pump();
+        return;
+      }
       controller.abort(invocation.abortSignal.reason);
     };
     invocation.abortSignal.addEventListener("abort", onCallerAbort, {

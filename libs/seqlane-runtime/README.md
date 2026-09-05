@@ -25,7 +25,8 @@ registrations expose MCP through fresh per-invocation runtimes. A compiled
 one-shot Plan runtime does not expose its run-bound workflow through MCP. Its
 dispatcher applies bounded concurrency and a per-invocation deadline. Its
 in-memory storage remains available for inspection while the execution owns
-that runtime.
+that runtime. Cancelled queued MCP invocations are removed immediately so
+they do not consume queue capacity.
 
 ### Local task execution
 

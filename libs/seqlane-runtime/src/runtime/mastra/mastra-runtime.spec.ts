@@ -590,6 +590,87 @@ describe("private Mastra runtime spine", () => {
     expect(maximumActive).toBe(1);
   });
 
+  it("removes cancelled MCP invocations from the queue", async () => {
+    let active!: () => void;
+    const activePromise = new Promise<void>((resolve) => {
+      active = resolve;
+    });
+    let release!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let invocationCount = 0;
+    const step = createStep({
+      id: "mcp-queued-cancellation-step",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+      execute: async () => {
+        invocationCount += 1;
+        active();
+        await releasePromise;
+        return null;
+      },
+    });
+    const workflow = createWorkflow({
+      id: "mcp-queued-cancellation-workflow",
+      description: "Runs the queued cancellation fixture.",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(step)
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
+      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 1_000 },
+    });
+    const context = () => ({
+      requestContext: new RequestContext([[
+        "user",
+        { id: "fixture-user" },
+      ]]),
+      abortSignal: new AbortController().signal,
+    });
+    const first = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      context(),
+    );
+    await activePromise;
+
+    const cancelledController = new AbortController();
+    const second = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      {
+        requestContext: new RequestContext([[
+          "user",
+          { id: "fixture-user" },
+        ]]),
+        abortSignal: cancelledController.signal,
+      },
+    );
+    cancelledController.abort();
+    await expect(second).rejects.toThrow(
+      "MCP workflow invocation was cancelled",
+    );
+
+    const third = runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      `run_${workflow.id}`,
+      null,
+      context(),
+    );
+    release();
+    await expect(first).resolves.toMatchObject({
+      result: { status: "succeeded" },
+    });
+    await expect(third).resolves.toMatchObject({
+      result: { status: "succeeded" },
+    });
+    expect(invocationCount).toBe(2);
+  });
+
   it("cancels MCP workflow dispatch at its deadline", async () => {
     let started!: () => void;
     const startedPromise = new Promise<void>((resolve) => {
