@@ -6,8 +6,8 @@ export const JsonDependencyCheckRuleOptions = {
     "tslib",
     "vitest",
     "@seqlane/runtime",
-    // The CLI resolves the built Studio shell through createRequire.
-    "@seqlane/studio-app",
+    // The CLI resolves the pinned Community Studio entrypoint through createRequire.
+    "mastra",
     // Vite copies Geist font assets from its package without importing code.
     "geist",
   ],

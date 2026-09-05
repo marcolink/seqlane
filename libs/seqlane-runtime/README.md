@@ -5,11 +5,11 @@ private infrastructure; its types do not cross this package boundary.
 
 ### Community Mastra dependency boundary
 
-The runtime pins `@mastra/core@1.64.0`. The private integration registers and
-runs workflows through the workflow API from `@mastra/core/workflows`, using
-`createStep` and `createWorkflow`. The package declares
-Apache-2.0 licensing. Mastra paths under `ee/` are enterprise-only and are
-rejected by the runtime boundary tests.
+The runtime pins `@mastra/core@1.64.0`. The installed Community package exposes
+the workflow API from `@mastra/core/workflows`, including `createStep` and
+`createWorkflow`, which the private integration uses to register and run
+workflows. The package declares Apache-2.0 licensing. Mastra paths under `ee/`
+are enterprise-only and are rejected by the runtime boundary tests.
 
 The Enterprise boundary guard scans production source and package manifests in
 `apps/` and `libs/`. It rejects static and side-effect imports, export-from
@@ -34,10 +34,12 @@ Server and discovery helpers receive the caller's `RequestContext` and
 ### Local task execution
 
 A task with `execute` runs through the local invocation path. The runtime parses
-its typed input and provides a scoped `TaskContext.exec` capability. Each call
-uses a Mastra `LocalSandbox` process with an executable and direct argv, never a
-shell, and captures bounded stdout and stderr. Results include Seqlane task and
-invocation identity, timing, truncation, timeout, and cancellation metadata.
+its typed input, admits the canonical workspace, and provides a scoped
+`TaskContext.exec` capability. Each call uses a Mastra `LocalSandbox` process
+with an executable and direct argv, never a shell, and captures bounded stdout
+and stderr. Results include Seqlane task and invocation identity, timing,
+truncation, timeout, and cancellation metadata. The workspace lease remains
+held until the process terminates.
 
 Local tasks do not resolve an agent executor, model, session, or checkpoint, and
 their generic invocation results contain no model or token metrics. V1 is

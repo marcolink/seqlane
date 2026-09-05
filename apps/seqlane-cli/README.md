@@ -1,21 +1,22 @@
 # Seqlane CLI
 
-## Local Studio
+## Community Studio
 
-From a packaged CLI, start a foreground, loopback-only Studio session:
+Start the upstream Mastra Community Studio:
 
 ```sh
 seqlane studio
 ```
 
-Run a workflow and forward its canonical execution events to that session:
+By default, the Studio connects to the Seqlane/Mastra server at
+`http://127.0.0.1:4111/api`. Configure the UI and server endpoints when needed:
 
 ```sh
-seqlane run ./examples/minimal-workflow.ts \
-  --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096 \
-  --studio
+seqlane studio --port 3001 --server-port 4112
 ```
+
+The command launches the pinned Community Studio CLI. Seqlane does not bundle,
+rebrand, or embed a separate Studio application.
 
 ## Dry run
 
@@ -72,28 +73,9 @@ seqlane run ./examples/code-review.ts \
 Runs use isolated executor sessions by default. Independent tasks can overlap
 only when their session, DAG, global capacity, and workspace policies permit it.
 
-Studio uses a fixed loopback port by default and has no descriptor or browser
-bootstrap token. Studio forwarding is ordered and best effort; a Studio error
-does not change workflow execution, terminal output, or the CLI exit status.
-
-Studio state is transient. The foreground service stores run data in memory,
-and stopping or restarting it erases the current run list and event buffer.
-
 When the configured OpenCode runtime also serves its browser UI, human terminal
 output adds a per-task `Session UI` link. CI and JSON output print the URL to
 stderr so their stdout remains machine-readable.
-
-Start Studio with one bounded, validated recording for read-only browser
-inspection:
-
-```sh
-seqlane studio --replay ./seqlane-recording.jsonl
-```
-
-The command validates the file before startup and prints a browser URL with an
-opaque replay identifier and `debug=1`. The recording path is not put in the
-URL or API payload. Replay is local, non-persistent, does not alter live Studio
-state, and cannot resume workflow execution.
 
 ## Recording and replay
 
@@ -112,12 +94,11 @@ ordered canonical `SeqlaneExecutionEvent` JSON lines. It is bounded to 10 MiB
 and 10,000 events; an existing path is rejected.
 
 Replay is read-only. It validates the header, canonical events, run identity,
-and contiguous sequence before sending the same output and optional Studio
-consumer stream. It never loads or executes a workflow:
+and contiguous sequence before sending the same output. It never loads or
+executes a workflow:
 
 ```sh
 seqlane replay ./seqlane-recording.jsonl --output human
-seqlane replay ./seqlane-recording.jsonl --studio --studioPort 57695
 ```
 
 ## Development
@@ -128,7 +109,7 @@ Build the workspace before you run the repository CLI entrypoint:
 pnpm build
 ```
 
-Then run Studio from the repository root:
+Then run the Community Studio from the repository root:
 
 ```sh
 pnpm exec node apps/seqlane-cli/bin/run.js studio --port 57694
@@ -139,8 +120,7 @@ Run a local workflow with the same entrypoint:
 ```sh
 pnpm exec node apps/seqlane-cli/bin/run.js run examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096 \
-  --studio
+  --runtime http://127.0.0.1:4096
 ```
 
 Run the CLI boundary tests after a build:
