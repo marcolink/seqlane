@@ -328,6 +328,7 @@ export function createMastraPlanExecution(
     runtime: createMastraRuntime(
       [{ key: compiled.key, workflow: compiled.workflow }],
       {
+        exposeServer: false,
         failureForRun: () => typedFailure,
         onWorkflowResult: (_request, result) => {
           emitMastraNonTerminalInvocations(

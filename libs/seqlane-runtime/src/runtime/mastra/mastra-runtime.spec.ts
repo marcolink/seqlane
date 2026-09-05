@@ -262,6 +262,27 @@ describe("private Mastra runtime spine", () => {
     expect(readFileSync(publicEntryPoint, "utf8")).not.toContain("@mastra/");
   });
 
+  it("does not expose a run-bound compiled Plan through MCP", () => {
+    const execution = createMastraPlanExecution({
+      plan: taskPlan("fixture-plan-mcp-boundary"),
+      workflowInput: {},
+      workId: "fixture-work",
+      runId: "fixture-run",
+      createInvocationId: (nodeId) => nodeId ?? "fixture-invocation",
+      executors: { agent: () => ({ execute: async () => undefined }) },
+      sessionResolver: {
+        resolve: async () => ({
+          key: Symbol("fixture-session"),
+          executor: { execute: async () => undefined },
+        }),
+      },
+      workspaceResources: new Map(),
+      events: { emit: () => undefined },
+    });
+
+    expect(execution.runtime.server).toBeUndefined();
+  });
+
   it("persists run and step spans with Seqlane correlation and deterministic trace IDs", async () => {
     const runtime = createMastraRuntime([
       { key: "fixture", workflow: mastraRuntimeSpineWorkflow },

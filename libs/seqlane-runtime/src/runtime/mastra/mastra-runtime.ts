@@ -40,7 +40,7 @@ export interface MastraRuntime {
   ): Promise<SeqlaneRunOutcome>;
   start(request: MastraRunRequest, context?: MastraRunContext): MastraActiveRun;
   inspect(request: MastraRunRequest): Promise<MastraRuntimeInspection>;
-  readonly server: MastraRuntimeServer;
+  readonly server?: MastraRuntimeServer;
 }
 
 export interface MastraActiveRun {
@@ -49,6 +49,8 @@ export interface MastraActiveRun {
 }
 
 export interface MastraRuntimeOptions {
+  /** Registers reusable workflow definitions with the Mastra server and MCP adapter. */
+  readonly exposeServer?: boolean;
   /** Retrieves a typed failure captured before Mastra serializes it. */
   readonly failureForRun?: (runId: RunId) => SeqlaneError | undefined;
   /** Observes Mastra step statuses before the result is normalized. */
@@ -158,6 +160,8 @@ export function createMastraRuntime(
   options: MastraRuntimeOptions = {},
 ): MastraRuntime {
   const runtime = createMastraRuntimeCore(registrations, options);
+  if (options.exposeServer === false) return runtime.runtime;
+
   const server = registerMastraServer(
     runtime.mastra,
     runtime.workflows,
