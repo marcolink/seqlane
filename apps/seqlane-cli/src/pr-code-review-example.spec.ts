@@ -141,6 +141,8 @@ describe("pull-request code review example workflow", () => {
     expect(workflow).toContain(
       './apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts"',
     );
+    expect(workflow).not.toContain("## Available commands");
+    expect(workflow).not.toContain("- `/seqlane review`");
   });
 
   it("admits only real review requests before per-pull-request concurrency", async () => {
