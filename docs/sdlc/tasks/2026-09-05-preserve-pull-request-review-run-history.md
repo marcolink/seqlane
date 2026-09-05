@@ -24,16 +24,19 @@ Implement [requirement-run-status-and-metrics](../specs/2026-09-05-versioned-pul
 
 ## Scope
 
-- Replace the single new-state run record with append-only `runs` history.
-- Read legacy single-`run` v3 state and migrate it on the next publication.
+- Publish one immutable audit comment for each completed run.
+- Migrate legacy single-`run` and append-only `runs` v3 state on the next publication.
+- Keep the authoritative state bounded with only the latest run and summary.
 - Keep the latest run metrics JSON block in the human projection.
 - Render cumulative pull-request cost and latest-run cost from retained history.
+- Re-read the trusted report before publication and skip stale concurrent writes.
+- Reject ambiguous states containing both `run` and `runs`.
 - Add regression coverage for history validation and metadata identity.
 
 ## Out of scope
 
 - Changing provider pricing or token accounting.
-- Dropping historical run metrics to fit a smaller state bound.
+- Dropping historical run metrics from the immutable audit comments.
 - Changing review finding lifecycle behavior.
 
 ## Implementation plan
@@ -67,10 +70,11 @@ Implement [requirement-run-status-and-metrics](../specs/2026-09-05-versioned-pul
 
 ## Outcome
 
-The review state now preserves append-only run audit history and migrates the
-legacy single-run shape when a new report is published. The human projection
-shows cumulative pull-request cost and latest-run cost while retaining the
-latest run's plain JSON metrics.
+The workflow now stores each completed run in an immutable audit comment,
+migrates prior state history, keeps the authoritative state bounded, guards
+against stale concurrent publication, and rejects ambiguous run fields. The
+human projection shows cumulative pull-request cost and latest-run cost while
+retaining the latest run's plain JSON metrics.
 
 ## Traceability
 

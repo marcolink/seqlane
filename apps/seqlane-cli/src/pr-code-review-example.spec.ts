@@ -669,6 +669,50 @@ describe("pull-request code review example workflow", () => {
     expect(result.previousReviewedRevision).toBeUndefined();
   });
 
+  it("rejects version 3 state with both legacy and history run fields", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+    const invalidState = {
+      schemaVersion: 3,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 1,
+      findings: [],
+      limitations: [],
+      truncated: false,
+      run: { id: "100", attempt: 1, completedAt: "2026-09-05T10:00:00Z" },
+      runs: [{ id: "100", attempt: 1, completedAt: "2026-09-05T10:00:00Z" }],
+    };
+    const result = await task.execute(
+      {
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "report",
+              kind: "issue",
+              author: "github-actions[bot]",
+              authorAssociation: "NONE",
+              body: createV3ReviewComment(invalidState, {
+                run: { id: "100", attempt: 1 },
+              }),
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          truncated: false,
+        },
+      },
+      {},
+    );
+
+    expect(result.previousState).toBeUndefined();
+  });
+
   it("rejects ambiguous or mismatched version 3 state framing", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.review-context",

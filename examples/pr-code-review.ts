@@ -222,6 +222,13 @@ const reviewRunAuditSchema = z
   })
   .strict();
 
+const reviewRunSummarySchema = z
+  .object({
+    runCount: z.number().int().nonnegative(),
+    totalCost: z.number().nonnegative(),
+  })
+  .strict();
+
 const reviewStateSchema = z
   .object({
     schemaVersion: z.literal(3),
@@ -233,13 +240,22 @@ const reviewStateSchema = z
     findings: z.array(reviewReportFindingSchema.strict()).max(40),
     limitations: z.array(z.string().min(1).max(1_000)).max(20),
     truncated: z.boolean(),
-    // `run` is retained for reading states written before run history was
-    // introduced. New states use `runs` so consecutive runs are append-only.
+    // `runs` is retained for migrating the first append-only state format.
+    // New states store the latest run and summary; full history lives in
+    // immutable run-metrics comments.
     run: reviewRunAuditSchema.optional(),
     runs: z.array(reviewRunAuditSchema).optional(),
+    runSummary: reviewRunSummarySchema.optional(),
   })
   .strict()
   .superRefine((state, context) => {
+    if (state.run !== undefined && state.runs !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["runs"],
+        message: "State cannot contain both run and runs",
+      });
+    }
     const identities = new Set<string>();
     let highestIndex = 0;
     for (const [findingIndex, finding] of state.findings.entries()) {
