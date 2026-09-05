@@ -1,6 +1,3 @@
-import { mkdtemp, open, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { createFlow, defineTask, isolated } from "@seqlane/core";
 import { openai } from "@seqlane/core/models";
@@ -131,6 +128,7 @@ const reviewReportFindingSchema = reviewFindingSchema.extend({
   dispositionAt: z.string().min(1).max(64).optional(),
   dispositionCommentId: z.string().min(1).max(128).optional(),
   dispositionCommit: gitRevisionSchema.optional(),
+  evidenceHeadRevision: gitRevisionSchema.optional(),
 });
 
 const reviewSnapshotFindingSchema = reviewReportFindingSchema;
@@ -186,6 +184,8 @@ const MAX_CHANGED_FILES = 200;
 const MAX_CHANGED_FILE_LENGTH = 512;
 const MAX_REVIEW_DISPOSITIONS = 200;
 const MAX_REVIEW_CONTEXT_COMMENT_BODY = 2_000;
+const MAX_REVIEW_FINDINGS = 40;
+const MAX_REVIEW_SNAPSHOT_DECOMPRESSED_BYTES = 512_000;
 const TRUSTED_REVIEW_BOT_AUTHORS = new Set([
   "github-actions",
   "github-actions[bot]",
@@ -266,7 +266,9 @@ function parseReviewSnapshot(
     const encoded = Buffer.from(marker[1]!, "base64");
     const decodedText =
       compressedMarker !== null
-        ? gunzipSync(encoded).toString("utf8")
+        ? gunzipSync(encoded, {
+            maxOutputLength: MAX_REVIEW_SNAPSHOT_DECOMPRESSED_BYTES,
+          }).toString("utf8")
         : encoded.toString("utf8");
     const decoded: unknown = JSON.parse(decodedText);
     const parsed = reviewSnapshotSchema.safeParse(decoded);
@@ -276,52 +278,28 @@ function parseReviewSnapshot(
   }
 }
 
-async function readBoundedPatch(path: string): Promise<{
+function boundPatchOutput(value: string): {
   readonly value: string;
   readonly byteLength: number;
   readonly truncated: boolean;
-}> {
-  const file = await open(path, "r");
-  try {
-    const byteLength = (await file.stat()).size;
-    const readLength = Math.min(byteLength, MAX_PATCH_BYTES);
-    const bytes = new Uint8Array(readLength);
-    let bytesRead = 0;
-    while (bytesRead < readLength) {
-      const result = await file.read(
-        bytes,
-        bytesRead,
-        readLength - bytesRead,
-        bytesRead,
-      );
-      if (result.bytesRead === 0) break;
-      bytesRead += result.bytesRead;
-    }
-
-    let end = bytesRead;
-    const truncated = byteLength > MAX_PATCH_BYTES;
-    if (truncated) {
-      const lastNewline = bytes.lastIndexOf(10, end - 1);
-      end = lastNewline >= 0 ? lastNewline + 1 : 0;
-      while (end > 0) {
-        try {
-          new TextDecoder("utf-8", { fatal: true }).decode(
-            bytes.subarray(0, end),
-          );
-          break;
-        } catch {
-          end -= 1;
-        }
-      }
-    }
-
-    const value =
-      new TextDecoder().decode(bytes.subarray(0, end)) +
-      (truncated ? PATCH_TRUNCATION_MARKER : "");
-    return { value, byteLength, truncated };
-  } finally {
-    await file.close();
+} {
+  const normalized = value.endsWith("\uFFFD") ? value.slice(0, -1) : value;
+  const bytes = new TextEncoder().encode(normalized);
+  const truncated = value.endsWith("\uFFFD") || bytes.length > MAX_PATCH_BYTES;
+  const boundedBytes = bytes.subarray(0, MAX_PATCH_BYTES);
+  let end = boundedBytes.length;
+  if (truncated) {
+    const lastNewline = boundedBytes.lastIndexOf(10, end - 1);
+    end = lastNewline >= 0 ? lastNewline + 1 : 0;
   }
+
+  return {
+    value:
+      new TextDecoder().decode(boundedBytes.subarray(0, end)) +
+      (truncated ? PATCH_TRUNCATION_MARKER : ""),
+    byteLength: truncated ? MAX_PATCH_BYTES + 1 : bytes.length,
+    truncated,
+  };
 }
 
 function parseReviewDispositionCommands(
@@ -374,7 +352,6 @@ function parseReviewDispositionCommands(
       ...(comment.commitId === undefined ? {} : { commitId: comment.commitId }),
     });
     if (parsed.success) dispositions.push(parsed.data);
-    if (dispositions.length >= MAX_REVIEW_DISPOSITIONS) break;
   }
 
   return dispositions;
@@ -400,14 +377,32 @@ const reviewContextTask = defineTask({
         parseReviewDispositionCommands(comment),
       ]),
     );
-    const dispositions: Array<z.infer<typeof reviewDispositionSchema>> = [];
-    for (const comment of comments) {
-      for (const disposition of commentDispositions.get(comment.id) ?? []) {
-        if (dispositions.length >= MAX_REVIEW_DISPOSITIONS) break;
-        dispositions.push(disposition);
+    const latestDispositionByFindingAndAuthorization = new Map<
+      string,
+      z.infer<typeof reviewDispositionSchema>
+    >();
+    for (const disposition of [...commentDispositions.values()].flat()) {
+      const key = `${disposition.findingId}:${disposition.authorized ? "authorized" : "unauthorized"}`;
+      const existing = latestDispositionByFindingAndAuthorization.get(key);
+      if (
+        existing === undefined ||
+        existing.effectiveAt.localeCompare(disposition.effectiveAt) < 0 ||
+        (existing.effectiveAt === disposition.effectiveAt &&
+          existing.commentId.localeCompare(disposition.commentId) <= 0)
+      ) {
+        latestDispositionByFindingAndAuthorization.set(key, disposition);
       }
-      if (dispositions.length >= MAX_REVIEW_DISPOSITIONS) break;
     }
+    const allLatestDispositions = [
+      ...latestDispositionByFindingAndAuthorization.values(),
+    ].sort(
+      (left, right) =>
+        left.effectiveAt.localeCompare(right.effectiveAt) ||
+        left.commentId.localeCompare(right.commentId),
+    );
+    const dispositionsTruncated =
+      allLatestDispositions.length > MAX_REVIEW_DISPOSITIONS;
+    const dispositions = allLatestDispositions.slice(-MAX_REVIEW_DISPOSITIONS);
     const previousDispositionCommentIds = new Set(
       previousSnapshot?.findings.flatMap((finding) =>
         finding.dispositionCommentId === undefined
@@ -427,7 +422,8 @@ const reviewContextTask = defineTask({
       commentIds: comments.map((comment) => comment.id),
       truncated:
         reviewHistory.truncated ||
-        comments.some((comment) => comment.bodyTruncated === true),
+        comments.some((comment) => comment.bodyTruncated === true) ||
+        dispositionsTruncated,
       ...(previousReport === undefined
         ? {}
         : { previousReport: compactReviewComment(previousReport) }),
@@ -444,103 +440,87 @@ const gitReviewEvidenceTask = defineTask({
   output: gitReviewEvidenceOutputSchema,
   execute: async ({ baseRevision, headRevision }, { exec }) => {
     const range = `${baseRevision}...${headRevision}`;
-    const patchDirectory = await mkdtemp(join(tmpdir(), "seqlane-pr-review-"));
-    const patchPath = join(patchDirectory, "patch.diff");
-    try {
-      // Git writes the complete diff to this run-scoped temporary file. The
-      // retained model-facing evidence is hard-bounded by readBoundedPatch;
-      // TaskContext.exec has no bounded file-output primitive.
-      const [head, base, changed, stat, patch, check] = await Promise.all([
-        exec({ command: "git", args: ["rev-parse", "--verify", "HEAD"] }),
-        exec({
-          command: "git",
-          args: ["cat-file", "-e", `${baseRevision}^{commit}`],
-        }),
-        exec({
-          command: "git",
-          args: [
-            "diff",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--name-status",
-            range,
-          ],
-        }),
-        exec({
-          command: "git",
-          args: ["diff", "--no-ext-diff", "--no-textconv", "--stat", range],
-        }),
-        exec({
-          command: "git",
-          args: [
-            "diff",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--no-color",
-            "--patch",
-            "--unified=20",
-            `--output=${patchPath}`,
-            range,
-          ],
-        }),
-        exec({
-          command: "git",
-          args: ["diff", "--no-ext-diff", "--no-textconv", "--check", range],
-        }),
-      ]);
+    const boundedPatchCommand = [
+      "set -o pipefail",
+      `git diff --no-ext-diff --no-textconv --no-color --patch --unified=20 ${range} | head -c ${MAX_PATCH_BYTES + 1}`,
+      "gitStatus=${PIPESTATUS[0]}",
+      '[ "$gitStatus" -eq 0 ] || [ "$gitStatus" -eq 141 ]',
+    ].join("; ");
+    const [head, base, changed, stat, patch, check] = await Promise.all([
+      exec({ command: "git", args: ["rev-parse", "--verify", "HEAD"] }),
+      exec({
+        command: "git",
+        args: ["cat-file", "-e", `${baseRevision}^{commit}`],
+      }),
+      exec({
+        command: "git",
+        args: [
+          "diff",
+          "--no-ext-diff",
+          "--no-textconv",
+          "--name-status",
+          range,
+        ],
+      }),
+      exec({
+        command: "git",
+        args: ["diff", "--no-ext-diff", "--no-textconv", "--stat", range],
+      }),
+      exec({
+        command: "bash",
+        args: ["-c", boundedPatchCommand],
+      }),
+      exec({
+        command: "git",
+        args: ["diff", "--no-ext-diff", "--no-textconv", "--check", range],
+      }),
+    ]);
 
-      if (head.exitCode !== 0 || head.stdout.trim() !== headRevision) {
-        throw new Error("Git HEAD does not match the requested head revision");
-      }
-      if (base.exitCode !== 0) {
-        throw new Error("The requested base revision is not available");
-      }
-      if (
-        changed.exitCode !== 0 ||
-        stat.exitCode !== 0 ||
-        patch.exitCode !== 0
-      ) {
-        throw new Error("Git could not inspect the requested review range");
-      }
-
-      const allChangedFiles = [
-        ...new Set(
-          changed.stdout
-            .split(/\r?\n/)
-            .filter((line) => line.length > 0)
-            .flatMap((line) => line.split("\t").slice(1)),
-        ),
-      ];
-      const changedFiles = allChangedFiles
-        .filter((file) => file.length <= MAX_CHANGED_FILE_LENGTH)
-        .slice(0, MAX_CHANGED_FILES);
-      const diffStat = boundGitText(stat.stdout);
-      const patchEvidence = await readBoundedPatch(patchPath);
-      const diffCheckStdout = boundGitText(check.stdout);
-      const diffCheckStderr = boundGitText(check.stderr);
-
-      return {
-        baseRevision,
-        headRevision,
-        changedFiles,
-        changedFileCount: allChangedFiles.length,
-        changedFilesTruncated: changedFiles.length !== allChangedFiles.length,
-        diffStat: diffStat.value,
-        diffStatTruncated: diffStat.truncated,
-        patch: patchEvidence.value,
-        patchByteLength: patchEvidence.byteLength,
-        patchTruncated: patchEvidence.truncated,
-        diffCheck: {
-          exitCode: check.exitCode,
-          stdout: diffCheckStdout.value,
-          stderr: diffCheckStderr.value,
-          stdoutTruncated: diffCheckStdout.truncated,
-          stderrTruncated: diffCheckStderr.truncated,
-        },
-      };
-    } finally {
-      await rm(patchDirectory, { recursive: true, force: true });
+    if (head.exitCode !== 0 || head.stdout.trim() !== headRevision) {
+      throw new Error("Git HEAD does not match the requested head revision");
     }
+    if (base.exitCode !== 0) {
+      throw new Error("The requested base revision is not available");
+    }
+    if (changed.exitCode !== 0 || stat.exitCode !== 0 || patch.exitCode !== 0) {
+      throw new Error("Git could not inspect the requested review range");
+    }
+
+    const allChangedFiles = [
+      ...new Set(
+        changed.stdout
+          .split(/\r?\n/)
+          .filter((line) => line.length > 0)
+          .flatMap((line) => line.split("\t").slice(1)),
+      ),
+    ];
+    const changedFiles = allChangedFiles
+      .filter((file) => file.length <= MAX_CHANGED_FILE_LENGTH)
+      .slice(0, MAX_CHANGED_FILES);
+    const diffStat = boundGitText(stat.stdout);
+    const patchEvidence = boundPatchOutput(patch.stdout);
+    const diffCheckStdout = boundGitText(check.stdout);
+    const diffCheckStderr = boundGitText(check.stderr);
+
+    return {
+      baseRevision,
+      headRevision,
+      changedFiles,
+      changedFileCount: allChangedFiles.length,
+      changedFilesTruncated: changedFiles.length !== allChangedFiles.length,
+      diffStat: diffStat.value,
+      diffStatTruncated: diffStat.truncated,
+      patch: patchEvidence.value,
+      patchByteLength: patchEvidence.byteLength,
+      patchTruncated: patchEvidence.truncated,
+      diffCheck: {
+        exitCode: check.exitCode,
+        stdout: diffCheckStdout.value,
+        stderr: diffCheckStderr.value,
+        stdoutTruncated: diffCheckStdout.truncated,
+        stderrTruncated: diffCheckStderr.truncated,
+      },
+    };
   },
 });
 
@@ -685,6 +665,7 @@ const synthesizeReviewTask = defineTask({
     "Do not accept deferred cleanup as a resolution for a required finding. Keep code-health concerns evidence-based and do not manufacture a finding merely to be adversarial.",
     "Set verdict to request-changes only when an open finding has effective severity critical or required. Authorized wont-fix, fixed, downgraded, and not-reproducible findings do not block approval, but remain visible with their disposition.",
     "Copy repository, baseBranch, baseRevision, and headRevision exactly from the supplied review context into the final report. Do not derive or rewrite these identity fields.",
+    "For every finding, set evidenceHeadRevision to the supplied review.headRevision. A fixed disposition is valid only when this field matches the current review head and the supplied Git evidence has the same head revision.",
     "Return only the complete structured review report.",
   ],
   observability: {
@@ -760,11 +741,11 @@ const applyReviewDispositionTask = defineTask({
         latestAuthorized.set(disposition.findingId, disposition);
       }
     }
-    const authorizedDispositionCommentIds = new Set(
-      review.reviewHistory.dispositions
-        .filter((disposition) => disposition.authorized)
-        .map((disposition) => disposition.commentId),
-    );
+    const currentHeadEvidenceIsBounded =
+      report.baseRevision === review.baseRevision &&
+      report.headRevision === review.headRevision &&
+      review.gitEvidence.baseRevision === review.baseRevision &&
+      review.gitEvidence.headRevision === review.headRevision;
 
     const applyToFinding = (
       finding: z.infer<typeof reviewReportFindingSchema>,
@@ -810,7 +791,10 @@ const applyReviewDispositionTask = defineTask({
 
       // A fixed command is a claim. The synthesis task must independently
       // verify the current head before it can emit disposition=fixed.
-      return allowFixed && currentFinding.disposition === "fixed"
+      return allowFixed &&
+        currentFinding.disposition === "fixed" &&
+        currentFinding.evidenceHeadRevision === review.headRevision &&
+        currentHeadEvidenceIsBounded
         ? addDispositionMetadata(currentFinding, disposition, "fixed")
         : openFinding(currentFinding);
     };
@@ -818,10 +802,10 @@ const applyReviewDispositionTask = defineTask({
     const findings = report.findings.map((finding) =>
       applyToFinding(finding, true),
     );
-    const findingIds = new Set(findings.map((finding) => finding.id));
+    const currentFindingIds = new Set(findings.map((finding) => finding.id));
     for (const previous of review.reviewHistory.previousSnapshot?.findings ??
       []) {
-      if (findingIds.has(previous.id)) continue;
+      if (currentFindingIds.has(previous.id)) continue;
       const disposition = latestAuthorized.get(previous.id);
       if (disposition?.action === "fixed") {
         findings.push(applyToFinding(previous, false));
@@ -832,13 +816,40 @@ const applyReviewDispositionTask = defineTask({
         continue;
       }
       if (previous.disposition === "open") continue;
+      if (previous.disposition === "fixed") {
+        findings.push(openFinding(previous));
+        continue;
+      }
+      const currentDisposition = latestAuthorized.get(previous.id);
       const dispositionIsActive =
         previous.dispositionCommentId === undefined ||
-        authorizedDispositionCommentIds.has(previous.dispositionCommentId);
+        (currentDisposition !== undefined &&
+          currentDisposition.commentId === previous.dispositionCommentId);
       findings.push(dispositionIsActive ? previous : openFinding(previous));
     }
 
-    const verdict = findings.some(
+    const findingsOverflow = Math.max(0, findings.length - MAX_REVIEW_FINDINGS);
+    const boundedFindings = findings
+      .map((finding, index) => ({
+        finding,
+        index,
+        blocking:
+          finding.disposition === "open" &&
+          (finding.effectiveSeverity === "critical" ||
+            finding.effectiveSeverity === "required"),
+        current: currentFindingIds.has(finding.id),
+      }))
+      .sort(
+        (left, right) =>
+          Number(right.blocking) - Number(left.blocking) ||
+          Number(right.current) - Number(left.current) ||
+          left.index - right.index,
+      )
+      .slice(0, MAX_REVIEW_FINDINGS)
+      .sort((left, right) => left.index - right.index)
+      .map(({ finding }) => finding);
+
+    const verdict = boundedFindings.some(
       (finding) =>
         finding.disposition === "open" &&
         (finding.effectiveSeverity === "critical" ||
@@ -860,11 +871,16 @@ const applyReviewDispositionTask = defineTask({
         "The previous Seqlane report snapshot was compacted; omitted historical text was not restored.",
       );
     }
+    if (findingsOverflow > 0 && verification.length < 20) {
+      verification.push(
+        `${findingsOverflow} lower-priority finding(s) were omitted because the report is bounded to ${MAX_REVIEW_FINDINGS} findings.`,
+      );
+    }
 
     return {
       ...report,
       verdict,
-      findings,
+      findings: boundedFindings,
       verification,
     };
   },

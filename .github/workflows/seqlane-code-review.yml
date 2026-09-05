@@ -120,6 +120,7 @@ jobs:
           EVENT_HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           EVENT_DRAFT: ${{ github.event.pull_request.draft }}
+          EVENT_STATE: ${{ github.event.pull_request.state }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -131,12 +132,14 @@ jobs:
             HEAD_REVISION=$(jq --raw-output '.head.sha' "$RUNNER_TEMP/seqlane-pull-request.json")
             HEAD_REPOSITORY=$(jq --raw-output '.head.repo.full_name' "$RUNNER_TEMP/seqlane-pull-request.json")
             DRAFT=$(jq --raw-output '.draft' "$RUNNER_TEMP/seqlane-pull-request.json")
+            STATE=$(jq --raw-output '.state' "$RUNNER_TEMP/seqlane-pull-request.json")
           else
             BASE_BRANCH="$EVENT_BASE_BRANCH"
             BASE_REVISION="$EVENT_BASE_REVISION"
             HEAD_REVISION="$EVENT_HEAD_REVISION"
             HEAD_REPOSITORY="$EVENT_HEAD_REPOSITORY"
             DRAFT="$EVENT_DRAFT"
+            STATE="$EVENT_STATE"
           fi
 
           if [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
@@ -149,7 +152,7 @@ jobs:
               > "$RUNNER_TEMP/seqlane-pull-request-context.json"
           fi
 
-          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ] || [ "$DRAFT" = "true" ]; then
+          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ] || [ "$DRAFT" = "true" ] || [ "$STATE" != "open" ]; then
             echo "eligible=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -223,8 +226,7 @@ jobs:
               | {
                   comments: ($comments | .[-200:]),
                   truncated: (
-                    (($issue[0] // []) | length) >= 200 or
-                    (($review[0] // []) | length) >= 200 or
+                    ($comments | length) >= 200 or
                     any($comments[]; .bodyTruncated == true)
                   )
                 }
@@ -440,6 +442,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.pull-request.outputs.number }}
         run: |
+          COMMENT_MAX_BYTES=60000
+          REPORT_SNAPSHOT_MAX_CHARS=20000
+
           jq --slurp \
             'map(select(.type == "run.succeeded")) | last | .output' \
             "$RUNNER_TEMP/seqlane-code-review.jsonl" \
@@ -473,6 +478,7 @@ jobs:
                 + (if .dispositionAt then {dispositionAt} else {} end)
                 + (if .dispositionCommentId then {dispositionCommentId} else {} end)
                 + (if .dispositionCommit then {dispositionCommit} else {} end)
+                + (if .evidenceHeadRevision then {evidenceHeadRevision} else {} end)
               ],
               truncated: any($report.findings[];
                 ((.summary | length) > 320) or
@@ -483,7 +489,7 @@ jobs:
             }
           ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
 
-          if [ "${#REPORT_SNAPSHOT}" -gt 24000 ]; then
+          if [ "${#REPORT_SNAPSHOT}" -gt "$REPORT_SNAPSHOT_MAX_CHARS" ]; then
             REPORT_SNAPSHOT=$(jq --compact-output '
               . as $report |
               {
@@ -500,18 +506,53 @@ jobs:
                     recommendation: "Re-evaluate this finding against the current head."
                   }
                   + (if .dispositionCommentId then {dispositionCommentId} else {} end)
+                  + (if .evidenceHeadRevision then {evidenceHeadRevision} else {} end)
                 ],
                 truncated: true
               }
             ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
           fi
 
-          if [ "${#REPORT_SNAPSHOT}" -gt 60000 ]; then
+          if [ "${#REPORT_SNAPSHOT}" -gt "$REPORT_SNAPSHOT_MAX_CHARS" ]; then
+            REPORT_SNAPSHOT=$(jq --compact-output '
+              . as $report |
+              {
+                headRevision: $report.headRevision,
+                findings: [
+                  $report.findings[:20][] |
+                  {
+                    id,
+                    axis,
+                    severity,
+                    effectiveSeverity,
+                    disposition,
+                    summary: "Historical finding retained from compact snapshot.",
+                    recommendation: "Re-evaluate this finding against the current head."
+                  }
+                  + (if .dispositionCommentId then {dispositionCommentId} else {} end)
+                  + (if .evidenceHeadRevision then {evidenceHeadRevision} else {} end)
+                ],
+                truncated: true
+              }
+            ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
+          fi
+
+          if [ "${#REPORT_SNAPSHOT}" -gt "$REPORT_SNAPSHOT_MAX_CHARS" ]; then
             echo "::error::The bounded Seqlane report snapshot is too large to publish safely."
             exit 1
           fi
 
-          jq --raw-output --arg reportSnapshot "$REPORT_SNAPSHOT" '
+          jq --raw-output \
+            --arg reportSnapshot "$REPORT_SNAPSHOT" \
+            --argjson maxFindings 20 \
+            --argjson maxVerification 10 '
+            def shorten($value; $limit):
+              ($value // "") as $text |
+              if ($text | length) > $limit then
+                ($text[:($limit - 1)] + "…")
+              else
+                $text
+              end;
             [
               "<!-- seqlane-code-review -->",
               "<!-- seqlane-code-review-head: \(.headRevision) -->",
@@ -520,42 +561,50 @@ jobs:
               "",
               "**Verdict:** \(if .verdict == "approve" then "✅ approve" else "🛑 request-changes" end) · **Rating:** ⭐ \(.overallRating)/5",
               "",
-              .summary,
+              (shorten(.summary; 1_200)),
               "",
               "### Ratings",
-              (.ratings[] |
+              (.ratings[:5][] |
                 "- " +
                 (if .rating >= 4 then "✅" elif .rating == 3 then "🟡" else "🔴" end) +
-                " **\(.axis):** \(.rating)/5 — \(.rationale)"),
+                " **\(.axis):** \(.rating)/5 — \(shorten(.rationale; 360))"),
               "",
               "### Findings",
               (if (.findings | length) == 0 then
                 "✅ No findings."
               else
-                (.findings[] |
+                (.findings[:$maxFindings][] |
                   (if .disposition == "fixed" then "✅" elif .disposition == "wont-fix" then "⚪" elif .disposition == "downgraded" then "🟡" elif .severity == "critical" then "🚨" elif .severity == "required" then "🔴" elif .severity == "optional" then "🟡" else "💡" end) as $icon |
                   (if .severity == .effectiveSeverity then .severity else "\(.severity) → \(.effectiveSeverity)" end) as $severity |
-                  "- \($icon) **\(.id)** · **\($severity)** · **\(.axis)** — \(.summary)" +
+                  "- \($icon) **\(.id)** · **\($severity)** · **\(.axis)** — \(shorten(.summary; 360))" +
                   (if .file then
-                    " (`\(.file)\(if .line then ":\(.line)" else "" end)`)"
+                    " (`\(shorten(.file; 256))\(if .line then ":\(.line)" else "" end)`)"
                   else "" end) +
-                  "\n  - **Recommendation:** \(.recommendation)" +
+                  "\n  - **Recommendation:** \(shorten(.recommendation; 480))" +
                   (if .disposition != "open" then
                     "\n  - **Disposition:** \(.disposition)" +
-                    (if .dispositionBy then " by @\(.dispositionBy)" else "" end) +
-                    (if .dispositionReason then " — \(.dispositionReason)" else "" end)
+                    (if .dispositionBy then " by @\(shorten(.dispositionBy; 256))" else "" end) +
+                    (if .dispositionReason then " — \(shorten(.dispositionReason; 320))" else "" end)
                   else "" end))
               end),
+              (if (.findings | length) > $maxFindings then
+                "⚠️ Showing the first \($maxFindings) findings; the trusted snapshot contains the bounded historical state."
+              else empty end),
               "",
               "### Verification",
               (if (.verification | length) == 0 then
                 "⚠️ No verification evidence reported."
               else
-                (.verification[] | "- 🔎 \(.)")
+                (.verification[:$maxVerification][] | "- 🔎 \(shorten(.; 360))")
               end)
             ] | .[]
           ' "$RUNNER_TEMP/seqlane-code-review-result.json" \
             > "$RUNNER_TEMP/seqlane-code-review.md"
+
+          if [ "$(wc -c < "$RUNNER_TEMP/seqlane-code-review.md")" -gt "$COMMENT_MAX_BYTES" ]; then
+            echo "::error::The rendered Seqlane report is too large to publish safely."
+            exit 1
+          fi
 
           cat "$RUNNER_TEMP/seqlane-code-review.md" >> "$GITHUB_STEP_SUMMARY"
 

@@ -1,6 +1,5 @@
 // @test-scope ../../../examples/pr-code-review.ts
 
-import { writeFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import { buildWorkflow } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
@@ -8,6 +7,67 @@ import { describe, expect, it } from "vitest";
 const { default: prCodeReviewWorkflow } = await import(
   new URL("../../../examples/pr-code-review.ts", import.meta.url).href
 );
+
+const REVIEW_TEST_BASE_REVISION = "a".repeat(40);
+const REVIEW_TEST_HEAD_REVISION = "b".repeat(40);
+
+function createReviewInput(
+  reviewHistory: object,
+  baseRevision = REVIEW_TEST_BASE_REVISION,
+  headRevision = REVIEW_TEST_HEAD_REVISION,
+) {
+  return {
+    repository: "/repo",
+    baseBranch: "main",
+    baseRevision,
+    headRevision,
+    pullRequest: {
+      title: "Review history test",
+      description: "Exercise deterministic review policy handling.",
+    },
+    gitEvidence: {
+      baseRevision,
+      headRevision,
+      changedFiles: ["src/review.ts"],
+      changedFileCount: 1,
+      changedFilesTruncated: false,
+      diffStat: "1 file changed",
+      diffStatTruncated: false,
+      patch: "diff",
+      patchByteLength: 4,
+      patchTruncated: false,
+      diffCheck: {
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      },
+    },
+    reviewHistory,
+  };
+}
+
+function createReport(findings: readonly object[]) {
+  return {
+    repository: "/repo",
+    baseBranch: "main",
+    baseRevision: REVIEW_TEST_BASE_REVISION,
+    headRevision: REVIEW_TEST_HEAD_REVISION,
+    overallRating: 4,
+    verdict: "approve",
+    summary: "Review result.",
+    ratings: [
+      "correctness",
+      "readability",
+      "architecture",
+      "security",
+      "performance",
+    ].map((axis) => ({ axis, rating: 4, rationale: "No new concern." })),
+    findings,
+    verification: [],
+  };
+}
 
 describe("pull-request code review example workflow", () => {
   it("requires explicit revisions and pull-request context", () => {
@@ -358,12 +418,49 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(result.dispositions).toHaveLength(200);
-    expect(result.dispositions[0]?.findingId).toBe("F-0");
+    expect(result.dispositions[0]?.findingId).toBe("F-1");
+    expect(result.dispositions.at(-1)?.findingId).toBe("F-200");
+    expect(result.truncated).toBe(true);
+    expect(result.dispositions).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ findingId: "F-0" })]),
+    );
     expect(
       result.dispositions.every(
         (disposition) => disposition.reason === undefined,
       ),
     ).toBe(true);
+  });
+
+  it("rejects compressed snapshots that exceed the decompression bound", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+
+    const oversizedSnapshot = gzipSync("x".repeat(512_001)).toString("base64");
+    const result = await task.execute(
+      {
+        comments: [
+          {
+            id: "oversized-report",
+            kind: "issue",
+            author: "github-actions",
+            authorAssociation: "NONE",
+            body: [
+              "<!-- seqlane-code-review -->",
+              `<!-- seqlane-code-review-report-v2: ${oversizedSnapshot} -->`,
+            ].join("\n"),
+            createdAt: "2026-09-05T10:00:00Z",
+          },
+        ],
+        truncated: false,
+      },
+      {},
+    );
+
+    expect(result.previousSnapshot).toBeUndefined();
   });
 
   it("collects deterministic Git review evidence with direct argv", async () => {
@@ -387,7 +484,7 @@ describe("pull-request code review example workflow", () => {
       { exitCode: 0, stdout: "", stderr: "" },
       { exitCode: 0, stdout: "M\tsrc/review.ts\n", stderr: "" },
       { exitCode: 0, stdout: " 1 file changed, 1 insertion(+)\n", stderr: "" },
-      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: patchText, stderr: "" },
       {
         exitCode: 2,
         stdout: "src/review.ts: trailing whitespace.\n",
@@ -408,14 +505,8 @@ describe("pull-request code review example workflow", () => {
       {
         exec: async (request) => {
           requests.push(request);
-          const output = request.args?.find((arg) =>
-            arg.startsWith("--output="),
-          );
           const response = responses.shift();
           if (response === undefined) throw new Error("Unexpected Git command");
-          if (output !== undefined) {
-            await writeFile(output.slice("--output=".length), patchText);
-          }
           return response;
         },
       },
@@ -445,17 +536,8 @@ describe("pull-request code review example workflow", () => {
         ],
       },
       {
-        command: "git",
-        args: [
-          "diff",
-          "--no-ext-diff",
-          "--no-textconv",
-          "--no-color",
-          "--patch",
-          "--unified=20",
-          expect.stringMatching(/^--output=.+\/patch\.diff$/),
-          `${baseRevision}...${headRevision}`,
-        ],
+        command: "bash",
+        args: ["-c", expect.stringContaining(`head -c ${48_000 + 1}`)],
       },
       {
         command: "git",
@@ -510,7 +592,7 @@ describe("pull-request code review example workflow", () => {
       { exitCode: 0, stdout: "", stderr: "" },
       { exitCode: 0, stdout: changedOutput, stderr: "" },
       { exitCode: 0, stdout: oversizedOutput, stderr: "" },
-      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: oversizedPatch, stderr: "" },
       {
         exitCode: 2,
         stdout: oversizedOutput,
@@ -530,14 +612,8 @@ describe("pull-request code review example workflow", () => {
       },
       {
         exec: async (request) => {
-          const output = request.args?.find((arg) =>
-            arg.startsWith("--output="),
-          );
           const response = responses.shift();
           if (response === undefined) throw new Error("Unexpected Git command");
-          if (output !== undefined) {
-            await writeFile(output.slice("--output=".length), oversizedPatch);
-          }
           return response;
         },
       },
@@ -554,7 +630,7 @@ describe("pull-request code review example workflow", () => {
       changedFilesTruncated: true,
       diffStat: oversizedOutput.slice(0, 7_999) + "…",
       diffStatTruncated: true,
-      patchByteLength: Buffer.byteLength(oversizedPatch),
+      patchByteLength: 48_001,
       patchTruncated: true,
       diffCheck: {
         exitCode: 2,
@@ -593,7 +669,7 @@ describe("pull-request code review example workflow", () => {
         stderr: "",
       },
       { exitCode: 0, stdout: " 2 files changed\n", stderr: "" },
-      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: patchText, stderr: "" },
       { exitCode: 0, stdout: "", stderr: "" },
     ];
     const result = await task.execute(
@@ -609,14 +685,8 @@ describe("pull-request code review example workflow", () => {
       },
       {
         exec: async (request) => {
-          const output = request.args?.find((arg) =>
-            arg.startsWith("--output="),
-          );
           const response = responses.shift();
           if (response === undefined) throw new Error("Unexpected Git command");
-          if (output !== undefined) {
-            await writeFile(output.slice("--output=".length), patchText);
-          }
           return response;
         },
       },
@@ -647,7 +717,7 @@ describe("pull-request code review example workflow", () => {
       { exitCode: 0, stdout: "", stderr: "" },
       { exitCode: 0, stdout: "M\tsrc/review.ts\n", stderr: "" },
       { exitCode: 0, stdout: " 1 file changed\n", stderr: "" },
-      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: oversizedFirstLine, stderr: "" },
       { exitCode: 0, stdout: "", stderr: "" },
     ];
     const result = await task.execute(
@@ -663,17 +733,8 @@ describe("pull-request code review example workflow", () => {
       },
       {
         exec: async (request) => {
-          const output = request.args?.find((arg) =>
-            arg.startsWith("--output="),
-          );
           const response = responses.shift();
           if (response === undefined) throw new Error("Unexpected Git command");
-          if (output !== undefined) {
-            await writeFile(
-              output.slice("--output=".length),
-              oversizedFirstLine,
-            );
-          }
           return response;
         },
       },
@@ -1024,6 +1085,181 @@ describe("pull-request code review example workflow", () => {
     expect(result.findings).toEqual([
       expect.objectContaining({
         id: "F-126",
+        disposition: "open",
+        effectiveSeverity: "required",
+      }),
+    ]);
+  });
+
+  it("bounds merged current and historical findings", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+
+    const historicalFindings = Array.from({ length: 40 }, (_, index) => ({
+      id: `F-H${index}`,
+      axis: "architecture",
+      severity: "optional",
+      effectiveSeverity: "optional",
+      disposition: "wont-fix",
+      summary: "Historical finding",
+      recommendation: "Re-evaluate the finding.",
+    }));
+    const currentFindings = Array.from({ length: 40 }, (_, index) => ({
+      id: `F-C${index}`,
+      axis: "correctness",
+      severity: "optional",
+      effectiveSeverity: "optional",
+      disposition: "open",
+      summary: "Current finding",
+      recommendation: "Review the current change.",
+    }));
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [],
+          commentIds: [],
+          truncated: false,
+          dispositions: [],
+          previousSnapshot: {
+            headRevision: REVIEW_TEST_HEAD_REVISION,
+            findings: historicalFindings,
+          },
+        }),
+        report: createReport(currentFindings),
+      },
+      {},
+    );
+
+    expect(result.findings).toHaveLength(40);
+    expect(result.findings.map((finding) => finding.id)).toEqual(
+      currentFindings.map((finding) => finding.id),
+    );
+    expect(result.verification).toContain(
+      "40 lower-priority finding(s) were omitted because the report is bounded to 40 findings.",
+    );
+  });
+
+  it("reopens a historical finding when an edited command targets another finding", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [
+            {
+              id: "edited-comment",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              body: "/seqlane wont-fix F-129",
+              createdAt: "2026-09-05T10:00:00Z",
+              updatedAt: "2026-09-05T11:00:00Z",
+            },
+          ],
+          commentIds: ["edited-comment"],
+          truncated: false,
+          dispositions: [
+            {
+              findingId: "F-129",
+              action: "wont-fix",
+              commentId: "edited-comment",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              authorized: true,
+              createdAt: "2026-09-05T10:00:00Z",
+              effectiveAt: "2026-09-05T11:00:00Z",
+            },
+          ],
+          previousSnapshot: {
+            headRevision: REVIEW_TEST_HEAD_REVISION,
+            findings: [
+              {
+                id: "F-128",
+                axis: "security",
+                severity: "required",
+                effectiveSeverity: "required",
+                disposition: "wont-fix",
+                dispositionReason: "Old policy decision",
+                dispositionBy: "maintainer",
+                dispositionAt: "2026-09-05T10:00:00Z",
+                dispositionCommentId: "edited-comment",
+                summary: "Historical security finding",
+                recommendation: "Address the security finding.",
+              },
+            ],
+          },
+        }),
+        report: createReport([]),
+      },
+      {},
+    );
+
+    expect(result.verdict).toBe("request-changes");
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "F-128",
+        disposition: "open",
+        effectiveSeverity: "required",
+      }),
+    ]);
+  });
+
+  it("does not accept a fixed finding without current-head evidence", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [],
+          commentIds: ["fixed-comment"],
+          truncated: false,
+          dispositions: [
+            {
+              findingId: "F-130",
+              action: "fixed",
+              commentId: "fixed-comment",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              authorized: true,
+              createdAt: "2026-09-05T10:00:00Z",
+              effectiveAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+        }),
+        report: createReport([
+          {
+            id: "F-130",
+            axis: "correctness",
+            severity: "required",
+            effectiveSeverity: "required",
+            disposition: "fixed",
+            evidenceHeadRevision: REVIEW_TEST_BASE_REVISION,
+            summary: "Current correctness finding",
+            recommendation: "Fix the current finding.",
+          },
+        ]),
+      },
+      {},
+    );
+
+    expect(result.verdict).toBe("request-changes");
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "F-130",
         disposition: "open",
         effectiveSeverity: "required",
       }),
