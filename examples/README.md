@@ -129,7 +129,8 @@ repository ignore rules remain enabled.
 an open pull request after a maintainer dispatches the workflow. Enter the
 pull-request number, select `rebase` or `merge`, and run the workflow from the
 default branch. The required strategy defaults to `rebase`. Configure the
-`OPENAI_API_KEY` Actions secret before you run it.
+`OPENAI_API_KEY` Actions secret when the pull request has conflicts other than
+`pnpm-lock.yaml`.
 
 The workflow accepts only a head branch in this repository. It applies the
 selected strategy to the current base revision and head revision in a separate
@@ -142,14 +143,21 @@ agent-resolvable conflict paths and both immutable revisions. Its exclusive
 agent task runs in a fresh, non-Git staging workspace that contains only
 regular agent-resolvable conflict files. `pnpm-lock.yaml` is excluded from
 model resolution because the workflow regenerates it mechanically when it is
-conflicted. The OpenCode policy denies shell commands, external paths, and
-project configuration. The workflow rejects symlinks and copies back only the
-agent-resolvable conflict files.
+conflicted. The workflow gates Seqlane, OpenCode, and the OpenAI credential on
+the presence of agent-resolvable conflicts. The OpenCode policy denies shell
+commands, external paths, and project configuration. The workflow rejects
+symlinks and copies back only the agent-resolvable conflict files.
 
 The full Git conflict list remains the workflow-owned staging and validation
 allowlist. Lockfile regeneration runs in a fresh temporary Docker workspace for
 each rebase stop, so it does not modify the pull-request checkout through a
-package-manager install.
+package-manager install. It copies no conflicted lockfile, limits package
+manifest inputs to 64 files, 512 KiB per file, and 2 MiB total, uses a pinned
+Node image and pnpm version, and resolves only through the npm registry.
+
+The checked-in `scripts/resolve-merge-conflicts-workflow.ts` helper owns path,
+symlink, file-type, size, workspace, and staged-content validation. The
+workflow keeps only orchestration and rebase state transitions inline.
 
 After Seqlane finishes, the workflow rejects new files and edits outside the
 initial conflict list. It also rejects unresolved conflicts and Git whitespace
