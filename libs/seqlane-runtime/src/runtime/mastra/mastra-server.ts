@@ -5,7 +5,7 @@ import {
   workflows as workflowRoutes,
 } from "@mastra/server/handlers";
 import type { Mastra } from "@mastra/core/mastra";
-import { RequestContext } from "@mastra/core/request-context";
+import type { RequestContext } from "@mastra/core/request-context";
 import type { AnyWorkflow } from "@mastra/core/workflows";
 import type { ServerContext } from "@mastra/server/server-adapter";
 
@@ -191,9 +191,12 @@ class BoundedMcpDispatcher {
 }
 
 export interface MastraRuntimeServer {
-  listWorkflows(): Promise<unknown>;
-  listMcpServers(): Promise<unknown>;
-  listMcpTools(serverId: string): Promise<unknown>;
+  listWorkflows(context: MastraServerRequestContext): Promise<unknown>;
+  listMcpServers(context: MastraServerRequestContext): Promise<unknown>;
+  listMcpTools(
+    serverId: string,
+    context: MastraServerRequestContext,
+  ): Promise<unknown>;
   executeMcpTool(
     serverId: string,
     toolId: string,
@@ -204,10 +207,10 @@ export interface MastraRuntimeServer {
 
 function serverContext(
   mastra: Mastra,
-  context?: MastraServerRequestContext,
+  context: MastraServerRequestContext,
 ): ServerContext {
-  const requestContext = context?.requestContext ?? new RequestContext();
-  const abortSignal = context?.abortSignal ?? new AbortController().signal;
+  const requestContext = context.requestContext;
+  const abortSignal = context.abortSignal;
   requestContext.setRaw(MCP_ABORT_SIGNAL_CONTEXT_KEY, abortSignal);
   return {
     mastra,
@@ -274,15 +277,19 @@ export function registerMastraServer(
   mastra.addMCPServer(mcpServer, MCP_SERVER_ID);
 
   return {
-    async listWorkflows() {
-      return workflowRoutes.LIST_WORKFLOWS_ROUTE.handler(serverContext(mastra));
+    async listWorkflows(context) {
+      return workflowRoutes.LIST_WORKFLOWS_ROUTE.handler(
+        serverContext(mastra, context),
+      );
     },
-    async listMcpServers() {
-      return mcpRoutes.LIST_MCP_SERVERS_ROUTE.handler(serverContext(mastra));
+    async listMcpServers(context) {
+      return mcpRoutes.LIST_MCP_SERVERS_ROUTE.handler(
+        serverContext(mastra, context),
+      );
     },
-    async listMcpTools(serverId) {
+    async listMcpTools(serverId, context) {
       return mcpRoutes.LIST_MCP_SERVER_TOOLS_ROUTE.handler({
-        ...serverContext(mastra),
+        ...serverContext(mastra, context),
         serverId,
       });
     },

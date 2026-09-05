@@ -281,9 +281,12 @@ describe("private Mastra runtime spine", () => {
       events: { emit: () => undefined },
     });
 
-    await expect(execution.runtime.server.listMcpServers()).rejects.toThrow(
-      "does not expose a Mastra server",
-    );
+    await expect(
+      execution.runtime.server.listMcpServers({
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
+        abortSignal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("does not expose a Mastra server");
   });
 
   it("persists run and step spans with Seqlane correlation and deterministic trace IDs", async () => {
@@ -332,24 +335,27 @@ describe("private Mastra runtime spine", () => {
     const runtime = createMastraRuntime([
       { key: "fixture", workflow: mastraRuntimeSpineWorkflow },
     ]);
-
-    const workflows = await runtime.server.listWorkflows();
-    expect(workflows).toHaveProperty("fixture");
-
-    const servers = await runtime.server.listMcpServers();
-    expect(servers).toMatchObject({
-      servers: [expect.objectContaining({ id: "seqlane-workflows" })],
-    });
-
-    const tools = await runtime.server.listMcpTools("seqlane-workflows");
-    expect(tools).toMatchObject({
-      tools: [expect.objectContaining({ name: "run_fixture" })],
-    });
-
     const serverContext = {
       requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
       abortSignal: new AbortController().signal,
     };
+
+    const workflows = await runtime.server.listWorkflows(serverContext);
+    expect(workflows).toHaveProperty("fixture");
+
+    const servers = await runtime.server.listMcpServers(serverContext);
+    expect(servers).toMatchObject({
+      servers: [expect.objectContaining({ id: "seqlane-workflows" })],
+    });
+
+    const tools = await runtime.server.listMcpTools(
+      "seqlane-workflows",
+      serverContext,
+    );
+    expect(tools).toMatchObject({
+      tools: [expect.objectContaining({ name: "run_fixture" })],
+    });
+
     const firstInvocation = await runtime.server.executeMcpTool(
       "seqlane-workflows",
       "run_fixture",
@@ -523,10 +529,7 @@ describe("private Mastra runtime spine", () => {
       mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 10 },
     });
     const context = () => ({
-      requestContext: new RequestContext([[
-        "user",
-        { id: "fixture-user" },
-      ]]),
+      requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
       abortSignal: new AbortController().signal,
     });
 
@@ -693,10 +696,7 @@ describe("private Mastra runtime spine", () => {
       mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 1_000 },
     });
     const context = () => ({
-      requestContext: new RequestContext([[
-        "user",
-        { id: "fixture-user" },
-      ]]),
+      requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
       abortSignal: new AbortController().signal,
     });
     const first = runtime.server.executeMcpTool(
@@ -713,10 +713,7 @@ describe("private Mastra runtime spine", () => {
       `run_${workflow.id}`,
       null,
       {
-        requestContext: new RequestContext([[
-          "user",
-          { id: "fixture-user" },
-        ]]),
+        requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
         abortSignal: cancelledController.signal,
       },
     );

@@ -28,6 +28,8 @@ in-memory storage remains available for inspection while the execution owns
 that runtime. Cancelled queued MCP invocations are removed immediately so
 they do not consume queue capacity. A deadline settles the caller and
 releases dispatcher capacity even if workflow code ignores cancellation.
+Server and discovery helpers receive the caller's `RequestContext` and
+`AbortSignal`; they do not synthesize a separate request context.
 
 ### Local task execution
 
