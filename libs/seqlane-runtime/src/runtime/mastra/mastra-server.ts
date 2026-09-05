@@ -46,6 +46,7 @@ interface QueuedMcpInvocation {
   readonly cleanup: () => void;
   started: boolean;
   settled: boolean;
+  slotReleased: boolean;
 }
 
 class BoundedMcpDispatcher {
@@ -104,6 +105,11 @@ class BoundedMcpDispatcher {
         controller.abort(
           new Error("MCP workflow invocation deadline exceeded"),
         );
+        this.reject(
+          entry,
+          new Error("MCP workflow invocation deadline exceeded"),
+        );
+        this.releaseSlot(entry);
         return;
       }
       this.remove(entry);
@@ -125,6 +131,7 @@ class BoundedMcpDispatcher {
         cleanup,
         started: false,
         settled: false,
+        slotReleased: false,
       };
     });
     this.queue.push(entry);
@@ -142,6 +149,13 @@ class BoundedMcpDispatcher {
     entry.settled = true;
     entry.cleanup();
     entry.reject(cause);
+  }
+
+  private releaseSlot(entry: QueuedMcpInvocation): void {
+    if (!entry.started || entry.slotReleased) return;
+    entry.slotReleased = true;
+    this.active -= 1;
+    this.pump();
   }
 
   private pump(): void {
@@ -171,8 +185,7 @@ class BoundedMcpDispatcher {
       entry.reject(cause);
     } finally {
       entry.cleanup();
-      this.active -= 1;
-      this.pump();
+      this.releaseSlot(entry);
     }
   }
 }

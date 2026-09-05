@@ -26,7 +26,8 @@ one-shot Plan runtime does not expose its run-bound workflow through MCP. Its
 dispatcher applies bounded concurrency and a per-invocation deadline. Its
 in-memory storage remains available for inspection while the execution owns
 that runtime. Cancelled queued MCP invocations are removed immediately so
-they do not consume queue capacity.
+they do not consume queue capacity. A deadline settles the caller and
+releases dispatcher capacity even if workflow code ignores cancellation.
 
 ### Local task execution
 
