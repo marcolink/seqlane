@@ -139,10 +139,10 @@ describe("merge-conflict resolution example workflow", () => {
       "version: ${{ steps.package-manager.outputs.pnpm_version }}",
     );
     expect(workflow).toContain(
-      'corepack install --global \"pnpm@$PNPM_VERSION\"',
+      'corepack install --global "pnpm@$PNPM_VERSION"',
     );
     expect(workflow).toContain(
-      'test \"$(COREPACK_ENABLE_PROJECT_SPEC=0 pnpm --version)\" = \"$PNPM_VERSION\"',
+      'test "$(COREPACK_ENABLE_PROJECT_SPEC=0 pnpm --version)" = "$PNPM_VERSION"',
     );
     expect(workflow).toContain("--config.registry=https://registry.npmjs.org/");
     expect(workflow).not.toContain("node:24-bookworm-slim");
