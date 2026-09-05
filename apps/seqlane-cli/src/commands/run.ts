@@ -7,6 +7,7 @@ import {
 } from "@seqlane/core";
 import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
 import { dirname, extname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { launchRunner } from "../runner-client.js";
@@ -94,6 +95,27 @@ function parseJsonInput(value: string): JsonValue {
   return parsed;
 }
 
+function readJsonInput(
+  inlineInput: string | undefined,
+  inputFile: string | undefined,
+): string {
+  if ((inlineInput === undefined) === (inputFile === undefined)) {
+    throw new Error("specify exactly one of --input or --input-file");
+  }
+  if (inlineInput !== undefined) return inlineInput;
+  if (inputFile === undefined) {
+    throw new Error("specify exactly one of --input or --input-file");
+  }
+
+  try {
+    return readFileSync(resolve(inputFile), "utf8");
+  } catch (error) {
+    throw new Error(`--input-file could not be read: ${errorMessage(error)}`, {
+      cause: error,
+    });
+  }
+}
+
 function createRunRequest(
   workflow: string,
   input: string,
@@ -133,7 +155,9 @@ export default class RunCommand extends Command {
     input: Flags.string({
       char: "i",
       description: "JSON workflow input",
-      required: true,
+    }),
+    "input-file": Flags.string({
+      description: "Path to a JSON workflow input file",
     }),
     runtime: Flags.string({
       description: "Generic runtime profile identifier",
@@ -167,7 +191,7 @@ export default class RunCommand extends Command {
     try {
       request = createRunRequest(
         args.workflow,
-        flags.input,
+        readJsonInput(flags.input, flags["input-file"]),
         flags.runtime,
         flags.workspace,
         flags.dry,

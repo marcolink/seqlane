@@ -1235,11 +1235,15 @@ const applyReviewDispositionTask = defineTask({
       const verifiedOutcome = verifiedOutcomeFor(previous);
       if (disposition !== undefined) {
         const status =
-          disposition.action === "fixed" && verifiedOutcome === "resolved"
+          verifiedOutcome === "resolved"
             ? "resolved"
             : verifiedOutcome === "present"
               ? "reopened"
-              : previous.status;
+              : verifiedOutcome === "addressed"
+                ? "addressed"
+                : previous.status === "resolved"
+                  ? "reopened"
+                  : previous.status;
         findings.push(applyDisposition(previous, status, disposition));
         continue;
       }
@@ -1251,7 +1255,15 @@ const applyReviewDispositionTask = defineTask({
         continue;
       }
       if (previousDispositionStillActive(previous)) {
-        findings.push(previous);
+        findings.push(
+          previous.status === "resolved" && verifiedOutcome !== "resolved"
+            ? {
+                ...previous,
+                status:
+                  previous.disposition === "fixed" ? "addressed" : "reopened",
+              }
+            : previous,
+        );
         continue;
       }
       if (verifiedOutcome === "resolved") {
@@ -1261,7 +1273,7 @@ const applyReviewDispositionTask = defineTask({
       } else if (verifiedOutcome === "addressed") {
         findings.push(openFinding(previous, "addressed"));
       } else if (previous.status === "resolved") {
-        findings.push(previous);
+        findings.push(openFinding(previous, "reopened"));
       } else if (previous.status === "dismissed") {
         findings.push(openFinding(previous, "open"));
       } else {

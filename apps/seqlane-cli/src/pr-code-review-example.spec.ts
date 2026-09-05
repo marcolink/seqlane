@@ -1529,6 +1529,93 @@ describe("pull-request code review example workflow", () => {
     ]);
   });
 
+  it("requires fresh current-head proof to retain a resolved fixed finding", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+    const previousFinding = {
+      id: "SEQ-PR44-001",
+      axis: "correctness",
+      severity: "required",
+      effectiveSeverity: "required",
+      disposition: "fixed",
+      dispositionBy: "maintainer",
+      dispositionAt: "2026-09-05T10:00:00Z",
+      dispositionCommentId: "fixed-comment",
+      status: "resolved",
+      aliases: [],
+      summary: "Historical correctness finding",
+      recommendation: "Fix the historical finding.",
+    };
+    const reviewHistory = {
+      comments: [],
+      commentIds: ["fixed-comment"],
+      truncated: false,
+      dispositions: [
+        {
+          findingId: "SEQ-PR44-001",
+          action: "fixed",
+          commentId: "fixed-comment",
+          author: "maintainer",
+          authorAssociation: "MEMBER",
+          authorized: true,
+          createdAt: "2026-09-05T10:00:00Z",
+          effectiveAt: "2026-09-05T10:00:00Z",
+        },
+      ],
+      previousState: {
+        schemaVersion: 3,
+        pullRequestNumber: 44,
+        baseRevision: REVIEW_TEST_BASE_REVISION,
+        reviewedRevision: REVIEW_TEST_BASE_REVISION,
+        nextFindingIndex: 2,
+        findings: [previousFinding],
+        limitations: [],
+        truncated: false,
+      },
+    };
+
+    for (const verifications of [
+      [],
+      [
+        {
+          findingId: "SEQ-PR44-001",
+          headRevision: REVIEW_TEST_HEAD_REVISION,
+          outcome: "uncertain",
+          evidence: "The bounded evidence could not confirm the fix.",
+        },
+      ],
+    ]) {
+      const review = createReviewInput(reviewHistory);
+      const result = await task.execute(
+        {
+          review: {
+            ...review,
+            historyVerification: {
+              headRevision: REVIEW_TEST_HEAD_REVISION,
+              verifications,
+              limitations: [],
+            },
+          },
+          report: createReport([]),
+        },
+        {},
+      );
+
+      expect(result.verdict).toBe("request-changes");
+      expect(result.findings).toEqual([
+        expect.objectContaining({
+          id: "SEQ-PR44-001",
+          disposition: "fixed",
+          status: "addressed",
+        }),
+      ]);
+    }
+  });
+
   it("replaces stale disposition reason and commit metadata", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.apply-dispositions",
@@ -1913,11 +2000,15 @@ describe("pull-request code review example workflow", () => {
             commentIds: ["edited-comment"],
             truncated: false,
             dispositions: [],
-            previousSnapshot: {
-              headRevision: "b".repeat(40),
+            previousState: {
+              schemaVersion: 3,
+              pullRequestNumber: 44,
+              baseRevision: revision,
+              reviewedRevision: revision,
+              nextFindingIndex: 2,
               findings: [
                 {
-                  id: "F-127",
+                  id: "SEQ-PR44-001",
                   axis: "security",
                   severity: "required",
                   effectiveSeverity: "required",
@@ -1926,10 +2017,14 @@ describe("pull-request code review example workflow", () => {
                   dispositionBy: "maintainer",
                   dispositionAt: "2026-09-05T10:00:00Z",
                   dispositionCommentId: "edited-comment",
+                  status: "resolved",
+                  aliases: [],
                   summary: "Historical security finding",
                   recommendation: "Address the security finding.",
                 },
               ],
+              limitations: [],
+              truncated: false,
             },
           },
           historyVerification: {
@@ -1964,8 +2059,9 @@ describe("pull-request code review example workflow", () => {
     expect(result.findings).toEqual([
       expect.objectContaining({
         id: "SEQ-PR44-001",
-        aliases: ["F-127"],
+        aliases: [],
         disposition: "open",
+        status: "reopened",
         effectiveSeverity: "required",
       }),
     ]);

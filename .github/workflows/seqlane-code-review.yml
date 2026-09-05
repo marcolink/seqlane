@@ -402,7 +402,7 @@ jobs:
           REVIEW_HISTORY_PATH: ${{ runner.temp }}/seqlane-review-history.json
           SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          WORKFLOW_INPUT=$(jq --compact-output \
+          jq --compact-output \
             --slurpfile reviewHistory "$REVIEW_HISTORY_PATH" \
             --slurpfile pullRequest "$RUNNER_TEMP/seqlane-pull-request-context.json" \
             --arg repository "$REVIEW_TARGET" \
@@ -416,10 +416,11 @@ jobs:
               headRevision: $headRevision,
               reviewHistory: $reviewHistory[0],
               pullRequest: $pullRequest[0]
-            }' "$GITHUB_EVENT_PATH")
+            }' "$GITHUB_EVENT_PATH" \
+            > "$RUNNER_TEMP/seqlane-workflow-input.json"
 
           ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts" \
-            --input "$WORKFLOW_INPUT" \
+            --input-file "$RUNNER_TEMP/seqlane-workflow-input.json" \
             --runtime http://127.0.0.1:4096 \
             --workspace "$REVIEW_TARGET" \
             --output ci \

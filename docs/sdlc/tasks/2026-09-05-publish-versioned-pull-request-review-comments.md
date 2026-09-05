@@ -94,6 +94,8 @@ live pull-request head before each write. The visible projection shows at most
 bounded finding set and run audit data. Active blockers take priority in the
 visible projection. Model-controlled text is neutralized before rendering.
 The reader rejects duplicate state framing and metadata identity mismatches.
+The workflow passes review input through a JSON file. Resolved fixes require
+fresh current-head proof, and removed dispositions reopen stale resolved state.
 
 Legacy version 1 and version 2 reports migrate to stable version 3 IDs. Tests
 cover malformed state, ID allocation, disposition overflow, current-head fix

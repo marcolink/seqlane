@@ -404,6 +404,43 @@ describe("seqlane CLI entrypoints", () => {
     expect(result.stderr).toBe("");
   });
 
+  it("reads workflow input from a JSON file", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "seqlane-input-cli-"));
+    const path = join(directory, "input.json");
+    writeFileSync(path, builtinInput);
+
+    try {
+      const result = await runCli(productionEntry, [
+        "run",
+        exampleWorkflowReference,
+        "--input-file",
+        path,
+        "--dry",
+      ]);
+
+      expect(result.code).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        workflow: { id: "minimal-example" },
+      });
+      expect(result.stderr).toBe("");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("requires exactly one workflow input source", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      exampleWorkflowReference,
+      "--dry",
+    ]);
+
+    expect(result.code).toBe(2);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "specify exactly one of --input or --input-file",
+    );
+  });
+
   it("fails an agent workflow without a runtime profile", async () => {
     const result = await runCli(productionEntry, [
       "run",

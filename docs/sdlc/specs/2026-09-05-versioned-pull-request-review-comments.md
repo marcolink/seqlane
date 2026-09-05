@@ -108,7 +108,9 @@ must contain the finding identifier, head revision, outcome, and bounded
 evidence.
 
 Only a `resolved` result for the current head can set the finding to
-`resolved`. A missing, stale, or uncertain result keeps the finding active.
+`resolved` or keep it resolved. A missing, stale, or uncertain result keeps the
+finding active. Removing or retargeting the authorizing disposition reopens a
+previously resolved finding.
 
 ### requirement-human-projection
 
@@ -136,6 +138,9 @@ findings.
 
 The publisher must reject an oversized final comment. Snapshot decompression
 must stop at the configured output limit.
+
+The workflow must pass bounded review input through a file. It must not place
+the complete comment history in one command-line argument.
 
 ### requirement-review-boundary
 
