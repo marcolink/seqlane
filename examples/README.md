@@ -158,6 +158,50 @@ excludes dependency, generated, cache, environment, credential, and key paths;
 in particular, `node_modules` is never indexed. Default zvec-grep and
 repository ignore rules remain enabled.
 
+## Manual merge-conflict resolution
+
+`.github/workflows/seqlane-resolve-merge-conflicts.yml` resolves conflicts for
+an open pull request after a maintainer dispatches the workflow. Enter the
+pull-request number, select `rebase` or `merge`, and run the workflow from the
+default branch. The required strategy defaults to `rebase`. Configure the
+`OPENAI_API_KEY` Actions secret before you run it.
+
+The workflow accepts only a head branch in this repository. It applies the
+selected strategy to the current base revision and head revision in a separate
+checkout. A rebased branch uses `--force-with-lease` against its captured head
+revision. If Git reports no merge conflicts, the merge strategy stops without a
+commit.
+
+If conflicts exist, `resolve-merge-conflicts.ts` receives the exact conflict
+paths and both immutable revisions. Its exclusive agent task runs in a fresh,
+non-Git staging workspace that contains only regular conflict files. The
+OpenCode policy denies shell commands, external paths, and project
+configuration. The workflow rejects symlinks and copies back only the supplied
+conflict files.
+
+Lockfile conflicts are text-resolved by the agent. The workflow does not run a
+package manager in the pull-request checkout.
+
+After Seqlane finishes, the workflow rejects new files and edits outside the
+initial conflict list. It also rejects unresolved conflicts and Git whitespace
+errors. It rejects staged Git conflict markers. A rebase can use no more than
+five conflict-resolution attempts and skips redundant empty commits. It detects
+default, diff3, and longer conflict markers. The workflow stops OpenCode before it
+configures GitHub credentials. Then it creates one merge commit or pushes the
+rebased history.
+
+The workflow checks the captured base revision before it pushes. The exact
+force-with-lease protects the remote head revision. A base update after that
+check can make the result stale, but it cannot overwrite the base branch.
+
+The workflow downloads the pinned OpenCode release archive over HTTPS. It
+checks the archive SHA-256 before extraction. It does not run a remote installer
+script.
+
+The workflow configures `Seqlane conflict resolver` as the Git committer. A
+merge commit uses that name as its author. A rebase preserves each original
+commit author and records that name as its committer.
+
 `all-features.ts` is the compact feature tour. It uses typed input/output,
 shared and exclusive workspaces, isolated/reused/branched sessions, explicit
 dependencies, whole/nested/literal bindings, references, Studio observability

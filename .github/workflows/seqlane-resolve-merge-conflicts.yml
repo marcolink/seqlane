@@ -1,0 +1,518 @@
+name: Seqlane conflict resolver
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request number to update
+        required: true
+        type: string
+      resolution_strategy:
+        description: Integrate the base branch by rebasing or merging
+        required: true
+        default: rebase
+        type: choice
+        options:
+          - rebase
+          - merge
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: seqlane-resolve-merge-conflicts-${{ inputs.pull_request_number }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-conflicts:
+    name: Resolve pull request merge conflicts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Require the default branch workflow
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          if [ "$DISPATCH_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "::error::Run this workflow from the repository default branch."
+            exit 1
+          fi
+
+      - name: Report workflow definition revision
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          echo "Workflow definition: $WORKFLOW_REF"
+          echo "Workflow definition SHA: $WORKFLOW_SHA"
+          {
+            echo "### Workflow definition"
+            echo
+            echo "- Ref: \`$WORKFLOW_REF\`"
+            echo "- SHA: \`$WORKFLOW_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Inspect pull request
+        id: pull-request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+        run: |
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::The pull request number must be a positive integer."
+            exit 1
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pull-request.json"
+
+          if ! jq --exit-status --arg repository "$GITHUB_REPOSITORY" '
+            .state == "open" and
+            .head.repo.full_name == $repository and
+            (.base.sha | test("^[0-9a-f]{40}$|^[0-9a-f]{64}$")) and
+            (.head.sha | test("^[0-9a-f]{40}$|^[0-9a-f]{64}$"))
+          ' "$RUNNER_TEMP/pull-request.json" > /dev/null; then
+            echo "::error::The pull request must be open and its head branch must be in this repository."
+            exit 1
+          fi
+
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "base_ref=$(jq --raw-output '.base.ref' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$(jq --raw-output '.base.sha' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(jq --raw-output '.head.ref' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(jq --raw-output '.head.sha' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Check OpenAI credentials
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::OPENAI_API_KEY is not configured."
+            exit 1
+          fi
+
+      - name: Check out trusted Seqlane source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: seqlane-source
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Check out pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: resolution-target
+          persist-credentials: false
+          ref: ${{ steps.pull-request.outputs.head_sha }}
+
+      - name: Apply selected integration strategy
+        id: integration
+        working-directory: resolution-target
+        env:
+          BASE_SHA: ${{ steps.pull-request.outputs.base_sha }}
+          RESOLUTION_STRATEGY: ${{ inputs.resolution_strategy }}
+        run: |
+          git config user.name "Seqlane conflict resolver"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git cat-file -e "$BASE_SHA^{commit}"
+          if [ "$RESOLUTION_STRATEGY" != "rebase" ] && [ "$RESOLUTION_STRATEGY" != "merge" ]; then
+            echo "::error::The resolution strategy must be rebase or merge."
+            exit 1
+          fi
+
+          set +e
+          if [ "$RESOLUTION_STRATEGY" = "rebase" ]; then
+            git rebase "$BASE_SHA"
+          else
+            git merge --no-commit --no-ff "$BASE_SHA"
+          fi
+          INTEGRATION_STATUS=$?
+          set -e
+
+          if [ "$INTEGRATION_STATUS" -eq 0 ]; then
+            if [ "$RESOLUTION_STRATEGY" = "merge" ]; then
+              if git rev-parse --quiet --verify MERGE_HEAD > /dev/null; then
+                git merge --abort
+              fi
+              echo "needs_push=false" >> "$GITHUB_OUTPUT"
+              echo "The pull request has no merge conflicts." >> "$GITHUB_STEP_SUMMARY"
+            elif [ "$(git rev-parse HEAD)" = "${{ steps.pull-request.outputs.head_sha }}" ]; then
+              echo "needs_push=false" >> "$GITHUB_OUTPUT"
+              echo "The pull request already contains its base revision." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "needs_push=true" >> "$GITHUB_OUTPUT"
+              echo "Rebase completed without conflicts." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git diff --name-only --diff-filter=U -z > "$RUNNER_TEMP/seqlane-conflict-files"
+          if [ ! -s "$RUNNER_TEMP/seqlane-conflict-files" ]; then
+            echo "::error::The merge failed without producing conflict files."
+            exit 1
+          fi
+
+          jq --raw-input --slurp 'split("\u0000") | map(select(length > 0))' \
+            "$RUNNER_TEMP/seqlane-conflict-files" \
+            > "$RUNNER_TEMP/seqlane-conflict-files.json"
+          echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+          echo "needs_push=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create empty non-Git agent workspace
+        if: steps.integration.outputs.has_conflicts == 'true'
+        env:
+          AGENT_WORKSPACE: ${{ runner.temp }}/seqlane-agent-workspace
+        run: |
+          mkdir "$AGENT_WORKSPACE"
+
+      - name: Set up pnpm
+        if: steps.integration.outputs.has_conflicts == 'true'
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.33.0
+
+      - name: Set up Node.js
+        if: steps.integration.outputs.has_conflicts == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: seqlane-source/pnpm-lock.yaml
+
+      - name: Install Seqlane dependencies
+        if: steps.integration.outputs.has_conflicts == 'true'
+        working-directory: seqlane-source
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build the local Seqlane CLI
+        if: steps.integration.outputs.has_conflicts == 'true'
+        working-directory: seqlane-source
+        run: pnpm exec nx build seqlane-cli
+
+      - name: Install OpenCode
+        if: steps.integration.outputs.has_conflicts == 'true'
+        working-directory: seqlane-source
+        env:
+          OPENCODE_ARCHIVE_SHA256: 4af5494f9433f59db8c1e344198f0ee72a50c06ec009fb4a8aeab4c2d4abd702
+          OPENCODE_VERSION: 1.18.27
+        run: |
+          SDK_VERSION=$(node -p "require('./libs/seqlane-opencode/package.json').dependencies['@opencode-ai/sdk']")
+          if [ "$SDK_VERSION" != "$OPENCODE_VERSION" ]; then
+            echo "::error::OpenCode CLI $OPENCODE_VERSION must match @opencode-ai/sdk $SDK_VERSION."
+            exit 1
+          fi
+          OPENCODE_ARCHIVE="$RUNNER_TEMP/opencode-linux-x64.tar.gz"
+          OPENCODE_DIRECTORY="$RUNNER_TEMP/opencode-bin"
+          curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error \
+            --output "$OPENCODE_ARCHIVE" \
+            "https://github.com/anomalyco/opencode/releases/download/v$OPENCODE_VERSION/opencode-linux-x64.tar.gz"
+          echo "$OPENCODE_ARCHIVE_SHA256  $OPENCODE_ARCHIVE" | sha256sum --check --status
+          mkdir "$OPENCODE_DIRECTORY"
+          tar --extract --gzip --file "$OPENCODE_ARCHIVE" --directory "$OPENCODE_DIRECTORY"
+          echo "$OPENCODE_DIRECTORY" >> "$GITHUB_PATH"
+
+      - name: Start OpenCode
+        if: steps.integration.outputs.has_conflicts == 'true'
+        id: opencode
+        timeout-minutes: 2
+        working-directory: ${{ runner.temp }}/seqlane-agent-workspace
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENCODE_DISABLE_PROJECT_CONFIG: "true"
+          OPENCODE_CONFIG_CONTENT: >-
+            {"model":"openai/gpt-5.6-terra","permission":{"*":"deny","StructuredOutput":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","edit":"allow","write":"allow","bash":"deny","external_directory":"deny"}}
+        run: |
+          opencode serve --hostname 127.0.0.1 --port 4096 --print-logs > "$RUNNER_TEMP/opencode.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/opencode.pid"
+          echo "started=true" >> "$GITHUB_OUTPUT"
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --connect-timeout 1 --max-time 2 \
+              http://127.0.0.1:4096/global/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "OpenCode did not become ready. Detailed server logs are not printed to the public workflow log."
+          exit 1
+
+      - name: Run Seqlane conflict resolution
+        if: steps.integration.outputs.has_conflicts == 'true'
+        id: seqlane
+        working-directory: seqlane-source
+        env:
+          BASE_BRANCH: ${{ steps.pull-request.outputs.base_ref }}
+          BASE_REVISION: ${{ steps.pull-request.outputs.base_sha }}
+          HEAD_BRANCH: ${{ steps.pull-request.outputs.head_ref }}
+          HEAD_REVISION: ${{ steps.pull-request.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.pull-request.outputs.number }}
+          RESOLUTION_STRATEGY: ${{ inputs.resolution_strategy }}
+          AGENT_WORKSPACE: ${{ runner.temp }}/seqlane-agent-workspace
+          CONFLICT_FILES: ${{ runner.temp }}/seqlane-conflict-files
+          RESOLUTION_TARGET: ${{ github.workspace }}/resolution-target
+          SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          ATTEMPT=1
+          MAX_REBASE_ATTEMPTS=5
+          while true; do
+            if [ "$ATTEMPT" -gt "$MAX_REBASE_ATTEMPTS" ]; then
+              echo "::error::The rebase exceeded $MAX_REBASE_ATTEMPTS conflict-resolution attempts."
+              exit 1
+            fi
+            git -C "$RESOLUTION_TARGET" diff --name-only --diff-filter=U -z > "$RUNNER_TEMP/seqlane-conflict-files"
+            if [ ! -s "$RUNNER_TEMP/seqlane-conflict-files" ]; then
+              echo "::error::The selected strategy stopped without conflict files."
+              exit 1
+            fi
+            jq --raw-input --slurp 'split("\u0000") | map(select(length > 0))' \
+              "$RUNNER_TEMP/seqlane-conflict-files" \
+              > "$RUNNER_TEMP/seqlane-conflict-files.json"
+
+            node -e '
+              const { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
+              const { dirname, join, relative, resolve, sep } = require("node:path");
+              const targetRoot = resolve(process.env.RESOLUTION_TARGET);
+              const agentRoot = resolve(process.env.AGENT_WORKSPACE);
+              const maximumFileBytes = 512 * 1024;
+              const maximumTotalBytes = 2 * 1024 * 1024;
+              function safePath(root, path) {
+                const candidate = resolve(root, path);
+                if (relative(root, candidate).startsWith("..") || candidate === root) {
+                  throw new Error(`Unsafe conflict path: ${path}`);
+                }
+                return candidate;
+              }
+              function regularFile(root, path) {
+                let current = root;
+                for (const part of path.split("/")) {
+                  current = join(current, part);
+                  const stat = lstatSync(current);
+                  if (stat.isSymbolicLink()) throw new Error(`Symlink is not allowed: ${path}`);
+                }
+                if (!lstatSync(current).isFile()) throw new Error(`Conflict path is not a regular file: ${path}`);
+                return current;
+              }
+              if (!lstatSync(agentRoot).isDirectory() || lstatSync(agentRoot).isSymbolicLink()) {
+                throw new Error("Agent workspace is not a regular directory.");
+              }
+              for (const entry of readdirSync(agentRoot)) rmSync(join(agentRoot, entry), { recursive: true, force: true });
+              let totalBytes = 0;
+              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
+                const source = regularFile(targetRoot, path);
+                const size = statSync(source).size;
+                if (size > maximumFileBytes || totalBytes + size > maximumTotalBytes) throw new Error(`Conflict payload exceeds the configured size limit: ${path}`);
+                const contents = readFileSync(source);
+                if (contents.includes(0)) throw new Error(`Binary conflict file is not supported: ${path}`);
+                totalBytes += size;
+                const target = safePath(agentRoot, path);
+                mkdirSync(dirname(target), { recursive: true });
+                writeFileSync(target, contents);
+              }
+            '
+
+            WORKFLOW_INPUT=$(jq --null-input --compact-output \
+              --arg repository "$AGENT_WORKSPACE" \
+              --argjson pullRequestNumber "$PR_NUMBER" \
+              --arg strategy "$RESOLUTION_STRATEGY" \
+              --arg baseBranch "$BASE_BRANCH" \
+              --arg headBranch "$HEAD_BRANCH" \
+              --arg baseRevision "$BASE_REVISION" \
+              --arg headRevision "$HEAD_REVISION" \
+              --slurpfile conflictedFiles "$RUNNER_TEMP/seqlane-conflict-files.json" \
+              '{
+                repository: $repository,
+                pullRequestNumber: $pullRequestNumber,
+                strategy: $strategy,
+                baseBranch: $baseBranch,
+                headBranch: $headBranch,
+                baseRevision: $baseRevision,
+                headRevision: $headRevision,
+                conflictedFiles: $conflictedFiles[0]
+              }')
+
+            ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/resolve-merge-conflicts.ts" \
+              --input "$WORKFLOW_INPUT" \
+              --runtime http://127.0.0.1:4096 \
+              --workspace "$AGENT_WORKSPACE" \
+              --output ci \
+              --record "$RUNNER_TEMP/seqlane-conflict-resolution-$ATTEMPT.jsonl"
+
+            node -e '
+              const { lstatSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+              const { dirname, join, relative, resolve } = require("node:path");
+              const targetRoot = resolve(process.env.RESOLUTION_TARGET);
+              const agentRoot = resolve(process.env.AGENT_WORKSPACE);
+              function safePath(root, path) {
+                const candidate = resolve(root, path);
+                if (relative(root, candidate).startsWith("..") || candidate === root) {
+                  throw new Error(`Unsafe conflict path: ${path}`);
+                }
+                return candidate;
+              }
+              function regularFile(root, path) {
+                let current = root;
+                for (const part of path.split("/")) {
+                  current = join(current, part);
+                  const stat = lstatSync(current);
+                  if (stat.isSymbolicLink()) throw new Error(`Symlink is not allowed: ${path}`);
+                }
+                if (!lstatSync(current).isFile()) throw new Error(`Conflict path is not a regular file: ${path}`);
+                return current;
+              }
+              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
+                const source = regularFile(agentRoot, path);
+                const target = safePath(targetRoot, path);
+                mkdirSync(dirname(target), { recursive: true });
+                writeFileSync(target, readFileSync(source));
+              }
+            '
+
+            if node -e '
+              const { readFileSync } = require("node:fs");
+              process.exit(readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").includes("pnpm-lock.yaml") ? 0 : 1);
+            '; then
+              LOCKFILE_WORKSPACE="$RUNNER_TEMP/seqlane-lockfile-workspace"
+              export LOCKFILE_WORKSPACE
+              mkdir "$LOCKFILE_WORKSPACE"
+              node -e '
+                const { execFileSync } = require("node:child_process");
+                const { lstatSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+                const { dirname, resolve, relative } = require("node:path");
+                const root = resolve(process.env.RESOLUTION_TARGET);
+                const output = resolve(process.env.LOCKFILE_WORKSPACE);
+                const paths = execFileSync("git", ["ls-files", "-z", "--", "pnpm-lock.yaml", "pnpm-workspace.yaml", ":(glob)**/package.json"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
+                for (const path of paths) {
+                  const source = resolve(root, path); const target = resolve(output, path);
+                  if (relative(root, source).startsWith("..") || relative(output, target).startsWith("..") || lstatSync(source).isSymbolicLink() || !lstatSync(source).isFile()) throw new Error(`Unsafe pnpm input: ${path}`);
+                  mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, readFileSync(source));
+                }
+              '
+              docker run --rm --network bridge --mount "type=bind,source=$LOCKFILE_WORKSPACE,target=/workspace" --workdir /workspace node:24-bookworm-slim sh -c 'corepack enable && pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile'
+              cp "$LOCKFILE_WORKSPACE/pnpm-lock.yaml" "$RESOLUTION_TARGET/pnpm-lock.yaml"
+            fi
+
+            node -e '
+              const { execFileSync } = require("node:child_process");
+              const { readFileSync } = require("node:fs");
+              const options = { cwd: process.env.RESOLUTION_TARGET, encoding: "utf8" };
+              const allowed = new Set(readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean));
+              const changed = execFileSync("git", ["diff", "--name-only", "-z"], options).split("\0").filter(Boolean);
+              const unexpected = changed.filter((path) => !allowed.has(path));
+              if (unexpected.length > 0) {
+                console.error(`Unexpected edited paths: ${unexpected.join(", ")}`);
+                process.exit(1);
+              }
+              const untracked = [
+                ...execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], options).split("\0"),
+                ...execFileSync("git", ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"], options).split("\0"),
+              ].filter(Boolean);
+              if (untracked.length > 0) {
+                console.error(`Unexpected untracked paths: ${untracked.join(", ")}`);
+                process.exit(1);
+              }
+            '
+            git -C "$RESOLUTION_TARGET" add --pathspec-from-file="$RUNNER_TEMP/seqlane-conflict-files" --pathspec-file-nul
+            if [ -n "$(git -C "$RESOLUTION_TARGET" diff --name-only --diff-filter=U)" ]; then
+              echo "::error::One or more merge conflicts remain unresolved."
+              exit 1
+            fi
+            git -C "$RESOLUTION_TARGET" diff --cached --check
+            node -e '
+              const { execFileSync } = require("node:child_process");
+              const { readFileSync } = require("node:fs");
+              const paths = readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean);
+              const marker = /^(?:<{7,}(?: .*)?|\|{7,}(?: .*)?|={7,}|>{7,}(?: .*)?)\r?$/m;
+              for (const path of paths) {
+                try {
+                  const content = execFileSync("git", ["show", `:${path}`], {
+                    cwd: process.env.RESOLUTION_TARGET,
+                    encoding: "utf8",
+                  });
+                  if (marker.test(content)) {
+                    console.error(`Conflict marker remains in ${path}.`);
+                    process.exit(1);
+                  }
+                } catch (error) {
+                  if (error.status !== 128) throw error;
+                }
+              }
+            '
+
+            if [ "$RESOLUTION_STRATEGY" = "merge" ]; then
+              break
+            fi
+
+            set +e
+            GIT_EDITOR=true git -C "$RESOLUTION_TARGET" rebase --continue
+            REBASE_STATUS=$?
+            set -e
+            if [ "$REBASE_STATUS" -eq 0 ]; then
+              break
+            fi
+            if [ -z "$(git -C "$RESOLUTION_TARGET" diff --name-only --diff-filter=U)" ]; then
+              if git -C "$RESOLUTION_TARGET" diff --quiet && git -C "$RESOLUTION_TARGET" diff --cached --quiet; then
+                if ! git -C "$RESOLUTION_TARGET" rebase --skip; then
+                  echo "::error::The rebase could not skip an empty commit."
+                  exit 1
+                fi
+                if [ -n "$(git -C "$RESOLUTION_TARGET" diff --name-only --diff-filter=U)" ]; then
+                  ATTEMPT=$((ATTEMPT + 1))
+                  continue
+                fi
+                if [ -d "$(git -C "$RESOLUTION_TARGET" rev-parse --git-path rebase-merge)" ] || \
+                  [ -d "$(git -C "$RESOLUTION_TARGET" rev-parse --git-path rebase-apply)" ]; then
+                  echo "::error::The rebase stopped without merge conflicts after skipping an empty commit."
+                  exit 1
+                fi
+                break
+              fi
+              echo "::error::The rebase stopped without merge conflicts."
+              exit 1
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+      - name: Stop OpenCode
+        if: always() && steps.opencode.outputs.started == 'true'
+        run: |
+          kill "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
+          wait "$(cat "$RUNNER_TEMP/opencode.pid")" 2> /dev/null || true
+
+      - name: Commit and push resolution
+        if: >-
+          steps.integration.outputs.needs_push == 'true' &&
+          (steps.integration.outputs.has_conflicts != 'true' || steps.seqlane.outcome == 'success')
+        working-directory: resolution-target
+        env:
+          BASE_BRANCH: ${{ steps.pull-request.outputs.base_ref }}
+          BASE_SHA: ${{ steps.pull-request.outputs.base_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ steps.pull-request.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.pull-request.outputs.head_sha }}
+          RESOLUTION_STRATEGY: ${{ inputs.resolution_strategy }}
+        run: |
+          git config user.name "Seqlane conflict resolver"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$RESOLUTION_STRATEGY" = "merge" ]; then
+            git commit -m "Merge $BASE_BRANCH and resolve conflicts"
+          fi
+
+          gh auth setup-git
+          git fetch origin "refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
+          git fetch origin "refs/heads/$HEAD_REF:refs/remotes/origin/$HEAD_REF"
+          if [ "$(git rev-parse "refs/remotes/origin/$BASE_BRANCH")" != "$BASE_SHA" ]; then
+            echo "::error::The pull request base changed during conflict resolution."
+            exit 1
+          fi
+          if [ "$(git rev-parse "refs/remotes/origin/$HEAD_REF")" != "$HEAD_SHA" ]; then
+            echo "::error::The pull request head changed during conflict resolution."
+            exit 1
+          fi
+
+          git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA" origin "HEAD:refs/heads/$HEAD_REF"
+          echo "Seqlane resolved the conflicts and pushed the $RESOLUTION_STRATEGY result." >> "$GITHUB_STEP_SUMMARY"
