@@ -578,6 +578,73 @@ describe("pull-request code review example workflow", () => {
     ).toBe(true);
   });
 
+  it("retains dispositions for persisted findings when the global bound overflows", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+    const snapshot = gzipSync(
+      JSON.stringify({
+        headRevision: REVIEW_TEST_BASE_REVISION,
+        findings: [
+          {
+            id: "F-0",
+            axis: "correctness",
+            severity: "required",
+            effectiveSeverity: "required",
+            disposition: "wont-fix",
+            summary: "Retained finding",
+            recommendation: "Keep its policy decision.",
+          },
+        ],
+        truncated: false,
+      }),
+    ).toString("base64");
+    const result = await task.execute(
+      {
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "report",
+              kind: "issue",
+              author: "github-actions[bot]",
+              authorAssociation: "NONE",
+              body: [
+                "<!-- seqlane-code-review -->",
+                `<!-- seqlane-code-review-report-v2: ${snapshot} -->`,
+              ].join("\n"),
+              createdAt: "2026-09-05T09:00:00Z",
+            },
+            {
+              id: "commands",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "OWNER",
+              body: Array.from(
+                { length: 201 },
+                (_, index) => `/seqlane wont-fix F-${index}`,
+              ).join("\n"),
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          truncated: false,
+        },
+      },
+      {},
+    );
+
+    expect(result.dispositions).toHaveLength(200);
+    expect(result.dispositions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ findingId: "F-0", action: "wont-fix" }),
+      ]),
+    );
+    expect(result.truncated).toBe(true);
+  });
+
   it("rejects compressed snapshots that exceed the decompression bound", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.review-context",
@@ -613,7 +680,7 @@ describe("pull-request code review example workflow", () => {
     expect(result.previousSnapshot).toBeUndefined();
   });
 
-  it("collects deterministic Git review evidence with direct argv", async () => {
+  it("collects deterministic Git review evidence with command-level bounds", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.git-evidence",
     );
@@ -667,40 +734,25 @@ describe("pull-request code review example workflow", () => {
       { command: "git", args: ["rev-parse", "--verify", "HEAD"] },
       { command: "git", args: ["cat-file", "-e", `${baseRevision}^{commit}`] },
       {
-        command: "git",
-        args: [
-          "diff",
-          "--no-ext-diff",
-          "--no-textconv",
-          "--name-status",
-          `${baseRevision}...${headRevision}`,
-        ],
+        command: "bash",
+        args: ["-c", expect.stringContaining("--name-status")],
       },
       {
-        command: "git",
-        args: [
-          "diff",
-          "--no-ext-diff",
-          "--no-textconv",
-          "--stat",
-          `${baseRevision}...${headRevision}`,
-        ],
+        command: "bash",
+        args: ["-c", expect.stringContaining("--stat")],
       },
       {
         command: "bash",
         args: ["-c", expect.stringContaining(`head -c ${48_000 + 1}`)],
       },
       {
-        command: "git",
-        args: [
-          "diff",
-          "--no-ext-diff",
-          "--no-textconv",
-          "--check",
-          `${baseRevision}...${headRevision}`,
-        ],
+        command: "bash",
+        args: ["-c", expect.stringContaining("--check")],
       },
     ]);
+    expect(requests[2]?.args?.[1]).toContain(`head -c ${128_000 + 1}`);
+    expect(requests[3]?.args?.[1]).toContain(`head -c ${8_000 + 1}`);
+    expect(requests[5]?.args?.[1]).toContain(`head -c ${8_000 + 1}`);
     expect(task.output.parse(result)).toEqual({
       baseRevision,
       headRevision,
@@ -795,10 +847,12 @@ describe("pull-request code review example workflow", () => {
 
     const baseRevision = "a".repeat(40);
     const headRevision = "b".repeat(40);
-    const changedOutput = Array.from(
-      { length: 201 },
-      (_, index) => `M\tsrc/file-${index}.ts`,
-    ).join("\n");
+    const changedOutput =
+      Array.from({ length: 200 }, (_, index) => `M\tsrc/file-${index}.ts`).join(
+        "\n",
+      ) +
+      "\nM\t" +
+      "x".repeat(128_001);
     const oversizedOutput = "x".repeat(8_001);
     const oversizedPatch = "prefix\n" + "x".repeat(47_991) + "😀" + "\nrest";
     const responses = [
@@ -841,7 +895,7 @@ describe("pull-request code review example workflow", () => {
         { length: 200 },
         (_, index) => `src/file-${index}.ts`,
       ),
-      changedFileCount: 201,
+      changedFileCount: 200,
       changedFilesTruncated: true,
       diffStat: oversizedOutput.slice(0, 7_999) + "…",
       diffStatTruncated: true,
@@ -1606,6 +1660,79 @@ describe("pull-request code review example workflow", () => {
         effectiveSeverity: "required",
       }),
     ]);
+  });
+
+  it("lets current-head evidence override a truncated stale fixed disposition", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+    const review = createReviewInput({
+      comments: [],
+      commentIds: [],
+      truncated: true,
+      dispositions: [],
+      previousState: {
+        schemaVersion: 3,
+        pullRequestNumber: 44,
+        baseRevision: REVIEW_TEST_BASE_REVISION,
+        reviewedRevision: REVIEW_TEST_BASE_REVISION,
+        nextFindingIndex: 2,
+        findings: [
+          {
+            id: "SEQ-PR44-001",
+            axis: "correctness",
+            severity: "required",
+            effectiveSeverity: "required",
+            disposition: "fixed",
+            dispositionBy: "maintainer",
+            dispositionAt: "2026-09-05T10:00:00Z",
+            dispositionCommentId: "old-fixed-command",
+            status: "resolved",
+            aliases: [],
+            summary: "Previously resolved finding",
+            recommendation: "Restore the missing guard.",
+          },
+        ],
+        limitations: ["Earlier state was compacted."],
+        truncated: true,
+      },
+    });
+    const result = await task.execute(
+      {
+        review: {
+          ...review,
+          historyVerification: {
+            headRevision: REVIEW_TEST_HEAD_REVISION,
+            verifications: [
+              {
+                findingId: "SEQ-PR44-001",
+                headRevision: REVIEW_TEST_HEAD_REVISION,
+                outcome: "present",
+                evidence: "The current branch no longer contains the guard.",
+              },
+            ],
+            limitations: [],
+          },
+        },
+        report: createReport([]),
+      },
+      {},
+    );
+
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "SEQ-PR44-001",
+        disposition: "open",
+        status: "reopened",
+      }),
+    ]);
+    expect(result.stateTruncated).toBe(true);
+    expect(result.limitations).toContain(
+      "The previous Seqlane state was compacted; omitted historical detail was not restored.",
+    );
   });
 
   it("does not accept a fixed finding without current-head evidence", async () => {

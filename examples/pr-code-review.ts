@@ -291,6 +291,7 @@ const codeReviewReportSchema = synthesizedReviewReportSchema.extend({
 
 const MAX_GIT_TEXT_LENGTH = 8_000;
 const MAX_PATCH_BYTES = 48_000;
+const MAX_CHANGED_FILES_BYTES = 128_000;
 const PATCH_TRUNCATION_MARKER =
   "\n[patch truncated; omitted hunks were not reviewed]\n";
 const MAX_CHANGED_FILES = 200;
@@ -440,6 +441,25 @@ function boundPatchOutput(value: string): {
   };
 }
 
+function boundCompleteGitLines(
+  value: string,
+  maxBytes: number,
+): { readonly value: string; readonly truncated: boolean } {
+  const normalized = value.endsWith("\uFFFD") ? value.slice(0, -1) : value;
+  const bytes = new TextEncoder().encode(normalized);
+  const truncated = value.endsWith("\uFFFD") || bytes.length > maxBytes;
+  if (!truncated) return { value: normalized, truncated: false };
+  const boundedBytes = bytes.subarray(0, maxBytes);
+  const lastNewline = boundedBytes.lastIndexOf(10, boundedBytes.length - 1);
+  return {
+    value:
+      lastNewline < 0
+        ? ""
+        : new TextDecoder().decode(boundedBytes.subarray(0, lastNewline + 1)),
+    truncated: true,
+  };
+}
+
 function parseReviewDispositionCommands(
   comment: z.infer<typeof reviewCommentSchema>,
 ): Array<z.infer<typeof reviewDispositionSchema>> {
@@ -551,9 +571,47 @@ const reviewContextTask = defineTask({
         left.effectiveAt.localeCompare(right.effectiveAt) ||
         left.commentId.localeCompare(right.commentId),
     );
+    const retainedFindings =
+      previousState?.findings ?? previousSnapshot?.findings ?? [];
+    const retainedDispositions = retainedFindings.flatMap((finding) => {
+      const identities = new Set([
+        finding.id,
+        ...("aliases" in finding ? finding.aliases : []),
+      ]);
+      const latest = allLatestDispositions
+        .filter(
+          (disposition) =>
+            disposition.authorized && identities.has(disposition.findingId),
+        )
+        .at(-1);
+      return latest === undefined ? [] : [latest];
+    });
+    const retainedDispositionKeys = new Set(
+      retainedDispositions.map(
+        (disposition) =>
+          `${disposition.findingId}:${disposition.authorized ? "authorized" : "unauthorized"}`,
+      ),
+    );
+    const remainingDispositionCapacity = Math.max(
+      0,
+      MAX_REVIEW_DISPOSITIONS - retainedDispositions.length,
+    );
+    const otherDispositions = allLatestDispositions.filter(
+      (disposition) =>
+        !retainedDispositionKeys.has(
+          `${disposition.findingId}:${disposition.authorized ? "authorized" : "unauthorized"}`,
+        ),
+    );
+    const dispositions = [
+      ...retainedDispositions,
+      ...otherDispositions.slice(-remainingDispositionCapacity),
+    ].sort(
+      (left, right) =>
+        left.effectiveAt.localeCompare(right.effectiveAt) ||
+        left.commentId.localeCompare(right.commentId),
+    );
     const dispositionsTruncated =
-      allLatestDispositions.length > MAX_REVIEW_DISPOSITIONS;
-    const dispositions = allLatestDispositions.slice(-MAX_REVIEW_DISPOSITIONS);
+      dispositions.length < allLatestDispositions.length;
     const previousDispositionCommentIds = new Set(
       (previousState?.findings ?? previousSnapshot?.findings)?.flatMap(
         (finding) =>
@@ -615,6 +673,24 @@ const gitReviewEvidenceTask = defineTask({
       "gitStatus=${PIPESTATUS[0]}",
       '[ "$gitStatus" -eq 0 ] || [ "$gitStatus" -eq 141 ]',
     ].join("; ");
+    const boundedChangedFilesCommand = [
+      "set -o pipefail",
+      `git diff --no-ext-diff --no-textconv --name-status ${range} | head -c ${MAX_CHANGED_FILES_BYTES + 1}`,
+      "gitStatus=${PIPESTATUS[0]}",
+      '[ "$gitStatus" -eq 0 ] || [ "$gitStatus" -eq 141 ]',
+    ].join("; ");
+    const boundedStatCommand = [
+      "set -o pipefail",
+      `git diff --no-ext-diff --no-textconv --stat ${range} | head -c ${MAX_GIT_TEXT_LENGTH + 1}`,
+      "gitStatus=${PIPESTATUS[0]}",
+      '[ "$gitStatus" -eq 0 ] || [ "$gitStatus" -eq 141 ]',
+    ].join("; ");
+    const boundedCheckCommand = [
+      "set -o pipefail",
+      `git diff --no-ext-diff --no-textconv --check ${range} | head -c ${MAX_GIT_TEXT_LENGTH + 1}`,
+      "gitStatus=${PIPESTATUS[0]}",
+      'exit "$gitStatus"',
+    ].join("; ");
     const [head, base, changed, stat, patch, check] = await Promise.all([
       exec({ command: "git", args: ["rev-parse", "--verify", "HEAD"] }),
       exec({
@@ -622,26 +698,20 @@ const gitReviewEvidenceTask = defineTask({
         args: ["cat-file", "-e", `${baseRevision}^{commit}`],
       }),
       exec({
-        command: "git",
-        args: [
-          "diff",
-          "--no-ext-diff",
-          "--no-textconv",
-          "--name-status",
-          range,
-        ],
+        command: "bash",
+        args: ["-c", boundedChangedFilesCommand],
       }),
       exec({
-        command: "git",
-        args: ["diff", "--no-ext-diff", "--no-textconv", "--stat", range],
+        command: "bash",
+        args: ["-c", boundedStatCommand],
       }),
       exec({
         command: "bash",
         args: ["-c", boundedPatchCommand],
       }),
       exec({
-        command: "git",
-        args: ["diff", "--no-ext-diff", "--no-textconv", "--check", range],
+        command: "bash",
+        args: ["-c", boundedCheckCommand],
       }),
     ]);
 
@@ -655,9 +725,13 @@ const gitReviewEvidenceTask = defineTask({
       throw new Error("Git could not inspect the requested review range");
     }
 
+    const changedEvidence = boundCompleteGitLines(
+      changed.stdout,
+      MAX_CHANGED_FILES_BYTES,
+    );
     const allChangedFiles = [
       ...new Set(
-        changed.stdout
+        changedEvidence.value
           .split(/\r?\n/)
           .filter((line) => line.length > 0)
           .flatMap((line) => line.split("\t").slice(1)),
@@ -690,7 +764,9 @@ const gitReviewEvidenceTask = defineTask({
       headRevision,
       changedFiles,
       changedFileCount: allChangedFiles.length,
-      changedFilesTruncated: changedFiles.length !== allChangedFiles.length,
+      changedFilesTruncated:
+        changedEvidence.truncated ||
+        changedFiles.length !== allChangedFiles.length,
       diffStat: diffStat.value,
       diffStatTruncated: diffStat.truncated,
       patch: patchEvidence.value,
@@ -1138,6 +1214,13 @@ const applyReviewDispositionTask = defineTask({
         findings.push(applyDisposition(previous, status, disposition));
         continue;
       }
+      if (
+        verifiedOutcome === "present" &&
+        previous.disposition !== "wont-fix"
+      ) {
+        findings.push(openFinding(previous, "reopened"));
+        continue;
+      }
       if (previousDispositionStillActive(previous)) {
         findings.push(previous);
         continue;
@@ -1257,7 +1340,10 @@ const applyReviewDispositionTask = defineTask({
       verdict,
       findings: boundedFindings,
       limitations: [...new Set(limitations)].slice(0, 20),
-      stateTruncated: findingsOverflow > 0,
+      stateTruncated:
+        findingsOverflow > 0 ||
+        review.reviewHistory.previousState?.truncated === true ||
+        review.reviewHistory.previousSnapshot?.truncated === true,
     };
   },
 });
