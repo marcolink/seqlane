@@ -1,17 +1,19 @@
 ---
 id: spec.studio-vite-development-and-isolated-replay
 title: Studio Vite Development and Isolated Replay
-status: draft
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - adr.studio-vite-development-and-isolated-replay
 supersedes: []
 ---
 
 # Studio Vite Development and Isolated Replay
+
+> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
 
 > Migrated from legacy technical specification `TS-017`.
 

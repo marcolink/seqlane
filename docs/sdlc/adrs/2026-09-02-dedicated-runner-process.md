@@ -1,17 +1,19 @@
 ---
 id: adr.dedicated-runner-process
 title: Execute Each Seqlane Run in a Dedicated Node Process
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-05
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
 ---
 
 # Execute Each Seqlane Run in a Dedicated Node Process
+
+> Superseded by [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md).
 
 ## Context
 

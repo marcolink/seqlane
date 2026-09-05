@@ -1,17 +1,19 @@
 ---
 id: adr.local-read-only-execution-studio
 title: Provide a Local Read-Only Execution Studio
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-05
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
 ---
 
 # Provide a Local Read-Only Execution Studio
+
+> Superseded by [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md).
 
 ## Context
 

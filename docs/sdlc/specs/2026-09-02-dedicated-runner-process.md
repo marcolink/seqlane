@@ -1,17 +1,19 @@
 ---
 id: spec.dedicated-runner-process
 title: Dedicated Runner Process and CLI IPC
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-04
 upstream:
   - adr.dedicated-runner-process
 supersedes: []
 ---
 
 # Dedicated Runner Process and CLI IPC
+
+> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
 
 > Migrated from legacy technical specification `TS-002`.
 

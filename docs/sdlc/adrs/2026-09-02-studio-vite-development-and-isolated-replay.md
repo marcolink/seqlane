@@ -1,17 +1,19 @@
 ---
 id: adr.studio-vite-development-and-isolated-replay
 title: Make Studio a Vite React App with Isolated Replay
-status: proposed
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-05
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
 ---
 
 # Make Studio a Vite React App with Isolated Replay
+
+> Superseded by [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md).
 
 ## Context
 
