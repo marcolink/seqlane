@@ -51,10 +51,13 @@ export interface PreparedPlan {
   readonly orderedNodes: readonly PlanNode[];
 }
 
-export interface CompiledPlan {
+export interface PreparedPlanExecution {
   readonly plan: Plan;
   readonly orderedNodes: readonly PlanNode[];
   readonly context: ExecutionContext;
+}
+
+export interface CompiledPlan extends PreparedPlanExecution {
   readonly program: SequentialProgram;
 }
 
@@ -125,7 +128,10 @@ export class PlanCompiler {
     return this.compile(plan);
   }
 
-  compileWorkflow(plan: Plan, options: CompileWorkflowOptions): CompiledPlan {
+  prepareWorkflow(
+    plan: Plan,
+    options: CompileWorkflowOptions,
+  ): PreparedPlanExecution {
     validatePlan(plan, options.taskDefinitions);
     const prepared = this.compile(plan, options.taskDefinitions);
     const orderedNodes = lowerWorkspaceOrdering(
@@ -158,6 +164,20 @@ export class PlanCompiler {
       context.invocationIds.set(node.nodeId, invocationId);
       invocationCreationOrdinal(context, invocationId);
     }
+
+    return {
+      plan: loweredPlan,
+      orderedNodes,
+      context,
+    };
+  }
+
+  compileWorkflow(plan: Plan, options: CompileWorkflowOptions): CompiledPlan {
+    const {
+      plan: loweredPlan,
+      orderedNodes,
+      context,
+    } = this.prepareWorkflow(plan, options);
     const checkNodes = new Map(
       plan.nodes
         .flatMap((node) => {

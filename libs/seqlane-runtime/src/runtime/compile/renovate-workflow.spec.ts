@@ -120,8 +120,8 @@ function compileRenovateWorkflow(
   });
 }
 
-describe("Renovate-shaped Effect runtime contract", () => {
-  it("executes investigate, plan, fix, and verify through Effect", async () => {
+describe("Renovate-shaped in-process workflow contract", () => {
+  it("executes investigate, plan, fix, and verify through the private runner", async () => {
     const fake = createFakeOpenCodeExecutor();
     const events: SeqlaneEvent[] = [];
     const compiled = compileRenovateWorkflow(

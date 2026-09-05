@@ -1,5 +1,5 @@
 import type { InvocationId, PlanNodeId } from "@seqlane/core";
-import type { CompiledPlan } from "../compile/compile-plan.js";
+import type { PreparedPlanExecution } from "../compile/compile-plan.js";
 
 export interface SharedSessionInvocation {
   readonly nodeId: PlanNodeId;
@@ -28,7 +28,7 @@ export class UnorderedSharedSessionError extends Error {
 
 /** Reports resolved same-session task pairs and their DAG ordering. */
 export function preflightSharedSessionOrder(
-  compiled: CompiledPlan,
+  compiled: PreparedPlanExecution,
 ): readonly SharedSessionTaskPair[] {
   const nodesById = new Map(
     compiled.orderedNodes.map((node) => [node.nodeId, node]),

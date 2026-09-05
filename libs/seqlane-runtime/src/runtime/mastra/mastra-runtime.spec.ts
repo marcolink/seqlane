@@ -287,6 +287,8 @@ describe("private Mastra runtime spine", () => {
         abortSignal: new AbortController().signal,
       }),
     ).rejects.toThrow("does not expose a Mastra server");
+
+    expect(execution.prepared).not.toHaveProperty("program");
   });
 
   it("persists run and step spans with Seqlane correlation and deterministic trace IDs", async () => {

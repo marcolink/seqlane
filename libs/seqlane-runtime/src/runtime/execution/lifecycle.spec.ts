@@ -766,7 +766,7 @@ describe("Seqlane lifecycle events and outcomes", () => {
     ]);
   });
 
-  it("latches cancellation before the Effect run starts", async () => {
+  it("latches cancellation before the in-process run starts", async () => {
     let started = false;
     const compiled = compile(plan([task("a")]), {
       executor: async () => {
@@ -781,14 +781,14 @@ describe("Seqlane lifecycle events and outcomes", () => {
     expect(started).toBe(false);
   });
 
-  it("maps an unexpected Effect program failure to RuntimeError", async () => {
+  it("maps an unexpected in-process program failure to RuntimeError", async () => {
     const compiled = compile(plan([task("a")]));
     const failedProgram = createSequentialProgram({
       steps: [
         {
           id: "failed-step",
           execute: async () => {
-            throw new Error("unexpected Effect failure");
+            throw new Error("unexpected program failure");
           },
         },
       ],

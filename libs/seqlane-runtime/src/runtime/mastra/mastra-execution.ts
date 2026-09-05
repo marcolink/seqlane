@@ -15,7 +15,10 @@ import {
   compilePlanToMastra,
   type CompiledMastraPlan,
 } from "../compile/mastra-plan-compiler.js";
-import { PlanCompiler, type CompiledPlan } from "../compile/compile-plan.js";
+import {
+  PlanCompiler,
+  type PreparedPlanExecution,
+} from "../compile/compile-plan.js";
 import {
   executeTaskNode,
   executeValidationCheckNode,
@@ -58,7 +61,7 @@ export interface MastraPlanExecutionOptions {
 }
 
 export interface MastraPlanExecution {
-  readonly prepared: CompiledPlan;
+  readonly prepared: PreparedPlanExecution;
   readonly compiled: CompiledMastraPlan;
   readonly runtime: MastraRuntime;
 }
@@ -92,7 +95,7 @@ function dependencyResults(
 }
 
 function dependencyInvocationIds(
-  context: CompiledPlan["context"],
+  context: PreparedPlanExecution["context"],
   compiled: CompiledMastraPlan,
   node: PlanNode,
 ): readonly InvocationId[] {
@@ -108,7 +111,7 @@ function dependencyInvocationIds(
 
 export function emitMastraInvocationTopology(
   compiled: CompiledMastraPlan,
-  prepared: CompiledPlan,
+  prepared: PreparedPlanExecution,
   events: SeqlaneEventSink,
 ): void {
   const { context } = prepared;
@@ -145,7 +148,7 @@ export function emitMastraInvocationTopology(
 
 function emitMastraNonTerminalInvocations(
   compiled: CompiledMastraPlan,
-  prepared: CompiledPlan,
+  prepared: PreparedPlanExecution,
   result: MastraWorkflowResult,
   events: SeqlaneEventSink,
 ): void {
@@ -214,7 +217,7 @@ export function createMastraPlanExecution(
   const captureFailure = (failure: SeqlaneError): void => {
     typedFailure ??= failure;
   };
-  const prepared = new PlanCompiler().compileWorkflow(options.plan, {
+  const prepared = new PlanCompiler().prepareWorkflow(options.plan, {
     workId: options.workId,
     runId: options.runId,
     createInvocationId: (nodeId) => options.createInvocationId(nodeId),
