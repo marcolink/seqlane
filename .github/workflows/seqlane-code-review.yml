@@ -8,22 +8,52 @@ on:
       - synchronize
       - ready_for_review
       - closed
+  issue_comment:
+    types:
+      - created
+      - edited
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request number to review
+        required: true
+        type: string
 
 permissions:
   contents: read
+  issues: read
   pull-requests: write
 
 concurrency:
-  group: seqlane-code-review-${{ github.event.pull_request.number }}
+  group: seqlane-code-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pull_request_number }}
   cancel-in-progress: true
 
 jobs:
   code-review:
     name: Review pull request
     if: >-
-      github.event.action != 'closed' &&
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event_name == 'pull_request_target' &&
+       github.event.action != 'closed' &&
+       github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       (
+         (github.event.action == 'created' &&
+          (contains(github.event.comment.body, '/seqlane review') ||
+           contains(github.event.comment.body, '/seqlane fixed F-') ||
+           contains(github.event.comment.body, '/seqlane wont-fix F-') ||
+           contains(github.event.comment.body, '/seqlane downgrade F-')) &&
+          (github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'COLLABORATOR')) ||
+         (github.event.action == 'edited' &&
+          (github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'COLLABORATOR'))
+       )) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.pull_request_number != '')
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -42,8 +72,33 @@ jobs:
             echo "- SHA: \`$WORKFLOW_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Validate review trigger
+        id: trigger
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          if [ "$EVENT_NAME" != "issue_comment" ]; then
+            echo "execute=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT_ACTION" = "edited" ]; then
+            echo "execute=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if printf '%s\n' "$COMMENT_BODY" | grep -Eq '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|fixed[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$)|wont-fix[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$)|downgrade[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$))' ; then
+            echo "execute=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "execute=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping Seqlane code review because the comment contains no recognized command."
+          fi
+
       - name: Check OpenAI credentials
         id: configuration
+        if: steps.trigger.outputs.execute == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -54,34 +109,153 @@ jobs:
             echo "execute=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check out trusted Seqlane source from main
+      - name: Resolve pull request metadata
         if: steps.configuration.outputs.execute == 'true'
+        id: pull-request
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pull_request_number }}
+          EVENT_BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_REVISION: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
+          EVENT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          EVENT_DRAFT: ${{ github.event.pull_request.draft }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$EVENT_PR_NUMBER" \
+              > "$RUNNER_TEMP/seqlane-pull-request.json"
+            BASE_BRANCH=$(jq --raw-output '.base.ref' "$RUNNER_TEMP/seqlane-pull-request.json")
+            BASE_REVISION=$(jq --raw-output '.base.sha' "$RUNNER_TEMP/seqlane-pull-request.json")
+            HEAD_REVISION=$(jq --raw-output '.head.sha' "$RUNNER_TEMP/seqlane-pull-request.json")
+            HEAD_REPOSITORY=$(jq --raw-output '.head.repo.full_name' "$RUNNER_TEMP/seqlane-pull-request.json")
+            DRAFT=$(jq --raw-output '.draft' "$RUNNER_TEMP/seqlane-pull-request.json")
+          else
+            BASE_BRANCH="$EVENT_BASE_BRANCH"
+            BASE_REVISION="$EVENT_BASE_REVISION"
+            HEAD_REVISION="$EVENT_HEAD_REVISION"
+            HEAD_REPOSITORY="$EVENT_HEAD_REPOSITORY"
+            DRAFT="$EVENT_DRAFT"
+          fi
+
+          if [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            jq '{title: (.title // ""), description: (.body // "")}' \
+              "$RUNNER_TEMP/seqlane-pull-request.json" \
+              > "$RUNNER_TEMP/seqlane-pull-request-context.json"
+          else
+            jq '{title: (.pull_request.title // ""), description: (.pull_request.body // "")}' \
+              "$GITHUB_EVENT_PATH" \
+              > "$RUNNER_TEMP/seqlane-pull-request-context.json"
+          fi
+
+          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ] || [ "$DRAFT" = "true" ]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+          echo "number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "base_revision=$BASE_REVISION" >> "$GITHUB_OUTPUT"
+          echo "head_revision=$HEAD_REVISION" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "source_revision=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "source_revision=$BASE_REVISION" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Collect pull request review context
+        if: steps.pull-request.outputs.eligible == 'true'
+        env:
+          PR_NUMBER: ${{ steps.pull-request.outputs.number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for page in 1 2; do
+            gh api \
+              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
+              > "$RUNNER_TEMP/seqlane-issue-comments-$page.json"
+          done
+          for page in 1 2; do
+            gh api \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
+              > "$RUNNER_TEMP/seqlane-review-comments-$page.json"
+          done
+          jq -s 'add' \
+            "$RUNNER_TEMP/seqlane-issue-comments-1.json" \
+            "$RUNNER_TEMP/seqlane-issue-comments-2.json" \
+            > "$RUNNER_TEMP/seqlane-issue-comments.json"
+          jq -s 'add' \
+            "$RUNNER_TEMP/seqlane-review-comments-1.json" \
+            "$RUNNER_TEMP/seqlane-review-comments-2.json" \
+            > "$RUNNER_TEMP/seqlane-review-comments.json"
+          jq -n \
+            --slurpfile issue "$RUNNER_TEMP/seqlane-issue-comments.json" \
+            --slurpfile review "$RUNNER_TEMP/seqlane-review-comments.json" '
+              def normalize($items; $kind):
+                ($items[0] // []) | map(
+                  (.body // "") as $body |
+                  (((.user.login // "") == "github-actions" or
+                    (.user.login // "") == "github-actions[bot]") and
+                   ($body | contains("<!-- seqlane-code-review -->"))) as $trustedReport |
+                  (if $trustedReport then 65536 else 2000 end) as $bodyLimit |
+                  {
+                    id: (.id | tostring),
+                    kind: $kind,
+                    author: (.user.login // "unknown"),
+                    authorAssociation: (.author_association // "NONE"),
+                    body: ($body[:$bodyLimit]),
+                    bodyTruncated: (($body | length) > $bodyLimit),
+                    createdAt: (.created_at // "")
+                  }
+                  + (if .updated_at then {updatedAt: .updated_at} else {} end)
+                  + (if .html_url then {url: .html_url} else {} end)
+                  + (if .path then {path: .path} else {} end)
+                  + (if (.line | type) == "number" then {line: .line} else {} end)
+                  + (if .commit_id then {commitId: .commit_id} else {} end)
+                  + (if .in_reply_to_id then {inReplyTo: (.in_reply_to_id | tostring)} else {} end)
+                );
+              ([
+                normalize($issue; "issue"),
+                normalize($review; "review")
+              ] | add | sort_by(.updatedAt // .createdAt)) as $comments
+              | {
+                  comments: ($comments | .[-200:]),
+                  truncated: (
+                    (($issue[0] // []) | length) >= 200 or
+                    (($review[0] // []) | length) >= 200 or
+                    any($comments[]; .bodyTruncated == true)
+                  )
+                }
+            ' > "$RUNNER_TEMP/seqlane-review-history.json"
+
+      - name: Check out Seqlane source
+        if: steps.pull-request.outputs.eligible == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: seqlane-source
           persist-credentials: false
-          # For testing a workflow iteration from the PR target branch, use:
-          # ref: ${{ github.event.pull_request.base.ref }}
-          ref: main
+          ref: ${{ steps.pull-request.outputs.source_revision }}
 
       - name: Check out pull request head
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           path: review-target
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ steps.pull-request.outputs.head_revision }}
 
       - name: Set up pnpm
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 10.33.0
 
       - name: Set up Node.js
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -89,17 +263,17 @@ jobs:
           cache-dependency-path: seqlane-source/pnpm-lock.yaml
 
       - name: Install Seqlane dependencies
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         working-directory: seqlane-source
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build the local Seqlane CLI
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         working-directory: seqlane-source
         run: pnpm exec nx build seqlane-cli
 
       - name: Index pull request for semantic search
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         working-directory: seqlane-source
         env:
           REVIEW_TARGET: ${{ github.workspace }}/review-target
@@ -148,7 +322,7 @@ jobs:
             --glob '!**/*credential*.json'
 
       - name: Start zvec-grep
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         id: zvec-grep
         timeout-minutes: 2
         working-directory: seqlane-source
@@ -172,7 +346,7 @@ jobs:
           exit 1
 
       - name: Install OpenCode
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         working-directory: seqlane-source
         env:
           OPENCODE_VERSION: 1.18.27
@@ -185,7 +359,7 @@ jobs:
           curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION"
 
       - name: Start OpenCode
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         id: opencode
         timeout-minutes: 2
         working-directory: review-target
@@ -211,18 +385,21 @@ jobs:
           exit 1
 
       - name: Run Seqlane code review
-        if: steps.configuration.outputs.execute == 'true'
+        if: steps.pull-request.outputs.eligible == 'true'
         id: seqlane
         continue-on-error: true
         working-directory: seqlane-source
         env:
-          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
-          BASE_REVISION: ${{ github.event.pull_request.base.sha }}
-          HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
+          BASE_BRANCH: ${{ steps.pull-request.outputs.base_branch }}
+          BASE_REVISION: ${{ steps.pull-request.outputs.base_revision }}
+          HEAD_REVISION: ${{ steps.pull-request.outputs.head_revision }}
           REVIEW_TARGET: ${{ github.workspace }}/review-target
+          REVIEW_HISTORY_PATH: ${{ runner.temp }}/seqlane-review-history.json
           SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
         run: |
           WORKFLOW_INPUT=$(jq --compact-output \
+            --slurpfile reviewHistory "$REVIEW_HISTORY_PATH" \
+            --slurpfile pullRequest "$RUNNER_TEMP/seqlane-pull-request-context.json" \
             --arg repository "$REVIEW_TARGET" \
             --arg baseBranch "$BASE_BRANCH" \
             --arg baseRevision "$BASE_REVISION" \
@@ -232,10 +409,8 @@ jobs:
               baseBranch: $baseBranch,
               baseRevision: $baseRevision,
               headRevision: $headRevision,
-              pullRequest: {
-                title: (.pull_request.title // ""),
-                description: (.pull_request.body // "")
-              }
+              reviewHistory: $reviewHistory[0],
+              pullRequest: $pullRequest[0]
             }' "$GITHUB_EVENT_PATH")
 
           ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts" \
@@ -246,7 +421,7 @@ jobs:
             --record "$RUNNER_TEMP/seqlane-code-review-recording.jsonl"
 
       - name: Export code review events
-        if: steps.configuration.outputs.execute == 'true' && steps.seqlane.outcome == 'success'
+        if: steps.pull-request.outputs.eligible == 'true' && steps.seqlane.outcome == 'success'
         working-directory: seqlane-source
         env:
           SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
@@ -259,21 +434,89 @@ jobs:
           echo "Seqlane code review completed; publishing the report."
 
       - name: Publish code review
-        if: steps.configuration.outputs.execute == 'true' && steps.seqlane.outcome == 'success'
+        if: steps.pull-request.outputs.eligible == 'true' && steps.seqlane.outcome == 'success'
         id: report
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.pull-request.outputs.number }}
         run: |
           jq --slurp \
             'map(select(.type == "run.succeeded")) | last | .output' \
             "$RUNNER_TEMP/seqlane-code-review.jsonl" \
             > "$RUNNER_TEMP/seqlane-code-review-result.json"
 
-          jq --raw-output '
+          REPORT_SNAPSHOT=$(jq --compact-output '
+            def shorten($value; $limit):
+              if ($value | length) > $limit then
+                ($value[:($limit - 1)] + "…")
+              else
+                $value
+              end;
+            . as $report |
+            {
+              headRevision: $report.headRevision,
+              findings: [
+                $report.findings[] |
+                {
+                  id,
+                  axis,
+                  severity,
+                  effectiveSeverity,
+                  disposition,
+                  summary: shorten(.summary; 320),
+                  recommendation: shorten(.recommendation; 320)
+                }
+                + (if .file then {file: shorten(.file; 256)} else {} end)
+                + (if .line then {line} else {} end)
+                + (if .dispositionReason then {dispositionReason: shorten(.dispositionReason; 320)} else {} end)
+                + (if .dispositionBy then {dispositionBy} else {} end)
+                + (if .dispositionAt then {dispositionAt} else {} end)
+                + (if .dispositionCommentId then {dispositionCommentId} else {} end)
+                + (if .dispositionCommit then {dispositionCommit} else {} end)
+              ],
+              truncated: any($report.findings[];
+                ((.summary | length) > 320) or
+                ((.recommendation | length) > 320) or
+                ((.file // "" | length) > 256) or
+                ((.dispositionReason // "" | length) > 320)
+              )
+            }
+          ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
+
+          if [ "${#REPORT_SNAPSHOT}" -gt 24000 ]; then
+            REPORT_SNAPSHOT=$(jq --compact-output '
+              . as $report |
+              {
+                headRevision: $report.headRevision,
+                findings: [
+                  $report.findings[] |
+                  {
+                    id,
+                    axis,
+                    severity,
+                    effectiveSeverity,
+                    disposition,
+                    summary: "Historical finding retained from compact snapshot.",
+                    recommendation: "Re-evaluate this finding against the current head."
+                  }
+                  + (if .dispositionCommentId then {dispositionCommentId} else {} end)
+                ],
+                truncated: true
+              }
+            ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
+          fi
+
+          if [ "${#REPORT_SNAPSHOT}" -gt 60000 ]; then
+            echo "::error::The bounded Seqlane report snapshot is too large to publish safely."
+            exit 1
+          fi
+
+          jq --raw-output --arg reportSnapshot "$REPORT_SNAPSHOT" '
             [
               "<!-- seqlane-code-review -->",
-              "## 🧪 Seqlane code review",
+              "<!-- seqlane-code-review-head: \(.headRevision) -->",
+              ("<!-- seqlane-code-review-report-v2: " + $reportSnapshot + " -->"),
+              "## 🧪 Seqlane reviewer",
               "",
               "**Verdict:** \(if .verdict == "approve" then "✅ approve" else "🛑 request-changes" end) · **Rating:** ⭐ \(.overallRating)/5",
               "",
@@ -281,6 +524,7 @@ jobs:
               "",
               "### Ratings",
               (.ratings[] |
+                "- " +
                 (if .rating >= 4 then "✅" elif .rating == 3 then "🟡" else "🔴" end) +
                 " **\(.axis):** \(.rating)/5 — \(.rationale)"),
               "",
@@ -289,19 +533,25 @@ jobs:
                 "✅ No findings."
               else
                 (.findings[] |
-                  (if .severity == "critical" then "🚨" elif .severity == "required" then "🔴" elif .severity == "optional" then "🟡" else "💡" end) +
-                  " **\(.severity)** · **\(.axis)** — \(.summary)" +
+                  (if .disposition == "fixed" then "✅" elif .disposition == "wont-fix" then "⚪" elif .disposition == "downgraded" then "🟡" elif .severity == "critical" then "🚨" elif .severity == "required" then "🔴" elif .severity == "optional" then "🟡" else "💡" end) as $icon |
+                  (if .severity == .effectiveSeverity then .severity else "\(.severity) → \(.effectiveSeverity)" end) as $severity |
+                  "- \($icon) **\(.id)** · **\($severity)** · **\(.axis)** — \(.summary)" +
                   (if .file then
                     " (`\(.file)\(if .line then ":\(.line)" else "" end)`)"
                   else "" end) +
-                  "\n  - \(.recommendation)")
+                  "\n  - **Recommendation:** \(.recommendation)" +
+                  (if .disposition != "open" then
+                    "\n  - **Disposition:** \(.disposition)" +
+                    (if .dispositionBy then " by @\(.dispositionBy)" else "" end) +
+                    (if .dispositionReason then " — \(.dispositionReason)" else "" end)
+                  else "" end))
               end),
               "",
               "### Verification",
               (if (.verification | length) == 0 then
                 "⚠️ No verification evidence reported."
               else
-                (.verification[] | "🔎 \(.)")
+                (.verification[] | "- 🔎 \(.)")
               end)
             ] | .[]
           ' "$RUNNER_TEMP/seqlane-code-review-result.json" \
@@ -309,11 +559,11 @@ jobs:
 
           cat "$RUNNER_TEMP/seqlane-code-review.md" >> "$GITHUB_STEP_SUMMARY"
 
-          COMMENT_ID=$(gh api \
-            --paginate \
-            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-            --jq '.[] | select(.body | contains("<!-- seqlane-code-review -->")) | .id' \
-            | head -n 1)
+          COMMENT_ID=$(for page in 1 2; do
+            gh api \
+              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
+              --jq '.[] | select(.body | contains("<!-- seqlane-code-review -->")) | .id'
+          done | head -n 1)
 
           if [ -n "$COMMENT_ID" ]; then
             gh api --method PATCH \
@@ -340,5 +590,5 @@ jobs:
           wait "$(cat "$RUNNER_TEMP/zvec-grep.pid")" 2> /dev/null || true
 
       - name: Fail when Seqlane execution fails
-        if: steps.configuration.outputs.execute == 'true' && steps.seqlane.outcome != 'success'
+        if: steps.pull-request.outputs.eligible == 'true' && steps.seqlane.outcome != 'success'
         run: exit 1
