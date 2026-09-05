@@ -806,8 +806,8 @@ jobs:
             "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
             | jq 'add' \
             > "$RUNNER_TEMP/seqlane-live-issue-comments-after-audit.json"
-          AUDIT_HISTORY=$(jq --compact-output '
-            [.[] |
+          AUDIT_HISTORY=$(jq --compact-output --argjson current "$CURRENT_AUDIT_RECORD" '
+            ([.[] |
               select(
                 (.user.login == "github-actions") or
                 (.user.login == "github-actions[bot]")
@@ -815,7 +815,7 @@ jobs:
               .body |
               try (capture("<!-- seqlane-code-review-run-metrics-v1: (?<record>[^\\r\\n]+) -->").record | fromjson)
               catch empty
-            ] |
+            ] + [$current]) |
             map(select(.schemaVersion == 1 and (.runId | type) == "string")) |
             unique_by(.runId + "/" + (.attempt | tostring))
           ' "$RUNNER_TEMP/seqlane-live-issue-comments-after-audit.json")
