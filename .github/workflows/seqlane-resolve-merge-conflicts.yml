@@ -363,6 +363,14 @@ jobs:
               }
             '
 
+            if node -e '
+              const { readFileSync } = require("node:fs");
+              const paths = readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0");
+              process.exit(paths.includes("pnpm-lock.yaml") ? 0 : 1);
+            '; then
+              pnpm --dir "$RESOLUTION_TARGET" install --lockfile-only --ignore-scripts
+            fi
+
             node -e '
               const { execFileSync } = require("node:child_process");
               const { readFileSync } = require("node:fs");

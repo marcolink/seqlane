@@ -111,6 +111,8 @@ describe("merge-conflict resolution example workflow", () => {
       'git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA"',
     );
     expect(workflow).toContain("OPENCODE_ARCHIVE_SHA256");
+    expect(workflow).toContain('paths.includes("pnpm-lock.yaml")');
+    expect(workflow).toContain("install --lockfile-only --ignore-scripts");
     expect(workflow).not.toContain("https://opencode.ai/install | bash");
   });
 

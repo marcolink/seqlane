@@ -179,6 +179,10 @@ OpenCode policy denies shell commands, external paths, and project
 configuration. The workflow rejects symlinks and copies back only the supplied
 conflict files.
 
+When `pnpm-lock.yaml` is conflicted, the trusted workflow runs
+`pnpm install --lockfile-only --ignore-scripts` after the agent edit. The
+following path allowlist rejects changes outside the conflict set.
+
 After Seqlane finishes, the workflow rejects new files and edits outside the
 initial conflict list. It also rejects unresolved conflicts and Git whitespace
 errors. It rejects staged Git conflict markers. A rebase can use no more than

@@ -38,6 +38,8 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 - Reject staged conflict markers, including CRLF, diff3, and longer marker
   lines, and bound rebase conflict-resolution attempts.
 - Verify the pinned OpenCode archive before extraction.
+- Regenerate `pnpm-lock.yaml` with scripts disabled only when that lock file
+  is conflicted.
 - Add contract tests and operator documentation.
 
 ## Out of scope
@@ -110,6 +112,10 @@ conflict-marker lines after staging, including CRLF, diff3, and longer marker
 lines. The
 workflow validates paths in the resolution checkout, including ignored
 untracked paths. It stops OpenCode before GitHub authentication.
+
+When `pnpm-lock.yaml` conflicts, the trusted workflow runs
+`pnpm install --lockfile-only --ignore-scripts`. The path allowlist rejects
+any change outside the conflict set.
 
 The workflow downloads a pinned OpenCode release archive and checks its
 SHA-256 before extraction. It checks the base revision before a push. The exact
