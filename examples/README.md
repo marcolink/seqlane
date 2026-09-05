@@ -134,6 +134,8 @@ Each published review repeats the available command syntax below its findings.
 /seqlane downgrade SEQ-PR123-003 optional reason: low impact
 ```
 
+Command names and finding IDs are case-insensitive.
+
 The publisher assigns each finding a permanent `SEQ-PR<PR>-<index>` ID. It
 does not reuse an ID for a different finding. It retains old `F-*` IDs as
 aliases when it migrates a version 1 or version 2 report.

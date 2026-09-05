@@ -107,6 +107,7 @@ and authorization class. The collector caps source bodies before aggregation
 and records source truncation. Bounded command-level omission metadata keeps an
 omitted decision distinct from a different command removed from the same
 comment. State compaction is visible in both report layers.
+Command names and finding identifiers are matched case-insensitively.
 The human projection includes command help, label emojis, and plain Markdown
 sections for required changes.
 

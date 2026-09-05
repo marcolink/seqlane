@@ -795,7 +795,8 @@ jobs:
               "- `/seqlane wont-fix <finding-id> [reason: <text>]` — accept or reject a finding.",
               "- `/seqlane downgrade <finding-id> <severity> [reason: <text>]` — lower its effective severity.",
               "",
-              "Allowed severities: `critical`, `required`, `optional`, and `nit`."
+              "Allowed severities: `critical`, `required`, `optional`, and `nit`.",
+              "Command names and finding IDs are case-insensitive."
             ]
             + (if ($report.verification | length) == 0 then [] else [
               "",

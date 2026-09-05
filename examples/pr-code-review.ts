@@ -19,7 +19,7 @@ const reviewSeveritySchema = z.enum([
 ]);
 const reviewFindingIdSchema = z
   .string()
-  .regex(/^(?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-\d{3,})$/);
+  .regex(/^(?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-\d{3,})$/i);
 const reviewDispositionActionSchema = z.enum([
   "fixed",
   "wont-fix",
@@ -204,14 +204,15 @@ const reviewStateSchema = z
         highestIndex = Math.max(highestIndex, parsedIndex);
       }
       for (const identity of [finding.id, ...finding.aliases]) {
-        if (identities.has(identity)) {
+        const identityKey = findingIdentityKey(identity);
+        if (identities.has(identityKey)) {
           context.addIssue({
             code: "custom",
             path: ["findings", findingIndex],
             message: "Finding IDs and aliases must be unique",
           });
         }
-        identities.add(identity);
+        identities.add(identityKey);
       }
     }
     if (state.nextFindingIndex <= highestIndex) {
@@ -370,6 +371,10 @@ function renderPromptData(label: string, value: unknown): string {
 
 function effectiveCommentTime(comment: z.infer<typeof reviewCommentSchema>) {
   return comment.updatedAt ?? comment.createdAt;
+}
+
+function findingIdentityKey(id: string): string {
+  return id.toLowerCase();
 }
 
 function isReviewReportComment(comment: z.infer<typeof reviewCommentSchema>) {
@@ -609,7 +614,7 @@ const reviewContextTask = defineTask({
       z.infer<typeof reviewDispositionSchema>
     >();
     for (const disposition of [...commentDispositions.values()].flat()) {
-      const key = `${disposition.findingId}:${disposition.authorized ? "authorized" : "unauthorized"}`;
+      const key = `${findingIdentityKey(disposition.findingId)}:${disposition.authorized ? "authorized" : "unauthorized"}`;
       const existing = latestDispositionByFindingAndAuthorization.get(key);
       if (
         existing === undefined ||
@@ -631,13 +636,16 @@ const reviewContextTask = defineTask({
       previousState?.findings ?? previousSnapshot?.findings ?? [];
     const retainedDispositions = retainedFindings.flatMap((finding) => {
       const identities = new Set([
-        finding.id,
-        ...("aliases" in finding ? finding.aliases : []),
+        findingIdentityKey(finding.id),
+        ...("aliases" in finding
+          ? finding.aliases.map(findingIdentityKey)
+          : []),
       ]);
       const latest = allLatestDispositions
         .filter(
           (disposition) =>
-            disposition.authorized && identities.has(disposition.findingId),
+            disposition.authorized &&
+            identities.has(findingIdentityKey(disposition.findingId)),
         )
         .at(-1);
       return latest === undefined ? [] : [latest];
@@ -645,7 +653,7 @@ const reviewContextTask = defineTask({
     const retainedDispositionKeys = new Set(
       retainedDispositions.map(
         (disposition) =>
-          `${disposition.findingId}:${disposition.authorized ? "authorized" : "unauthorized"}`,
+          `${findingIdentityKey(disposition.findingId)}:${disposition.authorized ? "authorized" : "unauthorized"}`,
       ),
     );
     const remainingDispositionCapacity = Math.max(
@@ -655,7 +663,7 @@ const reviewContextTask = defineTask({
     const otherDispositions = allLatestDispositions.filter(
       (disposition) =>
         !retainedDispositionKeys.has(
-          `${disposition.findingId}:${disposition.authorized ? "authorized" : "unauthorized"}`,
+          `${findingIdentityKey(disposition.findingId)}:${disposition.authorized ? "authorized" : "unauthorized"}`,
         ),
     );
     const dispositions = [
@@ -1091,7 +1099,10 @@ function openFinding(
 }
 
 function findingMatchesId(finding: ReviewReportFinding, id: string): boolean {
-  return finding.id === id || finding.aliases.includes(id);
+  const identity = findingIdentityKey(id);
+  return [finding.id, ...finding.aliases].some(
+    (candidate) => findingIdentityKey(candidate) === identity,
+  );
 }
 
 function legacyFindingStatus(
@@ -1114,12 +1125,13 @@ const applyReviewDispositionTask = defineTask({
     >();
     for (const disposition of review.reviewHistory.dispositions) {
       if (!disposition.authorized) continue;
-      const existing = latestAuthorized.get(disposition.findingId);
+      const dispositionKey = findingIdentityKey(disposition.findingId);
+      const existing = latestAuthorized.get(dispositionKey);
       if (
         existing === undefined ||
         existing.effectiveAt.localeCompare(disposition.effectiveAt) <= 0
       ) {
-        latestAuthorized.set(disposition.findingId, disposition);
+        latestAuthorized.set(dispositionKey, disposition);
       }
     }
     let nextFindingIndex =
@@ -1140,7 +1152,9 @@ const applyReviewDispositionTask = defineTask({
     const previousIdentities = new Set<string>();
     let duplicateHistoricalFindings = 0;
     const uniquePreviousSource = previousSource.filter((finding) => {
-      const identities = [finding.id, ...finding.aliases];
+      const identities = [finding.id, ...finding.aliases].map(
+        findingIdentityKey,
+      );
       if (identities.some((identity) => previousIdentities.has(identity))) {
         duplicateHistoricalFindings++;
         return false;
@@ -1167,7 +1181,7 @@ const applyReviewDispositionTask = defineTask({
       previousFindings.find((finding) => findingMatchesId(finding, id));
     const dispositionFor = (finding: ReviewReportFinding) =>
       [finding.id, ...finding.aliases]
-        .map((id) => latestAuthorized.get(id))
+        .map((id) => latestAuthorized.get(findingIdentityKey(id)))
         .filter(
           (value): value is z.infer<typeof reviewDispositionSchema> =>
             value !== undefined,
@@ -1266,8 +1280,9 @@ const applyReviewDispositionTask = defineTask({
     for (const synthesized of report.findings) {
       const previous = findPrevious(synthesized.id);
       const sourceId = previous?.id ?? synthesized.id;
-      if (currentSourceIds.has(sourceId)) continue;
-      currentSourceIds.add(sourceId);
+      const sourceIdKey = findingIdentityKey(sourceId);
+      if (currentSourceIds.has(sourceIdKey)) continue;
+      currentSourceIds.add(sourceIdKey);
       const id = previous?.id ?? allocateFindingId();
       if (currentIds.has(id)) continue;
       currentIds.add(id);

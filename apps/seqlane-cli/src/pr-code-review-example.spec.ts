@@ -323,6 +323,14 @@ describe("pull-request code review example workflow", () => {
               body: "/seqlane fixed F-456",
               createdAt: "2026-09-05T12:30:00Z",
             },
+            {
+              id: "6",
+              kind: "issue",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              body: "/SEQLANE wont-fix seq-pr44-001 reason: accepted",
+              createdAt: "2026-09-05T13:00:00Z",
+            },
           ],
           truncated: false,
         },
@@ -350,11 +358,16 @@ describe("pull-request code review example workflow", () => {
           action: "fixed",
           authorized: true,
         }),
+        expect.objectContaining({
+          findingId: "seq-pr44-001",
+          action: "wont-fix",
+          authorized: true,
+        }),
       ]),
     );
     expect(result.previousReport?.id).toBe("4");
     expect(result.previousSnapshot?.findings[0]?.id).toBe("F-456");
-    expect(result.commentIds).toEqual(["2", "3", "4", "5"]);
+    expect(result.commentIds).toEqual(["2", "3", "4", "5", "6"]);
     expect(result.comments).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "4", body: "" }),
@@ -1526,6 +1539,70 @@ describe("pull-request code review example workflow", () => {
         disposition: "fixed",
         status: "resolved",
         dispositionBy: "maintainer",
+      }),
+    ]);
+  });
+
+  it("applies a lowercase disposition ID to its canonical finding", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.apply-dispositions",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected disposition task definition");
+    }
+
+    const result = await task.execute(
+      {
+        review: createReviewInput({
+          comments: [],
+          commentIds: ["lowercase-command"],
+          truncated: false,
+          dispositions: [
+            {
+              findingId: "seq-pr44-001",
+              action: "wont-fix",
+              commentId: "lowercase-command",
+              author: "maintainer",
+              authorAssociation: "MEMBER",
+              authorized: true,
+              createdAt: "2026-09-05T10:00:00Z",
+              effectiveAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          previousState: {
+            schemaVersion: 3,
+            pullRequestNumber: 44,
+            baseRevision: REVIEW_TEST_BASE_REVISION,
+            reviewedRevision: REVIEW_TEST_BASE_REVISION,
+            nextFindingIndex: 2,
+            findings: [
+              {
+                id: "SEQ-PR44-001",
+                axis: "correctness",
+                severity: "required",
+                effectiveSeverity: "required",
+                disposition: "open",
+                status: "open",
+                aliases: [],
+                summary: "Canonical finding",
+                recommendation: "Apply the maintainer decision.",
+              },
+            ],
+            limitations: [],
+            truncated: false,
+          },
+        }),
+        report: createReport([]),
+      },
+      {},
+    );
+
+    expect(result.verdict).toBe("approve");
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        id: "SEQ-PR44-001",
+        disposition: "wont-fix",
+        status: "dismissed",
       }),
     ]);
   });

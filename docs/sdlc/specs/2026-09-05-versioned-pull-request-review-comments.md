@@ -100,6 +100,7 @@ Each retained finding has one lifecycle status:
   applicability.
 
 A downgrade changes effective severity. It does not dismiss the finding.
+Command names and finding identifiers are case-insensitive.
 
 ### requirement-fixed-verification
 
