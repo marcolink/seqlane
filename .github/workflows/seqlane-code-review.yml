@@ -723,6 +723,8 @@ jobs:
             }
           ' "$RUNNER_TEMP/seqlane-code-review.jsonl")
           RUN_METRICS_PRETTY=$(printf '%s' "$RUN_METRICS" | jq .)
+          RUN_METRICS_TOTAL_COST=$(printf '%.6f' \
+            "$(printf '%s' "$RUN_METRICS" | jq --raw-output '.totalCost')")
           printf '%s\n' "$RUN_METRICS" > "$RUNNER_TEMP/seqlane-code-review-metrics.json"
 
           COMPLETED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -821,6 +823,7 @@ jobs:
             --arg metadata "$REVIEW_METADATA" \
             --arg stateEnvelope "$REVIEW_STATE_ENVELOPE" \
             --arg runMetricsJson "$RUN_METRICS_PRETTY" \
+            --arg runMetricsTotalCost "$RUN_METRICS_TOTAL_COST" \
             --arg compactionNotice "$STATE_COMPACTION_NOTICE" \
             --argjson stateCompacted "$STATE_COMPACTED" '
             def shorten($value; $limit):
@@ -962,13 +965,16 @@ jobs:
             ]
             + [
               "",
-              "## Run metrics",
+              "<details>",
+              ("<summary>Run metrics · total cost: $" + $runMetricsTotalCost + "</summary>"),
               "",
               "Mechanically aggregated from Seqlane execution events:",
               "",
               "```json",
               $runMetricsJson,
-              "```"
+              "```",
+              "",
+              "</details>"
             ]
             + (if ($report.verification | length) == 0 then [] else [
               "",
