@@ -966,10 +966,22 @@ export default createFlow({
       }),
     },
   )
-  .task("applyDispositions", applyReviewDispositionTask, ({ tasks }) => ({
-    review: tasks.reviewContext.output,
-    report: tasks.summarize.output,
-  }))
+  .task(
+    "applyDispositions",
+    applyReviewDispositionTask,
+    ({ input, tasks }) => ({
+      review: {
+        repository: input.repository,
+        baseBranch: input.baseBranch,
+        baseRevision: input.baseRevision,
+        headRevision: input.headRevision,
+        pullRequest: input.pullRequest,
+        gitEvidence: tasks.gitEvidence.output,
+        reviewHistory: tasks.reviewContext.output,
+      },
+      report: tasks.summarize.output,
+    }),
+  )
   .output(({ tasks }) => ({
     overallRating: tasks.applyDispositions.output.overallRating,
     verdict: tasks.applyDispositions.output.verdict,

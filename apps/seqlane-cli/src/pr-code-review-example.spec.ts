@@ -50,6 +50,11 @@ describe("pull-request code review example workflow", () => {
       (node) =>
         node.type === "task" && node.taskId === "pr-code-review.git-evidence",
     );
+    const applyDispositions = plan.nodes.find(
+      (node) =>
+        node.type === "task" &&
+        node.taskId === "pr-code-review.apply-dispositions",
+    );
 
     expect(gitEvidence).toMatchObject({
       execution: "local",
@@ -65,6 +70,14 @@ describe("pull-request code review example workflow", () => {
       workspace: "shared",
       dependsOn: [],
     });
+    expect(applyDispositions?.dependsOn).toEqual(
+      expect.arrayContaining([
+        gitEvidence?.nodeId,
+        reviewContext?.nodeId,
+        summarize?.nodeId,
+      ]),
+    );
+    expect(applyDispositions?.dependsOn).toHaveLength(3);
     expect(reviewLanes).toHaveLength(3);
     for (const reviewLane of reviewLanes) {
       expect(reviewLane.dependsOn).toEqual(
