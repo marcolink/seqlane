@@ -84,15 +84,6 @@ jobs:
           echo "head_ref=$(jq --raw-output '.head.ref' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
           echo "head_sha=$(jq --raw-output '.head.sha' "$RUNNER_TEMP/pull-request.json")" >> "$GITHUB_OUTPUT"
 
-      - name: Check OpenAI credentials
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "::error::OPENAI_API_KEY is not configured."
-            exit 1
-          fi
-
       - name: Check out trusted Seqlane source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -160,8 +151,31 @@ jobs:
           jq --raw-input --slurp 'split("\u0000") | map(select(length > 0))' \
             "$RUNNER_TEMP/seqlane-conflict-files" \
             > "$RUNNER_TEMP/seqlane-conflict-files.json"
+          HAS_AGENT_CONFLICTS=$(node -e '
+            const { readFileSync } = require("node:fs");
+            const paths = readFileSync(`${process.env.RUNNER_TEMP}/seqlane-conflict-files`, "utf8")
+              .split("\0")
+              .filter(Boolean);
+            process.stdout.write(paths.some((path) => path !== "pnpm-lock.yaml") ? "true" : "false");
+          ')
+          if [ "$HAS_AGENT_CONFLICTS" = "true" ]; then
+            echo "has_agent_conflicts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_agent_conflicts=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
           echo "needs_push=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check OpenAI credentials
+        if: steps.integration.outputs.has_agent_conflicts == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::OPENAI_API_KEY is not configured."
+            exit 1
+          fi
+          echo "SEQLANE_REDACT_VALUES=$OPENAI_API_KEY" >> "$GITHUB_ENV"
 
       - name: Create empty non-Git agent workspace
         if: steps.integration.outputs.has_conflicts == 'true'
@@ -171,7 +185,7 @@ jobs:
           mkdir "$AGENT_WORKSPACE"
 
       - name: Set up pnpm
-        if: steps.integration.outputs.has_conflicts == 'true'
+        if: steps.integration.outputs.has_agent_conflicts == 'true'
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 10.33.0
@@ -181,21 +195,19 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: seqlane-source/pnpm-lock.yaml
 
       - name: Install Seqlane dependencies
-        if: steps.integration.outputs.has_conflicts == 'true'
+        if: steps.integration.outputs.has_agent_conflicts == 'true'
         working-directory: seqlane-source
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build the local Seqlane CLI
-        if: steps.integration.outputs.has_conflicts == 'true'
+        if: steps.integration.outputs.has_agent_conflicts == 'true'
         working-directory: seqlane-source
         run: pnpm exec nx build seqlane-cli
 
       - name: Install OpenCode
-        if: steps.integration.outputs.has_conflicts == 'true'
+        if: steps.integration.outputs.has_agent_conflicts == 'true'
         working-directory: seqlane-source
         env:
           OPENCODE_ARCHIVE_SHA256: 4af5494f9433f59db8c1e344198f0ee72a50c06ec009fb4a8aeab4c2d4abd702
@@ -217,7 +229,7 @@ jobs:
           echo "$OPENCODE_DIRECTORY" >> "$GITHUB_PATH"
 
       - name: Start OpenCode
-        if: steps.integration.outputs.has_conflicts == 'true'
+        if: steps.integration.outputs.has_agent_conflicts == 'true'
         id: opencode
         timeout-minutes: 2
         working-directory: ${{ runner.temp }}/seqlane-agent-workspace
@@ -255,8 +267,8 @@ jobs:
           RESOLUTION_STRATEGY: ${{ inputs.resolution_strategy }}
           AGENT_WORKSPACE: ${{ runner.temp }}/seqlane-agent-workspace
           CONFLICT_FILES: ${{ runner.temp }}/seqlane-conflict-files
+          AGENT_CONFLICT_FILES: ${{ runner.temp }}/seqlane-agent-conflict-files
           RESOLUTION_TARGET: ${{ github.workspace }}/resolution-target
-          SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
         run: |
           ATTEMPT=1
           MAX_REBASE_ATTEMPTS=5
@@ -275,174 +287,82 @@ jobs:
               > "$RUNNER_TEMP/seqlane-conflict-files.json"
 
             node -e '
-              const { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require("node:fs");
-              const { dirname, join, relative, resolve, sep } = require("node:path");
-              const targetRoot = resolve(process.env.RESOLUTION_TARGET);
-              const agentRoot = resolve(process.env.AGENT_WORKSPACE);
-              const maximumFileBytes = 512 * 1024;
-              const maximumTotalBytes = 2 * 1024 * 1024;
-              function safePath(root, path) {
-                const candidate = resolve(root, path);
-                if (relative(root, candidate).startsWith("..") || candidate === root) {
-                  throw new Error(`Unsafe conflict path: ${path}`);
-                }
-                return candidate;
-              }
-              function regularFile(root, path) {
-                let current = root;
-                for (const part of path.split("/")) {
-                  current = join(current, part);
-                  const stat = lstatSync(current);
-                  if (stat.isSymbolicLink()) throw new Error(`Symlink is not allowed: ${path}`);
-                }
-                if (!lstatSync(current).isFile()) throw new Error(`Conflict path is not a regular file: ${path}`);
-                return current;
-              }
-              if (!lstatSync(agentRoot).isDirectory() || lstatSync(agentRoot).isSymbolicLink()) {
-                throw new Error("Agent workspace is not a regular directory.");
-              }
-              for (const entry of readdirSync(agentRoot)) rmSync(join(agentRoot, entry), { recursive: true, force: true });
-              let totalBytes = 0;
-              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
-                const source = regularFile(targetRoot, path);
-                const size = statSync(source).size;
-                if (size > maximumFileBytes || totalBytes + size > maximumTotalBytes) throw new Error(`Conflict payload exceeds the configured size limit: ${path}`);
-                const contents = readFileSync(source);
-                if (contents.includes(0)) throw new Error(`Binary conflict file is not supported: ${path}`);
-                totalBytes += size;
-                const target = safePath(agentRoot, path);
-                mkdirSync(dirname(target), { recursive: true });
-                writeFileSync(target, contents);
-              }
+              const { readFileSync, writeFileSync } = require("node:fs");
+              const paths = readFileSync(process.env.CONFLICT_FILES, "utf8")
+                .split("\0")
+                .filter(Boolean);
+              const agentPaths = paths.filter((path) => path !== "pnpm-lock.yaml");
+              writeFileSync(process.env.AGENT_CONFLICT_FILES, agentPaths.join("\0"));
             '
+            jq --raw-input --slurp 'split("\u0000") | map(select(length > 0))' \
+              "$RUNNER_TEMP/seqlane-agent-conflict-files" \
+              > "$RUNNER_TEMP/seqlane-agent-conflict-files.json"
 
-            WORKFLOW_INPUT=$(jq --null-input --compact-output \
-              --arg repository "$AGENT_WORKSPACE" \
-              --argjson pullRequestNumber "$PR_NUMBER" \
-              --arg strategy "$RESOLUTION_STRATEGY" \
-              --arg baseBranch "$BASE_BRANCH" \
-              --arg headBranch "$HEAD_BRANCH" \
-              --arg baseRevision "$BASE_REVISION" \
-              --arg headRevision "$HEAD_REVISION" \
-              --slurpfile conflictedFiles "$RUNNER_TEMP/seqlane-conflict-files.json" \
-              '{
-                repository: $repository,
-                pullRequestNumber: $pullRequestNumber,
-                strategy: $strategy,
-                baseBranch: $baseBranch,
-                headBranch: $headBranch,
-                baseRevision: $baseRevision,
-                headRevision: $headRevision,
-                conflictedFiles: $conflictedFiles[0]
-              }')
+            node --experimental-strip-types "$PWD/scripts/resolve-merge-conflicts-workflow.ts" \
+              prepare-agent "$RESOLUTION_TARGET" "$AGENT_WORKSPACE" "$AGENT_CONFLICT_FILES"
 
-            ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/resolve-merge-conflicts.ts" \
-              --input "$WORKFLOW_INPUT" \
-              --runtime http://127.0.0.1:4096 \
-              --workspace "$AGENT_WORKSPACE" \
-              --output ci \
-              --record "$RUNNER_TEMP/seqlane-conflict-resolution-$ATTEMPT.jsonl"
+            if node -e '
+              const { readFileSync } = require("node:fs");
+              process.exit(readFileSync(process.env.AGENT_CONFLICT_FILES, "utf8").length > 0 ? 0 : 1);
+            '; then
+              WORKFLOW_INPUT=$(jq --null-input --compact-output \
+                --arg repository "$AGENT_WORKSPACE" \
+                --argjson pullRequestNumber "$PR_NUMBER" \
+                --arg strategy "$RESOLUTION_STRATEGY" \
+                --arg baseBranch "$BASE_BRANCH" \
+                --arg headBranch "$HEAD_BRANCH" \
+                --arg baseRevision "$BASE_REVISION" \
+                --arg headRevision "$HEAD_REVISION" \
+                --slurpfile conflictedFiles "$RUNNER_TEMP/seqlane-agent-conflict-files.json" \
+                '{
+                  repository: $repository,
+                  pullRequestNumber: $pullRequestNumber,
+                  strategy: $strategy,
+                  baseBranch: $baseBranch,
+                  headBranch: $headBranch,
+                  baseRevision: $baseRevision,
+                  headRevision: $headRevision,
+                  conflictedFiles: $conflictedFiles[0]
+                }')
 
-            node -e '
-              const { lstatSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
-              const { dirname, join, relative, resolve } = require("node:path");
-              const targetRoot = resolve(process.env.RESOLUTION_TARGET);
-              const agentRoot = resolve(process.env.AGENT_WORKSPACE);
-              function safePath(root, path) {
-                const candidate = resolve(root, path);
-                if (relative(root, candidate).startsWith("..") || candidate === root) {
-                  throw new Error(`Unsafe conflict path: ${path}`);
-                }
-                return candidate;
-              }
-              function regularFile(root, path) {
-                let current = root;
-                for (const part of path.split("/")) {
-                  current = join(current, part);
-                  const stat = lstatSync(current);
-                  if (stat.isSymbolicLink()) throw new Error(`Symlink is not allowed: ${path}`);
-                }
-                if (!lstatSync(current).isFile()) throw new Error(`Conflict path is not a regular file: ${path}`);
-                return current;
-              }
-              for (const path of readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean)) {
-                const source = regularFile(agentRoot, path);
-                const target = safePath(targetRoot, path);
-                mkdirSync(dirname(target), { recursive: true });
-                writeFileSync(target, readFileSync(source));
-              }
-            '
+              ./apps/seqlane-cli/bin/dev.js run "$PWD/examples/resolve-merge-conflicts.ts" \
+                --input "$WORKFLOW_INPUT" \
+                --runtime http://127.0.0.1:4096 \
+                --workspace "$AGENT_WORKSPACE" \
+                --output ci \
+                --record "$RUNNER_TEMP/seqlane-conflict-resolution-$ATTEMPT.jsonl"
+            else
+              echo "No agent-resolvable conflict files; the lockfile will be regenerated mechanically."
+            fi
+
+            node --experimental-strip-types "$PWD/scripts/resolve-merge-conflicts-workflow.ts" \
+              copy-agent "$AGENT_WORKSPACE" "$RESOLUTION_TARGET" "$AGENT_CONFLICT_FILES"
 
             if node -e '
               const { readFileSync } = require("node:fs");
               process.exit(readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").includes("pnpm-lock.yaml") ? 0 : 1);
             '; then
-              LOCKFILE_WORKSPACE="$RUNNER_TEMP/seqlane-lockfile-workspace"
-              export LOCKFILE_WORKSPACE
-              mkdir "$LOCKFILE_WORKSPACE"
-              node -e '
-                const { execFileSync } = require("node:child_process");
-                const { lstatSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
-                const { dirname, resolve, relative } = require("node:path");
-                const root = resolve(process.env.RESOLUTION_TARGET);
-                const output = resolve(process.env.LOCKFILE_WORKSPACE);
-                const paths = execFileSync("git", ["ls-files", "-z", "--", "pnpm-lock.yaml", "pnpm-workspace.yaml", ":(glob)**/package.json"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
-                for (const path of paths) {
-                  const source = resolve(root, path); const target = resolve(output, path);
-                  if (relative(root, source).startsWith("..") || relative(output, target).startsWith("..") || lstatSync(source).isSymbolicLink() || !lstatSync(source).isFile()) throw new Error(`Unsafe pnpm input: ${path}`);
-                  mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, readFileSync(source));
-                }
-              '
-              docker run --rm --network bridge --mount "type=bind,source=$LOCKFILE_WORKSPACE,target=/workspace" --workdir /workspace node:24-bookworm-slim sh -c 'corepack enable && pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile'
-              cp "$LOCKFILE_WORKSPACE/pnpm-lock.yaml" "$RESOLUTION_TARGET/pnpm-lock.yaml"
+              (
+                LOCKFILE_WORKSPACE=$(mktemp -d "$RUNNER_TEMP/seqlane-lockfile-workspace.XXXXXX")
+                export LOCKFILE_WORKSPACE
+                trap 'rm -rf -- "$LOCKFILE_WORKSPACE"' EXIT
+                node --experimental-strip-types "$PWD/scripts/resolve-merge-conflicts-workflow.ts" \
+                  prepare-lockfile "$RESOLUTION_TARGET" "$LOCKFILE_WORKSPACE"
+                docker run --rm --network bridge --mount "type=bind,source=$LOCKFILE_WORKSPACE,target=/workspace" --workdir /workspace node@sha256:6642ef280aebc09c4541bee0b15c9f89f0f3f3c247ddee79ae1d37eddfdcbbaa sh -c 'COREPACK_ENABLE_PROJECT_SPEC=0 COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack install --global pnpm@10.33.0 && COREPACK_ENABLE_PROJECT_SPEC=0 pnpm --version | grep --fixed-strings --line-regexp 10.33.0 && COREPACK_ENABLE_PROJECT_SPEC=0 pnpm install --config.registry=https://registry.npmjs.org/ --lockfile-only --ignore-scripts --ignore-pnpmfile'
+                cp "$LOCKFILE_WORKSPACE/pnpm-lock.yaml" "$RESOLUTION_TARGET/pnpm-lock.yaml"
+              )
             fi
 
-            node -e '
-              const { execFileSync } = require("node:child_process");
-              const { readFileSync } = require("node:fs");
-              const options = { cwd: process.env.RESOLUTION_TARGET, encoding: "utf8" };
-              const allowed = new Set(readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean));
-              const changed = execFileSync("git", ["diff", "--name-only", "-z"], options).split("\0").filter(Boolean);
-              const unexpected = changed.filter((path) => !allowed.has(path));
-              if (unexpected.length > 0) {
-                console.error(`Unexpected edited paths: ${unexpected.join(", ")}`);
-                process.exit(1);
-              }
-              const untracked = [
-                ...execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], options).split("\0"),
-                ...execFileSync("git", ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"], options).split("\0"),
-              ].filter(Boolean);
-              if (untracked.length > 0) {
-                console.error(`Unexpected untracked paths: ${untracked.join(", ")}`);
-                process.exit(1);
-              }
-            '
+            node --experimental-strip-types "$PWD/scripts/resolve-merge-conflicts-workflow.ts" \
+              validate-workspace "$RESOLUTION_TARGET" "$CONFLICT_FILES"
             git -C "$RESOLUTION_TARGET" add --pathspec-from-file="$RUNNER_TEMP/seqlane-conflict-files" --pathspec-file-nul
             if [ -n "$(git -C "$RESOLUTION_TARGET" diff --name-only --diff-filter=U)" ]; then
               echo "::error::One or more merge conflicts remain unresolved."
               exit 1
             fi
             git -C "$RESOLUTION_TARGET" diff --cached --check
-            node -e '
-              const { execFileSync } = require("node:child_process");
-              const { readFileSync } = require("node:fs");
-              const paths = readFileSync(process.env.CONFLICT_FILES, "utf8").split("\0").filter(Boolean);
-              const marker = /^(?:<{7,}(?: .*)?|\|{7,}(?: .*)?|={7,}|>{7,}(?: .*)?)\r?$/m;
-              for (const path of paths) {
-                try {
-                  const content = execFileSync("git", ["show", `:${path}`], {
-                    cwd: process.env.RESOLUTION_TARGET,
-                    encoding: "utf8",
-                  });
-                  if (marker.test(content)) {
-                    console.error(`Conflict marker remains in ${path}.`);
-                    process.exit(1);
-                  }
-                } catch (error) {
-                  if (error.status !== 128) throw error;
-                }
-              }
-            '
+            node --experimental-strip-types "$PWD/scripts/resolve-merge-conflicts-workflow.ts" \
+              validate-markers "$RESOLUTION_TARGET" "$CONFLICT_FILES"
 
             if [ "$RESOLUTION_STRATEGY" = "merge" ]; then
               break
