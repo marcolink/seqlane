@@ -125,9 +125,11 @@ and disposition commands only from reviewers with GitHub `OWNER`, `MEMBER`, or
 review so removing a command removes its policy decision.
 
 The review runtime denies access outside the review workspace and blocks
-environment files. Git writes the complete patch to a run-scoped temporary file
-before the retained model-facing patch is bounded; the temporary file can be
-larger than the 48,000-byte evidence limit and is removed after collection.
+environment files. Git streams a patch that excludes common lockfiles to the
+bounded model-facing evidence collector. Lockfile paths remain in changed-file
+metadata, but their contents are not reviewed. The retained patch uses ten
+lines of hunk context, is limited to 512,000 bytes, and does not materialize
+the complete diff.
 Each published review repeats the available command syntax below its findings.
 
 ```text
