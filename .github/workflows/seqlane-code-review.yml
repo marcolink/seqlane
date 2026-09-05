@@ -561,7 +561,7 @@ jobs:
               "",
               "**Verdict:** \(if .verdict == "approve" then "✅ approve" else "🛑 request-changes" end) · **Rating:** ⭐ \(.overallRating)/5",
               "",
-              (shorten(.summary; 1_200)),
+              (shorten(.summary; 1200)),
               "",
               "### Ratings",
               (.ratings[:5][] |
