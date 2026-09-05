@@ -38,7 +38,20 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
-       contains(github.event.comment.body, '/seqlane')) ||
+       (
+         (github.event.action == 'created' &&
+          (contains(github.event.comment.body, '/seqlane review') ||
+           contains(github.event.comment.body, '/seqlane fixed F-') ||
+           contains(github.event.comment.body, '/seqlane wont-fix F-') ||
+           contains(github.event.comment.body, '/seqlane downgrade F-')) &&
+          (github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'COLLABORATOR')) ||
+         (github.event.action == 'edited' &&
+          (github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'MEMBER' ||
+           github.event.comment.author_association == 'COLLABORATOR'))
+       )) ||
       (github.event_name == 'workflow_dispatch' &&
        github.event.inputs.pull_request_number != '')
     runs-on: ubuntu-latest
@@ -59,8 +72,33 @@ jobs:
             echo "- SHA: \`$WORKFLOW_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Validate review trigger
+        id: trigger
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          if [ "$EVENT_NAME" != "issue_comment" ]; then
+            echo "execute=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT_ACTION" = "edited" ]; then
+            echo "execute=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if printf '%s\n' "$COMMENT_BODY" | grep -Eq '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|fixed[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$)|wont-fix[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$)|downgrade[[:space:]]+F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}([[:space:]]|$))' ; then
+            echo "execute=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "execute=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping Seqlane code review because the comment contains no recognized command."
+          fi
+
       - name: Check OpenAI credentials
         id: configuration
+        if: steps.trigger.outputs.execute == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -134,12 +172,16 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api --paginate \
-            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-            --jq '.[] | @json' > "$RUNNER_TEMP/seqlane-issue-comments.ndjson"
-          gh api --paginate \
-            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments?per_page=100" \
-            --jq '.[] | @json' > "$RUNNER_TEMP/seqlane-review-comments.ndjson"
+          for page in 1 2; do
+            gh api \
+              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
+              --jq '.[] | @json'
+          done > "$RUNNER_TEMP/seqlane-issue-comments.ndjson"
+          for page in 1 2; do
+            gh api \
+              "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
+              --jq '.[] | @json'
+          done > "$RUNNER_TEMP/seqlane-review-comments.ndjson"
           jq -s 'map(fromjson)' "$RUNNER_TEMP/seqlane-issue-comments.ndjson" \
             > "$RUNNER_TEMP/seqlane-issue-comments.json"
           jq -s 'map(fromjson)' "$RUNNER_TEMP/seqlane-review-comments.ndjson" \
@@ -149,12 +191,18 @@ jobs:
             --slurpfile review "$RUNNER_TEMP/seqlane-review-comments.json" '
               def normalize($items; $kind):
                 ($items[0] // []) | map(
+                  (.body // "") as $body |
+                  (((.user.login // "") == "github-actions" or
+                    (.user.login // "") == "github-actions[bot]") and
+                   ($body | contains("<!-- seqlane-code-review -->"))) as $trustedReport |
+                  (if $trustedReport then 65536 else 2000 end) as $bodyLimit |
                   {
                     id: (.id | tostring),
                     kind: $kind,
                     author: (.user.login // "unknown"),
                     authorAssociation: (.author_association // "NONE"),
-                    body: ((.body // "")[:12000]),
+                    body: ($body[:$bodyLimit]),
+                    bodyTruncated: (($body | length) > $bodyLimit),
                     createdAt: (.created_at // "")
                   }
                   + (if .updated_at then {updatedAt: .updated_at} else {} end)
@@ -167,10 +215,14 @@ jobs:
               ([
                 normalize($issue; "issue"),
                 normalize($review; "review")
-              ] | add | sort_by(.createdAt)) as $comments
+              ] | add | sort_by(.updatedAt // .createdAt)) as $comments
               | {
                   comments: ($comments | .[-200:]),
-                  truncated: (($comments | length) > 200)
+                  truncated: (
+                    (($issue[0] // []) | length) >= 200 or
+                    (($review[0] // []) | length) >= 200 or
+                    any($comments[]; .bodyTruncated == true)
+                  )
                 }
             ' > "$RUNNER_TEMP/seqlane-review-history.json"
 
@@ -389,16 +441,77 @@ jobs:
             "$RUNNER_TEMP/seqlane-code-review.jsonl" \
             > "$RUNNER_TEMP/seqlane-code-review-result.json"
 
-          jq --raw-output '
+          REPORT_SNAPSHOT=$(jq --compact-output '
+            def shorten($value; $limit):
+              if ($value | length) > $limit then
+                ($value[:($limit - 1)] + "…")
+              else
+                $value
+              end;
+            . as $report |
+            {
+              headRevision: $report.headRevision,
+              findings: [
+                $report.findings[] |
+                {
+                  id,
+                  axis,
+                  severity,
+                  effectiveSeverity,
+                  disposition,
+                  summary: shorten(.summary; 320),
+                  recommendation: shorten(.recommendation; 320)
+                }
+                + (if .file then {file: shorten(.file; 256)} else {} end)
+                + (if .line then {line} else {} end)
+                + (if .dispositionReason then {dispositionReason: shorten(.dispositionReason; 320)} else {} end)
+                + (if .dispositionBy then {dispositionBy} else {} end)
+                + (if .dispositionAt then {dispositionAt} else {} end)
+                + (if .dispositionCommentId then {dispositionCommentId} else {} end)
+                + (if .dispositionCommit then {dispositionCommit} else {} end)
+              ],
+              truncated: any($report.findings[];
+                ((.summary | length) > 320) or
+                ((.recommendation | length) > 320) or
+                ((.file // "" | length) > 256) or
+                ((.dispositionReason // "" | length) > 320)
+              )
+            }
+          ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
+
+          if [ "${#REPORT_SNAPSHOT}" -gt 24000 ]; then
+            REPORT_SNAPSHOT=$(jq --compact-output '
+              . as $report |
+              {
+                headRevision: $report.headRevision,
+                findings: [
+                  $report.findings[] |
+                  {
+                    id,
+                    axis,
+                    severity,
+                    effectiveSeverity,
+                    disposition,
+                    summary: "Historical finding retained from compact snapshot.",
+                    recommendation: "Re-evaluate this finding against the current head."
+                  }
+                  + (if .dispositionCommentId then {dispositionCommentId} else {} end)
+                ],
+                truncated: true
+              }
+            ' "$RUNNER_TEMP/seqlane-code-review-result.json" | gzip -c | base64 -w0)
+          fi
+
+          if [ "${#REPORT_SNAPSHOT}" -gt 60000 ]; then
+            echo "::error::The bounded Seqlane report snapshot is too large to publish safely."
+            exit 1
+          fi
+
+          jq --raw-output --arg reportSnapshot "$REPORT_SNAPSHOT" '
             [
               "<!-- seqlane-code-review -->",
               "<!-- seqlane-code-review-head: \(.headRevision) -->",
-              ("<!-- seqlane-code-review-report-v1: " +
-                ({
-                  headRevision: .headRevision,
-                  findings: .findings
-                } | tojson | @base64) +
-                " -->"),
+              ("<!-- seqlane-code-review-report-v2: " + $reportSnapshot + " -->"),
               "## 🧪 Seqlane reviewer",
               "",
               "**Verdict:** \(if .verdict == "approve" then "✅ approve" else "🛑 request-changes" end) · **Rating:** ⭐ \(.overallRating)/5",
@@ -441,11 +554,11 @@ jobs:
 
           cat "$RUNNER_TEMP/seqlane-code-review.md" >> "$GITHUB_STEP_SUMMARY"
 
-          COMMENT_ID=$(gh api \
-            --paginate \
-            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-            --jq '.[] | select(.body | contains("<!-- seqlane-code-review -->")) | .id' \
-            | head -n 1)
+          COMMENT_ID=$(for page in 1 2; do
+            gh api \
+              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc&page=$page" \
+              --jq '.[] | select(.body | contains("<!-- seqlane-code-review -->")) | .id'
+          done | head -n 1)
 
           if [ -n "$COMMENT_ID" ]; then
             gh api --method PATCH \

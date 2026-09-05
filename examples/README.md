@@ -90,8 +90,10 @@ the GitHub Actions job summary. This identifies the exact workflow revision
 that GitHub executed, independently of the reviewed pull-request revision.
 
 The workflow uses `pull_request_target`, runs the trusted workflow definition
-from the base branch, and always checks out the trusted Seqlane source from
-`main`. It checks out the pull-request head separately as the review target.
+from the base branch, and checks out the resolved trusted base revision as the
+Seqlane source for automatic runs. It checks out the pull-request head
+separately as the review target. Manual branch runs use the selected branch's
+workflow and source revision for trusted branch testing.
 When a pull request closes, the workflow triggers a cancellation event that
 uses the same concurrency group to cancel any active review, while its review
 job is skipped.
@@ -108,25 +110,29 @@ repository and base/head identity fields from its supplied review context. The
 workflow installs and builds the checked-out Seqlane
 source, but does not install dependencies or execute repository scripts from
 the separate review target. OpenCode ignores project runtime configuration
-during the review and receives a read-only tool policy. The workflow reads
-bounded issue and review comments, updates one marked pull-request comment with
-the report, and records the report verdict without failing the review job when
-it is `request-changes`. Reviewers with GitHub `OWNER`, `MEMBER`, or
-`COLLABORATOR` association can change a finding's policy state with a command
-comment:
+during the review and receives a read-only tool policy. The workflow reads a
+bounded set of recent issue and review comments, updates one marked
+pull-request comment with the report, and records the report verdict without
+failing the review job when it is `request-changes`. It accepts review reruns
+and disposition commands only from reviewers with GitHub `OWNER`, `MEMBER`, or
+`COLLABORATOR` association. Editing a disposition comment also reruns the
+review so removing a command removes its policy decision.
 
 ```text
+/seqlane review
 /seqlane wont-fix F-123 reason: accepted risk
 /seqlane fixed F-123
 /seqlane downgrade F-123 optional reason: low impact
 ```
 
 `fixed` is verified against the current pull-request head. `wont-fix` and
-`downgrade` are recorded with the actor, timestamp, reason, and commit context;
-they do not remove the finding from the report, but an authorized disposition
-does remove it as a merge-blocking finding. A command comment triggers a new
-review. Configured secret values are redacted from CI output, workflow
-summaries, and GitHub annotations.
+`downgrade` are recorded with the actor, effective timestamp, reason, and
+commit context; they do not remove the finding from the report, but an
+authorized disposition does remove it as a merge-blocking finding. Previous
+reports are accepted only from the Seqlane bot identity and use a compact,
+schema-validated snapshot. Snapshot or comment truncation is recorded as a
+review limitation. Configured secret values are redacted from CI output,
+workflow summaries, and GitHub annotations.
 
 To exercise the workflow and Seqlane source from a feature branch, run the
 workflow manually with that branch selected:
