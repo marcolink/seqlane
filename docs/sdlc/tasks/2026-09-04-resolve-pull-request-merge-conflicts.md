@@ -26,6 +26,8 @@ public Seqlane contracts and the executor-neutral workflow-authoring boundary.
 
 - Add a Seqlane workflow that edits only the supplied conflict files.
 - Add a `workflow_dispatch` workflow that accepts a pull-request number.
+- Add a read-only pull-request check that reports merge conflicts and directs
+  maintainers to the manual workflow.
 - Require a dispatch choice between `rebase` and `merge`, with `rebase` as
   the default.
 - Accept only open pull requests with a head branch in this repository.
