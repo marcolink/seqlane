@@ -321,13 +321,44 @@ describe("private Mastra runtime spine", () => {
       tools: [expect.objectContaining({ name: "run_fixture" })],
     });
 
-    await expect(
-      runtime.server.executeMcpTool("seqlane-workflows", "run_fixture", {
-        fail: false,
-      }),
-    ).resolves.toMatchObject({
-      result: { status: "success" },
+    const firstInvocation = await runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      "run_fixture",
+      { fail: false },
+    );
+    expect(firstInvocation).toMatchObject({
+      result: {
+        status: "succeeded",
+        result: {
+          value: "Mastra runtime spine fixture succeeded",
+          runId: expect.stringMatching(/^mcp-run-/),
+          workId: expect.stringMatching(/^mcp-work-/),
+        },
+      },
     });
+
+    const secondInvocation = await runtime.server.executeMcpTool(
+      "seqlane-workflows",
+      "run_fixture",
+      { fail: false },
+    );
+    expect(secondInvocation).toMatchObject({
+      result: {
+        status: "succeeded",
+        result: {
+          value: "Mastra runtime spine fixture succeeded",
+          runId: expect.stringMatching(/^mcp-run-/),
+          workId: expect.stringMatching(/^mcp-work-/),
+        },
+      },
+    });
+    expect(
+      (firstInvocation as { result: { result: { runId: string } } }).result
+        .result.runId,
+    ).not.toBe(
+      (secondInvocation as { result: { result: { runId: string } } }).result
+        .result.runId,
+    );
   });
 
   it("rejects malformed MCP tool input through Mastra validation", async () => {

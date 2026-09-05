@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Mastra } from "@mastra/core/mastra";
 import { RequestContext } from "@mastra/core/request-context";
 import { InMemoryStore } from "@mastra/core/storage";
@@ -151,6 +151,42 @@ export function createMastraRuntime(
   registrations: readonly MastraWorkflowRegistration[],
   options: MastraRuntimeOptions = {},
 ): MastraRuntime {
+  const runtime = createMastraRuntimeCore(registrations, options);
+  const server = registerMastraServer(
+    runtime.mastra,
+    runtime.workflows,
+    async ({ workflowKey, input }) => {
+      const registration = registrations.find(
+        ({ key }) => key === workflowKey,
+      );
+      if (registration === undefined) {
+        throw new TypeError(`Unknown Mastra workflow: "${workflowKey}"`);
+      }
+
+      const invocationRuntime = createMastraRuntimeCore(
+        [registration],
+        options,
+      );
+      return invocationRuntime.runtime.run({
+        workflowKey,
+        input,
+        workId: `mcp-work-${randomUUID()}`,
+        runId: `mcp-run-${randomUUID()}`,
+      });
+    },
+  );
+
+  return { ...runtime.runtime, server };
+}
+
+function createMastraRuntimeCore(
+  registrations: readonly MastraWorkflowRegistration[],
+  options: MastraRuntimeOptions,
+): {
+  readonly mastra: Mastra;
+  readonly workflows: Record<string, AnyWorkflow>;
+  readonly runtime: Omit<MastraRuntime, "server">;
+} {
   validateRegistrations(registrations);
 
   const workflows: Record<string, AnyWorkflow> = Object.fromEntries(
@@ -172,16 +208,13 @@ export function createMastraRuntime(
     observability,
     logger: false,
   });
-  const server = registerMastraServer(mastra, workflows);
-
   async function flushObservability(): Promise<void> {
     await observability.flush();
   }
 
   let runStarted = false;
 
-  return {
-    server,
+  const runtime: Omit<MastraRuntime, "server"> = {
     run(request) {
       return this.start(request).outcome;
     },
@@ -284,4 +317,6 @@ export function createMastraRuntime(
       };
     },
   };
+
+  return { mastra, workflows, runtime };
 }
