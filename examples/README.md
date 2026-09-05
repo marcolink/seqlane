@@ -138,6 +138,16 @@ lines of hunk context, is limited to 512,000 bytes, and does not materialize
 the complete diff.
 Published review comments do not list slash-command syntax. This prevents the
 report from inviting commands while the command lifecycle is being revised.
+The CI workflow manages the loopback OpenCode and zvec-grep servers through
+local GitHub Actions. The zvec-grep indexing policy remains in the workflow;
+the actions own only service startup, readiness checks, logs, and cleanup.
+
+```text
+/seqlane review
+/seqlane wont-fix F-123 reason: accepted risk
+/seqlane fixed F-123
+/seqlane downgrade F-123 optional reason: low impact
+```
 
 The publisher assigns each finding a permanent `SEQ-PR<PR>-<index>` ID. It
 does not reuse an ID for a different finding. It retains old `F-*` IDs as
