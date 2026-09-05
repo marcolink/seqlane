@@ -54,6 +54,25 @@ function serverContext(
   };
 }
 
+function isPresent(value: unknown): boolean {
+  return value !== undefined && value !== null;
+}
+
+function assertAuthenticated(
+  requestContext: RequestContext,
+  authInfo: unknown,
+): void {
+  if (
+    !isPresent(requestContext.get("user")) &&
+    !isPresent(requestContext.get("authInfo")) &&
+    !isPresent(authInfo)
+  ) {
+    throw new Error(
+      "MCP workflow execution requires an authenticated request context",
+    );
+  }
+}
+
 export function registerMastraServer(
   mastra: Mastra,
   workflows: Record<string, AnyWorkflow>,
@@ -77,8 +96,10 @@ export function registerMastraServer(
       id: toolId,
       description: `Run workflow '${key}'. Workflow description: ${workflow.description}`,
       inputSchema: workflow.inputSchema,
-      execute: async (input, context) =>
-        dispatchMcpInvocation({
+      execute: async (input, context) => {
+        const authInfo = context.mcp?.extra.authInfo;
+        assertAuthenticated(context.requestContext, authInfo);
+        return dispatchMcpInvocation({
           workflowKey: key,
           input,
           requestContext: context.requestContext,
@@ -89,7 +110,8 @@ export function registerMastraServer(
               | AbortSignal
               | undefined) ??
             new AbortController().signal,
-        }),
+        });
+      },
     });
   }
 

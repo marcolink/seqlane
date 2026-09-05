@@ -477,6 +477,44 @@ describe("private Mastra runtime spine", () => {
     });
   });
 
+  it("rejects unauthenticated MCP workflow execution before dispatch", async () => {
+    let executions = 0;
+    const workflow = createWorkflow({
+      id: "mcp-authenticated-workflow",
+      description: "Runs the MCP authentication fixture.",
+      inputSchema: z.unknown(),
+      outputSchema: z.unknown(),
+    })
+      .then(
+        createStep({
+          id: "mcp-authenticated-step",
+          inputSchema: z.unknown(),
+          outputSchema: z.unknown(),
+          execute: async () => {
+            executions += 1;
+            return null;
+          },
+        }),
+      )
+      .commit();
+    const runtime = createMastraRuntime([{ key: workflow.id, workflow }]);
+
+    await expect(
+      runtime.server.executeMcpTool(
+        "seqlane-workflows",
+        `run_${workflow.id}`,
+        null,
+        {
+          requestContext: new RequestContext(),
+          abortSignal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toThrow(
+      "MCP workflow execution requires an authenticated request context",
+    );
+    expect(executions).toBe(0);
+  });
+
   it("rejects workflows without descriptions before MCP registration", () => {
     const workflow = createWorkflow({
       id: "undocumented-fixture",
