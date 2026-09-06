@@ -4,8 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --build tsconfig.json",
-    "typecheck": "tsc --build tsconfig.json"
+    "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "files": [
     "action.yml",

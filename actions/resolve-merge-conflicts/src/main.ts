@@ -1,1 +1,1 @@
-export {};
+export const main = (): undefined => undefined;

@@ -35,6 +35,7 @@
     "@types/node": "catalog:",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
+    "esbuild": "catalog:",
     "jsonc-eslint-parser": "catalog:",
     "nx": "catalog:",
     "prettier": "catalog:",

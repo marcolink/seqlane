@@ -17,11 +17,9 @@ Keep `src/main.ts` small. It can read inputs, write outputs, log messages, and
 translate failures into action failures. Keep reusable Git and domain behavior
 outside this file.
 
-The `actions/AGENTS.md` guide reserves `packages/*` for new shared action
-implementation. This workspace does not currently have a `packages/` source
-root. Do not add one unless the task explicitly introduces that boundary.
-Reuse an existing `libs/seqlane-*` package only when its ownership matches the
-behavior.
+Put reusable action behavior in an appropriate `libs/seqlane-*` package. Add
+a new library only when its ownership matches the behavior. Use declared
+package dependencies and exports across package boundaries.
 
 Bundle runtime dependencies into `dist/main.js`. The consuming workflow must
 not install package dependencies. Commit the bundle. Do not edit it by hand.

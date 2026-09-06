@@ -4,11 +4,29 @@
   "projectType": "application",
   "sourceRoot": "actions/resolve-merge-conflicts/src",
   "targets": {
-    "build": {
+    "typecheck": {
       "executor": "nx:run-commands",
       "options": {
         "cwd": "actions/resolve-merge-conflicts",
-        "command": "tsc --build tsconfig.json"
+        "command": "tsc --noEmit --project tsconfig.json"
+      }
+    },
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "options": {
+        "main": "actions/resolve-merge-conflicts/src/main.ts",
+        "tsConfig": "actions/resolve-merge-conflicts/tsconfig.json",
+        "outputPath": "actions/resolve-merge-conflicts/dist",
+        "outputFileName": "main.js",
+        "bundle": true,
+        "thirdParty": true,
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node24",
+        "outputHashing": "none",
+        "sourcemap": false,
+        "declaration": false,
+        "skipTypeCheck": true
       },
       "outputs": ["{projectRoot}/dist"]
     }

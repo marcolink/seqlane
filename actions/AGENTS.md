@@ -6,7 +6,7 @@ These instructions apply to all projects under `actions/`.
 
 - Each action lives under `actions/<name>` and contains its own `action.yml`.
 - Keep `src/main.ts` limited to GitHub Actions input/output, context, logging, and failure handling.
-- Put reusable implementation in `packages/*`.
+- Put reusable implementation in an appropriate `libs/seqlane-*` package.
 - Do not make application logic depend directly on `@actions/core` or GitHub event globals.
 - Use `node24` for JavaScript action entrypoints unless compatibility requirements explicitly require another supported runtime.
 

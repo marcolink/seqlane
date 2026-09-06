@@ -23,3 +23,7 @@ jobs:
   unit-tests:
     name: Unit tests
     uses: ./.github/workflows/unit-tests.yml
+
+  action-tests:
+    name: Action tests
+    uses: ./.github/workflows/test-actions.yml
