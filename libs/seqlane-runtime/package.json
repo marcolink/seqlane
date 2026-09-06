@@ -26,6 +26,11 @@
       "types": "./dist/runner/workflow/index.d.ts",
       "import": "./dist/runner/workflow/index.js",
       "default": "./dist/runner/workflow/index.js"
+    },
+    "./operational-host": {
+      "types": "./dist/operational-host.d.ts",
+      "import": "./dist/operational-host.js",
+      "default": "./dist/operational-host.js"
     }
   },
   "nx": {
@@ -37,12 +42,16 @@
   },
   "dependencies": {
     "@mastra/core": "1.64.0",
+    "@mastra/hono": "1.7.6",
+    "@mastra/libsql": "1.22.3",
     "@mastra/mcp": "1.15.0",
     "@mastra/observability": "1.17.4",
-    "@mastra/server": "1.63.2",
+    "@mastra/server": "1.64.0",
+    "@hono/node-server": "2.1.1",
     "@seqlane/core": "workspace:*",
     "@seqlane/events": "workspace:*",
     "@seqlane/opencode": "workspace:*",
+    "hono": "4.13.5",
     "zod": "4.5.4"
   },
   "devDependencies": {

@@ -173,7 +173,7 @@
 | [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |
 | [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | completed | 2026-09-03 | core |
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
-| [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | planned | 2026-09-04 | core |
+| [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | completed | 2026-09-04 | core |
 | [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | completed | 2026-09-04 | core |
 | [task.bounded-pr-code-review-evidence](./2026-09-04-bounded-pr-code-review-evidence.md) | Add Bounded Patch Evidence to Pull Request Reviews | completed | 2026-09-04 | core |
 | [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
@@ -201,3 +201,4 @@
 | [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |
 | [task.harden-seqlane-action-push-and-cleanup](./2026-09-07-harden-seqlane-action-push-and-cleanup.md) | Harden Seqlane Action Push and Cleanup | completed | 2026-09-07 | core |
 | [task.seqlane-action-resolution-summaries](./2026-09-07-seqlane-action-resolution-summaries.md) | Publish Human-Readable Merge Resolution Summaries | completed | 2026-09-07 | core |
+| [task.operational-workflow-registration-boundary](./2026-09-06-operational-workflow-registration-boundary.md) | Narrow the Operational Workflow Registration Boundary | planned | 2026-09-06 | core |

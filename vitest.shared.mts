@@ -91,6 +91,13 @@ export const workspaceAliases = [
     ),
   },
   {
+    find: "@seqlane/runtime/operational-host",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/seqlane-runtime/src/operational-host.ts",
+    ),
+  },
+  {
     find: "@seqlane/runtime",
     replacement: resolve(workspaceRoot, "libs/seqlane-runtime/src/index.ts"),
   },

@@ -79,5 +79,7 @@ describe("loadWorkflow", () => {
       },
     });
     expect(loaded.taskDefinitions?.get("authored-task")).toBeDefined();
+    expect(loaded.definition?.input).toBeDefined();
+    expect(loaded.definition?.output).toBeDefined();
   });
 });
