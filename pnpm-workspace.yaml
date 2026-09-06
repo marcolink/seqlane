@@ -1,5 +1,6 @@
 packages:
   - "apps/*"
+  - "actions/*"
   - "libs/*"
 
 allowBuilds: {}
@@ -21,6 +22,7 @@ catalog:
   "@types/node": "24.13.2"
   eslint: "^9.39.5"
   eslint-config-prettier: "^10.1.8"
+  esbuild: "0.28.2"
   jsonc-eslint-parser: "^2.4.2"
   nx: "22.7.1"
   prettier: "^3.9.6"

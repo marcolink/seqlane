@@ -1,0 +1,17 @@
+{
+  "name": "@seqlane/action-resolve-merge-conflicts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  },
+  "files": [
+    "action.yml",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=10.33.0"
+  }
+}

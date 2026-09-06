@@ -8,6 +8,11 @@ then run the workflow with the CLI.
 Seqlane is under active development. Breaking changes can occur while its
 contracts and package boundaries evolve.
 
+## Repository layout
+
+The `actions/` workspace contains JavaScript GitHub Actions. Each action is an
+independent Nx project with its compiled entry point in its own `dist/` folder.
+
 ## Documentation
 
 See the [documentation index](docs/index.md). Product requirements,
