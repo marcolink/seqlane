@@ -29,6 +29,7 @@ export function runGitCommand(
   executable: string,
   args: readonly string[],
   cwd: string,
+  env: Readonly<Record<string, string | undefined>> = {},
 ): Promise<GitCommandResult> {
   return new Promise((resolveResult) => {
     execFile(
@@ -36,6 +37,7 @@ export function runGitCommand(
       [...args],
       {
         cwd,
+        env: { ...process.env, ...env },
         encoding: "utf8",
         maxBuffer: maximumGitOutputBytes,
         windowsHide: true,
@@ -72,6 +74,13 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
 
   run(args: readonly string[]): Promise<GitCommandResult> {
     return runGitCommand(this.executable, args, this.cwd);
+  }
+
+  private runWithEnvironment(
+    args: readonly string[],
+    env: Readonly<Record<string, string | undefined>>,
+  ): Promise<GitCommandResult> {
+    return runGitCommand(this.executable, args, this.cwd, env);
   }
 
   private async requiredCommand(
@@ -286,6 +295,16 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
         result,
       );
     }
+  }
+
+  continueRebase(): Promise<GitCommandResult> {
+    return this.runWithEnvironment(["rebase", "--continue"], {
+      GIT_EDITOR: "true",
+    });
+  }
+
+  skipRebase(): Promise<GitCommandResult> {
+    return this.run(["rebase", "--skip"]);
   }
 
   async readTrackedPaths(): Promise<readonly ConflictPath[]> {

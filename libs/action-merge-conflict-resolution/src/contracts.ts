@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { GitCommandResult } from "./git-port.js";
 import { resolutionErrorDetailsSchema } from "./errors.js";
 export type { ResolutionErrorDetails } from "./errors.js";
 
@@ -219,6 +220,8 @@ export interface PullRequestMetadataPort {
 }
 
 export interface GitPort {
+  readonly cwd: string;
+  readonly run: (args: readonly string[]) => Promise<GitCommandResult>;
   readonly inspectState: () => Promise<{
     readonly mergeInProgress: boolean;
     readonly rebaseInProgress: boolean;
@@ -230,6 +233,8 @@ export interface GitPort {
   ) => Promise<IntegrationResult>;
   readonly readConflictSet: () => Promise<ConflictSet>;
   readonly stageConflictSet: (conflicts: ConflictSet) => Promise<void>;
+  readonly continueRebase: () => Promise<GitCommandResult>;
+  readonly skipRebase: () => Promise<GitCommandResult>;
 }
 
 export interface WorkspaceFilesPort {
@@ -252,6 +257,17 @@ export interface SummaryPort {
   readonly write: (result: ResolveMergeConflictsResult) => Promise<void>;
 }
 
+export interface CommitAndPushPort {
+  readonly commit: (baseBranch: BranchName) => Promise<void>;
+  readonly beforePush?: () => Promise<void>;
+  readonly push: (options: {
+    readonly baseBranch: BranchName;
+    readonly headBranch: BranchName;
+    readonly baseRevision: GitRevision;
+    readonly headRevision: GitRevision;
+  }) => Promise<void>;
+}
+
 export interface ResolveMergeConflictsPorts {
   readonly github: PullRequestMetadataPort;
   readonly git: GitPort;
@@ -259,4 +275,5 @@ export interface ResolveMergeConflictsPorts {
   readonly lockfile: LockfilePort;
   readonly agent: AgentRunnerPort;
   readonly summary: SummaryPort;
+  readonly commitAndPush: CommitAndPushPort;
 }

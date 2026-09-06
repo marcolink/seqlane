@@ -1,7 +1,7 @@
 ---
 id: task.seqlane-action-resolution-controller
 title: Compose the Seqlane Action Resolution Controller
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-06
@@ -142,7 +142,17 @@ parents, remote refs, and process cleanup.
 
 ## Outcome
 
-Planned.
+Completed. Added the typed resolution controller and commit/push adapter. The
+controller validates the request and pull-request preflight, reads the live
+base revision, follows the conflict-attempt order, separates agent and
+lockfile work, validates and stages only the original conflict set, continues
+rebases, and enforces the attempt limit. Commit and push remain separate. The
+commit adapter sets identity only in the target repository, verifies fetched
+base and head revisions, and uses the required force-with-lease refspec.
+
+Verification passed for the dependent TypeScript build, 51 focused tests,
+`pnpm run test:mapping`, `pnpm docs:index`, `pnpm docs:validate`,
+`pnpm docs:test`, `pnpm format:check`, and `git diff --check`.
 
 ## Traceability
 

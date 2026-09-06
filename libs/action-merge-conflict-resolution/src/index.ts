@@ -14,3 +14,6 @@ export * from "./agent-runner-port.js";
 export * from "./seqlane-agent-runner.js";
 export * from "./opencode-runtime.js";
 export * from "./recording.js";
+export * from "./commit-and-push.js";
+export * from "./resolution-controller.js";
+export * from "./summary.js";
