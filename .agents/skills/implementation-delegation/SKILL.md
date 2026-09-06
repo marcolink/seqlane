@@ -19,4 +19,8 @@ Before starting implementation, delegate the execution work to a worker sub-agen
 
 Give the worker a bounded, self-contained implementation objective, the relevant constraints, and the expected verification. The primary agent retains responsibility for task framing, reviewing the result, integration decisions, and the final response.
 
+## Context handoff
+
+Make the delegation prompt self-contained. Include as much task-relevant context already gathered as possible: the goal, decisions, constraints, affected files or relevant findings, applicable repository instructions, current state, and expected verification. Omit irrelevant or sensitive material. The worker should not need to rediscover context that the primary agent already has.
+
 Do not treat planning-only work as implementation, and do not delegate actions that require authorization beyond the user's request.
