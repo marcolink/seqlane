@@ -9,6 +9,7 @@ export type {
 } from "./contracts.js";
 export {
   AcpAdapterError,
+  AcpLimitError,
   AcpMalformedStreamError,
   AcpStructuredOutputError,
 } from "./errors.js";

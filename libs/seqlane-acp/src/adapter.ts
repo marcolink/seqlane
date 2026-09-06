@@ -8,8 +8,14 @@ import {
   type AcpLaunchConfiguration,
   parseAcpLaunchConfiguration,
 } from "./contracts.js";
-import { AcpAdapterError, AcpStructuredOutputError } from "./errors.js";
 import {
+  AcpAdapterError,
+  AcpLimitError,
+  AcpMalformedStreamError,
+  AcpStructuredOutputError,
+} from "./errors.js";
+import {
+  MAX_RESPONSE_TEXT_LENGTH,
   parseStructuredOutput,
   summarizeStructuredOutputIssues,
   validateStructuredOutput,
@@ -20,7 +26,53 @@ import {
   buildStructuredOutputRepairPrompt,
 } from "./prompt.js";
 import { toJsonSchema } from "./task.js";
-import { reportAcpStreamChunk } from "./stream.js";
+import {
+  MAX_ACTIVITY_COUNT,
+  MAX_ACTIVITY_INPUT_LENGTH,
+  reportAcpStreamChunk,
+} from "./stream.js";
+
+const STREAM_CLEANUP_TIMEOUT_MS = 100;
+const textEncoder = new TextEncoder();
+
+type TextResult =
+  | { readonly status: "fulfilled"; readonly value: string }
+  | { readonly status: "rejected"; readonly cause: unknown };
+
+async function boundedCleanup(
+  promises: readonly PromiseLike<unknown>[],
+): Promise<void> {
+  const cleanup = Promise.allSettled(promises);
+  await Promise.race([
+    cleanup,
+    new Promise<void>((resolve) =>
+      setTimeout(resolve, STREAM_CLEANUP_TIMEOUT_MS),
+    ),
+  ]);
+}
+
+function readTextDelta(value: unknown): string | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("type" in value) ||
+    value.type !== "text-delta"
+  ) {
+    return undefined;
+  }
+
+  if (
+    !("payload" in value) ||
+    typeof value.payload !== "object" ||
+    value.payload === null ||
+    !("text" in value.payload) ||
+    typeof value.payload.text !== "string"
+  ) {
+    throw new AcpMalformedStreamError("text-delta");
+  }
+
+  return value.payload.text;
+}
 
 function createDefaultAgent(options: AcpAgentFactoryOptions): AcpAgent {
   const agent = new MastraAcpAgent({
@@ -48,8 +100,18 @@ async function streamAgent(
     abortSignal: request.signal,
     runId: request.invocationId,
   });
+  const textResult: Promise<TextResult> = stream.text.then(
+    (value) => ({ status: "fulfilled", value }),
+    (cause) => ({ status: "rejected", cause }),
+  );
   const reader = stream.fullStream.getReader();
   const activities = new Map<string, string>();
+  let activityCount = 0;
+  let activityInputLength = 0;
+  let responseTextBytes = 0;
+  let activeRead: Promise<ReadableStreamReadResult<unknown>> | undefined;
+  let readSettled = true;
+  let readerReleased = false;
   let removeAbortListener = (): void => undefined;
   const cancellation = new Promise<never>((_resolve, reject) => {
     const onAbort = () => {
@@ -61,20 +123,92 @@ async function streamAgent(
     if (request.signal.aborted) onAbort();
     else request.signal.addEventListener("abort", onAbort, { once: true });
   });
+  const releaseReader = (): void => {
+    if (!readerReleased && readSettled) {
+      readerReleased = true;
+      reader.releaseLock();
+    }
+  };
+  const readNext = (): Promise<ReadableStreamReadResult<unknown>> => {
+    const next = reader.read();
+    activeRead = next;
+    readSettled = false;
+    void next.then(
+      () => {
+        if (activeRead === next) {
+          readSettled = true;
+          activeRead = undefined;
+        }
+      },
+      () => {
+        if (activeRead === next) {
+          readSettled = true;
+          activeRead = undefined;
+        }
+      },
+    );
+    return next;
+  };
+  let failed = false;
   try {
     while (true) {
-      const next = await Promise.race([reader.read(), cancellation]);
+      const next = await Promise.race([readNext(), cancellation]);
       if (next.done) break;
-      reportAcpStreamChunk(next.value, activities, request.onActivity);
+      const textDelta = readTextDelta(next.value);
+      if (textDelta !== undefined) {
+        if (textDelta.length > MAX_RESPONSE_TEXT_LENGTH - responseTextBytes) {
+          throw new AcpLimitError("response text", MAX_RESPONSE_TEXT_LENGTH);
+        }
+        responseTextBytes += textEncoder.encode(textDelta).byteLength;
+        if (responseTextBytes > MAX_RESPONSE_TEXT_LENGTH) {
+          throw new AcpLimitError("response text", MAX_RESPONSE_TEXT_LENGTH);
+        }
+      }
+      reportAcpStreamChunk(next.value, activities, (activity) => {
+        activityCount += 1;
+        if (activityCount > MAX_ACTIVITY_COUNT) {
+          throw new AcpLimitError("activity count", MAX_ACTIVITY_COUNT);
+        }
+        if (typeof activity.input === "string") {
+          activityInputLength += activity.input.length;
+          if (activityInputLength > MAX_ACTIVITY_INPUT_LENGTH) {
+            throw new AcpLimitError(
+              "activity input",
+              MAX_ACTIVITY_INPUT_LENGTH,
+            );
+          }
+        }
+        request.onActivity?.(activity);
+      });
     }
+    const result = await textResult;
+    if (result.status === "rejected") throw result.cause;
+    if (
+      textEncoder.encode(result.value).byteLength > MAX_RESPONSE_TEXT_LENGTH
+    ) {
+      throw new AcpLimitError("response text", MAX_RESPONSE_TEXT_LENGTH);
+    }
+    return result.value;
   } catch (cause) {
-    await stream.text.catch(() => undefined);
+    failed = true;
     throw cause;
   } finally {
     removeAbortListener();
-    reader.releaseLock();
+    if (failed) {
+      const cancel = reader.cancel();
+      void cancel.catch(() => undefined);
+      await boundedCleanup([
+        cancel,
+        ...(activeRead === undefined ? [] : [activeRead]),
+        textResult,
+      ]);
+      if (!readSettled && activeRead !== undefined) {
+        const pendingRead = activeRead;
+        void pendingRead.then(releaseReader, releaseReader);
+      }
+    }
+    releaseReader();
   }
-  return stream.text;
 }
 
 export function createAcpAdapter(
@@ -95,6 +229,12 @@ export function createAcpAdapter(
 
   return {
     async execute(request) {
+      if (request.modelSelection !== undefined) {
+        throw new AcpAdapterError(
+          "configuration",
+          "dynamic model selection is not supported by ACP",
+        );
+      }
       permissionRequested = false;
       const schema = toJsonSchema(request.task);
       let prompt = buildStructuredOutputPrompt(
@@ -136,12 +276,6 @@ export function createAcpAdapter(
           ...(validatedConfiguration.model === undefined
             ? {}
             : { model: validatedConfiguration.model }),
-          ...(request.modelSelection === undefined
-            ? {}
-            : {
-                provider: request.modelSelection.model.provider,
-                modelSelection: request.modelSelection,
-              }),
         });
         try {
           return validateStructuredOutput(
@@ -183,7 +317,7 @@ export function createAcpAdapter(
     },
     capabilities: {
       execute: true,
-      modelSelection: validatedConfiguration.model !== undefined,
+      modelSelection: false,
       structuredOutput: true,
       sessionReuse: validatedConfiguration.persistSession,
       checkpoint: false,

@@ -1,8 +1,12 @@
 import type { SeqlaneSchema } from "@seqlane/core";
 import {
   AcpStructuredOutputError,
+  AcpLimitError,
   type AcpStructuredOutputIssue,
 } from "./errors.js";
+
+export const MAX_RESPONSE_TEXT_LENGTH = 1_000_000;
+export const MAX_STRUCTURED_OUTPUT_LENGTH = 1_000_000;
 
 function issueMessage(value: unknown): string {
   const message = value instanceof Error ? value.message : String(value);
@@ -50,6 +54,9 @@ function validationIssues(cause: unknown): readonly AcpStructuredOutputIssue[] {
 }
 
 export function parseStructuredOutput(text: string): unknown {
+  if (text.length > MAX_STRUCTURED_OUTPUT_LENGTH) {
+    throw new AcpLimitError("structured output", MAX_STRUCTURED_OUTPUT_LENGTH);
+  }
   const trimmed = text.trim();
   if (trimmed.length === 0) {
     throw new AcpStructuredOutputError(1, [

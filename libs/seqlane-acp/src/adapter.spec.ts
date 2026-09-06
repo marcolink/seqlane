@@ -16,6 +16,17 @@ import {
   type AcpAgentFactoryOptions,
 } from "./contracts.js";
 import { AcpAdapterError, AcpMalformedStreamError } from "./errors.js";
+import {
+  MAX_RESPONSE_TEXT_LENGTH,
+  MAX_STRUCTURED_OUTPUT_LENGTH,
+  parseStructuredOutput,
+} from "./output.js";
+import {
+  MAX_ACTIVITY_COUNT,
+  MAX_ACTIVITY_INPUT_LENGTH,
+  MAX_TOOL_CALL_ID_LENGTH,
+  MAX_TOOL_NAME_LENGTH,
+} from "./stream.js";
 
 const outputSchema = z.object({ value: z.string() });
 
@@ -164,6 +175,7 @@ describe("private ACP adapter", () => {
   it("maps failed tool activity and preserves generic ACP configuration", async () => {
     let agentOptions: AcpAgentFactoryOptions | undefined;
     const activities: unknown[] = [];
+    const metrics: unknown[] = [];
     const executor = createAcpAdapter(
       configuration({
         id: "other-acp",
@@ -205,7 +217,10 @@ describe("private ACP adapter", () => {
 
     await expect(
       executor.execute(
-        request({ onActivity: (activity) => activities.push(activity) }),
+        request({
+          onActivity: (activity) => activities.push(activity),
+          onMetrics: (metric) => metrics.push(metric),
+        }),
       ),
     ).resolves.toEqual({ value: "done" });
     expect(agentOptions).toMatchObject({
@@ -234,9 +249,11 @@ describe("private ACP adapter", () => {
         message: "Tool failed",
       },
     ]);
+    expect(metrics[0]).toMatchObject({ model: "vendor-model-id" });
+    expect(metrics[0]).not.toHaveProperty("modelSelection");
     expect(executor.capabilities).toEqual({
       execute: true,
-      modelSelection: true,
+      modelSelection: false,
       structuredOutput: true,
       sessionReuse: false,
       checkpoint: false,
@@ -244,6 +261,37 @@ describe("private ACP adapter", () => {
       activity: true,
       sessionUi: false,
     });
+  });
+
+  it("rejects dynamic model selection before ACP execution or metrics", async () => {
+    let streamCalls = 0;
+    const metrics: unknown[] = [];
+    const executor = createTestExecutor(['{"value":"done"}'], {
+      createAgent: () => ({
+        stream: async () => {
+          streamCalls += 1;
+          return stream('{"value":"done"}');
+        },
+      }),
+    });
+
+    await expect(
+      executor.execute(
+        request({
+          modelSelection: {
+            model: { provider: "openai", model: "gpt-5.2" },
+            reasoning: "high",
+          },
+          onMetrics: (metric) => metrics.push(metric),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "AcpAdapterError",
+      code: "configuration",
+    });
+    expect(streamCalls).toBe(0);
+    expect(metrics).toEqual([]);
+    expect(executor.capabilities.modelSelection).toBe(false);
   });
 
   it("repairs structured output and reports the normalized diagnostic", async () => {
@@ -268,6 +316,7 @@ describe("private ACP adapter", () => {
   it("passes cancellation to the ACP stream and normalizes the failure", async () => {
     const controller = new AbortController();
     let receivedSignal: AbortSignal | undefined;
+    let streamCancelled = false;
     let started!: () => void;
     const startedPromise = new Promise<void>((resolve) => {
       started = resolve;
@@ -277,16 +326,13 @@ describe("private ACP adapter", () => {
         stream: async (_messages, options) => {
           receivedSignal = options.abortSignal;
           started();
-          const aborted = new Promise<never>((_resolve, reject) => {
-            options.abortSignal?.addEventListener(
-              "abort",
-              () => reject(options.abortSignal?.reason ?? new Error("aborted")),
-              { once: true },
-            );
-          });
           return {
-            fullStream: new ReadableStream<unknown>(),
-            text: aborted,
+            fullStream: new ReadableStream<unknown>({
+              cancel() {
+                streamCancelled = true;
+              },
+            }),
+            text: new Promise<string>(() => undefined),
           };
         },
       }),
@@ -299,6 +345,127 @@ describe("private ACP adapter", () => {
       code: "cancellation",
     });
     expect(receivedSignal).toBe(controller.signal);
+    expect(streamCancelled).toBe(true);
+  });
+
+  it("bounds response text before structured-output parsing", async () => {
+    const executor = createTestExecutor([
+      "x".repeat(MAX_RESPONSE_TEXT_LENGTH + 1),
+    ]);
+
+    await expect(executor.execute(request())).rejects.toMatchObject({
+      name: "AcpLimitError",
+      code: "limit",
+      resource: "response text",
+    });
+  });
+
+  it("cancels the ACP stream when streamed response text exceeds its limit", async () => {
+    let streamCancelled = false;
+    const executor = createAcpAdapter(configuration(), {
+      createAgent: () => ({
+        stream: async () => ({
+          fullStream: new ReadableStream<unknown>({
+            start(controller) {
+              controller.enqueue({
+                type: "text-delta",
+                payload: { text: "x".repeat(MAX_RESPONSE_TEXT_LENGTH + 1) },
+              });
+            },
+            cancel() {
+              streamCancelled = true;
+            },
+          }),
+          text: new Promise<string>(() => undefined),
+        }),
+      }),
+    });
+
+    await expect(executor.execute(request())).rejects.toMatchObject({
+      name: "AcpLimitError",
+      code: "limit",
+      resource: "response text",
+    });
+    expect(streamCancelled).toBe(true);
+  });
+
+  it("bounds structured output before JSON parsing", () => {
+    expect(() =>
+      parseStructuredOutput("x".repeat(MAX_STRUCTURED_OUTPUT_LENGTH + 1)),
+    ).toThrowError(
+      expect.objectContaining({
+        name: "AcpLimitError",
+        code: "limit",
+        resource: "structured output",
+      }),
+    );
+  });
+
+  it.each([
+    ["tool call ids", "toolCallId", MAX_TOOL_CALL_ID_LENGTH],
+    ["tool names", "toolName", MAX_TOOL_NAME_LENGTH],
+  ] as const)(
+    "bounds %s in stream activity",
+    async (_label, field, maximum) => {
+      const payload = {
+        toolCallId: "call-1",
+        toolName: "tool",
+        [field]: "x".repeat(maximum + 1),
+      };
+      const executor = createTestExecutor(['{"value":"done"}'], {
+        chunks: [{ type: "tool-call-delta", payload }],
+      });
+
+      await expect(executor.execute(request())).rejects.toMatchObject({
+        name: "AcpLimitError",
+        code: "limit",
+        resource: field === "toolCallId" ? "tool call id" : "tool name",
+        maximum,
+      });
+    },
+  );
+
+  it("bounds the number of accumulated activities", async () => {
+    const chunks = Array.from(
+      { length: MAX_ACTIVITY_COUNT + 1 },
+      (_, index) => ({
+        type: "tool-call-delta",
+        payload: {
+          toolCallId: `call-${index}`,
+          toolName: "tool",
+        },
+      }),
+    );
+    const executor = createTestExecutor(['{"value":"done"}'], { chunks });
+
+    await expect(executor.execute(request())).rejects.toMatchObject({
+      name: "AcpLimitError",
+      code: "limit",
+      resource: "activity count",
+      maximum: MAX_ACTIVITY_COUNT,
+    });
+  });
+
+  it("bounds accumulated activity input", async () => {
+    const executor = createTestExecutor(['{"value":"done"}'], {
+      chunks: [
+        {
+          type: "tool-call-delta",
+          payload: {
+            toolCallId: "call-1",
+            toolName: "tool",
+            argsTextDelta: "x".repeat(MAX_ACTIVITY_INPUT_LENGTH + 1),
+          },
+        },
+      ],
+    });
+
+    await expect(executor.execute(request())).rejects.toMatchObject({
+      name: "AcpLimitError",
+      code: "limit",
+      resource: "activity input",
+      maximum: MAX_ACTIVITY_INPUT_LENGTH,
+    });
   });
 
   it("rejects unresolved permission requests without selecting an option", async () => {

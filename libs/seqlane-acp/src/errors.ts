@@ -3,6 +3,7 @@ export type AcpErrorCode =
   | "execution"
   | "cancellation"
   | "malformed-stream"
+  | "limit"
   | "output";
 
 export class AcpAdapterError extends Error {
@@ -27,6 +28,17 @@ export class AcpMalformedStreamError extends AcpAdapterError {
       cause,
     );
     this.name = "AcpMalformedStreamError";
+  }
+}
+
+export class AcpLimitError extends AcpAdapterError {
+  constructor(
+    readonly resource: string,
+    readonly maximum: number,
+    cause?: unknown,
+  ) {
+    super("limit", `${resource} exceeded the maximum of ${maximum}`, cause);
+    this.name = "AcpLimitError";
   }
 }
 
