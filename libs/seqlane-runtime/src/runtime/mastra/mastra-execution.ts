@@ -14,6 +14,7 @@ import { SeqlaneError } from "@seqlane/core";
 import {
   compilePlanToMastra,
   type CompiledMastraPlan,
+  type MastraPlanInvocation,
 } from "../compile/mastra-plan-compiler.js";
 import {
   PlanCompiler,
@@ -210,6 +211,49 @@ function emitMastraNonTerminalInvocations(
   }
 }
 
+export function createMastraPlanInvocationHandler(
+  prepared: PreparedPlanExecution,
+  plan: Plan,
+): MastraPlanInvocation {
+  const checks = checkNodes(plan);
+  return async ({ node, getStepResult, abortSignal, invocationId }) => {
+    const results = dependencyResults(node, getStepResult);
+    const context = {
+      ...prepared.context,
+      results,
+      remainingConsumers: new Map(prepared.context.remainingConsumers),
+      failure: undefined,
+    };
+    if (node.type === "task") {
+      return executeTaskNode(context, node, abortSignal, {
+        invocationId,
+        results,
+        remainingConsumers: context.remainingConsumers,
+        subject: { type: "task", taskId: node.taskId },
+      });
+    }
+    if (node.type === "validation.check") {
+      return executeValidationCheckNode(context, node, abortSignal, {
+        invocationId,
+        results,
+        remainingConsumers: context.remainingConsumers,
+      });
+    }
+    if (node.type === "validation.gate") {
+      const check = checks.get(node.checkNodeId);
+      if (check === undefined) {
+        throw new Error(`Validation gate "${node.nodeId}" has no check node`);
+      }
+      return executeValidationGateNode(context, node, check, abortSignal, {
+        invocationId,
+        results,
+        remainingConsumers: context.remainingConsumers,
+      });
+    }
+    return executeRepeatNode(context, node, abortSignal);
+  };
+}
+
 export function createMastraPlanExecution(
   options: MastraPlanExecutionOptions,
 ): MastraPlanExecution {
@@ -229,7 +273,10 @@ export function createMastraPlanExecution(
     validatorDefinitions: options.validatorDefinitions,
     events: options.events,
   });
-  const checks = checkNodes(options.plan);
+  const executeInvocation = createMastraPlanInvocationHandler(
+    prepared,
+    options.plan,
+  );
   const compiled = compilePlanToMastra(options.plan, {
     workId: options.workId,
     runId: options.runId,
@@ -270,55 +317,9 @@ export function createMastraPlanExecution(
         disposition: "fail_run",
       });
     },
-    executeInvocation: async ({
-      node,
-      getStepResult,
-      abortSignal,
-      invocationId,
-    }) => {
+    executeInvocation: async (invocation) => {
       try {
-        const results = dependencyResults(node, getStepResult);
-        const context = {
-          ...prepared.context,
-          results,
-          remainingConsumers: new Map(prepared.context.remainingConsumers),
-          failure: undefined,
-        };
-        if (node.type === "task") {
-          return await executeTaskNode(context, node, abortSignal, {
-            invocationId,
-            results,
-            remainingConsumers: context.remainingConsumers,
-            subject: { type: "task", taskId: node.taskId },
-          });
-        }
-        if (node.type === "validation.check") {
-          return await executeValidationCheckNode(context, node, abortSignal, {
-            invocationId,
-            results,
-            remainingConsumers: context.remainingConsumers,
-          });
-        }
-        if (node.type === "validation.gate") {
-          const check = checks.get(node.checkNodeId);
-          if (check === undefined) {
-            throw new Error(
-              `Validation gate "${node.nodeId}" has no check node`,
-            );
-          }
-          return await executeValidationGateNode(
-            context,
-            node,
-            check,
-            abortSignal,
-            {
-              invocationId,
-              results,
-              remainingConsumers: context.remainingConsumers,
-            },
-          );
-        }
-        return await executeRepeatNode(context, node, abortSignal);
+        return await executeInvocation(invocation);
       } catch (cause) {
         if (cause instanceof SeqlaneError) captureFailure(cause);
         throw cause;

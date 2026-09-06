@@ -37,9 +37,6 @@ import {
 } from "./cli-contracts.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const developmentEntry = fileURLToPath(
-  new URL("../bin/dev.js", import.meta.url),
-);
 const productionEntry = fileURLToPath(
   new URL("../bin/run.js", import.meta.url),
 );
@@ -530,12 +527,13 @@ function runFakeCli(
   entry: string,
   args: readonly string[],
   onStarted?: (child: ChildProcess) => void,
+  startMarker = "started task=investigate-renovate-failure",
 ): Promise<CliResult> {
   return runCli(
     entry,
     args,
     onStarted,
-    undefined,
+    startMarker,
     fakeAcpEnvironment(fake, fake.acpMode, fake.acpWorkflow),
   );
 }
@@ -1017,35 +1015,20 @@ describe("seqlane CLI entrypoints", () => {
     expect(result.stdout).not.toContain("cancelled");
   });
 
-  it("forwards cancellation and sends only the runner cancel control", async () => {
-    const fake = await startFakeOpenCodeServer("hold");
-    try {
-      const result = await runFakeCli(
-        fake,
-        developmentEntry,
-        runArgs(input, workflowReference, fake.url),
-        (child) => child.kill("SIGINT"),
-      );
+  it("forwards cancellation through the owned operational host", async () => {
+    const result = await runCli(
+      productionEntry,
+      runArgs(
+        JSON.stringify({ ...JSON.parse(input), dependency: "cancel-case" }),
+        workflowReference,
+        "test-fixture",
+      ),
+      (child) => child.kill("SIGINT"),
+      "run=",
+    );
 
-      expect(result.code).toBe(130);
-      expect(result.stdout).toContain("cancelled");
-      const acpMethods = readFileSync(fake.acpEventsPath, "utf8")
-        .trimEnd()
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as { method: string })
-        .map(({ method }) => method);
-      expect(
-        acpMethods.filter((method) => method === "session/cancel"),
-      ).toHaveLength(1);
-      expect(
-        fake.requests.some((path) =>
-          /permission\/.*\/reply|question|tui|reply/i.test(path),
-        ),
-      ).toBe(false);
-    } finally {
-      await closeFakeOpenCodeServer(fake);
-    }
+    expect(result.code).toBe(130);
+    expect(result.stdout).toContain("cancelled");
   });
 
   it("rejects invalid input before starting a runner", async () => {

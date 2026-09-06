@@ -1,37 +1,10 @@
 import { Command, Flags } from "@oclif/core";
-import {
-  createOperationalHost,
-  createOperationalWorkflow,
-} from "@seqlane/runtime/operational-host";
-import { loadWorkflow } from "@seqlane/runtime/workflow";
-import {
-  discoverWorkflowDescriptors,
-  type WorkflowRoots,
-} from "../workflow-discovery.js";
+import { createOperationalHost } from "@seqlane/runtime/operational-host";
+import { loadOperationalWorkflows } from "../operational-workflows.js";
 import { workflowRootsFromFlags } from "../workflow-roots.js";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-export async function loadOperationalWorkflows(
-  roots: WorkflowRoots,
-): Promise<readonly ReturnType<typeof createOperationalWorkflow>[]> {
-  const descriptors = discoverWorkflowDescriptors(roots);
-  const registrations = [];
-  for (const descriptor of descriptors) {
-    const loaded = await loadWorkflow(descriptor.reference, null);
-    registrations.push(
-      createOperationalWorkflow({
-        key: descriptor.qualifiedName,
-        plan: loaded.plan,
-        workflow: loaded.definition,
-        taskDefinitions: loaded.taskDefinitions,
-        validatorDefinitions: loaded.validatorDefinitions,
-      }),
-    );
-  }
-  return registrations;
 }
 
 export default class ServeCommand extends Command {

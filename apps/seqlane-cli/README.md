@@ -66,6 +66,32 @@ discovered workflow descriptors before the host starts listening. Press
 Use `--hostname ::1` or `--hostname [::1]` for IPv6 loopback; the advertised
 URL uses the required bracketed IPv6 form.
 
+Run-control commands use the same host. Set `--server-url` to use an existing
+host; without it, the command owns a local host for its lifetime:
+
+`--server-url` accepts only an unauthenticated HTTP loopback URL.
+
+```sh
+seqlane status <run-id> --server-url http://127.0.0.1:4111
+seqlane cancel <run-id> --server-url http://127.0.0.1:4111
+```
+
+For an owned host, `--workflow` accepts either a registered workflow name or a
+direct file/module reference such as `./examples/minimal-workflow.ts`. A
+`--server-url` command does not load local workflow references; the existing
+server must already have the workflow registered.
+
+`run` prints the Work and Run identifiers before progress output. It owns a
+loopback operational host by default and uses the same Mastra server path as
+`run --server-url`, which connects to an existing host. `status` reads the
+canonical Mastra run record. `cancel` sends the idempotent Mastra cancellation
+request.
+
+Remote `run --server-url` is terminal-only. The pinned Mastra `start-async`
+route does not expose Seqlane's canonical progress event stream, so remote
+mode does not forward progress events. If `--record` is used in remote mode,
+the recording is terminal-only as well.
+
 ## Community Studio
 
 Start the upstream Mastra Community Studio:
