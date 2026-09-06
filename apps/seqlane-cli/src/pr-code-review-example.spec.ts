@@ -845,7 +845,7 @@ describe("pull-request code review example workflow", () => {
     const base = createV3ReviewComment(state);
     const comments = [
       appendRunMetricsLedger(base, { schemaVersion: 1, runs: "invalid" }),
-      `${base}\n<!-- seqlane-code-review-run-metrics-v1: {\"schemaVersion\":1} -->`,
+      `${base}\n<!-- seqlane-code-review-run-metrics-v1: {"schemaVersion":1} -->`,
       appendRunMetricsLedger(base, { schemaVersion: 2, runs: [] }),
     ];
 
