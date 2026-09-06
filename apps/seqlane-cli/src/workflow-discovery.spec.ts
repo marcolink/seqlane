@@ -4,6 +4,8 @@
 // @test-scope ./commands/plan.ts
 // @test-scope ./commands/run.ts
 // @test-scope ./cli-contracts.ts
+// @test-scope ./human-output.ts
+// @test-scope ./workflow-roots.ts
 
 import {
   existsSync,
@@ -97,6 +99,32 @@ describe("workflow discovery", () => {
     }
   });
 
+  it("resolves discovered extension-shaped names before direct file references", () => {
+    const { roots, directory } = createRoots();
+    try {
+      writeDescriptor(roots.repository, "review.json", descriptor("review.ts"));
+      const workflows = discoverWorkflowDescriptors(roots);
+
+      expect(
+        resolveWorkflowSelection("review.ts", workflows).reference,
+      ).toMatchObject({
+        id: "repository:review.ts",
+      });
+      expect(
+        createRunRequest(
+          "review.ts",
+          "null",
+          undefined,
+          undefined,
+          false,
+          roots,
+        ).workflow,
+      ).toMatchObject({ id: "repository:review.ts" });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reports every qualified match for an ambiguous name", () => {
     const { roots, directory } = createRoots();
     try {
@@ -152,6 +180,60 @@ describe("workflow discovery", () => {
       expect(workflowListResultSchema.parse(records)).toEqual(records);
       expect(existsSync(marker)).toBe(false);
       expect(renderWorkflowListHuman(records)).toContain("repository:review");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("escapes terminal control characters in human output", async () => {
+    const { roots, directory } = createRoots();
+    try {
+      const unsafe = "\u001b[31munsafe\nvalue";
+      writeDescriptor(roots.repository, "unsafe.json", {
+        name: "unsafe",
+        moduleSpecifier: `./${unsafe}.mjs`,
+        exportName: unsafe,
+        description: unsafe,
+      });
+      const records =
+        discoverWorkflowDescriptors(roots).map(listWorkflowRecord);
+
+      expect(renderWorkflowListHuman(records)).toContain(
+        "\\u001b[31munsafe\\nvalue",
+      );
+      expect(renderWorkflowListHuman(records)).not.toContain("\u001b");
+
+      const modulePath = join(roots.repository, "workflow.mjs");
+      writeFileSync(
+        modulePath,
+        `
+          const schema = { parse: (value) => value };
+          const task = { id: "unsafe-task", input: schema, output: schema, execute: async () => ({}) };
+          export default { id: "unsafe-plan", input: schema, output: schema, build: ({ input, run }) => run(task, { input }).output };
+        `,
+      );
+      writeDescriptor(roots.repository, "plan.json", descriptor("plan"));
+      const result = await createPlanCommandResult("plan", null, roots);
+      const unsafeResult = {
+        ...result,
+        workflow: {
+          ...result.workflow,
+          description: unsafe,
+          moduleSpecifier: unsafe,
+        },
+        plan: {
+          ...result.plan,
+          nodes: result.plan.nodes.map((node) => ({
+            ...node,
+            label: unsafe,
+          })),
+        },
+      };
+
+      expect(renderPlanHuman(unsafeResult)).toContain(
+        "\\u001b[31munsafe\\nvalue",
+      );
+      expect(renderPlanHuman(unsafeResult)).not.toContain("\u001b");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

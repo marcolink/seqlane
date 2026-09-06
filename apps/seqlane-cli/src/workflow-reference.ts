@@ -63,6 +63,13 @@ export function parseWorkflowReference(value: string): WorkflowReference {
 }
 
 export function isDirectWorkflowReference(value: string): boolean {
+  return (
+    isExplicitWorkflowReference(value) ||
+    workflowFileExtensions.has(extname(value))
+  );
+}
+
+export function isExplicitWorkflowReference(value: string): boolean {
   if (
     value.includes("#") ||
     value.startsWith("file:") ||
@@ -71,6 +78,5 @@ export function isDirectWorkflowReference(value: string): boolean {
   ) {
     return true;
   }
-
-  return workflowFileExtensions.has(extname(value));
+  return false;
 }

@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-06
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -102,6 +102,10 @@ Updated the CLI and core documentation. Verified the implementation with the
 full repository typecheck, test, lint, build, format, Nx sync, and SDLC gates.
 The built CLI end-to-end suite passed 25 tests, and the test-mapping check
 passed 154 mappings.
+
+Follow-up review fixes preserve discovered names that end in a supported
+workflow-file extension, make human list and plan output terminal-safe, and
+move shared workflow-root flag handling out of the list command.
 
 ## Traceability
 

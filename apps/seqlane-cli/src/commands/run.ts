@@ -10,13 +10,13 @@ import {
   createOutputCapabilities,
 } from "../output.js";
 import { parseOutputMode } from "../output-mode.js";
-import { workflowRootsFromFlags } from "./list.js";
+import { workflowRootsFromFlags } from "../workflow-roots.js";
 import {
   discoverWorkflowDescriptors,
   resolveWorkflowSelection,
   type WorkflowRoots,
 } from "../workflow-discovery.js";
-import { isDirectWorkflowReference } from "../workflow-reference.js";
+import { isExplicitWorkflowReference } from "../workflow-reference.js";
 
 const localRuntimeId = "local";
 
@@ -44,7 +44,7 @@ export function createRunRequest(
   dryRun: boolean,
   roots: WorkflowRoots,
 ): RunRequest {
-  const workflows = isDirectWorkflowReference(workflow)
+  const workflows = isExplicitWorkflowReference(workflow)
     ? []
     : discoverWorkflowDescriptors(roots);
   return {

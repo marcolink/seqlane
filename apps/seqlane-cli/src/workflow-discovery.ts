@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   parseWorkflowReference,
+  isExplicitWorkflowReference,
   isDirectWorkflowReference,
 } from "./workflow-reference.js";
 
@@ -188,13 +189,15 @@ export function resolveWorkflowSelection(
   value: string,
   workflows?: readonly DiscoveredWorkflow[],
 ): WorkflowSelection {
+  const availableWorkflows =
+    workflows ??
+    (isExplicitWorkflowReference(value) ? [] : discoverWorkflowDescriptors());
+  const discovered = resolveDiscoveredWorkflow(value, availableWorkflows);
+  if (discovered !== undefined) return discovered;
+
   if (isDirectWorkflowReference(value)) {
     return { reference: parseWorkflowReference(value) };
   }
-
-  const availableWorkflows = workflows ?? discoverWorkflowDescriptors();
-  const discovered = resolveDiscoveredWorkflow(value, availableWorkflows);
-  if (discovered !== undefined) return discovered;
 
   throw new Error(
     `Workflow "${value}" was not found. Use a qualified name or a direct module reference.`,

@@ -4,25 +4,14 @@ import {
   type WorkflowListRecord,
 } from "../cli-contracts.js";
 import {
-  defaultWorkflowRoots,
   discoverWorkflowDescriptors,
   listWorkflowRecord,
-  type WorkflowRoots,
 } from "../workflow-discovery.js";
+import { escapeTerminalText } from "../human-output.js";
+import { workflowRootsFromFlags } from "../workflow-roots.js";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-export function workflowRootsFromFlags(flags: {
-  readonly "repository-root"?: string;
-  readonly "user-root"?: string;
-}): WorkflowRoots {
-  const defaults = defaultWorkflowRoots();
-  return {
-    repository: flags["repository-root"] ?? defaults.repository,
-    user: flags["user-root"] ?? defaults.user,
-  };
 }
 
 export function renderWorkflowListHuman(
@@ -32,7 +21,7 @@ export function renderWorkflowListHuman(
   return records
     .map(
       ({ qualifiedName, description, moduleSpecifier, exportName }) =>
-        `${qualifiedName}  ${description}  (${moduleSpecifier}#${exportName})`,
+        `${escapeTerminalText(qualifiedName)}  ${escapeTerminalText(description)}  (${escapeTerminalText(moduleSpecifier)}#${escapeTerminalText(exportName)})`,
     )
     .join("\n");
 }

@@ -14,8 +14,9 @@ import {
   type DiscoveredWorkflow,
 } from "../workflow-discovery.js";
 import { discoverWorkflowDescriptors } from "../workflow-discovery.js";
-import { isDirectWorkflowReference } from "../workflow-reference.js";
-import { workflowRootsFromFlags } from "./list.js";
+import { escapeTerminalText } from "../human-output.js";
+import { isExplicitWorkflowReference } from "../workflow-reference.js";
+import { workflowRootsFromFlags } from "../workflow-roots.js";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -58,12 +59,12 @@ export async function createPlanCommandResult(
   input: JsonValue,
   roots: Parameters<typeof discoverWorkflowDescriptors>[0],
 ): Promise<PlanCommandResult> {
-  const selection = isDirectWorkflowReference(workflowValue)
-    ? resolveWorkflowSelection(workflowValue)
-    : resolveWorkflowSelection(
-        workflowValue,
-        discoverWorkflowDescriptors(roots),
-      );
+  const selection = resolveWorkflowSelection(
+    workflowValue,
+    isExplicitWorkflowReference(workflowValue)
+      ? []
+      : discoverWorkflowDescriptors(roots),
+  );
   const loaded = await loadWorkflow(selection.reference, input);
   return planCommandResultSchema.parse({
     workflow: planWorkflowRecord(selection.descriptor, selection.reference),
@@ -73,18 +74,20 @@ export async function createPlanCommandResult(
 
 export function renderPlanHuman(result: PlanCommandResult): string {
   const lines = [
-    `Plan for ${result.workflow.qualifiedName}`,
-    `Description: ${result.workflow.description ?? "Direct workflow reference"}`,
-    `Module: ${result.workflow.moduleSpecifier}#${result.workflow.exportName}`,
+    `Plan for ${escapeTerminalText(result.workflow.qualifiedName)}`,
+    `Description: ${escapeTerminalText(result.workflow.description ?? "Direct workflow reference")}`,
+    `Module: ${escapeTerminalText(result.workflow.moduleSpecifier)}#${escapeTerminalText(result.workflow.exportName)}`,
     "Nodes:",
   ];
   for (const node of result.plan.nodes) {
     const indent = node.parentPlanNodeId === undefined ? "  " : "    ";
     const execution = "execution" in node ? ` [${node.execution}]` : "";
     const dependencies =
-      node.dependsOn.length === 0 ? "" : ` <- ${node.dependsOn.join(", ")}`;
+      node.dependsOn.length === 0
+        ? ""
+        : ` <- ${node.dependsOn.map(escapeTerminalText).join(", ")}`;
     lines.push(
-      `${indent}${node.planNodeId}: ${node.label}${execution}${dependencies}`,
+      `${indent}${escapeTerminalText(node.planNodeId)}: ${escapeTerminalText(node.label)}${execution}${dependencies}`,
     );
   }
   return lines.join("\n");
