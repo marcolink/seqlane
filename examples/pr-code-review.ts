@@ -222,12 +222,36 @@ const reviewRunAuditSchema = z
   })
   .strict();
 
-const reviewRunSummarySchema = z
+const reviewRunMetricsLedgerEntrySchema = z
   .object({
-    runCount: z.number().int().nonnegative(),
-    totalCost: z.number().nonnegative(),
+    githubRunId: z.string().regex(/^\d+$/).max(128),
+    attempt: z.number().int().positive(),
+    completedAt: z.iso.datetime({ offset: true }),
+    reviewedRevision: gitRevisionSchema,
+    metrics: reviewRunMetricsSchema,
   })
   .strict();
+
+const reviewRunMetricsLedgerSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    runs: z.array(reviewRunMetricsLedgerEntrySchema),
+  })
+  .strict()
+  .superRefine((ledger, context) => {
+    const identities = new Set<string>();
+    for (const [index, run] of ledger.runs.entries()) {
+      const identity = `${run.githubRunId}/${run.attempt}`;
+      if (identities.has(identity)) {
+        context.addIssue({
+          code: "custom",
+          path: ["runs", index],
+          message: "Run ID and attempt must be unique",
+        });
+      }
+      identities.add(identity);
+    }
+  });
 
 const reviewStateSchema = z
   .object({
@@ -240,12 +264,17 @@ const reviewStateSchema = z
     findings: z.array(reviewReportFindingSchema.strict()).max(40),
     limitations: z.array(z.string().min(1).max(1_000)).max(20),
     truncated: z.boolean(),
-    // `runs` is retained for migrating the first append-only state format.
-    // New states store the latest run and summary; full history lives in
-    // immutable run-metrics comments.
+    // These fields are accepted only so an older valid review state remains
+    // readable. They are not used as metrics-ledger input or emitted again.
     run: reviewRunAuditSchema.optional(),
     runs: z.array(reviewRunAuditSchema).optional(),
-    runSummary: reviewRunSummarySchema.optional(),
+    runSummary: z
+      .object({
+        runCount: z.number().int().nonnegative(),
+        totalCost: z.number().nonnegative(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((state, context) => {
@@ -327,6 +356,10 @@ const reviewHistoryOutputSchema = z.object({
   previousSnapshot: reviewSnapshotSchema.optional(),
   previousReviewedRevision: gitRevisionSchema.optional(),
   dispositions: z.array(reviewDispositionSchema).max(200),
+  runMetricsLedger: reviewRunMetricsLedgerSchema.default({
+    schemaVersion: 1,
+    runs: [],
+  }),
 });
 
 const reviewHistoryVerificationSchema = z.object({
@@ -383,7 +416,7 @@ const codeReviewReportSchema = synthesizedReviewReportSchema.extend({
   findings: z.array(reviewReportFindingSchema).max(40),
   limitations: z.array(z.string().min(1).max(1_000)).max(20),
   stateTruncated: z.boolean(),
-  runHistory: z.array(reviewRunAuditSchema),
+  runMetricsLedger: reviewRunMetricsLedgerSchema,
 });
 
 const MAX_GIT_TEXT_LENGTH = 8_000;
@@ -477,11 +510,30 @@ function compactReviewComment(
   };
 }
 
-function persistedRunHistory(
-  state: z.infer<typeof reviewStateSchema> | undefined,
-): readonly z.infer<typeof reviewRunAuditSchema>[] {
-  if (state?.runs !== undefined) return state.runs;
-  return state?.run === undefined ? [] : [state.run];
+const EMPTY_RUN_METRICS_LEDGER: z.infer<typeof reviewRunMetricsLedgerSchema> = {
+  schemaVersion: 1,
+  runs: [],
+};
+
+function parseReviewRunMetricsLedger(
+  comment: z.infer<typeof reviewCommentSchema> | undefined,
+): z.infer<typeof reviewRunMetricsLedgerSchema> {
+  if (comment === undefined || !isReviewReportComment(comment)) {
+    return EMPTY_RUN_METRICS_LEDGER;
+  }
+  const blocks = [
+    ...comment.body.matchAll(
+      /<!-- seqlane-code-review-run-metrics-v1-start -->\s*```json\s*([\s\S]*?)\s*```\s*<!-- seqlane-code-review-run-metrics-v1-end -->/g,
+    ),
+  ];
+  if (blocks.length !== 1) return EMPTY_RUN_METRICS_LEDGER;
+  try {
+    const value: unknown = JSON.parse(blocks[0]![1]!);
+    const parsed = reviewRunMetricsLedgerSchema.safeParse(value);
+    return parsed.success ? parsed.data : EMPTY_RUN_METRICS_LEDGER;
+  } catch {
+    return EMPTY_RUN_METRICS_LEDGER;
+  }
 }
 
 function parseReviewSnapshot(
@@ -550,15 +602,6 @@ function parseReviewState(
       parsed.data.reviewedRevision !== metadata.data.reviewedRevision ||
       parsed.data.previousReviewedRevision !==
         metadata.data.previousReviewedRevision
-    ) {
-      return undefined;
-    }
-    const latestRun = persistedRunHistory(parsed.data).at(-1);
-    if (
-      metadata.data.run !== undefined &&
-      (latestRun === undefined ||
-        latestRun.id !== metadata.data.run.id ||
-        latestRun.attempt !== metadata.data.run.attempt)
     ) {
       return undefined;
     }
@@ -728,6 +771,7 @@ const reviewContextTask = defineTask({
       previousState === undefined
         ? parseReviewSnapshot(previousReport)
         : undefined;
+    const runMetricsLedger = parseReviewRunMetricsLedger(previousReport);
     const commentDispositions = new Map(
       comments.map((comment) => [
         comment.id,
@@ -840,6 +884,7 @@ const reviewContextTask = defineTask({
               previousState?.reviewedRevision ?? previousSnapshot?.headRevision,
           }),
       dispositions,
+      runMetricsLedger,
     };
   },
 });
@@ -1613,7 +1658,8 @@ const applyReviewDispositionTask = defineTask({
         duplicateHistoricalFindings > 0 ||
         review.reviewHistory.previousState?.truncated === true ||
         review.reviewHistory.previousSnapshot?.truncated === true,
-      runHistory: [...persistedRunHistory(review.reviewHistory.previousState)],
+      runMetricsLedger:
+        review.reviewHistory.runMetricsLedger ?? EMPTY_RUN_METRICS_LEDGER,
     };
   },
 });

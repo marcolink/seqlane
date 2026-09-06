@@ -106,6 +106,21 @@ function createV3ReviewComment(
   ].join("\n");
 }
 
+function appendRunMetricsLedger(comment: string, ledger: unknown): string {
+  return [
+    comment,
+    "<!-- seqlane-code-review-run-metrics-v1-start -->",
+    "```json",
+    JSON.stringify(ledger, null, 2),
+    "```",
+    "<!-- seqlane-code-review-run-metrics-v1-end -->",
+  ].join("\n");
+}
+
+const REVIEW_CONTEXT_TEST_CONTEXT = {
+  exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+};
+
 function workflowJobBlock(workflow: string, jobId: string): string {
   const start = workflow.indexOf(`\n  ${jobId}:`);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -143,6 +158,65 @@ describe("pull-request code review example workflow", () => {
     );
     expect(workflow).not.toContain("## Available commands");
     expect(workflow).not.toContain("- `/seqlane review`");
+    expect(workflow).toContain(
+      "<!-- seqlane-code-review-run-metrics-v1-start -->",
+    );
+    expect(workflow).toContain(
+      "<!-- seqlane-code-review-run-metrics-v1-end -->",
+    );
+    expect(workflow).toContain(
+      ".githubRunId == $current.githubRunId and .attempt == $current.attempt",
+    );
+    expect(workflow).toContain('--arg prRunCount "$PR_RUN_COUNT"');
+    expect(workflow).toContain(
+      "RUN_METRICS_LEDGER=$(jq --null-input --compact-output",
+    );
+    expect(workflow).toContain(".runs[-1].metrics.totalCost");
+    expect(workflow).not.toContain("seqlane-run-audit-payload.json");
+    expect(workflow).not.toContain("RUN_AUDIT_MARKER_PREFIX");
+    expect(workflow).not.toContain("runSummary:");
+    expect(workflow).not.toContain(".runHistory");
+  });
+
+  it("treats a missing progress comment as cleared without weakening safeguards", async () => {
+    const workflow = await readFile(
+      new URL(
+        "../../../.github/workflows/seqlane-code-review.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const markerStepStart = workflow.indexOf(
+      "      - name: Clear review in-progress marker",
+    );
+    const nextStep = workflow.indexOf("\n      - name:", markerStepStart + 1);
+    const markerStep = workflow.slice(
+      markerStepStart,
+      nextStep === -1 ? workflow.length : nextStep,
+    );
+
+    expect(markerStep).toContain(
+      '2> "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"',
+    );
+    expect(markerStep).toContain('grep -Fq "HTTP 404" \\');
+    expect(markerStep).toContain(
+      '"$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"',
+    );
+    expect(markerStep).toMatch(
+      /elif grep -Fq "HTTP 404"[\s\S]*?exit 0\n {10}else\n {12}cat .* >&2\n {12}exit 1/,
+    );
+    expect(markerStep).toContain(
+      "The review-progress comment was already deleted; treating the marker as cleared.",
+    );
+    expect(markerStep).toContain(
+      'cat "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt" >&2',
+    );
+    expect(markerStep).toContain("exit 1");
+    expect(markerStep).toContain(
+      'if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then',
+    );
+    expect(markerStep).toContain('grep -Fq "$MARKER_START"; then');
+    expect(markerStep).toContain('grep -Fq "$MARKER_RUN"; then');
   });
 
   it("admits only real review requests before per-pull-request concurrency", async () => {
@@ -718,6 +792,132 @@ describe("pull-request code review example workflow", () => {
     expect(result.previousState).toEqual(state);
   });
 
+  it("reads a strict run metrics ledger independently of review state", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+    const state = {
+      schemaVersion: 3,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 1,
+      findings: [],
+      limitations: [],
+      truncated: false,
+    };
+    const metrics = {
+      schemaVersion: 1,
+      runId: "seqlane-run-1",
+      outcome: "succeeded",
+      durationMs: 42,
+      totalCost: 0.0042,
+      totalTokens: {
+        input: 20,
+        output: 12,
+        reasoning: 8,
+        cacheRead: 2,
+        cacheWrite: 0,
+        total: 42,
+      },
+      tasks: [],
+    };
+    const ledger = {
+      schemaVersion: 1,
+      runs: [
+        {
+          githubRunId: "123",
+          attempt: 1,
+          completedAt: "2026-09-05T10:00:00Z",
+          reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+          metrics,
+        },
+      ],
+    };
+    const result = await task.execute(
+      {
+        pullRequestNumber: 44,
+        reviewHistory: {
+          comments: [
+            {
+              id: "report",
+              kind: "issue",
+              author: "github-actions[bot]",
+              authorAssociation: "NONE",
+              body: appendRunMetricsLedger(
+                createV3ReviewComment(state),
+                ledger,
+              ),
+              createdAt: "2026-09-05T10:00:00Z",
+            },
+          ],
+          truncated: false,
+        },
+      },
+      REVIEW_CONTEXT_TEST_CONTEXT,
+    );
+
+    expect(result).toMatchObject({
+      previousState: state,
+      runMetricsLedger: ledger,
+    });
+  });
+
+  it("starts an empty ledger for malformed, legacy, or unsupported metrics data", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.review-context",
+    );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review context task definition");
+    }
+    const state = {
+      schemaVersion: 3,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 1,
+      findings: [],
+      limitations: [],
+      truncated: false,
+    };
+    const base = createV3ReviewComment(state);
+    const comments = [
+      appendRunMetricsLedger(base, { schemaVersion: 1, runs: "invalid" }),
+      `${base}\n<!-- seqlane-code-review-run-metrics-v1: {"schemaVersion":1} -->`,
+      appendRunMetricsLedger(base, { schemaVersion: 2, runs: [] }),
+    ];
+
+    for (const [index, body] of comments.entries()) {
+      const result = await task.execute(
+        {
+          pullRequestNumber: 44,
+          reviewHistory: {
+            comments: [
+              {
+                id: `report-${index}`,
+                kind: "issue",
+                author: "github-actions[bot]",
+                authorAssociation: "NONE",
+                body,
+                createdAt: "2026-09-05T10:00:00Z",
+              },
+            ],
+            truncated: false,
+          },
+        },
+        REVIEW_CONTEXT_TEST_CONTEXT,
+      );
+
+      expect(result).toMatchObject({
+        previousState: state,
+        runMetricsLedger: { schemaVersion: 1, runs: [] },
+      });
+    }
+  });
+
   it("rejects version 3 state with unknown fields", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.review-context",
@@ -854,8 +1054,13 @@ describe("pull-request code review example workflow", () => {
         {},
       );
 
-      expect(result.previousState).toBeUndefined();
-      expect(result.previousReviewedRevision).toBeUndefined();
+      if (index < 2) {
+        expect(result.previousState).toBeUndefined();
+        expect(result.previousReviewedRevision).toBeUndefined();
+      } else {
+        expect(result.previousState).toEqual(state);
+        expect(result.previousReviewedRevision).toBe(REVIEW_TEST_HEAD_REVISION);
+      }
     }
   });
 
@@ -1618,13 +1823,7 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(result.verdict).toBe("approve");
-    expect(result.runHistory).toEqual([
-      {
-        id: "100",
-        attempt: 1,
-        completedAt: "2026-09-05T11:00:00Z",
-      },
-    ]);
+    expect(result.runMetricsLedger).toEqual({ schemaVersion: 1, runs: [] });
     expect(() => JSON.stringify(result)).not.toThrow();
     expect(result.findings).toEqual(
       expect.arrayContaining([

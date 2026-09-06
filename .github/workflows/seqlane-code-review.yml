@@ -773,111 +773,36 @@ jobs:
               tasks: $tasks
             }
           ' "$RUNNER_TEMP/seqlane-code-review.jsonl")
-          RUN_METRICS_TOTAL_COST=$(printf '%.6f' \
-            "$(printf '%s' "$RUN_METRICS" | jq --raw-output '.totalCost')")
           printf '%s\n' "$RUN_METRICS" > "$RUNNER_TEMP/seqlane-code-review-metrics.json"
 
-          RUN_AUDIT_MARKER_PREFIX='<!-- seqlane-code-review-run-metrics-v1: '
-          RUN_AUDIT_MARKER_SUFFIX=' -->'
-
-          CURRENT_AUDIT_RECORD=$(jq --compact-output --null-input \
-            --argjson pullRequestNumber "$PR_NUMBER" \
-            --arg reviewedRevision "$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")" \
-            --arg runId "$GITHUB_RUN_ID" \
-            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+          CURRENT_RUN_LEDGER_ENTRY=$(jq --compact-output --null-input \
+            --arg githubRunId "$GITHUB_RUN_ID" \
+            --argjson attempt "$GITHUB_RUN_ATTEMPT" \
             --arg completedAt "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --arg reviewedRevision "$(jq --raw-output '.headRevision' "$RUNNER_TEMP/seqlane-code-review-result.json")" \
             --argjson metrics "$RUN_METRICS" \
-            '{
-              schemaVersion: 1,
-              pullRequestNumber: $pullRequestNumber,
-              reviewedRevision: $reviewedRevision,
-              runId: $runId,
-              attempt: $runAttempt,
-              completedAt: $completedAt,
-              metrics: $metrics
-            }')
-          PRIOR_RUN_HISTORY=$(jq --compact-output '.runHistory // []' \
+            '{githubRunId: $githubRunId, attempt: $attempt, completedAt: $completedAt,
+              reviewedRevision: $reviewedRevision, metrics: $metrics}')
+          PRIOR_RUN_METRICS_LEDGER=$(jq --compact-output \
+            '.runMetricsLedger // {schemaVersion: 1, runs: []}' \
             "$RUNNER_TEMP/seqlane-code-review-result.json")
-          AUDIT_RECORDS=$(jq --compact-output \
-            --argjson previous "$PRIOR_RUN_HISTORY" \
-            --argjson current "$CURRENT_AUDIT_RECORD" \
-            --argjson pullRequestNumber "$PR_NUMBER" \
-            '($previous | map({
-                schemaVersion: 1,
-                pullRequestNumber: $pullRequestNumber,
-                runId: (.runId // .id),
-                attempt,
-                completedAt,
-                metrics
-              } + (if .reviewedRevision then {reviewedRevision} else {} end))) + [$current] |
-             unique_by((.runId // .id) + "/" + ((.attempt // 0) | tostring))')
-          gh api --paginate --slurp \
-            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
-            | jq 'add' \
-            > "$RUNNER_TEMP/seqlane-live-issue-comments-before-publish.json"
-          AUDIT_HISTORY=$(jq --compact-output '
-            [.[] |
-              select(
-                (.user.login == "github-actions") or
-                (.user.login == "github-actions[bot]")
-              ) |
-              .body |
-              try (capture("<!-- seqlane-code-review-run-metrics-v1: (?<record>[^\\r\\n]+) -->").record | fromjson)
-              catch empty
-            ] |
-            map(select(.schemaVersion == 1 and (.runId | type) == "string")) |
-            unique_by(.runId + "/" + (.attempt | tostring))
-          ' "$RUNNER_TEMP/seqlane-live-issue-comments-before-publish.json")
-          printf '%s\n' "$AUDIT_RECORDS" | jq -c '.[]' | while IFS= read -r record; do
-            run_id=$(printf '%s' "$record" | jq --raw-output '.runId // .id')
-            run_attempt=$(printf '%s' "$record" | jq --raw-output '.attempt')
-            if jq -e --arg runId "$run_id" --argjson attempt "$run_attempt" \
-              'any(.[]; .runId == $runId and .attempt == $attempt)' \
-              <<< "$AUDIT_HISTORY" > /dev/null; then
-              continue
-            fi
-            audit_body=$(jq --raw-output --arg prefix "$RUN_AUDIT_MARKER_PREFIX" \
-              --arg suffix "$RUN_AUDIT_MARKER_SUFFIX" --argjson record "$record" \
-              '$prefix + ($record | tojson) + $suffix +
-               "\\n\\n<details>\\n<summary>Seqlane run metrics</summary>\\n\\n```json\\n" +
-               ($record.metrics | tojson) + "\\n```\\n\\n</details>"')
-            jq --null-input --arg body "$audit_body" '{body: $body}' \
-              > "$RUNNER_TEMP/seqlane-run-audit-payload.json"
-            gh api --method POST \
-              "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-              --input "$RUNNER_TEMP/seqlane-run-audit-payload.json" > /dev/null
-          done
-
-          gh api --paginate --slurp \
-            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100&sort=updated&direction=desc" \
-            | jq 'add' \
-            > "$RUNNER_TEMP/seqlane-live-issue-comments-after-audit.json"
-          AUDIT_HISTORY=$(jq --compact-output --argjson current "$CURRENT_AUDIT_RECORD" '
-            ([.[] |
-              select(
-                (.user.login == "github-actions") or
-                (.user.login == "github-actions[bot]")
-              ) |
-              .body |
-              try (capture("<!-- seqlane-code-review-run-metrics-v1: (?<record>[^\\r\\n]+) -->").record | fromjson)
-              catch empty
-            ] + [$current]) |
-            map(select(.schemaVersion == 1 and (.runId | type) == "string")) |
-            unique_by(.runId + "/" + (.attempt | tostring))
-          ' "$RUNNER_TEMP/seqlane-live-issue-comments-after-audit.json")
-          RUN_METRICS_HISTORY_PRETTY=$(printf '%s' "$AUDIT_HISTORY" | jq '[.[] | .metrics]')
-          PR_TOTAL_COST_RAW=$(printf '%s' "$AUDIT_HISTORY" | jq --raw-output '[.[] | .metrics.totalCost // 0] | add // 0')
+          RUN_METRICS_LEDGER=$(jq --null-input --compact-output \
+            --argjson previous "$PRIOR_RUN_METRICS_LEDGER" \
+            --argjson current "$CURRENT_RUN_LEDGER_ENTRY" \
+            '$previous |
+             if any(.runs[]; .githubRunId == $current.githubRunId and .attempt == $current.attempt)
+             then .
+             else .runs += [$current]
+             end')
+          RUN_METRICS_HISTORY_PRETTY=$(printf '%s' "$RUN_METRICS_LEDGER" | jq '.')
+          PR_TOTAL_COST_RAW=$(printf '%s' "$RUN_METRICS_LEDGER" | jq --raw-output '[.runs[] | .metrics.totalCost // 0] | add // 0')
           PR_TOTAL_COST=$(printf '%.6f' "$PR_TOTAL_COST_RAW")
-          PR_RUN_COUNT=$(printf '%s' "$AUDIT_HISTORY" | jq --raw-output 'length')
+          PR_RUN_COUNT=$(printf '%s' "$RUN_METRICS_LEDGER" | jq --raw-output '.runs | length')
+          LAST_RUN_COST_RAW=$(printf '%s' "$RUN_METRICS_LEDGER" | jq --raw-output '(.runs[-1].metrics.totalCost // 0)')
+          LAST_RUN_COST=$(printf '%.6f' "$LAST_RUN_COST_RAW")
 
-          COMPLETED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           REVIEW_STATE=$(jq --compact-output \
-            --arg runId "$GITHUB_RUN_ID" \
-            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
-            --arg completedAt "$COMPLETED_AT" \
-            --argjson runMetrics "$RUN_METRICS" \
-            --arg prTotalCost "$PR_TOTAL_COST_RAW" \
-            --arg prRunCount "$PR_RUN_COUNT" '
+            '
             {
               schemaVersion: 3,
               pullRequestNumber,
@@ -886,17 +811,7 @@ jobs:
               nextFindingIndex,
               findings,
               limitations,
-              truncated: .stateTruncated,
-              run: {
-                id: $runId,
-                attempt: $runAttempt,
-                completedAt: $completedAt,
-                metrics: $runMetrics
-              },
-              runSummary: {
-                runCount: ($prRunCount | tonumber),
-                totalCost: ($prTotalCost | tonumber)
-              }
+              truncated: .stateTruncated
             }
             + (if .previousReviewedRevision then
                 {previousReviewedRevision}
@@ -972,8 +887,9 @@ jobs:
             --arg metadata "$REVIEW_METADATA" \
             --arg stateEnvelope "$REVIEW_STATE_ENVELOPE" \
             --arg runMetricsJson "$RUN_METRICS_HISTORY_PRETTY" \
-            --arg runMetricsTotalCost "$RUN_METRICS_TOTAL_COST" \
+            --arg runMetricsTotalCost "$LAST_RUN_COST" \
             --arg prTotalCost "$PR_TOTAL_COST" \
+            --arg prRunCount "$PR_RUN_COUNT" \
             --arg compactionNotice "$STATE_COMPACTION_NOTICE" \
             --argjson stateCompacted "$STATE_COMPACTED" '
             def shorten($value; $limit):
@@ -1104,16 +1020,20 @@ jobs:
             + [
               "",
               "<details>",
-              ("<summary>Run metrics (all runs) · PR cost: $" + $prTotalCost + " · last run: $" + $runMetricsTotalCost + "</summary>"),
+              ("<summary>Run metrics (" + $prRunCount + " " +
+                (if $prRunCount == "1" then "run" else "runs" end) +
+                ") · PR cost: $" + $prTotalCost + " · last run: $" + $runMetricsTotalCost + "</summary>"),
               "",
               "Mechanically aggregated from Seqlane execution events:",
               "",
               ("- Absolute PR cost: $" + $prTotalCost),
               ("- Last run cost: $" + $runMetricsTotalCost),
               "",
+              "<!-- seqlane-code-review-run-metrics-v1-start -->",
               "```json",
               $runMetricsJson,
               "```",
+              "<!-- seqlane-code-review-run-metrics-v1-end -->",
               "",
               "</details>"
             ]
@@ -1247,8 +1167,18 @@ jobs:
           COMMENT_ID=$(cat "$RUNNER_TEMP/seqlane-progress-comment-id")
           MARKER_START='<!-- seqlane-review-in-progress-start -->'
           MARKER_RUN="<!-- seqlane-review-in-progress-run: $RUN_ID -->"
-          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
-            > "$RUNNER_TEMP/seqlane-progress-comment-latest.json"
+          if gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            > "$RUNNER_TEMP/seqlane-progress-comment-latest.json" \
+            2> "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"; then
+            :
+          elif grep -Fq "HTTP 404" \
+            "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"; then
+            echo "The review-progress comment was already deleted; treating the marker as cleared."
+            exit 0
+          else
+            cat "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt" >&2
+            exit 1
+          fi
           COMMENT_AUTHOR=$(jq --raw-output '.user.login // ""' \
             "$RUNNER_TEMP/seqlane-progress-comment-latest.json")
           if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then
