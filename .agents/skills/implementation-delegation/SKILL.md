@@ -7,7 +7,7 @@ description: Delegate implementation work to a Luna sub-agent after a task moves
 
 ## Boundary
 
-Use this skill only after the task has moved from planning to execution. Investigation, discussion, options analysis, and ideation remain with the primary agent unless delegation would clearly help.
+Use this skill only after the task has moved from planning to execution. Investigation, discussion, options analysis, and ideation remain with the primary agent.
 
 ## Delegation rule
 
