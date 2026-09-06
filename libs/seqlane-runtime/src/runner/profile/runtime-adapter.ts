@@ -1,4 +1,8 @@
-import type { AgentAdapter } from "@seqlane/agent-adapter";
+import { createHash } from "node:crypto";
+import type {
+  AgentAdapter,
+  AgentAdapterCapabilities,
+} from "@seqlane/agent-adapter";
 import { acpLaunchConfigurationSchema, createAcpAdapter } from "@seqlane/acp";
 import {
   createOpenCodeAdapter,
@@ -126,6 +130,9 @@ export interface RuntimeAdapterFactoryResult {
 
 export interface RuntimeAdapterFactory {
   readonly identity: RuntimeAdapterIdentity;
+  resolveCapabilities(
+    configuration: RuntimeAdapterConfiguration,
+  ): AgentAdapterCapabilities;
   create(
     configuration: RuntimeAdapterConfiguration,
     context: RuntimeAdapterFactoryContext,
@@ -135,7 +142,28 @@ export interface RuntimeAdapterFactory {
 export interface ResolvedRuntimeAdapter {
   readonly identity: RuntimeAdapterIdentity;
   readonly configuration: RuntimeAdapterConfiguration;
+  readonly configurationFingerprint: string;
+  readonly capabilities: AgentAdapterCapabilities;
   create(context: RuntimeAdapterFactoryContext): RuntimeAdapterFactoryResult;
+}
+
+function canonicalConfiguration(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalConfiguration);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([first], [second]) => first.localeCompare(second))
+      .map(([key, entry]) => [key, canonicalConfiguration(entry)]),
+  );
+}
+
+/** Identifies the exact validated configuration without retaining its values. */
+export function runtimeAdapterConfigurationFingerprint(
+  configuration: RuntimeAdapterConfiguration,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalConfiguration(configuration)))
+    .digest("hex");
 }
 
 export interface RuntimeAdapterRegistry {
@@ -146,6 +174,23 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
   return [
     {
       identity: "acp",
+      resolveCapabilities(configuration) {
+        if (configuration.adapter !== "acp") {
+          throw new RuntimeAdapterSelectionError(
+            'factory "acp" received a different adapter configuration',
+          );
+        }
+        return {
+          execute: true,
+          modelSelection: configuration.configuration.model !== undefined,
+          structuredOutput: true,
+          sessionReuse: configuration.configuration.persistSession,
+          checkpoint: false,
+          fork: false,
+          activity: true,
+          sessionUi: false,
+        };
+      },
       create(configuration) {
         if (configuration.adapter !== "acp") {
           throw new RuntimeAdapterSelectionError(
@@ -159,6 +204,23 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
     },
     {
       identity: "opencode",
+      resolveCapabilities(configuration) {
+        if (configuration.adapter !== "opencode") {
+          throw new RuntimeAdapterSelectionError(
+            'factory "opencode" received a different adapter configuration',
+          );
+        }
+        return {
+          execute: true,
+          modelSelection: true,
+          structuredOutput: true,
+          sessionReuse: true,
+          checkpoint: true,
+          fork: true,
+          activity: true,
+          sessionUi: true,
+        };
+      },
       create(configuration, context) {
         if (configuration.adapter !== "opencode") {
           throw new RuntimeAdapterSelectionError(
@@ -214,9 +276,22 @@ export function createRuntimeAdapterRegistry(
           `no factory is registered for adapter "${configuration.adapter}"`,
         );
       }
+      let capabilities: AgentAdapterCapabilities;
+      try {
+        capabilities = factory.resolveCapabilities(configuration);
+      } catch (cause) {
+        if (cause instanceof RuntimeAdapterSelectionError) throw cause;
+        throw new RuntimeAdapterSelectionError(
+          `factory "${configuration.adapter}" could not resolve capabilities`,
+          cause,
+        );
+      }
       return {
         identity: configuration.adapter,
         configuration,
+        configurationFingerprint:
+          runtimeAdapterConfigurationFingerprint(configuration),
+        capabilities,
         create(context) {
           try {
             return factory.create(configuration, context);

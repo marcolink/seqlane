@@ -48,6 +48,7 @@ function factory(
 ) {
   return {
     identity,
+    resolveCapabilities: () => adapter().capabilities,
     create: () => {
       selected.push(identity);
       if (options.fail) throw new Error("factory failed");
