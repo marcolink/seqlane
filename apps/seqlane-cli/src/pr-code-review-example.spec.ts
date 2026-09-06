@@ -203,7 +203,7 @@ describe("pull-request code review example workflow", () => {
       '"$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"',
     );
     expect(markerStep).toMatch(
-      /elif grep -Fq "HTTP 404"[\s\S]*?exit 0\n          else\n            cat .* >&2\n            exit 1/,
+      /elif grep -Fq "HTTP 404"[\s\S]*?exit 0\n {10}else\n {12}cat .* >&2\n {12}exit 1/,
     );
     expect(markerStep).toContain(
       "The review-progress comment was already deleted; treating the marker as cleared.",
