@@ -152,18 +152,20 @@ to `Reopened`.
 
 The visible comment is a human-readable projection. A collapsed JSON code
 block stores the canonical version 3 state as bounded gzip and Base64 data.
-The state includes full commit IDs, lifecycle data, dispositions, the latest
-run audit, and a cumulative run summary. Each completed run also gets an
-immutable trusted-bot audit comment with a mechanically generated metrics
-object containing task result state, duration, model, tokens, and cost totals.
-All retained run metrics are shown as a JSON array in the human comment under
-`Run metrics`, together with the absolute cumulative cost for the pull request
-and the latest-run cost. No agent calculates these values. Existing single-run and
-append-only-history v3 state is migrated to audit comments when the next
-report is published. The publisher re-reads the trusted report immediately
-before writing and skips stale concurrent writes. When a new review starts and
-a trusted report already exists, the workflow temporarily prepends a prominent
-in-progress notice. It removes that notice after publication or cleanup.
+The state includes full commit IDs, lifecycle data, and dispositions. A single
+marked JSON object in the same authoritative comment stores the run metrics
+ledger. Each ledger entry contains the GitHub workflow run ID and attempt,
+completion time, reviewed revision, and a mechanically generated metrics object
+with task result state, duration, model, tokens, and cost totals. The visible
+run count, absolute pull-request cost, and latest-run cost are derived from the
+ledger's `runs` array at render time. No agent calculates these values, and no
+separate per-run audit comments are created or read. A missing, malformed,
+unsupported, or legacy ledger starts a fresh metrics ledger without discarding
+valid review state; no metrics migration is performed. The publisher re-reads
+the trusted report immediately before writing and skips stale concurrent writes.
+When a new review starts and a trusted report already exists, the workflow
+temporarily prepends a prominent in-progress notice. It removes that notice
+after publication or cleanup.
 Previous state is accepted only from a marked comment by the GitHub Actions bot
 and only after strict schema validation. Legacy snapshots remain readable for
 migration. State or comment truncation appears in the review limitations. The

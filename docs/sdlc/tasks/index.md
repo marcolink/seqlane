@@ -168,3 +168,4 @@
 | [task.publish-versioned-pull-request-review-comments](./2026-09-05-publish-versioned-pull-request-review-comments.md) | Publish Versioned Pull Request Review Comments | completed | 2026-09-05 | core |
 | [task.review-progress-and-run-metrics](./2026-09-05-review-progress-and-run-metrics.md) | Show Review Progress and Persist Run Metrics | completed | 2026-09-05 | core |
 | [task.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Apply Pull Request Review Dispositions Without Agent Runs | planned | 2026-09-06 | core |
+| [task.consolidate-pull-request-review-run-metrics](./2026-09-06-consolidate-pull-request-review-run-metrics.md) | Consolidate Pull Request Review Run Metrics | completed | 2026-09-06 | core |

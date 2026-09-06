@@ -40,6 +40,8 @@ state.
 - **Authoritative comment:** The trusted bot comment that owns the review state.
 - **Human projection:** The concise Markdown review that people read.
 - **Review state:** The validated machine data that the next review consumes.
+- **Run metrics ledger:** The one human-readable, strict JSON object in the
+  authoritative comment that retains completed review-run metrics.
 - **Comparable predecessor:** A prior reviewed revision that Git identifies as
   an ancestor of the current reviewed revision.
 - **Disposition:** An authorized human decision, such as `wont-fix` or
@@ -73,10 +75,7 @@ The state must contain these fields:
 - comparable predecessor revision, when available;
 - the next finding index;
 - retained findings and lifecycle metadata;
-- review limitations;
-- the latest run audit record and a cumulative run summary;
-- immutable per-run audit comments containing optional per-task run metrics for
-  every completed review run.
+- review limitations.
 
 ### requirement-run-status-and-metrics
 
@@ -93,23 +92,28 @@ token, and cost values. The object must include run duration, total cost, and
 token totals. The publisher must not use an agent to calculate or interpret
 these values.
 
-Each completed run must be preserved in a separate immutable, trusted bot
-comment. A new run must not replace an earlier run's metrics. Existing v3
-states with a single run audit record or an append-only `runs` history remain
-valid and must migrate to immutable audit comments when the next report is
-published. The bounded state stores only the latest run and cumulative summary.
-Missing provider metrics must remain absent rather than being represented as
-fabricated zero usage.
+The authoritative comment must contain exactly one marked, human-readable run
+metrics ledger. The ledger is a plain JSON object with a schema version and a
+`runs` array. Every run entry must contain the GitHub workflow run ID, attempt,
+completion time, reviewed revision, and the mechanically derived metrics
+object. The run ID and attempt form the entry identity. A new run appends one
+entry unless that identity already exists. Missing provider metrics must remain
+absent rather than being represented as fabricated zero usage.
 
-The human comment must show every retained run metrics object in a plain JSON
-array code block. It must also show the absolute cumulative cost for the pull
-request and the cost of the latest run. Both costs must be derived from the
-retained run history.
+The ledger is the only source for rendered run metrics. The human projection
+may calculate total pull-request cost, last-run cost, and run count from
+`runs`, but it must not persist those derived values in the ledger. The
+publisher must not create or read separate per-run audit comments.
+
+The reader must strictly validate the marked ledger independently of review
+state. A missing, malformed, unsupported, or legacy ledger is an empty ledger.
+It must not cause the publisher to discard the otherwise valid review state,
+findings, or lifecycle data. No metrics-ledger migration or recovery path is
+required.
 
 Before publication, the publisher must re-read the current trusted report and
 skip a stale write when its run metadata no longer matches the report read at
-review start. Audit-comment publication must be idempotent by run ID and
-attempt.
+review start. Ledger updates must be idempotent by run ID and attempt.
 
 ### requirement-stable-identity
 
@@ -242,6 +246,29 @@ collapsed Markdown details element after the human projection.
 The state payload uses compact JSON. The publisher can use a bounded
 `gzip+base64` wrapper when direct JSON exceeds the state budget.
 
+The run metrics ledger uses a separate, visible Markdown code block with
+start/end markers. Its JSON shape is:
+
+```json
+{
+  "schemaVersion": 1,
+  "runs": [
+    {
+      "githubRunId": "string",
+      "attempt": 1,
+      "completedAt": "RFC 3339 timestamp",
+      "reviewedRevision": "full Git revision",
+      "metrics": {}
+    }
+  ]
+}
+```
+
+The ledger must satisfy the existing final-comment byte limit. The publisher
+must reject an oversized ledger rather than silently dropping retained runs.
+The previous v3 `run`, `runs`, and `runSummary` state fields are not inputs to
+the ledger and are not migrated.
+
 Run timestamps and identifiers are audit data. They do not decide publication
 order across revisions. The live pull-request head and full Git revisions
 decide eligibility. For the same reviewed revision, the GitHub run ID and
@@ -261,6 +288,10 @@ counts.
 
 - Ignore state from an untrusted comment author.
 - Ignore malformed, oversized, or unsupported state.
+- Treat a missing, malformed, oversized, or unsupported run metrics ledger as
+  an empty ledger without discarding valid review state.
+- Reject a publication that would make the visible run metrics ledger exceed
+  the final-comment byte limit.
 - Do not publish when the live pull request is closed, draft, or ineligible.
 - Do not publish when the live head differs from the report head.
 - Do not show a predecessor or delta when Git ancestry is not comparable.
@@ -283,6 +314,8 @@ identifier. New reports and commands use the v3 identifier.
 - Add current-head fix-verification tests.
 - Add trusted-author and stale-head publication tests.
 - Add workflow admission and concurrency regression tests.
+- Add ledger parsing, malformed-ledger, duplicate-run, and rendered-derived
+  cost tests.
 - Execute the exact publisher script with bounded representative state.
 - Run the branch workflow against an open pull request.
 
@@ -294,6 +327,10 @@ identifier. New reports and commands use the v3 identifier.
 - A fix claim cannot resolve a finding without current-head verification.
 - An old or untrusted run cannot replace the authoritative comment.
 - Mandatory limitation notices remain visible after output bounds apply.
+- The authoritative comment contains one strict, human-readable run metrics
+  ledger and no per-run audit comments.
+- A legacy or invalid ledger starts a fresh metrics ledger without changing the
+  valid review state.
 - Irrelevant comments cannot enter review concurrency, while recognized
   commands and pull-request updates remain serialized per pull request.
 
@@ -302,3 +339,4 @@ identifier. New reports and commands use the v3 identifier.
 - Source proposal: [Seqlane review template](https://github.com/marcolink/seqlane/issues/45)
 - Delivery: [task.publish-versioned-pull-request-review-comments](../tasks/2026-09-05-publish-versioned-pull-request-review-comments.md)
 - Delivery: [task.prevent-comment-triggered-review-cancellation](../tasks/2026-09-05-prevent-comment-triggered-review-cancellation.md)
+- Delivery: [task.consolidate-pull-request-review-run-metrics](../tasks/2026-09-06-consolidate-pull-request-review-run-metrics.md)
