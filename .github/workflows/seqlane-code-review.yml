@@ -1020,7 +1020,9 @@ jobs:
             + [
               "",
               "<details>",
-              ("<summary>Run metrics (" + $prRunCount + " runs) · PR cost: $" + $prTotalCost + " · last run: $" + $runMetricsTotalCost + "</summary>"),
+              ("<summary>Run metrics (" + $prRunCount + " " +
+                (if $prRunCount == "1" then "run" else "runs" end) +
+                ") · PR cost: $" + $prTotalCost + " · last run: $" + $runMetricsTotalCost + "</summary>"),
               "",
               "Mechanically aggregated from Seqlane execution events:",
               "",
