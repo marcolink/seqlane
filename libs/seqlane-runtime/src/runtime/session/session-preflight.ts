@@ -32,7 +32,7 @@ export class UnsupportedSessionCapabilityError extends Error {
   }
 }
 
-function agentTaskNodes(compiled: CompiledPlan): readonly TaskNode[] {
+function agentTaskNodes(compiled: PreparedPlanExecution): readonly TaskNode[] {
   const nodes: TaskNode[] = [];
   const visit = (node: PlanNode): void => {
     if (node.type === "task") {
@@ -74,7 +74,7 @@ function requireCapability(
 
 /** Checks static session and model requirements before creating any session. */
 export function preflightCompiledWorkflowSessionCapabilities(
-  compiled: CompiledPlan,
+  compiled: PreparedPlanExecution,
 ): void {
   const capabilities = compiled.context.sessionResolver?.adapterCapabilities;
   if (capabilities === undefined) return;
