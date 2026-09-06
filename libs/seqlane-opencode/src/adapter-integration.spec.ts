@@ -274,7 +274,7 @@ describe("OpenCode SDK adapter boundary", () => {
           workspace: "shared",
           input: z.string(),
           output: z.object({ result: z.string() }),
-            goal: (input) => String(input),
+          goal: (input) => String(input),
         },
         input: "Return the controlled result",
         modelSelection: {
@@ -401,7 +401,7 @@ describe("OpenCode SDK adapter boundary", () => {
           id: "cancel-task",
           input: z.string(),
           output: z.object({ result: z.string() }),
-            goal: (input) => String(input),
+          goal: (input) => String(input),
         },
         input: "cancel",
         signal: controller.signal,
