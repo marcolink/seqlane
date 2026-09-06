@@ -25,7 +25,7 @@ const task: AgentTaskDefinition = {
   id: "controlled-acp-task",
   input: z.string(),
   output: resultSchema,
-  goal: (input) => input,
+  goal: (input) => String(input),
 };
 
 function configuration(cwd: string, mode: string, persistSession = false) {
@@ -38,7 +38,7 @@ function configuration(cwd: string, mode: string, persistSession = false) {
     cwd,
     persistSession,
     model: "controlled-model",
-  } as const;
+  };
 }
 
 function request(
