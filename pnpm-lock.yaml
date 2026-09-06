@@ -225,6 +225,15 @@ importers:
 
   libs/action-merge-conflict-resolution:
     dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../seqlane-core
+      '@seqlane/opencode':
+        specifier: workspace:*
+        version: link:../seqlane-opencode
+      '@seqlane/runtime':
+        specifier: workspace:*
+        version: link:../seqlane-runtime
       zod:
         specifier: 4.5.4
         version: 4.5.4

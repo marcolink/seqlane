@@ -21,6 +21,9 @@
     ]
   },
   "dependencies": {
+    "@seqlane/core": "workspace:*",
+    "@seqlane/opencode": "workspace:*",
+    "@seqlane/runtime": "workspace:*",
     "zod": "4.5.4"
   },
   "files": [
