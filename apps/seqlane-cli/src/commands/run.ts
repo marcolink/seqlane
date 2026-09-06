@@ -60,7 +60,7 @@ async function cancelOperationalRun(
   runId: string,
   workflowId: string,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
     try {
       await client.cancelRun(runId, workflowId);
       return;
@@ -71,6 +71,9 @@ async function cancelOperationalRun(
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
+  throw new OperationalClientError(
+    `Operational run "${runId}" did not become cancellable before the retry limit`,
+  );
 }
 
 function parseJsonInput(value: string): JsonValue {
@@ -295,14 +298,23 @@ export default class RunCommand extends Command {
       let ownedHost:
         Awaited<ReturnType<typeof startOwnedOperationalHost>> | undefined;
       let cancellationRequested = false;
+      let cancellationPromise: Promise<void> | undefined;
+      let cancellationError: unknown;
+      const requestCancellation = (): void => {
+        cancellationRequested = true;
+        if (client === undefined || cancellationPromise !== undefined) return;
+        cancellationPromise = cancelOperationalRun(
+          client,
+          runId,
+          request.workflow.id,
+        );
+        void cancellationPromise.catch((error: unknown) => {
+          cancellationError = error;
+        });
+      };
       let exitStatus = 1;
       const onSignal = (): void => {
-        cancellationRequested = true;
-        void (
-          client === undefined
-            ? Promise.resolve()
-            : cancelOperationalRun(client, runId, request.workflow.id)
-        ).catch(() => undefined);
+        requestCancellation();
       };
       process.once("SIGINT", onSignal);
       process.once("SIGTERM", onSignal);
@@ -331,11 +343,7 @@ export default class RunCommand extends Command {
         client = new OperationalClient(
           flags["server-url"] ?? ownedHost?.address ?? "",
         );
-        if (cancellationRequested) {
-          void cancelOperationalRun(client, runId, request.workflow.id).catch(
-            () => undefined,
-          );
-        }
+        if (cancellationRequested) requestCancellation();
         events.emit({ type: "run.started", workId, runId });
         const result = await client.startRun({
           workflowId: request.workflow.id,
@@ -345,6 +353,8 @@ export default class RunCommand extends Command {
           runtimeId: request.runtime.id,
           workspace: request.runtime.workspace,
         });
+        await cancellationPromise;
+        if (cancellationError !== undefined) throw cancellationError;
         if (
           cancellationRequested ||
           result.status === "canceled" ||

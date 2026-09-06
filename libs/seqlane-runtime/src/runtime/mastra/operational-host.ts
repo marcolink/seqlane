@@ -149,12 +149,13 @@ function storageFromUrl(url: string): MastraCompositeStore {
 export function createOperationalWorkflow(
   source: OperationalWorkflowSource,
 ): OperationalWorkflowRegistration {
-  const executeInvocation = createOperationalInvocationHandler(source);
+  const invocationHandler = createOperationalInvocationHandler(source);
   const compiled = compilePlanToMastra(source.plan, {
     workflow: source.workflow,
     taskDefinitions: source.taskDefinitions,
     validatorDefinitions: source.validatorDefinitions,
-    executeInvocation,
+    executeInvocation: invocationHandler.invoke,
+    onWorkflowComplete: ({ runId }) => invocationHandler.complete(runId),
   });
   return { key: source.key, workflow: compiled.workflow };
 }
@@ -184,15 +185,20 @@ function runtimeProfileFromContext(
   };
 }
 
+interface OperationalInvocationHandler {
+  readonly invoke: MastraPlanInvocation;
+  readonly complete: (runId: string) => void;
+}
+
 function createOperationalInvocationHandler(
   source: OperationalWorkflowSource,
-): MastraPlanInvocation {
+): OperationalInvocationHandler {
   const preparedByRun = new Map<
     string,
     Promise<ReturnType<typeof createMastraPlanInvocationHandler>>
   >();
 
-  return async (context) => {
+  const invoke: MastraPlanInvocation = async (context) => {
     const pending =
       preparedByRun.get(context.runId) ??
       (async () => {
@@ -233,7 +239,7 @@ function createOperationalInvocationHandler(
         await resolveCompiledWorkflowSessions(prepared);
         if (source.eventSink !== undefined) {
           events.emitPlan(
-            createSeqlanePlanSnapshot(source.plan),
+            createSeqlanePlanSnapshot(prepared.plan),
             workId,
             context.runId,
           );
@@ -241,7 +247,23 @@ function createOperationalInvocationHandler(
         return createMastraPlanInvocationHandler(prepared, source.plan);
       })();
     preparedByRun.set(context.runId, pending);
-    return (await pending)(context);
+    try {
+      return await (
+        await pending
+      )(context);
+    } catch (error) {
+      if (preparedByRun.get(context.runId) === pending) {
+        preparedByRun.delete(context.runId);
+      }
+      throw error;
+    }
+  };
+
+  return {
+    invoke,
+    complete: (runId) => {
+      preparedByRun.delete(runId);
+    },
   };
 }
 

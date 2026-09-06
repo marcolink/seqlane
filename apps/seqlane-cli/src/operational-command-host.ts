@@ -7,7 +7,7 @@ import {
   type OperationalSessionUiNotifier,
 } from "@seqlane/runtime/operational-host";
 import { loadWorkflow } from "@seqlane/runtime/workflow";
-import { loadOperationalWorkflows } from "./commands/serve.js";
+import { loadOperationalWorkflows } from "./operational-workflows.js";
 import type { WorkflowRoots } from "./workflow-discovery.js";
 
 export interface OwnedOperationalHostOptions {
@@ -46,6 +46,7 @@ export async function startOwnedOperationalHost(
       createOperationalWorkflow({
         key: options.workflow.id,
         plan: loaded.plan,
+        workflow: loaded.definition,
         taskDefinitions: loaded.taskDefinitions,
         validatorDefinitions: loaded.validatorDefinitions,
         eventSink: options.eventSink,

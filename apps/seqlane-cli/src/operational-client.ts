@@ -18,16 +18,26 @@ const runResponseSchema = z
   })
   .passthrough();
 
-const startResponseSchema = z
+const startAcknowledgementSchema = z
+  .object({ message: z.string() })
+  .passthrough();
+const startResultSchema = z
   .object({
     status: z.string().min(1),
     result: z.unknown().optional(),
     error: z.unknown().optional(),
   })
   .passthrough();
+const startResponseSchema = z.union([
+  startAcknowledgementSchema,
+  startResultSchema,
+]);
 
 export type OperationalRun = z.output<typeof runResponseSchema>;
-export type OperationalStartResult = z.output<typeof startResponseSchema>;
+export type OperationalStartResult = Pick<
+  OperationalRun,
+  "status" | "result" | "error"
+>;
 
 export class OperationalClientError extends Error {
   readonly status: number | undefined;
@@ -44,7 +54,19 @@ export class OperationalClientError extends Error {
 
 function baseUrl(value: string): string {
   try {
-    return new URL(value).toString().replace(/\/$/, "");
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (
+      url.protocol !== "http:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      !["localhost", "127.0.0.1", "::1"].includes(hostname)
+    ) {
+      throw new TypeError(
+        "Operational server URL must be an unauthenticated HTTP loopback URL",
+      );
+    }
+    return url.toString().replace(/\/$/, "");
   } catch (cause) {
     throw new OperationalClientError("Operational server URL is invalid", {
       cause,
@@ -143,57 +165,112 @@ export class OperationalClient {
     readonly runtimeId?: string;
     readonly workspace?: string;
   }): Promise<OperationalStartResult> {
-    const workflowId = encodeURIComponent(
-      await this.resolveWorkflow(options.workflowId),
-    );
+    const resolvedWorkflow = await this.resolveWorkflow(options.workflowId);
+    const workflowId = encodeURIComponent(resolvedWorkflow);
     const query = new URLSearchParams({ runId: options.runId });
-    return this.request(
+    const body = {
+      resourceId: options.workId,
+      inputData: options.input,
+      requestContext: {
+        "seqlane.workId": options.workId,
+        "seqlane.runId": options.runId,
+        ...(options.runtimeId === undefined
+          ? {}
+          : { "seqlane.runtimeId": options.runtimeId }),
+        ...(options.workspace === undefined
+          ? {}
+          : { "seqlane.workspace": options.workspace }),
+      },
+      tracingOptions: {
+        metadata: {
+          "seqlane.workId": options.workId,
+          "seqlane.runId": options.runId,
+        },
+        traceId: options.runId.replaceAll("-", "").padEnd(32, "0").slice(0, 32),
+      },
+    };
+    await this.request(
       `/api/workflows/${workflowId}/start-async?${query.toString()}`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          resourceId: options.workId,
-          inputData: options.input,
-          requestContext: {
-            "seqlane.workId": options.workId,
-            "seqlane.runId": options.runId,
-            ...(options.runtimeId === undefined
-              ? {}
-              : { "seqlane.runtimeId": options.runtimeId }),
-            ...(options.workspace === undefined
-              ? {}
-              : { "seqlane.workspace": options.workspace }),
-          },
-          tracingOptions: {
-            metadata: {
-              "seqlane.workId": options.workId,
-              "seqlane.runId": options.runId,
-            },
-            traceId: options.runId
-              .replaceAll("-", "")
-              .padEnd(32, "0")
-              .slice(0, 32),
-          },
-        }),
+        body: JSON.stringify(body),
       },
       startResponseSchema,
+    );
+
+    const deadline = Date.now() + 60_000;
+    let lastNotFound: OperationalClientError | undefined;
+    while (Date.now() < deadline) {
+      try {
+        const run = await this.getRunForWorkflow(
+          options.runId,
+          resolvedWorkflow,
+        );
+        if (
+          [
+            "success",
+            "failed",
+            "canceled",
+            "cancelled",
+            "bailed",
+            "tripwire",
+            "skipped",
+          ].includes(run.status)
+        ) {
+          return {
+            status: run.status,
+            ...(run.result === undefined ? {} : { result: run.result }),
+            ...(run.error === undefined ? {} : { error: run.error }),
+          };
+        }
+      } catch (error) {
+        if (error instanceof OperationalClientError && error.status === 404) {
+          lastNotFound = error;
+        } else {
+          throw error;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw (
+      lastNotFound ??
+      new OperationalClientError(
+        `Operational run "${options.runId}" did not reach a terminal state`,
+      )
     );
   }
 
   async getRun(runId: string, workflowId?: string): Promise<OperationalRun> {
+    const target = await this.findRun(runId, workflowId);
+    return target.run;
+  }
+
+  private async getRunForWorkflow(
+    runId: string,
+    workflow: string,
+  ): Promise<OperationalRun> {
+    return this.request(
+      `/api/workflows/${encodeURIComponent(workflow)}/runs/${encodeURIComponent(runId)}`,
+      { method: "GET" },
+      runResponseSchema,
+    );
+  }
+
+  private async findRun(
+    runId: string,
+    workflowId?: string,
+  ): Promise<{ readonly run: OperationalRun; readonly workflow: string }> {
     const candidates = workflowId
       ? [await this.resolveWorkflow(workflowId)]
       : await this.listWorkflows();
     let lastNotFound: OperationalClientError | undefined;
     for (const candidate of candidates) {
-      const encodedWorkflow = encodeURIComponent(candidate);
       try {
-        return await this.request(
-          `/api/workflows/${encodedWorkflow}/runs/${encodeURIComponent(runId)}`,
-          { method: "GET" },
-          runResponseSchema,
-        );
+        return {
+          run: await this.getRunForWorkflow(runId, candidate),
+          workflow: candidate,
+        };
       } catch (error) {
         if (error instanceof OperationalClientError && error.status === 404) {
           lastNotFound = error;
@@ -211,16 +288,8 @@ export class OperationalClient {
   }
 
   async cancelRun(runId: string, workflowId?: string): Promise<string> {
-    const run = await this.getRun(runId, workflowId);
-    const resolvedWorkflow = workflowId ?? run.workflowName;
-    if (resolvedWorkflow === undefined) {
-      throw new OperationalClientError(
-        `Run "${runId}" does not identify a workflow`,
-      );
-    }
-    const workflow = encodeURIComponent(
-      await this.resolveWorkflow(resolvedWorkflow),
-    );
+    const target = await this.findRun(runId, workflowId);
+    const workflow = encodeURIComponent(target.workflow);
     const response = await this.request(
       `/api/workflows/${workflow}/runs/${encodeURIComponent(runId)}/cancel`,
       {

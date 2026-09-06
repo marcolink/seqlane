@@ -69,6 +69,8 @@ URL uses the required bracketed IPv6 form.
 Run-control commands use the same host. Set `--server-url` to use an existing
 host; without it, the command owns a local host for its lifetime:
 
+`--server-url` accepts only an unauthenticated HTTP loopback URL.
+
 ```sh
 seqlane status <run-id> --server-url http://127.0.0.1:4111
 seqlane cancel <run-id> --server-url http://127.0.0.1:4111

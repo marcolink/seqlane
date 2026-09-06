@@ -1,5 +1,12 @@
 // @test-scope ./operational-client.ts
+// @test-scope ../../../libs/seqlane-runtime/src/runtime/mastra/operational-host.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Plan, PlanNode } from "@seqlane/core";
+import {
+  createOperationalHost,
+  createOperationalWorkflow,
+} from "@seqlane/runtime/operational-host";
+import { z } from "zod";
 import {
   OperationalClient,
   OperationalClientError,
@@ -10,6 +17,60 @@ afterEach(() => {
 });
 
 describe("OperationalClient", () => {
+  it("starts and observes a run through the real Mastra operational routes", async () => {
+    const node: PlanNode = {
+      type: "task",
+      taskId: "fixture.task",
+      nodeId: "fixture.task:1",
+      input: {},
+      dependsOn: [],
+      execution: "local",
+      workspace: "exclusive",
+    };
+    const plan: Plan = {
+      workflow: { id: "fixture-workflow" },
+      nodes: [node],
+      output: { type: "ref", nodeId: node.nodeId, path: ["output"] },
+    };
+    const host = await createOperationalHost({
+      workflows: [
+        createOperationalWorkflow({
+          key: "repository:fixture",
+          plan,
+          taskDefinitions: new Map([
+            [
+              "fixture.task",
+              {
+                id: "fixture.task",
+                input: z.object({}),
+                output: z.object({ ok: z.boolean() }),
+                execute: async () => ({ ok: true }),
+              },
+            ],
+          ]),
+        }),
+      ],
+      storageUrl: "file::memory:",
+    });
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      host.fetch(new Request(input, init)),
+    );
+
+    try {
+      await expect(
+        new OperationalClient("http://127.0.0.1:4111").startRun({
+          workflowId: "repository:fixture",
+          runId: "run-real-route",
+          workId: "work-real-route",
+          input: {},
+          runtimeId: "local",
+        }),
+      ).resolves.toMatchObject({ status: "success", result: { ok: true } });
+    } finally {
+      await host.close();
+    }
+  });
+
   it("validates workflow registration and starts a run through Mastra routes", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -30,6 +91,20 @@ describe("OperationalClient", () => {
             headers: { "content-type": "application/json" },
           },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            runId: "run-1",
+            workflowName: "repository:fixture",
+            status: "success",
+            result: { ok: true },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -44,7 +119,7 @@ describe("OperationalClient", () => {
     });
 
     expect(result).toEqual({ status: "success", result: { ok: true } });
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:4111/api/workflows/repository%3Afixture/start-async?runId=run-1",
       expect.objectContaining({ method: "POST" }),
     );
@@ -84,14 +159,6 @@ describe("OperationalClient", () => {
         ),
       )
       .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            "repository:other": { id: "other" },
-            "user:fixture": { id: "fixture" },
-          }),
-        ),
-      )
-      .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: "Workflow run cancelled" })),
       );
     vi.stubGlobal("fetch", fetchMock);
@@ -102,6 +169,17 @@ describe("OperationalClient", () => {
     expect(fetchMock).toHaveBeenLastCalledWith(
       "http://localhost:4111/api/workflows/user%3Afixture/runs/run-1/cancel",
       expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([
+    "https://localhost:4111",
+    "http://example.com:4111",
+    "http://user:password@127.0.0.1:4111",
+  ])("rejects unsafe operational server URL %s", (origin) => {
+    expect(() => new OperationalClient(origin)).toThrow(
+      "Operational server URL is invalid",
     );
   });
 

@@ -53,13 +53,19 @@ function localRegistration() {
   if (node === undefined || node.type !== "task") {
     throw new Error("Fixture workflow must contain a task node");
   }
-  const input = z.object({});
+  const input = z.object({ required: z.string() });
   const output = z.object({ value: z.string() });
   return createOperationalWorkflow({
     key: "repository:local-fixture",
     plan: {
       ...workflowPlan(),
-      nodes: [{ ...node, execution: "local" }],
+      nodes: [
+        {
+          ...node,
+          execution: "local",
+          input: { type: "ref", nodeId: "__seqlane_input", path: [] },
+        },
+      ],
       output: { type: "ref", nodeId: node.nodeId, path: ["output"] },
     },
     taskDefinitions: new Map([
@@ -73,6 +79,7 @@ function localRegistration() {
         },
       ],
     ]),
+    workflow: { input, output },
   });
 }
 
@@ -185,7 +192,7 @@ describe("Mastra operational host", () => {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               resourceId: "work-local",
-              inputData: {},
+              inputData: { required: "value" },
               requestContext: { "seqlane.runtimeId": "local" },
             }),
           },
@@ -193,9 +200,28 @@ describe("Mastra operational host", () => {
       );
 
       expect(response.status).toBe(200);
-      await expect(json(response)).resolves.toMatchObject({
+      const localResult = await json(response);
+      expect(localResult, JSON.stringify(localResult)).toMatchObject({
         status: "success",
         result: { value: "executed-by-owned-host" },
+      });
+
+      const invalidInputResponse = await host.fetch(
+        new Request(
+          "http://host/api/workflows/repository%3Alocal-fixture/start-async?runId=run-invalid-input",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              resourceId: "work-invalid-input",
+              inputData: {},
+              requestContext: { "seqlane.runtimeId": "local" },
+            }),
+          },
+        ),
+      );
+      await expect(json(invalidInputResponse)).resolves.toMatchObject({
+        error: expect.stringContaining("Invalid input"),
       });
     } finally {
       await host.close();
