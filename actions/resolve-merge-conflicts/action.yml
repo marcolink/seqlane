@@ -1,0 +1,5 @@
+name: Resolve Merge Conflicts
+description: Resolve merge conflicts in a pull request.
+runs:
+  using: node24
+  main: dist/main.js

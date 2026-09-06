@@ -29,6 +29,9 @@
     },
     {
       "path": "./libs/seqlane-studio"
+    },
+    {
+      "path": "./actions/resolve-merge-conflicts"
     }
   ]
 }

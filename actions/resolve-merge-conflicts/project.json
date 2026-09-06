@@ -1,0 +1,16 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "action-resolve-merge-conflicts",
+  "projectType": "application",
+  "sourceRoot": "actions/resolve-merge-conflicts/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "actions/resolve-merge-conflicts",
+        "command": "tsc --build tsconfig.json"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    }
+  }
+}
