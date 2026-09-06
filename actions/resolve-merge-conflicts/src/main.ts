@@ -123,7 +123,7 @@ export async function run(): Promise<void> {
     files,
     lockfile: new NodeLockfileRegenerator({
       targetRoot,
-      trustedSourceRoot: sourceRoot,
+      trustedSourceRoot: root,
     }),
     agent: {
       resolve: async (
@@ -147,7 +147,7 @@ export async function run(): Promise<void> {
     summary: createSummaryWriter(async (summary) => {
       await core.summary.addRaw(summary).write();
     }, workflowRef),
-    commitAndPush: new NodeCommitAndPush(git),
+    commitAndPush: new NodeCommitAndPush(git, token),
   };
 
   try {

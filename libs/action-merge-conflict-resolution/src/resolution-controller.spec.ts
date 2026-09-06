@@ -94,12 +94,26 @@ function ports(
         baseRevision: revision("c"),
         headRevision: revision("b"),
       }),
-      copyAgentEdits: async (paths) => agent.push(paths),
+      copyAgentEdits: async (paths) => {
+        agent.push(paths);
+      },
       validateTarget: async () => undefined,
     },
-    lockfile: { regenerate: async () => lockfiles.push(true) },
-    agent: { resolve: async () => agent.push(true) },
-    summary: { write: async (value) => summary.push(value) },
+    lockfile: {
+      regenerate: async () => {
+        lockfiles.push(true);
+      },
+    },
+    agent: {
+      resolve: async () => {
+        agent.push(true);
+      },
+    },
+    summary: {
+      write: async (value) => {
+        summary.push(value);
+      },
+    },
     commitAndPush: {
       commit: async () => undefined,
       push: async () => undefined,

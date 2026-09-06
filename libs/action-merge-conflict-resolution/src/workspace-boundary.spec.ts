@@ -156,6 +156,7 @@ describe("workspace boundary", () => {
       mkdirSync(target);
       mkdirSync(agent);
       writeFileSync(join(source, "conflict.ts"), "resolved\n");
+      writeFileSync(join(target, "conflict.ts"), "conflicted target\n");
       writeFileSync(join(source, "pnpm-lock.yaml"), "lockfile\n");
       writeFileSync(join(source, "other.ts"), "other\n");
       const workspace = new NodeWorkspaceBoundary({
@@ -172,6 +173,10 @@ describe("workspace boundary", () => {
         { path: "pnpm-lock.yaml", stage: 1 },
       ]);
       assert.deepEqual(request.paths, ["conflict.ts"]);
+      assert.equal(
+        readFileSync(join(agent, "conflict.ts"), "utf8"),
+        "conflicted target\n",
+      );
       assert.equal(readFileIfPresent(join(agent, "pnpm-lock.yaml")), undefined);
       await assert.rejects(
         () => workspace.copyAgentEdits(["other.ts"]),

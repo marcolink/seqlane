@@ -22,6 +22,7 @@
   "devDependencies": {
     "@seqlane/action-merge-conflict-resolution": "workspace:*",
     "@seqlane/core": "workspace:*",
+    "@seqlane/runtime": "workspace:*",
     "@nx/esbuild": "catalog:",
     "@nx/eslint": "catalog:",
     "@nx/eslint-plugin": "catalog:",

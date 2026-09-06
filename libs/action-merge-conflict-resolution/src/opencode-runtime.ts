@@ -166,11 +166,17 @@ export class NodeOpenCodeRuntime {
             stop: async () => {
               if (stopped) return;
               stopped = true;
-              if (child?.exitCode === null) child.kill("SIGTERM");
-              await waitForExit(child!);
-              if (child?.exitCode === null) {
-                child.kill("SIGKILL");
-                await waitForExit(child!, 1_000);
+              const processHandle = child;
+              if (processHandle === undefined) {
+                await rm(directory, { recursive: true, force: true });
+                return;
+              }
+              if (processHandle.exitCode === null)
+                processHandle.kill("SIGTERM");
+              await waitForExit(processHandle);
+              if (processHandle.exitCode === null) {
+                processHandle.kill("SIGKILL");
+                await waitForExit(processHandle, 1_000);
               }
               await rm(directory, { recursive: true, force: true });
             },

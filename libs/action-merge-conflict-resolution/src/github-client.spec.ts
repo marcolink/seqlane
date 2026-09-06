@@ -17,7 +17,9 @@ const liveBaseRevision = "c".repeat(40);
 
 const repository = { owner: "org", name: "repo" } as const;
 
-function pullRequestResponse(headRepository = repository) {
+function pullRequestResponse(
+  headRepository: { owner: string; name: string } = repository,
+) {
   return {
     number: 42,
     state: "open",

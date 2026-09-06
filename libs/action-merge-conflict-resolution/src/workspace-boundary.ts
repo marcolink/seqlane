@@ -139,7 +139,14 @@ async function assertNoSymlinkComponents(
   const parts = path.split("/");
   let current = root;
   for (let index = 0; index < parts.length; index += 1) {
-    current = join(current, parts[index]!);
+    const part = parts[index];
+    if (part === undefined) {
+      throw workspaceError(
+        "UNSAFE_PATH",
+        `Workspace path is malformed: ${path}`,
+      );
+    }
+    current = join(current, part);
     try {
       const details = await lstat(current);
       if (details.isSymbolicLink()) {
@@ -593,7 +600,7 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
       parsed.data.filter(({ path }) => path !== lockfilePath),
     );
     return prepareAgentResolutionWorkspace(
-      this.options.sourceRoot,
+      this.options.targetRoot,
       this.options.agentRoot,
       parsed.data,
       this.options.baseRevision,

@@ -98,6 +98,9 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:libs/seqlane-core
+      '@seqlane/runtime':
+        specifier: workspace:*
+        version: link:libs/seqlane-runtime
       '@swc-node/register':
         specifier: ~1.12.1
         version: 1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3)

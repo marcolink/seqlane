@@ -249,18 +249,20 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
     }
 
     if (strategy === "merge") {
-      const abort = await this.run(["merge", "--abort"]);
-      if (abort.exitCode !== 0) {
-        return integrationFailure(
-          operation,
-          headBefore,
-          baseRevision,
-          {
-            category: "git",
-            code: "GIT_OPERATION_FAILED",
-          },
-          abort,
-        );
+      if (await this.operationInProgress("MERGE_HEAD")) {
+        const abort = await this.run(["merge", "--abort"]);
+        if (abort.exitCode !== 0) {
+          return integrationFailure(
+            operation,
+            headBefore,
+            baseRevision,
+            {
+              category: "git",
+              code: "GIT_OPERATION_FAILED",
+            },
+            abort,
+          );
+        }
       }
     }
 

@@ -52,9 +52,28 @@ async function readRemoteRevision(
 
 export class NodeCommitAndPush implements CommitAndPushPort {
   private readonly git: GitWorkspacePort;
+  private readonly token: string | undefined;
 
-  constructor(git: GitWorkspacePort) {
+  constructor(git: GitWorkspacePort, token?: string) {
     this.git = git;
+    this.token = token;
+  }
+
+  async beforePush(): Promise<void> {
+    if (this.token === undefined || this.token.length === 0) {
+      throw pushError(
+        "OPERATION_FAILED",
+        "A GitHub token is required before push.",
+      );
+    }
+    const authorization = Buffer.from(`x-access-token:${this.token}`).toString(
+      "base64",
+    );
+    await requireCommand(this.git, [
+      "config",
+      "http.https://github.com/.extraheader",
+      `AUTHORIZATION: basic ${authorization}`,
+    ]);
   }
 
   async commit(baseBranch: BranchName): Promise<void> {
