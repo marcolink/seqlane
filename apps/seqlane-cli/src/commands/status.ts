@@ -1,7 +1,7 @@
 import { Args, Command, Flags } from "@oclif/core";
 import { OperationalClient } from "../operational-client.js";
 import { startOwnedOperationalHost } from "../operational-command-host.js";
-import { workflowRootsFromFlags } from "./list.js";
+import { workflowRootsFromFlags } from "../workflow-roots.js";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
