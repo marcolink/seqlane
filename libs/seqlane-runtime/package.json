@@ -16,6 +16,11 @@
       "types": "./dist/runner/main.d.ts",
       "import": "./dist/runner/main.js",
       "default": "./dist/runner/main.js"
+    },
+    "./workflow": {
+      "types": "./dist/runner/workflow/index.d.ts",
+      "import": "./dist/runner/workflow/index.js",
+      "default": "./dist/runner/workflow/index.js"
     }
   },
   "nx": {
