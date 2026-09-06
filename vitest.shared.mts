@@ -84,6 +84,13 @@ export const workspaceAliases = [
     ),
   },
   {
+    find: "@seqlane/runtime/workflow",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/seqlane-runtime/src/runner/workflow/index.ts",
+    ),
+  },
+  {
     find: "@seqlane/runtime",
     replacement: resolve(workspaceRoot, "libs/seqlane-runtime/src/index.ts"),
   },

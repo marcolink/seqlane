@@ -235,7 +235,7 @@ const planSnapshotShapeSchema = strictRecord({
   workflow: workflowIdentitySchema,
   nodes: arrayOf(planNodeSchema, { maximum: 10_000 }),
 });
-const planSnapshotSchema = planSnapshotShapeSchema.pipe(
+export const seqlanePlanSnapshotSchema = planSnapshotShapeSchema.pipe(
   z.custom<z.output<typeof planSnapshotShapeSchema>>((value) => {
     const result = planSnapshotShapeSchema.safeParse(value);
     if (!result.success) return false;
@@ -298,7 +298,7 @@ const runStartedSchema = eventSchema("run.started", {
 const runPlanSchema = eventSchema("run.plan", {
   workId: nonEmptyStringSchema,
   runId: nonEmptyStringSchema,
-  plan: planSnapshotSchema,
+  plan: seqlanePlanSnapshotSchema,
 });
 
 const runHeartbeatSchema = eventSchema("run.heartbeat", {
@@ -528,7 +528,7 @@ export type SeqlanePlanNodeSnapshot = ReadonlySchemaOutput<
   typeof planNodeSchema
 >;
 export type SeqlanePlanSnapshot = ReadonlySchemaOutput<
-  typeof planSnapshotSchema
+  typeof seqlanePlanSnapshotSchema
 >;
 export type SeqlaneExecutionEvent = ReadonlySchemaOutput<
   typeof seqlaneExecutionEventSchema

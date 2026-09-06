@@ -21,6 +21,11 @@
       "types": "./dist/workflows/resolve-merge-conflicts.d.ts",
       "import": "./dist/workflows/resolve-merge-conflicts.js",
       "default": "./dist/workflows/resolve-merge-conflicts.js"
+    },
+    "./workflow": {
+      "types": "./dist/runner/workflow/index.d.ts",
+      "import": "./dist/runner/workflow/index.js",
+      "default": "./dist/runner/workflow/index.js"
     }
   },
   "nx": {

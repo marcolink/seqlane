@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-05
+updated: 2026-09-06
 upstream:
   - rfc.mastra-runtime-and-operational-foundation
 supersedes:
@@ -127,9 +127,13 @@ only domain registration and thin translation required to expose workflows.
 ### requirement-workflow-discovery
 
 Operators must be able to list and plan repository- and user-scoped workflows
-without executing them. Discovery must preserve qualified scope, reject
+without running workflow tasks. Discovery must preserve qualified scope, reject
 ambiguous unqualified names, validate descriptors before import, and retain
-direct module and file references.
+direct module and file references. Repository and user workflow modules are
+trusted internal code. `seqlane list` must not import workflow modules.
+`seqlane plan` can import and evaluate a selected workflow module to compile its
+Plan. It must not start a task, process, executor, model, or runtime. Seqlane
+does not provide an untrusted-workflow sandbox.
 
 ### requirement-workflow-discovery-bounds
 

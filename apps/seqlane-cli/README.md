@@ -1,5 +1,49 @@
 # Seqlane CLI
 
+## Discover and plan workflows
+
+Repository workflows use `.seqlane/workflows/*.json` below the current working
+directory. User workflows use `~/.config/seqlane/workflows/*.json`. Each JSON
+file contains one descriptor:
+
+```json
+{
+  "name": "review",
+  "moduleSpecifier": "./review.ts",
+  "exportName": "default",
+  "description": "Review a change"
+}
+```
+
+The module reference is relative to its descriptor file. `seqlane list` reads
+and validates descriptors without importing workflow modules:
+
+```sh
+seqlane list
+seqlane list --output json
+```
+
+Use `repository:<name>` or `user:<name>` when a name exists in both scopes.
+An unqualified name works only when it is unique. The `--repository-root` and
+`--user-root` flags override the default descriptor roots.
+
+`seqlane plan` loads and compiles one selected workflow. It never starts a run,
+process, executor, or model:
+
+```sh
+seqlane plan repository:review --input '{"topic":"Seqlane"}'
+seqlane plan ./examples/minimal-workflow.ts --output json
+seqlane run repository:review --input '{"topic":"Seqlane"}'
+```
+
+Repository and user workflow modules are trusted local authoring code. The plan
+command can import and evaluate the selected module to compile its Plan. It is
+not a sandbox for untrusted workflow source.
+
+Direct file and module references remain supported by `seqlane run` and
+`seqlane plan`. A module reference can include an export name as
+`<module-specifier>#<export-name>`.
+
 ## Community Studio
 
 Start the upstream Mastra Community Studio:

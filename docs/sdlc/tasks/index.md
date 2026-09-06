@@ -174,7 +174,7 @@
 | [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | completed | 2026-09-03 | core |
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
 | [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | planned | 2026-09-04 | core |
-| [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | planned | 2026-09-04 | core |
+| [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | completed | 2026-09-04 | core |
 | [task.bounded-pr-code-review-evidence](./2026-09-04-bounded-pr-code-review-evidence.md) | Add Bounded Patch Evidence to Pull Request Reviews | completed | 2026-09-04 | core |
 | [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
 | [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
