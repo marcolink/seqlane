@@ -8,6 +8,7 @@ import type {
   Plan,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
+  WorkflowDefinition,
 } from "@seqlane/core";
 import { Hono } from "hono";
 import { compilePlanToMastra } from "../compile/mastra-plan-compiler.js";
@@ -25,6 +26,8 @@ export interface OperationalWorkflowRegistration {
 export interface OperationalWorkflowSource {
   readonly key: string;
   readonly plan: Plan;
+  /** Preserves an authored workflow's input and output validation contract. */
+  readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
 }
@@ -50,12 +53,20 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4111;
 const DEFAULT_STORAGE_URL = "file:./.seqlane/mastra.db";
 
-function isLoopbackHost(host: string): boolean {
-  return (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host === "[::1]"
+interface LoopbackHost {
+  readonly bindHost: string;
+  readonly addressHost: string;
+}
+
+function normalizeLoopbackHost(host: string): LoopbackHost {
+  if (host === "localhost" || host === "127.0.0.1") {
+    return { bindHost: host, addressHost: host };
+  }
+  if (host === "::1" || host === "[::1]") {
+    return { bindHost: "::1", addressHost: "[::1]" };
+  }
+  throw new TypeError(
+    "Operational host must bind to a loopback address (localhost, 127.0.0.1, or ::1)",
   );
 }
 
@@ -66,11 +77,7 @@ function validateOptions(options: OperationalHostOptions): void {
   if (options.host !== undefined && options.host.length === 0) {
     throw new TypeError("Operational host address must not be empty");
   }
-  if (!isLoopbackHost(options.host ?? DEFAULT_HOST)) {
-    throw new TypeError(
-      "Operational host must bind to a loopback address (localhost, 127.0.0.1, or ::1)",
-    );
-  }
+  normalizeLoopbackHost(options.host ?? DEFAULT_HOST);
   if (
     options.port !== undefined &&
     (!Number.isInteger(options.port) ||
@@ -115,6 +122,7 @@ export function createOperationalWorkflow(
   source: OperationalWorkflowSource,
 ): OperationalWorkflowRegistration {
   const compiled = compilePlanToMastra(source.plan, {
+    workflow: source.workflow,
     taskDefinitions: source.taskDefinitions,
     validatorDefinitions: source.validatorDefinitions,
   });
@@ -135,7 +143,9 @@ export async function createOperationalHost(
   options: OperationalHostOptions,
 ): Promise<OperationalHost> {
   validateOptions(options);
-  const host = options.host ?? DEFAULT_HOST;
+  const { bindHost, addressHost } = normalizeLoopbackHost(
+    options.host ?? DEFAULT_HOST,
+  );
   const port = options.port ?? DEFAULT_PORT;
   let composition: ReturnType<typeof createMastraComposition> | undefined;
 
@@ -191,12 +201,12 @@ export async function createOperationalHost(
     };
 
     const operationalHost: OperationalHost = {
-      host,
+      host: bindHost,
       get port() {
         return listeningPort;
       },
       get address() {
-        return `http://${host}:${listeningPort}`;
+        return `http://${addressHost}:${listeningPort}`;
       },
       get ready() {
         return ready;
@@ -230,7 +240,7 @@ export async function createOperationalHost(
             nodeServer = serveNode(
               {
                 fetch: app.fetch,
-                hostname: host,
+                hostname: bindHost,
                 port,
               },
               onListening,

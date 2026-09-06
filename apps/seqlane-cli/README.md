@@ -63,6 +63,8 @@ seqlane serve --port 4112 --storage-url file:./.seqlane/mastra.db
 Only loopback hostnames are accepted. The command loads and validates all
 discovered workflow descriptors before the host starts listening. Press
 `Ctrl-C` to close the HTTP server, flush tracing, and close storage.
+Use `--hostname ::1` or `--hostname [::1]` for IPv6 loopback; the advertised
+URL uses the required bracketed IPv6 form.
 
 ## Community Studio
 

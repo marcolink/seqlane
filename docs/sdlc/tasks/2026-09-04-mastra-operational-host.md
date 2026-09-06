@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-06
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -106,6 +106,10 @@ Implemented in PR #29.
   second Seqlane run store.
 - Added host lifecycle, restart-persistence, route registration, malformed
   configuration, public-boundary, and built CLI end-to-end coverage.
+- Preserved authored workflow input and output schemas when registering an
+  operational workflow with Mastra.
+- Normalized IPv6 loopback input for Node binding and brackets it in advertised
+  URLs.
 
 Verification: `pnpm typecheck`, `pnpm test`, `pnpm exec nx test:e2e
 seqlane-cli`, `pnpm lint`, `pnpm format:check`, `pnpm test:mapping`,

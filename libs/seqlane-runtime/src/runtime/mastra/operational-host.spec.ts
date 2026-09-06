@@ -100,6 +100,19 @@ describe("Mastra operational host", () => {
     ).rejects.toThrow("loopback");
   });
 
+  it("normalizes bracketed IPv6 input for binding and advertised URLs", async () => {
+    const host = await createOperationalHost({
+      workflows: [registration()],
+      host: "[::1]",
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+
+    expect(host.host).toBe("::1");
+    await expect(host.listen()).resolves.toMatch(/^http:\/\/\[::1\]:\d+$/);
+    await host.close();
+  });
+
   it("reopens the same durable storage file after host shutdown", async () => {
     const directory = mkdtempSync(join(tmpdir(), "seqlane-operational-host-"));
     const storagePath = join(directory, "mastra.db");

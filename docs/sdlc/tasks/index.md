@@ -183,3 +183,4 @@
 | [task.operational-data-bounds](./2026-09-05-operational-data-bounds.md) | Bound Operational Data Retention and Queries | planned | 2026-09-05 | core |
 | [task.workflow-discovery-bounds](./2026-09-05-workflow-discovery-bounds.md) | Bound Workflow Discovery | planned | 2026-09-05 | core |
 | [task.investigate-mastra-mcp-runtime-reuse](./2026-09-05-investigate-mastra-mcp-runtime-reuse.md) | Investigate Mastra Runtime Reuse for MCP Invocations | planned | 2026-09-05 | core |
+| [task.operational-workflow-registration-boundary](./2026-09-06-operational-workflow-registration-boundary.md) | Narrow the Operational Workflow Registration Boundary | planned | 2026-09-06 | core |

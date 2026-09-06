@@ -25,6 +25,7 @@ export async function loadOperationalWorkflows(
       createOperationalWorkflow({
         key: descriptor.qualifiedName,
         plan: loaded.plan,
+        workflow: loaded.definition,
         taskDefinitions: loaded.taskDefinitions,
         validatorDefinitions: loaded.validatorDefinitions,
       }),
