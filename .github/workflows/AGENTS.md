@@ -11,4 +11,6 @@ These instructions apply to workflows under `.github/workflows/`.
 - Keep remote push behavior out of normal pull-request tests.
 - Test local action code with `uses: ./actions/<name>`.
 - Verify that committed action bundles are current.
+- Run `actionlint` for workflow syntax, expressions, Action inputs and outputs, and reusable workflow contracts.
+- Use `act` only for local smoke tests without real push credentials. Treat GitHub-hosted runs as authoritative for permissions, tokens, checkout trust, and remote writes.
 - Prefer fixture repositories or temporary branches for tests that require remote Git mutations.

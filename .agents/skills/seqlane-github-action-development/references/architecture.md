@@ -17,9 +17,11 @@ Keep `src/main.ts` small. It can read inputs, write outputs, log messages, and
 translate failures into action failures. Keep reusable Git and domain behavior
 outside this file.
 
-Put reusable action behavior in an appropriate `libs/seqlane-*` package. Add
-a new library only when its ownership matches the behavior. Use declared
-package dependencies and exports across package boundaries.
+Put reusable Action behavior in an Action-specific private `libs/` package.
+Keep Action code separate from Seqlane application libraries. Add a new
+library only when its ownership matches the behavior. Do not create a generic
+Action support package for one Action. Use declared package dependencies and
+exports across package boundaries.
 
 Bundle runtime dependencies into `dist/main.js`. The consuming workflow must
 not install package dependencies. Commit the bundle. Do not edit it by hand.

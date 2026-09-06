@@ -7,6 +7,7 @@
 - `libs/seqlane-events` owns public, consumer-agnostic serialized execution-event contracts.
 - `libs/seqlane-runtime` owns private Effect-based execution.
 - `libs/seqlane-fixtures` owns private test fixtures and fixture contract tests; expose only intentional fixture subpaths.
+- GitHub Action code is CI and platform integration code, not Seqlane application code. New Action-specific libraries must not use the `seqlane-` directory prefix. Do not create a generic Action support library for one Action.
 - Keep runtime-engine types and dependencies out of core, serialized Plans, and public workflow-author APIs.
 - Keep executor implementations, including OpenCode, out of workflow definitions, serialized Plans, public APIs, runner IPC, and documented CLI/configuration. Follow [adr.executor-neutral-workflow-authoring](docs/sdlc/adrs/2026-09-02-executor-neutral-workflow-authoring.md) when changing these boundaries.
 - For SDLC documents, follow [the SDLC agent instructions](docs/sdlc/AGENTS.md).

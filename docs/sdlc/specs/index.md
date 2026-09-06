@@ -26,3 +26,4 @@
 | [spec.sdlc-documentation-system](./2026-09-03-sdlc-documentation-system.md) | SDLC documentation system | active | 2026-09-03 | core |
 | [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md) | Versioned Pull Request Review Comments | active | 2026-09-05 | core |
 | [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Mechanical Pull Request Review Dispositions | draft | 2026-09-06 | core |
+| [spec.seqlane-action-merge-conflict-resolution](./2026-09-06-seqlane-action-merge-conflict-resolution.md) | Seqlane Action Merge Conflict Resolution | active | 2026-09-06 | core |
