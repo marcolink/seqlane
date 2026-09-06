@@ -181,7 +181,7 @@
 | [task.publish-versioned-pull-request-review-comments](./2026-09-05-publish-versioned-pull-request-review-comments.md) | Publish Versioned Pull Request Review Comments | completed | 2026-09-05 | core |
 | [task.review-progress-and-run-metrics](./2026-09-05-review-progress-and-run-metrics.md) | Show Review Progress and Persist Run Metrics | completed | 2026-09-05 | core |
 | [task.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Apply Pull Request Review Dispositions Without Agent Runs | planned | 2026-09-06 | core |
-| [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | planned | 2026-09-04 | core |
+| [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | completed | 2026-09-04 | core |
 | [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | completed | 2026-09-04 | core |
 | [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
 | [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | planned | 2026-09-04 | core |
@@ -191,3 +191,4 @@
 | [task.operational-data-bounds](./2026-09-05-operational-data-bounds.md) | Bound Operational Data Retention and Queries | planned | 2026-09-05 | core |
 | [task.workflow-discovery-bounds](./2026-09-05-workflow-discovery-bounds.md) | Bound Workflow Discovery | planned | 2026-09-05 | core |
 | [task.investigate-mastra-mcp-runtime-reuse](./2026-09-05-investigate-mastra-mcp-runtime-reuse.md) | Investigate Mastra Runtime Reuse for MCP Invocations | planned | 2026-09-05 | core |
+| [task.operational-workflow-registration-boundary](./2026-09-06-operational-workflow-registration-boundary.md) | Narrow the Operational Workflow Registration Boundary | planned | 2026-09-06 | core |

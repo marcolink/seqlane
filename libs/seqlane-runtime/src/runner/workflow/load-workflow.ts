@@ -53,6 +53,8 @@ export type WorkflowPlanFactory = z.output<typeof workflowPlanFactorySchema>;
 export interface LoadedWorkflow {
   readonly reference: WorkflowReference;
   readonly workflow: Plan | WorkflowPlanFactory | WorkflowDefinition;
+  /** Present only when the workflow author supplied a typed definition. */
+  readonly definition?: Pick<WorkflowDefinition, "input" | "output">;
   readonly plan: Plan;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
@@ -120,6 +122,9 @@ export async function loadWorkflow(
   return {
     reference,
     workflow,
+    ...(workflowDefinition.success
+      ? { definition: workflowDefinition.data }
+      : {}),
     plan,
     taskDefinitions,
     validatorDefinitions,
