@@ -33,6 +33,8 @@ The worker reports exactly one lifecycle state and separates it from the artifac
 STATUS: DONE | BLOCKED | FAILED
 CHANGED:
 - path/to/file, or none for read-only work
+ARTIFACT:
+- accessible workspace/ref/commit or applyable patch reference, or none for read-only work
 VERIFY:
 - command: result, or not run with reason
 BLOCKER:
@@ -41,11 +43,19 @@ REMAINING:
 - none, or the next required action
 ```
 
-`DONE` requires the requested artifact and its required verification. `BLOCKED` means progress needs an external decision, resource, or change. `FAILED` means the worker could not complete after attempting the task. Lifecycle status, work artifact, and verification are separate signals; the parent checks all three.
+`DONE` requires the requested artifact and its required verification. `BLOCKED` means progress needs an external decision, resource, or change. `FAILED` means the worker could not complete after attempting the task. Lifecycle status, work artifact, and verification are separate signals; the parent checks all three. A path inside an isolated worker workspace is not sufficient unless the parent can access it through the harness; the worker must provide an accessible workspace/ref/commit or an applyable patch reference.
 
 ## Parent coordination
 
-While a worker runs, do non-overlapping work. Wait only when the worker is on the critical path for the next action. A worker may edit an isolated workspace, so do not use the parent working tree or absence of a parent diff as a progress signal. A timeout means unresolved or still running; it is neither completion nor failure. Never reimplement an active delegated task. When a worker returns without the required artifact or completion contract, inspect its status, send one focused follow-up requesting the missing direct edits or evidence, and then classify the result as blocked or failed if the contract remains unmet. On completion, inspect the worker's artifact and run the relevant integration checks before responding.
+While a worker runs, do non-overlapping work. Wait only when the worker is on the critical path for the next action. A worker may edit an isolated workspace, so do not use the parent working tree or absence of a parent diff as a progress signal. Use this lifecycle dispatcher:
+
+- `RUNNING` or `PENDING`: continue non-overlapping work; wait or poll only when the result is needed for the critical path.
+- `DONE`: obtain the accessible artifact through the harness, apply or merge it into the parent workspace, then run the relevant integration checks.
+- `BLOCKED`: do not integrate; resolve or re-scope the blocker, or ask the user when a decision is required.
+- `FAILED`: inspect the cause and send one targeted recovery or retry only when it is likely to succeed without changing scope; otherwise escalate or reassign the work.
+- timeout: inspect status, continue bounded polling when the worker is still active, and send at most one focused follow-up when appropriate. If an external dependency is identified, classify the result as `BLOCKED`; if the worker is abandoned or remains without a terminal result after recovery, classify it as `FAILED`.
+
+Never reimplement an active delegated task. When a worker returns without the required artifact or completion contract, send one focused follow-up requesting the missing direct edits or evidence, then classify the result as blocked or failed if the contract remains unmet. Do not integrate until the artifact is accessible and verified.
 
 ## Context handoff
 
