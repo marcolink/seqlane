@@ -1,11 +1,11 @@
 ---
 id: task.workflow-discovery-and-plan-cli
 title: Add Workflow Discovery and Plan Commands
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-06
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -89,7 +89,25 @@ precedence or runtime work.
 
 ## Outcome
 
-Not started.
+Implemented repository and user descriptor discovery with strict Zod
+validation. Qualified names, unique names, ambiguity errors, and direct module
+references now use one workflow resolution path.
+
+Added `seqlane list` and `seqlane plan` with human and validated JSON output.
+The `run` command now accepts the same discovered names. List does not import
+workflow modules. Repository and user workflow modules are trusted internal
+code. Plan can import and evaluate a selected workflow module to compile its
+Plan. It does not start tasks, processes, executors, models, or a runtime.
+Seqlane does not provide an untrusted-workflow sandbox.
+
+Updated the CLI and core documentation. Verified the implementation with the
+full repository typecheck, test, lint, build, format, Nx sync, and SDLC gates.
+The built CLI end-to-end suite passed 25 tests, and the test-mapping check
+passed 154 mappings.
+
+Follow-up review fixes preserve discovered names that end in a supported
+workflow-file extension, make human list and plan output terminal-safe, and
+move shared workflow-root flag handling out of the list command.
 
 ## Traceability
 

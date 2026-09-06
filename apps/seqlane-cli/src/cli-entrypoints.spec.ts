@@ -5,21 +5,35 @@
 // @test-scope ./output.ts
 // @test-scope ./recording.ts
 // @test-scope ./commands/studio.ts
+// @test-scope ./commands/list.ts
+// @test-scope ./commands/plan.ts
+// @test-scope ./cli-contracts.ts
 // @test-scope ../../../examples/minimal-workflow.ts
 // @test-scope ../../../examples/local-only.ts
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   encodeSeqlaneExecutionEvent,
+  seqlaneExecutionEventSchema,
   type SeqlaneExecutionEvent,
 } from "@seqlane/events";
+import {
+  planCommandResultSchema,
+  workflowListResultSchema,
+} from "./cli-contracts.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const developmentEntry = fileURLToPath(
@@ -526,6 +540,122 @@ function runFakeCli(
 }
 
 describe("seqlane CLI entrypoints", () => {
+  function createDiscoveryFixture(
+    workflow: "minimal" | "local-only" = "minimal",
+  ): {
+    readonly directory: string;
+    readonly repositoryRoot: string;
+    readonly userRoot: string;
+  } {
+    const directory = mkdtempSync(join(tmpdir(), "seqlane-cli-discovery-"));
+    const descriptorRepositoryRoot = join(directory, "repository");
+    const descriptorUserRoot = join(directory, "user");
+    mkdirSync(descriptorRepositoryRoot);
+    mkdirSync(descriptorUserRoot);
+    const discoveredWorkflow =
+      workflow === "local-only"
+        ? {
+            name: "discovered-local-only",
+            modulePath: join(repositoryRoot, "examples/local-only.ts"),
+            description: "A discovered local-only workflow",
+          }
+        : {
+            name: "discovered-minimal",
+            modulePath: join(repositoryRoot, "examples/minimal-workflow.ts"),
+            description: "A discovered minimal workflow",
+          };
+    writeFileSync(
+      join(descriptorRepositoryRoot, "minimal.json"),
+      JSON.stringify({
+        name: discoveredWorkflow.name,
+        moduleSpecifier: pathToFileURL(discoveredWorkflow.modulePath).href,
+        exportName: "default",
+        description: discoveredWorkflow.description,
+      }),
+    );
+    return {
+      directory,
+      repositoryRoot: descriptorRepositoryRoot,
+      userRoot: descriptorUserRoot,
+    };
+  }
+
+  function discoveryArgs(
+    command: "list" | "plan",
+    output: "human" | "json",
+    fixture: { readonly repositoryRoot: string; readonly userRoot: string },
+  ): string[] {
+    return [
+      command,
+      ...(command === "plan" ? ["discovered-minimal"] : []),
+      "--output",
+      output,
+      "--repository-root",
+      fixture.repositoryRoot,
+      "--user-root",
+      fixture.userRoot,
+    ];
+  }
+
+  it.each(["human", "json"] as const)(
+    "runs built list in %s mode for a discovered descriptor",
+    async (output) => {
+      const fixture = createDiscoveryFixture();
+      try {
+        const result = await runCli(
+          productionEntry,
+          discoveryArgs("list", output, fixture),
+        );
+
+        expect(result.code).toBe(0);
+        if (output === "json") {
+          expect(
+            workflowListResultSchema.parse(JSON.parse(result.stdout)),
+          ).toEqual([
+            expect.objectContaining({
+              qualifiedName: "repository:discovered-minimal",
+              description: "A discovered minimal workflow",
+            }),
+          ]);
+        } else {
+          expect(result.stdout).toContain("repository:discovered-minimal");
+          expect(result.stdout).toContain("A discovered minimal workflow");
+        }
+      } finally {
+        rmSync(fixture.directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each(["human", "json"] as const)(
+    "runs built plan in %s mode for a discovered descriptor",
+    async (output) => {
+      const fixture = createDiscoveryFixture();
+      try {
+        const result = await runCli(
+          productionEntry,
+          discoveryArgs("plan", output, fixture),
+        );
+
+        expect(result.code).toBe(0);
+        if (output === "json") {
+          const plan = planCommandResultSchema.parse(JSON.parse(result.stdout));
+          expect(plan.workflow.qualifiedName).toBe(
+            "repository:discovered-minimal",
+          );
+          expect(plan.plan.workflow.id).toBe("minimal-example");
+        } else {
+          expect(result.stdout).toContain(
+            "Plan for repository:discovered-minimal",
+          );
+          expect(result.stdout).toContain("example.prepare");
+        }
+      } finally {
+        rmSync(fixture.directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("runs compiled commands through the installed entrypoint", async () => {
     const fake = await startFakeOpenCodeServer("success");
     try {
@@ -538,6 +668,47 @@ describe("seqlane CLI entrypoints", () => {
       expect(result.stdout).toMatch(/run=.* succeeded/);
     } finally {
       await closeFakeOpenCodeServer(fake);
+    }
+  });
+
+  it("runs a discovered local-only workflow through the installed entrypoint", async () => {
+    const fixture = createDiscoveryFixture("local-only");
+    try {
+      const result = await runCli(productionEntry, [
+        "run",
+        "repository:discovered-local-only",
+        "--input",
+        '{"value":"local"}',
+        "--output",
+        "json",
+        "--repository-root",
+        fixture.repositoryRoot,
+        "--user-root",
+        fixture.userRoot,
+      ]);
+
+      expect(result.code).toBe(0);
+      const events = result.stdout
+        .trimEnd()
+        .split("\n")
+        .map((line) => seqlaneExecutionEventSchema.parse(JSON.parse(line)));
+      const planEvent = events.find((event) => event.type === "run.plan");
+      if (planEvent?.type !== "run.plan") {
+        throw new Error("Discovered local-only run did not emit a Plan event");
+      }
+
+      expect(planEvent.plan.nodes).toEqual([
+        expect.objectContaining({
+          execution: "local",
+        }),
+      ]);
+      expect(
+        planEvent.plan.nodes.every((node) => node.session === undefined),
+      ).toBe(true);
+      expect(events.at(-1)?.type).toBe("run.succeeded");
+      expect(result.stderr).toBe("");
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
     }
   });
 
