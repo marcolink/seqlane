@@ -48,6 +48,41 @@ function registration() {
   });
 }
 
+function localRegistration() {
+  const node = workflowPlan().nodes[0];
+  if (node === undefined || node.type !== "task") {
+    throw new Error("Fixture workflow must contain a task node");
+  }
+  const input = z.object({ required: z.string() });
+  const output = z.object({ value: z.string() });
+  return createOperationalWorkflow({
+    key: "repository:local-fixture",
+    plan: {
+      ...workflowPlan(),
+      nodes: [
+        {
+          ...node,
+          execution: "local",
+          input: { type: "ref", nodeId: "__seqlane_input", path: [] },
+        },
+      ],
+      output: { type: "ref", nodeId: node.nodeId, path: ["output"] },
+    },
+    taskDefinitions: new Map([
+      [
+        node.taskId,
+        {
+          id: node.taskId,
+          input,
+          output,
+          execute: async () => ({ value: "executed-by-owned-host" }),
+        },
+      ],
+    ]),
+    workflow: { input, output },
+  });
+}
+
 async function json(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
@@ -138,6 +173,58 @@ describe("Mastra operational host", () => {
       await second.close();
     } finally {
       rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("executes a local Seqlane task through the owned Mastra host", async () => {
+    const host = await createOperationalHost({
+      workflows: [localRegistration()],
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+    try {
+      await host.listen();
+      const response = await host.fetch(
+        new Request(
+          "http://host/api/workflows/repository%3Alocal-fixture/start-async?runId=run-local",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              resourceId: "work-local",
+              inputData: { required: "value" },
+              requestContext: { "seqlane.runtimeId": "local" },
+            }),
+          },
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      const localResult = await json(response);
+      expect(localResult, JSON.stringify(localResult)).toMatchObject({
+        status: "success",
+        result: { value: "executed-by-owned-host" },
+      });
+
+      const invalidInputResponse = await host.fetch(
+        new Request(
+          "http://host/api/workflows/repository%3Alocal-fixture/start-async?runId=run-invalid-input",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              resourceId: "work-invalid-input",
+              inputData: {},
+              requestContext: { "seqlane.runtimeId": "local" },
+            }),
+          },
+        ),
+      );
+      await expect(json(invalidInputResponse)).resolves.toMatchObject({
+        error: expect.stringContaining("Invalid input"),
+      });
+    } finally {
+      await host.close();
     }
   });
 

@@ -187,7 +187,7 @@
 | [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | planned | 2026-09-04 | core |
 | [task.mastra-operational-end-to-end](./2026-09-04-mastra-operational-end-to-end.md) | Prove One Run Across All Mastra Operational Surfaces | planned | 2026-09-04 | core |
 | [task.mastra-mcp-transports](./2026-09-04-mastra-mcp-transports.md) | Run Seqlane Workflows Through Mastra MCP Transports | planned | 2026-09-04 | core |
-| [task.cli-run-status-and-cancel](./2026-09-04-cli-run-status-and-cancel.md) | Run, Inspect, and Cancel Through the Operational Host | planned | 2026-09-04 | core |
+| [task.cli-run-status-and-cancel](./2026-09-04-cli-run-status-and-cancel.md) | Run, Inspect, and Cancel Through the Operational Host | completed | 2026-09-04 | core |
 | [task.operational-data-bounds](./2026-09-05-operational-data-bounds.md) | Bound Operational Data Retention and Queries | planned | 2026-09-05 | core |
 | [task.workflow-discovery-bounds](./2026-09-05-workflow-discovery-bounds.md) | Bound Workflow Discovery | planned | 2026-09-05 | core |
 | [task.investigate-mastra-mcp-runtime-reuse](./2026-09-05-investigate-mastra-mcp-runtime-reuse.md) | Investigate Mastra Runtime Reuse for MCP Invocations | planned | 2026-09-05 | core |

@@ -1,7 +1,7 @@
 ---
 id: task.cli-run-status-and-cancel
 title: Run, Inspect, and Cancel Through the Operational Host
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
@@ -89,7 +89,14 @@ runtime state.
 
 ## Outcome
 
-Not started.
+Completed. Added the validated private operational client and the `status` and
+`cancel` commands. `run` now uses Mastra's `start-async` route in both modes:
+it owns a loopback host when no server URL is provided and connects to an
+existing host otherwise. The owned host resolves the Seqlane runtime profile,
+workspace resources, model selections, and sessions for each run. It publishes
+the canonical Plan and progress events through the existing CLI renderer and
+recording path. It maps success, cancellation, and failure to the stable CLI
+exit statuses and closes one-shot host resources before exit.
 
 ## Traceability
 

@@ -5,6 +5,8 @@ export {
 export type {
   OperationalHost,
   OperationalHostOptions,
+  OperationalEventSink,
+  OperationalSessionUiNotifier,
   OperationalWorkflowRegistration,
   OperationalWorkflowSource,
 } from "./runtime/mastra/operational-host.js";

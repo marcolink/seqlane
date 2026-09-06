@@ -1,12 +1,13 @@
 import { createStep, createWorkflow } from "@mastra/core/workflows";
+import type { RequestContext } from "@mastra/core/request-context";
 import type { AnyWorkflow, Step } from "@mastra/core/workflows";
+import { SeqlaneError } from "@seqlane/core";
 import type {
   InvocationId,
   Plan,
   PlanNode,
   PlanNodeId,
   RunId,
-  SeqlaneError,
   SeqlaneSchema,
   TaskId,
   TaskDefinitionRegistry,
@@ -50,6 +51,7 @@ export interface MastraPlanInvocationContext {
   readonly resourceId?: string;
   readonly workflowId: string;
   readonly abortSignal: AbortSignal;
+  readonly requestContext?: RequestContext;
   readonly getStepResult: <Output = unknown>(nodeId: string) => Output;
 }
 
@@ -63,6 +65,12 @@ export interface MastraPlanInputValidationFailureContext {
   readonly runId: RunId;
   readonly invocationId: InvocationId;
   readonly error: SeqlaneError;
+}
+
+export interface MastraWorkflowCompletionContext {
+  readonly workId: WorkId;
+  readonly runId: RunId;
+  readonly status: "success" | "failed" | "cancelled";
 }
 
 export interface MastraPlanCompilerOptions {
@@ -89,6 +97,10 @@ export interface MastraPlanCompilerOptions {
   /** Reports compiler-level input failures that occur before invocation execution. */
   readonly onInputValidationFailure?: (
     context: MastraPlanInputValidationFailureContext,
+  ) => void;
+  /** Runs after the compiled workflow reaches a terminal result. */
+  readonly onWorkflowComplete?: (
+    context: MastraWorkflowCompletionContext,
   ) => void;
 }
 
@@ -309,6 +321,7 @@ function buildInvocationStep(
       resourceId,
       workflowId,
       abortSignal,
+      requestContext,
     }) => {
       const workflowInput = getInitData<unknown>();
       const resolvedInput = resolveStepInput(
@@ -328,6 +341,11 @@ function buildInvocationStep(
           invocationId,
           error,
         });
+        options.onWorkflowComplete?.({
+          workId: resourceId ?? options.workId ?? "unknown-work",
+          runId,
+          status: "failed",
+        });
         throw error;
       }
       if (options.executeInvocation === undefined) {
@@ -336,22 +354,39 @@ function buildInvocationStep(
         );
       }
 
-      const rawOutput = await options.executeInvocation({
-        node,
-        input: parsedInput,
-        workflowInput,
-        workId: resourceId ?? options.workId ?? "unknown-work",
-        runId,
-        invocationId,
-        ...(resourceId === undefined ? {} : { resourceId }),
-        workflowId,
-        abortSignal,
-        getStepResult,
-      });
+      let rawOutput: unknown;
+      try {
+        rawOutput = await options.executeInvocation({
+          node,
+          input: parsedInput,
+          workflowInput,
+          workId: resourceId ?? options.workId ?? "unknown-work",
+          runId,
+          invocationId,
+          ...(resourceId === undefined ? {} : { resourceId }),
+          workflowId,
+          abortSignal,
+          requestContext,
+          getStepResult,
+        });
+      } catch (cause) {
+        options.onWorkflowComplete?.({
+          workId: resourceId ?? options.workId ?? "unknown-work",
+          runId,
+          status: abortSignal.aborted ? "cancelled" : "failed",
+        });
+        throw cause;
+      }
       try {
         return outputSchema?.parse(rawOutput) ?? rawOutput;
       } catch (cause) {
-        throw reportFailure(node, cause, "output", options);
+        const error = reportFailure(node, cause, "output", options);
+        options.onWorkflowComplete?.({
+          workId: resourceId ?? options.workId ?? "unknown-work",
+          runId,
+          status: "failed",
+        });
+        throw error;
       }
     },
   });
@@ -459,21 +494,35 @@ export function compilePlanToMastra(
         dependsOn: [...orderedNodes.map(({ nodeId }) => nodeId)],
       },
     },
-    execute: async ({ getInitData, getStepResult }) => {
-      const workflowInput = getInitData<unknown>();
-      const results = new Map<string, unknown>();
-      for (const node of orderedNodes) {
-        results.set(node.nodeId, getStepResult(node.nodeId));
-      }
-      const output = resolveBinding(plan.output, workflowInput, results);
+    execute: async ({ getInitData, getStepResult, runId, resourceId }) => {
       try {
-        return (
+        const workflowInput = getInitData<unknown>();
+        const results = new Map<string, unknown>();
+        for (const node of orderedNodes) {
+          results.set(node.nodeId, getStepResult(node.nodeId));
+        }
+        const output = resolveBinding(plan.output, workflowInput, results);
+        const parsedOutput =
           options.workflow?.output?.parse(output) ??
           options.workflowOutputSchema?.parse(output) ??
-          output
-        );
+          output;
+        options.onWorkflowComplete?.({
+          workId: resourceId ?? options.workId ?? "unknown-work",
+          runId,
+          status: "success",
+        });
+        return parsedOutput;
       } catch (cause) {
-        throw reportWorkflowFailure(cause, "output", plan.workflow.id, options);
+        const error =
+          cause instanceof SeqlaneError
+            ? cause
+            : reportWorkflowFailure(cause, "output", plan.workflow.id, options);
+        options.onWorkflowComplete?.({
+          workId: resourceId ?? options.workId ?? "unknown-work",
+          runId,
+          status: "failed",
+        });
+        throw error;
       }
     },
   });
