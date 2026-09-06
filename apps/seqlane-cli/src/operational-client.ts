@@ -33,6 +33,20 @@ const startResponseSchema = z.union([
   startResultSchema,
 ]);
 
+const terminalRunStatuses = new Set([
+  "success",
+  "failed",
+  "canceled",
+  "cancelled",
+  "bailed",
+  "tripwire",
+  "skipped",
+]);
+const runLookupConcurrency = 8;
+const runLookupRequestTimeoutMs = 10_000;
+const initialRunObservationDelayMs = 25;
+const maxRunObservationDelayMs = 1_000;
+
 export type OperationalRun = z.output<typeof runResponseSchema>;
 export type OperationalStartResult = Pick<
   OperationalRun,
@@ -41,14 +55,16 @@ export type OperationalStartResult = Pick<
 
 export class OperationalClientError extends Error {
   readonly status: number | undefined;
+  readonly timedOut: boolean;
 
   constructor(
     message: string,
-    options: { status?: number; cause?: unknown } = {},
+    options: { status?: number; cause?: unknown; timedOut?: boolean } = {},
   ) {
     super(message, { cause: options.cause });
     this.name = "OperationalClientError";
     this.status = options.status;
+    this.timedOut = options.timedOut ?? false;
   }
 }
 
@@ -110,14 +126,33 @@ export class OperationalClient {
     path: string,
     init: RequestInit,
     schema: z.ZodType<T>,
+    timeoutMs?: number,
   ): Promise<T> {
     let response: Response;
+    let timedOut = false;
+    const controller =
+      timeoutMs === undefined ? undefined : new AbortController();
+    const timeout =
+      controller === undefined
+        ? undefined
+        : setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, timeoutMs);
     try {
-      response = await fetch(`${this.origin}${path}`, init);
-    } catch (cause) {
-      throw new OperationalClientError("Could not reach operational server", {
-        cause,
+      response = await fetch(`${this.origin}${path}`, {
+        ...init,
+        ...(controller === undefined ? {} : { signal: controller.signal }),
       });
+    } catch (cause) {
+      throw new OperationalClientError(
+        timedOut
+          ? "Operational server request timed out"
+          : "Could not reach operational server",
+        { cause, timedOut },
+      );
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
     }
     const body = await readBody(response);
     if (!response.ok) throw responseError(response.status, body);
@@ -189,7 +224,7 @@ export class OperationalClient {
         traceId: options.runId.replaceAll("-", "").padEnd(32, "0").slice(0, 32),
       },
     };
-    await this.request(
+    const startResponse = await this.request(
       `/api/workflows/${workflowId}/start-async?${query.toString()}`,
       {
         method: "POST",
@@ -199,46 +234,45 @@ export class OperationalClient {
       startResponseSchema,
     );
 
-    const deadline = Date.now() + 60_000;
-    let lastNotFound: OperationalClientError | undefined;
-    while (Date.now() < deadline) {
+    if (
+      "status" in startResponse &&
+      typeof startResponse.status === "string" &&
+      terminalRunStatuses.has(startResponse.status)
+    ) {
+      return {
+        status: startResponse.status,
+        ...(startResponse.result === undefined
+          ? {}
+          : { result: startResponse.result }),
+        ...(startResponse.error === undefined
+          ? {}
+          : { error: startResponse.error }),
+      };
+    }
+
+    let observationDelayMs = initialRunObservationDelayMs;
+    while (true) {
       try {
         const run = await this.getRunForWorkflow(
           options.runId,
           resolvedWorkflow,
         );
-        if (
-          [
-            "success",
-            "failed",
-            "canceled",
-            "cancelled",
-            "bailed",
-            "tripwire",
-            "skipped",
-          ].includes(run.status)
-        ) {
-          return {
-            status: run.status,
-            ...(run.result === undefined ? {} : { result: run.result }),
-            ...(run.error === undefined ? {} : { error: run.error }),
-          };
-        }
+        if (terminalRunStatuses.has(run.status)) return startResultFromRun(run);
       } catch (error) {
         if (error instanceof OperationalClientError && error.status === 404) {
-          lastNotFound = error;
-        } else {
+          // The run record can become visible after the async start response.
+        } else if (!(
+          error instanceof OperationalClientError && error.timedOut
+        )) {
           throw error;
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await new Promise((resolve) => setTimeout(resolve, observationDelayMs));
+      observationDelayMs = Math.min(
+        observationDelayMs * 2,
+        maxRunObservationDelayMs,
+      );
     }
-    throw (
-      lastNotFound ??
-      new OperationalClientError(
-        `Operational run "${options.runId}" did not reach a terminal state`,
-      )
-    );
   }
 
   async getRun(runId: string, workflowId?: string): Promise<OperationalRun> {
@@ -254,6 +288,7 @@ export class OperationalClient {
       `/api/workflows/${encodeURIComponent(workflow)}/runs/${encodeURIComponent(runId)}`,
       { method: "GET" },
       runResponseSchema,
+      runLookupRequestTimeoutMs,
     );
   }
 
@@ -265,18 +300,36 @@ export class OperationalClient {
       ? [await this.resolveWorkflow(workflowId)]
       : await this.listWorkflows();
     let lastNotFound: OperationalClientError | undefined;
-    for (const candidate of candidates) {
-      try {
-        return {
-          run: await this.getRunForWorkflow(runId, candidate),
-          workflow: candidate,
-        };
-      } catch (error) {
-        if (error instanceof OperationalClientError && error.status === 404) {
-          lastNotFound = error;
-          continue;
+    for (
+      let offset = 0;
+      offset < candidates.length;
+      offset += runLookupConcurrency
+    ) {
+      const batch = candidates.slice(offset, offset + runLookupConcurrency);
+      const outcomes = await Promise.all(
+        batch.map(async (candidate) => {
+          try {
+            return {
+              run: await this.getRunForWorkflow(runId, candidate),
+              workflow: candidate,
+            };
+          } catch (error) {
+            if (
+              error instanceof OperationalClientError &&
+              error.status === 404
+            ) {
+              return { error };
+            }
+            throw error;
+          }
+        }),
+      );
+      for (const outcome of outcomes) {
+        if ("error" in outcome) {
+          lastNotFound = outcome.error;
+        } else {
+          return outcome;
         }
-        throw error;
       }
     }
     throw (
@@ -301,4 +354,12 @@ export class OperationalClient {
     );
     return response.message;
   }
+}
+
+function startResultFromRun(run: OperationalRun): OperationalStartResult {
+  return {
+    status: run.status,
+    ...(run.result === undefined ? {} : { result: run.result }),
+    ...(run.error === undefined ? {} : { error: run.error }),
+  };
 }

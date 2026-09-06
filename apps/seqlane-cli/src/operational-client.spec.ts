@@ -91,20 +91,6 @@ describe("OperationalClient", () => {
             headers: { "content-type": "application/json" },
           },
         ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            runId: "run-1",
-            workflowName: "repository:fixture",
-            status: "success",
-            result: { ok: true },
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        ),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -123,6 +109,7 @@ describe("OperationalClient", () => {
       "http://127.0.0.1:4111/api/workflows/repository%3Afixture/start-async?runId=run-1",
       expect.objectContaining({ method: "POST" }),
     );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const init = fetchMock.mock.calls[1]?.[1];
     expect(JSON.parse(String(init?.body))).toMatchObject({
       resourceId: "work-1",
@@ -171,6 +158,92 @@ describe("OperationalClient", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("falls back to bounded backoff when the start route acknowledges only", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ "repository:fixture": { id: "fixture" } }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "Workflow run accepted" })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ runId: "run-ack", status: "running" })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ runId: "run-ack", status: "running" })),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            runId: "run-ack",
+            status: "success",
+            result: { ok: true },
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new OperationalClient("http://localhost:4111").startRun({
+        workflowId: "repository:fixture",
+        runId: "run-ack",
+        workId: "work-ack",
+        input: {},
+      }),
+    ).resolves.toEqual({ status: "success", result: { ok: true } });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it("bounds concurrent run lookup probes", async () => {
+    const workflows = Object.fromEntries(
+      Array.from({ length: 10 }, (_, index) => [
+        `repository:workflow-${index}`,
+        { id: `workflow-${index}` },
+      ]),
+    );
+    let activeProbes = 0;
+    let maximumActiveProbes = 0;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/api/workflows")) {
+          return new Response(JSON.stringify(workflows));
+        }
+        if (url.endsWith("/cancel")) {
+          return new Response(
+            JSON.stringify({ message: "Workflow run cancelled" }),
+          );
+        }
+
+        activeProbes += 1;
+        maximumActiveProbes = Math.max(maximumActiveProbes, activeProbes);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        activeProbes -= 1;
+        if (url.includes("workflow-9")) {
+          return new Response(
+            JSON.stringify({
+              runId: "run-bounded",
+              workflowName: "workflow-9",
+              status: "running",
+            }),
+          );
+        }
+        return new Response(JSON.stringify({ message: "not found" }), {
+          status: 404,
+        });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new OperationalClient("http://localhost:4111").cancelRun("run-bounded"),
+    ).resolves.toBe("Workflow run cancelled");
+    expect(maximumActiveProbes).toBe(8);
   });
 
   it.each([

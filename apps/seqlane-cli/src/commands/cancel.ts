@@ -2,6 +2,10 @@ import { Args, Command, Flags } from "@oclif/core";
 import { OperationalClient } from "../operational-client.js";
 import { startOwnedOperationalHost } from "../operational-command-host.js";
 import { workflowRootsFromFlags } from "../workflow-roots.js";
+import {
+  isDirectWorkflowReference,
+  parseWorkflowReference,
+} from "../workflow-reference.js";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -47,10 +51,17 @@ export default class CancelCommand extends Command {
       Awaited<ReturnType<typeof startOwnedOperationalHost>> | undefined;
     try {
       const roots = workflowRootsFromFlags(flags);
+      const ownedWorkflowReference =
+        flags["server-url"] === undefined &&
+        flags.workflow !== undefined &&
+        isDirectWorkflowReference(flags.workflow)
+          ? parseWorkflowReference(flags.workflow)
+          : undefined;
       ownedHost =
         flags["server-url"] === undefined
           ? await startOwnedOperationalHost({
               roots,
+              workflow: ownedWorkflowReference,
               host: flags.hostname,
               port: flags.port,
               storageUrl: flags["storage-url"],
