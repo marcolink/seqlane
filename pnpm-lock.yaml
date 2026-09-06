@@ -92,6 +92,9 @@ importers:
       '@nx/workspace':
         specifier: 'catalog:'
         version: 22.7.1(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23))
+      '@seqlane/action-merge-conflict-resolution':
+        specifier: workspace:*
+        version: link:libs/action-merge-conflict-resolution
       '@seqlane/core':
         specifier: workspace:*
         version: link:libs/seqlane-core
@@ -220,6 +223,12 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.2.0)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.8.0))
 
+  libs/action-merge-conflict-resolution:
+    dependencies:
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
   libs/seqlane-core:
     dependencies:
       zod:
@@ -301,12 +310,6 @@ importers:
       '@seqlane/events':
         specifier: workspace:*
         version: link:../seqlane-events
-
-  libs/action-merge-conflict-resolution:
-    dependencies:
-      zod:
-        specifier: 4.5.4
-        version: 4.5.4
 
 packages:
 

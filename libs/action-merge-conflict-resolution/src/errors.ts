@@ -26,7 +26,9 @@ export type ResolutionErrorCode =
   | "FORK_PULL_REQUEST"
   | "MALFORMED_PULL_REQUEST"
   | "PRE_EXISTING_OPERATION"
+  | "WORKTREE_NOT_CLEAN"
   | "GIT_OPERATION_FAILED"
+  | "GIT_OUTPUT_MALFORMED"
   | "CONFLICT_SET_REQUIRED"
   | "UNSAFE_PATH"
   | "UNSUPPORTED_AGENT_FILE"
@@ -34,6 +36,7 @@ export type ResolutionErrorCode =
   | "UNEXPECTED_TARGET_CHANGE"
   | "UNRESOLVED_CONFLICT"
   | "CONFLICT_MARKER_REMAINS"
+  | "STAGED_WHITESPACE_ERROR"
   | "LOCKFILE_REGENERATION_FAILED"
   | "AGENT_FAILED"
   | "ATTEMPT_LIMIT_EXCEEDED"
@@ -49,7 +52,9 @@ export const resolutionErrorCodeSchema = z.enum([
   "FORK_PULL_REQUEST",
   "MALFORMED_PULL_REQUEST",
   "PRE_EXISTING_OPERATION",
+  "WORKTREE_NOT_CLEAN",
   "GIT_OPERATION_FAILED",
+  "GIT_OUTPUT_MALFORMED",
   "CONFLICT_SET_REQUIRED",
   "UNSAFE_PATH",
   "UNSUPPORTED_AGENT_FILE",
@@ -57,6 +62,7 @@ export const resolutionErrorCodeSchema = z.enum([
   "UNEXPECTED_TARGET_CHANGE",
   "UNRESOLVED_CONFLICT",
   "CONFLICT_MARKER_REMAINS",
+  "STAGED_WHITESPACE_ERROR",
   "LOCKFILE_REGENERATION_FAILED",
   "AGENT_FAILED",
   "ATTEMPT_LIMIT_EXCEEDED",
@@ -75,14 +81,19 @@ export type ResolutionErrorDetails = z.infer<
 >;
 
 export class ActionResolutionError extends Error {
+  readonly category: ResolutionErrorCategory;
+  readonly code: ResolutionErrorCode;
+
   constructor(
-    readonly category: ResolutionErrorCategory,
-    readonly code: ResolutionErrorCode,
+    category: ResolutionErrorCategory,
+    code: ResolutionErrorCode,
     message: string,
     cause?: unknown,
   ) {
     super(message, { cause });
     this.name = "ActionResolutionError";
+    this.category = category;
+    this.code = code;
   }
 }
 

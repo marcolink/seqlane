@@ -127,6 +127,9 @@ export const conflictSetSchema = z
   .max(MAX_CONFLICT_PATHS);
 export type ConflictSet = z.infer<typeof conflictSetSchema>;
 
+export const integrationOperationSchema = z.enum(["merge", "rebase"]);
+export type IntegrationOperation = z.infer<typeof integrationOperationSchema>;
+
 export const agentResolutionRequestSchema = z.strictObject({
   paths: z.array(conflictPathSchema).min(1).max(MAX_CONFLICT_PATHS),
   baseRevision: gitRevisionSchema,
@@ -143,13 +146,27 @@ export const workspaceFileSchema = z.strictObject({
 export type WorkspaceFile = z.infer<typeof workspaceFileSchema>;
 
 export const integrationResultSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("clean") }),
+  z.strictObject({
+    kind: z.literal("clean"),
+    operation: integrationOperationSchema,
+    headBefore: gitRevisionSchema,
+    targetRevision: gitRevisionSchema,
+    headAfter: gitRevisionSchema,
+  }),
   z.strictObject({
     kind: z.literal("conflicted"),
+    operation: integrationOperationSchema,
+    headBefore: gitRevisionSchema,
+    targetRevision: gitRevisionSchema,
     conflicts: conflictSetSchema,
   }),
   z.strictObject({
     kind: z.literal("error"),
+    operation: integrationOperationSchema,
+    headBefore: gitRevisionSchema,
+    targetRevision: gitRevisionSchema,
+    exitCode: z.number().int(),
+    stderr: z.string(),
     error: resolutionErrorDetailsSchema,
   }),
 ]);
@@ -212,6 +229,7 @@ export interface GitPort {
     baseRevision: GitRevision,
   ) => Promise<IntegrationResult>;
   readonly readConflictSet: () => Promise<ConflictSet>;
+  readonly stageConflictSet: (conflicts: ConflictSet) => Promise<void>;
 }
 
 export interface WorkspaceFilesPort {

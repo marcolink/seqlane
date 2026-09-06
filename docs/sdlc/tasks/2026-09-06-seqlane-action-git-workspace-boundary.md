@@ -1,7 +1,7 @@
 ---
 id: task.seqlane-action-git-workspace-boundary
 title: Build the Seqlane Action Git and Workspace Boundary
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-06
@@ -124,7 +124,18 @@ state. Do not assert only human-readable Git output.
 
 ## Outcome
 
-Planned.
+Completed. Moved Git integration, unmerged-index parsing, workspace path and
+payload guards, lockfile input preparation, target validation, and staged
+whitespace/marker checks into the private Action library. The existing helper
+remains a thin compatibility wrapper, and real temporary-repository tests
+cover clean and conflicted merge/rebase states, modify/delete and binary
+conflicts, staging, unrelated changes, and workspace safety boundaries.
+
+Verification passed for `pnpm run test:mapping`, the package typecheck and
+build, the package suite (28 tests), `pnpm run test:workflow-helper`,
+`pnpm docs:validate`, `pnpm format:check`, and `git diff --check`. The helper
+now builds the private library before its strip-only Node test and imports it
+through the declared workspace package export.
 
 ## Traceability
 
