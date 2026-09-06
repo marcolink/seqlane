@@ -3,6 +3,7 @@
   "name": "action-resolve-merge-conflicts",
   "projectType": "application",
   "sourceRoot": "actions/resolve-merge-conflicts/src",
+  "implicitDependencies": ["action-merge-conflict-resolution"],
   "targets": {
     "typecheck": {
       "executor": "nx:run-commands",
@@ -24,11 +25,13 @@
         "platform": "node",
         "target": "node24",
         "outputHashing": "none",
+        "minify": true,
         "sourcemap": false,
         "declaration": false,
         "skipTypeCheck": true
       },
-      "outputs": ["{projectRoot}/dist"]
+      "outputs": ["{projectRoot}/dist"],
+      "dependsOn": ["^build"]
     }
   }
 }
