@@ -178,6 +178,47 @@ describe("pull-request code review example workflow", () => {
     expect(workflow).not.toContain(".runHistory");
   });
 
+  it("treats a missing progress comment as cleared without weakening safeguards", async () => {
+    const workflow = await readFile(
+      new URL(
+        "../../../.github/workflows/seqlane-code-review.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const markerStepStart = workflow.indexOf(
+      "      - name: Clear review in-progress marker",
+    );
+    const nextStep = workflow.indexOf("\n      - name:", markerStepStart + 1);
+    const markerStep = workflow.slice(
+      markerStepStart,
+      nextStep === -1 ? workflow.length : nextStep,
+    );
+
+    expect(markerStep).toContain(
+      '2> "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"',
+    );
+    expect(markerStep).toContain('grep -Fq "HTTP 404" \\');
+    expect(markerStep).toContain(
+      '"$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"',
+    );
+    expect(markerStep).toMatch(
+      /elif grep -Fq "HTTP 404"[\s\S]*?exit 0\n          else\n            cat .* >&2\n            exit 1/,
+    );
+    expect(markerStep).toContain(
+      "The review-progress comment was already deleted; treating the marker as cleared.",
+    );
+    expect(markerStep).toContain(
+      'cat "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt" >&2',
+    );
+    expect(markerStep).toContain("exit 1");
+    expect(markerStep).toContain(
+      'if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then',
+    );
+    expect(markerStep).toContain('grep -Fq "$MARKER_START"; then');
+    expect(markerStep).toContain('grep -Fq "$MARKER_RUN"; then');
+  });
+
   it("admits only real review requests before per-pull-request concurrency", async () => {
     const workflow = await readFile(
       new URL(

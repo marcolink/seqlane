@@ -1167,8 +1167,18 @@ jobs:
           COMMENT_ID=$(cat "$RUNNER_TEMP/seqlane-progress-comment-id")
           MARKER_START='<!-- seqlane-review-in-progress-start -->'
           MARKER_RUN="<!-- seqlane-review-in-progress-run: $RUN_ID -->"
-          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
-            > "$RUNNER_TEMP/seqlane-progress-comment-latest.json"
+          if gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+            > "$RUNNER_TEMP/seqlane-progress-comment-latest.json" \
+            2> "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"; then
+            :
+          elif grep -Fq "HTTP 404" \
+            "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"; then
+            echo "The review-progress comment was already deleted; treating the marker as cleared."
+            exit 0
+          else
+            cat "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt" >&2
+            exit 1
+          fi
           COMMENT_AUTHOR=$(jq --raw-output '.user.login // ""' \
             "$RUNNER_TEMP/seqlane-progress-comment-latest.json")
           if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then
