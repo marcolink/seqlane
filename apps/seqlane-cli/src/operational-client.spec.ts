@@ -14,6 +14,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("OperationalClient", () => {
@@ -197,6 +198,89 @@ describe("OperationalClient", () => {
       }),
     ).resolves.toEqual({ status: "success", result: { ok: true } });
     expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it("fails observation after repeated missing run records", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/api/workflows")) {
+          return new Response(
+            JSON.stringify({ "repository:fixture": { id: "fixture" } }),
+          );
+        }
+        if (url.includes("/start-async")) {
+          return new Response(
+            JSON.stringify({ message: "Workflow run accepted" }),
+          );
+        }
+        return new Response(JSON.stringify({ message: "not found" }), {
+          status: 404,
+        });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = new OperationalClient("http://localhost:4111").startRun({
+      workflowId: "repository:fixture",
+      runId: "run-missing",
+      workId: "work-missing",
+      input: {},
+    });
+    const rejection = expect(result).rejects.toMatchObject({
+      message:
+        'Operational run "run-missing" remained unavailable after 12 observations',
+      status: 404,
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await rejection;
+  });
+
+  it("aborts an in-flight observation when its signal is cancelled", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation((input, init) => {
+        const url = String(input);
+        if (url.endsWith("/api/workflows")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ "repository:fixture": { id: "fixture" } }),
+            ),
+          );
+        }
+        if (url.includes("/start-async")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ message: "Workflow run accepted" })),
+          );
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = new OperationalClient("http://localhost:4111").startRun({
+      workflowId: "repository:fixture",
+      runId: "run-abort",
+      workId: "work-abort",
+      input: {},
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+    controller.abort(new Error("cancellation failed"));
+
+    await expect(result).rejects.toMatchObject({
+      message: "Operational run observation was aborted",
+    });
   });
 
   it("bounds concurrent run lookup probes", async () => {

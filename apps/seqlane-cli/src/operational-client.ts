@@ -46,6 +46,7 @@ const runLookupConcurrency = 8;
 const runLookupRequestTimeoutMs = 10_000;
 const initialRunObservationDelayMs = 25;
 const maxRunObservationDelayMs = 1_000;
+const maxConsecutiveObservationFailures = 12;
 
 export type OperationalRun = z.output<typeof runResponseSchema>;
 export type OperationalStartResult = Pick<
@@ -101,6 +102,37 @@ function responseError(status: number, body: unknown): OperationalClientError {
   return new OperationalClientError(message, { status });
 }
 
+function waitForObservation(
+  delayMs: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(
+      new OperationalClientError("Operational run observation was aborted", {
+        cause: signal.reason,
+      }),
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      reject(
+        new OperationalClientError("Operational run observation was aborted", {
+          cause: signal?.reason,
+        }),
+      );
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
 async function readBody(response: Response): Promise<unknown> {
   try {
     return (await response.json()) as unknown;
@@ -127,6 +159,7 @@ export class OperationalClient {
     init: RequestInit,
     schema: z.ZodType<T>,
     timeoutMs?: number,
+    signal?: AbortSignal,
   ): Promise<T> {
     let response: Response;
     let timedOut = false;
@@ -139,12 +172,24 @@ export class OperationalClient {
             timedOut = true;
             controller.abort();
           }, timeoutMs);
+    const requestSignal =
+      controller === undefined
+        ? signal
+        : signal === undefined
+          ? controller.signal
+          : AbortSignal.any([controller.signal, signal]);
     try {
       response = await fetch(`${this.origin}${path}`, {
         ...init,
-        ...(controller === undefined ? {} : { signal: controller.signal }),
+        ...(requestSignal === undefined ? {} : { signal: requestSignal }),
       });
     } catch (cause) {
+      if (signal?.aborted && !timedOut) {
+        throw new OperationalClientError(
+          "Operational run observation was aborted",
+          { cause: signal.reason },
+        );
+      }
       throw new OperationalClientError(
         timedOut
           ? "Operational server request timed out"
@@ -166,20 +211,27 @@ export class OperationalClient {
     return parsed.data;
   }
 
-  async listWorkflows(): Promise<readonly string[]> {
+  async listWorkflows(signal?: AbortSignal): Promise<readonly string[]> {
     const workflows = await this.request(
       "/api/workflows",
       { method: "GET" },
       workflowListSchema,
+      undefined,
+      signal,
     );
     return Object.keys(workflows).sort();
   }
 
-  async resolveWorkflow(workflowId: string): Promise<string> {
+  async resolveWorkflow(
+    workflowId: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const workflows = await this.request(
       "/api/workflows",
       { method: "GET" },
       workflowListSchema,
+      undefined,
+      signal,
     );
     if (workflows[workflowId] !== undefined) return workflowId;
     const match = Object.entries(workflows).find(
@@ -199,8 +251,12 @@ export class OperationalClient {
     readonly input: unknown;
     readonly runtimeId?: string;
     readonly workspace?: string;
+    readonly signal?: AbortSignal;
   }): Promise<OperationalStartResult> {
-    const resolvedWorkflow = await this.resolveWorkflow(options.workflowId);
+    const resolvedWorkflow = await this.resolveWorkflow(
+      options.workflowId,
+      options.signal,
+    );
     const workflowId = encodeURIComponent(resolvedWorkflow);
     const query = new URLSearchParams({ runId: options.runId });
     const body = {
@@ -232,6 +288,8 @@ export class OperationalClient {
         body: JSON.stringify(body),
       },
       startResponseSchema,
+      undefined,
+      options.signal,
     );
 
     if (
@@ -251,23 +309,47 @@ export class OperationalClient {
     }
 
     let observationDelayMs = initialRunObservationDelayMs;
+    let consecutiveObservationFailures = 0;
     while (true) {
       try {
         const run = await this.getRunForWorkflow(
           options.runId,
           resolvedWorkflow,
+          options.signal,
         );
         if (terminalRunStatuses.has(run.status)) return startResultFromRun(run);
+        // A visible non-terminal run is healthy evidence that observation is
+        // working, so a legitimately long-running execution is unbounded.
+        consecutiveObservationFailures = 0;
       } catch (error) {
         if (error instanceof OperationalClientError && error.status === 404) {
           // The run record can become visible after the async start response.
+          consecutiveObservationFailures += 1;
         } else if (!(
           error instanceof OperationalClientError && error.timedOut
         )) {
           throw error;
+        } else {
+          consecutiveObservationFailures += 1;
+        }
+        if (
+          consecutiveObservationFailures >= maxConsecutiveObservationFailures
+        ) {
+          const timedOut =
+            error instanceof OperationalClientError && error.timedOut;
+          throw new OperationalClientError(
+            timedOut
+              ? `Operational run "${options.runId}" could not be observed after ${maxConsecutiveObservationFailures} timed-out requests`
+              : `Operational run "${options.runId}" remained unavailable after ${maxConsecutiveObservationFailures} observations`,
+            {
+              status: timedOut ? undefined : 404,
+              timedOut,
+              cause: error,
+            },
+          );
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, observationDelayMs));
+      await waitForObservation(observationDelayMs, options.signal);
       observationDelayMs = Math.min(
         observationDelayMs * 2,
         maxRunObservationDelayMs,
@@ -283,12 +365,14 @@ export class OperationalClient {
   private async getRunForWorkflow(
     runId: string,
     workflow: string,
+    signal?: AbortSignal,
   ): Promise<OperationalRun> {
     return this.request(
       `/api/workflows/${encodeURIComponent(workflow)}/runs/${encodeURIComponent(runId)}`,
       { method: "GET" },
       runResponseSchema,
       runLookupRequestTimeoutMs,
+      signal,
     );
   }
 

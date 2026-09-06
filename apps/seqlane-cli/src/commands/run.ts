@@ -300,6 +300,7 @@ export default class RunCommand extends Command {
       let cancellationRequested = false;
       let cancellationPromise: Promise<void> | undefined;
       let cancellationError: unknown;
+      const observationController = new AbortController();
       const requestCancellation = (): void => {
         cancellationRequested = true;
         if (client === undefined || cancellationPromise !== undefined) return;
@@ -310,6 +311,7 @@ export default class RunCommand extends Command {
         );
         void cancellationPromise.catch((error: unknown) => {
           cancellationError = error;
+          observationController.abort(error);
         });
       };
       let exitStatus = 1;
@@ -352,6 +354,7 @@ export default class RunCommand extends Command {
           input: request.input,
           runtimeId: request.runtime.id,
           workspace: request.runtime.workspace,
+          signal: observationController.signal,
         });
         await cancellationPromise;
         if (cancellationError !== undefined) throw cancellationError;
@@ -385,11 +388,20 @@ export default class RunCommand extends Command {
           });
         }
       } catch (error) {
+        let failure = error;
+        if (cancellationPromise !== undefined) {
+          try {
+            await cancellationPromise;
+          } catch (cancellationFailure) {
+            failure = cancellationFailure;
+          }
+        }
+        if (cancellationError !== undefined) failure = cancellationError;
         events.emit({
           type: "run.failed",
           workId,
           runId,
-          error: new RuntimeError(remoteError(error)),
+          error: new RuntimeError(remoteError(failure)),
         });
       } finally {
         process.removeListener("SIGINT", onSignal);
@@ -409,7 +421,6 @@ export default class RunCommand extends Command {
         disconnectResize();
       }
       process.exitCode = exitStatus;
-      if (ownedHost !== undefined) process.exit(exitStatus);
       return;
     }
 
