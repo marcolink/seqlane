@@ -89,7 +89,7 @@ describe("merge-conflict resolution example workflow", () => {
     );
   });
 
-  it("enforces conflict-resolution safety invariants in the workflow", async () => {
+  it("invokes the local Action and preserves workflow safety boundaries", async () => {
     const workflow = await readFile(
       new URL(
         "../../../.github/workflows/seqlane-resolve-merge-conflicts.yml",
@@ -98,76 +98,20 @@ describe("merge-conflict resolution example workflow", () => {
       "utf8",
     );
 
-    expect(workflow).toContain("MAX_REBASE_ATTEMPTS=10");
-    expect(workflow).toContain("diff --name-only --diff-filter=U -z");
-    expect(workflow).toContain(
-      "gh api \"repos/$GITHUB_REPOSITORY/git/ref/heads/$BASE_REF\" --jq '.object.sha'",
-    );
-    expect(workflow).toContain(
-      'echo "base_sha=$LIVE_BASE_SHA" >> "$GITHUB_OUTPUT"',
-    );
-    expect(workflow).not.toContain(
-      'echo "base_sha=$(jq --raw-output \'.base.sha\' "$RUNNER_TEMP/pull-request.json")"',
-    );
-    expect(workflow).toContain(
-      'validate-workspace "$RESOLUTION_TARGET" "$CONFLICT_FILES"',
-    );
-    expect(workflow).toContain(
-      'validate-markers "$RESOLUTION_TARGET" "$CONFLICT_FILES"',
-    );
-    expect(workflow).toContain('path !== "pnpm-lock.yaml"');
-    expect(workflow).toContain("AGENT_CONFLICT_FILES");
-    expect(workflow).toContain("has_agent_conflicts");
-    expect(workflow).toContain(
-      'node --experimental-strip-types "$PWD/scripts/resolve-merge-conflicts-workflow.ts"',
-    );
-    expect(workflow).toContain("prepare-agent");
-    expect(workflow).toContain("copy-agent");
-    expect(workflow).toContain("prepare-lockfile");
-    expect(workflow).toContain("validate-workspace");
-    expect(workflow).toContain("validate-markers");
-    expect(workflow).toContain(
-      "No agent-resolvable conflict files; the lockfile will be regenerated mechanically.",
-    );
-    expect(workflow).toContain(
-      'mktemp -d "$RUNNER_TEMP/seqlane-lockfile-workspace.XXXXXX"',
-    );
-    expect(workflow).toContain("trap 'rm -rf -- \"$LOCKFILE_WORKSPACE\"' EXIT");
-    expect(workflow).not.toContain('mkdir "$LOCKFILE_WORKSPACE"');
-    expect(workflow).toContain(
-      "node@sha256:6642ef280aebc09c4541bee0b15c9f89f0f3f3c247ddee79ae1d37eddfdcbbaa",
-    );
-    expect(workflow).toContain("COREPACK_ENABLE_PROJECT_SPEC=0");
-    expect(workflow).toContain(
-      "COREPACK_NPM_REGISTRY=https://registry.npmjs.org",
-    );
-    expect(workflow).toContain(
-      'const { packageManager } = require("./package.json");',
-    );
-    expect(workflow).toContain(
-      "version: ${{ steps.package-manager.outputs.pnpm_version }}",
-    );
-    expect(workflow).toContain(
-      'corepack install --global "pnpm@$PNPM_VERSION"',
-    );
-    expect(workflow).toContain('--user "$(id -u):$(id -g)"');
-    expect(workflow).toContain(
-      'test "$(COREPACK_ENABLE_PROJECT_SPEC=0 corepack pnpm --version)" = "$PNPM_VERSION"',
-    );
-    expect(workflow).toContain(
-      "COREPACK_ENABLE_PROJECT_SPEC=0 corepack pnpm install",
-    );
-    expect(workflow).toContain("--config.registry=https://registry.npmjs.org/");
-    expect(workflow).not.toContain("node:24-bookworm-slim");
-    expect(workflow).toContain(
-      'git push --force-with-lease="refs/heads/$HEAD_REF:$HEAD_SHA"',
-    );
-    expect(workflow).toContain("OPENCODE_ARCHIVE_SHA256");
-    expect(workflow).toContain(
-      "--lockfile-only --ignore-scripts --ignore-pnpmfile",
-    );
-    expect(workflow).toContain("docker run --rm --network bridge");
-    expect(workflow).not.toContain("https://opencode.ai/install | bash");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("contents: write");
+    expect(workflow).toContain("pull-requests: read");
+    expect(workflow).toContain("cancel-in-progress: false");
+    expect(workflow).toContain("timeout-minutes: 30");
+    expect(workflow).toContain("ref: ${{ github.workflow_sha }}");
+    expect(workflow).toContain("uses: ./actions/resolve-merge-conflicts");
+    expect(workflow).toContain("commit: true");
+    expect(workflow).toContain("push: true");
+    expect(workflow).not.toContain("Apply selected integration strategy");
+    expect(workflow).not.toContain("Install OpenCode");
+    expect(workflow).not.toContain("docker run");
+    expect(workflow).not.toContain("resolve-merge-conflicts-workflow.ts");
+    expect(workflow).not.toContain("git push --force");
   });
 
   it("detects diff3 and non-default conflict markers with CRLF endings", () => {

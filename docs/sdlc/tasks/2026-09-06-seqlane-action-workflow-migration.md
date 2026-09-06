@@ -1,7 +1,7 @@
 ---
 id: task.seqlane-action-workflow-migration
 title: Migrate the Merge Conflict Workflow to the Seqlane Action
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-06
@@ -137,7 +137,23 @@ strategies and inspect the final remote branch state.
 
 ## Outcome
 
-Planned.
+Completed. The manual resolver workflow now keeps the default-branch guard,
+pull-request bootstrap, full-history trusted and target checkouts, minimal
+permissions, per-pull-request concurrency, Ubuntu runner, and 30-minute
+timeout. It invokes `./actions/resolve-merge-conflicts` with explicit source
+and target paths plus `commit: true` and `push: true`. The YAML no longer owns
+integration, conflict classification, OpenCode, lockfile, staging, commit, or
+push loops. The Action test workflow invokes the local Action with commit and
+push disabled, and operator documentation describes the Action contract and
+trust model.
+
+The former helper remains only as a compatibility test utility for historical
+boundary coverage; it has no production workflow reference.
+
+Verification passed for the updated workflow contract test, `pnpm run
+test:mapping`, `pnpm docs:validate`, `pnpm format:check`, and
+`git diff --check`. Hosted GitHub execution remains required to verify the
+manual dispatch, checkout permissions, credentials, and remote race behavior.
 
 ## Traceability
 

@@ -43,3 +43,8 @@ jobs:
 
       - name: Run local action
         uses: ./actions/resolve-merge-conflicts
+        continue-on-error: true
+        with:
+          pull-request-number: "1"
+          commit: false
+          push: false

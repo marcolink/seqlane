@@ -209,17 +209,18 @@ selected strategy in a separate checkout. A rebased branch uses
 `--force-with-lease` against its captured head revision. If Git reports no
 merge conflicts, the merge strategy stops without a commit.
 
-If conflicts exist, `resolve-merge-conflicts.ts` receives the exact conflict
-paths and both immutable revisions. Its exclusive agent task runs in a fresh,
-non-Git staging workspace that contains only regular conflict files. The
-OpenCode policy denies shell commands, external paths, and project
-configuration. The workflow rejects symlinks and copies back only the supplied
+If conflicts exist, the local `resolve-merge-conflicts` Action receives the
+exact conflict paths and both immutable revisions. Its exclusive agent task
+runs in a fresh, non-Git staging workspace that contains only regular conflict
+files. The OpenCode policy denies shell commands, external paths, and project
+configuration. The Action rejects symlinks and copies back only the supplied
 conflict files.
 
-Lockfile conflicts are text-resolved by the agent. The workflow does not run a
-package manager in the pull-request checkout.
+Lockfile conflicts use a separate Docker-based regeneration workspace. The
+workspace contains only tracked manifests and `pnpm-workspace.yaml`; it does
+not contain the conflicted lockfile or a model workspace.
 
-After Seqlane finishes, the workflow rejects new files and edits outside the
+After Seqlane finishes, the Action rejects new files and edits outside the
 initial conflict list. It also rejects unresolved conflicts and Git whitespace
 errors. It rejects staged Git conflict markers. A rebase can use no more than
 ten conflict-resolution attempts and skips redundant empty commits. It detects
@@ -227,16 +228,16 @@ default, diff3, and longer conflict markers. The workflow stops OpenCode before 
 configures GitHub credentials. Then it creates one merge commit or pushes the
 rebased history.
 
-The workflow checks the same live base revision that it captured before
+The Action checks the same live base revision that it captured before
 resolution immediately before it pushes. The exact force-with-lease protects
 the remote head revision. A base update after that check can make the result
 stale, but it cannot overwrite the base branch.
 
-The workflow downloads the pinned OpenCode release archive over HTTPS. It
+The Action downloads the pinned OpenCode release archive over HTTPS. It
 checks the archive SHA-256 before extraction. It does not run a remote installer
 script.
 
-The workflow configures `Seqlane conflict resolver` as the Git committer. A
+The Action configures `Seqlane conflict resolver` as the Git committer. A
 merge commit uses that name as its author. A rebase preserves each original
 commit author and records that name as its committer.
 

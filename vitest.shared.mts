@@ -63,6 +63,13 @@ export const workspaceAliases = [
     replacement: resolve(workspaceRoot, "libs/seqlane-output/src/index.ts"),
   },
   {
+    find: "@seqlane/runtime/workflows/resolve-merge-conflicts",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/seqlane-runtime/src/workflows/resolve-merge-conflicts.ts",
+    ),
+  },
+  {
     find: "@seqlane/runtime/runner-package",
     replacement: resolve(
       workspaceRoot,

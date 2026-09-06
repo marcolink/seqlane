@@ -31,8 +31,8 @@ function requiredWorkspace(): string {
 }
 
 function workflowMetadata() {
-  const ref = github.context.ref;
-  const sha = github.context.sha;
+  const ref = process.env.GITHUB_WORKFLOW_REF ?? github.context.ref;
+  const sha = process.env.GITHUB_WORKFLOW_SHA ?? github.context.sha;
   if (ref.length === 0 || sha.length === 0) return undefined;
   return workflowDefinitionMetadata(ref, sha);
 }
