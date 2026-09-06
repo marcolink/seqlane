@@ -168,6 +168,9 @@ describe("pull-request code review example workflow", () => {
       ".githubRunId == $current.githubRunId and .attempt == $current.attempt",
     );
     expect(workflow).toContain('--arg prRunCount "$PR_RUN_COUNT"');
+    expect(workflow).toContain(
+      "RUN_METRICS_LEDGER=$(jq --null-input --compact-output",
+    );
     expect(workflow).toContain(".runs[-1].metrics.totalCost");
     expect(workflow).not.toContain("seqlane-run-audit-payload.json");
     expect(workflow).not.toContain("RUN_AUDIT_MARKER_PREFIX");

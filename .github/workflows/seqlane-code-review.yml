@@ -786,7 +786,7 @@ jobs:
           PRIOR_RUN_METRICS_LEDGER=$(jq --compact-output \
             '.runMetricsLedger // {schemaVersion: 1, runs: []}' \
             "$RUNNER_TEMP/seqlane-code-review-result.json")
-          RUN_METRICS_LEDGER=$(jq --compact-output \
+          RUN_METRICS_LEDGER=$(jq --null-input --compact-output \
             --argjson previous "$PRIOR_RUN_METRICS_LEDGER" \
             --argjson current "$CURRENT_RUN_LEDGER_ENTRY" \
             '$previous |
