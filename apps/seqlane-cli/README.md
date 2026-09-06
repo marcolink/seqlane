@@ -92,6 +92,20 @@ route does not expose Seqlane's canonical progress event stream, so remote
 mode does not forward progress events. If `--record` is used in remote mode,
 the recording is terminal-only as well.
 
+Run-control commands use the same host. Set `--server-url` to use an existing
+host; without it, the command owns a local host for its lifetime:
+
+```sh
+seqlane status <run-id> --server-url http://127.0.0.1:4111
+seqlane cancel <run-id> --server-url http://127.0.0.1:4111
+```
+
+`run` prints the Work and Run identifiers before progress output. It owns a
+loopback operational host by default and uses the same Mastra server path as
+`run --server-url`, which connects to an existing host. `status` reads the
+canonical Mastra run record. `cancel` sends the idempotent Mastra cancellation
+request.
+
 ## Community Studio
 
 Start the upstream Mastra Community Studio:

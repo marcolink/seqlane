@@ -73,7 +73,7 @@ objects, errors, configuration, or terminology.
 
 ### requirement-normalized-definition
 
-Seqlane may retain a small, declarative normalized definition for validation
+Seqlane can retain a small, declarative normalized definition for validation
 and compilation. It must not contain runtime state, scheduling state,
 persistence state, or engine lifecycle behavior.
 
@@ -90,17 +90,20 @@ Sandbox process without constructing an agent or invoking a model. It must
 normalize exit status, bounded output, timing, timeout, cancellation, task
 identity, and invocation identity.
 
-### requirement-agent-acp
+### requirement-agent-adapters
 
-Agent tasks must use a Mastra-supported coding-agent or ACP primitive first.
-Native OpenCode APIs are permitted only behind the executor adapter for a
-documented capability gap.
+Agent tasks must use the selected private adapter. The runtime must select one
+adapter before it creates a session or executes a task.
+
+ACP implementations use the generic ACP adapter. OpenCode implementations use
+the OpenCode SDK adapter. The runtime must not combine these adapters or use
+one as an implicit fallback for the other.
 
 ### requirement-session-semantics
 
 Isolated sessions are unique per invocation. Shared sessions are isolated by
 Work and executor and never run concurrently. Branch sessions are independent,
-may run concurrently, and never merge.
+can run concurrently, and never merge.
 
 ### requirement-workspace-constraints
 
@@ -217,9 +220,9 @@ the private integration layer.
 
 ### Task execution
 
-Agent steps resolve executor, model, reasoning, session, and validated input
-before invoking ACP or another Mastra coding-agent primitive. They validate and
-normalize output before it enters Seqlane data flow.
+Agent steps resolve the adapter, model, reasoning, session, and validated input
+before they invoke the selected adapter. They validate and normalize output
+before it enters Seqlane data flow.
 
 Shell steps receive argv-based commands by default. Shell parsing is used only
 when the public task explicitly requests shell semantics.
@@ -247,8 +250,8 @@ removes it. No bridge may remain after the cleanup task.
 - Unsupported interaction requirements fail the autonomous run.
 - Cancellation is idempotent and must not become a generic failure.
 - Partial workspace mutations follow the surviving Seqlane workspace contract.
-- Missing ACP capabilities may use a narrow native OpenCode adapter only when
-  the capability gap and removal condition are documented.
+- A missing adapter capability fails preflight. The runtime must not route the
+  request through a different adapter.
 - Any enterprise-only import or dependency fails the architecture gate.
 
 ## Migration tasks
@@ -316,4 +319,5 @@ review, and a repository search for forbidden `/ee/` imports.
 ## Traceability
 
 - [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md)
+- [spec.agent-adapter-boundary-and-capabilities](./2026-09-04-agent-adapter-boundary-and-capabilities.md)
 - Supersedes [spec.effect-runtime-integration](./2026-09-02-effect-runtime-integration.md).
