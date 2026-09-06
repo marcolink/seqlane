@@ -6,8 +6,10 @@ These instructions apply to all projects under `actions/`.
 
 - Each action lives under `actions/<name>` and contains its own `action.yml`.
 - Keep `src/main.ts` limited to GitHub Actions input/output, context, logging, and failure handling.
-- Put reusable implementation in an appropriate `libs/seqlane-*` package.
+- Put reusable implementation in an Action-specific private `libs/` package when the behavior is larger than the entrypoint. Keep it separate from Seqlane application libraries. Do not create a generic Action support package for one Action.
 - Do not make application logic depend directly on `@actions/core` or GitHub event globals.
+- Use `@actions/core` and `@actions/github` in the entrypoint adapter. Do not add `@octokit/octokit.js` beside `@actions/github` without a documented reason.
+- Keep `@actions/artifact`, `@actions/cache`, and `@actions/tool-cache` out of an Action bundle unless its public contract requires them.
 - Use `node24` for JavaScript action entrypoints unless compatibility requirements explicitly require another supported runtime.
 
 ## Packaging
