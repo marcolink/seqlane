@@ -95,8 +95,10 @@ references now use one workflow resolution path.
 
 Added `seqlane list` and `seqlane plan` with human and validated JSON output.
 The `run` command now accepts the same discovered names. List does not import
-workflow modules. Plan compiles the selected workflow without executing tasks,
-processes, executors, or models.
+workflow modules. Repository and user workflow modules are trusted internal
+code. Plan can import and evaluate a selected workflow module to compile its
+Plan. It does not start tasks, processes, executors, models, or a runtime.
+Seqlane does not provide an untrusted-workflow sandbox.
 
 Updated the CLI and core documentation. Verified the implementation with the
 full repository typecheck, test, lint, build, format, Nx sync, and SDLC gates.

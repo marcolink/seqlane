@@ -36,6 +36,10 @@ seqlane plan ./examples/minimal-workflow.ts --output json
 seqlane run repository:review --input '{"topic":"Seqlane"}'
 ```
 
+Repository and user workflow modules are trusted local authoring code. The plan
+command can import and evaluate the selected module to compile its Plan. It is
+not a sandbox for untrusted workflow source.
+
 Direct file and module references remain supported by `seqlane run` and
 `seqlane plan`. A module reference can include an export name as
 `<module-specifier>#<export-name>`.
