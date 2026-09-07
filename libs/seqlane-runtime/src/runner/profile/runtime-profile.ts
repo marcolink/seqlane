@@ -7,11 +7,6 @@ import type {
 } from "@seqlane/core";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
 import type { AgentAdapter } from "@seqlane/agent-adapter";
-import {
-  createOpenCodeAdapter,
-  createOpenCodeModelCapabilities,
-  resolveOpenCodeBrowserUiUrl,
-} from "@seqlane/opencode";
 import type { ExecutorResolvers } from "../../runtime/execution/executor.js";
 import type {
   ExecutorRequest,
@@ -31,6 +26,14 @@ import {
 } from "../../runtime/session/session-resolution.js";
 import type { RuntimeSessionUiAvailable } from "../runtime-session-ui.js";
 import { z } from "zod";
+import {
+  configurationWithWorkspace,
+  createRuntimeAdapterRegistry,
+  loadRuntimeAdapterConfiguration,
+  redactRuntimeAdapter,
+  type RuntimeAdapterFactoryContext,
+  type RuntimeAdapterRegistry,
+} from "./runtime-adapter.js";
 
 const fixtureInputSchema = plainRecordSchema.pipe(
   z.looseObject({ dependency: z.string().optional() }),
@@ -119,7 +122,7 @@ export function executeAgentAdapterRequest(
   });
 }
 
-function createOpenCodeSession(
+function createAgentSession(
   taskDefinitions: TaskDefinitionRegistry,
   adapter: AgentAdapter,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
@@ -128,7 +131,7 @@ function createOpenCodeSession(
   const captureCheckpoint = adapter.captureCheckpoint;
   const fork = adapter.fork;
   return {
-    key: Symbol("opencode-executor-session"),
+    key: Symbol("agent-adapter-session"),
     ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: createSessionUiExecutor(
       adapter,
@@ -144,7 +147,7 @@ function createOpenCodeSession(
       : {
           fork: async ({ checkpoint, effectiveSelection: branchSelection }) => {
             const selection = branchSelection ?? effectiveSelection;
-            return createOpenCodeSession(
+            return createAgentSession(
               taskDefinitions,
               await fork({
                 checkpoint,
@@ -160,25 +163,33 @@ function createOpenCodeSession(
   };
 }
 
-function createLazyOpenCodeSession(
+function createLazyAgentSession(
   taskDefinitions: TaskDefinitionRegistry,
-  connection: Parameters<typeof createOpenCodeAdapter>[0],
+  createAdapter: (context: RuntimeAdapterFactoryContext) => AgentAdapter,
   signal: AbortSignal,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
 ): ResolvedExecutorSession {
-  const adapter = createOpenCodeAdapter(connection, {
+  const adapter = createAdapter({
     signal,
     ...(effectiveSelection === undefined
       ? {}
       : { modelSelection: effectiveSelection }),
   });
-  return createOpenCodeSession(
+  return createAgentSession(
     taskDefinitions,
     adapter,
     onSessionUiAvailable,
     effectiveSelection,
   );
+}
+
+export interface RuntimeProfileResolutionOptions {
+  /** Private configuration loaded by the caller or runner environment. */
+  readonly adapterConfiguration?: unknown;
+  /** Test seam and private composition-root override. */
+  readonly adapterRegistry?: RuntimeAdapterRegistry;
+  readonly environment?: Readonly<Record<string, string | undefined>>;
 }
 
 /** Resolves private adapter state after the generic profile crosses IPC. */
@@ -188,6 +199,7 @@ export async function resolveRuntimeProfile(
   signal: AbortSignal,
   input: JsonValue,
   onSessionUiAvailable?: RuntimeSessionUiNotifier,
+  options: RuntimeProfileResolutionOptions = {},
 ): Promise<RuntimeExecution> {
   if (!taskDefinitions) {
     throw new Error("Loaded workflow did not provide task definitions");
@@ -233,38 +245,34 @@ export async function resolveRuntimeProfile(
     );
   }
 
-  let url: URL;
-  try {
-    url = new URL(profile.id);
-  } catch {
-    throw new Error(`Runtime profile "${profile.id}" is not configured`);
-  }
-
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`Runtime profile "${profile.id}" is not configured`);
-  }
-
-  const browserUiUrl = await resolveOpenCodeBrowserUiUrl(url.href, signal);
-  const connection = {
-    url: url.href,
-    ...(workspacePath === undefined ? {} : { workspace: workspacePath }),
-    ...(browserUiUrl === undefined ? {} : { browserUiUrl }),
-  };
+  const rawConfiguration =
+    options.adapterConfiguration === undefined
+      ? loadRuntimeAdapterConfiguration(options.environment)
+      : options.adapterConfiguration;
+  const adapterRegistry =
+    options.adapterRegistry ?? createRuntimeAdapterRegistry();
+  const selected = adapterRegistry.resolve(
+    configurationWithWorkspace(rawConfiguration, workspacePath),
+  );
+  const preparation = await selected.prepare(signal);
+  const binding = selected.create({ signal, ...preparation });
   const workspaceIdentities = await resolveTaskWorkspaceIdentities(
     taskDefinitions,
     workspacePath,
   );
   const workspaceResources = createWorkspaceResources(workspaceIdentities);
-  const modelCapabilities = createOpenCodeModelCapabilities(
-    url.href,
-    workspacePath,
-  );
   const sessionResolver: SessionResolver = {
-    modelCapabilities,
+    modelCapabilities: binding.modelCapabilities,
     resolve: async ({ effectiveSelection }): Promise<ResolvedExecutorSession> =>
-      createLazyOpenCodeSession(
+      createLazyAgentSession(
         taskDefinitions,
-        connection,
+        (context) =>
+          redactRuntimeAdapter(
+            selected
+              .create({ ...context, signal, ...preparation })
+              .createAdapter(),
+            selected.configuration,
+          ),
         signal,
         onSessionUiAvailable,
         effectiveSelection,

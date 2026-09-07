@@ -175,12 +175,12 @@
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
 | [task.agent-adapter-integration-cleanup](./2026-09-04-agent-adapter-integration-cleanup.md) | Add Adapter Integration Coverage and Complete Migration | planned | 2026-09-04 | core |
 | [task.bounded-pr-code-review-evidence](./2026-09-04-bounded-pr-code-review-evidence.md) | Add Bounded Patch Evidence to Pull Request Reviews | completed | 2026-09-04 | core |
-| [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
 | [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | completed | 2026-09-04 | core |
 | [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | completed | 2026-09-04 | core |
-| [task.explicit-runtime-adapter-selection](./2026-09-04-explicit-runtime-adapter-selection.md) | Define Explicit Runtime Adapter Selection and Configuration | planned | 2026-09-04 | core |
-| [task.protocol-agnostic-acp-adapter](./2026-09-04-protocol-agnostic-acp-adapter.md) | Implement a Protocol-Agnostic ACP Adapter | completed | 2026-09-04 | core |
+| [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
+| [task.explicit-runtime-adapter-selection](./2026-09-04-explicit-runtime-adapter-selection.md) | Define Explicit Runtime Adapter Selection and Configuration | completed | 2026-09-04 | core |
 | [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
+| [task.protocol-agnostic-acp-adapter](./2026-09-04-protocol-agnostic-acp-adapter.md) | Implement a Protocol-Agnostic ACP Adapter | completed | 2026-09-04 | core |
 | [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | planned | 2026-09-04 | core |
 | [task.session-checkpoint-fork-capabilities](./2026-09-04-session-checkpoint-fork-capabilities.md) | Map Session, Checkpoint, and Fork Capabilities | planned | 2026-09-04 | core |
 | [task.mastra-operational-end-to-end](./2026-09-04-mastra-operational-end-to-end.md) | Prove One Run Across All Mastra Operational Surfaces | planned | 2026-09-04 | core |
