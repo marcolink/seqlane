@@ -2,6 +2,7 @@
 import type { AgentAdapter } from "@seqlane/agent-adapter";
 import { describe, expect, it } from "vitest";
 import {
+  assertRuntimeAdapterCapabilities,
   createRuntimeAdapterRegistry,
   loadRuntimeAdapterConfiguration,
   parseRuntimeAdapterConfiguration,
@@ -174,6 +175,40 @@ describe("private runtime adapter selection", () => {
     expect(
       createRuntimeAdapterRegistry().resolve(configuration).capabilities,
     ).toMatchObject({ modelSelection: false });
+  });
+
+  it("derives OpenCode session UI from prepared endpoint capabilities", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    try {
+      const selected = createRuntimeAdapterRegistry().resolve(
+        openCodeConfiguration,
+      );
+      const preparation = await selected.prepare(new AbortController().signal);
+
+      expect(preparation.browserUiUrl).toBeUndefined();
+      expect(selected.resolveCapabilities(preparation).sessionUi).toBe(false);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  it("rejects capability declarations without matching optional operations", () => {
+    const capabilities = {
+      ...adapter().capabilities,
+      checkpoint: true,
+    };
+
+    expect(() =>
+      assertRuntimeAdapterCapabilities(
+        { ...adapter(), capabilities },
+        capabilities,
+      ),
+    ).toThrow(/optional operation/i);
   });
 
   it("redacts ACP arguments and OpenCode URL path, query, and fragment values", () => {

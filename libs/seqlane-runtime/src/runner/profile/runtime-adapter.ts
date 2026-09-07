@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type {
   AgentAdapter,
   AgentAdapterCapabilities,
@@ -10,6 +10,7 @@ import {
   createOpenCodeModelCapabilities,
   resolveOpenCodeBrowserUiUrl,
 } from "@seqlane/opencode";
+import type { RequestContext } from "@mastra/core/request-context";
 import type { ModelSelection } from "@seqlane/core";
 import type { ExecutorModelCapabilities } from "../../runtime/execution/executor.js";
 import { z } from "zod";
@@ -123,6 +124,8 @@ export interface RuntimeAdapterFactoryContext {
   readonly signal: AbortSignal;
   readonly modelSelection?: ModelSelection;
   readonly browserUiUrl?: string;
+  /** Existing Mastra invocation context, preserved for adapter integrations. */
+  readonly requestContext?: RequestContext;
 }
 
 export interface RuntimeAdapterPreparation {
@@ -138,6 +141,7 @@ export interface RuntimeAdapterFactory {
   readonly identity: RuntimeAdapterIdentity;
   resolveCapabilities(
     configuration: RuntimeAdapterConfiguration,
+    preparation?: RuntimeAdapterPreparation,
   ): AgentAdapterCapabilities;
   prepare(
     configuration: RuntimeAdapterConfiguration,
@@ -152,33 +156,56 @@ export interface RuntimeAdapterFactory {
 export interface ResolvedRuntimeAdapter {
   readonly identity: RuntimeAdapterIdentity;
   readonly configuration: RuntimeAdapterConfiguration;
-  readonly configurationFingerprint: string;
+  /** Opaque binding for this validated adapter configuration resolution. */
+  readonly configurationBinding: string;
   readonly capabilities: AgentAdapterCapabilities;
+  resolveCapabilities(
+    preparation?: RuntimeAdapterPreparation,
+  ): AgentAdapterCapabilities;
   prepare(signal: AbortSignal): Promise<RuntimeAdapterPreparation>;
   create(context: RuntimeAdapterFactoryContext): RuntimeAdapterFactoryResult;
 }
 
-function canonicalConfiguration(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalConfiguration);
-  if (typeof value !== "object" || value === null) return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([first], [second]) => first.localeCompare(second))
-      .map(([key, entry]) => [key, canonicalConfiguration(entry)]),
-  );
-}
-
-/** Identifies the exact validated configuration without retaining its values. */
-export function runtimeAdapterConfigurationFingerprint(
-  configuration: RuntimeAdapterConfiguration,
-): string {
-  return createHash("sha256")
-    .update(JSON.stringify(canonicalConfiguration(configuration)))
-    .digest("hex");
-}
-
 export interface RuntimeAdapterRegistry {
   resolve(configuration: unknown): ResolvedRuntimeAdapter;
+}
+
+const adapterCapabilityKeys = [
+  "execute",
+  "modelSelection",
+  "structuredOutput",
+  "sessionReuse",
+  "checkpoint",
+  "fork",
+  "activity",
+  "sessionUi",
+] as const;
+
+/** Validates declared capabilities against an instantiated adapter. */
+export function assertRuntimeAdapterCapabilities(
+  adapter: AgentAdapter,
+  expected: AgentAdapterCapabilities,
+): void {
+  for (const key of adapterCapabilityKeys) {
+    if (adapter.capabilities[key] !== expected[key]) {
+      throw new RuntimeAdapterSelectionError(
+        `adapter capability "${key}" changed after preparation`,
+      );
+    }
+  }
+
+  const optionalOperations = [
+    ["checkpoint", adapter.captureCheckpoint],
+    ["fork", adapter.fork],
+    ["sessionUi", adapter.sessionUi],
+  ] as const;
+  for (const [capability, operation] of optionalOperations) {
+    if (expected[capability] !== (operation !== undefined)) {
+      throw new RuntimeAdapterSelectionError(
+        `adapter capability "${capability}" does not match its optional operation`,
+      );
+    }
+  }
 }
 
 function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
@@ -223,7 +250,7 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
     },
     {
       identity: "opencode",
-      resolveCapabilities(configuration) {
+      resolveCapabilities(configuration, preparation) {
         if (configuration.adapter !== "opencode") {
           throw new RuntimeAdapterSelectionError(
             'factory "opencode" received a different adapter configuration',
@@ -237,7 +264,7 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
           checkpoint: true,
           fork: true,
           activity: true,
-          sessionUi: true,
+          sessionUi: preparation?.browserUiUrl !== undefined,
         };
       },
       async prepare(configuration, signal) {
@@ -250,7 +277,9 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
           configuration.url,
           signal,
         );
-        return browserUiUrl === undefined ? {} : { browserUiUrl };
+        return {
+          ...(browserUiUrl === undefined ? {} : { browserUiUrl }),
+        };
       },
       create(configuration, context) {
         if (configuration.adapter !== "opencode") {
@@ -341,12 +370,25 @@ export function createRuntimeAdapterRegistry(
           redactRuntimeAdapterError(cause, configuration),
         );
       }
+      const resolveCapabilities = (
+        preparation?: RuntimeAdapterPreparation,
+      ): AgentAdapterCapabilities => {
+        try {
+          return factory.resolveCapabilities(configuration, preparation);
+        } catch (cause) {
+          if (cause instanceof RuntimeAdapterSelectionError) throw cause;
+          throw new RuntimeAdapterSelectionError(
+            `factory "${configuration.adapter}" could not resolve capabilities`,
+            redactRuntimeAdapterError(cause, configuration),
+          );
+        }
+      };
       return {
         identity: configuration.adapter,
         configuration,
-        configurationFingerprint:
-          runtimeAdapterConfigurationFingerprint(configuration),
+        configurationBinding: randomUUID(),
         capabilities,
+        resolveCapabilities,
         async prepare(signal) {
           try {
             return await factory.prepare(configuration, signal);

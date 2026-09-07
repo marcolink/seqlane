@@ -15,7 +15,10 @@ import {
   emitMastraInvocationTopology,
 } from "../runtime/mastra/mastra-execution.js";
 import { preflightCompiledWorkflowModels } from "../runtime/execution/model-preflight.js";
-import { resolveCompiledWorkflowSessions } from "../runtime/session/session-preflight.js";
+import {
+  preflightCompiledWorkflowSessionCapabilities,
+  resolveCompiledWorkflowSessions,
+} from "../runtime/session/session-preflight.js";
 import { createExecutionEventBridge } from "./event-bridge.js";
 import { loadWorkflow, type LoadedWorkflow } from "./workflow/load-workflow.js";
 import { createSeqlanePlanSnapshot } from "./workflow/plan-snapshot.js";
@@ -160,7 +163,7 @@ export async function startRun(
       abortController.signal,
       request.input,
       (notification) => sendRuntimeSessionUi(host, notification),
-      { environment: process.env },
+      { environment: process.env, runId },
     );
     const workflowDefinition =
       typeof loadedWorkflow.workflow === "object" &&
@@ -183,6 +186,7 @@ export async function startRun(
       events,
       createInvocationId,
     });
+    preflightCompiledWorkflowSessionCapabilities(mastraExecution.prepared);
     await preflightCompiledWorkflowModels(mastraExecution.prepared);
     await resolveCompiledWorkflowSessions(mastraExecution.prepared);
 
