@@ -120,6 +120,7 @@ export async function resolveMergeConflicts(
 ): Promise<ResolveMergeConflictsResult> {
   let attempts = 0;
   let result: ResolveMergeConflictsResult;
+  let agentLifecycleStarted = false;
   try {
     const request = validateRequest(requestValue);
     const metadata = await ports.github.readPullRequest(
@@ -173,6 +174,10 @@ export async function resolveMergeConflicts(
         attempts += 1;
         const classified = classifyConflicts(conflicts);
         if (classified.agent.length > 0) {
+          if (!agentLifecycleStarted) {
+            agentLifecycleStarted = true;
+            await ports.agent.start?.();
+          }
           const agentRequest =
             await ports.files.prepareAgentWorkspace(conflicts);
           await ports.agent.resolve(agentRequest);
@@ -226,6 +231,14 @@ export async function resolveMergeConflicts(
     );
   } catch (error: unknown) {
     result = failureResult(attempts, error);
+  } finally {
+    if (agentLifecycleStarted) {
+      try {
+        await ports.agent.stop?.();
+      } catch (error: unknown) {
+        result = failureResult(attempts, error);
+      }
+    }
   }
   await ports.summary.write(result);
   return result;

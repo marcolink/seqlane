@@ -257,11 +257,21 @@ describe("resolveMergeConflicts", () => {
         },
       ],
     );
+    let starts = 0;
+    let stops = 0;
+    fake.value.agent.start = async () => {
+      starts += 1;
+    };
+    fake.value.agent.stop = async () => {
+      stops += 1;
+    };
 
     await expect(
       resolveMergeConflicts(request("rebase"), fake.value),
     ).resolves.toMatchObject({ kind: "resolved", attempts: 2 });
     expect(fake.agent).toHaveLength(4);
+    expect(starts).toBe(1);
+    expect(stops).toBe(1);
   });
 
   it("rejects merge push without commit before integration", async () => {

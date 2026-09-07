@@ -10,25 +10,34 @@ export interface BoundedRecording {
   record(event: SeqlaneEvent): void;
 }
 
-function redact(value: unknown, secret: string | undefined): unknown {
+type RecordingSecrets = string | readonly string[] | undefined;
+
+function redact(value: unknown, secrets: readonly string[]): unknown {
   if (typeof value === "string") {
-    if (secret !== undefined && secret.length > 0) {
-      return value.split(secret).join(REDACTED_VALUE);
-    }
-    return value;
+    return secrets.reduce(
+      (redacted, secret) => redacted.split(secret).join(REDACTED_VALUE),
+      value,
+    );
   }
-  if (Array.isArray(value)) return value.map((item) => redact(item, secret));
+  if (Array.isArray(value)) return value.map((item) => redact(item, secrets));
   if (typeof value !== "object" || value === null) return value;
   return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, redact(item, secret)]),
+    Object.entries(value).map(([key, item]) => [key, redact(item, secrets)]),
   );
 }
 
 export function createBoundedRecording(
-  secret = process.env.OPENAI_API_KEY,
+  secret: RecordingSecrets = process.env.OPENAI_API_KEY,
   maximumEvents = MAX_RECORDING_EVENTS,
   maximumBytes = MAX_RECORDING_BYTES,
 ): BoundedRecording {
+  const secrets = [
+    ...new Set(
+      (typeof secret === "string" ? [secret] : (secret ?? [])).filter(
+        (value) => value.length > 0,
+      ),
+    ),
+  ].sort((first, second) => second.length - first.length);
   const events: SeqlaneEvent[] = [];
   let bytes = 0;
   let truncated = false;
@@ -45,7 +54,7 @@ export function createBoundedRecording(
         truncated = true;
         return;
       }
-      const redacted = redact(event, secret) as SeqlaneEvent;
+      const redacted = redact(event, secrets) as SeqlaneEvent;
       const encoded = JSON.stringify(redacted);
       if (encoded === undefined || bytes + encoded.length > maximumBytes) {
         truncated = true;
@@ -55,4 +64,11 @@ export function createBoundedRecording(
       events.push(redacted);
     },
   };
+}
+
+export function formatBoundedRecording(recording: BoundedRecording): string {
+  const lines = ["Agent recording:"];
+  lines.push(...recording.events.map((event) => JSON.stringify(event)));
+  if (recording.truncated) lines.push("Agent recording truncated: true");
+  return lines.join("\n");
 }

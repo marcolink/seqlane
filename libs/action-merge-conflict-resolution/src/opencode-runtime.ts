@@ -21,6 +21,30 @@ export const OPENCODE_PORT = 4096;
 export const OPENCODE_CONFIG =
   '{"model":"openai/gpt-5.6-terra","permission":{"*":"deny","StructuredOutput":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","edit":"allow","write":"allow","bash":"deny","external_directory":"deny"}}';
 
+const inheritedRuntimeEnvironmentKeys = [
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "OPENAI_API_KEY",
+] as const;
+
+export function buildOpenCodeChildEnvironment(
+  parent: Readonly<Record<string, string | undefined>> = process.env,
+): Readonly<Record<string, string>> {
+  const environment: Record<string, string> = {};
+  for (const key of inheritedRuntimeEnvironmentKeys) {
+    const value = parent[key];
+    if (value !== undefined) environment[key] = value;
+  }
+  return {
+    ...environment,
+    OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+    OPENCODE_CONFIG_CONTENT: OPENCODE_CONFIG,
+  };
+}
+
 export interface OpenCodeRuntimeHandle {
   readonly connection: OpenCodeConnection;
   readonly stop: () => Promise<void>;
@@ -71,7 +95,7 @@ function defaultStart(
 ): ChildProcess {
   return spawn(executable, [...args], {
     cwd: options.cwd,
-    env: { ...process.env, ...options.env },
+    env: options.env,
     stdio: "ignore",
     windowsHide: true,
   });
@@ -141,10 +165,7 @@ export class NodeOpenCodeRuntime {
         ],
         {
           cwd: resolve(workspace),
-          env: {
-            OPENCODE_DISABLE_PROJECT_CONFIG: "true",
-            OPENCODE_CONFIG_CONTENT: OPENCODE_CONFIG,
-          },
+          env: buildOpenCodeChildEnvironment(),
         },
       );
       const healthcheck = this.options.healthcheck ?? defaultHealthcheck;

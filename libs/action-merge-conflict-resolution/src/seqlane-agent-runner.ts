@@ -50,13 +50,38 @@ function agentError(message: string, cause?: unknown): ActionResolutionError {
 
 export class SeqlaneAgentRunner implements AgentRunnerPort {
   private readonly options: SeqlaneAgentRunnerOptions;
+  private runtime: OpenCodeRuntimeHandle | undefined;
+  private run: Awaited<ReturnType<typeof createOpenCodeRun>> | undefined;
 
   constructor(options: SeqlaneAgentRunnerOptions) {
     this.options = options;
   }
 
+  async start(): Promise<void> {
+    if (this.runtime !== undefined && this.run !== undefined) return;
+    const runtime = await this.options.openCode.start(this.options.workspace);
+    try {
+      const run = await createOpenCodeRun(runtime.connection);
+      this.runtime = runtime;
+      this.run = run;
+    } catch (error: unknown) {
+      await runtime.stop().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async stop(): Promise<void> {
+    const run = this.run;
+    const runtime = this.runtime;
+    this.run = undefined;
+    this.runtime = undefined;
+    await run?.abort().catch(() => undefined);
+    await runtime?.stop();
+  }
+
   async resolve(request: AgentResolutionRequest): Promise<void> {
     const parsed = validateAgentResolutionRequest(request);
+    await this.start();
     const execution = await this.execute({
       ...parsed,
       workspace: this.options.workspace,
@@ -73,15 +98,15 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
   private async execute(
     request: SeqlaneAgentExecutionRequest,
   ): Promise<unknown> {
-    let handle: OpenCodeRuntimeHandle | undefined;
-    let run: Awaited<ReturnType<typeof createOpenCodeRun>> | undefined;
     try {
-      handle = await this.options.openCode.start(request.workspace);
+      const run = this.run;
+      if (run === undefined) {
+        throw agentError("The OpenCode runtime is not started.");
+      }
       const recording = this.options.recording ?? createBoundedRecording();
       const events = {
         emit: (event: SeqlaneEvent) => recording.record(event),
       };
-      run = await createOpenCodeRun(handle.connection);
       const built = buildWorkflow(this.options.workflow);
       const executor = createOpenCodeExecutor(built.taskDefinitions, run);
       const compiled = new EffectCompiler().compileWorkflow(built.plan, {
@@ -112,9 +137,6 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
     } catch (error: unknown) {
       if (error instanceof ActionResolutionError) throw error;
       throw agentError("The Seqlane workflow could not be executed.", error);
-    } finally {
-      await run?.abort().catch(() => undefined);
-      await handle?.stop();
     }
   }
 }

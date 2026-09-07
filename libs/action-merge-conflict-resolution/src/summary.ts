@@ -1,5 +1,6 @@
 import type { ResolveMergeConflictsResult } from "./contracts.js";
 import type { WorkflowDefinitionMetadata } from "./github-port.js";
+import { formatBoundedRecording, type BoundedRecording } from "./recording.js";
 
 export interface SummaryWriter {
   readonly write: (result: ResolveMergeConflictsResult) => Promise<void>;
@@ -8,6 +9,7 @@ export interface SummaryWriter {
 export function formatResolutionSummary(
   result: ResolveMergeConflictsResult,
   workflow?: WorkflowDefinitionMetadata,
+  recording?: BoundedRecording,
 ): string {
   const lines = [`Result: ${result.result}`, `Attempts: ${result.attempts}`];
   if (result.kind !== "error") {
@@ -21,14 +23,17 @@ export function formatResolutionSummary(
   if (workflow !== undefined) {
     lines.push(`Workflow: ${workflow.ref} (${workflow.sha})`);
   }
+  if (recording !== undefined) lines.push(formatBoundedRecording(recording));
   return lines.join("\n");
 }
 
 export function createSummaryWriter(
   write: (summary: string) => Promise<void>,
   workflow?: WorkflowDefinitionMetadata,
+  recording?: BoundedRecording,
 ): SummaryWriter {
   return {
-    write: (result) => write(formatResolutionSummary(result, workflow)),
+    write: (result) =>
+      write(formatResolutionSummary(result, workflow, recording)),
   };
 }

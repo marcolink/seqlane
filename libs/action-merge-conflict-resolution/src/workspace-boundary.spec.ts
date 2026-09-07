@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -13,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { NodeGitCli } from "./git-cli.js";
 import {
@@ -185,6 +186,17 @@ describe("workspace boundary", () => {
           "code" in error &&
           error.code === "UNSAFE_PATH",
       );
+
+      writeFileSync(join(target, "other.ts"), "other target\n");
+      await workspace.prepareAgentWorkspace([{ path: "other.ts", stage: 1 }]);
+      await expect(
+        workspace.copyAgentEdits(["other.ts"]),
+      ).resolves.toBeUndefined();
+      await expect(
+        workspace.copyAgentEdits(["outside.ts"]),
+      ).rejects.toMatchObject({
+        code: "UNSAFE_PATH",
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -245,7 +257,7 @@ describe("workspace boundary", () => {
     const root = fixtureRoot();
     try {
       const owned = await createOwnedAgentWorkspace(root);
-      assert.equal(owned.path.startsWith(root), true);
+      assert.equal(owned.path.startsWith(realpathSync(root)), true);
       assert.notEqual(owned.path, root);
     } finally {
       rmSync(root, { recursive: true, force: true });

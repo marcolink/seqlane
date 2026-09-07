@@ -8,6 +8,7 @@ import {
   OPENCODE_HOST,
   OPENCODE_PORT,
   OPENCODE_VERSION,
+  buildOpenCodeChildEnvironment,
   verifyOpenCodeArchive,
 } from "./opencode-runtime.js";
 
@@ -27,5 +28,24 @@ describe("resolver OpenCode runtime", () => {
     expect(() => verifyOpenCodeArchive(new Uint8Array([1, 2, 3]))).toThrow(
       /archive hash/i,
     );
+  });
+
+  it("injects only the allowlisted runtime environment into the child", () => {
+    const environment = buildOpenCodeChildEnvironment({
+      PATH: "/usr/bin",
+      HOME: "/tmp/home",
+      OPENAI_API_KEY: "openai-secret",
+      GITHUB_TOKEN: "github-secret",
+      GH_TOKEN: "gh-secret",
+    });
+
+    expect(environment).toMatchObject({
+      PATH: "/usr/bin",
+      HOME: "/tmp/home",
+      OPENAI_API_KEY: "openai-secret",
+      OPENCODE_CONFIG_CONTENT: OPENCODE_CONFIG,
+    });
+    expect(environment).not.toHaveProperty("GITHUB_TOKEN");
+    expect(environment).not.toHaveProperty("GH_TOKEN");
   });
 });

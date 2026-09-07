@@ -8,6 +8,7 @@ import {
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -132,6 +133,65 @@ describe("lockfile Docker adapter", () => {
         category: "lockfile",
         code: "LOCKFILE_REGENERATION_FAILED",
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects overlapping roots before reading trusted package metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "seqlane-lockfile-overlap-"));
+    const source = join(root, "source");
+    await mkdir(source);
+    let dockerCalls = 0;
+    try {
+      await expect(
+        new NodeLockfileRegenerator({
+          targetRoot: source,
+          trustedSourceRoot: source,
+          docker: {
+            run: async () => {
+              dockerCalls += 1;
+              return { exitCode: 0 };
+            },
+          },
+        }).regenerate("."),
+      ).rejects.toMatchObject({ code: "UNSAFE_PATH" });
+      expect(dockerCalls).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects symlink roots and source-directory escapes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "seqlane-lockfile-symlink-"));
+    const source = join(root, "source");
+    const target = join(root, "target");
+    const outside = join(root, "outside");
+    const sourceLink = join(root, "source-link");
+    await Promise.all([mkdir(source), mkdir(target), mkdir(outside)]);
+    await symlink(source, sourceLink, "dir");
+    await writeFile(
+      join(source, "package.json"),
+      '{"packageManager":"pnpm@10.33.0"}\n',
+    );
+    await writeFile(
+      join(outside, "package.json"),
+      '{"packageManager":"pnpm@10.33.0"}\n',
+    );
+    await symlink(outside, join(source, "linked"), "dir");
+    try {
+      await expect(
+        new NodeLockfileRegenerator({
+          targetRoot: target,
+          trustedSourceRoot: sourceLink,
+        }).regenerate("."),
+      ).rejects.toMatchObject({ code: "UNSAFE_PATH" });
+      await expect(
+        new NodeLockfileRegenerator({
+          targetRoot: target,
+          trustedSourceRoot: source,
+        }).regenerate("linked"),
+      ).rejects.toMatchObject({ code: "UNSAFE_PATH" });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

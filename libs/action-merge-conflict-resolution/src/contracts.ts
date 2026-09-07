@@ -251,6 +251,8 @@ export interface LockfilePort {
 
 export interface AgentRunnerPort {
   readonly resolve: (request: AgentResolutionRequest) => Promise<void>;
+  readonly start?: () => Promise<void>;
+  readonly stop?: () => Promise<void>;
 }
 
 export interface SummaryPort {

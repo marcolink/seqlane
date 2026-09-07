@@ -12,13 +12,16 @@ import {
   NodeOpenCodeRuntime,
   NodeWorkspaceBoundary,
   createSeqlaneAgentRunner,
+  createBoundedRecording,
   createSummaryWriter,
+  formatBoundedRecording,
   parseActionInputs,
   resolveMergeConflicts,
   workflowDefinitionMetadata,
   type AgentRunnerPort,
   type PullRequestMetadata,
   type WorkspaceFilesPort,
+  validateSeparateWorkspaceRoots,
 } from "@seqlane/action-merge-conflict-resolution";
 import workflow from "@seqlane/runtime/workflows/resolve-merge-conflicts";
 
@@ -38,8 +41,12 @@ function workflowMetadata() {
 }
 
 export async function run(): Promise<void> {
-  const secret = process.env.OPENAI_API_KEY;
-  if (secret !== undefined && secret.length > 0) core.setSecret(secret);
+  const secrets = [
+    process.env.OPENAI_API_KEY,
+    process.env.GITHUB_TOKEN,
+    process.env.GH_TOKEN,
+  ].filter((value): value is string => value !== undefined && value.length > 0);
+  for (const secret of secrets) core.setSecret(secret);
 
   const request = parseActionInputs({
     pullRequestNumber: core.getInput("pull-request-number", { required: true }),
@@ -51,14 +58,17 @@ export async function run(): Promise<void> {
     maxAttempts: core.getInput("max-attempts"),
   });
   const root = requiredWorkspace();
-  const sourceRoot = resolve(root, request.sourceDirectory);
-  const targetRoot = resolve(root, request.targetDirectory);
+  const { sourceRoot, targetRoot } = await validateSeparateWorkspaceRoots(
+    resolve(root, request.sourceDirectory),
+    resolve(root, request.targetDirectory),
+  );
   const agentRoot = await mkdtemp(
     join(process.env.RUNNER_TEMP ?? tmpdir(), "seqlane-agent-"),
   );
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? "";
   const octokit = github.getOctokit(token);
   const workflowRef = workflowMetadata();
+  const recording = createBoundedRecording(secrets);
   let metadata: PullRequestMetadata | undefined;
   let boundary: NodeWorkspaceBoundary | undefined;
   let agent: AgentRunnerPort | undefined;
@@ -140,18 +150,24 @@ export async function run(): Promise<void> {
           strategy: request.strategy,
           baseBranch: metadata.baseBranch,
           headBranch: metadata.headBranch,
+          recording,
         });
         await agent.resolve(agentRequest);
       },
     },
-    summary: createSummaryWriter(async (summary) => {
-      await core.summary.addRaw(summary).write();
-    }, workflowRef),
+    summary: createSummaryWriter(
+      async (summary) => {
+        await core.summary.addRaw(summary).write();
+      },
+      workflowRef,
+      recording,
+    ),
     commitAndPush: new NodeCommitAndPush(git, token),
   };
 
   try {
     const result = await resolveMergeConflicts(request, ports);
+    core.info(formatBoundedRecording(recording));
     core.setOutput("result", result.result);
     if (result.kind === "error") {
       core.setFailed(`${result.error.category}/${result.error.code}`);

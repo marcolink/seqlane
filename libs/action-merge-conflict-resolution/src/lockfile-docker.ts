@@ -18,7 +18,12 @@ import {
   type DockerCommandResult,
   type LockfileRegenerationPort,
 } from "./lockfile-port.js";
-import { prepareLockfileWorkspace } from "./workspace-boundary.js";
+import {
+  prepareLockfileWorkspace,
+  validateSafeDirectoryWithinRoot,
+  validateSafeFileWithinRoot,
+  validateSeparateWorkspaceRoots,
+} from "./workspace-boundary.js";
 
 export const LOCKFILE_DOCKER_IMAGE =
   "node@sha256:6642ef280aebc09c4541bee0b15c9f89f0f3f3c247ddee79ae1d37eddfdcbbaa";
@@ -230,14 +235,26 @@ export class NodeLockfileRegenerator implements LockfileRegenerationPort {
       );
     }
 
-    const pnpmVersion = await readExactPnpmVersion(
-      join(this.trustedSourceRoot, parsedDirectory.data, "package.json"),
+    const roots = await validateSeparateWorkspaceRoots(
+      this.trustedSourceRoot,
+      this.targetRoot,
     );
+    const sourceDirectoryPath = await validateSafeDirectoryWithinRoot(
+      roots.sourceRoot,
+      parsedDirectory.data,
+      "Trusted source directory",
+    );
+    const packageJsonPath = await validateSafeFileWithinRoot(
+      sourceDirectoryPath,
+      "package.json",
+      "Trusted package.json",
+    );
+    const pnpmVersion = await readExactPnpmVersion(packageJsonPath);
     const workspace = await mkdtemp(
       join(this.temporaryParent, ".seqlane-lockfile-"),
     );
     try {
-      await prepareLockfileWorkspace(this.targetRoot, workspace, this.git);
+      await prepareLockfileWorkspace(roots.targetRoot, workspace, this.git);
 
       const request: DockerCommandRequest = {
         executable: this.options.dockerExecutable ?? "docker",
@@ -258,7 +275,7 @@ export class NodeLockfileRegenerator implements LockfileRegenerationPort {
           result.stderr,
         );
       }
-      await copyGeneratedLockfile(workspace, this.targetRoot);
+      await copyGeneratedLockfile(workspace, roots.targetRoot);
     } finally {
       await rm(workspace, { recursive: true, force: true });
     }

@@ -2,7 +2,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { REDACTED_VALUE, createBoundedRecording } from "./recording.js";
+import {
+  REDACTED_VALUE,
+  createBoundedRecording,
+  formatBoundedRecording,
+} from "./recording.js";
 
 describe("bounded Seqlane recording", () => {
   it("redacts the secret and bounds event count", () => {
@@ -31,5 +35,22 @@ describe("bounded Seqlane recording", () => {
 
     expect(recording.events).toHaveLength(0);
     expect(recording.truncated).toBe(true);
+  });
+
+  it("redacts every configured secret in the bounded representation", () => {
+    const recording = createBoundedRecording([
+      "github-secret",
+      "openai-secret",
+    ]);
+    recording.record({
+      type: "run.started",
+      workId: "github-secret",
+      runId: "openai-secret",
+    });
+
+    const formatted = formatBoundedRecording(recording);
+    expect(formatted).not.toContain("github-secret");
+    expect(formatted).not.toContain("openai-secret");
+    expect(formatted).toContain(REDACTED_VALUE);
   });
 });

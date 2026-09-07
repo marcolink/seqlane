@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   stat,
   writeFile,
   rm,
@@ -108,9 +109,91 @@ async function assertSafeRoot(
   path: string,
   description: string,
 ): Promise<string> {
-  const root = resolve(path);
-  await assertDirectory(root, description);
-  return root;
+  const requestedRoot = resolve(path);
+  await assertDirectory(requestedRoot, description);
+  try {
+    return await realpath(requestedRoot);
+  } catch (error: unknown) {
+    throw workspaceError(
+      "UNSAFE_PATH",
+      `${description} cannot be resolved safely.`,
+      error,
+    );
+  }
+}
+
+function pathsOverlap(first: string, second: string): boolean {
+  const firstRoot = resolve(first);
+  const secondRoot = resolve(second);
+  const secondFromFirst = relative(firstRoot, secondRoot);
+  const firstFromSecond = relative(secondRoot, firstRoot);
+  return (
+    secondFromFirst.length === 0 ||
+    firstFromSecond.length === 0 ||
+    (!secondFromFirst.startsWith(`..${sep}`) && !isAbsolute(secondFromFirst)) ||
+    (!firstFromSecond.startsWith(`..${sep}`) && !isAbsolute(firstFromSecond))
+  );
+}
+
+export function assertSeparateWorkspaceRootPaths(
+  sourceRoot: string,
+  targetRoot: string,
+): void {
+  if (pathsOverlap(sourceRoot, targetRoot)) {
+    throw workspaceError(
+      "UNSAFE_PATH",
+      "The trusted source and resolution target must be separate directories.",
+    );
+  }
+}
+
+export async function validateSeparateWorkspaceRoots(
+  sourceRoot: string,
+  targetRoot: string,
+): Promise<{ readonly sourceRoot: string; readonly targetRoot: string }> {
+  const source = await assertSafeRoot(sourceRoot, "Trusted source");
+  const target = await assertSafeRoot(targetRoot, "Resolution target");
+  assertSeparateWorkspaceRootPaths(source, target);
+  return { sourceRoot: source, targetRoot: target };
+}
+
+export async function validateSafeDirectoryWithinRoot(
+  root: string,
+  path: string,
+  description: string,
+): Promise<string> {
+  const safeRoot = await assertSafeRoot(root, `${description} root`);
+  if (path === ".") return safeRoot;
+  const candidate = ensureRelativePath(safeRoot, path);
+  await assertNoSymlinkComponents(safeRoot, path);
+  await assertDirectory(candidate, description);
+  return candidate;
+}
+
+export async function validateSafeFileWithinRoot(
+  root: string,
+  path: string,
+  description: string,
+): Promise<string> {
+  const safeRoot = await assertSafeRoot(root, `${description} root`);
+  const candidate = await assertNoSymlinkComponents(safeRoot, path);
+  try {
+    const details = await lstat(candidate);
+    if (!details.isFile() || details.isSymbolicLink()) {
+      throw workspaceError(
+        "UNSAFE_PATH",
+        `${description} is not a regular file.`,
+      );
+    }
+  } catch (error: unknown) {
+    if (error instanceof ActionResolutionError) throw error;
+    throw workspaceError(
+      "UNSAFE_PATH",
+      `${description} is not available.`,
+      error,
+    );
+  }
+  return candidate;
 }
 
 function ensureRelativePath(root: string, path: string): string {
@@ -564,6 +647,7 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
     const sourceRoot = resolve(options.sourceRoot);
     const targetRoot = resolve(options.targetRoot);
     const agentRoot = resolve(options.agentRoot);
+    assertSeparateWorkspaceRootPaths(sourceRoot, targetRoot);
     const targetRelativeToAgent = relative(targetRoot, agentRoot);
     const agentRelativeToTarget = relative(agentRoot, targetRoot);
     if (
@@ -595,10 +679,20 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
         parsed.error,
       );
     }
-    this.originalConflicts = parsed.data;
-    this.originalAgentPaths = asPaths(
-      parsed.data.filter(({ path }) => path !== lockfilePath),
-    );
+    this.originalConflicts = [
+      ...new Map(
+        [...this.originalConflicts, ...parsed.data].map((conflict) => [
+          conflict.path,
+          conflict,
+        ]),
+      ).values(),
+    ];
+    this.originalAgentPaths = [
+      ...new Set([
+        ...this.originalAgentPaths,
+        ...asPaths(parsed.data.filter(({ path }) => path !== lockfilePath)),
+      ]),
+    ];
     return prepareAgentResolutionWorkspace(
       this.options.targetRoot,
       this.options.agentRoot,
