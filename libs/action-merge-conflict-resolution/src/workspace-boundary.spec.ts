@@ -1,4 +1,5 @@
 // @test-scope ./workspace-boundary.ts
+// @test-scope ./workspace-boundary-filesystem.ts
 // @test-scope ./git-cli.ts
 
 import assert from "node:assert/strict";
@@ -219,6 +220,34 @@ describe("workspace boundary", () => {
             `observed ${MAX_LOCKFILE_INPUT_FILE_BYTES + 1} bytes > ${MAX_LOCKFILE_INPUT_FILE_BYTES} bytes`,
           ),
       );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not copy files when a later lockfile input fails policy validation", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      mkdirSync(source);
+      mkdirSync(target);
+      writeFileSync(join(source, "package.json"), "{}\n");
+      writeFileSync(join(source, "pnpm-workspace.yaml"), "registry: unsafe\n");
+
+      await assert.rejects(
+        () =>
+          prepareLockfileWorkspace(
+            source,
+            target,
+            listedFilesGit(["package.json", "pnpm-workspace.yaml"]),
+          ),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "LOCKFILE_REGENERATION_FAILED",
+      );
+      assert.equal(requireFile(target, "package.json"), false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
