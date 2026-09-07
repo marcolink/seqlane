@@ -153,9 +153,9 @@ describe("shared-session order preflight", () => {
       },
     );
 
-    await expect(
-      resolveCompiledWorkflowSessions(compiled),
-    ).rejects.toBeInstanceOf(UnsupportedSessionCapabilityError);
+    expect(() => {
+      preflightCompiledWorkflowSessionCapabilities(compiled);
+    }).toThrow(UnsupportedSessionCapabilityError);
     expect(resolved).toBe(0);
   });
 

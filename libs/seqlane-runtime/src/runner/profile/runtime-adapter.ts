@@ -10,6 +10,7 @@ import {
   createOpenCodeModelCapabilities,
   resolveOpenCodeBrowserUiUrl,
 } from "@seqlane/opencode";
+import type { RequestContext } from "@mastra/core/request-context";
 import type { ModelSelection } from "@seqlane/core";
 import type { ExecutorModelCapabilities } from "../../runtime/execution/executor.js";
 import { z } from "zod";
@@ -123,6 +124,8 @@ export interface RuntimeAdapterFactoryContext {
   readonly signal: AbortSignal;
   readonly modelSelection?: ModelSelection;
   readonly browserUiUrl?: string;
+  /** Existing Mastra invocation context, preserved for adapter integrations. */
+  readonly requestContext?: RequestContext;
 }
 
 export interface RuntimeAdapterPreparation {

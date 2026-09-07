@@ -163,7 +163,7 @@ export async function startRun(
       abortController.signal,
       request.input,
       (notification) => sendRuntimeSessionUi(host, notification),
-      { environment: process.env },
+      { environment: process.env, runId },
     );
     const workflowDefinition =
       typeof loadedWorkflow.workflow === "object" &&

@@ -6,6 +6,7 @@ import type {
   SeqlaneSchema,
 } from "@seqlane/core";
 import type { AgentAdapter, AgentAdapterRequest } from "@seqlane/agent-adapter";
+import { RequestContext } from "@mastra/core/request-context";
 import { describe, expect, it } from "vitest";
 import {
   executeAgentAdapterRequest,
@@ -364,6 +365,72 @@ describe("resolveRuntimeProfile", () => {
         task: source,
       }),
     ).rejects.toThrow(/capability/i);
+  });
+
+  it("validates the adapter instance only when its session is created", async () => {
+    const source = task("source", "shared");
+    const tasks: TaskDefinitionRegistry = new Map([[source.id, source]]);
+    let adapterCreations = 0;
+    let receivedRequestContext: RequestContext | undefined;
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async () => ({ value: "done" }),
+    };
+    const adapterRegistry = createRuntimeAdapterRegistry([
+      {
+        identity: "acp",
+        resolveCapabilities: () => capabilities,
+        prepare: async () => ({}),
+        create: (_configuration, context) => {
+          receivedRequestContext = context.requestContext;
+          return {
+            createAdapter: () => {
+              adapterCreations += 1;
+              return adapter;
+            },
+          };
+        },
+      },
+    ]);
+
+    const execution = await resolveRuntimeProfile(
+      { id: "http://adapter.test", workspace: process.cwd() },
+      tasks,
+      new AbortController().signal,
+      null,
+      undefined,
+      {
+        adapterConfiguration: {
+          adapter: "acp",
+          configuration: {
+            id: "test-agent",
+            description: "test agent",
+            command: "agent",
+            persistSession: true,
+          },
+        },
+        adapterRegistry,
+        requestContext: new RequestContext([["request", "value"]]),
+      },
+    );
+
+    expect(adapterCreations).toBe(0);
+    expect(receivedRequestContext).toBeInstanceOf(RequestContext);
+    await execution.sessionResolver.resolve({
+      invocationId: "invocation:source",
+      task: source,
+    });
+    expect(adapterCreations).toBe(1);
   });
 
   it("exposes the OpenCode model catalog and configured default", async () => {

@@ -98,6 +98,11 @@ Post-review repairs make OpenCode session UI capability detection depend on
 the prepared endpoint. They validate adapter operations and capabilities for
 new and forked sessions. Capability admission now occurs before model work.
 
+Follow-up repairs preserve the actual Seqlane run ID and Mastra request context
+through profile resolution. Adapter instances are now created and validated
+only for the session that uses them, and capability admission has one
+orchestration owner per execution entry point.
+
 ## Traceability
 
 - [spec.agent-adapter-boundary-and-capabilities](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md)

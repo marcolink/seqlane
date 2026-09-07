@@ -203,6 +203,51 @@ describe("seqlane runner entry point", () => {
     });
   });
 
+  it("passes the workflow run identity into runtime profile resolution", async () => {
+    const moduleSource = `
+      export const workflow = {
+        workflow: { id: "run-identity" },
+        nodes: [],
+        output: null,
+      };
+    `;
+    const request: RunRequest = {
+      type: "run.start",
+      workflow: {
+        id: "run-identity",
+        moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+        exportName: "workflow",
+      },
+      input: null,
+      runtime: { id: "test" },
+    };
+    const host = new FakeRunnerHost();
+    const control: RunnerRunControl = { cancellationRequested: false };
+    let resolvedRunId: string | undefined;
+
+    await startRun(
+      host,
+      request,
+      () => "work-identity",
+      () => "run-identity",
+      () => undefined,
+      control,
+      async (_profile, taskDefinitions, _signal, _input, _notify, options) => {
+        resolvedRunId = options?.runId;
+        const executor = { execute: async () => null };
+        return {
+          executors: { agent: () => executor },
+          sessionResolver: sharedSessionResolver(executor),
+          taskDefinitions: taskDefinitions!,
+          workspaceIdentities: new Map(),
+          workspaceResources: new Map(),
+        };
+      },
+    );
+
+    expect(resolvedRunId).toBe("run-identity");
+  });
+
   it("emits one Plan event before invocation topology", async () => {
     const moduleSource = `
       export const workflow = {

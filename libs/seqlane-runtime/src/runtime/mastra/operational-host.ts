@@ -226,7 +226,11 @@ function createOperationalInvocationHandler(
           context.abortSignal,
           context.workflowInput,
           source.onSessionUiAvailable,
-          { adapterConfiguration: source.adapterConfiguration },
+          {
+            adapterConfiguration: source.adapterConfiguration,
+            requestContext: context.requestContext,
+            runId: context.runId,
+          },
         );
         const prepared = new PlanCompiler().compileWorkflow(source.plan, {
           workId,

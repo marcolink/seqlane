@@ -145,7 +145,6 @@ export async function resolveCompiledWorkflowSessions(
       });
     }
   }
-  preflightCompiledWorkflowSessionCapabilities(compiled);
   for (const session of isolatedSessions) {
     await resolveTaskSession(
       context.resolvedSessions,

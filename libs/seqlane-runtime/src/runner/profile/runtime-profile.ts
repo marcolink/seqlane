@@ -9,6 +9,7 @@ import type {
 import { randomUUID } from "node:crypto";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
 import type { AgentAdapter } from "@seqlane/agent-adapter";
+import type { RequestContext } from "@mastra/core/request-context";
 import type { ExecutorResolvers } from "../../runtime/execution/executor.js";
 import type {
   ExecutorRequest,
@@ -286,6 +287,8 @@ export interface RuntimeProfileResolutionOptions {
   /** Test seam and private composition-root override. */
   readonly adapterRegistry?: RuntimeAdapterRegistry;
   readonly runId?: RunId;
+  /** Existing Mastra invocation context for operational runs. */
+  readonly requestContext?: RequestContext;
   readonly environment?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -353,8 +356,13 @@ export async function resolveRuntimeProfile(
   );
   const preparation = await selected.prepare(signal);
   const capabilities = selected.resolveCapabilities(preparation);
-  const binding = selected.create({ signal, ...preparation });
-  assertRuntimeAdapterCapabilities(binding.createAdapter(), capabilities);
+  const binding = selected.create({
+    signal,
+    ...preparation,
+    ...(options.requestContext === undefined
+      ? {}
+      : { requestContext: options.requestContext }),
+  });
   const checkpointBinding: SessionCheckpointBinding = {
     adapter: selected.identity,
     runId: options.runId ?? randomUUID(),
@@ -377,6 +385,9 @@ export async function resolveRuntimeProfile(
             ...context,
             signal,
             ...preparation,
+            ...(options.requestContext === undefined
+              ? {}
+              : { requestContext: options.requestContext }),
           });
           return {
             ...result,
