@@ -27,7 +27,7 @@
       "dependsOn": ["build"],
       "options": {
         "cwd": "actions/zvec-grep-server",
-        "command": "node --check process-anchor.js && pnpm exec vitest run src/readiness.spec.ts src/bundle-runtime.spec.ts"
+        "command": "node --check process-anchor.js && pnpm exec vitest run src/readiness.spec.ts src/bundle-runtime.spec.ts src/main.spec.ts"
       }
     },
     "bundle-drift": {
