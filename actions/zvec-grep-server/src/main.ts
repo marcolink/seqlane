@@ -9,9 +9,10 @@ import {
   type DetachedProcess,
 } from "@seqlane/action-service-lifecycle";
 import { assertDirectory } from "./filesystem.js";
+import { buildZvecCommandPlan, buildZvecEnvironment } from "./commands.js";
 import {
-  buildReadinessArguments,
   mcpUrl,
+  runCommand,
   runReadinessCommand,
   waitForCommandHealth,
 } from "./readiness.js";
@@ -71,8 +72,12 @@ export async function run(): Promise<void> {
   const listen = core.getInput("listen") || "127.0.0.1:7999";
   const packageManager = core.getInput("package-manager") || "pnpm";
   const home = core.getInput("home") || runnerTempPath("zvec-grep");
-  const modelCache =
-    core.getInput("model-cache") || runnerTempPath("zvec-grep-model-cache");
+  const embedding = core.getInput("embedding") || "local/potion-code-16m-v2";
+  const maxFilesize = core.getInput("max-filesize") || "1M";
+  const additionalGlobs = core.getMultilineInput("glob");
+  const modelCache = core.getBooleanInput("model-cache")
+    ? runnerTempPath("zvec-grep-model-cache")
+    : undefined;
   const timeoutSeconds = Number(
     core.getInput("startup-timeout-seconds") || "30",
   );
@@ -82,17 +87,39 @@ export async function run(): Promise<void> {
   }
 
   await assertDirectory(workingDirectory);
-  const env = {
-    ...process.env,
-    ZVEC_GREP_HOME: home,
-    ZVEC_GREP_MODEL_CACHE: modelCache,
-  };
+  const env = buildZvecEnvironment(process.env, home, modelCache);
   const packageSpec = `@zvec/zvec-grep@${version}`;
-  const commandArgs = ["dlx", packageSpec, "server", "run", "--listen", listen];
+  const [resolveCommand, indexCommand, serverCommand, readinessCommand] =
+    buildZvecCommandPlan({
+      packageSpec,
+      projectDirectory: workingDirectory,
+      listen,
+      home,
+      indexOptions: {
+        embedding,
+        maxFilesize,
+        additionalGlobs,
+      },
+    });
   const logPath = runnerTempPath("zvec-grep.log");
+
+  await runCommand({
+    command: packageManager,
+    args: resolveCommand.args,
+    cwd: workingDirectory,
+    env,
+  });
+
+  await runCommand({
+    command: packageManager,
+    args: indexCommand.args,
+    cwd: workingDirectory,
+    env,
+  });
+
   const service = await spawnDetached({
     command: packageManager,
-    args: commandArgs,
+    args: [...serverCommand.args],
     cwd: workingDirectory,
     env,
     logPath,
@@ -106,7 +133,7 @@ export async function run(): Promise<void> {
       () =>
         runReadinessCommand({
           command: packageManager,
-          args: buildReadinessArguments(packageSpec, home),
+          args: [...readinessCommand.args],
           cwd: workingDirectory,
           env,
         }),

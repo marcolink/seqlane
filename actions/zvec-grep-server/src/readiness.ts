@@ -1,17 +1,6 @@
-export function buildReadinessArguments(
-  packageSpec: string,
-  home: string,
-): string[] {
-  return [
-    "dlx",
-    packageSpec,
-    "server",
-    "status",
-    "--check-ready",
-    "--home",
-    home,
-  ];
-}
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+export { buildReadinessArguments } from "./commands.js";
 
 export function mcpUrl(listen: string): string {
   const parsed = new URL(`http://${listen}`);
@@ -50,15 +39,29 @@ export async function runReadinessCommand({
   cwd: string;
   env: NodeJS.ProcessEnv;
 }): Promise<void> {
-  await execFileAsync(command, args, {
+  await runCommand({ command, args, cwd, env, timeout: 3_000 });
+}
+
+export async function runCommand({
+  command,
+  args,
+  cwd,
+  env,
+  timeout,
+}: {
+  command: string;
+  args: readonly string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  timeout?: number;
+}): Promise<void> {
+  await execFileAsync(command, [...args], {
     cwd,
     env,
     maxBuffer: 1_024 * 1_024,
-    timeout: 3_000,
+    ...(timeout === undefined ? {} : { timeout }),
   });
 }
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const sleep = (milliseconds: number) =>
