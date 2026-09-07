@@ -302,10 +302,7 @@ describe("Community Studio launcher", () => {
 
       expect(spawn).not.toHaveBeenCalled();
       expect(close).toHaveBeenCalledOnce();
-      expect(removeListener).toHaveBeenCalledWith(
-        "SIGTERM",
-        signalCall?.[1],
-      );
+      expect(removeListener).toHaveBeenCalledWith("SIGTERM", signalCall?.[1]);
     } finally {
       once.mockRestore();
       removeListener.mockRestore();
