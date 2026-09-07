@@ -559,7 +559,7 @@ jobs:
         if: steps.pull-request.outputs.eligible == 'true'
         id: zvec-grep
         timeout-minutes: 2
-        uses: ./seqlane-source/.github/actions/zvec-grep-server
+        uses: ./seqlane-source/actions/zvec-grep-server
         with:
           working-directory: ${{ github.workspace }}/seqlane-source
           version: "0.2.1"
@@ -584,7 +584,7 @@ jobs:
         if: steps.pull-request.outputs.eligible == 'true'
         id: opencode
         timeout-minutes: 2
-        uses: ./seqlane-source/.github/actions/opencode-server
+        uses: ./seqlane-source/actions/opencode-server
         with:
           working-directory: ${{ github.workspace }}/review-target
           hostname: 127.0.0.1
