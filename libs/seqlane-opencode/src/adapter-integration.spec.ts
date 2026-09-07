@@ -15,6 +15,7 @@ import { createOpenCodeAdapter } from "./adapter.js";
 
 interface RequestRecord {
   readonly method: string;
+  readonly url: string;
   readonly path: string;
   readonly body: Record<string, unknown> | undefined;
 }
@@ -73,6 +74,8 @@ async function readBody(
 async function startServer(
   options: { readonly mode?: "success" | "hold" | "permission" } = {},
 ): Promise<{
+  readonly promptStarted: Promise<void>;
+  readonly abortStarted: Promise<void>;
   readonly requests: RequestRecord[];
   readonly url: string;
   close(): Promise<void>;
@@ -80,6 +83,14 @@ async function startServer(
   const requests: RequestRecord[] = [];
   const eventResponses = new Set<ServerResponse>();
   const pendingPrompts = new Map<string, ServerResponse>();
+  let resolvePromptStarted: () => void = () => undefined;
+  const promptStarted = new Promise<void>((resolve) => {
+    resolvePromptStarted = resolve;
+  });
+  let resolveAbortStarted: () => void = () => undefined;
+  const abortStarted = new Promise<void>((resolve) => {
+    resolveAbortStarted = resolve;
+  });
   let nextSession = 0;
 
   const sendEvent = (sessionId: string, event: Record<string, unknown>) => {
@@ -101,6 +112,7 @@ async function startServer(
     const body = await readBody(request);
     requests.push({
       method: request.method ?? "",
+      url: request.url ?? "/",
       path: requestUrl.pathname,
       body,
     });
@@ -168,6 +180,7 @@ async function startServer(
       requestUrl.pathname,
     );
     if (request.method === "POST" && messageMatch) {
+      resolvePromptStarted();
       const sessionId = messageMatch[1];
       if (sessionId === undefined) {
         response.writeHead(400);
@@ -224,6 +237,7 @@ async function startServer(
       requestUrl.pathname,
     );
     if (request.method === "POST" && abortMatch) {
+      resolveAbortStarted();
       const pending = pendingPrompts.get(abortMatch[1] ?? "");
       if (pending !== undefined) {
         pendingPrompts.delete(abortMatch[1] ?? "");
@@ -245,6 +259,8 @@ async function startServer(
   }
 
   return {
+    promptStarted,
+    abortStarted,
     requests,
     url: `http://127.0.0.1:${address.port}`,
     async close() {
@@ -307,6 +323,7 @@ describe("OpenCode SDK adapter boundary", () => {
           expect.objectContaining({
             method: "POST",
             path: "/session",
+            url: expect.stringContaining("directory=%2Fconfigured-workspace"),
             body: undefined,
           }),
           expect.objectContaining({
@@ -406,11 +423,12 @@ describe("OpenCode SDK adapter boundary", () => {
         input: "cancel",
         signal: controller.signal,
       });
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await cancellationServer.promptStarted;
       controller.abort(new Error("cancelled by test"));
+      await cancellationServer.abortStarted;
       await expect(execution).rejects.toThrow(/cancelled|abort/i);
-      expect(cancellationServer.requests.map(({ path }) => path)).not.toContain(
-        "/session/session-2/message",
+      expect(cancellationServer.requests.map(({ path }) => path)).toContain(
+        "/session/session-1/abort",
       );
     } finally {
       await cancellationServer.close();

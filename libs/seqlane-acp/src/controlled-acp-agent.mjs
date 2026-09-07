@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { z } from "zod";
 
 const rpcRequestSchema = z.object({
@@ -13,12 +14,27 @@ const rpcResponseSchema = z.object({
 const paramsRecordSchema = z.record(z.string(), z.unknown());
 
 const mode = process.env.CONTROLLED_ACP_MODE ?? "success";
+const exitFile = process.env.CONTROLLED_ACP_EXIT_FILE;
 const argument = process.argv[2] ?? "missing-argument";
 const sessionId = "controlled-session";
 let sessionCwd = "";
 let selectedModel = "";
 let promptCount = 0;
 let pendingPromptId;
+
+function recordExit() {
+  if (exitFile !== undefined) writeFileSync(exitFile, "exit");
+}
+
+process.on("exit", recordExit);
+process.on("SIGTERM", () => {
+  recordExit();
+  process.exit(0);
+});
+process.on("SIGINT", () => {
+  recordExit();
+  process.exit(0);
+});
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -51,6 +67,10 @@ function completePrompt(stopReason = "end_turn") {
   const id = pendingPromptId;
   pendingPromptId = undefined;
   sendResult(id, { stopReason });
+}
+
+function exitAfterResponse() {
+  setImmediate(() => process.exit(0));
 }
 
 function handleRequest(request) {
@@ -98,6 +118,7 @@ function handleRequest(request) {
   if (request.method === "session/cancel") {
     completePrompt("cancelled");
     sendResult(request.id, {});
+    if (mode === "cancel") exitAfterResponse();
     return;
   }
 
@@ -186,6 +207,7 @@ process.stdin.on("data", (chunk) => {
       const response = rpcResponseSchema.safeParse(value);
       if (response.success && response.data.id === "permission-1") {
         completePrompt("cancelled");
+        if (mode === "permission") exitAfterResponse();
       }
     }
   }

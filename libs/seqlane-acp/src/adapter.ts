@@ -106,6 +106,7 @@ function createDefaultAgent(options: AcpAgentFactoryOptions): AcpAgent {
         }),
   });
   return {
+    disconnect: () => agent.connection.disconnect(),
     stream: (messages, streamOptions) => agent.stream(messages, streamOptions),
   };
 }
@@ -223,6 +224,7 @@ async function streamAgent(
     removeAbortListener();
     if (failed) {
       streamAbortController.abort(failure);
+      agent.disconnect?.();
       const cancel = reader.cancel();
       void cancel.catch(() => undefined);
       await boundedCleanup([

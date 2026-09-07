@@ -1,7 +1,7 @@
 // @test-scope ./adapter.ts
 // @test-scope ./stream.ts
 
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,17 +28,35 @@ const task: AgentTaskDefinition = {
   goal: (input) => String(input),
 };
 
-function configuration(cwd: string, mode: string, persistSession = false) {
+function configuration(
+  cwd: string,
+  mode: string,
+  persistSession = false,
+  exitFile?: string,
+) {
   return {
     id: "controlled-acp",
     description: "Controlled ACP integration fixture",
     command: process.execPath,
     args: [fixture, "configured-argument"],
-    env: { CONTROLLED_ACP_MODE: mode },
+    env: {
+      CONTROLLED_ACP_MODE: mode,
+      ...(exitFile === undefined ? {} : { CONTROLLED_ACP_EXIT_FILE: exitFile }),
+    },
     cwd,
     persistSession,
     model: "controlled-model",
   };
+}
+
+async function waitForExitFile(path: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Controlled ACP process did not exit: ${path}`);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 function request(
@@ -118,38 +136,41 @@ describe("Mastra ACP adapter boundary", () => {
   });
 
   it("normalizes cancellation and unresolved permission at the ACP boundary", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "seqlane-acp-"));
+    const cancellationCwd = mkdtempSync(join(tmpdir(), "seqlane-acp-"));
+    const cancellationExitFile = join(cancellationCwd, "exit");
     const cancellation = new AbortController();
-    const cancelled = createAcpAdapter(configuration(cwd, "cancel"), {
-      createAgent: () => ({
-        stream: async () => {
-          throw new Error("controlled abort");
-        },
-      }),
+    let promptStarted!: () => void;
+    const promptStartedPromise = new Promise<void>((resolve) => {
+      promptStarted = resolve;
     });
+    const cancelled = createAcpAdapter(
+      configuration(cancellationCwd, "cancel", false, cancellationExitFile),
+    );
+    const cancellationExecution = cancelled.execute(
+      request(cancellation.signal, {
+        onActivity: () => promptStarted(),
+      }),
+    );
+    await promptStartedPromise;
     cancellation.abort(new Error("cancelled by test"));
-    await expect(
-      cancelled.execute(request(cancellation.signal)),
-    ).rejects.toMatchObject({ code: "cancellation" });
-
-    const permission = createAcpAdapter(configuration(cwd, "permission"), {
-      createAgent: (options) => ({
-        stream: async () => {
-          await options.onPermissionRequest?.({
-            tool: "controlled-tool",
-          });
-          return {
-            fullStream: new ReadableStream<unknown>(),
-            text: new Promise<string>(() => undefined),
-          };
-        },
-      }),
+    await expect(cancellationExecution).rejects.toMatchObject({
+      code: "cancellation",
     });
+    await waitForExitFile(cancellationExitFile);
+    expect(readFileSync(cancellationExitFile, "utf8")).toBe("exit");
+
+    const permissionCwd = mkdtempSync(join(tmpdir(), "seqlane-acp-"));
+    const permissionExitFile = join(permissionCwd, "exit");
+    const permission = createAcpAdapter(
+      configuration(permissionCwd, "permission", false, permissionExitFile),
+    );
     await expect(
       permission.execute(request(new AbortController().signal)),
     ).rejects.toMatchObject({
       name: "InteractionRequiredError",
       requirement: "user-input",
     });
+    await waitForExitFile(permissionExitFile);
+    expect(readFileSync(permissionExitFile, "utf8")).toBe("exit");
   });
 });
