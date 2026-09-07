@@ -154,13 +154,12 @@ function waitForReadinessRetry(
   abortSignal?: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve) => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (): void => {
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimeout(timer);
       abortSignal?.removeEventListener("abort", finish);
       resolve();
     };
-    timer = setTimeout(finish, timeoutMs);
+    const timer = setTimeout(finish, timeoutMs);
     abortSignal?.addEventListener("abort", finish, { once: true });
   });
 }
