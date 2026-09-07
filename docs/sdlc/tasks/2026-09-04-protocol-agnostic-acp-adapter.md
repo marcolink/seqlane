@@ -1,7 +1,7 @@
 ---
 id: task.protocol-agnostic-acp-adapter
 title: Implement a Protocol-Agnostic ACP Adapter
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
@@ -84,7 +84,15 @@ defaults, types, prompts, or session behavior.
 
 ## Outcome
 
-Planned.
+Completed. Added the private `@seqlane/agent-adapter` contract with required
+execution, normalized activity and diagnostic callbacks, declared capabilities,
+and optional session operations. Added the private `@seqlane/acp` implementation
+with validated generic launch configuration, Seqlane-owned errors, ACP stream
+activity mapping, cancellation propagation, non-interactive permission
+rejection, structured-output validation, and malformed-input tests. Removed ACP
+ownership and exports from `@seqlane/opencode`; the runtime profile now composes
+the generic adapter without exposing ACP or vendor types through public
+contracts. Delivered in [PR #32](https://github.com/marcolink/seqlane/pull/32).
 
 ## Traceability
 

@@ -1,0 +1,56 @@
+import type {
+  AgentTaskDefinition,
+  ModelSelection,
+  SeqlaneInvocationMetrics,
+} from "@seqlane/core";
+
+export type AgentActivityState =
+  "started" | "progress" | "succeeded" | "failed";
+
+export interface AgentActivity {
+  readonly activityId: string;
+  readonly kind: "tool" | "skill";
+  readonly name: string;
+  readonly state: AgentActivityState;
+  readonly input?: unknown;
+  readonly output?: unknown;
+  readonly message?: string;
+}
+
+export interface AgentDiagnostic {
+  readonly code: string;
+  readonly message: string;
+}
+
+export interface AgentAdapterCapabilities {
+  readonly execute: true;
+  readonly modelSelection: boolean;
+  readonly structuredOutput: boolean;
+  readonly sessionReuse: boolean;
+  readonly checkpoint: boolean;
+  readonly fork: boolean;
+  readonly activity: boolean;
+  readonly sessionUi: boolean;
+}
+
+export interface AgentAdapterRequest {
+  readonly invocationId: string;
+  readonly task: AgentTaskDefinition;
+  readonly input: unknown;
+  readonly modelSelection?: ModelSelection;
+  readonly signal: AbortSignal;
+  readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
+  readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
+  readonly onActivity?: (activity: AgentActivity) => void;
+}
+
+export interface AgentAdapter {
+  readonly capabilities: AgentAdapterCapabilities;
+  execute(request: AgentAdapterRequest): Promise<unknown>;
+  readonly captureCheckpoint?: () => Promise<unknown>;
+  readonly fork?: (request: {
+    readonly checkpoint: unknown;
+    readonly modelSelection?: ModelSelection;
+  }) => Promise<AgentAdapter>;
+  readonly sessionUi?: () => Promise<string | undefined>;
+}

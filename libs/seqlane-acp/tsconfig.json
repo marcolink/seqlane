@@ -14,16 +14,7 @@
       "path": "../seqlane-core"
     },
     {
-      "path": "../seqlane-acp"
-    },
-    {
-      "path": "../seqlane-events"
-    },
-    {
-      "path": "../seqlane-opencode"
-    },
-    {
-      "path": "../seqlane-fixtures"
+      "path": "../seqlane-agent-adapter"
     }
   ]
 }

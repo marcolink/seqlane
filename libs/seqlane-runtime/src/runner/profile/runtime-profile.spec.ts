@@ -5,8 +5,13 @@ import type {
   TaskDefinitionRegistry,
   SeqlaneSchema,
 } from "@seqlane/core";
+import type { AgentAdapter, AgentAdapterRequest } from "@seqlane/agent-adapter";
 import { describe, expect, it } from "vitest";
-import { resolveRuntimeProfile } from "./runtime-profile.js";
+import {
+  executeAgentAdapterRequest,
+  resolveRuntimeProfile,
+} from "./runtime-profile.js";
+import type { ExecutorRequest } from "../../runtime/execution/executor.js";
 
 const schema: SeqlaneSchema = { parse: (value) => value };
 
@@ -103,6 +108,45 @@ function task(id: string, workspace: "shared" | "exclusive"): TaskDefinition {
 }
 
 describe("resolveRuntimeProfile", () => {
+  it("does not forward model selection to adapters without that capability", async () => {
+    const source = task("source", "shared");
+    const tasks: TaskDefinitionRegistry = new Map([[source.id, source]]);
+    const selection = {
+      model: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      reasoning: "high" as const,
+    };
+    let received: AgentAdapterRequest | undefined;
+    const adapter: AgentAdapter = {
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: true,
+        checkpoint: false,
+        fork: false,
+        activity: true,
+        sessionUi: false,
+      },
+      execute: async (request) => {
+        received = request;
+        return { value: "done" };
+      },
+    };
+    const request: ExecutorRequest = {
+      invocationId: "invocation:source",
+      taskId: source.id,
+      executor: "agent",
+      input: null,
+      signal: new AbortController().signal,
+    };
+
+    await expect(
+      executeAgentAdapterRequest(adapter, tasks, selection, request),
+    ).resolves.toEqual({ value: "done" });
+    expect(received).toBeDefined();
+    expect(received).not.toHaveProperty("modelSelection");
+  });
+
   it("resolves local workspace resources without contacting OpenCode", async () => {
     const local: TaskDefinition = {
       id: "local-task",

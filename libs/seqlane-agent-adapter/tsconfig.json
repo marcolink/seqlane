@@ -8,22 +8,9 @@
     "emitDeclarationOnly": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.spec.ts"],
   "references": [
     {
       "path": "../seqlane-core"
-    },
-    {
-      "path": "../seqlane-acp"
-    },
-    {
-      "path": "../seqlane-events"
-    },
-    {
-      "path": "../seqlane-opencode"
-    },
-    {
-      "path": "../seqlane-fixtures"
     }
   ]
 }
