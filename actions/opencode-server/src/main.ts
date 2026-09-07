@@ -64,7 +64,7 @@ export async function run(): Promise<void> {
   });
   const hostname = core.getInput("hostname") || "127.0.0.1";
   const port = core.getInput("port") || "4096";
-  const executable = core.getInput("executable") || "opencode";
+  const executable = core.getInput("executable", { required: true });
   const timeoutSeconds = Number(
     core.getInput("startup-timeout-seconds") || "30",
   );

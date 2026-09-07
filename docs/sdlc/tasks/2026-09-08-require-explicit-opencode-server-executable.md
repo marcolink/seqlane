@@ -1,7 +1,7 @@
 ---
 id: task.require-explicit-opencode-server-executable
 title: Require an Explicit OpenCode Server Executable
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
@@ -79,8 +79,9 @@ Run `actionlint` when it is available. Run `pnpm docs:index`,
 
 ## Outcome
 
-This task is planned. The Server Action still accepts its current default
-executable until this task is complete.
+The Server Action now requires an explicit `executable` input with no default,
+and missing input fails before service startup. Existing lifecycle behavior is
+unchanged. The README, focused input test, and committed bundle are updated.
 
 ## Traceability
 
