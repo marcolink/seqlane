@@ -26,7 +26,10 @@ import {
   type GitRevision,
   type WorkspaceFilesPort,
 } from "./contracts.js";
-import { ActionResolutionError } from "./errors.js";
+import {
+  ActionResolutionError,
+  formatWorkspaceLimitDiagnostic,
+} from "./errors.js";
 import { NodeGitCli } from "./git-cli.js";
 import {
   type GitCommandPort,
@@ -347,7 +350,14 @@ async function enforceLockfileInputLimits(
   if (paths.length > maximumLockfileInputFiles) {
     throw workspaceError(
       "WORKSPACE_LIMIT_EXCEEDED",
-      `The workspace input contains too many files: ${paths.length} > ${maximumLockfileInputFiles}.`,
+      formatWorkspaceLimitDiagnostic(
+        "The workspace input contains too many files",
+        {
+          observed: paths.length,
+          limit: maximumLockfileInputFiles,
+          unit: "files",
+        },
+      ),
     );
   }
 
@@ -355,13 +365,32 @@ async function enforceLockfileInputLimits(
   for (const path of paths) {
     const source = await regularFile(sourceRoot, path);
     const details = await stat(source);
-    if (
-      details.size > maximumLockfileInputFileBytes ||
-      totalBytes + details.size > maximumLockfileInputTotalBytes
-    ) {
+    if (details.size > maximumLockfileInputFileBytes) {
       throw workspaceError(
         "WORKSPACE_LIMIT_EXCEEDED",
-        `Lockfile input exceeds the configured size limit: ${path}`,
+        formatWorkspaceLimitDiagnostic(
+          "Lockfile input exceeds the configured per-file size limit",
+          {
+            path,
+            observed: details.size,
+            limit: maximumLockfileInputFileBytes,
+            unit: "bytes",
+          },
+        ),
+      );
+    }
+    if (totalBytes + details.size > maximumLockfileInputTotalBytes) {
+      throw workspaceError(
+        "WORKSPACE_LIMIT_EXCEEDED",
+        formatWorkspaceLimitDiagnostic(
+          "Lockfile input exceeds the configured total size limit",
+          {
+            path,
+            observed: totalBytes + details.size,
+            limit: maximumLockfileInputTotalBytes,
+            unit: "bytes",
+          },
+        ),
       );
     }
     totalBytes += details.size;
@@ -376,7 +405,14 @@ async function copyFiles(
   if (limits.maximumFiles !== undefined && paths.length > limits.maximumFiles) {
     throw workspaceError(
       "WORKSPACE_LIMIT_EXCEEDED",
-      `The workspace input contains too many files: ${paths.length} > ${limits.maximumFiles}.`,
+      formatWorkspaceLimitDiagnostic(
+        "The workspace input contains too many files",
+        {
+          observed: paths.length,
+          limit: limits.maximumFiles,
+          unit: "files",
+        },
+      ),
     );
   }
   await assertSafeRoot(roots.sourceRoot, "Workspace source");
@@ -389,13 +425,29 @@ async function copyFiles(
     if (details.size > limits.maximumFileBytes) {
       throw workspaceError(
         "WORKSPACE_LIMIT_EXCEEDED",
-        `Conflict file exceeds the configured size limit: ${path} (${details.size} bytes > ${limits.maximumFileBytes}).`,
+        formatWorkspaceLimitDiagnostic(
+          "Conflict file exceeds the configured size limit",
+          {
+            path,
+            observed: details.size,
+            limit: limits.maximumFileBytes,
+            unit: "bytes",
+          },
+        ),
       );
     }
     if (totalBytes + details.size > limits.maximumTotalBytes) {
       throw workspaceError(
         "WORKSPACE_LIMIT_EXCEEDED",
-        `Conflict payload exceeds the configured total size limit: ${totalBytes + details.size} bytes > ${limits.maximumTotalBytes}.`,
+        formatWorkspaceLimitDiagnostic(
+          "Conflict payload exceeds the configured total size limit",
+          {
+            path,
+            observed: totalBytes + details.size,
+            limit: limits.maximumTotalBytes,
+            unit: "bytes",
+          },
+        ),
       );
     }
 

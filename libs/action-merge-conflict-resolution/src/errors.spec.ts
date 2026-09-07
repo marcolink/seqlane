@@ -1,7 +1,11 @@
 // @test-scope ./errors.ts
 
 import { describe, expect, it } from "vitest";
-import { ActionResolutionError, resolutionErrorDetails } from "./errors.js";
+import {
+  ActionResolutionError,
+  formatWorkspaceLimitDiagnostic,
+  resolutionErrorDetails,
+} from "./errors.js";
 
 describe("action resolution errors", () => {
   it("preserves a stable category, code, and original cause", () => {
@@ -66,5 +70,27 @@ describe("action resolution errors", () => {
       diagnostic:
         "Conflict file exceeds the configured size limit: actions/zvec-grep-server/dist/main.js (864243 bytes > 524288).",
     });
+  });
+
+  it("keeps the workspace-limit suffix when the path reaches its maximum length", () => {
+    const error = new ActionResolutionError(
+      "workspace",
+      "WORKSPACE_LIMIT_EXCEEDED",
+      formatWorkspaceLimitDiagnostic(
+        "Conflict file exceeds the configured size limit",
+        {
+          path: "a".repeat(1_024),
+          observed: 864_243,
+          limit: 524_288,
+          unit: "bytes",
+        },
+      ),
+    );
+
+    const details = resolutionErrorDetails(error);
+
+    expect(details.diagnostic).toContain("864243 bytes > 524288 bytes");
+    expect(details.diagnostic?.length).toBeLessThanOrEqual(1_024);
+    expect(details.diagnostic?.slice(-7)).toBe("bytes).");
   });
 });

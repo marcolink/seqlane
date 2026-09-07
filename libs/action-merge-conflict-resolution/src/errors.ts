@@ -76,6 +76,13 @@ export class ActionResolutionError extends Error {
 
 const MAX_PUSH_DIAGNOSTIC_LENGTH = 1_024;
 const MAX_WORKSPACE_DIAGNOSTIC_LENGTH = 1_024;
+export type WorkspaceLimitUnit = "bytes" | "files";
+export interface WorkspaceLimitDiagnosticOptions {
+  readonly path?: string;
+  readonly observed: number;
+  readonly limit: number;
+  readonly unit: WorkspaceLimitUnit;
+}
 const pushFailureCauseSchema = z.looseObject({
   stderr: z.string().min(1),
 });
@@ -92,6 +99,30 @@ function replaceControlCharacters(value: string): string {
       ? " "
       : character;
   }).join("");
+}
+
+export function formatWorkspaceLimitDiagnostic(
+  prefix: string,
+  options: WorkspaceLimitDiagnosticOptions,
+): string {
+  const pathPrefix = options.path === undefined ? "" : ": ";
+  const suffix = ` (observed ${options.observed} ${options.unit} > ${options.limit} ${options.unit}).`;
+  const availablePathLength =
+    MAX_WORKSPACE_DIAGNOSTIC_LENGTH -
+    prefix.length -
+    pathPrefix.length -
+    suffix.length;
+  const sanitizedPath =
+    options.path === undefined
+      ? ""
+      : replaceControlCharacters(options.path).replace(/\s+/g, " ").trim();
+  const boundedPath =
+    options.path === undefined
+      ? ""
+      : sanitizedPath.length > availablePathLength
+        ? `${sanitizedPath.slice(0, Math.max(0, availablePathLength - 1))}…`
+        : sanitizedPath;
+  return `${prefix}${pathPrefix}${boundedPath}${suffix}`;
 }
 
 function boundedPushDiagnostic(cause: unknown): string | undefined {

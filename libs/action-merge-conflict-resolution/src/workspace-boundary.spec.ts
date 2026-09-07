@@ -21,8 +21,15 @@ import {
   NodeWorkspaceBoundary,
   createOwnedAgentWorkspace,
   prepareAgentWorkspace,
+  prepareLockfileWorkspace,
   validateResolutionWorkspace,
 } from "./workspace-boundary.js";
+import {
+  MAX_LOCKFILE_INPUT_FILE_BYTES,
+  MAX_LOCKFILE_INPUT_FILES,
+  MAX_LOCKFILE_INPUT_TOTAL_BYTES,
+} from "./contracts.js";
+import type { GitCommandPort } from "./git-port.js";
 
 function fixtureRoot(): string {
   return mkdtempSync(join(tmpdir(), "seqlane-workspace-boundary-"));
@@ -143,7 +150,135 @@ describe("workspace boundary", () => {
         (error: unknown) =>
           error instanceof Error &&
           "code" in error &&
-          error.code === "WORKSPACE_LIMIT_EXCEEDED",
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes("large.ts") &&
+          error.message.includes("observed 1048577 bytes > 1048576 bytes"),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports the current file and observed total when the agent payload is oversized", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      mkdirSync(source);
+      writeFileSync(join(source, "first.ts"), Buffer.alloc(1024 * 1024, 65));
+      writeFileSync(join(source, "second.ts"), Buffer.alloc(1024 * 1024, 66));
+      writeFileSync(join(source, "third.ts"), Buffer.from("c"));
+
+      await assert.rejects(
+        () =>
+          prepareAgentWorkspace(
+            source,
+            createAgentWorkspace(root, "aggregate"),
+            ["first.ts", "second.ts", "third.ts"],
+            "run-aggregate",
+          ),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes("third.ts") &&
+          error.message.includes("observed 2097153 bytes > 2097152 bytes"),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports observed and configured values for an oversized lockfile input file", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      mkdirSync(source);
+      mkdirSync(target);
+      writeFileSync(
+        join(source, "package.json"),
+        `${" ".repeat(MAX_LOCKFILE_INPUT_FILE_BYTES - 1)}{}`,
+      );
+
+      await assert.rejects(
+        () =>
+          prepareLockfileWorkspace(
+            source,
+            target,
+            listedFilesGit(["package.json"]),
+          ),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes("package.json") &&
+          error.message.includes(
+            `observed ${MAX_LOCKFILE_INPUT_FILE_BYTES + 1} bytes > ${MAX_LOCKFILE_INPUT_FILE_BYTES} bytes`,
+          ),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports the current lockfile input and observed total when the aggregate is oversized", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      mkdirSync(source);
+      mkdirSync(target);
+      writeFileSync(join(source, "pnpm-workspace.yaml"), "packages: []\n");
+      const packagePaths = ["one.json", "two.json", "three.json", "four.json"];
+      for (const path of packagePaths) {
+        writeFileSync(
+          join(source, path),
+          `${" ".repeat(MAX_LOCKFILE_INPUT_FILE_BYTES - 5)}{}`,
+        );
+      }
+
+      await assert.rejects(
+        () =>
+          prepareLockfileWorkspace(
+            source,
+            target,
+            listedFilesGit(["pnpm-workspace.yaml", ...packagePaths]),
+          ),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes("four.json") &&
+          error.message.includes(
+            `observed ${MAX_LOCKFILE_INPUT_TOTAL_BYTES + 1} bytes > ${MAX_LOCKFILE_INPUT_TOTAL_BYTES} bytes`,
+          ),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports observed and configured file counts for oversized lockfile inputs", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      mkdirSync(source);
+      mkdirSync(target);
+      const paths = Array.from(
+        { length: MAX_LOCKFILE_INPUT_FILES + 1 },
+        (_, index) => `package-${index}.json`,
+      );
+
+      await assert.rejects(
+        () => prepareLockfileWorkspace(source, target, listedFilesGit(paths)),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes(
+            `observed ${MAX_LOCKFILE_INPUT_FILES + 1} files > ${MAX_LOCKFILE_INPUT_FILES} files`,
+          ),
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -384,4 +519,17 @@ function readFileIfPresent(path: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function listedFilesGit(paths: readonly string[]): GitCommandPort {
+  return {
+    run: async (args) => ({
+      executable: "git",
+      args,
+      cwd: "/tmp",
+      exitCode: 0,
+      stdout: `${paths.join("\0")}\0`,
+      stderr: "",
+    }),
+  };
 }

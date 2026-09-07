@@ -291,7 +291,7 @@ The workspace preparation code must:
 - reject symlinks in every path component
 - accept only regular files
 - reject binary content for agent files
-- limit each agent file to 512 KiB
+- limit each agent file to 1 MiB
 - limit the total agent payload to 2 MiB
 - copy no lockfile into the agent workspace.
 
@@ -621,6 +621,8 @@ verification must keep remote push behavior disabled.
   `task.resolve-pull-request-merge-conflicts`.
 - Git conflicts are detected from the unmerged index.
 - Agent files and lockfile files use separate resolution paths.
+- Agent workspace inputs cap each file at 1 MiB and the total at 2 MiB.
+- Lockfile workspace inputs cap each file at 512 KiB and the total at 2 MiB.
 - All workspace, staged-content, marker, and size guards remain active.
 - OpenCode runs only for agent conflicts and stops before push authentication.
 - The Action exposes one lazy agent lifecycle with idempotent cleanup on
