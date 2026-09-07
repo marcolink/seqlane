@@ -68,6 +68,17 @@ pnpm exec seqlane run ./workflow.ts \
   --runtime http://127.0.0.1:4096
 ```
 
+Agent runs use the private `SEQLANE_RUNTIME_ADAPTER_CONFIG` environment
+variable. Set one validated adapter configuration before you run the CLI:
+
+```sh
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
+```
+
+The `--runtime` value remains an opaque profile identifier. The CLI does not
+infer the adapter from the value. An existing operational server must have its
+own adapter configuration.
+
 Use `--input-file <path>` instead of `--input` for JSON input up to 1 MiB.
 Specify exactly one input source.
 

@@ -175,25 +175,25 @@
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
 | [task.agent-adapter-integration-cleanup](./2026-09-04-agent-adapter-integration-cleanup.md) | Add Adapter Integration Coverage and Complete Migration | planned | 2026-09-04 | core |
 | [task.bounded-pr-code-review-evidence](./2026-09-04-bounded-pr-code-review-evidence.md) | Add Bounded Patch Evidence to Pull Request Reviews | completed | 2026-09-04 | core |
-| [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
-| [task.resolve-pull-request-merge-conflicts](./2026-09-04-resolve-pull-request-merge-conflicts.md) | Resolve Pull Request Merge Conflicts | completed | 2026-09-04 | core |
-| [task.preserve-pull-request-review-run-history](./2026-09-05-preserve-pull-request-review-run-history.md) | Preserve Pull Request Review Run History | completed | 2026-09-05 | core |
-| [task.prevent-comment-triggered-review-cancellation](./2026-09-05-prevent-comment-triggered-review-cancellation.md) | Prevent Irrelevant Comments from Cancelling Pull Request Reviews | completed | 2026-09-05 | core |
-| [task.publish-versioned-pull-request-review-comments](./2026-09-05-publish-versioned-pull-request-review-comments.md) | Publish Versioned Pull Request Review Comments | completed | 2026-09-05 | core |
-| [task.review-progress-and-run-metrics](./2026-09-05-review-progress-and-run-metrics.md) | Show Review Progress and Persist Run Metrics | completed | 2026-09-05 | core |
-| [task.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Apply Pull Request Review Dispositions Without Agent Runs | planned | 2026-09-06 | core |
 | [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | completed | 2026-09-04 | core |
 | [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | completed | 2026-09-04 | core |
+| [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
 | [task.explicit-runtime-adapter-selection](./2026-09-04-explicit-runtime-adapter-selection.md) | Define Explicit Runtime Adapter Selection and Configuration | completed | 2026-09-04 | core |
-| [task.protocol-agnostic-acp-adapter](./2026-09-04-protocol-agnostic-acp-adapter.md) | Implement a Protocol-Agnostic ACP Adapter | completed | 2026-09-04 | core |
 | [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
+| [task.protocol-agnostic-acp-adapter](./2026-09-04-protocol-agnostic-acp-adapter.md) | Implement a Protocol-Agnostic ACP Adapter | completed | 2026-09-04 | core |
 | [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | planned | 2026-09-04 | core |
 | [task.session-checkpoint-fork-capabilities](./2026-09-04-session-checkpoint-fork-capabilities.md) | Map Session, Checkpoint, and Fork Capabilities | planned | 2026-09-04 | core |
 | [task.mastra-operational-end-to-end](./2026-09-04-mastra-operational-end-to-end.md) | Prove One Run Across All Mastra Operational Surfaces | planned | 2026-09-04 | core |
+| [task.resolve-pull-request-merge-conflicts](./2026-09-04-resolve-pull-request-merge-conflicts.md) | Resolve Pull Request Merge Conflicts | completed | 2026-09-04 | core |
 | [task.opencode-sdk-only-adapter](./2026-09-04-opencode-sdk-only-adapter.md) | Restore the OpenCode SDK-Only Adapter | completed | 2026-09-04 | core |
 | [task.mastra-mcp-transports](./2026-09-04-mastra-mcp-transports.md) | Run Seqlane Workflows Through Mastra MCP Transports | planned | 2026-09-04 | core |
 | [task.cli-run-status-and-cancel](./2026-09-04-cli-run-status-and-cancel.md) | Run, Inspect, and Cancel Through the Operational Host | completed | 2026-09-04 | core |
 | [task.operational-data-bounds](./2026-09-05-operational-data-bounds.md) | Bound Operational Data Retention and Queries | planned | 2026-09-05 | core |
 | [task.workflow-discovery-bounds](./2026-09-05-workflow-discovery-bounds.md) | Bound Workflow Discovery | planned | 2026-09-05 | core |
 | [task.investigate-mastra-mcp-runtime-reuse](./2026-09-05-investigate-mastra-mcp-runtime-reuse.md) | Investigate Mastra Runtime Reuse for MCP Invocations | planned | 2026-09-05 | core |
+| [task.preserve-pull-request-review-run-history](./2026-09-05-preserve-pull-request-review-run-history.md) | Preserve Pull Request Review Run History | completed | 2026-09-05 | core |
+| [task.prevent-comment-triggered-review-cancellation](./2026-09-05-prevent-comment-triggered-review-cancellation.md) | Prevent Irrelevant Comments from Cancelling Pull Request Reviews | completed | 2026-09-05 | core |
+| [task.publish-versioned-pull-request-review-comments](./2026-09-05-publish-versioned-pull-request-review-comments.md) | Publish Versioned Pull Request Review Comments | completed | 2026-09-05 | core |
+| [task.review-progress-and-run-metrics](./2026-09-05-review-progress-and-run-metrics.md) | Show Review Progress and Persist Run Metrics | completed | 2026-09-05 | core |
+| [task.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Apply Pull Request Review Dispositions Without Agent Runs | planned | 2026-09-06 | core |
 | [task.operational-workflow-registration-boundary](./2026-09-06-operational-workflow-registration-boundary.md) | Narrow the Operational Workflow Registration Boundary | planned | 2026-09-06 | core |

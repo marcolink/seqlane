@@ -5,6 +5,8 @@ import {
   createRuntimeAdapterRegistry,
   loadRuntimeAdapterConfiguration,
   parseRuntimeAdapterConfiguration,
+  configurationWithWorkspace,
+  redactRuntimeAdapter,
   redactRuntimeAdapterText,
   RuntimeAdapterConfigurationError,
   RuntimeAdapterSelectionError,
@@ -49,6 +51,7 @@ function factory(
   return {
     identity,
     resolveCapabilities: () => adapter().capabilities,
+    prepare: async () => ({}),
     create: () => {
       selected.push(identity);
       if (options.fail) throw new Error("factory failed");
@@ -82,7 +85,8 @@ describe("private runtime adapter selection", () => {
       { adapter: "opencode", url: "https://user:secret@example.test" },
       "credentialed URL",
     ],
-  ])("rejects %s", (value) => {
+  ])("rejects %s (%s)", (value, description) => {
+    expect(description).toBeTypeOf("string");
     expect(() => parseRuntimeAdapterConfiguration(value)).toThrow(
       RuntimeAdapterConfigurationError,
     );
@@ -156,5 +160,100 @@ describe("private runtime adapter selection", () => {
         configuration,
       ),
     ).toBe("ACP failed with [REDACTED] while starting");
+  });
+
+  it("does not advertise ACP request-level model selection", () => {
+    const configuration = parseRuntimeAdapterConfiguration({
+      ...acpConfiguration,
+      configuration: {
+        ...acpConfiguration.configuration,
+        model: "provider/model",
+      },
+    });
+
+    expect(
+      createRuntimeAdapterRegistry().resolve(configuration).capabilities,
+    ).toMatchObject({ modelSelection: false });
+  });
+
+  it("redacts ACP arguments and OpenCode URL path, query, and fragment values", () => {
+    const acp = parseRuntimeAdapterConfiguration({
+      ...acpConfiguration,
+      configuration: {
+        ...acpConfiguration.configuration,
+        args: ["--token", "arg-secret"],
+        env: { ACP_TOKEN: "env-secret" },
+      },
+    });
+    expect(redactRuntimeAdapterText("--token arg-secret env-secret", acp)).toBe(
+      "[REDACTED] [REDACTED] [REDACTED]",
+    );
+
+    const openCode = parseRuntimeAdapterConfiguration({
+      adapter: "opencode",
+      url: "https://runtime.test/path/token-secret?access=access-secret#auth-secret",
+    });
+    expect(
+      redactRuntimeAdapterText(
+        "https://runtime.test/path/token-secret access-secret auth-secret",
+        openCode,
+      ),
+    ).toBe("https://runtime.test/[REDACTED]/[REDACTED] [REDACTED] [REDACTED]");
+  });
+
+  it("redacts diagnostics and preserves typed errors and causes at the adapter boundary", async () => {
+    const cause = new Error("request failed with env-secret");
+    const failure = Object.assign(new Error("adapter failed with env-secret"), {
+      code: "adapter-failure",
+      cause,
+    });
+    const diagnostics: string[] = [];
+    const wrapped = redactRuntimeAdapter(
+      {
+        capabilities: adapter().capabilities,
+        execute: async (request) => {
+          request.onDiagnostic?.({ code: "diagnostic", message: "arg-secret" });
+          throw failure;
+        },
+      },
+      parseRuntimeAdapterConfiguration({
+        ...acpConfiguration,
+        configuration: {
+          ...acpConfiguration.configuration,
+          args: ["arg-secret"],
+          env: { TOKEN: "env-secret" },
+        },
+      }),
+    );
+
+    await expect(
+      wrapped.execute({
+        invocationId: "invocation-1",
+        task: {} as never,
+        input: null,
+        signal: new AbortController().signal,
+        onDiagnostic: (diagnostic) => diagnostics.push(diagnostic.message),
+      }),
+    ).rejects.toMatchObject({
+      code: "adapter-failure",
+      message: "adapter failed with [REDACTED]",
+      cause: { message: "request failed with [REDACTED]" },
+    });
+    expect(diagnostics).toEqual(["[REDACTED]"]);
+  });
+
+  it("validates before applying the typed workspace override", () => {
+    expect(() =>
+      configurationWithWorkspace(
+        { adapter: "opencode", url: "not-a-url" },
+        "/workspace",
+      ),
+    ).toThrow(RuntimeAdapterConfigurationError);
+    expect(() => configurationWithWorkspace(null, "/workspace")).toThrow(
+      RuntimeAdapterConfigurationError,
+    );
+    expect(
+      configurationWithWorkspace(openCodeConfiguration, "/workspace"),
+    ).toEqual({ ...openCodeConfiguration, workspace: "/workspace" });
   });
 });

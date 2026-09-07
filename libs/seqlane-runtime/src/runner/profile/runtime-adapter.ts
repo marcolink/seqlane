@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import type {
   AgentAdapter,
   AgentAdapterCapabilities,
+  AgentAdapterRequest,
 } from "@seqlane/agent-adapter";
 import { acpLaunchConfigurationSchema, createAcpAdapter } from "@seqlane/acp";
 import {
   createOpenCodeAdapter,
   createOpenCodeModelCapabilities,
+  resolveOpenCodeBrowserUiUrl,
 } from "@seqlane/opencode";
 import type { ModelSelection } from "@seqlane/core";
 import type { ExecutorModelCapabilities } from "../../runtime/execution/executor.js";
@@ -123,6 +125,10 @@ export interface RuntimeAdapterFactoryContext {
   readonly browserUiUrl?: string;
 }
 
+export interface RuntimeAdapterPreparation {
+  readonly browserUiUrl?: string;
+}
+
 export interface RuntimeAdapterFactoryResult {
   readonly createAdapter: () => AgentAdapter;
   readonly modelCapabilities?: ExecutorModelCapabilities;
@@ -133,6 +139,10 @@ export interface RuntimeAdapterFactory {
   resolveCapabilities(
     configuration: RuntimeAdapterConfiguration,
   ): AgentAdapterCapabilities;
+  prepare(
+    configuration: RuntimeAdapterConfiguration,
+    signal: AbortSignal,
+  ): Promise<RuntimeAdapterPreparation>;
   create(
     configuration: RuntimeAdapterConfiguration,
     context: RuntimeAdapterFactoryContext,
@@ -144,6 +154,7 @@ export interface ResolvedRuntimeAdapter {
   readonly configuration: RuntimeAdapterConfiguration;
   readonly configurationFingerprint: string;
   readonly capabilities: AgentAdapterCapabilities;
+  prepare(signal: AbortSignal): Promise<RuntimeAdapterPreparation>;
   create(context: RuntimeAdapterFactoryContext): RuntimeAdapterFactoryResult;
 }
 
@@ -182,7 +193,7 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
         }
         return {
           execute: true,
-          modelSelection: configuration.configuration.model !== undefined,
+          modelSelection: false,
           structuredOutput: true,
           sessionReuse: configuration.configuration.persistSession,
           checkpoint: false,
@@ -190,6 +201,14 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
           activity: true,
           sessionUi: false,
         };
+      },
+      async prepare(configuration) {
+        if (configuration.adapter !== "acp") {
+          throw new RuntimeAdapterSelectionError(
+            'factory "acp" received a different adapter configuration',
+          );
+        }
+        return {};
       },
       create(configuration) {
         if (configuration.adapter !== "acp") {
@@ -220,6 +239,18 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
           activity: true,
           sessionUi: true,
         };
+      },
+      async prepare(configuration, signal) {
+        if (configuration.adapter !== "opencode") {
+          throw new RuntimeAdapterSelectionError(
+            'factory "opencode" received a different adapter configuration',
+          );
+        }
+        const browserUiUrl = await resolveOpenCodeBrowserUiUrl(
+          configuration.url,
+          signal,
+        );
+        return browserUiUrl === undefined ? {} : { browserUiUrl };
       },
       create(configuration, context) {
         if (configuration.adapter !== "opencode") {
@@ -254,6 +285,30 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
   ];
 }
 
+function redactRuntimeModelCapabilities(
+  capabilities: ExecutorModelCapabilities | undefined,
+  configuration: RuntimeAdapterConfiguration,
+): ExecutorModelCapabilities | undefined {
+  if (capabilities === undefined) return undefined;
+  return {
+    ...capabilities,
+    listModels: async () => {
+      try {
+        return await capabilities.listModels();
+      } catch (cause) {
+        throw redactRuntimeAdapterError(cause, configuration);
+      }
+    },
+    resolveDefaultModel: async () => {
+      try {
+        return await capabilities.resolveDefaultModel();
+      } catch (cause) {
+        throw redactRuntimeAdapterError(cause, configuration);
+      }
+    },
+  };
+}
+
 export function createRuntimeAdapterRegistry(
   factories: readonly RuntimeAdapterFactory[] = createDefaultFactories(),
 ): RuntimeAdapterRegistry {
@@ -283,7 +338,7 @@ export function createRuntimeAdapterRegistry(
         if (cause instanceof RuntimeAdapterSelectionError) throw cause;
         throw new RuntimeAdapterSelectionError(
           `factory "${configuration.adapter}" could not resolve capabilities`,
-          cause,
+          redactRuntimeAdapterError(cause, configuration),
         );
       }
       return {
@@ -292,14 +347,32 @@ export function createRuntimeAdapterRegistry(
         configurationFingerprint:
           runtimeAdapterConfigurationFingerprint(configuration),
         capabilities,
+        async prepare(signal) {
+          try {
+            return await factory.prepare(configuration, signal);
+          } catch (cause) {
+            if (cause instanceof RuntimeAdapterSelectionError) throw cause;
+            throw new RuntimeAdapterSelectionError(
+              `factory "${configuration.adapter}" could not prepare the selected adapter`,
+              redactRuntimeAdapterError(cause, configuration),
+            );
+          }
+        },
         create(context) {
           try {
-            return factory.create(configuration, context);
+            const result = factory.create(configuration, context);
+            return {
+              ...result,
+              modelCapabilities: redactRuntimeModelCapabilities(
+                result.modelCapabilities,
+                configuration,
+              ),
+            };
           } catch (cause) {
             if (cause instanceof RuntimeAdapterSelectionError) throw cause;
             throw new RuntimeAdapterSelectionError(
               `factory "${configuration.adapter}" could not create the selected adapter`,
-              cause,
+              redactRuntimeAdapterError(cause, configuration),
             );
           }
         },
@@ -311,36 +384,185 @@ export function createRuntimeAdapterRegistry(
 export function configurationWithWorkspace(
   value: unknown,
   workspace: string | undefined,
-): unknown {
-  if (workspace === undefined || typeof value !== "object" || value === null) {
-    return value;
+): RuntimeAdapterConfiguration {
+  const configuration = parseRuntimeAdapterConfiguration(value);
+  if (workspace === undefined || configuration.adapter !== "opencode") {
+    return configuration;
   }
-  if (!("adapter" in value) || value.adapter !== "opencode") return value;
-  return { ...value, workspace };
+  return { ...configuration, workspace };
 }
 
 export function redactRuntimeAdapterText(
   value: string,
   configuration: RuntimeAdapterConfiguration,
 ): string {
-  const secrets =
-    configuration.adapter === "acp"
-      ? Object.values(configuration.configuration.env ?? {})
-      : (() => {
-          try {
-            const url = new URL(configuration.url);
-            return [
-              ...url.searchParams.values(),
-              ...(url.hash.length === 0 ? [] : [url.hash.slice(1)]),
-            ];
-          } catch {
-            return [];
-          }
-        })();
-  return secrets
-    .filter((secret) => secret.length > 0)
+  const secrets = new Set<string>();
+  const addSecret = (secret: string | undefined): void => {
+    if (secret !== undefined && secret.length > 0) secrets.add(secret);
+  };
+
+  if (configuration.adapter === "acp") {
+    for (const value of configuration.configuration.args ?? []) {
+      addSecret(value);
+    }
+    for (const value of Object.values(configuration.configuration.env ?? {})) {
+      addSecret(value);
+    }
+  } else {
+    try {
+      const url = new URL(configuration.url);
+      const addEncodedComponent = (component: string): void => {
+        addSecret(component);
+        try {
+          addSecret(decodeURIComponent(component));
+        } catch {
+          // Keep the raw component when it is not valid percent encoding.
+        }
+      };
+      for (const segment of url.pathname.split("/")) {
+        addEncodedComponent(segment);
+      }
+      for (const parameter of url.search.slice(1).split("&")) {
+        const separator = parameter.indexOf("=");
+        addEncodedComponent(
+          separator === -1 ? parameter : parameter.slice(separator + 1),
+        );
+      }
+      for (const value of url.searchParams.values()) addSecret(value);
+      const fragment = url.hash.slice(1);
+      addEncodedComponent(fragment);
+      for (const parameter of fragment.split("&")) {
+        const separator = parameter.indexOf("=");
+        addEncodedComponent(
+          separator === -1 ? parameter : parameter.slice(separator + 1),
+        );
+      }
+      for (const value of new URLSearchParams(fragment).values()) {
+        addSecret(value);
+      }
+    } catch {
+      // The configuration schema already rejects malformed URLs.
+    }
+  }
+
+  return [...secrets]
+    .sort((first, second) => second.length - first.length)
     .reduce(
       (message, secret) => message.split(secret).join("[REDACTED]"),
       value,
     );
+}
+
+function redactRuntimeAdapterValue(
+  value: unknown,
+  configuration: RuntimeAdapterConfiguration,
+  seen: WeakMap<object, unknown>,
+): unknown {
+  if (typeof value === "string") {
+    return redactRuntimeAdapterText(value, configuration);
+  }
+  if (typeof value !== "object" || value === null) return value;
+  const existing = seen.get(value);
+  if (existing !== undefined) return existing;
+
+  const copy = Array.isArray(value)
+    ? []
+    : Object.create(Object.getPrototypeOf(value));
+  seen.set(value, copy);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) continue;
+    Object.defineProperty(copy, key, {
+      ...descriptor,
+      value: redactRuntimeAdapterValue(descriptor.value, configuration, seen),
+    });
+  }
+  return copy;
+}
+
+export function redactRuntimeAdapterError(
+  value: unknown,
+  configuration: RuntimeAdapterConfiguration,
+): unknown {
+  return redactRuntimeAdapterValue(value, configuration, new WeakMap());
+}
+
+function redactAdapterRequest(
+  request: AgentAdapterRequest,
+  configuration: RuntimeAdapterConfiguration,
+): AgentAdapterRequest {
+  const seen = new WeakMap<object, unknown>();
+  return {
+    ...request,
+    onDiagnostic: (diagnostic) =>
+      request.onDiagnostic?.({
+        ...diagnostic,
+        message: redactRuntimeAdapterText(diagnostic.message, configuration),
+      }),
+    onActivity: (activity) =>
+      request.onActivity?.(
+        redactRuntimeAdapterValue(
+          activity,
+          configuration,
+          seen,
+        ) as typeof activity,
+      ),
+  };
+}
+
+export function redactRuntimeAdapter(
+  adapter: AgentAdapter,
+  configuration: RuntimeAdapterConfiguration,
+): AgentAdapter {
+  const execute = async (request: AgentAdapterRequest): Promise<unknown> => {
+    try {
+      return await adapter.execute(
+        redactAdapterRequest(request, configuration),
+      );
+    } catch (cause) {
+      throw redactRuntimeAdapterError(cause, configuration);
+    }
+  };
+
+  return {
+    capabilities: adapter.capabilities,
+    execute,
+    ...(adapter.captureCheckpoint === undefined
+      ? {}
+      : {
+          captureCheckpoint: async () => {
+            try {
+              return await adapter.captureCheckpoint?.();
+            } catch (cause) {
+              throw redactRuntimeAdapterError(cause, configuration);
+            }
+          },
+        }),
+    ...(adapter.fork === undefined
+      ? {}
+      : {
+          fork: async (request) => {
+            try {
+              const forked = await adapter.fork?.(request);
+              if (forked === undefined) {
+                throw new Error("Adapter fork unexpectedly returned undefined");
+              }
+              return redactRuntimeAdapter(forked, configuration);
+            } catch (cause) {
+              throw redactRuntimeAdapterError(cause, configuration);
+            }
+          },
+        }),
+    ...(adapter.sessionUi === undefined
+      ? {}
+      : {
+          sessionUi: async () => {
+            try {
+              return await adapter.sessionUi?.();
+            } catch (cause) {
+              throw redactRuntimeAdapterError(cause, configuration);
+            }
+          },
+        }),
+  };
 }

@@ -58,6 +58,8 @@ export interface OperationalWorkflowSource {
     readonly runId: string;
   }) => OperationalEventSink;
   readonly onSessionUiAvailable?: OperationalSessionUiNotifier;
+  /** Private adapter configuration selected by the composition root. */
+  readonly adapterConfiguration?: unknown;
 }
 
 export interface OperationalHostOptions {
@@ -221,6 +223,7 @@ function createOperationalInvocationHandler(
           context.abortSignal,
           context.workflowInput,
           source.onSessionUiAvailable,
+          { adapterConfiguration: source.adapterConfiguration },
         );
         const prepared = new PlanCompiler().compileWorkflow(source.plan, {
           workId,

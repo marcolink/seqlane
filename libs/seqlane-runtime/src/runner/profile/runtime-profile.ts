@@ -7,7 +7,6 @@ import type {
 } from "@seqlane/core";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
 import type { AgentAdapter } from "@seqlane/agent-adapter";
-import { resolveOpenCodeBrowserUiUrl } from "@seqlane/opencode";
 import type { ExecutorResolvers } from "../../runtime/execution/executor.js";
 import type {
   ExecutorRequest,
@@ -31,6 +30,7 @@ import {
   configurationWithWorkspace,
   createRuntimeAdapterRegistry,
   loadRuntimeAdapterConfiguration,
+  redactRuntimeAdapter,
   type RuntimeAdapterFactoryContext,
   type RuntimeAdapterRegistry,
 } from "./runtime-adapter.js";
@@ -246,22 +246,16 @@ export async function resolveRuntimeProfile(
   }
 
   const rawConfiguration =
-    options.adapterConfiguration ??
-    loadRuntimeAdapterConfiguration(options.environment);
+    options.adapterConfiguration === undefined
+      ? loadRuntimeAdapterConfiguration(options.environment)
+      : options.adapterConfiguration;
   const adapterRegistry =
     options.adapterRegistry ?? createRuntimeAdapterRegistry();
   const selected = adapterRegistry.resolve(
     configurationWithWorkspace(rawConfiguration, workspacePath),
   );
-  let browserUiUrl: string | undefined;
-  if (selected.identity === "opencode") {
-    const configuration = selected.configuration;
-    if (configuration.adapter !== "opencode") {
-      throw new Error("Runtime adapter configuration identity changed");
-    }
-    browserUiUrl = await resolveOpenCodeBrowserUiUrl(configuration.url, signal);
-  }
-  const binding = selected.create({ signal, browserUiUrl });
+  const preparation = await selected.prepare(signal);
+  const binding = selected.create({ signal, ...preparation });
   const workspaceIdentities = await resolveTaskWorkspaceIdentities(
     taskDefinitions,
     workspacePath,
@@ -273,13 +267,12 @@ export async function resolveRuntimeProfile(
       createLazyAgentSession(
         taskDefinitions,
         (context) =>
-          selected
-            .create({
-              ...context,
-              signal,
-              browserUiUrl,
-            })
-            .createAdapter(),
+          redactRuntimeAdapter(
+            selected
+              .create({ ...context, signal, ...preparation })
+              .createAdapter(),
+            selected.configuration,
+          ),
         signal,
         onSessionUiAvailable,
         effectiveSelection,

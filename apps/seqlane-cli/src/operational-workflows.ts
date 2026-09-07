@@ -16,6 +16,7 @@ export async function loadOperationalWorkflows(
     readonly runId: string;
   }) => OperationalEventSink,
   onSessionUiAvailable?: OperationalSessionUiNotifier,
+  adapterConfiguration?: unknown,
 ): Promise<readonly ReturnType<typeof createOperationalWorkflow>[]> {
   const descriptors = discoverWorkflowDescriptors(roots);
   const registrations = [];
@@ -30,6 +31,7 @@ export async function loadOperationalWorkflows(
         validatorDefinitions: loaded.validatorDefinitions,
         eventSink,
         onSessionUiAvailable,
+        adapterConfiguration,
       }),
     );
   }

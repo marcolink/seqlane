@@ -22,6 +22,7 @@ export interface OwnedOperationalHostOptions {
     readonly runId: string;
   }) => OperationalEventSink;
   readonly onSessionUiAvailable?: OperationalSessionUiNotifier;
+  readonly adapterConfiguration?: unknown;
 }
 
 export async function startOwnedOperationalHost(
@@ -32,6 +33,7 @@ export async function startOwnedOperationalHost(
       options.roots,
       options.eventSink,
       options.onSessionUiAvailable,
+      options.adapterConfiguration,
     )),
   ];
   if (
@@ -51,6 +53,7 @@ export async function startOwnedOperationalHost(
         validatorDefinitions: loaded.validatorDefinitions,
         eventSink: options.eventSink,
         onSessionUiAvailable: options.onSessionUiAvailable,
+        adapterConfiguration: options.adapterConfiguration,
       }),
     );
   }

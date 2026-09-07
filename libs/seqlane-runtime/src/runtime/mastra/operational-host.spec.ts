@@ -48,7 +48,7 @@ function registration() {
   });
 }
 
-function localRegistration() {
+function localRegistration(adapterConfiguration?: unknown) {
   const node = workflowPlan().nodes[0];
   if (node === undefined || node.type !== "task") {
     throw new Error("Fixture workflow must contain a task node");
@@ -80,6 +80,7 @@ function localRegistration() {
       ],
     ]),
     workflow: { input, output },
+    adapterConfiguration,
   });
 }
 
@@ -225,6 +226,61 @@ describe("Mastra operational host", () => {
       });
     } finally {
       await host.close();
+    }
+  });
+
+  it("uses the adapter configuration supplied by the operational composition root", async () => {
+    const previousConfiguration = process.env.SEQLANE_RUNTIME_ADAPTER_CONFIG;
+    delete process.env.SEQLANE_RUNTIME_ADAPTER_CONFIG;
+    const configuredRuntimeUrl = "http://configured-runtime.invalid";
+    const fetchMock = async (): Promise<Response> =>
+      new Response("<html></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+    const host = await createOperationalHost({
+      workflows: [
+        localRegistration({
+          adapter: "opencode",
+          url: configuredRuntimeUrl,
+        }),
+      ],
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+
+    try {
+      await host.listen();
+      const response = await host.fetch(
+        new Request(
+          "http://host/api/workflows/repository%3Alocal-fixture/start-async?runId=run-configured-adapter",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              resourceId: "work-configured-adapter",
+              inputData: { required: "value" },
+              requestContext: { "seqlane.runtimeId": "opaque-profile" },
+            }),
+          },
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      await expect(json(response)).resolves.toMatchObject({
+        status: "success",
+        result: { value: "executed-by-owned-host" },
+      });
+    } finally {
+      await host.close();
+      globalThis.fetch = previousFetch;
+      if (previousConfiguration === undefined) {
+        delete process.env.SEQLANE_RUNTIME_ADAPTER_CONFIG;
+      } else {
+        process.env.SEQLANE_RUNTIME_ADAPTER_CONFIG = previousConfiguration;
+      }
     }
   });
 

@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-05
+updated: 2026-09-07
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
@@ -91,7 +91,10 @@ activity, rejects mixed or unsupported configuration, and does not fall back
 across adapters. Focused runtime adapter tests and the full runtime test
 target pass.
 
-The task branch is prepared for pull request delivery.
+The task branch is prepared for pull request delivery. The follow-up review
+also wires validated adapter configuration through CLI and server composition
+roots, moves OpenCode preparation into its factory, rejects unsupported ACP
+model selection, and redacts adapter values from diagnostics and errors.
 
 ## Traceability
 

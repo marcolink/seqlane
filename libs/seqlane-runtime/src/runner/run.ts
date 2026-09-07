@@ -22,6 +22,7 @@ import { createSeqlanePlanSnapshot } from "./workflow/plan-snapshot.js";
 import {
   resolveRuntimeProfile,
   type RuntimeExecution,
+  type RuntimeProfileResolutionOptions,
   type RuntimeSessionUiNotifier,
 } from "./profile/runtime-profile.js";
 import {
@@ -47,6 +48,7 @@ export type RuntimeExecutionResolver = (
   signal: AbortSignal,
   input: RunRequest["input"],
   onSessionUiAvailable?: RuntimeSessionUiNotifier,
+  options?: RuntimeProfileResolutionOptions,
 ) => RuntimeExecution | Promise<RuntimeExecution>;
 
 function nodeContainsAgentWork(node: PlanNode): boolean {
@@ -158,6 +160,7 @@ export async function startRun(
       abortController.signal,
       request.input,
       (notification) => sendRuntimeSessionUi(host, notification),
+      { environment: process.env },
     );
     const workflowDefinition =
       typeof loadedWorkflow.workflow === "object" &&
