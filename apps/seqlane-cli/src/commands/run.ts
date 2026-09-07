@@ -15,6 +15,7 @@ import {
   OperationalClient,
   OperationalClientError,
 } from "../operational-client.js";
+import { loadRuntimeAdapterConfiguration } from "@seqlane/runtime/operational-host";
 import { startOwnedOperationalHost } from "../operational-command-host.js";
 import { createRecordingConsumer } from "../recording.js";
 import {
@@ -219,6 +220,7 @@ export default class RunCommand extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(RunCommand);
     let request: RunRequest;
+    let adapterConfiguration: unknown;
 
     try {
       request = createRunRequest(
@@ -229,6 +231,13 @@ export default class RunCommand extends Command {
         flags.dry,
         workflowRootsFromFlags(flags),
       );
+      if (
+        flags["server-url"] === undefined &&
+        request.runtime.id !== localRuntimeId &&
+        request.runtime.id !== "test-fixture"
+      ) {
+        adapterConfiguration = loadRuntimeAdapterConfiguration();
+      }
     } catch (error) {
       this.error(errorMessage(error));
     }
@@ -330,6 +339,7 @@ export default class RunCommand extends Command {
                 host: flags.hostname,
                 port: flags.port,
                 storageUrl: flags["storage-url"],
+                adapterConfiguration,
                 eventSink: () => events,
                 onSessionUiAvailable: (notification) => {
                   if (renderer?.handleRuntimeSessionUi !== undefined) {

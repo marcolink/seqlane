@@ -92,6 +92,20 @@ route does not expose Seqlane's canonical progress event stream, so remote
 mode does not forward progress events. If `--record` is used in remote mode,
 the recording is terminal-only as well.
 
+### Runtime adapter configuration
+
+Agent runs use the private `SEQLANE_RUNTIME_ADAPTER_CONFIG` environment
+variable. Set this variable before you start `seqlane run` or `seqlane serve`:
+
+```sh
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
+```
+
+The `--runtime` value is an opaque profile identifier. The CLI does not infer
+the adapter from a URL. A remote `run --server-url` sends only the profile and
+workspace metadata. The existing server must have its own adapter
+configuration.
+
 Run-control commands use the same host. Set `--server-url` to use an existing
 host; without it, the command owns a local host for its lifetime:
 

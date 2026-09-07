@@ -11,16 +11,19 @@
   "exclude": ["src/**/*.spec.ts"],
   "references": [
     {
-      "path": "../seqlane-core"
-    },
-    {
-      "path": "../seqlane-acp"
+      "path": "../seqlane-opencode"
     },
     {
       "path": "../seqlane-events"
     },
     {
-      "path": "../seqlane-opencode"
+      "path": "../seqlane-core"
+    },
+    {
+      "path": "../seqlane-agent-adapter"
+    },
+    {
+      "path": "../seqlane-acp"
     },
     {
       "path": "../seqlane-fixtures"

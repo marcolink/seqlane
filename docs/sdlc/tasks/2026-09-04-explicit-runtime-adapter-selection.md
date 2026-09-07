@@ -1,11 +1,11 @@
 ---
 id: task.explicit-runtime-adapter-selection
 title: Define Explicit Runtime Adapter Selection and Configuration
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-07
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
@@ -84,7 +84,17 @@ or task execution.
 
 ## Outcome
 
-Planned.
+Completed. Added private Zod-validated runtime adapter configuration and
+deterministic ACP/OpenCode factory selection. Runtime profile resolution now
+requires explicit adapter identity, validates configuration before adapter
+activity, rejects mixed or unsupported configuration, and does not fall back
+across adapters. Focused runtime adapter tests and the full runtime test
+target pass.
+
+The task branch is prepared for pull request delivery. The follow-up review
+also wires validated adapter configuration through CLI and server composition
+roots, moves OpenCode preparation into its factory, rejects unsupported ACP
+model selection, and redacts adapter values from diagnostics and errors.
 
 ## Traceability
 
