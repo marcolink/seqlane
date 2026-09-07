@@ -146,8 +146,9 @@ Configure the UI and owned server endpoints when needed:
 seqlane studio --port 3001 --server-port 4112
 ```
 
-The owned server endpoint flags are `--server-host`, `--server-port`,
-`--server-protocol`, and `--server-api-prefix`.
+The owned server endpoint flags are `--server-host` and `--server-port`. The
+endpoint always uses HTTP loopback and the fixed `/api` route prefix. If
+`--server-port 0` is used, Studio connects to the port assigned by the host.
 
 Attach Studio to an existing loopback host without owning or stopping it:
 

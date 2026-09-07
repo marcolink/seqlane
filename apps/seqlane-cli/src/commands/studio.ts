@@ -15,8 +15,6 @@ export interface CommunityStudioOptions {
   readonly port?: number;
   readonly serverHost?: string;
   readonly serverPort?: number;
-  readonly serverProtocol?: "http" | "https";
-  readonly serverApiPrefix?: string;
 }
 
 export interface CommunityStudioProcess {
@@ -43,8 +41,6 @@ export interface CommunityStudioSignalSource {
 export interface StudioServerOptions {
   readonly serverHost: string;
   readonly serverPort: number;
-  readonly serverProtocol: "http" | "https";
-  readonly serverApiPrefix: string;
   readonly origin: string;
 }
 
@@ -75,29 +71,17 @@ function loopbackServerOptions(value: string): StudioServerOptions {
   return {
     serverHost,
     serverPort,
-    serverProtocol: "http",
-    serverApiPrefix: "/api",
     origin: `http://${serverHost}:${serverPort}`,
   };
 }
 
 export function resolveStudioServerOptions(
   serverUrl: string | undefined,
-  options: Pick<
-    CommunityStudioOptions,
-    "serverHost" | "serverPort" | "serverProtocol" | "serverApiPrefix"
-  > = {},
+  options: Pick<CommunityStudioOptions, "serverHost" | "serverPort"> = {},
 ): StudioServerOptions {
   if (serverUrl !== undefined) return loopbackServerOptions(serverUrl);
   const serverHost = options.serverHost ?? "127.0.0.1";
   const serverPort = options.serverPort ?? 4111;
-  const serverProtocol = options.serverProtocol ?? "http";
-  const serverApiPrefix = options.serverApiPrefix ?? "/api";
-  if (serverProtocol !== "http") {
-    throw new TypeError(
-      "Owned operational host and Community Studio must use HTTP loopback",
-    );
-  }
   const hostForUrl =
     serverHost.includes(":") && !serverHost.startsWith("[")
       ? `[${serverHost}]`
@@ -108,8 +92,6 @@ export function resolveStudioServerOptions(
   return {
     serverHost,
     serverPort,
-    serverProtocol,
-    serverApiPrefix,
     origin: normalized.origin,
   };
 }
@@ -118,18 +100,46 @@ export async function waitForOperationalHostReady(
   origin: string,
   fetchImplementation: typeof fetch = fetch,
   timeoutMs = readinessTimeoutMs,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
-  while (Date.now() <= deadline) {
+  while (true) {
+    if (abortSignal?.aborted) {
+      lastError = abortSignal.reason;
+      break;
+    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    const controller = new AbortController();
+    const onAbort = (): void => controller.abort(abortSignal?.reason);
+    abortSignal?.addEventListener("abort", onAbort, { once: true });
+    const abortTimer = setTimeout(() => controller.abort(), remainingMs);
     try {
-      const response = await fetchImplementation(`${origin}/readyz`);
+      const response = await fetchImplementation(`${origin}/readyz`, {
+        signal: controller.signal,
+      });
+      try {
+        await response.body?.cancel();
+      } catch {
+        // The response has been received; cleanup failure must not hide readiness.
+      }
       if (response.ok) return;
       lastError = new Error(`readiness returned HTTP ${response.status}`);
     } catch (error) {
       lastError = error;
+    } finally {
+      clearTimeout(abortTimer);
+      abortSignal?.removeEventListener("abort", onAbort);
+      controller.abort();
     }
-    await new Promise((resolve) => setTimeout(resolve, readinessRetryMs));
+    if (abortSignal?.aborted) {
+      lastError = abortSignal.reason;
+      break;
+    }
+    const retryMs = Math.min(readinessRetryMs, deadline - Date.now());
+    if (retryMs <= 0) break;
+    await waitForReadinessRetry(retryMs, abortSignal);
   }
   throw new Error(
     `Operational host did not become ready: ${errorMessage(lastError)}`,
@@ -137,6 +147,22 @@ export async function waitForOperationalHostReady(
       cause: lastError,
     },
   );
+}
+
+function waitForReadinessRetry(
+  timeoutMs: number,
+  abortSignal?: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+      abortSignal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    timer = setTimeout(finish, timeoutMs);
+    abortSignal?.addEventListener("abort", finish, { once: true });
+  });
 }
 
 function communityStudioEntryPoint(): string {
@@ -156,8 +182,6 @@ export function launchCommunityStudio(
   const port = options.port ?? 3000;
   const serverHost = options.serverHost ?? "127.0.0.1";
   const serverPort = options.serverPort ?? 4111;
-  const serverProtocol = options.serverProtocol ?? "http";
-  const serverApiPrefix = options.serverApiPrefix ?? "/api";
   const child = spawn(
     process.execPath,
     [
@@ -169,10 +193,6 @@ export function launchCommunityStudio(
       serverHost,
       "--server-port",
       String(serverPort),
-      "--server-protocol",
-      serverProtocol,
-      "--server-api-prefix",
-      serverApiPrefix,
     ],
     { stdio: "inherit" },
   );
@@ -180,6 +200,57 @@ export function launchCommunityStudio(
   return {
     address: `http://127.0.0.1:${port}`,
     process: child,
+  };
+}
+
+type OwnedOperationalHost = Awaited<
+  ReturnType<typeof startOwnedOperationalHost>
+>;
+
+export interface OwnedHostSignalLifecycle {
+  readonly isShuttingDown: () => boolean;
+  readonly signal: AbortSignal;
+  readonly setOwnedHost: (host: OwnedOperationalHost) => void;
+  readonly closeOwnedHost: () => Promise<void>;
+  readonly cleanup: () => void;
+}
+
+export function createOwnedHostSignalLifecycle(
+  signalSource: CommunityStudioSignalSource = process,
+): OwnedHostSignalLifecycle {
+  let shuttingDown = false;
+  const shutdownController = new AbortController();
+  let ownedHost: OwnedOperationalHost | undefined;
+  let closePromise: Promise<void> | undefined;
+
+  const closeOwnedHost = (): Promise<void> => {
+    if (closePromise !== undefined) return closePromise;
+    if (ownedHost === undefined) return Promise.resolve();
+    const promise = ownedHost.close().catch(() => undefined);
+    closePromise = promise;
+    return promise;
+  };
+  const onSignal = (): void => {
+    shuttingDown = true;
+    shutdownController.abort();
+    void closeOwnedHost();
+  };
+
+  signalSource.once("SIGINT", onSignal);
+  signalSource.once("SIGTERM", onSignal);
+
+  return {
+    isShuttingDown: () => shuttingDown,
+    signal: shutdownController.signal,
+    setOwnedHost: (host) => {
+      ownedHost = host;
+      if (shuttingDown) void closeOwnedHost();
+    },
+    closeOwnedHost,
+    cleanup: () => {
+      signalSource.removeListener("SIGINT", onSignal);
+      signalSource.removeListener("SIGTERM", onSignal);
+    },
   };
 }
 
@@ -257,15 +328,6 @@ export default class StudioCommand extends Command {
       description: "Port of the Seqlane/Mastra API server",
       default: 4111,
     }),
-    "server-protocol": Flags.string({
-      description: "Protocol of the Seqlane/Mastra API server",
-      options: ["http", "https"],
-      default: "http",
-    }),
-    "server-api-prefix": Flags.string({
-      description: "API route prefix of the Seqlane/Mastra server",
-      default: "/api",
-    }),
     "server-url": Flags.string({
       description: "Attach Studio to an existing loopback operational host",
     }),
@@ -288,12 +350,11 @@ export default class StudioCommand extends Command {
       server = resolveStudioServerOptions(flags["server-url"], {
         serverHost: flags["server-host"],
         serverPort: flags["server-port"],
-        serverProtocol: flags["server-protocol"] as "http" | "https",
-        serverApiPrefix: flags["server-api-prefix"],
       });
     } catch (error) {
       this.error(errorMessage(error));
     }
+    const lifecycle = createOwnedHostSignalLifecycle();
     let ownedHost:
       Awaited<ReturnType<typeof startOwnedOperationalHost>> | undefined;
     try {
@@ -309,19 +370,33 @@ export default class StudioCommand extends Command {
           storageUrl: flags["storage-url"],
           adapterConfiguration,
         });
-        await waitForOperationalHostReady(ownedHost.address);
-        this.log(`Seqlane operational host: ${ownedHost.address}`);
+        lifecycle.setOwnedHost(ownedHost);
+        if (lifecycle.isShuttingDown()) return;
+        server = resolveStudioServerOptions(ownedHost.address);
+        await waitForOperationalHostReady(
+          server.origin,
+          fetch,
+          readinessTimeoutMs,
+          lifecycle.signal,
+        );
+        this.log(`Seqlane operational host: ${server.origin}`);
       } else {
-        await waitForOperationalHostReady(server.origin);
+        if (lifecycle.isShuttingDown()) return;
+        await waitForOperationalHostReady(
+          server.origin,
+          fetch,
+          readinessTimeoutMs,
+          lifecycle.signal,
+        );
         this.log(`Seqlane operational host: ${server.origin}`);
       }
+
+      if (lifecycle.isShuttingDown()) return;
 
       const studio = launchCommunityStudio({
         port: flags.port,
         serverHost: server.serverHost,
         serverPort: server.serverPort,
-        serverProtocol: server.serverProtocol,
-        serverApiPrefix: server.serverApiPrefix,
       });
       this.log(`Mastra Community Studio: ${studio.address}`);
       const exit = await waitForCommunityStudio(studio.process);
@@ -329,9 +404,10 @@ export default class StudioCommand extends Command {
         process.exitCode = communityStudioExitCode(exit);
       }
     } catch (error) {
-      this.error(errorMessage(error));
+      if (!lifecycle.isShuttingDown()) this.error(errorMessage(error));
     } finally {
-      await ownedHost?.close().catch(() => undefined);
+      lifecycle.cleanup();
+      await lifecycle.closeOwnedHost();
     }
   }
 }
