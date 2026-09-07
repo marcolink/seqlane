@@ -7,7 +7,10 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repositoryRoot = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../..",
+);
 const workspace = await mkdtemp(join(tmpdir(), "seqlane-action-smoke-"));
 const sourceDirectory = join(workspace, "source");
 const targetDirectory = join(workspace, "target");

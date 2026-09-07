@@ -33,6 +33,14 @@
       },
       "outputs": ["{projectRoot}/dist"],
       "dependsOn": ["^build"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": ".",
+        "command": "node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs && git diff --exit-code -- actions/resolve-merge-conflicts/dist/"
+      }
     }
   }
 }
