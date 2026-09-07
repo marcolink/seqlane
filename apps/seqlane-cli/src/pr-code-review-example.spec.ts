@@ -1,6 +1,7 @@
 // @test-scope ../../../examples/pr-code-review.ts
 
 import { gzipSync } from "node:zlib";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { buildWorkflow } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
@@ -176,6 +177,85 @@ describe("pull-request code review example workflow", () => {
     expect(workflow).not.toContain("RUN_AUDIT_MARKER_PREFIX");
     expect(workflow).not.toContain("runSummary:");
     expect(workflow).not.toContain(".runHistory");
+  });
+
+  it("does not attribute paid mixed-identity metrics to the selected model", async () => {
+    const workflow = await readFile(
+      new URL(
+        "../../../.github/workflows/seqlane-code-review.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const programStart = "RUN_METRICS=$(jq --slurp --compact-output '";
+    const programEnd = '\' "$RUNNER_TEMP/seqlane-code-review.jsonl")';
+    const start = workflow.indexOf(programStart);
+    const end = workflow.indexOf(programEnd, start + programStart.length);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const jqProgram = workflow.slice(start + programStart.length, end);
+    const events = [
+      {
+        type: "run.started",
+        runId: "run-1",
+        metadata: { occurredAt: "2026-09-07T10:00:00Z" },
+      },
+      {
+        type: "invocation.created",
+        invocationId: "task-1",
+        taskId: "review",
+        kind: "task",
+        label: "Review",
+        metadata: { occurredAt: "2026-09-07T10:00:01Z" },
+      },
+      {
+        type: "invocation.started",
+        invocationId: "task-1",
+        metadata: { occurredAt: "2026-09-07T10:00:01Z" },
+      },
+      {
+        type: "invocation.output",
+        invocationId: "task-1",
+        channel: "task",
+        metrics: {
+          durationMs: 300,
+          cost: 0.01,
+          tokens: {
+            input: 12,
+            output: 9,
+            reasoning: 6,
+            cacheRead: 3,
+            cacheWrite: 0,
+            total: 30,
+          },
+          modelSelection: {
+            model: { provider: "openai", model: "gpt-5.6-luna" },
+          },
+        },
+        metadata: { occurredAt: "2026-09-07T10:00:02Z" },
+      },
+      {
+        type: "invocation.succeeded",
+        invocationId: "task-1",
+        metadata: { occurredAt: "2026-09-07T10:00:02Z" },
+      },
+      {
+        type: "run.succeeded",
+        runId: "run-1",
+        metadata: { occurredAt: "2026-09-07T10:00:03Z" },
+      },
+    ];
+    const metrics = JSON.parse(
+      execFileSync("jq", ["--slurp", "--compact-output", jqProgram], {
+        encoding: "utf8",
+        input: events.map((event) => JSON.stringify(event)).join("\n"),
+      }),
+    ) as { tasks: Record<string, unknown>[] };
+
+    expect(metrics.tasks).toHaveLength(1);
+    expect(metrics.tasks[0]).toMatchObject({ cost: 0.01 });
+    expect(metrics.tasks[0]).not.toHaveProperty("model");
+    expect(metrics.tasks[0]).not.toHaveProperty("provider");
   });
 
   it("treats a missing progress comment as cleared without weakening safeguards", async () => {

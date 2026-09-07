@@ -72,6 +72,66 @@ function metricsWithModelSelection(
   };
 }
 
+function sumDefined(
+  values: readonly (number | undefined)[],
+): number | undefined {
+  if (values.every((value) => value === undefined)) return undefined;
+  return values.reduce<number>((total, value) => total + (value ?? 0), 0);
+}
+
+function consistentValue<T>(values: readonly (T | undefined)[]): T | undefined {
+  if (values.length === 0 || values.some((value) => value === undefined)) {
+    return undefined;
+  }
+  const first = values[0];
+  return values.every((value) => value === first) ? first : undefined;
+}
+
+function aggregateInvocationMetrics(
+  metrics: readonly SeqlaneInvocationMetrics[],
+): SeqlaneInvocationMetrics | undefined {
+  if (metrics.length === 0) return undefined;
+  const tokens = metrics
+    .map((value) => value.tokens)
+    .filter((value): value is NonNullable<typeof value> => value !== undefined);
+  const tokenTotals = metrics.map((value) => value.tokens?.total);
+  const durationMs = sumDefined(metrics.map((value) => value.durationMs));
+  const model = consistentValue(metrics.map((value) => value.model));
+  const provider = consistentValue(metrics.map((value) => value.provider));
+  const cost = sumDefined(metrics.map((value) => value.cost));
+  const totalTokens = sumDefined(tokenTotals);
+  return {
+    ...(durationMs === undefined ? {} : { durationMs }),
+    ...(model === undefined ? {} : { model }),
+    ...(provider === undefined ? {} : { provider }),
+    ...(cost === undefined ? {} : { cost }),
+    ...(tokens.length === 0
+      ? {}
+      : {
+          tokens: {
+            ...(tokens.every((value) => value.total !== undefined) &&
+            totalTokens !== undefined
+              ? { total: totalTokens }
+              : {}),
+            input: tokens.reduce((total, value) => total + value.input, 0),
+            output: tokens.reduce((total, value) => total + value.output, 0),
+            reasoning: tokens.reduce(
+              (total, value) => total + value.reasoning,
+              0,
+            ),
+            cacheRead: tokens.reduce(
+              (total, value) => total + value.cacheRead,
+              0,
+            ),
+            cacheWrite: tokens.reduce(
+              (total, value) => total + value.cacheWrite,
+              0,
+            ),
+          },
+        }),
+  };
+}
+
 export async function executeTaskNode(
   context: ExecutionContext,
   node: TaskNode,
@@ -180,6 +240,33 @@ export async function executeTaskNode(
       ...optionalIteration(options.iteration),
     });
 
+    const reportedMetrics: SeqlaneInvocationMetrics[] = [];
+    let metricsEmitted = false;
+    const emitMetrics = (): void => {
+      if (metricsEmitted) return;
+      const aggregateMetrics = aggregateInvocationMetrics(reportedMetrics);
+      if (aggregateMetrics === undefined) return;
+      const observableMetrics = metricsWithModelSelection(
+        aggregateMetrics,
+        isLocalTask
+          ? undefined
+          : effectiveModelSelection(context, invocationId, session),
+      );
+      if (observableMetrics === undefined) return;
+      metricsEmitted = true;
+      context.events.emit({
+        type: "invocation.output",
+        workId: context.workId,
+        runId: context.runId,
+        invocationId,
+        policy: "persistent",
+        channel: "task",
+        content: "Task metrics",
+        metrics: observableMetrics,
+        ...optionalIteration(options.iteration),
+      });
+    };
+
     try {
       const taskSchema = getTaskSchema(
         context.taskSchemas,
@@ -212,7 +299,6 @@ export async function executeTaskNode(
       });
 
       let rawOutput: unknown;
-      let metrics: SeqlaneInvocationMetrics | undefined;
       const effects = new InvocationEffects();
       const reportUncertainActivity = (
         activity: SeqlaneUncertainActivity,
@@ -331,7 +417,7 @@ export async function executeTaskNode(
             input,
             signal: abortSignal,
             onMetrics: (value) => {
-              metrics = value;
+              reportedMetrics.push(value);
             },
             onDiagnostic: (message) => {
               context.events.emit({
@@ -370,6 +456,7 @@ export async function executeTaskNode(
         };
       }
       if (executorFailure !== undefined) {
+        emitMetrics();
         throwTaskPhaseError(
           executorFailure.cause,
           "executor",
@@ -387,11 +474,12 @@ export async function executeTaskNode(
       }
 
       const observableMetrics = metricsWithModelSelection(
-        isLocalTask ? undefined : metrics,
+        aggregateInvocationMetrics(reportedMetrics),
         isLocalTask
           ? undefined
           : effectiveModelSelection(context, invocationId, session),
       );
+      metricsEmitted = observableMetrics !== undefined;
 
       context.events.emit({
         type: "invocation.result",
@@ -439,6 +527,7 @@ export async function executeTaskNode(
 
       return output;
     } catch (cause) {
+      emitMetrics();
       return throwInvocationFailure(cause, {
         context,
         abortSignal,

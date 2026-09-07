@@ -149,6 +149,32 @@ The normalized metrics may include response duration, model, provider, cost, and
 input/output/reasoning/cache token counts. They contain no OpenCode SDK object,
 prompt, tool output, transcript, or secret.
 
+### Invocation metrics accounting
+
+OpenCode may produce more than one completed model response during one
+invocation. This includes bounded prompt-mode structured-output repair
+responses. The runtime must retain every metrics callback received for the
+invocation and normalize the complete set into the invocation's existing
+`SeqlaneInvocationMetrics` shape. Duration, cost, and each available token
+counter account for every completed model response; an unavailable optional
+counter remains unavailable rather than being fabricated.
+
+The aggregate must not misattribute a response. `model` and `provider` remain
+present only when the completed responses have one consistent value. When
+responses identify different models or providers, the aggregate omits that
+identity instead of selecting one response's value. No attempt-level public
+metrics field is required by this contract.
+
+When an effective configured model selection exists, the existing
+`modelSelection` metric remains attached to the aggregate as the configured
+selection; it does not claim to be the identity observed by every response.
+
+If a response has reported paid metrics before the invocation reaches a
+terminal executor failure or cancellation, the runtime emits those normalized
+metrics in the persistent task output event. A terminal failure does not erase
+accounting already observed, and the runtime does not invent metrics when no
+response reported them.
+
 ```text
 validated Seqlane input
         ↓
@@ -197,6 +223,10 @@ The test set must cover:
 - abort propagation to the active OpenCode session without server shutdown or session deletion
 - deterministic failure for unresolved permission or interaction
 - runner and CLI execution through the existing JSON-only IPC boundary.
+- invocation metrics aggregate every completed model response, including
+  structured-output repair responses, without false model/provider attribution
+- terminal failures and cancellations retain observable metrics reported before
+  termination
 
 A manual compatibility procedure can use an already-running OpenCode server. It must create only a Seqlane Run session and must not modify server lifecycle.
 
@@ -213,6 +243,11 @@ spec.opencode-executor-integration is complete when:
 - Seqlane revalidates every OpenCode structured result before downstream dataflow
 - malformed structured output, server incompatibility, transport errors, and unresolved interaction fail through Seqlane-owned executor errors
 - cancellation reaches active OpenCode work once and leaves the external server alive
+- one invocation's normalized duration, cost, and available token counts include
+  every completed model response; inconsistent model/provider identities are not
+  misattributed
+- persistent task output retains observed metrics when a paid invocation fails or
+  is cancelled after a model response
 - the runner and CLI retain their existing ownership and JSON-only protocol boundaries
 - the Renovate-shaped workflow runs through the real adapter contract with a deterministic fake OpenCode server.
 
