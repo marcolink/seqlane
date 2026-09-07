@@ -43,7 +43,34 @@ async function waitForProcessExit(pid) {
   assert.fail(`Process ${pid} did not exit`);
 }
 
-describe("GitHub Actions lifecycle helpers", () => {
+async function waitForProcessGroupExit(processGroupId) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(-processGroupId, 0);
+    } catch (error) {
+      if (error?.code === "ESRCH" || error?.code === "EINVAL") return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.fail(`Process group ${processGroupId} did not exit`);
+}
+
+async function waitForProcessId(path) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      const pid = Number((await readFile(path, "utf8")).trim());
+      if (Number.isInteger(pid) && pid > 0) return pid;
+    } catch {
+      // The child may not have started yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.fail(`No child PID was written to ${path}`);
+}
+
+describe("GitHub Actions lifecycle helpers", { concurrency: false }, () => {
   it("reads the exact state key written by the main action", () => {
     process.env.STATE_pid = "saved-pid";
     process.env.STATE_PID = "different-pid";
@@ -65,7 +92,9 @@ describe("GitHub Actions lifecycle helpers", () => {
         env: process.env,
         logPath: join(directory, "service.log"),
       });
+      assert.equal(service.anchor.connected, true);
       await persistProcessState(service);
+      assert.equal(service.anchor.connected, false);
 
       const state = await readFile(statePath, "utf8");
       assert.match(state, /^pid<<seqlane-action/m);
@@ -110,9 +139,33 @@ describe("GitHub Actions lifecycle helpers", () => {
         env: process.env,
         logPath: join(directory, "service.log"),
       });
+      assert.equal(service.anchor.connected, true);
 
       await assert.rejects(() => persistProcessState(service));
       await waitForProcessExit(service.pid);
+      await waitForProcessGroupExit(service.identity.processGroupId);
+    } finally {
+      if (service !== undefined) {
+        await terminateProcessGroup(service.pid, service.identity);
+      }
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a nonexistent command without leaving an anchor behind", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "seqlane-lifecycle-"));
+    let service;
+
+    try {
+      await assert.rejects(async () => {
+        service = await spawnDetached({
+          command: join(directory, "does-not-exist"),
+          args: [],
+          cwd: process.cwd(),
+          env: process.env,
+          logPath: join(directory, "service.log"),
+        });
+      });
     } finally {
       if (service !== undefined) {
         await terminateProcessGroup(service.pid, service.identity);
@@ -139,7 +192,7 @@ describe("GitHub Actions lifecycle helpers", () => {
           processGroupId: service.identity.processGroupId,
           processStartTime: "not-the-start-time",
         }),
-        true,
+        false,
       );
       assert.doesNotThrow(() =>
         process.kill(-service.identity.processGroupId, 0),
@@ -148,6 +201,102 @@ describe("GitHub Actions lifecycle helpers", () => {
       if (service !== undefined) {
         await terminateProcessGroup(service.pid, service.identity);
         await waitForProcessExit(service.pid);
+      }
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("returns false when the recorded leader is gone but its group remains", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "seqlane-lifecycle-"));
+    const childPidPath = join(directory, "child.pid");
+    let service;
+    let childPid;
+
+    try {
+      service = await spawnDetached({
+        command: process.execPath,
+        args: [
+          "-e",
+          `const { spawn } = require("node:child_process");
+const { writeFileSync } = require("node:fs");
+const child = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1_000)"], { stdio: "ignore" });
+writeFileSync(process.argv[1], String(child.pid));
+setInterval(() => {}, 1_000);`,
+          childPidPath,
+        ],
+        cwd: process.cwd(),
+        env: process.env,
+        logPath: join(directory, "service.log"),
+      });
+      childPid = await waitForProcessId(childPidPath);
+      process.kill(service.pid, "SIGKILL");
+      await waitForProcessExit(service.pid);
+
+      assert.equal(
+        await terminateProcessGroup(service.pid, service.identity),
+        false,
+      );
+      assert.doesNotThrow(() => process.kill(childPid, 0));
+    } finally {
+      if (service !== undefined) {
+        try {
+          process.kill(-service.identity.processGroupId, "SIGKILL");
+        } catch (error) {
+          if (error?.code !== "ESRCH" && error?.code !== "EINVAL") throw error;
+        }
+      }
+      if (childPid !== undefined) {
+        try {
+          process.kill(childPid, "SIGKILL");
+        } catch (error) {
+          if (error?.code !== "ESRCH") throw error;
+        }
+      }
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("kills descendants after a SIGTERM-exiting leader leaves one resistant", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "seqlane-lifecycle-"));
+    const childPidPath = join(directory, "child.pid");
+    let service;
+    let childPid;
+
+    try {
+      service = await spawnDetached({
+        command: process.execPath,
+        args: [
+          "-e",
+          `const { spawn } = require("node:child_process");
+const { writeFileSync } = require("node:fs");
+const child = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1_000)"], { stdio: "ignore" });
+writeFileSync(process.argv[1], String(child.pid));
+process.on("SIGTERM", () => process.exit(0));
+setInterval(() => {}, 1_000);`,
+          childPidPath,
+        ],
+        cwd: process.cwd(),
+        env: process.env,
+        logPath: join(directory, "service.log"),
+      });
+      childPid = await waitForProcessId(childPidPath);
+      assert.doesNotThrow(() => process.kill(childPid, 0));
+
+      assert.equal(
+        await terminateProcessGroup(service.pid, service.identity),
+        true,
+      );
+      await waitForProcessExit(childPid);
+    } finally {
+      if (service !== undefined) {
+        await terminateProcessGroup(service.pid, service.identity);
+      }
+      if (childPid !== undefined) {
+        try {
+          process.kill(childPid, "SIGKILL");
+        } catch (error) {
+          if (error?.code !== "ESRCH") throw error;
+        }
       }
       await rm(directory, { recursive: true, force: true });
     }

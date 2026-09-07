@@ -10,6 +10,7 @@ import {
   terminateProcessGroup,
   waitForCommandHealth,
 } from "../lib/lifecycle.js";
+import { buildReadinessArguments } from "./readiness.js";
 
 function mcpUrl(listen) {
   const parsed = new URL(`http://${listen}`);
@@ -60,7 +61,7 @@ async function main() {
       () =>
         runReadinessCommand({
           command: packageManager,
-          args: ["dlx", packageSpec, "server", "status", "--check-ready"],
+          args: buildReadinessArguments(packageSpec, home),
           cwd: workingDirectory,
           env,
         }),

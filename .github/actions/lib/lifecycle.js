@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { execFile, spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 const sleep = (milliseconds) =>
@@ -126,17 +127,27 @@ export async function spawnDetached({ command, args, cwd, env, logPath }) {
   const logFile = openSync(logPath, "a");
   let child;
   try {
-    child = spawn(command, args, {
-      cwd,
-      env,
-      detached: true,
-      stdio: ["ignore", logFile, logFile],
-      windowsHide: true,
-    });
+    child = spawn(
+      process.execPath,
+      [
+        fileURLToPath(new URL("./process-anchor.js", import.meta.url)),
+        command,
+        JSON.stringify(args),
+      ],
+      {
+        cwd,
+        env,
+        detached: true,
+        stdio: ["ignore", logFile, logFile, "ipc"],
+        windowsHide: true,
+      },
+    );
   } finally {
     closeSync(logFile);
   }
 
+  const anchorReady = waitForAnchorReady(child);
+  anchorReady.catch(() => undefined);
   const pid = await new Promise((resolve, reject) => {
     child.once("error", reject);
     child.once("spawn", () => resolve(child.pid));
@@ -149,19 +160,139 @@ export async function spawnDetached({ command, args, cwd, env, logPath }) {
   let identity;
   try {
     identity = await readProcessIdentity(pid);
+    if (!identity) {
+      throw new Error(`Could not verify the identity for ${command}`);
+    }
+    await anchorReady;
+    return { pid, identity, anchor: child };
   } catch (error) {
-    child.kill("SIGTERM");
-    throw new Error(`Could not verify the identity for ${command}`, {
+    await terminateFailedAnchor(child, pid, identity);
+    throw new Error(`Could not start anchored process for ${command}`, {
       cause: error,
     });
   }
-  if (!identity) {
-    child.kill("SIGTERM");
-    throw new Error(`Could not verify the identity for ${command}`);
+}
+
+function waitForAnchorReady(child) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      finish(reject, new Error("Process anchor did not become ready"));
+    }, 5_000);
+
+    const finish = (handler, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      child.off("message", onMessage);
+      child.off("exit", onExit);
+      child.off("error", onError);
+      child.off("disconnect", onDisconnect);
+      handler(value);
+    };
+    const onMessage = (message) => {
+      if (message?.type === "ready") finish(resolve);
+      else if (message?.type === "error") {
+        finish(reject, new Error(message.message || "Process anchor failed"));
+      }
+    };
+    const onExit = (code, signal) => {
+      finish(
+        reject,
+        new Error(
+          `Process anchor exited before readiness (code=${String(code)}, signal=${String(signal)})`,
+        ),
+      );
+    };
+    const onError = (error) => finish(reject, error);
+    const onDisconnect = () =>
+      finish(
+        reject,
+        new Error("Process anchor IPC disconnected before readiness"),
+      );
+
+    child.on("message", onMessage);
+    child.once("exit", onExit);
+    child.once("error", onError);
+    child.once("disconnect", onDisconnect);
+  });
+}
+
+function adoptAnchor(child) {
+  return new Promise((resolve, reject) => {
+    if (!child.connected) {
+      reject(new Error("Process anchor IPC is not connected"));
+      return;
+    }
+    let settled = false;
+    const timeout = setTimeout(() => {
+      finish(reject, new Error("Process anchor adoption timed out"));
+    }, 1_000);
+    const finish = (handler, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      child.off("message", onMessage);
+      child.off("disconnect", onDisconnect);
+      child.off("error", onError);
+      handler(value);
+    };
+    const onMessage = (message) => {
+      if (message?.type === "adopted") finish(resolve);
+    };
+    const onDisconnect = () =>
+      finish(
+        reject,
+        new Error("Process anchor IPC disconnected during adoption"),
+      );
+    const onError = (error) => finish(reject, error);
+    child.on("message", onMessage);
+    child.once("disconnect", onDisconnect);
+    child.once("error", onError);
+    child.send({ type: "adopt" }, (error) => {
+      if (error) finish(reject, error);
+    });
+  });
+}
+
+function disconnectAnchor(child) {
+  if (!child?.connected) return;
+  try {
+    child.disconnect();
+  } catch {
+    // The anchor may have exited after sending its readiness message.
+  }
+}
+
+async function terminateFailedAnchor(child, pid, identity) {
+  disconnectAnchor(child);
+  if (identity) {
+    try {
+      await terminateProcessGroup(pid, identity);
+      return;
+    } catch {
+      // Fall through to direct anchor cleanup if group cleanup cannot run.
+    }
   }
 
-  child.unref();
-  return { pid, identity };
+  await waitForChildExit(child, 1_000);
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+  }
+}
+
+function waitForChildExit(child, timeoutMilliseconds) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const timeout = setTimeout(done, timeoutMilliseconds);
+    child.once("exit", done);
+    function done() {
+      clearTimeout(timeout);
+      resolve();
+    }
+  });
 }
 
 function processGroupIsAlive(processGroupId) {
@@ -195,8 +326,8 @@ export async function terminateProcessGroup(pidValue, expectedIdentity) {
   const pid = positiveInteger(pidValue);
   const identity = normalizeProcessIdentity(expectedIdentity);
   if (!pid || !identity) return false;
-  if (!(await processIdentityMatches(pid, identity))) return true;
   if (!processGroupIsAlive(identity.processGroupId)) return true;
+  if (!(await processIdentityMatches(pid, identity))) return false;
 
   try {
     if (!signalProcessGroup(identity.processGroupId, "SIGTERM")) return true;
@@ -209,7 +340,7 @@ export async function terminateProcessGroup(pidValue, expectedIdentity) {
     return true;
   }
 
-  if (!(await processIdentityMatches(pid, identity))) return true;
+  if (!(await processIdentityMatches(pid, identity))) return false;
 
   try {
     if (!signalProcessGroup(identity.processGroupId, "SIGKILL")) return true;
@@ -220,23 +351,36 @@ export async function terminateProcessGroup(pidValue, expectedIdentity) {
   return waitForProcessGroupExit(identity.processGroupId, 2_000);
 }
 
-export async function persistProcessState({ pid, identity }) {
+export async function persistProcessState({ pid, identity, anchor }) {
   const normalizedIdentity = normalizeProcessIdentity(identity);
   if (!normalizedIdentity) {
     throw new Error("Cannot persist an unverified process identity");
   }
 
   try {
+    if (!anchor || typeof anchor.unref !== "function") {
+      throw new Error("Cannot persist process state without its anchor");
+    }
     await saveState("pid", String(pid));
     await saveState(
       "process-group-id",
       String(normalizedIdentity.processGroupId),
     );
     await saveState("process-start-time", normalizedIdentity.processStartTime);
+    await adoptAnchor(anchor);
+    disconnectAnchor(anchor);
+    anchor.unref();
   } catch (error) {
     try {
+      disconnectAnchor(anchor);
       const stopped = await terminateProcessGroup(pid, normalizedIdentity);
-      if (!stopped) {
+      const groupStopped = stopped
+        ? true
+        : await waitForProcessGroupExit(
+            normalizedIdentity.processGroupId,
+            2_000,
+          );
+      if (!groupStopped) {
         console.warn(
           `Process group ${pid} could not be verified during cleanup`,
         );
