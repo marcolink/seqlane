@@ -264,6 +264,7 @@ describe("private runtime adapter selection", () => {
     await expect(
       wrapped.execute({
         invocationId: "invocation-1",
+        observability: {},
         task: {} as never,
         input: null,
         signal: new AbortController().signal,

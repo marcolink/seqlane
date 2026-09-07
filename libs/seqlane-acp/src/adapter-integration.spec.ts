@@ -93,6 +93,7 @@ function request(
     input: "controlled input",
     signal,
     ...overrides,
+    observability: overrides.observability ?? {},
   };
 }
 

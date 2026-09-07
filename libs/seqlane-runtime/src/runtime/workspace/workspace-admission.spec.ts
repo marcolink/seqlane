@@ -131,6 +131,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -174,6 +175,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "write",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "write" },
@@ -234,6 +236,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "first",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "first" },
@@ -246,6 +249,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "second",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "second" },
@@ -325,6 +329,7 @@ describe("workspace admission", () => {
 
     const first = executeTaskNode(context, writeTask("first"), abortSignal, {
       invocationId: "first",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -333,6 +338,7 @@ describe("workspace admission", () => {
 
     const second = executeTaskNode(context, writeTask("second"), abortSignal, {
       invocationId: "second",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "second" },
@@ -400,6 +406,7 @@ describe("workspace admission", () => {
 
     const writer = executeTaskNode(context, writeTask("writer"), signal, {
       invocationId: "writer",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "writer" },
@@ -407,6 +414,7 @@ describe("workspace admission", () => {
     await writerStarted.promise;
     const reader = executeTaskNode(context, readTask("reader"), signal, {
       invocationId: "reader",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "reader" },
@@ -473,6 +481,7 @@ describe("workspace admission", () => {
     const signal = new AbortController().signal;
     const writer = executeTaskNode(context, writeTask("writer"), signal, {
       invocationId: "writer",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "writer" },
@@ -481,6 +490,7 @@ describe("workspace admission", () => {
     await writerStarted.promise;
     const reader = executeTaskNode(context, readTask("reader"), signal, {
       invocationId: "reader",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "reader" },
@@ -534,6 +544,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "failing-writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "failing-writer" },
@@ -547,6 +558,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "next-writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "next-writer" },
@@ -601,6 +613,7 @@ describe("workspace admission", () => {
         new AbortController().signal,
         {
           invocationId: "writer",
+          observability: {},
           results: context.results,
           remainingConsumers: context.remainingConsumers,
           subject: { type: "task", taskId: "writer" },
@@ -639,6 +652,7 @@ describe("workspace admission", () => {
         new AbortController().signal,
         {
           invocationId: "writer",
+          observability: {},
           results: context.results,
           remainingConsumers: context.remainingConsumers,
           subject: { type: "task", taskId: "writer" },
@@ -684,6 +698,7 @@ describe("workspace admission", () => {
     const signal = new AbortController().signal;
     const writer = executeTaskNode(context, writeTask("writer"), signal, {
       invocationId: "writer",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "writer" },
@@ -696,6 +711,7 @@ describe("workspace admission", () => {
       signal,
       {
         invocationId: "next-writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "next-writer" },
@@ -749,6 +765,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "failing-writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "failing-writer" },
@@ -762,6 +779,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "reader",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "reader" },
@@ -806,6 +824,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -868,6 +887,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -922,6 +942,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -970,6 +991,7 @@ describe("workspace admission", () => {
       controller.signal,
       {
         invocationId: "cancelled",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "local" },
@@ -987,6 +1009,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "replacement",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "local" },
@@ -1047,6 +1070,7 @@ describe("workspace admission", () => {
 
     const writer = executeTaskNode(context, writeTask("writer"), signal, {
       invocationId: "writer",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "writer" },
@@ -1059,6 +1083,7 @@ describe("workspace admission", () => {
       signal,
       {
         invocationId: "independent",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "independent" },
@@ -1109,6 +1134,7 @@ describe("workspace admission", () => {
 
     const first = executeTaskNode(context, writeTask("first"), signal, {
       invocationId: "first",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -1117,6 +1143,7 @@ describe("workspace admission", () => {
 
     const second = executeTaskNode(context, writeTask("second"), signal, {
       invocationId: "second",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "second" },
@@ -1156,6 +1183,7 @@ describe("workspace admission", () => {
         new AbortController().signal,
         {
           invocationId: "writer",
+          observability: {},
           results: context.results,
           remainingConsumers: context.remainingConsumers,
           subject: { type: "task", taskId: "writer" },
@@ -1192,6 +1220,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -1245,6 +1274,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -1258,6 +1288,7 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "reader",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "reader" },

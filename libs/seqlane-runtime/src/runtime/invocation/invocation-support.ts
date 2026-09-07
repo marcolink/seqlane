@@ -5,6 +5,7 @@ import type {
   TaskNode,
   ValueBinding,
 } from "@seqlane/core";
+import type { ObservabilityContext } from "@mastra/core/observability";
 import {
   referencedNodeIds,
   WORKFLOW_INPUT_NODE_ID,
@@ -17,6 +18,7 @@ export type LegacyTaskNode = PlanNode & { readonly executor?: string };
 
 export interface TaskExecutionOptions {
   readonly invocationId: InvocationId;
+  readonly observability: Partial<ObservabilityContext>;
   readonly results: Map<string, unknown>;
   readonly remainingConsumers: Map<string, number>;
   readonly subject: SeqlaneInvocationSubject;
@@ -28,6 +30,7 @@ export interface TaskExecutionOptions {
 
 export interface ValidationExecutionOptions {
   readonly invocationId: InvocationId;
+  readonly observability: Partial<ObservabilityContext>;
   readonly results: Map<string, unknown>;
   readonly remainingConsumers: Map<string, number>;
   /** `graph` means static workspace conflicts are already dependency edges. */

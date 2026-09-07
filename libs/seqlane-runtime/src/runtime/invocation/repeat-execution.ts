@@ -174,6 +174,7 @@ export async function executeRepeatNode(
           if (bodyNode.type === "task") {
             await executeTaskNode(context, bodyNode, abortSignal, {
               invocationId,
+              observability: {},
               results: bodyResults,
               remainingConsumers: bodyRemainingConsumers,
               subject: { type: "task", taskId: bodyNode.taskId },
@@ -182,6 +183,7 @@ export async function executeRepeatNode(
           } else if (bodyNode.type === "validation.check") {
             await executeValidationCheckNode(context, bodyNode, abortSignal, {
               invocationId,
+              observability: {},
               results: bodyResults,
               remainingConsumers: bodyRemainingConsumers,
               iteration,
@@ -200,6 +202,7 @@ export async function executeRepeatNode(
               abortSignal,
               {
                 invocationId,
+                observability: {},
                 results: bodyResults,
                 remainingConsumers: bodyRemainingConsumers,
                 iteration,

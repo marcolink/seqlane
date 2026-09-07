@@ -191,6 +191,9 @@ importers:
 
   libs/seqlane-agent-adapter:
     dependencies:
+      '@mastra/core':
+        specifier: 1.64.0
+        version: 1.64.0(express@5.2.1)(zod@4.5.4)
       '@seqlane/core':
         specifier: workspace:*
         version: link:../seqlane-core

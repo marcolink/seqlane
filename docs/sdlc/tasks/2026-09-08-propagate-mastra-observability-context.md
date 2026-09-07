@@ -1,7 +1,7 @@
 ---
 id: task.propagate-mastra-observability-context
 title: Propagate Per-Invocation Mastra Observability Context
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
@@ -202,7 +202,26 @@ Tests must prove:
 
 ## Outcome
 
-Planned. No implementation is included in this document change.
+Completed on `feature/mastra-agent-observability`, based on `mastra` at
+`d43416f`.
+
+- Added the required private `Partial<ObservabilityContext>` request contract.
+- Preserved Mastra's `tracing`, `tracingContext`, `loggerVNext`, and `metrics`
+  aliases from each workflow-step invocation through runtime execution to the
+  selected concrete adapter.
+- Kept active span state out of shared execution and adapter-factory context.
+- Added focused alias-preservation, invocation-isolation, and adapter-handoff
+  coverage. Updated all private request fixtures to provide an explicit
+  observability value.
+- Added the pinned `@mastra/core` dependency only to the private
+  agent-adapter package that imports its observability declaration.
+
+The focused builds, test mapping, complete test suite, lint, build, Nx sync,
+documentation validation, and diff check pass. Repository-wide typecheck and
+format checks retain pre-existing failures from the unchanged `mastra`
+baseline: PR-review example type errors, plus formatting in
+`apps/seqlane-cli/src/all-features-example.spec.ts` and
+`libs/seqlane-runtime/src/runtime/mastra/operational-host.spec.ts`.
 
 ## Traceability
 

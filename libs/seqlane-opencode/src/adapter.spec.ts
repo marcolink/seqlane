@@ -36,6 +36,7 @@ function request(
     input: { value: "demo" },
     signal: new AbortController().signal,
     ...overrides,
+    observability: overrides.observability ?? {},
   };
 }
 

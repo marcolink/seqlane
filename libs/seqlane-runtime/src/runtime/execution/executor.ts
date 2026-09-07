@@ -5,6 +5,7 @@ import type {
   TaskDefinition,
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
+import type { ObservabilityContext } from "@mastra/core/observability";
 
 type LegacyTaskNode = TaskNode & { readonly executor?: string };
 
@@ -67,6 +68,7 @@ export class UntrackedMutatingBackgroundProcessError extends Error {
 
 export interface ExecutorRequest {
   readonly invocationId: string;
+  readonly observability: Partial<ObservabilityContext>;
   readonly taskId: string;
   readonly executor: string;
   readonly input: unknown;

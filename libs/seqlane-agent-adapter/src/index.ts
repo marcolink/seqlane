@@ -3,6 +3,7 @@ import type {
   ModelSelection,
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
+import type { ObservabilityContext } from "@mastra/core/observability";
 
 export type AgentActivityState =
   "started" | "progress" | "succeeded" | "failed";
@@ -53,6 +54,7 @@ export interface AgentAdapterCapabilities {
 
 export interface AgentAdapterRequest {
   readonly invocationId: string;
+  readonly observability: Partial<ObservabilityContext>;
   readonly task: AgentTaskDefinition;
   readonly input: unknown;
   readonly modelSelection?: ModelSelection;

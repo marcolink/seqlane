@@ -216,7 +216,13 @@ export function createMastraPlanInvocationHandler(
   plan: Plan,
 ): MastraPlanInvocation {
   const checks = checkNodes(plan);
-  return async ({ node, getStepResult, abortSignal, invocationId }) => {
+  return async ({
+    node,
+    getStepResult,
+    abortSignal,
+    invocationId,
+    observability,
+  }) => {
     const results = dependencyResults(node, getStepResult);
     const context = {
       ...prepared.context,
@@ -227,6 +233,7 @@ export function createMastraPlanInvocationHandler(
     if (node.type === "task") {
       return executeTaskNode(context, node, abortSignal, {
         invocationId,
+        observability,
         results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: node.taskId },
@@ -235,6 +242,7 @@ export function createMastraPlanInvocationHandler(
     if (node.type === "validation.check") {
       return executeValidationCheckNode(context, node, abortSignal, {
         invocationId,
+        observability,
         results,
         remainingConsumers: context.remainingConsumers,
       });
@@ -246,6 +254,7 @@ export function createMastraPlanInvocationHandler(
       }
       return executeValidationGateNode(context, node, check, abortSignal, {
         invocationId,
+        observability,
         results,
         remainingConsumers: context.remainingConsumers,
       });

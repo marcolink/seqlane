@@ -96,6 +96,7 @@ function request(overrides: Partial<AgentAdapterRequest> = {}) {
     input: "the input",
     signal: new AbortController().signal,
     ...overrides,
+    observability: overrides.observability ?? {},
   };
 }
 
