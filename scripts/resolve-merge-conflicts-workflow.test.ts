@@ -17,16 +17,10 @@ import {
   prepareAgentWorkspace,
   prepareLockfileWorkspace,
   validateStagedConflictMarkers,
-} from "./resolve-merge-conflicts-workflow.ts";
+} from "@seqlane/action-merge-conflict-resolution";
 
 function createFixture(): string {
   return mkdtempSync(join(tmpdir(), "seqlane-conflict-workflow-"));
-}
-
-function writePaths(root: string, name: string, paths: string[]): string {
-  const path = join(root, name);
-  writeFileSync(path, `${paths.join("\0")}\0`);
-  return path;
 }
 
 function initializeGit(root: string): void {
@@ -85,9 +79,7 @@ test("prepares only bounded regular agent files", async () => {
     mkdirSync(source);
     mkdirSync(agent);
     writeFileSync(join(source, "conflict.ts"), "resolved\n");
-    const paths = writePaths(root, "paths", ["conflict.ts"]);
-
-    await prepareAgentWorkspace(source, agent, paths);
+    await prepareAgentWorkspace(source, agent, ["conflict.ts"]);
 
     assert.equal(
       readFileSync(join(agent, "conflict.ts"), "utf8"),
@@ -105,11 +97,13 @@ test("rejects conflict markers in staged files", async () => {
     initializeGit(root);
     writeFileSync(join(root, "conflict.txt"), "<<<<<<< HEAD\nvalue\n");
     execFileSync("git", ["add", "conflict.txt"], { cwd: root });
-    const paths = writePaths(root, "paths", ["conflict.txt"]);
-
     await assert.rejects(
-      () => validateStagedConflictMarkers(root, paths),
-      /Conflict marker remains in conflict\.txt\./,
+      () => validateStagedConflictMarkers(root, ["conflict.txt"]),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "CONFLICT_MARKER_REMAINS",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

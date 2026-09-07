@@ -110,7 +110,6 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).not.toContain("Apply selected integration strategy");
     expect(workflow).not.toContain("Install OpenCode");
     expect(workflow).not.toContain("docker run");
-    expect(workflow).not.toContain("resolve-merge-conflicts-workflow.ts");
     expect(workflow).not.toContain("git push --force");
   });
 

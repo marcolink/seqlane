@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-07
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -92,8 +92,8 @@ removed shell with a new large shell block.
 - `.github/workflows/test-actions.yml`
 - `examples/README.md`
 - `apps/seqlane-cli/src/resolve-merge-conflicts-example.spec.ts`
-- `scripts/resolve-merge-conflicts-workflow.ts`
 - `scripts/resolve-merge-conflicts-workflow.test.ts`
+- `libs/action-merge-conflict-resolution/src/workspace-boundary.ts`
 - generated Action bundle and workflow tests
 
 ## Verification
@@ -147,8 +147,9 @@ push loops. The Action test workflow invokes the local Action with commit and
 push disabled, and operator documentation describes the Action contract and
 trust model.
 
-The former helper remains only as a compatibility test utility for historical
-boundary coverage; it has no production workflow reference.
+The former helper script was removed after its focused tests moved to the
+private Action library. The production workflow has no reference to the old
+helper.
 
 Verification passed for the updated workflow contract test, `pnpm run
 test:mapping`, `pnpm docs:validate`, `pnpm format:check`, and

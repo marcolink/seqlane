@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-07
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -40,7 +40,8 @@ including real Git integration tests and argument-array execution.
 - Parse the unmerged index with a NUL-safe Git command.
 - Add precondition checks for existing merge, rebase, and unrelated worktree
   state.
-- Move bounded path checks from `scripts/resolve-merge-conflicts-workflow.ts`.
+- Move bounded path checks from the former workflow helper into the private
+  Action library.
 - Reject path traversal and symlinks in every path component.
 - Accept only regular files for the agent workspace.
 - Enforce 512 KiB per-file and 2 MiB total agent bounds.
@@ -90,7 +91,6 @@ Do not use shell command strings. Do not use `git reset --hard`, `git clean
 - `libs/action-merge-conflict-resolution/src/marker-validation.ts`
 - `libs/action-merge-conflict-resolution/src/index.ts`
 - colocated unit and Git integration tests
-- `scripts/resolve-merge-conflicts-workflow.ts`
 - `scripts/resolve-merge-conflicts-workflow.test.ts`
 
 ## Verification
@@ -126,19 +126,20 @@ state. Do not assert only human-readable Git output.
 
 Completed. Moved Git integration, unmerged-index parsing, workspace path and
 payload guards, lockfile input preparation, target validation, and staged
-whitespace/marker checks into the private Action library. The existing helper
-remains a thin compatibility wrapper, and real temporary-repository tests
+whitespace/marker checks into the private Action library. The old helper was
+removed after its focused tests moved to the private library, and real
+temporary-repository tests
 cover clean and conflicted merge/rebase states, modify/delete and binary
 conflicts, staging, unrelated changes, and workspace safety boundaries.
 
 Verification passed for `pnpm run test:mapping`, the package typecheck and
 build, the package suite (28 tests), `pnpm run test:workflow-helper`,
-`pnpm docs:validate`, `pnpm format:check`, and `git diff --check`. The helper
-now builds the private library before its strip-only Node test and imports it
-through the declared workspace package export.
+`pnpm docs:validate`, `pnpm format:check`, and `git diff --check`. The focused
+test now builds the private library before its strip-only Node test and imports
+the implementation through the declared workspace package export.
 
 ## Traceability
 
 - Contract: [spec.seqlane-action-merge-conflict-resolution](../specs/2026-09-06-seqlane-action-merge-conflict-resolution.md)
 - Decision: [adr.seqlane-action-library-boundary](../adrs/2026-09-06-seqlane-action-library-boundary.md)
-- Prior helper: [`scripts/resolve-merge-conflicts-workflow.ts`](../../../scripts/resolve-merge-conflicts-workflow.ts)
+- Implementation: [`libs/action-merge-conflict-resolution/src/workspace-boundary.ts`](../../../libs/action-merge-conflict-resolution/src/workspace-boundary.ts)
