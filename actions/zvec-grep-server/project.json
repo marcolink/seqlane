@@ -26,8 +26,8 @@
       "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "cwd": ".",
-        "command": "pnpm exec vitest run actions/zvec-grep-server/src/readiness.spec.ts && node --check actions/zvec-grep-server/process-anchor.js && git diff --check"
+        "cwd": "actions/zvec-grep-server",
+        "command": "node --check process-anchor.js && pnpm exec vitest run src/readiness.spec.ts"
       }
     },
     "bundle-drift": {

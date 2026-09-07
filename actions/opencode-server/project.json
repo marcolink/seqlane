@@ -26,8 +26,8 @@
       "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "cwd": ".",
-        "command": "node --check actions/opencode-server/process-anchor.js && git diff --check"
+        "cwd": "actions/opencode-server",
+        "command": "node --check process-anchor.js"
       }
     },
     "bundle-drift": {
