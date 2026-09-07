@@ -95,6 +95,9 @@ importers:
       '@seqlane/action-merge-conflict-resolution':
         specifier: workspace:*
         version: link:libs/action-merge-conflict-resolution
+      '@seqlane/action-service-lifecycle':
+        specifier: workspace:*
+        version: link:libs/action-service-lifecycle
       '@seqlane/core':
         specifier: workspace:*
         version: link:libs/seqlane-core
@@ -150,6 +153,15 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
 
+  actions/opencode-server:
+    dependencies:
+      '@actions/core':
+        specifier: 3.0.1
+        version: 3.0.1
+      '@seqlane/action-service-lifecycle':
+        specifier: workspace:*
+        version: link:../../libs/action-service-lifecycle
+
   actions/resolve-merge-conflicts:
     dependencies:
       '@actions/core':
@@ -164,6 +176,15 @@ importers:
       '@seqlane/runtime':
         specifier: workspace:*
         version: link:../../libs/seqlane-runtime
+
+  actions/zvec-grep-server:
+    dependencies:
+      '@actions/core':
+        specifier: 3.0.1
+        version: 3.0.1
+      '@seqlane/action-service-lifecycle':
+        specifier: workspace:*
+        version: link:../../libs/action-service-lifecycle
 
   apps/seqlane-cli:
     dependencies:
@@ -253,6 +274,8 @@ importers:
       zod:
         specifier: 4.5.4
         version: 4.5.4
+
+  libs/action-service-lifecycle: {}
 
   libs/seqlane-core:
     dependencies:

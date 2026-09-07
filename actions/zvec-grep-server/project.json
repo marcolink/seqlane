@@ -1,0 +1,42 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "action-zvec-grep-server",
+  "projectType": "application",
+  "sourceRoot": "actions/zvec-grep-server/src",
+  "implicitDependencies": ["action-service-lifecycle"],
+  "targets": {
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "actions/zvec-grep-server",
+        "command": "tsc --noEmit --project tsconfig.json"
+      },
+      "dependsOn": ["^build"]
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "actions/zvec-grep-server",
+        "command": "pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/main.js --minify && pnpm exec esbuild src/post.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/post.js --minify"
+      },
+      "outputs": ["{projectRoot}/dist"],
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": ".",
+        "command": "pnpm exec vitest run actions/zvec-grep-server/src/readiness.spec.ts && node --check actions/zvec-grep-server/process-anchor.js && git diff --check"
+      }
+    },
+    "bundle-drift": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": ".",
+        "command": "git diff --exit-code -- actions/zvec-grep-server/dist/"
+      }
+    }
+  }
+}
