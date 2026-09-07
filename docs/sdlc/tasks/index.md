@@ -173,7 +173,7 @@
 | [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |
 | [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | completed | 2026-09-03 | core |
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
-| [task.agent-adapter-integration-cleanup](./2026-09-04-agent-adapter-integration-cleanup.md) | Add Adapter Integration Coverage and Complete Migration | planned | 2026-09-04 | core |
+| [task.agent-adapter-integration-cleanup](./2026-09-04-agent-adapter-integration-cleanup.md) | Add Adapter Integration Coverage and Complete Migration | completed | 2026-09-04 | core |
 | [task.bounded-pr-code-review-evidence](./2026-09-04-bounded-pr-code-review-evidence.md) | Add Bounded Patch Evidence to Pull Request Reviews | completed | 2026-09-04 | core |
 | [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | completed | 2026-09-04 | core |
 | [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | completed | 2026-09-04 | core |

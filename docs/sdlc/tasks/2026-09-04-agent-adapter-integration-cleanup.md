@@ -1,11 +1,11 @@
 ---
 id: task.agent-adapter-integration-cleanup
 title: Add Adapter Integration Coverage and Complete Migration
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
@@ -87,7 +87,13 @@ all nearby documentation with the active specification.
 
 ## Outcome
 
-Planned.
+Completed. Added controlled ACP-process and OpenCode-SDK integration coverage
+for configured launch, workspace, model, structured output, activity,
+cancellation, unresolved interaction, session reuse, and native checkpoint
+fork behavior. The adapter boundary remains private and executor-neutral, and
+the final affected package, runtime, mapping, format, and SDLC checks pass.
+
+The task branch is prepared for pull request delivery.
 
 ## Traceability
 
