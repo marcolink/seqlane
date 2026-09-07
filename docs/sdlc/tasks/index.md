@@ -186,3 +186,6 @@
 | [task.harden-zvec-grep-review-execution](./2026-09-07-harden-zvec-grep-review-execution.md) | Harden zvec-grep Review Execution | completed | 2026-09-07 | core |
 | [task.migrate-service-actions-to-workspace-structure](./2026-09-07-migrate-service-actions-to-workspace-structure.md) | Migrate Service Actions to the Workspace Structure | completed | 2026-09-07 | core |
 | [task.seqlane-action-resolution-summaries](./2026-09-07-seqlane-action-resolution-summaries.md) | Publish Human-Readable Merge Resolution Summaries | completed | 2026-09-07 | core |
+| [task.add-opencode-tool-setup-action](./2026-09-08-add-opencode-tool-setup-action.md) | Add the OpenCode Tool Setup Action | planned | 2026-09-08 | core |
+| [task.adopt-opencode-tool-setup-in-review-workflow](./2026-09-08-adopt-opencode-tool-setup-in-review-workflow.md) | Adopt OpenCode Tool Setup in the Review Workflow | planned | 2026-09-08 | core |
+| [task.require-explicit-opencode-server-executable](./2026-09-08-require-explicit-opencode-server-executable.md) | Require an Explicit OpenCode Server Executable | planned | 2026-09-08 | core |
