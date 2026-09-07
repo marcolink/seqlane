@@ -158,12 +158,13 @@ Seqlane execution, OpenCode lifecycle, and bounded recording adapters. The
 library keeps Action Toolkit and GitHub event concerns outside its boundary.
 Lockfile regeneration uses fresh temporary workspaces, direct Docker argument
 arrays, the pinned Node image, exact trusted pnpm versions, and typed failures.
-The OpenCode adapter verifies the pinned archive before extraction, binds only
-to loopback, applies the existing deny-by-default policy, waits for health,
-and performs idempotent cleanup. Seqlane execution uses declared private
-package exports and records bounded redacted events.
+The OpenCode adapter verifies the pinned archive before extraction, bounds and
+times out the archive download, binds only to loopback, applies the existing
+deny-by-default policy, waits for health, and performs idempotent cleanup.
+Seqlane execution uses declared private package exports and records bounded
+redacted events.
 
-Verification passed for the package typecheck and build, 46 focused tests,
+Verification passed for the package typecheck and build, 62 focused tests,
 `pnpm run test:mapping`, `pnpm format:check`, and `git diff --check`. The
 dependency review found current non-vulnerable targets for `@actions/core` and
 `@actions/github`; those Action-only dependencies remain for the entrypoint

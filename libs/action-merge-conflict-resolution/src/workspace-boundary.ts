@@ -28,7 +28,11 @@ import {
 } from "./contracts.js";
 import { ActionResolutionError } from "./errors.js";
 import { NodeGitCli } from "./git-cli.js";
-import { type GitCommandPort, type GitCommandResult } from "./git-port.js";
+import {
+  type GitCommandPort,
+  type GitCommandResult,
+  type GitWorkspacePort,
+} from "./git-port.js";
 
 export const maximumAgentFileBytes = MAX_AGENT_FILE_BYTES;
 export const maximumAgentTotalBytes = MAX_AGENT_TOTAL_BYTES;
@@ -554,13 +558,9 @@ async function requiredGitCommand(
   return result.stdout;
 }
 
-export async function validateResolutionWorkspace(
-  targetRoot: string,
-  allowedPaths: readonly string[],
-  git: GitCommandPort = new NodeGitCli(targetRoot),
-): Promise<void> {
-  await assertSafeRoot(targetRoot, "Resolution target");
-  const allowed = new Set(asPaths(allowedPaths));
+async function readWorkspaceChangePaths(
+  git: GitCommandPort,
+): Promise<readonly ConflictPath[]> {
   const trackedChanges = [
     readNullDelimitedPaths(
       await requiredGitCommand(git, ["diff", "--name-only", "-z"]),
@@ -586,9 +586,18 @@ export async function validateResolutionWorkspace(
       "-z",
     ]),
   );
-  const unexpected = [...trackedChanges, ...untracked, ...ignored].filter(
-    (path) => !allowed.has(path as ConflictPath),
-  );
+  return asPaths([...trackedChanges, ...untracked, ...ignored]);
+}
+
+export async function validateResolutionWorkspace(
+  targetRoot: string,
+  allowedPaths: readonly string[],
+  git: GitCommandPort = new NodeGitCli(targetRoot),
+): Promise<void> {
+  await assertSafeRoot(targetRoot, "Resolution target");
+  const allowed = new Set(asPaths(allowedPaths));
+  const changedPaths = await readWorkspaceChangePaths(git);
+  const unexpected = changedPaths.filter((path) => !allowed.has(path));
   if (unexpected.length > 0) {
     throw workspaceError(
       "UNEXPECTED_TARGET_CHANGE",
@@ -633,20 +642,24 @@ export interface NodeWorkspaceBoundaryOptions {
   readonly agentRoot: string;
   readonly baseRevision: GitRevision;
   readonly headRevision: GitRevision;
+  readonly git?: GitWorkspacePort;
   readonly runId?: string;
 }
 
 export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
   private readonly runId: string;
   private readonly options: NodeWorkspaceBoundaryOptions;
+  private readonly git: GitWorkspacePort;
   private originalConflicts: ConflictSet = [];
   private originalAgentPaths: readonly ConflictPath[] = [];
+  private integrationBaselinePaths: readonly ConflictPath[] = [];
 
   constructor(options: NodeWorkspaceBoundaryOptions) {
     this.options = options;
     const sourceRoot = resolve(options.sourceRoot);
     const targetRoot = resolve(options.targetRoot);
     const agentRoot = resolve(options.agentRoot);
+    this.git = options.git ?? new NodeGitCli(targetRoot);
     assertSeparateWorkspaceRootPaths(sourceRoot, targetRoot);
     const targetRelativeToAgent = relative(targetRoot, agentRoot);
     const agentRelativeToTarget = relative(agentRoot, targetRoot);
@@ -668,6 +681,27 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
     this.runId = options.runId ?? randomUUID();
   }
 
+  async captureIntegrationBaseline(): Promise<void> {
+    this.integrationBaselinePaths = await readWorkspaceChangePaths(this.git);
+  }
+
+  private rememberConflicts(conflicts: ConflictSet): void {
+    this.originalConflicts = [
+      ...new Map(
+        [...this.originalConflicts, ...conflicts].map((conflict) => [
+          conflict.path,
+          conflict,
+        ]),
+      ).values(),
+    ];
+    this.originalAgentPaths = [
+      ...new Set([
+        ...this.originalAgentPaths,
+        ...asPaths(conflicts.filter(({ path }) => path !== lockfilePath)),
+      ]),
+    ];
+  }
+
   async prepareAgentWorkspace(
     conflicts: ConflictSet,
   ): Promise<AgentResolutionRequest> {
@@ -679,20 +713,7 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
         parsed.error,
       );
     }
-    this.originalConflicts = [
-      ...new Map(
-        [...this.originalConflicts, ...parsed.data].map((conflict) => [
-          conflict.path,
-          conflict,
-        ]),
-      ).values(),
-    ];
-    this.originalAgentPaths = [
-      ...new Set([
-        ...this.originalAgentPaths,
-        ...asPaths(parsed.data.filter(({ path }) => path !== lockfilePath)),
-      ]),
-    ];
+    this.rememberConflicts(parsed.data);
     return prepareAgentResolutionWorkspace(
       this.options.targetRoot,
       this.options.agentRoot,
@@ -729,9 +750,11 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
         parsed.error,
       );
     }
-    const allowed = asPaths(
-      this.originalConflicts.length > 0 ? this.originalConflicts : parsed.data,
-    );
+    this.rememberConflicts(parsed.data);
+    const allowed = [
+      ...asPaths(this.originalConflicts),
+      ...this.integrationBaselinePaths,
+    ];
     await validateResolutionWorkspace(this.options.targetRoot, allowed);
   }
 }

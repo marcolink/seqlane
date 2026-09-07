@@ -61,8 +61,8 @@ export type ConflictPath = z.infer<typeof conflictPathSchema>;
 export const actionInputsSchema = z.strictObject({
   pullRequestNumber: positiveIntegerStringSchema,
   resolutionStrategy: resolutionStrategySchema.default("rebase"),
-  sourceDirectory: relativeDirectorySchema.default("."),
-  targetDirectory: relativeDirectorySchema.default("resolution-target"),
+  sourceDirectory: relativeDirectorySchema,
+  targetDirectory: relativeDirectorySchema,
   commit: booleanInputSchema.default("false"),
   push: booleanInputSchema.default("false"),
   maxAttempts: positiveIntegerStringSchema.default(
@@ -238,6 +238,7 @@ export interface GitPort {
 }
 
 export interface WorkspaceFilesPort {
+  readonly captureIntegrationBaseline?: () => Promise<void>;
   readonly prepareAgentWorkspace: (
     conflicts: ConflictSet,
   ) => Promise<AgentResolutionRequest>;

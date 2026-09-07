@@ -155,6 +155,7 @@ export async function resolveMergeConflicts(
     let resolved = cleanHistoryChanged;
 
     if (integration.kind === "conflicted") {
+      await ports.files.captureIntegrationBaseline?.();
       let conflicts = await ports.git.readConflictSet();
       if (conflicts.length === 0) {
         throw new ActionResolutionError(

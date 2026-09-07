@@ -10,12 +10,10 @@ inputs:
     default: rebase
   source-directory:
     description: Trusted Seqlane source directory.
-    required: false
-    default: .
+    required: true
   target-directory:
     description: Pull request checkout directory.
-    required: false
-    default: resolution-target
+    required: true
   commit:
     description: Permit a merge commit.
     required: false

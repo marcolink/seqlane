@@ -53,8 +53,8 @@ export async function run(): Promise<void> {
   const request = parseActionInputs({
     pullRequestNumber: core.getInput("pull-request-number", { required: true }),
     resolutionStrategy: core.getInput("resolution-strategy"),
-    sourceDirectory: core.getInput("source-directory"),
-    targetDirectory: core.getInput("target-directory"),
+    sourceDirectory: core.getInput("source-directory", { required: true }),
+    targetDirectory: core.getInput("target-directory", { required: true }),
     commit: core.getInput("commit"),
     push: core.getInput("push"),
     maxAttempts: core.getInput("max-attempts"),
@@ -109,10 +109,13 @@ export async function run(): Promise<void> {
       agentRoot,
       baseRevision: metadata.baseRevision,
       headRevision: metadata.headRevision,
+      git,
     });
     return boundary;
   };
   const files: WorkspaceFilesPort = {
+    captureIntegrationBaseline: async () =>
+      getBoundary().captureIntegrationBaseline(),
     prepareAgentWorkspace: async (conflicts) => {
       return getBoundary().prepareAgentWorkspace(conflicts);
     },

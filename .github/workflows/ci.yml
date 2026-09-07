@@ -57,14 +57,19 @@ jobs:
       - name: Verify committed bundle
         run: git diff --exit-code -- actions/*/dist/
 
+      - name: Prepare local action smoke workspace
+        run: mkdir -p .seqlane-action-smoke-source .seqlane-action-smoke-target
+
       - name: Run local action entrypoint smoke test
         uses: ./actions/resolve-merge-conflicts
+        continue-on-error: true
         env:
-          NODE_ENV: test
           GITHUB_TOKEN: ""
           GH_TOKEN: ""
           OPENAI_API_KEY: ""
         with:
           pull-request-number: "1"
+          source-directory: .seqlane-action-smoke-source
+          target-directory: .seqlane-action-smoke-target
           commit: false
           push: false

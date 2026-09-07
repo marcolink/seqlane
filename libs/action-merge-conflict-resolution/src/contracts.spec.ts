@@ -17,18 +17,25 @@ const baseRevision = "a".repeat(40);
 const headRevision = "b".repeat(40);
 
 describe("action merge-conflict contracts", () => {
-  it("accepts action inputs and applies safe defaults", () => {
-    expect(actionInputsSchema.parse({ pullRequestNumber: "42" })).toMatchObject(
-      {
+  it("requires separate source and target directories", () => {
+    expect(() =>
+      actionInputsSchema.parse({ pullRequestNumber: "42" }),
+    ).toThrow();
+    expect(
+      actionInputsSchema.parse({
         pullRequestNumber: "42",
-        resolutionStrategy: "rebase",
-        sourceDirectory: ".",
+        sourceDirectory: "seqlane-source",
         targetDirectory: "resolution-target",
-        commit: "false",
-        push: "false",
-        maxAttempts: "10",
-      },
-    );
+      }),
+    ).toMatchObject({
+      pullRequestNumber: "42",
+      resolutionStrategy: "rebase",
+      sourceDirectory: "seqlane-source",
+      targetDirectory: "resolution-target",
+      commit: "false",
+      push: "false",
+      maxAttempts: "10",
+    });
   });
 
   it("rejects malformed strategies, revisions, paths, and input values", () => {

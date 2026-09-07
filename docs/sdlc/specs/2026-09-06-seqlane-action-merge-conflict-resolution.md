@@ -184,8 +184,8 @@ The Action must accept these inputs:
 | --- | --- | --- | --- |
 | `pull-request-number` | positive integer string | none | Pull request to update |
 | `resolution-strategy` | `rebase` or `merge` | `rebase` | Integration method |
-| `source-directory` | relative path | `.` | Trusted Seqlane source |
-| `target-directory` | relative path | `resolution-target` | Pull-request checkout |
+| `source-directory` | relative path | none | Trusted Seqlane source; required and separate from the target |
+| `target-directory` | relative path | none | Pull-request checkout; required and separate from the source |
 | `commit` | boolean string | `false` | Permit a merge commit |
 | `push` | boolean string | `false` | Permit a remote write |
 | `max-attempts` | positive integer string | `10` | Rebase resolution limit |

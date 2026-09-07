@@ -16,6 +16,8 @@ export const OPENCODE_VERSION = "1.18.27";
 export const OPENCODE_ARCHIVE_SHA256 =
   "4af5494f9433f59db8c1e344198f0ee72a50c06ec009fb4a8aeab4c2d4abd702";
 export const OPENCODE_ARCHIVE_URL = `https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz`;
+export const OPENCODE_ARCHIVE_MAX_BYTES = 64 * 1024 * 1024;
+export const OPENCODE_DOWNLOAD_TIMEOUT_MS = 60_000;
 export const OPENCODE_HOST = "127.0.0.1";
 export const OPENCODE_PORT = 4096;
 export const OPENCODE_CONFIG =
@@ -71,11 +73,55 @@ function runtimeError(message: string, cause?: unknown): ActionResolutionError {
   return new ActionResolutionError("agent", "AGENT_FAILED", message, cause);
 }
 
-async function downloadArchive(url: string): Promise<Uint8Array> {
-  const response = await fetch(url);
+export async function downloadOpenCodeArchive(
+  url: string,
+): Promise<Uint8Array> {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(OPENCODE_DOWNLOAD_TIMEOUT_MS),
+  });
   if (!response.ok)
     throw new Error(`Archive download failed: ${response.status}`);
-  return new Uint8Array(await response.arrayBuffer());
+  const contentLength = response.headers.get("content-length");
+  if (
+    contentLength !== null &&
+    Number.isSafeInteger(Number(contentLength)) &&
+    Number(contentLength) > OPENCODE_ARCHIVE_MAX_BYTES
+  ) {
+    throw new Error("The OpenCode archive exceeds the maximum download size.");
+  }
+  if (response.body === null) {
+    throw new Error("The OpenCode archive response has no body.");
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      totalBytes += chunk.value.byteLength;
+      if (totalBytes > OPENCODE_ARCHIVE_MAX_BYTES) {
+        throw new Error(
+          "The OpenCode archive exceeds the maximum download size.",
+        );
+      }
+      chunks.push(chunk.value);
+    }
+  } catch (error: unknown) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  const archive = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    archive.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return archive;
 }
 
 export function verifyOpenCodeArchive(archive: Uint8Array): void {
@@ -144,7 +190,7 @@ export class NodeOpenCodeRuntime {
     const directory = await mkdtemp(join(parent, ".seqlane-opencode-"));
     let child: ChildProcess | undefined;
     try {
-      const archive = await (this.options.download ?? downloadArchive)(
+      const archive = await (this.options.download ?? downloadOpenCodeArchive)(
         this.options.archiveUrl ?? OPENCODE_ARCHIVE_URL,
       );
       verifyOpenCodeArchive(archive);

@@ -49,6 +49,7 @@ function ports(
   const summary: unknown[] = [];
   const agent: unknown[] = [];
   const lockfiles: unknown[] = [];
+  const baselines: unknown[] = [];
   const commits: unknown[] = [];
   const pushes: unknown[] = [];
   let reads = 0;
@@ -102,6 +103,9 @@ function ports(
     },
     git,
     files: {
+      captureIntegrationBaseline: async () => {
+        baselines.push(true);
+      },
       prepareAgentWorkspace: async (value) => ({
         paths: value.map(({ path }) => path),
         baseRevision: revision("c"),
@@ -136,7 +140,7 @@ function ports(
       },
     },
   };
-  return { value, summary, agent, lockfiles, commits, pushes };
+  return { value, summary, agent, lockfiles, baselines, commits, pushes };
 }
 
 describe("resolveMergeConflicts", () => {
@@ -185,6 +189,7 @@ describe("resolveMergeConflicts", () => {
     });
     expect(fake.agent).toEqual([]);
     expect(fake.lockfiles).toEqual([true]);
+    expect(fake.baselines).toEqual([true]);
   });
 
   it("returns a typed attempt-limit failure", async () => {

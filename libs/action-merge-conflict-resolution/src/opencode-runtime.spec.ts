@@ -3,12 +3,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  OPENCODE_ARCHIVE_MAX_BYTES,
+  OPENCODE_DOWNLOAD_TIMEOUT_MS,
   OPENCODE_ARCHIVE_SHA256,
   OPENCODE_CONFIG,
   OPENCODE_HOST,
   OPENCODE_PORT,
   OPENCODE_VERSION,
   buildOpenCodeChildEnvironment,
+  downloadOpenCodeArchive,
   verifyOpenCodeArchive,
 } from "./opencode-runtime.js";
 
@@ -47,5 +50,27 @@ describe("resolver OpenCode runtime", () => {
     });
     expect(environment).not.toHaveProperty("GITHUB_TOKEN");
     expect(environment).not.toHaveProperty("GH_TOKEN");
+  });
+
+  it("bounds archive response size and applies a download timeout", async () => {
+    const originalFetch = globalThis.fetch;
+    let signal: AbortSignal | undefined;
+    globalThis.fetch = (async (_input, init) => {
+      signal = init?.signal;
+      return new Response("small", {
+        headers: {
+          "content-length": String(OPENCODE_ARCHIVE_MAX_BYTES + 1),
+        },
+      });
+    }) as typeof fetch;
+    try {
+      await expect(
+        downloadOpenCodeArchive("https://example.test/archive"),
+      ).rejects.toThrow(/maximum download size/i);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(OPENCODE_DOWNLOAD_TIMEOUT_MS).toBeGreaterThan(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

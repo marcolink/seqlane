@@ -253,6 +253,69 @@ describe("workspace boundary", () => {
     }
   });
 
+  it("allows integration changes captured before resolver edits", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      const agent = join(root, "agent");
+      mkdirSync(source);
+      mkdirSync(agent);
+      mkdirSync(target);
+      initRepository(target);
+      writeFileSync(join(target, "other.ts"), "integrated\n");
+      git(target, ["add", "--", "other.ts"]);
+
+      const workspace = new NodeWorkspaceBoundary({
+        sourceRoot: source,
+        targetRoot: target,
+        agentRoot: agent,
+        baseRevision: "a".repeat(40),
+        headRevision: "b".repeat(40),
+      });
+      await workspace.captureIntegrationBaseline();
+      await expect(
+        workspace.validateTarget([{ path: "allowed.ts", stage: 1 }]),
+      ).resolves.toBeUndefined();
+
+      writeFileSync(join(target, "unauthorized.ts"), "unexpected\n");
+      await expect(
+        workspace.validateTarget([{ path: "allowed.ts", stage: 1 }]),
+      ).rejects.toMatchObject({ code: "UNEXPECTED_TARGET_CHANGE" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("adds a later lockfile-only conflict to the cumulative allowlist", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      const agent = join(root, "agent");
+      mkdirSync(source);
+      mkdirSync(agent);
+      mkdirSync(target);
+      initRepository(target);
+      writeFileSync(join(source, "allowed.ts"), "resolved\n");
+
+      const workspace = new NodeWorkspaceBoundary({
+        sourceRoot: source,
+        targetRoot: target,
+        agentRoot: agent,
+        baseRevision: "a".repeat(40),
+        headRevision: "b".repeat(40),
+      });
+      await workspace.prepareAgentWorkspace([{ path: "allowed.ts", stage: 1 }]);
+      writeFileSync(join(target, "pnpm-lock.yaml"), "lockfile\n");
+      await expect(
+        workspace.validateTarget([{ path: "pnpm-lock.yaml", stage: 1 }]),
+      ).resolves.toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("creates owned temporary workspaces outside a repository", async () => {
     const root = fixtureRoot();
     try {
