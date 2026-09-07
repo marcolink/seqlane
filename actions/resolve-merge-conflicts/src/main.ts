@@ -2,6 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import "./require-shim.js";
+
 import * as core from "@actions/core";
 import * as github from "@actions/github";
 import {
