@@ -50,7 +50,8 @@ install, resolve, or index zvec-grep separately.
 
 ### requirement-action-lifecycle
 
-The Action performs these foreground steps in order:
+The Action validates and canonicalizes `listen` before any command or process
+spawn. It then performs these foreground steps in order:
 
 1. resolve `@zvec/zvec-grep` at the supplied version through the selected
    package manager's supported `dlx <package-spec> version` invocation;
@@ -64,9 +65,19 @@ mandatory.
 
 ### requirement-indexed-project
 
-`working-directory` is the project passed to the zvec-grep index command and
-the current working directory for server and readiness commands. The Action
-must not index a different implicit path.
+`working-directory` is the project passed explicitly to the zvec-grep index
+command. It is not used as the package-manager process working directory. The
+resolve, index, server, and readiness commands run from the trusted shipped
+Action directory derived from the bundled module's separate process-anchor
+path, so package-manager configuration is not read from the reviewed project.
+The Action must not index a different implicit path.
+
+### requirement-listen
+
+`listen` must contain a hostname and an explicit non-default HTTP port. The
+Action parses it once before resolve, index, server, or readiness execution,
+then uses the canonical host-and-port form for the server command and its MCP
+URL output. Bracketed IPv6 addresses are supported.
 
 ### requirement-file-policy
 
@@ -114,9 +125,11 @@ reviewed project and continues to consume the existing `mcp-url` and
 The Action constructs argument arrays, not shell command strings. The resolve
 command is a foreground `pnpm dlx <package-spec> version`, followed by
 `pnpm dlx <package-spec> index <project> ...` (or equivalent selected
-package-manager invocations). The server command remains `dlx <package-spec>
-server run --listen <listen>`, and readiness remains `dlx <package-spec>
-server status --check-ready --home <home>`.
+package-manager invocations). All four commands run with the trusted shipped
+Action directory as `cwd`; the reviewed project is passed only as the explicit
+index argument. The server command remains `dlx <package-spec> server run
+--listen <canonical-listen>`, and readiness remains `dlx <package-spec> server
+status --check-ready --home <home>`.
 
 The index command always passes `--mode direct`, `--hidden`, and the built-in
 allowlist/exclusion sequence. It passes `embedding`, `max-filesize`, and each
@@ -125,11 +138,14 @@ allowlist/exclusion sequence. It passes `embedding`, `max-filesize`, and each
 No new consuming-workflow package installation is required; the committed
 Action bundle contains its Action runtime dependencies, while zvec-grep is
 resolved by the package manager at the requested version at execution time.
+The committed main and post bundles are loadable ESM modules and use a
+CommonJS bridge for dependencies that require `require` at runtime.
 
 ## Failure and edge cases
 
 - Invalid working directories, invalid boolean `model-cache`, and invalid
-  timeout/listen inputs fail before service startup.
+  timeout/listen inputs fail before service startup. Invalid listen input fails
+  before package resolution or indexing.
 - The resolve or index command failure fails the Action and leaves no
   spawned service to clean up.
 - A service spawn, readiness, or state-save failure retains existing cleanup
@@ -155,6 +171,10 @@ project directory receive indexing as part of Action startup.
 
 - The Action resolves the supplied package version, indexes its working
   directory, then starts and readiness-checks the server in that order.
+- Package-manager commands run from the trusted shipped Action directory and
+  receive the reviewed project only as the index argument.
+- Listen validation happens before resolve/index/spawn and the canonical listen
+  form is used for server arguments and the MCP URL output.
 - Index failure prevents server spawn.
 - The exact allowlist and exclusions above are preserved.
 - Index option defaults and overrides are passed as argument arrays, additive

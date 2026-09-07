@@ -509,7 +509,7 @@ jobs:
       - name: Start zvec-grep
         if: steps.pull-request.outputs.eligible == 'true'
         id: zvec-grep
-        timeout-minutes: 2
+        timeout-minutes: 10
         uses: ./seqlane-source/actions/zvec-grep-server
         with:
           working-directory: ${{ github.workspace }}/review-target

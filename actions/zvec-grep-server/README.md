@@ -5,8 +5,14 @@ configured project with the supported source-file policy, starts the MCP
 server, waits for readiness, and stops the process group in the action post
 handler.
 
-`working-directory` is both the project indexed and the project served. The
-Action caller does not need a separate install or index step.
+`working-directory` is the project indexed. The Action caller does not need a
+separate install or index step. Package-manager commands run from the shipped
+Action directory; the reviewed project is passed only as the explicit index
+argument.
+
+`listen` must include a hostname and a non-default explicit port. The Action
+normalizes it before package resolution and uses the same canonical address for
+the server and `mcp-url` output. Bracketed IPv6 addresses are supported.
 
 Indexing uses fixed `direct` mode and defaults to the
 `local/potion-code-16m-v2` embedding and a `1M` maximum file size. Override

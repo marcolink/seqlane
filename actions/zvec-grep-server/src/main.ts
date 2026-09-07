@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as core from "@actions/core";
@@ -11,7 +11,7 @@ import {
 import { assertDirectory } from "./filesystem.js";
 import { buildZvecCommandPlan, buildZvecEnvironment } from "./commands.js";
 import {
-  mcpUrl,
+  parseListenAddress,
   runCommand,
   runReadinessCommand,
   waitForCommandHealth,
@@ -23,6 +23,10 @@ function runnerTempPath(fileName: string): string {
 
 export function processAnchorPath(): string {
   return fileURLToPath(new URL("../process-anchor.js", import.meta.url));
+}
+
+export function packageExecutionDirectory(): string {
+  return dirname(processAnchorPath());
 }
 
 async function saveProcessState(service: DetachedProcess): Promise<void> {
@@ -65,11 +69,13 @@ async function saveProcessState(service: DetachedProcess): Promise<void> {
 }
 
 export async function run(): Promise<void> {
+  const parsedListen = parseListenAddress(
+    core.getInput("listen") || "127.0.0.1:7999",
+  );
   const workingDirectory = core.getInput("working-directory", {
     required: true,
   });
   const version = core.getInput("version") || "0.2.1";
-  const listen = core.getInput("listen") || "127.0.0.1:7999";
   const packageManager = core.getInput("package-manager") || "pnpm";
   const home = core.getInput("home") || runnerTempPath("zvec-grep");
   const embedding = core.getInput("embedding") || "local/potion-code-16m-v2";
@@ -93,7 +99,7 @@ export async function run(): Promise<void> {
     buildZvecCommandPlan({
       packageSpec,
       projectDirectory: workingDirectory,
-      listen,
+      listen: parsedListen.listen,
       home,
       indexOptions: {
         embedding,
@@ -102,25 +108,26 @@ export async function run(): Promise<void> {
       },
     });
   const logPath = runnerTempPath("zvec-grep.log");
+  const commandCwd = packageExecutionDirectory();
 
   await runCommand({
     command: packageManager,
     args: resolveCommand.args,
-    cwd: workingDirectory,
+    cwd: commandCwd,
     env,
   });
 
   await runCommand({
     command: packageManager,
     args: indexCommand.args,
-    cwd: workingDirectory,
+    cwd: commandCwd,
     env,
   });
 
   const service = await spawnDetached({
     command: packageManager,
     args: [...serverCommand.args],
-    cwd: workingDirectory,
+    cwd: commandCwd,
     env,
     logPath,
     anchorPath: processAnchorPath(),
@@ -134,7 +141,7 @@ export async function run(): Promise<void> {
         runReadinessCommand({
           command: packageManager,
           args: [...readinessCommand.args],
-          cwd: workingDirectory,
+          cwd: commandCwd,
           env,
         }),
       timeoutSeconds * 1_000,
@@ -154,7 +161,7 @@ export async function run(): Promise<void> {
     throw error;
   }
 
-  core.setOutput("mcp-url", mcpUrl(listen));
+  core.setOutput("mcp-url", parsedListen.mcpUrl);
   core.setOutput("log-path", logPath);
 }
 

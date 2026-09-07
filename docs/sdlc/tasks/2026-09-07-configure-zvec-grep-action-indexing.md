@@ -41,7 +41,8 @@ Implement [spec.zvec-grep-action-owned-indexing](../specs/2026-09-07-zvec-grep-a
    ordering, immutable exclusions, and cache true/false behavior.
 2. Extend command construction and Action input parsing with toolkit boolean
    parsing.
-3. Update public metadata/docs and rebuild the CJS entrypoint bundles.
+3. Update public metadata/docs and rebuild the loadable ESM entrypoint bundles
+   with their CommonJS bridge.
 4. Run focused tests, typecheck, bundle/load/drift checks, mappings, YAML, and
    SDLC validation.
 
@@ -65,7 +66,7 @@ Implement [spec.zvec-grep-action-owned-indexing](../specs/2026-09-07-zvec-grep-a
 - Additional globs appear after the built-in allowlist and before immutable
   exclusions.
 - Model-cache true supplies the runner-temp path and false omits the variable.
-- CJS bundles load and have no drift.
+- ESM bundles load and have no drift.
 - Public documentation and SDLC traceability are current.
 
 ## Outcome
@@ -73,7 +74,8 @@ Implement [spec.zvec-grep-action-owned-indexing](../specs/2026-09-07-zvec-grep-a
 Implemented optional embedding, max-filesize, and additive glob inputs;
 preserved fixed direct mode and immutable exclusions; and replaced the
 path-valued model-cache input with toolkit-validated boolean behavior. Updated
-the Action documentation, CJS bundles, tests, and SDLC indexes. Focused tests,
+the Action documentation, loadable ESM bundles with their CommonJS bridge,
+tests, and SDLC indexes. Focused tests,
 typecheck, bundle load/drift, and SDLC validation passed. Nx target execution
 was unavailable because this restricted worktree cannot write the shared Nx
 workspace-data lock.

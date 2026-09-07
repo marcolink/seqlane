@@ -2,12 +2,44 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 export { buildReadinessArguments } from "./commands.js";
 
-export function mcpUrl(listen: string): string {
-  const parsed = new URL(`http://${listen}`);
-  if (!parsed.hostname || !parsed.port) {
-    throw new Error("listen must contain a hostname and port");
+export interface ParsedListenAddress {
+  readonly listen: string;
+  readonly mcpUrl: string;
+}
+
+export function parseListenAddress(listen: string): ParsedListenAddress {
+  if (listen.trim() !== listen || listen.length === 0) {
+    throw new Error("listen must contain a hostname and non-default port");
   }
-  return `${parsed.origin}/mcp`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(`http://${listen}`);
+  } catch {
+    throw new Error("listen must contain a hostname and non-default port");
+  }
+
+  if (
+    !parsed.hostname ||
+    !parsed.port ||
+    Number(parsed.port) <= 0 ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.username ||
+    parsed.password
+  ) {
+    throw new Error("listen must contain a hostname and non-default port");
+  }
+
+  return {
+    listen: parsed.host,
+    mcpUrl: `${parsed.origin}/mcp`,
+  };
+}
+
+export function mcpUrl(listen: string): string {
+  return parseListenAddress(listen).mcpUrl;
 }
 
 export async function waitForCommandHealth(

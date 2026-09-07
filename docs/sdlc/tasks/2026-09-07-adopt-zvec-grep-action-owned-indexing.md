@@ -83,7 +83,8 @@ project.
 
 Implemented the Action-owned resolve/index/start/readiness lifecycle, preserved
 the explicit file policy and environment propagation, removed the workflow
-index step, and changed the zvec Action bundles to loadable CJS entrypoints.
+index step, and changed the zvec Action bundles to loadable ESM entrypoints
+with a CommonJS bridge.
 Scoped Action tests, typecheck, bundle load/drift, YAML parsing, test mapping,
 format, and SDLC validation passed. Full repository typecheck remains blocked
 by unrelated pre-existing errors outside this task.
