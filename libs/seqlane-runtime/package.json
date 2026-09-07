@@ -36,6 +36,8 @@
     ]
   },
   "dependencies": {
+    "@seqlane/agent-adapter": "workspace:*",
+    "@seqlane/acp": "workspace:*",
     "@mastra/core": "1.64.0",
     "@mastra/hono": "1.7.6",
     "@mastra/libsql": "1.22.3",

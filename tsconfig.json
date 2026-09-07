@@ -7,6 +7,12 @@
       "path": "./libs/seqlane-core"
     },
     {
+      "path": "./libs/seqlane-agent-adapter"
+    },
+    {
+      "path": "./libs/seqlane-acp"
+    },
+    {
       "path": "./libs/seqlane-events"
     },
     {
