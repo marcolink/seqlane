@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import * as core from "@actions/core";
 import {
@@ -14,10 +15,8 @@ function runnerTempPath(fileName: string): string {
   return resolve(process.env.RUNNER_TEMP ?? "/tmp", fileName);
 }
 
-function processAnchorPath(): string {
-  const actionPath = process.env.GITHUB_ACTION_PATH;
-  if (!actionPath) throw new Error("GITHUB_ACTION_PATH is required");
-  return resolve(actionPath, "process-anchor.js");
+export function processAnchorPath(): string {
+  return fileURLToPath(new URL("../process-anchor.js", import.meta.url));
 }
 
 async function saveProcessState(service: DetachedProcess): Promise<void> {

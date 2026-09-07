@@ -27,7 +27,7 @@
       "dependsOn": ["build"],
       "options": {
         "cwd": "actions/opencode-server",
-        "command": "pnpm exec vitest run src/readiness.spec.ts src/bundle-runtime.spec.ts && node --check process-anchor.js"
+        "command": "pnpm exec vitest run src/readiness.spec.ts src/bundle-runtime.spec.ts src/main.spec.ts && node --check process-anchor.js"
       }
     },
     "bundle-drift": {
