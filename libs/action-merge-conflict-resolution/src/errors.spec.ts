@@ -22,4 +22,32 @@ describe("action resolution errors", () => {
       code: "LOCKFILE_REGENERATION_FAILED",
     });
   });
+
+  it("bounds and sanitizes rejected push diagnostics", () => {
+    const error = new ActionResolutionError(
+      "push",
+      "PUSH_REFUSED",
+      "The resolved pull request could not be pushed.",
+      {
+        stderr: `remote: \u001b[31mhttps://user:password@example.com/repo.git\u001b[0m\n${"x".repeat(2_000)}`,
+      },
+    );
+
+    const details = resolutionErrorDetails(error);
+
+    expect(details.category).toBe("push");
+    expect(details.code).toBe("PUSH_REFUSED");
+    expect(details.diagnostic).toContain("https://[REDACTED]@example.com");
+    expect(details.diagnostic).not.toContain("password");
+    expect(
+      Array.from(details.diagnostic ?? "").some((character) => {
+        const codePoint = character.codePointAt(0);
+        return (
+          codePoint !== undefined && (codePoint <= 31 || codePoint === 127)
+        );
+      }),
+    ).toBe(false);
+    expect(details.diagnostic?.length).toBeLessThanOrEqual(1_025);
+    expect(details.diagnostic?.endsWith("…")).toBe(true);
+  });
 });

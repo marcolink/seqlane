@@ -94,7 +94,7 @@ function ports(
       stderr: "",
     }),
   };
-  const value: ResolveMergeConflictsPorts = {
+  const value = {
     github: {
       readPullRequest: async () => metadata(),
       readLiveBaseRevision: async () => ({
@@ -150,7 +150,7 @@ function ports(
         pushes.push(true);
       },
     },
-  };
+  } satisfies ResolveMergeConflictsPorts;
   return {
     value,
     summary,
@@ -231,6 +231,9 @@ describe("resolveMergeConflicts", () => {
       kind: "error",
       error: { category: "attempt-limit", code: "ATTEMPT_LIMIT_EXCEEDED" },
     });
+    expect(fake.events.filter((event) => event === "agent-stop")).toEqual([
+      "agent-stop",
+    ]);
   });
 
   it("rejects a stale integrated head before agent, commit, or push work", async () => {

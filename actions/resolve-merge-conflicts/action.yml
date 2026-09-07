@@ -22,6 +22,10 @@ inputs:
     description: Permit a remote write.
     required: false
     default: false
+  push-token:
+    description: Token with Contents and Workflows write permissions for remote pushes.
+    required: false
+    default: ""
   max-attempts:
     description: Maximum number of conflict resolution attempts.
     required: false

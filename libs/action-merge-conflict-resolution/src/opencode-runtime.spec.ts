@@ -41,6 +41,7 @@ describe("resolver OpenCode runtime", () => {
       OPENAI_API_KEY: "openai-secret",
       GITHUB_TOKEN: "github-secret",
       GH_TOKEN: "gh-secret",
+      "INPUT_PUSH-TOKEN": "push-secret",
     });
 
     expect(environment).toMatchObject({
@@ -51,13 +52,14 @@ describe("resolver OpenCode runtime", () => {
     });
     expect(environment).not.toHaveProperty("GITHUB_TOKEN");
     expect(environment).not.toHaveProperty("GH_TOKEN");
+    expect(environment).not.toHaveProperty("INPUT_PUSH-TOKEN");
   });
 
   it("bounds archive response size and applies a download timeout", async () => {
     const originalFetch = globalThis.fetch;
     let signal: AbortSignal | undefined;
     globalThis.fetch = (async (_input, init) => {
-      signal = init?.signal;
+      signal = init?.signal ?? undefined;
       return new Response("small", {
         headers: {
           "content-length": String(OPENCODE_ARCHIVE_MAX_BYTES + 1),

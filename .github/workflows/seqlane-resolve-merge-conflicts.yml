@@ -17,7 +17,7 @@ on:
           - merge
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
 
 concurrency:
@@ -87,6 +87,7 @@ jobs:
           target-directory: resolution-target
           commit: true
           push: true
+          push-token: ${{ secrets.SEQLANE_RESOLVER_TOKEN }}
           max-attempts: "10"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

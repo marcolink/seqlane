@@ -201,7 +201,11 @@ repository ignore rules remain enabled.
 an open pull request after a maintainer dispatches the workflow. Enter the
 pull-request number, select `rebase` or `merge`, and run the workflow from the
 default branch. The required strategy defaults to `rebase`. Configure the
-`OPENAI_API_KEY` Actions secret before you run it.
+`OPENAI_API_KEY` and `SEQLANE_RESOLVER_TOKEN` Actions secrets before you run
+it. `SEQLANE_RESOLVER_TOKEN` must be a dedicated fine-grained token with
+`Contents: write` and `Workflows: write` access to this repository. The
+workflow's `GITHUB_TOKEN` only needs `contents: read` and
+`pull-requests: read`. The workflow uses it for metadata and checkout reads.
 
 The workflow accepts only a head branch in this repository. It captures the
 live base branch revision and the pull-request head revision, then applies the
@@ -225,8 +229,8 @@ initial conflict list. It also rejects unresolved conflicts and Git whitespace
 errors. It rejects staged Git conflict markers. A rebase can use no more than
 ten conflict-resolution attempts and skips redundant empty commits. It detects
 default, diff3, and longer conflict markers. The workflow stops OpenCode before it
-configures GitHub credentials. Then it creates one merge commit or pushes the
-rebased history.
+configures GitHub credentials. The OpenCode process does not receive the push
+token. Then the workflow creates one merge commit or pushes the rebased history.
 
 The Action checks the same live base revision that it captured before
 resolution immediately before it pushes. The exact force-with-lease protects
