@@ -23,29 +23,56 @@ function pathsFrom(
   return conflicts.length > 0 ? uniqueConflictPaths(conflicts) : paths;
 }
 
+async function readStagedConflictContent(
+  git: GitWorkspacePort,
+  paths: readonly ConflictPath[],
+): Promise<{
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
+  const index = await git.run(["ls-files", "--stage", "-z", "--", ...paths]);
+  if (index.exitCode !== 0) return index;
+  const stagedPaths = index.stdout
+    .split("\0")
+    .filter(Boolean)
+    .flatMap((entry) => {
+      const tabIndex = entry.indexOf("\t");
+      const stage = entry.slice(0, tabIndex).split(" ")[2];
+      return tabIndex >= 0 && stage === "0" ? [entry.slice(tabIndex + 1)] : [];
+    });
+  if (stagedPaths.length === 0) {
+    return { exitCode: 0, stdout: "", stderr: "" };
+  }
+  return git.run([
+    "show",
+    "--format=",
+    "--no-ext-diff",
+    ...stagedPaths.map((path) => `:${path}`),
+  ]);
+}
+
 export async function validateStagedConflictMarkers(
   targetRoot: string,
   paths: readonly ConflictPath[] | ConflictSet,
   git: GitWorkspacePort = new NodeGitCli(targetRoot),
 ): Promise<void> {
-  for (const path of pathsFrom(paths)) {
-    const staged = await git.run(["show", "--format=", `:${path}`]);
-    if (staged.exitCode === 128) continue;
-    if (staged.exitCode !== 0) {
-      throw new ActionResolutionError(
-        "validation",
-        "OPERATION_FAILED",
-        "The staged conflict file could not be read.",
-        staged,
-      );
-    }
-    if (containsConflictMarker(staged.stdout)) {
-      throw new ActionResolutionError(
-        "validation",
-        "CONFLICT_MARKER_REMAINS",
-        `Conflict marker remains in ${path}.`,
-      );
-    }
+  const conflictPaths = pathsFrom(paths);
+  const staged = await readStagedConflictContent(git, conflictPaths);
+  if (staged.exitCode !== 0) {
+    throw new ActionResolutionError(
+      "validation",
+      "OPERATION_FAILED",
+      "The staged conflict files could not be read.",
+      staged,
+    );
+  }
+  if (containsConflictMarker(staged.stdout)) {
+    throw new ActionResolutionError(
+      "validation",
+      "CONFLICT_MARKER_REMAINS",
+      `Conflict marker remains in the staged conflict set: ${conflictPaths.join(", ")}.`,
+    );
   }
 
   const whitespace = await git.run(["diff", "--cached", "--check"]);

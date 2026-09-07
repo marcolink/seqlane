@@ -211,6 +211,33 @@ describe("NodeGitCli", () => {
     }
   });
 
+  it("configures a repository-local identity before a conflicted rebase", async () => {
+    const { root, baseRevision } = createConflictRepository(
+      "base\n",
+      "ours\n",
+      "theirs\n",
+    );
+    try {
+      git(root, ["config", "--local", "--unset-all", "user.name"]);
+      git(root, ["config", "--local", "--unset-all", "user.email"]);
+      const result = await new NodeGitCli(root).integrate(
+        "rebase",
+        baseRevision,
+      );
+      assert.equal(result.kind, "conflicted");
+      assert.equal(
+        git(root, ["config", "--local", "user.name"]).trim(),
+        "Seqlane conflict resolver",
+      );
+      assert.equal(
+        git(root, ["config", "--local", "user.email"]).trim(),
+        "41898282+github-actions[bot]@users.noreply.github.com",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("detects rebase directories as active operations", async () => {
     const root = createRepository();
     try {

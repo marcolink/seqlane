@@ -76,7 +76,7 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
     return runGitCommand(this.executable, args, this.cwd);
   }
 
-  private runWithEnvironment(
+  runWithEnvironment(
     args: readonly string[],
     env: Readonly<Record<string, string | undefined>>,
   ): Promise<GitCommandResult> {
@@ -203,6 +203,21 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
       });
     }
 
+    if (strategy === "rebase") {
+      try {
+        await this.configureIdentity();
+      } catch (error: unknown) {
+        return integrationFailure(
+          operation,
+          headBefore,
+          baseRevision,
+          error instanceof ActionResolutionError
+            ? { category: error.category, code: error.code }
+            : { category: "git", code: "GIT_OPERATION_FAILED" },
+        );
+      }
+    }
+
     const command = await this.run(
       strategy === "rebase"
         ? ["rebase", baseRevision]
@@ -301,9 +316,26 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
   }
 
   continueRebase(): Promise<GitCommandResult> {
-    return this.runWithEnvironment(["rebase", "--continue"], {
-      GIT_EDITOR: "true",
-    });
+    return this.configureIdentity().then(() =>
+      this.runWithEnvironment(["rebase", "--continue"], {
+        GIT_EDITOR: "true",
+      }),
+    );
+  }
+
+  async configureIdentity(): Promise<void> {
+    await this.requiredCommand([
+      "config",
+      "--local",
+      "user.name",
+      "Seqlane conflict resolver",
+    ]);
+    await this.requiredCommand([
+      "config",
+      "--local",
+      "user.email",
+      "41898282+github-actions[bot]@users.noreply.github.com",
+    ]);
   }
 
   skipRebase(): Promise<GitCommandResult> {

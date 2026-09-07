@@ -73,4 +73,63 @@ describe("commit and push adapter", () => {
       }),
     ).rejects.toMatchObject({ category: "push", code: "REMOTE_BASE_CHANGED" });
   });
+
+  it("passes GitHub authentication through Git config environment variables", async () => {
+    const commands: string[][] = [];
+    const environments: Array<Readonly<Record<string, string | undefined>>> =
+      [];
+    const git: GitWorkspacePort = {
+      cwd: "/tmp/target",
+      run: async (args) => ({
+        executable: "git",
+        args,
+        cwd: "/tmp/target",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      }),
+      runWithEnvironment: async (args, env) => {
+        commands.push([...args]);
+        environments.push(env);
+        return {
+          executable: "git",
+          args,
+          cwd: "/tmp/target",
+          exitCode: 0,
+          stdout:
+            args[0] === "rev-parse"
+              ? args.at(-1)?.endsWith("main")
+                ? revision("c")
+                : revision("b")
+              : "",
+          stderr: "",
+        };
+      },
+    };
+    const adapter = new NodeCommitAndPush(git, "secret-token");
+
+    await adapter.beforePush();
+    await adapter.push({
+      baseBranch: "main",
+      headBranch: "feature",
+      baseRevision: revision("c"),
+      headRevision: revision("b"),
+    });
+
+    expect(commands.flat()).not.toContain("secret-token");
+    expect(environments).toHaveLength(5);
+    expect(environments[0]).toMatchObject({
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+    });
+    expect(
+      Buffer.from(
+        environments[0]?.GIT_CONFIG_VALUE_0?.replace(
+          "AUTHORIZATION: basic ",
+          "",
+        ) ?? "",
+        "base64",
+      ).toString(),
+    ).toContain("secret-token");
+  });
 });

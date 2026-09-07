@@ -7,6 +7,8 @@ export interface DockerCommandRequest {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly env: Readonly<Record<string, string | undefined>>;
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
 }
 
 export interface DockerCommandResult {

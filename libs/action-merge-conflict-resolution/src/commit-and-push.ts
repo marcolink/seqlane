@@ -33,12 +33,13 @@ async function requireCommand(
 async function readRemoteRevision(
   git: GitWorkspacePort,
   branch: BranchName,
+  env: Readonly<Record<string, string | undefined>> = {},
 ): Promise<GitRevision> {
-  const result = await git.run([
-    "rev-parse",
-    "--verify",
-    `refs/remotes/origin/${branch}`,
-  ]);
+  const args = ["rev-parse", "--verify", `refs/remotes/origin/${branch}`];
+  const result =
+    git.runWithEnvironment === undefined
+      ? await git.run(args)
+      : await git.runWithEnvironment(args, env);
   const parsed = gitRevisionSchema.safeParse(result.stdout.trim());
   if (result.exitCode !== 0 || !parsed.success) {
     throw pushError(
@@ -53,6 +54,8 @@ async function readRemoteRevision(
 export class NodeCommitAndPush implements CommitAndPushPort {
   private readonly git: GitWorkspacePort;
   private readonly token: string | undefined;
+  private authenticationEnvironment:
+    Readonly<Record<string, string | undefined>> | undefined;
 
   constructor(git: GitWorkspacePort, token?: string) {
     this.git = git;
@@ -69,11 +72,11 @@ export class NodeCommitAndPush implements CommitAndPushPort {
     const authorization = Buffer.from(`x-access-token:${this.token}`).toString(
       "base64",
     );
-    await requireCommand(this.git, [
-      "config",
-      "http.https://github.com/.extraheader",
-      `AUTHORIZATION: basic ${authorization}`,
-    ]);
+    this.authenticationEnvironment = {
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+      GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${authorization}`,
+    };
   }
 
   async commit(baseBranch: BranchName): Promise<void> {
@@ -103,31 +106,39 @@ export class NodeCommitAndPush implements CommitAndPushPort {
   }): Promise<void> {
     const baseBranch = branchNameSchema.parse(options.baseBranch);
     const headBranch = branchNameSchema.parse(options.headBranch);
-    await requireCommand(this.git, [
+    await this.requirePushCommand([
       "fetch",
       "origin",
       `refs/heads/${baseBranch}:refs/remotes/origin/${baseBranch}`,
     ]);
-    await requireCommand(this.git, [
+    await this.requirePushCommand([
       "fetch",
       "origin",
       `refs/heads/${headBranch}:refs/remotes/origin/${headBranch}`,
     ]);
-    const liveBase = await readRemoteRevision(this.git, baseBranch);
+    const liveBase = await readRemoteRevision(
+      this.git,
+      baseBranch,
+      this.authenticationEnvironment,
+    );
     if (liveBase !== options.baseRevision) {
       throw pushError(
         "REMOTE_BASE_CHANGED",
         "The pull-request base changed during resolution.",
       );
     }
-    const liveHead = await readRemoteRevision(this.git, headBranch);
+    const liveHead = await readRemoteRevision(
+      this.git,
+      headBranch,
+      this.authenticationEnvironment,
+    );
     if (liveHead !== options.headRevision) {
       throw pushError(
         "REMOTE_HEAD_CHANGED",
         "The pull-request head changed during resolution.",
       );
     }
-    const result = await this.git.run([
+    const result = await this.runPushCommand([
       "push",
       `--force-with-lease=refs/heads/${headBranch}:${options.headRevision}`,
       "origin",
@@ -140,5 +151,18 @@ export class NodeCommitAndPush implements CommitAndPushPort {
         result,
       );
     }
+  }
+
+  private async requirePushCommand(args: readonly string[]): Promise<void> {
+    const result = await this.runPushCommand(args);
+    if (result.exitCode !== 0) {
+      throw pushError("OPERATION_FAILED", "The Git command failed.", result);
+    }
+  }
+
+  private runPushCommand(args: readonly string[]) {
+    return this.git.runWithEnvironment === undefined
+      ? this.git.run(args)
+      : this.git.runWithEnvironment(args, this.authenticationEnvironment ?? {});
   }
 }

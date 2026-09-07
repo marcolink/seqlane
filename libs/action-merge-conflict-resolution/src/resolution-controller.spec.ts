@@ -52,6 +52,7 @@ function ports(
   const baselines: unknown[] = [];
   const commits: unknown[] = [];
   const pushes: unknown[] = [];
+  const events: string[] = [];
   let reads = 0;
   let stateReads = 0;
   const git = {
@@ -122,8 +123,15 @@ function ports(
       },
     },
     agent: {
+      start: async () => {
+        events.push("agent-start");
+      },
       resolve: async () => {
+        events.push("agent-resolve");
         agent.push(true);
+      },
+      stop: async () => {
+        events.push("agent-stop");
       },
     },
     summary: {
@@ -135,12 +143,24 @@ function ports(
       commit: async () => {
         commits.push(true);
       },
+      beforePush: async () => {
+        events.push("before-push");
+      },
       push: async () => {
         pushes.push(true);
       },
     },
   };
-  return { value, summary, agent, lockfiles, baselines, commits, pushes };
+  return {
+    value,
+    summary,
+    agent,
+    lockfiles,
+    baselines,
+    commits,
+    pushes,
+    events,
+  };
 }
 
 describe("resolveMergeConflicts", () => {
@@ -306,5 +326,29 @@ describe("resolveMergeConflicts", () => {
       error: { category: "input-validation", code: "INVALID_REQUEST" },
     });
     expect(integrated).toBe(false);
+  });
+
+  it("stops the agent before configuring push authentication", async () => {
+    const conflict = [{ path: "src/file.ts", stage: 1 as const }];
+    const fake = ports(
+      {
+        kind: "conflicted",
+        operation: "merge",
+        headBefore: revision("b"),
+        targetRevision: revision("c"),
+        conflicts: conflict,
+      },
+      [conflict, []],
+    );
+
+    await expect(
+      resolveMergeConflicts(
+        { ...request(), commit: true, push: true },
+        fake.value,
+      ),
+    ).resolves.toMatchObject({ kind: "resolved", pushed: true });
+    expect(fake.events.indexOf("agent-stop")).toBeLessThan(
+      fake.events.indexOf("before-push"),
+    );
   });
 });

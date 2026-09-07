@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdtemp,
+  open,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -28,6 +35,8 @@ export const LOCKFILE_DOCKER_COREPACK_HOME = "/tmp/seqlane-corepack";
 export const LOCKFILE_DOCKER_REGISTRY = "https://registry.npmjs.org/";
 export const LOCKFILE_DOCKER_SCRIPT =
   'mkdir -p "$HOME" "$COREPACK_HOME" && COREPACK_ENABLE_PROJECT_SPEC=0 COREPACK_NPM_REGISTRY=https://registry.npmjs.org corepack install --global "pnpm@$PNPM_VERSION" && test "$(COREPACK_ENABLE_PROJECT_SPEC=0 corepack pnpm --version)" = "$PNPM_VERSION" && COREPACK_ENABLE_PROJECT_SPEC=0 corepack pnpm install --config.registry=https://registry.npmjs.org/ --lockfile-only --ignore-scripts --ignore-pnpmfile';
+export const LOCKFILE_DOCKER_TIMEOUT_MS = 5 * 60 * 1000;
+export const MAX_GENERATED_LOCKFILE_BYTES = 8 * 1024 * 1024;
 
 const exactPnpmVersionSchema = z.string().regex(/^pnpm@(\d+\.\d+\.\d+)$/);
 const packageManifestSchema = z.object({
@@ -129,6 +138,9 @@ export function runDockerCommand(
         env: { ...process.env, ...request.env },
         encoding: "utf8",
         maxBuffer: 8 * 1024 * 1024,
+        signal: request.signal,
+        timeout: request.timeoutMs ?? LOCKFILE_DOCKER_TIMEOUT_MS,
+        killSignal: "SIGTERM",
         windowsHide: true,
       },
       (error, _stdout, stderr) => {
@@ -157,6 +169,8 @@ export interface NodeLockfileRegeneratorOptions {
   readonly dockerExecutable?: string;
   readonly cwd?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
   readonly uid?: number;
   readonly gid?: number;
   readonly image?: string;
@@ -194,7 +208,33 @@ async function copyGeneratedLockfile(
     if (targetDetails?.isSymbolicLink()) {
       throw lockfileError("The target lockfile must not be a symbolic link.");
     }
-    await writeFile(target, await readFile(source), { flag: "w" });
+    if (sourceDetails.size > MAX_GENERATED_LOCKFILE_BYTES) {
+      throw lockfileError(
+        "The generated lockfile exceeds the maximum permitted size.",
+      );
+    }
+    const file = await open(source, "r");
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    try {
+      while (true) {
+        const buffer = Buffer.allocUnsafe(
+          Math.min(64 * 1024, MAX_GENERATED_LOCKFILE_BYTES + 1 - totalBytes),
+        );
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
+        if (bytesRead === 0) break;
+        totalBytes += bytesRead;
+        if (totalBytes > MAX_GENERATED_LOCKFILE_BYTES) {
+          throw lockfileError(
+            "The generated lockfile exceeds the maximum permitted size.",
+          );
+        }
+        chunks.push(buffer.subarray(0, bytesRead));
+      }
+    } finally {
+      await file.close();
+    }
+    await writeFile(target, Buffer.concat(chunks, totalBytes), { flag: "w" });
   } catch (error: unknown) {
     if (error instanceof ActionResolutionError) throw error;
     throw lockfileError(
@@ -249,6 +289,8 @@ export class NodeLockfileRegenerator implements LockfileRegenerationPort {
         }),
         cwd: resolve(this.options.cwd ?? this.targetRoot),
         env: { ...this.options.env },
+        signal: this.options.signal,
+        timeoutMs: this.options.timeoutMs,
       };
       const result = await this.docker.run(request);
       if (result.exitCode !== 0) {

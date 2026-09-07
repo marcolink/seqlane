@@ -121,6 +121,12 @@ export async function resolveMergeConflicts(
   let attempts = 0;
   let result: ResolveMergeConflictsResult;
   let agentLifecycleStarted = false;
+  let agentLifecycleStopped = false;
+  const stopAgent = async (): Promise<void> => {
+    if (!agentLifecycleStarted || agentLifecycleStopped) return;
+    await ports.agent.stop?.();
+    agentLifecycleStopped = true;
+  };
   try {
     const request = validateRequest(requestValue);
     const metadata = await ports.github.readPullRequest(
@@ -213,6 +219,7 @@ export async function resolveMergeConflicts(
     }
     let pushed = false;
     if (resolved && request.push) {
+      await stopAgent();
       await ports.commitAndPush.beforePush?.();
       await ports.commitAndPush.push({
         baseBranch: pullRequest.baseBranch,
@@ -233,9 +240,9 @@ export async function resolveMergeConflicts(
   } catch (error: unknown) {
     result = failureResult(attempts, error);
   } finally {
-    if (agentLifecycleStarted) {
+    if (agentLifecycleStarted && !agentLifecycleStopped) {
       try {
-        await ports.agent.stop?.();
+        await stopAgent();
       } catch (error: unknown) {
         result = failureResult(attempts, error);
       }

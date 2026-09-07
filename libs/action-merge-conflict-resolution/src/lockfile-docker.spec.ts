@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   LOCKFILE_DOCKER_IMAGE,
+  MAX_GENERATED_LOCKFILE_BYTES,
   NodeLockfileRegenerator,
   buildDockerLockfileArguments,
   parseExactPnpmVersion,
@@ -133,6 +134,62 @@ describe("lockfile Docker adapter", () => {
         category: "lockfile",
         code: "LOCKFILE_REGENERATION_FAILED",
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an oversized generated lockfile before copying it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "seqlane-lockfile-output-"));
+    const source = join(root, "source");
+    const target = join(root, "target");
+    const temporaryParent = join(root, "temporary");
+    await Promise.all([mkdir(source), mkdir(target), mkdir(temporaryParent)]);
+    await writeFile(
+      join(source, "package.json"),
+      '{"packageManager":"pnpm@10.33.0"}\n',
+    );
+    await writeFile(join(target, "package.json"), "{}\n");
+    await writeFile(join(target, "pnpm-workspace.yaml"), "packages: []\n");
+    await writeFile(join(target, "pnpm-lock.yaml"), "old\n");
+
+    const docker: DockerCommandPort = {
+      run: async (request: { readonly args: readonly string[] }) => {
+        const mount = request.args.find((arg) => arg.startsWith("type=bind,"));
+        const workspace = mount?.match(/source=(.*),target=\/workspace/)?.[1];
+        if (workspace === undefined) throw new Error("missing workspace mount");
+        await writeFile(
+          join(workspace, "pnpm-lock.yaml"),
+          Buffer.alloc(MAX_GENERATED_LOCKFILE_BYTES + 1, "x"),
+        );
+        return { exitCode: 0 };
+      },
+    };
+    const git: GitWorkspacePort = {
+      cwd: target,
+      run: async (args: readonly string[]) =>
+        args.join(" ") ===
+        "ls-files -z -- pnpm-workspace.yaml :(glob)**/package.json"
+          ? gitResult("pnpm-workspace.yaml\0package.json\0")
+          : gitResult(""),
+    };
+
+    try {
+      await expect(
+        new NodeLockfileRegenerator({
+          targetRoot: target,
+          trustedSourceRoot: source,
+          temporaryParent,
+          docker,
+          git,
+        }).regenerate(),
+      ).rejects.toMatchObject({
+        category: "lockfile",
+        code: "LOCKFILE_REGENERATION_FAILED",
+      });
+      await expect(
+        readFile(join(target, "pnpm-lock.yaml"), "utf8"),
+      ).resolves.toBe("old\n");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -27,6 +27,10 @@ export interface GitCommandPort {
 
 export interface GitWorkspacePort extends GitCommandPort {
   readonly cwd: string;
+  readonly runWithEnvironment?: (
+    args: readonly string[],
+    env: Readonly<Record<string, string | undefined>>,
+  ) => Promise<GitCommandResult>;
 }
 
 export function uniqueConflictPaths(
