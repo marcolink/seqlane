@@ -75,6 +75,18 @@ export class ActionResolutionError extends Error {
 }
 
 const MAX_PUSH_DIAGNOSTIC_LENGTH = 1_024;
+const MAX_WORKSPACE_DIAGNOSTIC_LENGTH = 1_024;
+export type WorkspaceLimitUnit = "bytes" | "files";
+export interface WorkspaceLimitDiagnosticOptions {
+  readonly path?: string;
+  readonly observed: number;
+  readonly limit: number;
+  readonly unit: WorkspaceLimitUnit;
+  readonly aggregate?: {
+    readonly offendingFileBytes: number;
+    readonly accumulatedBytes: number;
+  };
+}
 const pushFailureCauseSchema = z.looseObject({
   stderr: z.string().min(1),
 });
@@ -93,6 +105,33 @@ function replaceControlCharacters(value: string): string {
   }).join("");
 }
 
+export function formatWorkspaceLimitDiagnostic(
+  prefix: string,
+  options: WorkspaceLimitDiagnosticOptions,
+): string {
+  const pathPrefix = options.path === undefined ? "" : ": ";
+  const suffix =
+    options.aggregate === undefined
+      ? ` (observed ${options.observed} ${options.unit} > ${options.limit} ${options.unit}).`
+      : ` (offending file ${options.aggregate.offendingFileBytes} bytes; accumulated ${options.aggregate.accumulatedBytes} bytes; aggregate limit ${options.limit} bytes; resulting total ${options.observed} bytes).`;
+  const availablePathLength =
+    MAX_WORKSPACE_DIAGNOSTIC_LENGTH -
+    prefix.length -
+    pathPrefix.length -
+    suffix.length;
+  const sanitizedPath =
+    options.path === undefined
+      ? ""
+      : replaceControlCharacters(options.path).replace(/\s+/g, " ").trim();
+  const boundedPath =
+    options.path === undefined
+      ? ""
+      : sanitizedPath.length > availablePathLength
+        ? `${sanitizedPath.slice(0, Math.max(0, availablePathLength - 1))}…`
+        : sanitizedPath;
+  return `${prefix}${pathPrefix}${boundedPath}${suffix}`;
+}
+
 function boundedPushDiagnostic(cause: unknown): string | undefined {
   const parsed = pushFailureCauseSchema.safeParse(cause);
   if (!parsed.success) return undefined;
@@ -109,13 +148,28 @@ function boundedPushDiagnostic(cause: unknown): string | undefined {
     : sanitized;
 }
 
+function boundedWorkspaceDiagnostic(
+  error: ActionResolutionError,
+): string | undefined {
+  const sanitized = replaceControlCharacters(error.message)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (sanitized.length === 0) return undefined;
+  return sanitized.length > MAX_WORKSPACE_DIAGNOSTIC_LENGTH
+    ? `${sanitized.slice(0, MAX_WORKSPACE_DIAGNOSTIC_LENGTH)}…`
+    : sanitized;
+}
+
 export function resolutionErrorDetails(
   error: ActionResolutionError,
 ): ResolutionErrorDetails {
   const diagnostic =
     error.category === "push" && error.code === "PUSH_REFUSED"
       ? boundedPushDiagnostic(error.cause)
-      : undefined;
+      : error.category === "workspace" &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED"
+        ? boundedWorkspaceDiagnostic(error)
+        : undefined;
   return diagnostic === undefined
     ? { category: error.category, code: error.code }
     : { category: error.category, code: error.code, diagnostic };

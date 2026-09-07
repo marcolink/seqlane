@@ -1,7 +1,11 @@
 // @test-scope ./errors.ts
 
 import { describe, expect, it } from "vitest";
-import { ActionResolutionError, resolutionErrorDetails } from "./errors.js";
+import {
+  ActionResolutionError,
+  formatWorkspaceLimitDiagnostic,
+  resolutionErrorDetails,
+} from "./errors.js";
 
 describe("action resolution errors", () => {
   it("preserves a stable category, code, and original cause", () => {
@@ -51,5 +55,65 @@ describe("action resolution errors", () => {
     expect(details.diagnostic).not.toContain("\u0085");
     expect(details.diagnostic?.length).toBeLessThanOrEqual(1_025);
     expect(details.diagnostic?.endsWith("…")).toBe(true);
+  });
+
+  it("reports a bounded workspace-limit diagnostic without file contents", () => {
+    const error = new ActionResolutionError(
+      "workspace",
+      "WORKSPACE_LIMIT_EXCEEDED",
+      "Conflict file exceeds the configured size limit: actions/zvec-grep-server/dist/main.js (864243 bytes > 524288).",
+    );
+
+    expect(resolutionErrorDetails(error)).toEqual({
+      category: "workspace",
+      code: "WORKSPACE_LIMIT_EXCEEDED",
+      diagnostic:
+        "Conflict file exceeds the configured size limit: actions/zvec-grep-server/dist/main.js (864243 bytes > 524288).",
+    });
+  });
+
+  it("keeps the workspace-limit suffix when the path reaches its maximum length", () => {
+    const error = new ActionResolutionError(
+      "workspace",
+      "WORKSPACE_LIMIT_EXCEEDED",
+      formatWorkspaceLimitDiagnostic(
+        "Conflict file exceeds the configured size limit",
+        {
+          path: "a".repeat(1_024),
+          observed: 864_243,
+          limit: 524_288,
+          unit: "bytes",
+        },
+      ),
+    );
+
+    const details = resolutionErrorDetails(error);
+
+    expect(details.diagnostic).toContain("864243 bytes > 524288 bytes");
+    expect(details.diagnostic?.length).toBeLessThanOrEqual(1_024);
+    expect(details.diagnostic?.slice(-7)).toBe("bytes).");
+  });
+
+  it("keeps aggregate workspace-limit fields when the path reaches its maximum length", () => {
+    const diagnostic = formatWorkspaceLimitDiagnostic(
+      "Conflict payload exceeds the configured total size limit",
+      {
+        path: "a".repeat(1_024),
+        observed: 2_097_153,
+        limit: 2_097_152,
+        unit: "bytes",
+        aggregate: {
+          offendingFileBytes: 1,
+          accumulatedBytes: 2_097_152,
+        },
+      },
+    );
+
+    expect(diagnostic).toContain("offending file 1 bytes");
+    expect(diagnostic).toContain("accumulated 2097152 bytes");
+    expect(diagnostic).toContain("aggregate limit 2097152 bytes");
+    expect(diagnostic).toContain("resulting total 2097153 bytes");
+    expect(diagnostic.length).toBeLessThanOrEqual(1_024);
+    expect(diagnostic.slice(-7)).toBe("bytes).");
   });
 });
