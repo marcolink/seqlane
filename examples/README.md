@@ -131,11 +131,14 @@ and disposition commands only from reviewers with GitHub `OWNER`, `MEMBER`, or
 review so removing a command removes its policy decision.
 
 The review runtime denies access outside the review workspace and blocks
-environment files. Git streams a patch that excludes common lockfiles to the
-bounded model-facing evidence collector. Lockfile paths remain in changed-file
-metadata, but their contents are not reviewed. The retained patch uses ten
-lines of hunk context, is limited to 512,000 bytes, and does not materialize
-the complete diff.
+environment files. Git streams a patch that excludes common lockfiles and
+generated `dist` contents (`**/dist/**`) to the bounded model-facing evidence
+collector. Excluded paths remain in changed-file metadata. Lockfile contents and
+generated `dist` contents are not reviewed. For excluded generated output, the
+reviewer validates the corresponding source and build metadata and requires
+recorded artifact or bundle drift verification when relevant. The retained
+patch uses ten lines of hunk context, is limited to 512,000 bytes, and does not
+materialize the complete diff.
 Published review comments do not list slash-command syntax. This prevents the
 report from inviting commands while the command lifecycle is being revised.
 The CI workflow manages the loopback OpenCode and zvec-grep servers through
