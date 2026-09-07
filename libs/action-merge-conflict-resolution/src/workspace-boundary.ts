@@ -340,6 +340,34 @@ async function regularFile(root: string, path: string): Promise<string> {
   return candidate;
 }
 
+async function enforceLockfileInputLimits(
+  sourceRoot: string,
+  paths: readonly ConflictPath[],
+): Promise<void> {
+  if (paths.length > maximumLockfileInputFiles) {
+    throw workspaceError(
+      "WORKSPACE_LIMIT_EXCEEDED",
+      `The workspace input contains too many files: ${paths.length} > ${maximumLockfileInputFiles}.`,
+    );
+  }
+
+  let totalBytes = 0;
+  for (const path of paths) {
+    const source = await regularFile(sourceRoot, path);
+    const details = await stat(source);
+    if (
+      details.size > maximumLockfileInputFileBytes ||
+      totalBytes + details.size > maximumLockfileInputTotalBytes
+    ) {
+      throw workspaceError(
+        "WORKSPACE_LIMIT_EXCEEDED",
+        `Lockfile input exceeds the configured size limit: ${path}`,
+      );
+    }
+    totalBytes += details.size;
+  }
+}
+
 async function copyFiles(
   roots: WorkspacePaths,
   paths: readonly ConflictPath[],
@@ -624,6 +652,7 @@ export async function prepareLockfileWorkspace(
   );
   const paths = asPaths(trackedPaths);
   const safeSourceRoot = await assertSafeRoot(sourceRoot, "Lockfile source");
+  await enforceLockfileInputLimits(safeSourceRoot, paths);
   for (const path of paths) {
     await validateLockfileInput(safeSourceRoot, path);
   }

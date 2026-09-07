@@ -1,8 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { join } from "node:path";
 
 import { z } from "zod";
 
+import { MAX_LOCKFILE_INPUT_FILE_BYTES } from "./contracts.js";
 import { ActionResolutionError } from "./errors.js";
 
 const packageManifestSchema = z.record(z.string(), z.unknown());
@@ -80,11 +81,36 @@ function validateLockfileDependencyValues(value: unknown, path: string): void {
   }
 }
 
+async function readLockfileInput(path: string): Promise<string> {
+  const file = await open(path, "r");
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  try {
+    while (totalBytes <= MAX_LOCKFILE_INPUT_FILE_BYTES) {
+      const chunk = Buffer.alloc(
+        Math.min(64 * 1024, MAX_LOCKFILE_INPUT_FILE_BYTES + 1 - totalBytes),
+      );
+      const { bytesRead } = await file.read(chunk, 0, chunk.byteLength, null);
+      if (bytesRead === 0) break;
+      totalBytes += bytesRead;
+      if (totalBytes > MAX_LOCKFILE_INPUT_FILE_BYTES) {
+        throw lockfileInputError(
+          "The lockfile input exceeds the per-file size limit.",
+        );
+      }
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+  } finally {
+    await file.close();
+  }
+  return Buffer.concat(chunks, totalBytes).toString("utf8");
+}
+
 export async function validateLockfileInput(
   sourceRoot: string,
   path: string,
 ): Promise<void> {
-  const contents = await readFile(join(sourceRoot, path), "utf8");
+  const contents = await readLockfileInput(join(sourceRoot, path));
   if (path === "pnpm-workspace.yaml") {
     if (
       unsafeLockfileSpecPattern.test(contents) ||

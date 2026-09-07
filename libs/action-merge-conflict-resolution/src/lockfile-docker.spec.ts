@@ -24,6 +24,10 @@ import {
   buildDockerLockfileArguments,
   parseExactPnpmVersion,
 } from "./lockfile-docker.js";
+import {
+  MAX_LOCKFILE_INPUT_FILE_BYTES,
+  MAX_LOCKFILE_INPUT_FILES,
+} from "./contracts.js";
 import { ActionResolutionError } from "./errors.js";
 import type { GitCommandResult, GitWorkspacePort } from "./git-port.js";
 import type { DockerCommandPort } from "./lockfile-port.js";
@@ -279,6 +283,97 @@ describe("lockfile Docker adapter", () => {
       ).rejects.toMatchObject({
         category: "lockfile",
         code: "LOCKFILE_REGENERATION_FAILED",
+      });
+      expect(dockerCalls).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an oversized target manifest before parsing or Docker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "seqlane-lockfile-input-size-"));
+    const source = join(root, "source");
+    const target = join(root, "target");
+    await Promise.all([mkdir(source), mkdir(target)]);
+    await writeFile(
+      join(source, "package.json"),
+      '{"packageManager":"pnpm@10.33.0"}\n',
+    );
+    await writeFile(
+      join(target, "package.json"),
+      JSON.stringify({
+        dependencies: { safe: "workspace:*" },
+        padding: "x".repeat(MAX_LOCKFILE_INPUT_FILE_BYTES),
+      }),
+    );
+    let dockerCalls = 0;
+    try {
+      await expect(
+        new NodeLockfileRegenerator({
+          targetRoot: target,
+          trustedSourceRoot: source,
+          docker: {
+            run: async () => {
+              dockerCalls += 1;
+              return { exitCode: 0 };
+            },
+          },
+          git: {
+            cwd: target,
+            run: async (args) =>
+              args.join(" ") ===
+              "ls-files -z -- pnpm-workspace.yaml :(glob)**/package.json"
+                ? gitResult("package.json\0")
+                : gitResult(""),
+          },
+        }).regenerate(),
+      ).rejects.toMatchObject({
+        category: "workspace",
+        code: "WORKSPACE_LIMIT_EXCEEDED",
+      });
+      expect(dockerCalls).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects too many target manifests before validating any input", async () => {
+    const root = await mkdtemp(join(tmpdir(), "seqlane-lockfile-input-count-"));
+    const source = join(root, "source");
+    const target = join(root, "target");
+    await Promise.all([mkdir(source), mkdir(target)]);
+    await writeFile(
+      join(source, "package.json"),
+      '{"packageManager":"pnpm@10.33.0"}\n',
+    );
+    const paths = Array.from(
+      { length: MAX_LOCKFILE_INPUT_FILES + 1 },
+      (_, index) => `packages/package-${index}/package.json`,
+    );
+    let dockerCalls = 0;
+    try {
+      await expect(
+        new NodeLockfileRegenerator({
+          targetRoot: target,
+          trustedSourceRoot: source,
+          docker: {
+            run: async () => {
+              dockerCalls += 1;
+              return { exitCode: 0 };
+            },
+          },
+          git: {
+            cwd: target,
+            run: async (args) =>
+              args.join(" ") ===
+              "ls-files -z -- pnpm-workspace.yaml :(glob)**/package.json"
+                ? gitResult(paths.join("\0") + "\0")
+                : gitResult(""),
+          },
+        }).regenerate(),
+      ).rejects.toMatchObject({
+        category: "workspace",
+        code: "WORKSPACE_LIMIT_EXCEEDED",
       });
       expect(dockerCalls).toBe(0);
     } finally {
