@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { serve as serveNode, type ServerType } from "@hono/node-server";
+import { RequestContext } from "@mastra/core/request-context";
 import { MastraServer } from "@mastra/hono";
 import type { MastraCompositeStore } from "@mastra/core/storage";
 import { LibSQLStore } from "@mastra/libsql";
@@ -35,6 +37,8 @@ import {
   createMastraComposition,
   type MastraWorkflowRegistration,
 } from "./mastra-composition.js";
+import { registerMastraServer } from "./mastra-server.js";
+import type { RuntimeAdapterRegistry } from "../../runner/profile/runtime-adapter.js";
 
 export interface OperationalWorkflowRegistration {
   readonly key: string;
@@ -64,6 +68,8 @@ export interface OperationalWorkflowSource {
   readonly onSessionUiAvailable?: OperationalSessionUiNotifier;
   /** Private adapter configuration selected by the composition root. */
   readonly adapterConfiguration?: unknown;
+  /** Private adapter registry selected by the composition root or test seam. */
+  readonly adapterRegistry?: RuntimeAdapterRegistry;
 }
 
 export interface OperationalHostOptions {
@@ -86,6 +92,8 @@ export interface OperationalHost {
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4111;
 const DEFAULT_STORAGE_URL = "file:./.seqlane/mastra.db";
+const WORK_ID_CONTEXT_KEY = "seqlane.workId";
+const RUN_ID_CONTEXT_KEY = "seqlane.runId";
 const LOOPBACK_STUDIO_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 function localStudioOrigin(origin: string): string | undefined {
@@ -242,6 +250,7 @@ function createOperationalInvocationHandler(
           source.onSessionUiAvailable,
           {
             adapterConfiguration: source.adapterConfiguration,
+            adapterRegistry: source.adapterRegistry,
             requestContext: context.requestContext,
             runId: context.runId,
           },
@@ -302,6 +311,65 @@ function asMastraRegistrations(
   }));
 }
 
+function registerOperationalMastraServer(
+  composition: ReturnType<typeof createMastraComposition>,
+): void {
+  registerMastraServer(
+    composition.mastra,
+    composition.workflows,
+    async ({ workflowKey, input, runtime, requestContext, abortSignal }) => {
+      const workflow = composition.workflows[workflowKey];
+      if (workflow === undefined) {
+        throw new TypeError(`Unknown Mastra workflow: "${workflowKey}"`);
+      }
+
+      const workId = `mcp-work-${randomUUID()}`;
+      const runId = `mcp-run-${randomUUID()}`;
+      const run = await workflow.createRun({
+        runId,
+        resourceId: workId,
+        shouldPersistSnapshot: () => true,
+      });
+      let cancelled = false;
+      const cancel = (): void => {
+        cancelled = true;
+        void run.cancel().catch(() => undefined);
+      };
+      if (abortSignal.aborted) {
+        cancel();
+      } else {
+        abortSignal.addEventListener("abort", cancel, { once: true });
+      }
+
+      const runContext = new RequestContext(requestContext.entries());
+      runContext.setRaw(WORK_ID_CONTEXT_KEY, workId);
+      runContext.setRaw(RUN_ID_CONTEXT_KEY, runId);
+      runContext.setRaw("seqlane.runtimeId", runtime?.id ?? "opencode");
+      if (runtime?.workspace !== undefined) {
+        runContext.setRaw("seqlane.workspace", runtime.workspace);
+      }
+      try {
+        if (cancelled) return { status: "cancelled" };
+        const result = await run.start({
+          inputData: input,
+          requestContext: runContext,
+          tracingOptions: {
+            metadata: {
+              [WORK_ID_CONTEXT_KEY]: workId,
+              [RUN_ID_CONTEXT_KEY]: runId,
+            },
+          },
+        });
+        return cancelled ? { status: "cancelled" } : result;
+      } finally {
+        abortSignal.removeEventListener("abort", cancel);
+      }
+    },
+    undefined,
+    { runtimeProfileInput: true },
+  );
+}
+
 export async function createOperationalHost(
   options: OperationalHostOptions,
 ): Promise<OperationalHost> {
@@ -318,6 +386,7 @@ export async function createOperationalHost(
       asMastraRegistrations(options.workflows),
       storage,
     );
+    registerOperationalMastraServer(composition);
     const app = new Hono();
     app.use(cors({ origin: localStudioOrigin, credentials: true }));
     const adapter = new MastraServer({ app, mastra: composition.mastra });
