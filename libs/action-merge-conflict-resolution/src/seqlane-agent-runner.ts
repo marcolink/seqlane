@@ -4,7 +4,7 @@ import {
   type WorkflowDefinition,
 } from "@seqlane/core";
 import { createOpenCodeExecutor, createOpenCodeRun } from "@seqlane/opencode";
-import { EffectCompiler, runCompiledWorkflow } from "@seqlane/runtime";
+import { EffectCompiler, startCompiledWorkflow } from "@seqlane/runtime";
 
 import {
   type AgentRunnerPort,
@@ -30,6 +30,8 @@ export interface SeqlaneWorkflowInput {
   readonly conflictedFiles: readonly string[];
 }
 
+export const AGENT_ATTEMPT_TIMEOUT_MS = 5 * 60 * 1000;
+
 export interface SeqlaneAgentRunnerOptions {
   readonly workspace: string;
   readonly workflow: WorkflowDefinition<SeqlaneWorkflowInput, unknown>;
@@ -42,6 +44,7 @@ export interface SeqlaneAgentRunnerOptions {
   readonly baseBranch?: string;
   readonly headBranch?: string;
   readonly recording?: BoundedRecording;
+  readonly attemptTimeoutMs?: number;
 }
 
 function agentError(message: string, cause?: unknown): ActionResolutionError {
@@ -125,15 +128,35 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         },
         events,
       });
-      const outcome = await runCompiledWorkflow(compiled);
-      if (outcome.status === "succeeded") {
-        return { status: "succeeded", output: outcome.result };
-      }
-      if (outcome.status === "cancelled") return outcome;
-      throw agentError(
-        "The Seqlane workflow returned a failure.",
-        outcome.error,
+      const attemptController = new AbortController();
+      const timeout = setTimeout(
+        () => attemptController.abort(),
+        this.options.attemptTimeoutMs ?? AGENT_ATTEMPT_TIMEOUT_MS,
       );
+      try {
+        const active = startCompiledWorkflow(compiled, {
+          signal: attemptController.signal,
+        });
+        const outcome = await active.outcome;
+        if (outcome.status === "succeeded") {
+          return { status: "succeeded", output: outcome.result };
+        }
+        if (
+          outcome.status === "cancelled" &&
+          attemptController.signal.aborted
+        ) {
+          throw agentError(
+            "The conflict-resolution attempt exceeded its deadline.",
+          );
+        }
+        if (outcome.status === "cancelled") return outcome;
+        throw agentError(
+          "The Seqlane workflow returned a failure.",
+          outcome.error,
+        );
+      } finally {
+        clearTimeout(timeout);
+      }
     } catch (error: unknown) {
       if (error instanceof ActionResolutionError) throw error;
       throw agentError("The Seqlane workflow could not be executed.", error);

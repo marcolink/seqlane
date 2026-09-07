@@ -25,6 +25,7 @@ export interface ActiveWorkflowRun {
 export interface StartCompiledWorkflowOptions {
   readonly emitRunStarted?: boolean;
   readonly heartbeatIntervalMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 function availableDependencyIds(
@@ -126,6 +127,12 @@ export function startCompiledWorkflow(
     return cancellationPromise;
   };
 
+  const onAbort = (): void => {
+    void cancel().catch(() => undefined);
+  };
+  if (options.signal?.aborted) onAbort();
+  else options.signal?.addEventListener("abort", onAbort, { once: true });
+
   const outcome = (async (): Promise<SeqlaneRunOutcome> => {
     if (options.emitRunStarted ?? true) {
       context.events.emit({
@@ -225,6 +232,7 @@ export function startCompiledWorkflow(
       return { status: "failed", error };
     } finally {
       if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
+      options.signal?.removeEventListener("abort", onAbort);
     }
   })();
 
