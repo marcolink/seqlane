@@ -1,24 +1,45 @@
-export function buildReadinessArguments(
-  packageSpec: string,
-  home: string,
-): string[] {
-  return [
-    "dlx",
-    packageSpec,
-    "server",
-    "status",
-    "--check-ready",
-    "--home",
-    home,
-  ];
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+export { buildReadinessArguments } from "./commands.js";
+
+export interface ParsedListenAddress {
+  readonly listen: string;
+  readonly mcpUrl: string;
+}
+
+export function parseListenAddress(listen: string): ParsedListenAddress {
+  if (listen.trim() !== listen || listen.length === 0) {
+    throw new Error("listen must contain a hostname and non-default port");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(`http://${listen}`);
+  } catch {
+    throw new Error("listen must contain a hostname and non-default port");
+  }
+
+  if (
+    !parsed.hostname ||
+    !parsed.port ||
+    Number(parsed.port) <= 0 ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.username ||
+    parsed.password
+  ) {
+    throw new Error("listen must contain a hostname and non-default port");
+  }
+
+  return {
+    listen: parsed.host,
+    mcpUrl: `${parsed.origin}/mcp`,
+  };
 }
 
 export function mcpUrl(listen: string): string {
-  const parsed = new URL(`http://${listen}`);
-  if (!parsed.hostname || !parsed.port) {
-    throw new Error("listen must contain a hostname and port");
-  }
-  return `${parsed.origin}/mcp`;
+  return parseListenAddress(listen).mcpUrl;
 }
 
 export async function waitForCommandHealth(
@@ -50,15 +71,29 @@ export async function runReadinessCommand({
   cwd: string;
   env: NodeJS.ProcessEnv;
 }): Promise<void> {
-  await execFileAsync(command, args, {
+  await runCommand({ command, args, cwd, env, timeout: 3_000 });
+}
+
+export async function runCommand({
+  command,
+  args,
+  cwd,
+  env,
+  timeout,
+}: {
+  command: string;
+  args: readonly string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  timeout?: number;
+}): Promise<void> {
+  await execFileAsync(command, [...args], {
     cwd,
     env,
     maxBuffer: 1_024 * 1_024,
-    timeout: 3_000,
+    ...(timeout === undefined ? {} : { timeout }),
   });
 }
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const sleep = (milliseconds: number) =>

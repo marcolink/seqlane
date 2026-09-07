@@ -3,7 +3,7 @@ description: Start a zvec-grep MCP server and stop it automatically after the jo
 
 inputs:
   working-directory:
-    description: Directory in which zvec-grep runs
+    description: Project directory to index and serve with zvec-grep
     required: true
   version:
     description: zvec-grep package version
@@ -20,9 +20,21 @@ inputs:
   home:
     description: zvec-grep home directory
     required: false
-  model-cache:
-    description: zvec-grep model cache directory
+  embedding:
+    description: zvec-grep embedding model used for indexing
     required: false
+    default: local/potion-code-16m-v2
+  max-filesize:
+    description: Maximum file size passed to zvec-grep indexing
+    required: false
+    default: 1M
+  glob:
+    description: Optional newline-delimited additional zvec-grep include globs
+    required: false
+  model-cache:
+    description: Whether to use the runner-temp zvec-grep model cache
+    required: false
+    default: "true"
   startup-timeout-seconds:
     description: Maximum time to wait for zvec-grep readiness
     required: false

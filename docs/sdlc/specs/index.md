@@ -27,3 +27,4 @@
 | [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md) | Versioned Pull Request Review Comments | active | 2026-09-05 | core |
 | [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Mechanical Pull Request Review Dispositions | draft | 2026-09-06 | core |
 | [spec.seqlane-action-merge-conflict-resolution](./2026-09-06-seqlane-action-merge-conflict-resolution.md) | Seqlane Action Merge Conflict Resolution | active | 2026-09-06 | core |
+| [spec.zvec-grep-action-owned-indexing](./2026-09-07-zvec-grep-action-owned-indexing.md) | zvec-grep Action-Owned Package Resolution and Indexing | active | 2026-09-07 | core |
