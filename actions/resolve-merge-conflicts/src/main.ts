@@ -19,6 +19,7 @@ import {
   createSummaryWriter,
   parseActionInputs,
   ActionResolutionError,
+  resolutionErrorDetails,
   resolveMergeConflicts,
   workflowDefinitionMetadata,
   type PullRequestMetadata,
@@ -186,7 +187,7 @@ export async function run(): Promise<void> {
     if (result.kind === "error") {
       core.setFailed(`${result.error.category}/${result.error.code}`);
       if (result.error.diagnostic !== undefined) {
-        core.error(`Git push rejected: ${result.error.diagnostic}`);
+        core.error(`Resolution diagnostic: ${result.error.diagnostic}`);
       }
       return;
     }
@@ -204,6 +205,10 @@ if (process.env.NODE_ENV !== "test") {
   run().catch((error: unknown) => {
     if (error instanceof ActionResolutionError) {
       core.setFailed(`${error.category}/${error.code}`);
+      const diagnostic = resolutionErrorDetails(error).diagnostic;
+      if (diagnostic !== undefined) {
+        core.error(`Resolution diagnostic: ${diagnostic}`);
+      }
       return;
     }
     core.setFailed(error instanceof Error ? error.message : "Action failed.");

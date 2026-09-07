@@ -128,7 +128,10 @@ describe("workspace boundary", () => {
           error.code === "UNSUPPORTED_AGENT_FILE",
       );
 
-      writeFileSync(join(source, "large.ts"), Buffer.alloc(512 * 1024 + 1, 65));
+      writeFileSync(
+        join(source, "large.ts"),
+        Buffer.alloc(1024 * 1024 + 1, 65),
+      );
       await assert.rejects(
         () =>
           prepareAgentWorkspace(
@@ -141,6 +144,36 @@ describe("workspace boundary", () => {
           error instanceof Error &&
           "code" in error &&
           error.code === "WORKSPACE_LIMIT_EXCEEDED",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts conflict-marked generated bundles within the bounded file limit", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const agent = createAgentWorkspace(root, "generated-bundle");
+      mkdirSync(source);
+      const conflictContents = [
+        "<<<<<<< HEAD\n",
+        "a".repeat(432_000),
+        "\n=======\n",
+        "b".repeat(432_000),
+        "\n>>>>>>> incoming\n",
+      ].join("");
+      assert.equal(Buffer.byteLength(conflictContents) > 512 * 1024, true);
+      assert.equal(Buffer.byteLength(conflictContents) < 1024 * 1024, true);
+      mkdirSync(join(source, "dist"));
+      writeFileSync(join(source, "dist", "main.js"), conflictContents);
+
+      await expect(
+        prepareAgentWorkspace(source, agent, ["dist/main.js"], "run-bundle"),
+      ).resolves.toBeUndefined();
+      assert.equal(
+        readFileSync(join(agent, "dist", "main.js"), "utf8"),
+        conflictContents,
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

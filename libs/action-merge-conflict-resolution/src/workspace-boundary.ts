@@ -386,13 +386,16 @@ async function copyFiles(
   for (const path of paths) {
     const source = await regularFile(roots.sourceRoot, path);
     const details = await stat(source);
-    if (
-      details.size > limits.maximumFileBytes ||
-      totalBytes + details.size > limits.maximumTotalBytes
-    ) {
+    if (details.size > limits.maximumFileBytes) {
       throw workspaceError(
         "WORKSPACE_LIMIT_EXCEEDED",
-        `Conflict payload exceeds the configured size limit: ${path}`,
+        `Conflict file exceeds the configured size limit: ${path} (${details.size} bytes > ${limits.maximumFileBytes}).`,
+      );
+    }
+    if (totalBytes + details.size > limits.maximumTotalBytes) {
+      throw workspaceError(
+        "WORKSPACE_LIMIT_EXCEEDED",
+        `Conflict payload exceeds the configured total size limit: ${totalBytes + details.size} bytes > ${limits.maximumTotalBytes}.`,
       );
     }
 

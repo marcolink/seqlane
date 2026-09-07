@@ -52,4 +52,19 @@ describe("action resolution errors", () => {
     expect(details.diagnostic?.length).toBeLessThanOrEqual(1_025);
     expect(details.diagnostic?.endsWith("…")).toBe(true);
   });
+
+  it("reports a bounded workspace-limit diagnostic without file contents", () => {
+    const error = new ActionResolutionError(
+      "workspace",
+      "WORKSPACE_LIMIT_EXCEEDED",
+      "Conflict file exceeds the configured size limit: actions/zvec-grep-server/dist/main.js (864243 bytes > 524288).",
+    );
+
+    expect(resolutionErrorDetails(error)).toEqual({
+      category: "workspace",
+      code: "WORKSPACE_LIMIT_EXCEEDED",
+      diagnostic:
+        "Conflict file exceeds the configured size limit: actions/zvec-grep-server/dist/main.js (864243 bytes > 524288).",
+    });
+  });
 });

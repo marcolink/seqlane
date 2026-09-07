@@ -75,6 +75,7 @@ export class ActionResolutionError extends Error {
 }
 
 const MAX_PUSH_DIAGNOSTIC_LENGTH = 1_024;
+const MAX_WORKSPACE_DIAGNOSTIC_LENGTH = 1_024;
 const pushFailureCauseSchema = z.looseObject({
   stderr: z.string().min(1),
 });
@@ -109,13 +110,28 @@ function boundedPushDiagnostic(cause: unknown): string | undefined {
     : sanitized;
 }
 
+function boundedWorkspaceDiagnostic(
+  error: ActionResolutionError,
+): string | undefined {
+  const sanitized = replaceControlCharacters(error.message)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (sanitized.length === 0) return undefined;
+  return sanitized.length > MAX_WORKSPACE_DIAGNOSTIC_LENGTH
+    ? `${sanitized.slice(0, MAX_WORKSPACE_DIAGNOSTIC_LENGTH)}…`
+    : sanitized;
+}
+
 export function resolutionErrorDetails(
   error: ActionResolutionError,
 ): ResolutionErrorDetails {
   const diagnostic =
     error.category === "push" && error.code === "PUSH_REFUSED"
       ? boundedPushDiagnostic(error.cause)
-      : undefined;
+      : error.category === "workspace" &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED"
+        ? boundedWorkspaceDiagnostic(error)
+        : undefined;
   return diagnostic === undefined
     ? { category: error.category, code: error.code }
     : { category: error.category, code: error.code, diagnostic };

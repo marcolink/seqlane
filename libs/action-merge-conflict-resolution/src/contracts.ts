@@ -6,7 +6,9 @@ export type { ResolutionErrorDetails } from "./errors.js";
 
 export const DEFAULT_MAX_ATTEMPTS = 10;
 export const MAX_CONFLICT_PATHS = 200;
-export const MAX_AGENT_FILE_BYTES = 512 * 1024;
+// Keep agent inputs bounded while allowing conflict-marked generated bundles
+// that contain two otherwise-valid file versions.
+export const MAX_AGENT_FILE_BYTES = 1024 * 1024;
 export const MAX_AGENT_TOTAL_BYTES = 2 * 1024 * 1024;
 export const MAX_LOCKFILE_INPUT_FILES = 64;
 export const MAX_LOCKFILE_INPUT_FILE_BYTES = 512 * 1024;
