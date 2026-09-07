@@ -817,27 +817,27 @@ describe("OpenCode run session", () => {
     }
   });
 
-  it("reports an untracked background shell command", async () => {
+  it("reports uncertain termination for a mutating background shell command", async () => {
     const fake = await startServer({
       backgroundShellEvent: true,
       holdPrompt: true,
     });
     try {
       const run = await createOpenCodeRun({ url: fake.url });
-      let reportBackgroundProcess!: (value: unknown) => void;
-      const backgroundProcess = new Promise<unknown>((resolve) => {
-        reportBackgroundProcess = resolve;
+      let reportUncertainActivity!: (value: unknown) => void;
+      const uncertainActivity = new Promise<unknown>((resolve) => {
+        reportUncertainActivity = resolve;
       });
 
       const prompt = run.prompt({
         text: "format the workspace",
         schema: { type: "object" },
-        onBackgroundProcess: reportBackgroundProcess,
+        onUncertainActivity: reportUncertainActivity,
       });
       await fake.promptStarted;
 
-      await expect(backgroundProcess).resolves.toEqual({
-        mutatesWorkspace: true,
+      await expect(uncertainActivity).resolves.toEqual({
+        reason: "disconnect",
       });
       fake.completeNextPrompt();
       await prompt;
@@ -1091,9 +1091,13 @@ describe("OpenCode run session", () => {
     let run: Awaited<ReturnType<typeof createOpenCodeRun>> | undefined;
     try {
       run = await createOpenCodeRun({ url: fake.url });
+      let invalidated = 0;
       const pending = run.prompt({
         text: "needs filesystem access",
         schema: { type: "object" },
+        onRunInvalidated: () => {
+          invalidated += 1;
+        },
       });
       await fake.promptStarted;
       await fake.eventStarted;
@@ -1114,6 +1118,7 @@ describe("OpenCode run session", () => {
         requirement: "user-input",
         message: "Seqlane execution requires human interaction",
       });
+      expect(invalidated).toBe(1);
       expect(fake.requests.some(({ path }) => path === "/event")).toBe(true);
       expect(
         fake.requests.some(({ path }) => /permission.*reply/i.test(path)),
@@ -1129,9 +1134,13 @@ describe("OpenCode run session", () => {
     let run: Awaited<ReturnType<typeof createOpenCodeRun>> | undefined;
     try {
       run = await createOpenCodeRun({ url: fake.url });
+      let invalidated = 0;
       const pending = run.prompt({
         text: "needs filesystem access",
         schema: { type: "object" },
+        onRunInvalidated: () => {
+          invalidated += 1;
+        },
       });
       await fake.promptStarted;
       await fake.eventStarted;
@@ -1143,6 +1152,7 @@ describe("OpenCode run session", () => {
       expect(
         fake.requests.some(({ path }) => path === "/session/session-1/abort"),
       ).toBe(true);
+      expect(invalidated).toBe(1);
     } finally {
       await run?.abort().catch(() => undefined);
       await closeServer(fake.server);

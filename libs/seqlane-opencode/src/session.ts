@@ -8,7 +8,7 @@ import { parseOpenCodePromptResponse } from "./prompt-response.js";
 import type {
   OpenCodeConnection,
   OpenCodeActivity,
-  OpenCodeBackgroundProcess,
+  OpenCodeUncertainActivity,
   OpenCodePrompt,
   OpenCodePromptResult,
   OpenCodeRun,
@@ -233,16 +233,16 @@ function toolActivityFromEvent(
   };
 }
 
-function backgroundProcessFromEvent(
+function mutatingBackgroundProcessFromEvent(
   value: unknown,
   sessionID: string,
-): OpenCodeBackgroundProcess | undefined {
+): boolean {
   const event = eventDetails(value);
   if (
     event?.type !== "session.next.shell.started" ||
     stringField(event.details, "sessionID") !== sessionID
   ) {
-    return undefined;
+    return false;
   }
   const command = stringField(event.details, "command");
   if (
@@ -252,9 +252,9 @@ function backgroundProcessFromEvent(
       /(?:^|[;&|]\s*)(?:nohup|setsid)\b/.test(command)
     )
   ) {
-    return undefined;
+    return false;
   }
-  return { mutatesWorkspace: true };
+  return true;
 }
 
 async function waitForInteraction(
@@ -262,8 +262,8 @@ async function waitForInteraction(
   sessionID: string,
   signal: AbortSignal,
   onActivity: ((activity: OpenCodeActivity) => void) | undefined,
-  onBackgroundProcess:
-    ((process: OpenCodeBackgroundProcess) => void) | undefined,
+  onUncertainActivity:
+    ((activity: OpenCodeUncertainActivity) => void) | undefined,
 ): Promise<void> {
   const activityIdentities = new Map<string, ActivityIdentity>();
   for await (const event of events) {
@@ -275,9 +275,11 @@ async function waitForInteraction(
     ) {
       return;
     }
-    const backgroundProcess = backgroundProcessFromEvent(event, sessionID);
-    if (backgroundProcess !== undefined) {
-      onBackgroundProcess?.(backgroundProcess);
+    if (mutatingBackgroundProcessFromEvent(event, sessionID)) {
+      // OpenCode's event does not expose a lifetime handle for this process.
+      // Quarantine the session instead of passing an untrackable mutation into
+      // the runtime.
+      onUncertainActivity?.({ reason: "disconnect" });
     }
     const activity = toolActivityFromEvent(
       event,
@@ -429,7 +431,7 @@ async function createOpenCodeRunForSession(
             sessionID,
             permissionMonitorController.signal,
             request.onActivity,
-            request.onBackgroundProcess,
+            request.onUncertainActivity,
           )
             .then(() => ({ type: "interaction" as const }))
             .catch((cause) => ({ type: "monitor-error" as const, cause }));
@@ -469,6 +471,7 @@ async function createOpenCodeRunForSession(
           }
 
           if (result.type === "monitor-error") {
+            request.onRunInvalidated?.();
             promptController.abort();
             await abort().catch(() => undefined);
             throw executorError(
@@ -478,6 +481,7 @@ async function createOpenCodeRunForSession(
           }
 
           if (result.type === "interaction") {
+            request.onRunInvalidated?.();
             promptController.abort();
             await abort().catch(() => undefined);
             await promptResponse.catch(() => undefined);
