@@ -1,6 +1,8 @@
 // @test-scope ../../../examples/all-features.ts
+// @test-scope ../../../libs/seqlane-runtime/src/runtime/mastra/operational-host.ts
 
 import { buildWorkflow } from "@seqlane/core";
+import { createOperationalWorkflow } from "@seqlane/runtime/operational-host";
 import { describe, expect, it } from "vitest";
 
 const { default: allFeaturesWorkflow } = await import(
@@ -8,7 +10,7 @@ const { default: allFeaturesWorkflow } = await import(
 );
 
 describe("all-features workflow example", () => {
-  it("uses the complete supported Flow authoring surface", () => {
+  it("uses the Mastra-supported Flow authoring surface", () => {
     const built = buildWorkflow(allFeaturesWorkflow);
     const taskNodes = built.plan.nodes.filter((node) => node.type === "task");
     const context = taskNodes.find(
@@ -23,7 +25,9 @@ describe("all-features workflow example", () => {
     const joined = taskNodes.find(
       (node) => node.taskId === "all-features.joined",
     );
-    const repeat = built.plan.nodes.find((node) => node.type === "repeat");
+    const polish = taskNodes.find(
+      (node) => node.taskId === "all-features.polish",
+    );
 
     expect(built.plan.workflow.id).toBe("all-features");
     expect(taskNodes.map(({ taskId }) => taskId)).toEqual([
@@ -32,6 +36,7 @@ describe("all-features workflow example", () => {
       "all-features.lane",
       "all-features.policy",
       "all-features.joined",
+      "all-features.polish",
     ]);
     expect(context).toMatchObject({
       workspace: "shared",
@@ -52,21 +57,16 @@ describe("all-features workflow example", () => {
     });
     expect(joined?.dependsOn).toContain("all-features.policy:1");
 
-    expect(repeat).toMatchObject({
-      maximumIterations: 1,
-      body: {
-        nodes: [
-          { type: "task", taskId: "all-features.polish" },
-          { type: "validation.check" },
-          { type: "validation.gate", policy: "fail" },
-          { type: "validation.check", source: { type: "task" } },
-          { type: "validation.gate", policy: "repeat-postcondition" },
-        ],
-      },
+    expect(built.plan.nodes.some((node) => node.type === "repeat")).toBe(
+      false,
+    );
+    expect(polish).toMatchObject({
+      workspace: "shared",
+      taskId: "all-features.polish",
     });
     expect(built.plan.output).toMatchObject({
       validation: { type: "ref", path: ["validation"] },
-      polished: { type: "ref", nodeId: "repeat:1" },
+      polished: { type: "ref" },
     });
   });
 
@@ -89,5 +89,19 @@ describe("all-features workflow example", () => {
         },
       },
     });
+  });
+
+  it("compiles through the Mastra adapter without repeat nodes", () => {
+    const built = buildWorkflow(allFeaturesWorkflow);
+
+    expect(() =>
+      createOperationalWorkflow({
+        key: "repository:all-features",
+        plan: built.plan,
+        workflow: allFeaturesWorkflow,
+        taskDefinitions: built.taskDefinitions,
+        validatorDefinitions: built.validatorDefinitions,
+      }),
+    ).not.toThrow();
   });
 });

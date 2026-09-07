@@ -18,3 +18,5 @@ vitest.config.*.timestamp*
 opencode.json
 
 .pnpm-store
+.zvec-grep
+.seqlane/
