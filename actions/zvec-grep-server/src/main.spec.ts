@@ -32,6 +32,8 @@ describe("zvec-grep action process anchor", () => {
     process.env.GITHUB_ACTION_PATH = "/untrusted/review-target";
 
     expect(packageExecutionDirectory()).toBe(dirname(processAnchorPath()));
-    expect(packageExecutionDirectory()).not.toBe(process.env.GITHUB_ACTION_PATH);
+    expect(packageExecutionDirectory()).not.toBe(
+      process.env.GITHUB_ACTION_PATH,
+    );
   });
 });
