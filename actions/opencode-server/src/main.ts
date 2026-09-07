@@ -3,12 +3,12 @@ import { resolve } from "node:path";
 import * as core from "@actions/core";
 import {
   adoptDetachedProcess,
-  assertDirectory,
   spawnDetached,
   terminateProcessGroup,
-  waitForHttpHealth,
   type DetachedProcess,
 } from "@seqlane/action-service-lifecycle";
+import { assertDirectory } from "./filesystem.js";
+import { waitForHttpHealth } from "./readiness.js";
 
 function runnerTempPath(fileName: string): string {
   return resolve(process.env.RUNNER_TEMP ?? "/tmp", fileName);
@@ -25,12 +25,25 @@ async function saveProcessState(service: DetachedProcess): Promise<void> {
     core.saveState("pid", String(service.pid));
     core.saveState("process-group-id", String(service.identity.processGroupId));
     core.saveState("process-start-time", service.identity.processStartTime);
+    core.saveState("sentinel-pid", String(service.sentinelPid));
+    core.saveState(
+      "sentinel-process-group-id",
+      String(service.sentinelIdentity.processGroupId),
+    );
+    core.saveState(
+      "sentinel-process-start-time",
+      service.sentinelIdentity.processStartTime,
+    );
     await adoptDetachedProcess(service);
   } catch (error) {
     try {
       const stopped = await terminateProcessGroup(
         service.pid,
         service.identity,
+        {
+          pid: service.sentinelPid,
+          identity: service.sentinelIdentity,
+        },
       );
       if (!stopped) {
         core.warning(
@@ -78,7 +91,10 @@ export async function run(): Promise<void> {
     await waitForHttpHealth(`${url}/global/health`, timeoutSeconds * 1_000);
   } catch (error) {
     try {
-      await terminateProcessGroup(service.pid, service.identity);
+      await terminateProcessGroup(service.pid, service.identity, {
+        pid: service.sentinelPid,
+        identity: service.sentinelIdentity,
+      });
     } catch (cleanupError) {
       core.warning(
         `OpenCode startup cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,

@@ -27,15 +27,15 @@
       "dependsOn": ["build"],
       "options": {
         "cwd": "actions/opencode-server",
-        "command": "node --check process-anchor.js"
+        "command": "pnpm exec vitest run src/readiness.spec.ts && node --check process-anchor.js"
       }
     },
     "bundle-drift": {
       "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "cwd": ".",
-        "command": "git diff --exit-code -- actions/opencode-server/dist/"
+        "cwd": "actions/opencode-server",
+        "command": "tmpdir=$(mktemp -d) && trap 'rm -rf \"$tmpdir\"' EXIT && pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --outfile=\"$tmpdir/main.js\" --minify && pnpm exec esbuild src/post.ts --bundle --platform=node --target=node24 --format=esm --outfile=\"$tmpdir/post.js\" --minify && cmp -s dist/main.js \"$tmpdir/main.js\" && cmp -s dist/post.js \"$tmpdir/post.js\""
       }
     }
   }

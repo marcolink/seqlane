@@ -1,10 +1,11 @@
 import { closeSync, openSync } from "node:fs";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+
 const sleep = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
@@ -16,7 +17,14 @@ export interface ProcessIdentity {
 export interface DetachedProcess {
   pid: number;
   identity: ProcessIdentity;
+  sentinelPid: number;
+  sentinelIdentity: ProcessIdentity;
   anchor: ChildProcess;
+}
+
+export interface ProcessMember {
+  pid: number;
+  identity: ProcessIdentity;
 }
 
 export interface SpawnDetachedOptions {
@@ -117,15 +125,6 @@ async function processIdentityMatches(
   }
 }
 
-export async function assertDirectory(directory: string): Promise<void> {
-  const details = await stat(directory);
-  if (!details.isDirectory()) {
-    throw new Error(
-      `Configured working directory is not a directory: ${directory}`,
-    );
-  }
-}
-
 export async function spawnDetached({
   command,
   args,
@@ -165,22 +164,34 @@ export async function spawnDetached({
   }
 
   let identity: ProcessIdentity | undefined;
+  let sentinelPid: number | undefined;
+  let sentinelIdentity: ProcessIdentity | undefined;
   try {
     identity = await readProcessIdentity(pid);
     if (!identity) {
       throw new Error(`Could not verify the identity for ${command}`);
     }
-    await anchorReady;
-    return { pid, identity, anchor: child };
+    sentinelPid = await anchorReady;
+    sentinelIdentity = await readProcessIdentity(sentinelPid);
+    if (
+      !sentinelIdentity ||
+      sentinelIdentity.processGroupId !== identity.processGroupId
+    ) {
+      throw new Error(`Could not verify the sentinel identity for ${command}`);
+    }
+    return { pid, identity, sentinelPid, sentinelIdentity, anchor: child };
   } catch (error) {
-    await terminateFailedAnchor(child, pid, identity);
+    await terminateFailedAnchor(child, pid, identity, {
+      pid: sentinelPid,
+      identity: sentinelIdentity,
+    });
     throw new Error(`Could not start anchored process for ${command}`, {
       cause: error,
     });
   }
 }
 
-function waitForAnchorReady(child: ChildProcess): Promise<void> {
+function waitForAnchorReady(child: ChildProcess): Promise<number> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const timeout = setTimeout(() => {
@@ -204,7 +215,15 @@ function waitForAnchorReady(child: ChildProcess): Promise<void> {
         "type" in message &&
         message.type === "ready"
       ) {
-        finish(resolve as (value?: unknown) => void);
+        const sentinelPid =
+          "sentinelPid" in message
+            ? positiveInteger(message.sentinelPid)
+            : undefined;
+        if (!sentinelPid) {
+          finish(reject, new Error("Process anchor did not report a sentinel"));
+          return;
+        }
+        finish(resolve as (value?: unknown) => void, sentinelPid);
       } else if (
         message &&
         typeof message === "object" &&
@@ -311,11 +330,12 @@ async function terminateFailedAnchor(
   child: ChildProcess,
   pid: number,
   identity: ProcessIdentity | undefined,
+  sentinel: Partial<ProcessMember>,
 ): Promise<void> {
   disconnectAnchor(child);
   if (identity) {
     try {
-      await terminateProcessGroup(pid, identity);
+      await terminateProcessGroup(pid, identity, sentinel);
       return;
     } catch {
       // Fall through to direct anchor cleanup if group cleanup cannot run.
@@ -379,86 +399,60 @@ async function waitForProcessGroupExit(
   return !processGroupIsAlive(processGroupId);
 }
 
+function normalizeProcessMember(member: unknown): ProcessMember | undefined {
+  if (!member || typeof member !== "object") return undefined;
+  const value = member as { pid?: unknown; identity?: unknown };
+  const pid = positiveInteger(value.pid);
+  const identity = normalizeProcessIdentity(value.identity);
+  if (!pid || !identity) return undefined;
+  return { pid, identity };
+}
+
+async function findMatchingProcessMember(
+  members: readonly (ProcessMember | undefined)[],
+): Promise<ProcessMember | undefined> {
+  for (const member of members) {
+    if (!member || !processGroupIsAlive(member.identity.processGroupId)) {
+      continue;
+    }
+    if (await processIdentityMatches(member.pid, member.identity)) {
+      return member;
+    }
+  }
+  return undefined;
+}
+
 export async function terminateProcessGroup(
   pidValue: unknown,
   expectedIdentity: unknown,
+  sentinelValue?: unknown,
 ): Promise<boolean> {
   const pid = positiveInteger(pidValue);
   const identity = normalizeProcessIdentity(expectedIdentity);
-  if (!pid || !identity) return false;
-  if (!processGroupIsAlive(identity.processGroupId)) return true;
-  if (!(await processIdentityMatches(pid, identity))) return false;
+  const sentinel = normalizeProcessMember(sentinelValue);
+  const primary = pid && identity ? { pid, identity } : undefined;
+  const members = [primary, sentinel];
+  if (
+    members.every(
+      (member) =>
+        !member || !processGroupIsAlive(member.identity.processGroupId),
+    )
+  ) {
+    return true;
+  }
+  const owner = await findMatchingProcessMember(members);
+  if (!owner) return false;
 
-  if (!signalProcessGroup(identity.processGroupId, "SIGTERM")) return true;
-  if (await waitForProcessGroupExit(identity.processGroupId, 5_000)) {
+  if (!signalProcessGroup(owner.identity.processGroupId, "SIGTERM"))
+    return true;
+  if (await waitForProcessGroupExit(owner.identity.processGroupId, 5_000)) {
     return true;
   }
 
-  if (!(await processIdentityMatches(pid, identity))) return false;
-  if (!signalProcessGroup(identity.processGroupId, "SIGKILL")) return true;
-  return waitForProcessGroupExit(identity.processGroupId, 2_000);
-}
-
-export async function waitForHttpHealth(
-  url: string,
-  timeoutMilliseconds: number,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMilliseconds;
-  while (Date.now() < deadline) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2_000);
-    let response: Response | undefined;
-    try {
-      response = await fetch(url, { signal: controller.signal });
-      if (response.ok) return;
-    } catch {
-      // The service may still be starting.
-    } finally {
-      try {
-        await response?.body?.cancel();
-      } catch {
-        // Ignore body cleanup failures while the service is starting.
-      }
-      clearTimeout(timeout);
-    }
-    await sleep(1_000);
+  const killOwner = await findMatchingProcessMember(members);
+  if (!killOwner) return false;
+  if (!signalProcessGroup(killOwner.identity.processGroupId, "SIGKILL")) {
+    return true;
   }
-  throw new Error(`Service did not become ready: ${url}`);
-}
-
-export async function waitForCommandHealth(
-  check: () => Promise<void>,
-  timeoutMilliseconds: number,
-  name: string,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMilliseconds;
-  while (Date.now() < deadline) {
-    try {
-      await check();
-      return;
-    } catch {
-      // The service may still be starting.
-    }
-    await sleep(1_000);
-  }
-  throw new Error(`${name} did not become ready before the startup timeout`);
-}
-
-export async function runReadinessCommand({
-  command,
-  args,
-  cwd,
-  env,
-}: {
-  command: string;
-  args: string[];
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-}): Promise<void> {
-  await execFileAsync(command, args, {
-    cwd,
-    env,
-    maxBuffer: 1_024 * 1_024,
-    timeout: 3_000,
-  });
+  return waitForProcessGroupExit(killOwner.identity.processGroupId, 2_000);
 }

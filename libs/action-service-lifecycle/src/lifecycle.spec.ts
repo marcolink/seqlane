@@ -7,7 +7,6 @@ import {
   adoptDetachedProcess,
   spawnDetached,
   terminateProcessGroup,
-  waitForHttpHealth,
   type DetachedProcess,
 } from "./lifecycle.js";
 
@@ -27,6 +26,13 @@ async function createDirectory(): Promise<string> {
 function track(service: DetachedProcess): DetachedProcess {
   services.push(service);
   return service;
+}
+
+function sentinel(service: DetachedProcess) {
+  return {
+    pid: service.sentinelPid,
+    identity: service.sentinelIdentity,
+  };
 }
 
 async function waitForProcessExit(pid: number): Promise<void> {
@@ -72,7 +78,11 @@ async function waitForProcessId(path: string): Promise<number> {
 
 afterEach(async () => {
   for (const service of services.splice(0)) {
-    await terminateProcessGroup(service.pid, service.identity);
+    await terminateProcessGroup(
+      service.pid,
+      service.identity,
+      sentinel(service),
+    );
   }
   for (const directory of directories.splice(0)) {
     await rm(directory, { recursive: true, force: true });
@@ -97,9 +107,13 @@ describe("action service lifecycle", () => {
     await adoptDetachedProcess(service);
     expect(service.anchor.connected).toBe(false);
     expect(() => process.kill(service.pid, 0)).not.toThrow();
-    expect(await terminateProcessGroup(service.pid, service.identity)).toBe(
-      true,
-    );
+    expect(
+      await terminateProcessGroup(
+        service.pid,
+        service.identity,
+        sentinel(service),
+      ),
+    ).toBe(true);
     await waitForProcessExit(service.pid);
   }, 15_000);
 
@@ -153,17 +167,27 @@ describe("action service lifecycle", () => {
     );
 
     expect(
-      await terminateProcessGroup(service.pid, {
-        processGroupId: service.identity.processGroupId,
-        processStartTime: "not-the-recorded-process",
-      }),
+      await terminateProcessGroup(
+        service.pid,
+        {
+          processGroupId: service.identity.processGroupId,
+          processStartTime: "not-the-recorded-process",
+        },
+        {
+          pid: service.sentinelPid,
+          identity: {
+            processGroupId: service.sentinelIdentity.processGroupId,
+            processStartTime: "not-the-recorded-sentinel",
+          },
+        },
+      ),
     ).toBe(false);
     expect(() =>
       process.kill(-service.identity.processGroupId, 0),
     ).not.toThrow();
   }, 15_000);
 
-  it("refuses cleanup when the recorded leader is gone but its group remains", async () => {
+  it("cleans up through the verifier when the recorded leader is gone", async () => {
     const directory = await createDirectory();
     const childPidPath = join(directory, "child.pid");
     const service = track(
@@ -188,18 +212,18 @@ setInterval(() => {}, 1_000);`,
 
     process.kill(service.pid, "SIGKILL");
     await waitForProcessExit(service.pid);
-    expect(await terminateProcessGroup(service.pid, service.identity)).toBe(
-      false,
-    );
     expect(() => process.kill(childPid, 0)).not.toThrow();
-
-    try {
+    const terminated = await terminateProcessGroup(
+      service.pid,
+      service.identity,
+      sentinel(service),
+    );
+    if (!terminated) {
       process.kill(-service.identity.processGroupId, "SIGKILL");
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ESRCH" && code !== "EINVAL") throw error;
+      await waitForProcessGroupExit(service.identity.processGroupId);
     }
-    await waitForProcessGroupExit(service.identity.processGroupId);
+    expect(terminated).toBe(true);
+    await waitForProcessExit(childPid);
   }, 15_000);
 
   it("kills a resistant descendant after the leader exits on SIGTERM", async () => {
@@ -227,29 +251,13 @@ setInterval(() => {}, 1_000);`,
     const childPid = await waitForProcessId(childPidPath);
     expect(() => process.kill(childPid, 0)).not.toThrow();
 
-    expect(await terminateProcessGroup(service.pid, service.identity)).toBe(
-      true,
-    );
+    expect(
+      await terminateProcessGroup(
+        service.pid,
+        service.identity,
+        sentinel(service),
+      ),
+    ).toBe(true);
     await waitForProcessExit(childPid);
   }, 15_000);
-
-  it("releases failed HTTP readiness response bodies", async () => {
-    const cancelled: boolean[] = [];
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () =>
-      ({
-        ok: false,
-        body: { cancel: async () => cancelled.push(true) },
-      }) as unknown as Response;
-
-    try {
-      await expect(waitForHttpHealth("http://127.0.0.1:1", 1)).rejects.toThrow(
-        "Service did not become ready",
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-
-    expect(cancelled).toEqual([true]);
-  }, 5_000);
 });

@@ -8,7 +8,14 @@ export async function run(): Promise<void> {
     processGroupId: core.getState("process-group-id"),
     processStartTime: core.getState("process-start-time"),
   };
-  if (!(await terminateProcessGroup(pid, identity))) {
+  const sentinel = {
+    pid: core.getState("sentinel-pid"),
+    identity: {
+      processGroupId: core.getState("sentinel-process-group-id"),
+      processStartTime: core.getState("sentinel-process-start-time"),
+    },
+  };
+  if (!(await terminateProcessGroup(pid, identity, sentinel))) {
     core.warning(`zvec-grep process group ${pid} did not stop cleanly`);
   }
 }

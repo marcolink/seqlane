@@ -66,17 +66,39 @@ setInterval(() => {
   // Keep the anchor event loop alive between action steps.
 }, 60_000);
 
-const child = spawn(command, args, {
-  cwd: process.cwd(),
-  env: process.env,
-  stdio: "inherit",
-  windowsHide: true,
-});
+const sentinel = spawn(
+  process.execPath,
+  [
+    "-e",
+    'process.on("SIGTERM", () => {}); process.on("SIGINT", () => {}); process.on("SIGHUP", () => {}); setInterval(() => {}, 60_000);',
+  ],
+  {
+    cwd: process.cwd(),
+    env: process.env,
+    stdio: "ignore",
+    windowsHide: true,
+  },
+);
 
-child.once("error", (error) => {
+sentinel.once("error", (error) => {
   sendMessage({ type: "error", message: error.message }, () => process.exit(1));
 });
 
-child.once("spawn", () => {
-  sendMessage({ type: "ready" });
+sentinel.once("spawn", () => {
+  const child = spawn(command, args, {
+    cwd: process.cwd(),
+    env: process.env,
+    stdio: "inherit",
+    windowsHide: true,
+  });
+
+  child.once("error", (error) => {
+    sendMessage({ type: "error", message: error.message }, () =>
+      process.exit(1),
+    );
+  });
+
+  child.once("spawn", () => {
+    sendMessage({ type: "ready", sentinelPid: sentinel.pid });
+  });
 });
