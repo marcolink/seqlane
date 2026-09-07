@@ -70,13 +70,21 @@ function normalizeActivity(activity: OpenCodeActivity): AgentActivity {
   };
 }
 
-function createAdapterForRun(
-  resolveRun: (signal: AbortSignal) => Promise<OpenCodeRun>,
-  configuredSelection: ModelSelection | undefined,
-  sessionUi: () => Promise<string | undefined>,
-  hasSessionUi: boolean,
-  onCancellation?: () => void,
-): AgentAdapter {
+interface CreateAdapterForRunOptions {
+  readonly resolveRun: (signal: AbortSignal) => Promise<OpenCodeRun>;
+  readonly configuredSelection?: ModelSelection;
+  readonly sessionUi: () => Promise<string | undefined>;
+  readonly hasSessionUi: boolean;
+  readonly onRunInvalidated?: () => void;
+}
+
+function createAdapterForRun({
+  resolveRun,
+  configuredSelection,
+  sessionUi,
+  hasSessionUi,
+  onRunInvalidated,
+}: CreateAdapterForRunOptions): AgentAdapter {
   return {
     capabilities: {
       execute: true,
@@ -132,7 +140,7 @@ function createAdapterForRun(
             onActivity: (activity) =>
               request.onActivity?.(normalizeActivity(activity)),
             onUncertainActivity: request.onUncertainActivity,
-            onBackgroundProcess: request.onBackgroundProcess,
+            onRunInvalidated,
           });
           if (response.metrics !== undefined) {
             request.onMetrics?.(response.metrics);
@@ -189,7 +197,7 @@ function createAdapterForRun(
           }
         }
       } finally {
-        if (request.signal.aborted) onCancellation?.();
+        if (request.signal.aborted) onRunInvalidated?.();
       }
     },
 
@@ -200,12 +208,21 @@ function createAdapterForRun(
       const child = await (
         await resolveRun(new AbortController().signal)
       ).fork(checkpoint, modelSelection ?? configuredSelection);
-      return createAdapterForRun(
-        () => Promise.resolve(child),
-        modelSelection ?? configuredSelection,
-        async () => child.browserUrl,
-        child.browserUrl !== undefined,
-      );
+      let childRun: Promise<OpenCodeRun> | undefined = Promise.resolve(child);
+      const resolveChildRun = (signal: AbortSignal): Promise<OpenCodeRun> =>
+        (childRun ??= resolveRun(signal).then((parent) =>
+          parent.fork(checkpoint, modelSelection ?? configuredSelection),
+        ));
+      return createAdapterForRun({
+        resolveRun: resolveChildRun,
+        configuredSelection: modelSelection ?? configuredSelection,
+        sessionUi: async () =>
+          (await resolveChildRun(new AbortController().signal)).browserUrl,
+        hasSessionUi: child.browserUrl !== undefined,
+        onRunInvalidated: () => {
+          childRun = undefined;
+        },
+      });
     },
   };
 }
@@ -215,12 +232,22 @@ export function createOpenCodeAdapterForRun(
   run: OpenCodeRun,
   modelSelection?: ModelSelection,
 ): AgentAdapter {
-  return createAdapterForRun(
-    () => Promise.resolve(run),
-    modelSelection,
-    async () => run.browserUrl,
-    run.browserUrl !== undefined,
-  );
+  return createAdapterForRun({
+    resolveRun: () => Promise.resolve(run),
+    configuredSelection: modelSelection,
+    sessionUi: async () => run.browserUrl,
+    hasSessionUi: run.browserUrl !== undefined,
+  });
+}
+
+function composeSignals(
+  runtimeSignal: AbortSignal | undefined,
+  invocationSignal: AbortSignal,
+): AbortSignal {
+  if (runtimeSignal === undefined || runtimeSignal === invocationSignal) {
+    return invocationSignal;
+  }
+  return AbortSignal.any([runtimeSignal, invocationSignal]);
 }
 
 /** Creates the sole OpenCode task adapter backed by the OpenCode SDK. */
@@ -232,19 +259,19 @@ export function createOpenCodeAdapter(
   const resolveRun = (signal: AbortSignal): Promise<OpenCodeRun> =>
     (run ??= createOpenCodeRun(
       connection,
-      options.signal ?? signal,
+      composeSignals(options.signal, signal),
       options.modelSelection,
     ));
 
-  return createAdapterForRun(
+  return createAdapterForRun({
     resolveRun,
-    options.modelSelection,
-    async () =>
+    configuredSelection: options.modelSelection,
+    sessionUi: async () =>
       (await resolveRun(options.signal ?? new AbortController().signal))
         .browserUrl,
-    connection.browserUiUrl !== undefined,
-    () => {
+    hasSessionUi: connection.browserUiUrl !== undefined,
+    onRunInvalidated: () => {
       run = undefined;
     },
-  );
+  });
 }

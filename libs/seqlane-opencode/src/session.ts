@@ -471,6 +471,7 @@ async function createOpenCodeRunForSession(
           }
 
           if (result.type === "monitor-error") {
+            request.onRunInvalidated?.();
             promptController.abort();
             await abort().catch(() => undefined);
             throw executorError(
@@ -480,6 +481,7 @@ async function createOpenCodeRunForSession(
           }
 
           if (result.type === "interaction") {
+            request.onRunInvalidated?.();
             promptController.abort();
             await abort().catch(() => undefined);
             await promptResponse.catch(() => undefined);

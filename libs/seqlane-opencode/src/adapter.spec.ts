@@ -125,13 +125,11 @@ describe("OpenCode AgentAdapter", () => {
     expect(metrics).toHaveLength(1);
   });
 
-  it("forwards uncertain activity and background process callbacks", async () => {
+  it("forwards uncertain activity callbacks", async () => {
     const termination = Promise.resolve();
     const uncertainActivities: unknown[] = [];
-    const backgroundProcesses: unknown[] = [];
     const run = createRun(async (prompt) => {
       prompt.onUncertainActivity?.({ reason: "disconnect", termination });
-      prompt.onBackgroundProcess?.({ mutatesWorkspace: true, termination });
       return { structured: { result: "done" } };
     });
     const adapter = createOpenCodeAdapterForRun(run);
@@ -140,7 +138,6 @@ describe("OpenCode AgentAdapter", () => {
       adapter.execute(
         request({
           onUncertainActivity: (activity) => uncertainActivities.push(activity),
-          onBackgroundProcess: (process) => backgroundProcesses.push(process),
         }),
       ),
     ).resolves.toEqual({ result: "done" });
@@ -148,12 +145,41 @@ describe("OpenCode AgentAdapter", () => {
     expect(uncertainActivities).toEqual([
       { reason: "disconnect", termination },
     ]);
-    expect(backgroundProcesses).toEqual([
-      { mutatesWorkspace: true, termination },
-    ]);
+  });
+
+  it("cancels pending session creation with the invocation signal", async () => {
+    vi.clearAllMocks();
+    const runtimeController = new AbortController();
+    const invocationController = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    vi.mocked(createOpenCodeRun).mockImplementationOnce(
+      (_connection, signal) => {
+        receivedSignal = signal;
+        return new Promise<OpenCodeRun>((_resolve, reject) => {
+          const onAbort = () => reject(new Error("session creation cancelled"));
+          if (signal?.aborted) onAbort();
+          else signal?.addEventListener("abort", onAbort, { once: true });
+        });
+      },
+    );
+    const adapter = createOpenCodeAdapter(
+      { url: "http://opencode.test" },
+      { signal: runtimeController.signal },
+    );
+
+    const execution = adapter.execute(
+      request({ signal: invocationController.signal }),
+    );
+    expect(receivedSignal).toBeDefined();
+    invocationController.abort();
+
+    await expect(execution).rejects.toThrow("session creation cancelled");
+    expect(receivedSignal?.aborted).toBe(true);
+    expect(runtimeController.signal.aborted).toBe(false);
   });
 
   it("replaces a cached run after cancellation before the next invocation", async () => {
+    vi.clearAllMocks();
     const firstController = new AbortController();
     let resolvePromptStarted!: () => void;
     const promptStarted = new Promise<void>((resolve) => {
@@ -191,10 +217,69 @@ describe("OpenCode AgentAdapter", () => {
     expect(createOpenCodeRun).toHaveBeenCalledTimes(2);
   });
 
+  it("reuses a replacement run after interaction invalidation", async () => {
+    vi.clearAllMocks();
+    const invalidatedRun = createRun(async (prompt) => {
+      prompt.onRunInvalidated?.();
+      throw new InteractionRequiredError("user-input");
+    });
+    const replacementRun = createRun(async () => ({
+      structured: { result: "replacement" },
+    }));
+    vi.mocked(createOpenCodeRun)
+      .mockResolvedValueOnce(invalidatedRun)
+      .mockResolvedValueOnce(replacementRun);
+    const adapter = createOpenCodeAdapter({ url: "http://opencode.test" });
+
+    await expect(adapter.execute(request())).rejects.toMatchObject({
+      name: "InteractionRequiredError",
+    });
+    await expect(adapter.execute(request())).resolves.toEqual({
+      result: "replacement",
+    });
+    expect(createOpenCodeRun).toHaveBeenCalledTimes(2);
+  });
+
+  it("recreates a forked run after cancellation before reuse", async () => {
+    const cancelledChild = createRun(
+      (prompt) =>
+        new Promise<never>((_resolve, reject) => {
+          const onAbort = () => reject(new Error("cancelled"));
+          if (prompt.signal?.aborted) onAbort();
+          else
+            prompt.signal?.addEventListener("abort", onAbort, { once: true });
+        }),
+    );
+    const replacementChild = createRun(async () => ({
+      structured: { result: "replacement" },
+    }));
+    const parent = {
+      ...createRun(async () => ({ structured: { result: "parent" } })),
+      fork: vi
+        .fn<OpenCodeRun["fork"]>()
+        .mockResolvedValueOnce(cancelledChild)
+        .mockResolvedValueOnce(replacementChild),
+    } satisfies OpenCodeRun;
+    const adapter = createOpenCodeAdapterForRun(parent);
+    const forked = await adapter.fork?.({
+      checkpoint: { sessionId: "session-1", messageId: "message-1" },
+    });
+    if (forked === undefined) throw new Error("Forked adapter was not created");
+    const controller = new AbortController();
+    const cancelled = forked.execute(request({ signal: controller.signal }));
+    controller.abort();
+
+    await expect(cancelled).rejects.toThrow("cancelled");
+    await expect(forked.execute(request())).resolves.toEqual({
+      result: "replacement",
+    });
+    expect(parent.fork).toHaveBeenCalledTimes(2);
+  });
+
   it("validates and repairs prompt-mode structured output", async () => {
     let attempts = 0;
     const run = createRun(
-      async (prompt) => {
+      async () => {
         attempts += 1;
         return attempts === 1
           ? { structured: undefined, text: "not json" }
