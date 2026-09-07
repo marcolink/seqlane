@@ -109,9 +109,38 @@ describe("OpenCode AgentAdapter", () => {
         name: "filesystem.read",
         state: "succeeded",
         output: "ok",
+        metadata: { private: true },
+        startedAt: 1,
+        endedAt: 2,
       },
     ]);
     expect(metrics).toHaveLength(1);
+  });
+
+  it("forwards uncertain activity and background process callbacks", async () => {
+    const termination = Promise.resolve();
+    const uncertainActivities: unknown[] = [];
+    const backgroundProcesses: unknown[] = [];
+    const run = createRun(async (prompt) => {
+      prompt.onUncertainActivity?.({ reason: "disconnect", termination });
+      prompt.onBackgroundProcess?.({ mutatesWorkspace: true });
+      return { structured: { result: "done" } };
+    });
+    const adapter = createOpenCodeAdapterForRun(run);
+
+    await expect(
+      adapter.execute(
+        request({
+          onUncertainActivity: (activity) => uncertainActivities.push(activity),
+          onBackgroundProcess: (process) => backgroundProcesses.push(process),
+        }),
+      ),
+    ).resolves.toEqual({ result: "done" });
+
+    expect(uncertainActivities).toEqual([
+      { reason: "disconnect", termination },
+    ]);
+    expect(backgroundProcesses).toEqual([{ mutatesWorkspace: true }]);
   });
 
   it("validates and repairs prompt-mode structured output", async () => {

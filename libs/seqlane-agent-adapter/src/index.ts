@@ -14,12 +14,25 @@ export interface AgentActivity {
   readonly state: AgentActivityState;
   readonly input?: unknown;
   readonly output?: unknown;
+  readonly metadata?: unknown;
+  readonly startedAt?: number;
+  readonly endedAt?: number;
   readonly message?: string;
 }
 
 export interface AgentDiagnostic {
   readonly code: string;
   readonly message: string;
+}
+
+export interface AgentUncertainActivity {
+  readonly reason: "timeout" | "disconnect";
+  readonly termination?: Promise<unknown>;
+}
+
+export interface AgentBackgroundProcess {
+  readonly mutatesWorkspace: boolean;
+  readonly termination?: Promise<unknown>;
 }
 
 export interface AgentAdapterCapabilities {
@@ -42,6 +55,10 @@ export interface AgentAdapterRequest {
   readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
   readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
   readonly onActivity?: (activity: AgentActivity) => void;
+  /** Reports an external request whose termination cannot be confirmed. */
+  readonly onUncertainActivity?: (activity: AgentUncertainActivity) => void;
+  /** Reports a background process started by the adapter. */
+  readonly onBackgroundProcess?: (process: AgentBackgroundProcess) => void;
 }
 
 export interface AgentAdapter {

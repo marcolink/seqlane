@@ -61,6 +61,11 @@ function normalizeActivity(activity: OpenCodeActivity): AgentActivity {
     state: activity.state,
     ...(activity.input === undefined ? {} : { input: activity.input }),
     ...(activity.output === undefined ? {} : { output: activity.output }),
+    ...(activity.metadata === undefined ? {} : { metadata: activity.metadata }),
+    ...(activity.startedAt === undefined
+      ? {}
+      : { startedAt: activity.startedAt }),
+    ...(activity.endedAt === undefined ? {} : { endedAt: activity.endedAt }),
     ...(activity.message === undefined ? {} : { message: activity.message }),
   };
 }
@@ -123,6 +128,8 @@ function createAdapterForRun(
           signal: request.signal,
           onActivity: (activity) =>
             request.onActivity?.(normalizeActivity(activity)),
+          onUncertainActivity: request.onUncertainActivity,
+          onBackgroundProcess: request.onBackgroundProcess,
         });
         if (response.metrics !== undefined) {
           request.onMetrics?.(response.metrics);

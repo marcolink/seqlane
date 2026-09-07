@@ -114,6 +114,8 @@ export function executeAgentAdapterRequest(
     onMetrics: request.onMetrics,
     onDiagnostic: (diagnostic) => request.onDiagnostic?.(diagnostic.message),
     onActivity: request.onActivity,
+    onUncertainActivity: request.onUncertainActivity,
+    onBackgroundProcess: request.onBackgroundProcess,
   });
 }
 

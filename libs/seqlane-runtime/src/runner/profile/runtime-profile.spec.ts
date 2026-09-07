@@ -147,6 +147,46 @@ describe("resolveRuntimeProfile", () => {
     expect(received).not.toHaveProperty("modelSelection");
   });
 
+  it("forwards lifecycle callbacks through the private adapter boundary", async () => {
+    const source = task("source", "shared");
+    const tasks: TaskDefinitionRegistry = new Map([[source.id, source]]);
+    const termination = Promise.resolve();
+    const uncertainActivities: unknown[] = [];
+    const backgroundProcesses: unknown[] = [];
+    const adapter: AgentAdapter = {
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: true,
+        checkpoint: false,
+        fork: false,
+        activity: true,
+        sessionUi: false,
+      },
+      execute: async (received) => {
+        received.onUncertainActivity?.({ reason: "timeout", termination });
+        received.onBackgroundProcess?.({ mutatesWorkspace: true });
+        return { value: "done" };
+      },
+    };
+    const request: ExecutorRequest = {
+      invocationId: "invocation:source",
+      taskId: source.id,
+      executor: "agent",
+      input: null,
+      signal: new AbortController().signal,
+      onUncertainActivity: (activity) => uncertainActivities.push(activity),
+      onBackgroundProcess: (process) => backgroundProcesses.push(process),
+    };
+
+    await expect(
+      executeAgentAdapterRequest(adapter, tasks, undefined, request),
+    ).resolves.toEqual({ value: "done" });
+    expect(uncertainActivities).toEqual([{ reason: "timeout", termination }]);
+    expect(backgroundProcesses).toEqual([{ mutatesWorkspace: true }]);
+  });
+
   it("resolves local workspace resources without contacting OpenCode", async () => {
     const local: TaskDefinition = {
       id: "local-task",
