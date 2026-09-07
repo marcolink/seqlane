@@ -29,7 +29,7 @@ describe("action resolution errors", () => {
       "PUSH_REFUSED",
       "The resolved pull request could not be pushed.",
       {
-        stderr: `remote: \u001b[31mhttps://user:password@example.com/repo.git\u001b[0m\n${"x".repeat(2_000)}`,
+        stderr: `remote: \u001b[31mhttps://user:password@example.com/repo.git\u001b[0m\u0085\n${"x".repeat(2_000)}`,
       },
     );
 
@@ -43,10 +43,12 @@ describe("action resolution errors", () => {
       Array.from(details.diagnostic ?? "").some((character) => {
         const codePoint = character.codePointAt(0);
         return (
-          codePoint !== undefined && (codePoint <= 31 || codePoint === 127)
+          codePoint !== undefined &&
+          (codePoint <= 31 || (codePoint >= 127 && codePoint <= 159))
         );
       }),
     ).toBe(false);
+    expect(details.diagnostic).not.toContain("\u0085");
     expect(details.diagnostic?.length).toBeLessThanOrEqual(1_025);
     expect(details.diagnostic?.endsWith("…")).toBe(true);
   });

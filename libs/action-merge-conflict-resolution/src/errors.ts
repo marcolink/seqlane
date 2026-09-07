@@ -86,7 +86,8 @@ const ansiCsiSequence = new RegExp(
 function replaceControlCharacters(value: string): string {
   return Array.from(value, (character) => {
     const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 31 || codePoint === 127)
+    return codePoint !== undefined &&
+      (codePoint <= 31 || (codePoint >= 127 && codePoint <= 159))
       ? " "
       : character;
   }).join("");

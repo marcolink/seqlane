@@ -37,4 +37,25 @@ describe("lazy Action agent port", () => {
     expect(factoryCalls).toBe(1);
     expect(events).toEqual(["start", "resolve", "stop"]);
   });
+
+  it("retries cleanup after a rejected stop", async () => {
+    const cleanupError = new Error("cleanup failed");
+    let stopCalls = 0;
+    const runner: AgentRunnerPort = {
+      start: async () => undefined,
+      resolve: async () => undefined,
+      stop: async () => {
+        stopCalls += 1;
+        if (stopCalls === 1) throw cleanupError;
+      },
+    };
+    const port = createLazyAgentPort(() => runner);
+
+    await port.start?.();
+    await expect(port.stop?.()).rejects.toBe(cleanupError);
+    await expect(port.stop?.()).resolves.toBeUndefined();
+    await port.stop?.();
+
+    expect(stopCalls).toBe(2);
+  });
 });

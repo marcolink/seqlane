@@ -9,6 +9,7 @@ export function createLazyAgentPort(
   let runner: AgentRunnerPort | undefined;
   let started = false;
   let stopped = true;
+  let stopping: Promise<void> | undefined;
 
   const getRunner = (): AgentRunnerPort => {
     runner ??= factory();
@@ -34,9 +35,18 @@ export function createLazyAgentPort(
     stop: async () => {
       const current = runner;
       if (current === undefined || stopped) return;
-      stopped = true;
-      started = false;
-      await current.stop?.();
+      if (stopping !== undefined) return stopping;
+
+      stopping = (async () => {
+        try {
+          await current.stop?.();
+          stopped = true;
+          started = false;
+        } finally {
+          stopping = undefined;
+        }
+      })();
+      return stopping;
     },
   };
 }
