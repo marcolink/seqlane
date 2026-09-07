@@ -1,0 +1,39 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "action-setup-opencode",
+  "projectType": "application",
+  "sourceRoot": "actions/setup-opencode/src",
+  "targets": {
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "actions/setup-opencode",
+        "command": "tsc --noEmit --project tsconfig.json"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "actions/setup-opencode",
+        "command": "pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=dist/main.js --minify"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "actions/setup-opencode",
+        "command": "pnpm exec vitest run src"
+      }
+    },
+    "bundle-drift": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "actions/setup-opencode",
+        "command": "tmpdir=$(mktemp -d) && trap 'rm -rf \"$tmpdir\"' EXIT && pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=\"$tmpdir/main.js\" --minify && cmp -s dist/main.js \"$tmpdir/main.js\""
+      }
+    }
+  }
+}

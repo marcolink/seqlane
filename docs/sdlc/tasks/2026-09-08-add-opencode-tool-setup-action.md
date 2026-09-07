@@ -1,7 +1,7 @@
 ---
 id: task.add-opencode-tool-setup-action
 title: Add the OpenCode Tool Setup Action
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
@@ -124,7 +124,17 @@ credentials, a target checkout, or a real review output during verification.
 
 ## Outcome
 
-This task is planned. No Setup Action implementation is complete.
+Implemented `actions/setup-opencode` as a Node 24 JavaScript Action. It
+validates exact versions and supported runner platforms, reads and validates
+the requested GitHub release metadata, verifies archive SHA-256 digests before
+extraction, places and verifies the executable with `@actions/tool-cache`,
+and uses an exact best-effort `@actions/cache` entry for the verified tool
+directory. The Action publishes only the absolute verified executable path and
+keeps all installation behavior outside the reviewed checkout.
+
+Focused tests, typecheck, lint, bundle generation, bundle-drift, YAML parsing,
+test mapping, documentation validation, and diff checks passed. A smoke test
+also downloaded, verified, installed, and executed OpenCode `1.18.27`.
 
 ## Traceability
 

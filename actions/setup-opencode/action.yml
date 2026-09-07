@@ -1,0 +1,15 @@
+name: Set up OpenCode
+description: Install and verify one exact OpenCode release
+
+inputs:
+  version:
+    description: Exact OpenCode release version to install
+    required: true
+
+outputs:
+  executable:
+    description: Absolute path to the verified OpenCode executable
+
+runs:
+  using: node24
+  main: dist/main.js
