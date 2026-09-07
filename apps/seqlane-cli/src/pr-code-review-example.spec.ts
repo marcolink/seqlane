@@ -597,6 +597,27 @@ describe("pull-request code review example workflow", () => {
     );
   });
 
+  it("documents the generated dist review boundary", () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "pr-code-review.correctness",
+    );
+    if (task === undefined) throw new Error("Expected correctness task");
+
+    expect(task.instructions).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "generated dist contents (every **/dist/** path)",
+        ),
+        expect.stringContaining(
+          "do not read lockfile contents or claim that excluded dist contents were reviewed",
+        ),
+        expect.stringContaining(
+          "validate the corresponding source and build metadata, and require recorded artifact or bundle drift verification where relevant",
+        ),
+      ]),
+    );
+  });
+
   it("normalizes review history and authorizes disposition commands", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "pr-code-review.review-context",
@@ -1379,8 +1400,15 @@ describe("pull-request code review example workflow", () => {
     const responses = [
       { exitCode: 0, stdout: `${headRevision}\n`, stderr: "" },
       { exitCode: 0, stdout: "", stderr: "" },
-      { exitCode: 0, stdout: "M\tsrc/review.ts\n", stderr: "" },
-      { exitCode: 0, stdout: " 1 file changed, 1 insertion(+)\n", stderr: "" },
+      {
+        exitCode: 0,
+        stdout:
+          "M\tactions/resolve-merge-conflicts/dist/main.js\n" +
+          "M\tpackages/example/dist/index.js\n" +
+          "M\tsrc/review.ts\n",
+        stderr: "",
+      },
+      { exitCode: 0, stdout: " 3 files changed, 1 insertion(+)\n", stderr: "" },
       { exitCode: 0, stdout: patchText, stderr: "" },
       {
         exitCode: 2,
@@ -1439,14 +1467,19 @@ describe("pull-request code review example workflow", () => {
     expect(requests[4]?.args?.[1]).toContain(
       "':(exclude,glob)**/package-lock.json'",
     );
+    expect(requests[4]?.args?.[1]).toContain("':(exclude,glob)**/dist/**'");
     expect(requests[5]?.args?.[1]).toContain(`head -c ${8_000 + 1}`);
     expect(task.output.parse(result)).toEqual({
       baseRevision,
       headRevision,
-      changedFiles: ["src/review.ts"],
-      changedFileCount: 1,
+      changedFiles: [
+        "actions/resolve-merge-conflicts/dist/main.js",
+        "packages/example/dist/index.js",
+        "src/review.ts",
+      ],
+      changedFileCount: 3,
       changedFilesTruncated: false,
-      diffStat: " 1 file changed, 1 insertion(+)\n",
+      diffStat: " 3 files changed, 1 insertion(+)\n",
       diffStatTruncated: false,
       patch: patchText,
       patchByteLength: Buffer.byteLength(patchText),
