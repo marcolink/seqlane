@@ -8,6 +8,9 @@ import type { Mastra } from "@mastra/core/mastra";
 import type { RequestContext } from "@mastra/core/request-context";
 import type { AnyWorkflow } from "@mastra/core/workflows";
 import type { ServerContext } from "@mastra/server/server-adapter";
+import type { RuntimeProfileReference } from "@seqlane/core";
+import { runtimeProfileReferenceSchema } from "@seqlane/core";
+import { z } from "zod";
 
 export const MCP_SERVER_ID = "seqlane-workflows";
 const MCP_ABORT_SIGNAL_CONTEXT_KEY = "seqlane.mcp.abortSignal";
@@ -22,6 +25,7 @@ export interface MastraServerRequestContext {
 export interface MastraMcpInvocation {
   readonly workflowKey: string;
   readonly input: unknown;
+  readonly runtime?: RuntimeProfileReference;
   // Preserve the caller's RequestContext schema across the private boundary.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly requestContext: RequestContext<any>;
@@ -36,6 +40,11 @@ export interface MastraMcpDispatcherOptions {
   readonly maxConcurrent?: number;
   readonly maxQueued?: number;
   readonly deadlineMs?: number;
+}
+
+export interface MastraServerOptions {
+  /** Adds the server-owned runtime profile envelope to workflow MCP tools. */
+  readonly runtimeProfileInput?: boolean;
 }
 
 interface QueuedMcpInvocation {
@@ -224,6 +233,7 @@ export function registerMastraServer(
   workflows: Record<string, AnyWorkflow>,
   dispatchMcpInvocation: MastraMcpDispatcher,
   dispatcherOptions?: MastraMcpDispatcherOptions,
+  options: MastraServerOptions = {},
 ): MastraRuntimeServer {
   for (const [key, workflow] of Object.entries(workflows)) {
     if (
@@ -243,10 +253,20 @@ export function registerMastraServer(
   const tools: Record<string, ReturnType<typeof createTool>> = {};
   for (const [key, workflow] of Object.entries(workflows)) {
     const toolId = `run_${key}`;
+    const inputSchema = options.runtimeProfileInput
+      ? z.strictObject({
+          // Mastra's compiled workflow schema is a Standard Schema at this
+          // private integration edge; preserve it as the nested validator.
+          input: workflow.inputSchema as unknown as z.ZodType,
+          runtime: runtimeProfileReferenceSchema
+            .optional()
+            .default({ id: "opencode" }),
+        })
+      : workflow.inputSchema;
     tools[toolId] = createTool({
       id: toolId,
       description: `Run workflow '${key}'. Workflow description: ${workflow.description}`,
-      inputSchema: workflow.inputSchema,
+      inputSchema,
       execute: async (input, context) => {
         const abortSignal =
           context.mcp?.extra.signal ??
@@ -258,9 +278,15 @@ export function registerMastraServer(
             "MCP workflow execution requires a request-bound abort signal",
           );
         }
+        const workflowInput = options.runtimeProfileInput
+          ? (input as { input: unknown; runtime: RuntimeProfileReference })
+          : undefined;
         return boundedDispatcher.dispatchInvocation({
           workflowKey: key,
-          input,
+          input: workflowInput?.input ?? input,
+          ...(workflowInput === undefined
+            ? {}
+            : { runtime: workflowInput.runtime }),
           requestContext: context.requestContext,
           abortSignal,
         });

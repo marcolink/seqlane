@@ -1,11 +1,11 @@
 ---
 id: task.mastra-mcp-transports
 title: Run Seqlane Workflows Through Mastra MCP Transports
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-07
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -89,7 +89,15 @@ stdio and Streamable HTTP transports.
 
 ## Outcome
 
-Not started.
+The loopback Streamable HTTP transport is implemented at
+`/api/mcp/seqlane-workflows/mcp` on the operational host. It uses the shared
+operational workflow registration, exposes discovered workflows as MCP tools,
+and is covered by real MCP initialization, tool-discovery, and tool-call tests.
+Tool calls use an `input` envelope and default their optional runtime profile
+to server-owned `opencode` configuration; callers cannot provide adapter
+configuration.
+
+The `seqlane mcp` stdio transport remains outstanding.
 
 ## Traceability
 

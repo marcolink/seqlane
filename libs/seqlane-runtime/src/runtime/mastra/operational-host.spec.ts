@@ -7,8 +7,13 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Plan, PlanNode } from "@seqlane/core";
+import type { AgentAdapter } from "@seqlane/agent-adapter";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import {
+  createRuntimeAdapterRegistry,
+  type RuntimeAdapterRegistry,
+} from "../../runner/profile/runtime-adapter.js";
 import {
   createOperationalHost,
   createOperationalWorkflow,
@@ -84,8 +89,62 @@ function localRegistration(adapterConfiguration?: unknown) {
   });
 }
 
+function runtimeProfileRegistration(options: {
+  readonly adapterConfiguration?: unknown;
+  readonly adapterRegistry?: RuntimeAdapterRegistry;
+} = {}) {
+  const taskId = "investigate-renovate-failure";
+  const node: PlanNode = {
+    type: "task",
+    taskId,
+    nodeId: `${taskId}:1`,
+    workspace: "shared",
+    execution: "agent",
+    input: { type: "ref", nodeId: "__seqlane_input", path: [] },
+    dependsOn: [],
+  };
+  const input = z.object({ dependency: z.string().optional() });
+  const output = z.object({
+    files: z.array(z.string()),
+    rootCause: z.string(),
+  });
+  return createOperationalWorkflow({
+    key: "repository:runtime-profile",
+    plan: {
+      workflow: { id: "runtime-profile" },
+      nodes: [node],
+      output: { type: "ref", nodeId: node.nodeId, path: [] },
+    },
+    workflow: { input, output },
+    taskDefinitions: new Map([
+      [
+        taskId,
+        {
+          id: taskId,
+          input,
+          output,
+          goal: () => "Investigate the fixture failure",
+        },
+      ],
+    ]),
+    adapterConfiguration: options.adapterConfiguration,
+    adapterRegistry: options.adapterRegistry,
+  });
+}
+
 async function json(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
+}
+
+async function mcpJson(response: Response): Promise<Record<string, unknown>> {
+  const body = await response.text();
+  const dataLine = body
+    .split("\n")
+    .find((line) => line.startsWith("data: "));
+  return JSON.parse(dataLine?.slice("data: ".length) ?? body) as Record<
+    string,
+    unknown
+  >;
 }
 
 describe("Mastra operational host", () => {
@@ -164,6 +223,233 @@ describe("Mastra operational host", () => {
       expect(
         untrustedResponse.headers.get("access-control-allow-origin"),
       ).toBeNull();
+    } finally {
+      await host.close();
+    }
+  });
+
+  it("exposes the registered Seqlane MCP server through Mastra HTTP routes", async () => {
+    let receivedRuntimeId: string | undefined;
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async () => ({
+        files: ["package.json"],
+        rootCause: `runtime=${receivedRuntimeId}`,
+      }),
+    };
+    const adapterRegistry = createRuntimeAdapterRegistry([
+      {
+        identity: "acp",
+        resolveCapabilities: () => capabilities,
+        prepare: async () => ({}),
+        create: (_configuration, context) => {
+          receivedRuntimeId = context.requestContext?.get(
+            "seqlane.runtimeId",
+          ) as string | undefined;
+          return { createAdapter: () => adapter };
+        },
+      },
+    ]);
+    const host = await createOperationalHost({
+      workflows: [
+        runtimeProfileRegistration({
+          adapterConfiguration: {
+            adapter: "acp",
+            configuration: {
+              id: "fixture-agent",
+              description: "Fixture agent",
+              command: "fixture-agent",
+              persistSession: true,
+            },
+          },
+          adapterRegistry,
+        }),
+      ],
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+
+    try {
+      const address = await host.listen();
+
+      const servers = await fetch(`${address}/api/mcp/v0/servers`);
+      expect(servers.status).toBe(200);
+      expect(await json(servers)).toMatchObject({
+        servers: [expect.objectContaining({ id: "seqlane-workflows" })],
+      });
+
+      const tools = await fetch(`${address}/api/mcp/seqlane-workflows/tools`);
+      expect(tools.status).toBe(200);
+      expect(await json(tools)).toMatchObject({
+        tools: [
+          expect.objectContaining({ name: "run_repository:runtime-profile" }),
+        ],
+      });
+
+      const mcpUrl = `${address}/api/mcp/seqlane-workflows/mcp`;
+      const initialize = await fetch(
+        mcpUrl,
+        {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name: "seqlane-test", version: "0.0.0" },
+            },
+          }),
+        },
+      );
+      if (initialize.status !== 200) {
+        throw new Error(await initialize.clone().text());
+      }
+      expect(await mcpJson(initialize)).toMatchObject({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          serverInfo: { name: "Seqlane Workflows" },
+        },
+      });
+      const sessionId = initialize.headers.get("mcp-session-id");
+      expect(sessionId).toEqual(expect.any(String));
+
+      const listedTools = await fetch(
+        mcpUrl,
+        {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+            "mcp-session-id": sessionId ?? "",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/list",
+          }),
+        },
+      );
+      expect(listedTools.status).toBe(200);
+      expect(await mcpJson(listedTools)).toMatchObject({
+        jsonrpc: "2.0",
+        id: 2,
+        result: {
+          tools: [
+            expect.objectContaining({ name: "run_repository:runtime-profile" }),
+          ],
+        },
+      });
+
+      const defaultRuntimeCall = await fetch(mcpUrl, {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-session-id": sessionId ?? "",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/call",
+          params: {
+            name: "run_repository:runtime-profile",
+            arguments: { input: { dependency: "runtime-profile" } },
+          },
+        }),
+      });
+      expect(defaultRuntimeCall.status).toBe(200);
+      expect(await mcpJson(defaultRuntimeCall)).toMatchObject({
+        result: {
+          content: [
+            {
+              type: "text",
+              text: expect.stringContaining("runtime=opencode"),
+            },
+          ],
+        },
+      });
+
+      const calledTool = await fetch(mcpUrl, {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-session-id": sessionId ?? "",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 4,
+          method: "tools/call",
+          params: {
+            name: "run_repository:runtime-profile",
+            arguments: {
+              input: { dependency: "runtime-profile" },
+              runtime: { id: "test-fixture" },
+            },
+          },
+        }),
+      });
+      expect(calledTool.status).toBe(200);
+      expect(await mcpJson(calledTool)).toMatchObject({
+        jsonrpc: "2.0",
+        id: 4,
+        result: {
+          content: [
+            {
+              type: "text",
+              text: expect.stringContaining("Renovate"),
+            },
+          ],
+        },
+      });
+
+      const arbitraryAdapterConfig = await fetch(mcpUrl, {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-session-id": sessionId ?? "",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: {
+            name: "run_repository:runtime-profile",
+            arguments: {
+              input: { dependency: "runtime-profile" },
+              runtime: {
+                id: "opencode",
+                adapter: "opencode",
+                url: "http://attacker.invalid",
+              },
+            },
+          },
+        }),
+      });
+      expect(arbitraryAdapterConfig.status).toBe(200);
+      expect(await mcpJson(arbitraryAdapterConfig)).toMatchObject({
+        result: {
+          isError: true,
+        },
+      });
     } finally {
       await host.close();
     }
