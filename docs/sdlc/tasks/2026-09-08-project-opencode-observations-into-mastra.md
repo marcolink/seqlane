@@ -1,7 +1,7 @@
 ---
 id: task.project-opencode-observations-into-mastra
 title: Project OpenCode Observations Into Native Mastra Spans
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
@@ -236,7 +236,31 @@ The deterministic sink must prove:
 
 ## Outcome
 
-Planned. No implementation is included in this document change.
+Completed on `feature/mastra-agent-observability`, based on `mastra` at
+`d43416f`.
+
+- Added the adapter-owned OpenCode observation schemas, single event reducer,
+  and native Mastra span projector.
+- Added one `AGENT_RUN` per invocation, deduplicated model spans by
+  `(sessionID, messageID)`, and tool spans by `(messageID, callID)` with
+  model-or-agent parentage.
+- Kept terminal response parsing authoritative for structured output and
+  aggregate metrics. Its private observation reconciles matching event state
+  or creates at most one invocation fallback.
+- Added bounded identities, payload exclusion, sanitized failure and
+  cancellation closure, alias-conflict no-op behavior, and no-throw span and
+  diagnostic operations.
+- Preserved existing interaction, activity, background-process, aggregate
+  metrics, structured-output repair, session, and cancellation behavior.
+
+Focused OpenCode tests pass with 93 tests. Test mapping, complete tests, lint,
+build, Nx sync, documentation validation, and diff checks pass. The direct
+`@mastra/core` 1.64.0 dependency and `@opencode-ai/sdk` 1.18.27 contract were
+verified from installed declarations. Repository-wide typecheck and format
+checks retain only the pre-existing failures from the unchanged `mastra`
+baseline: PR-review example type errors, plus formatting in
+`apps/seqlane-cli/src/all-features-example.spec.ts` and
+`libs/seqlane-runtime/src/runtime/mastra/operational-host.spec.ts`.
 
 ## Traceability
 

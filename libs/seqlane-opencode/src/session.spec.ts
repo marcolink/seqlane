@@ -481,6 +481,45 @@ async function closeServer(server: Server): Promise<void> {
 }
 
 describe("OpenCode run session", () => {
+  it("keeps terminal observations out of the streamed event callback", async () => {
+    const fake = await startServer();
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const onObservation = vi.fn();
+
+      await run.prompt({
+        text: "task",
+        schema: { type: "object" },
+        onObservation,
+      });
+
+      expect(onObservation).not.toHaveBeenCalled();
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("returns the validated terminal observation for adapter reconciliation", async () => {
+    const fake = await startServer();
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const result = await run.prompt({
+        text: "task",
+        schema: { type: "object" },
+      });
+
+      expect(result.observation).toMatchObject({
+        kind: "assistant",
+        sessionID: "session-1",
+        messageID: "message-session-1",
+        provider: "fake-provider",
+        model: "fake-model",
+      });
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
   it("binds a session to its configured workspace", async () => {
     const fake = await startServer();
     try {
@@ -527,6 +566,10 @@ describe("OpenCode run session", () => {
       expect(results).toEqual([
         {
           structured: { session: "session-1" },
+          observation: expect.objectContaining({
+            sessionID: "session-1",
+            messageID: "message-session-1",
+          }),
           metrics: {
             durationMs: 1,
             model: "fake-model",
@@ -544,6 +587,10 @@ describe("OpenCode run session", () => {
         },
         {
           structured: { session: "session-1" },
+          observation: expect.objectContaining({
+            sessionID: "session-1",
+            messageID: "message-session-1",
+          }),
           metrics: {
             durationMs: 1,
             model: "fake-model",
@@ -938,6 +985,10 @@ describe("OpenCode run session", () => {
         first.prompt({ text: "first", schema: {} }),
       ).resolves.toEqual({
         structured: { session: "session-1" },
+        observation: expect.objectContaining({
+          sessionID: "session-1",
+          messageID: "message-session-1",
+        }),
         metrics: {
           durationMs: 1,
           model: "fake-model",
@@ -957,6 +1008,10 @@ describe("OpenCode run session", () => {
         second.prompt({ text: "second", schema: {} }),
       ).resolves.toEqual({
         structured: { session: "session-2" },
+        observation: expect.objectContaining({
+          sessionID: "session-2",
+          messageID: "message-session-2",
+        }),
         metrics: {
           durationMs: 1,
           model: "fake-model",

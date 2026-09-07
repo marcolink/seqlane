@@ -20,19 +20,12 @@ import {
   type StructuredOutputState,
 } from "./structured-output-strategy.js";
 import { isNativeReadbackCompatibilityError } from "./structured-output-compatibility.js";
-
-const eventEnvelopeSchema = z.looseObject({
-  type: z.string(),
-  properties: z.record(z.string(), z.unknown()).optional(),
-  data: z.record(z.string(), z.unknown()).optional(),
-});
-
-const interactionEventTypes = new Set([
-  "permission.asked",
-  "permission.v2.asked",
-  "question.asked",
-  "question.v2.asked",
-]);
+import {
+  parseOpenCodeEvent,
+  type OpenCodeLegacyToolObservation,
+  type OpenCodeEventObservation,
+  type OpenCodeToolObservation,
+} from "./observations.js";
 
 const checkpointSchema = z.object({
   sessionId: z.string().min(1),
@@ -44,44 +37,12 @@ const structuredOutputStates = new WeakMap<
   StructuredOutputState
 >();
 
-function eventDetails(
-  value: unknown,
-):
-  | { readonly type: string; readonly details: Record<string, unknown> }
-  | undefined {
-  const parsed = eventEnvelopeSchema.safeParse(value);
-  if (!parsed.success) return undefined;
-  const details = parsed.data.properties ?? parsed.data.data;
-  return details === undefined
-    ? undefined
-    : { type: parsed.data.type, details };
-}
-
 function stringField(
   details: Record<string, unknown>,
   key: string,
 ): string | undefined {
   const value = details[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function recordField(
-  details: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> | undefined {
-  const value = details[key];
-  const parsed = z.record(z.string(), z.unknown()).safeParse(value);
-  return parsed.success ? parsed.data : undefined;
-}
-
-function finiteNumberField(
-  details: Record<string, unknown> | undefined,
-  key: string,
-): number | undefined {
-  const value = details?.[key];
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
 }
 
 interface ActivityIdentity {
@@ -103,158 +64,55 @@ function activityIdentity(
   return name === undefined ? undefined : { kind: "skill", name };
 }
 
-function toolActivityFromEvent(
-  value: unknown,
-  sessionID: string,
+function activityFromToolObservation(
+  observation: OpenCodeToolObservation | OpenCodeLegacyToolObservation,
   activityIdentities: Map<string, ActivityIdentity>,
 ): OpenCodeActivity | undefined {
-  const event = eventDetails(value);
-  if (event === undefined) return undefined;
-  if (stringField(event.details, "sessionID") !== sessionID) return undefined;
-
-  if (event.type === "message.part.updated") {
-    const part = z
-      .looseObject({
-        type: z.literal("tool"),
-        callID: z.string().min(1),
-        tool: z.string().min(1),
-        state: z.looseObject({
-          status: z.enum(["pending", "running", "completed", "error"]),
-          input: z.record(z.string(), z.unknown()).optional(),
-          output: z.string().optional(),
-          metadata: z.record(z.string(), z.unknown()).optional(),
-          time: z
-            .object({
-              start: z.number().finite().optional(),
-              end: z.number().finite().optional(),
-            })
-            .optional(),
-        }),
-      })
-      .safeParse(event.details.part);
-    if (!part.success) return undefined;
-    const identity = activityIdentity(
-      part.data.tool,
-      part.data.state.input,
-      part.data.state.metadata,
-      activityIdentities.get(part.data.callID),
-    );
-    if (
-      identity === undefined ||
-      part.data.callID.length > 256 ||
-      identity.name.length > 256
-    ) {
-      return undefined;
-    }
-    activityIdentities.set(part.data.callID, identity);
-    const state =
-      part.data.state.status === "pending" ||
-      part.data.state.status === "running"
-        ? "started"
-        : part.data.state.status === "completed"
-          ? "succeeded"
-          : "failed";
-    return {
-      activityId: part.data.callID,
-      kind: identity.kind,
-      name: identity.name,
-      state,
-      ...(part.data.state.input === undefined
-        ? {}
-        : { input: part.data.state.input }),
-      ...(part.data.state.output === undefined
-        ? {}
-        : { output: part.data.state.output }),
-      ...(part.data.state.metadata === undefined
-        ? {}
-        : { metadata: part.data.state.metadata }),
-      ...(part.data.state.time?.start === undefined
-        ? {}
-        : { startedAt: part.data.state.time.start }),
-      ...(part.data.state.time?.end === undefined
-        ? {}
-        : { endedAt: part.data.state.time.end }),
-      ...(state === "failed" ? { message: "Tool failed" } : {}),
-    };
-  }
-
-  const callID = stringField(event.details, "callID");
-  const eventTool =
-    stringField(event.details, "tool") ?? stringField(event.details, "name");
-  if (callID === undefined) return undefined;
-  const input = recordField(event.details, "input");
-  const metadata = recordField(event.details, "metadata");
+  const callID = observation.callID;
   const identity =
-    eventTool === undefined
+    observation.tool === undefined
       ? activityIdentities.get(callID)
       : activityIdentity(
-          eventTool,
-          input,
-          metadata,
+          observation.tool,
+          observation.input,
+          observation.metadata,
           activityIdentities.get(callID),
         );
   if (
     identity === undefined ||
     callID.length > 256 ||
     identity.name.length > 256
-  ) {
+  )
     return undefined;
-  }
   activityIdentities.set(callID, identity);
-
   const state =
-    event.type === "session.next.tool.called" ||
-    event.type === "session.next.tool.input.started" ||
-    event.type === "session.next.tool.input.ended"
+    observation.status === "pending" ||
+    observation.status === "running" ||
+    observation.status === "called"
       ? "started"
-      : event.type === "session.next.tool.progress"
+      : observation.status === "progress"
         ? "progress"
-        : event.type === "session.next.tool.success"
+        : observation.status === "completed" || observation.status === "success"
           ? "succeeded"
-          : event.type === "session.next.tool.failed"
-            ? "failed"
-            : undefined;
-  if (state === undefined) return undefined;
-
-  const output =
-    event.details.result ?? event.details.structured ?? event.details.content;
+          : "failed";
   return {
     activityId: callID,
     kind: identity.kind,
     name: identity.name,
     state,
-    ...(input === undefined ? {} : { input }),
-    ...(output === undefined ? {} : { output }),
-    ...(metadata === undefined ? {} : { metadata }),
-    ...(finiteNumberField(event.details, "timestamp") === undefined
+    ...(observation.input === undefined ? {} : { input: observation.input }),
+    ...(observation.output === undefined ? {} : { output: observation.output }),
+    ...(observation.metadata === undefined
       ? {}
-      : { startedAt: finiteNumberField(event.details, "timestamp") }),
+      : { metadata: observation.metadata }),
+    ...(observation.startedAt === undefined
+      ? {}
+      : { startedAt: observation.startedAt }),
+    ...(observation.endedAt === undefined
+      ? {}
+      : { endedAt: observation.endedAt }),
     ...(state === "failed" ? { message: "Tool failed" } : {}),
   };
-}
-
-function mutatingBackgroundProcessFromEvent(
-  value: unknown,
-  sessionID: string,
-): boolean {
-  const event = eventDetails(value);
-  if (
-    event?.type !== "session.next.shell.started" ||
-    stringField(event.details, "sessionID") !== sessionID
-  ) {
-    return false;
-  }
-  const command = stringField(event.details, "command");
-  if (
-    command === undefined ||
-    !(
-      /&\s*(?:#.*)?$/.test(command) ||
-      /(?:^|[;&|]\s*)(?:nohup|setsid)\b/.test(command)
-    )
-  ) {
-    return false;
-  }
-  return true;
 }
 
 async function waitForInteraction(
@@ -264,29 +122,53 @@ async function waitForInteraction(
   onActivity: ((activity: OpenCodeActivity) => void) | undefined,
   onUncertainActivity:
     ((activity: OpenCodeUncertainActivity) => void) | undefined,
+  onObservation: ((observation: OpenCodeEventObservation) => void) | undefined,
+  onDiagnostic: ((message: string) => void) | undefined,
 ): Promise<void> {
   const activityIdentities = new Map<string, ActivityIdentity>();
-  for await (const event of events) {
-    const parsed = eventDetails(event);
-    if (
-      parsed !== undefined &&
-      interactionEventTypes.has(parsed.type) &&
-      stringField(parsed.details, "sessionID") === sessionID
-    ) {
-      return;
+  const reportDiagnostic = (message: string): void => {
+    try {
+      onDiagnostic?.(message);
+    } catch {
+      // Diagnostics are best effort and must not affect execution.
     }
-    if (mutatingBackgroundProcessFromEvent(event, sessionID)) {
+  };
+  for await (const event of events) {
+    const parsed = parseOpenCodeEvent(event, sessionID);
+    if (parsed === undefined) {
+      reportDiagnostic("ignored malformed OpenCode event");
+      continue;
+    }
+    if (parsed.interaction) return;
+    const observation = parsed.observation;
+    if (observation !== undefined) {
+      onObservation?.(observation);
+      if (observation.kind === "tool") {
+        const activity = activityFromToolObservation(
+          observation,
+          activityIdentities,
+        );
+        if (activity !== undefined) onActivity?.(activity);
+      }
+      continue;
+    }
+    if (parsed.legacyTool !== undefined) {
+      const activity = activityFromToolObservation(
+        parsed.legacyTool,
+        activityIdentities,
+      );
+      if (activity !== undefined) onActivity?.(activity);
+    }
+    if (parsed.backgroundProcess) {
       // OpenCode's event does not expose a lifetime handle for this process.
       // Quarantine the session instead of passing an untrackable mutation into
       // the runtime.
       onUncertainActivity?.({ reason: "disconnect" });
     }
-    const activity = toolActivityFromEvent(
-      event,
-      sessionID,
-      activityIdentities,
-    );
-    if (activity !== undefined) onActivity?.(activity);
+    if (parsed.validity === "unsupported")
+      reportDiagnostic("ignored unsupported OpenCode event");
+    else if (parsed.validity === "malformed")
+      reportDiagnostic("ignored malformed OpenCode event");
   }
   if (!signal.aborted) {
     throw new OpenCodeExecutorError(
@@ -432,6 +314,8 @@ async function createOpenCodeRunForSession(
             permissionMonitorController.signal,
             request.onActivity,
             request.onUncertainActivity,
+            request.onObservation,
+            request.onDiagnostic,
           )
             .then(() => ({ type: "interaction" as const }))
             .catch((cause) => ({ type: "monitor-error" as const, cause }));
@@ -533,6 +417,9 @@ async function createOpenCodeRunForSession(
             ...(parsed.metrics === undefined
               ? {}
               : { metrics: parsed.metrics }),
+            ...(parsed.observation === undefined
+              ? {}
+              : { observation: parsed.observation }),
           };
         } finally {
           permissionMonitorController.abort();

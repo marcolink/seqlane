@@ -23,6 +23,10 @@ import type {
   OpenCodeRun,
 } from "./protocol.js";
 import { createOpenCodeRun } from "./session.js";
+import {
+  createOpenCodeObservability,
+  type OpenCodeObservabilityOutcome,
+} from "./observability.js";
 
 export interface OpenCodeAdapterOptions {
   /** Runtime-wide cancellation for session creation and session operations. */
@@ -98,9 +102,22 @@ function createAdapterForRun({
     },
 
     async execute(request: AgentAdapterRequest): Promise<unknown> {
-      const schema = toOpenCodeJsonSchema(request.task);
+      const reportDiagnostic = (code: string, message: string): void => {
+        try {
+          request.onDiagnostic?.({ code, message });
+        } catch {
+          // Diagnostics are best effort and must not affect execution.
+        }
+      };
+      const observability = createOpenCodeObservability(
+        request.observability,
+        request.invocationId,
+        (message) => reportDiagnostic("opencode-observability", message),
+      );
       let run: OpenCodeRun;
+      let outcome: OpenCodeObservabilityOutcome | undefined;
       try {
+        const schema = toOpenCodeJsonSchema(request.task);
         run = await resolveRun(request.signal);
         const selection = await run.structuredOutput?.();
         const strategy = selection?.strategy ?? "native";
@@ -140,8 +157,14 @@ function createAdapterForRun({
             onActivity: (activity) =>
               request.onActivity?.(normalizeActivity(activity)),
             onUncertainActivity: request.onUncertainActivity,
+            onObservation: observability.observe,
+            onDiagnostic: (message) =>
+              reportDiagnostic("opencode-event", message),
             onRunInvalidated,
           });
+          if (response.observation !== undefined) {
+            observability.observeTerminal(response.observation);
+          }
           if (response.metrics !== undefined) {
             request.onMetrics?.(response.metrics);
           }
@@ -196,7 +219,16 @@ function createAdapterForRun({
             );
           }
         }
+      } catch (cause) {
+        outcome = request.signal.aborted
+          ? { kind: "cancelled" }
+          : { kind: "failed" };
+        throw cause;
       } finally {
+        observability.finish(
+          outcome ??
+            (request.signal.aborted ? { kind: "cancelled" } : undefined),
+        );
         if (request.signal.aborted) onRunInvalidated?.();
       }
     },

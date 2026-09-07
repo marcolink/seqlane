@@ -24,16 +24,16 @@ separate projection specifications for their own event and lifecycle contracts.
 This is not OpenCode SDK observability. The SDK is the validated observation
 source. The Seqlane OpenCode adapter owns the projection into Mastra.
 
-The current implementation branch, `agent-adapters-05-integration-cleanup`,
-uses `@opencode-ai/sdk` 1.18.27. For each prompt attempt, it subscribes once to
-the OpenCode event stream before sending the prompt. One consumer currently
-handles interaction detection and tool activity. The terminal response is
-parsed separately by `prompt-response.ts`.
+The implementation uses `@opencode-ai/sdk` 1.18.27 and `@mastra/core` 1.64.0.
+For each prompt attempt, it subscribes once to the OpenCode event stream before
+sending the prompt. One validated reducer fans out interaction, activity,
+background-process, and native-span transitions. `prompt-response.ts` validates
+the terminal response separately and returns one private observation for
+identity reconciliation.
 
-The native Mastra bridge described here is not implemented yet. The current
-`AgentAdapterRequest` has no `observability` field and the OpenCode adapter
-does not create native spans. Contract and source feasibility are verified.
-Implementation and end-to-end Mastra metric output are not yet verified.
+`AgentAdapterRequest.observability` supplies the invocation context. The
+OpenCode adapter creates typed Mastra child spans when a current workflow-step
+span exists. It remains a no-op when tracing is absent or the aliases conflict.
 
 ## Goals
 
@@ -316,23 +316,25 @@ derived metrics. Seqlane aggregate metrics remain the execution record.
 
 ### Current evidence and verification boundary
 
-Verified on the current implementation branch:
+Verified by the current implementation and focused tests:
 
 - `@opencode-ai/sdk` is pinned to 1.18.27.
 - `session.ts` subscribes once before each prompt.
-- One current event consumer handles interaction and tool activity.
+- One event consumer validates and reduces interaction, activity,
+  background-process, model, and tool observations.
 - `prompt-response.ts` validates terminal assistant message provider, model,
   cost, tokens, timing, session, and message identity.
 - SDK v2 exposes the assistant-message and tool-part fields required for the
-  proposed projection.
+  projection.
 - `@mastra/core` 1.64.0 exposes the required span types and typed fields.
-
-Not yet verified:
-
-- `AgentAdapterRequest.observability` propagation.
-- Native Mastra span creation, update, closure, and failure isolation.
-- End-to-end native Mastra metric output for OpenCode model and tool events.
-- Event and terminal-response deduplication in a running Mastra sink.
+- `AgentAdapterRequest.observability` reaches the adapter without entering
+  public core, event, Plan, or runner contracts.
+- A deterministic span sink verifies typed agent, model, and tool hierarchy,
+  fields, deduplication, bounded payload policy, and descendant-first closure.
+- Cancellation, malformed events, alias conflict, missing tracing, terminal
+  fallback, and span-operation failures preserve the OpenCode outcome.
+- Mastra automatic metrics consume the completed typed spans. The adapter does
+  not emit duplicate native metric rows.
 
 ## Failure and edge cases
 
@@ -388,8 +390,9 @@ Tests MUST cover observable contracts and boundary behavior:
 - deterministic Mastra test storage or an equivalent sink derives expected
   native agent, tool, model duration, token, and cost-context metrics.
 
-Until these tests exist and pass, implementation and end-to-end metric support
-remain unverified.
+These tests run against the pinned adapter and Mastra type contracts. Exported
+metric availability remains subject to the configured Mastra exporter,
+storage, and sampling policy.
 
 ## Acceptance criteria
 

@@ -6,25 +6,29 @@ import {
 import { z } from "zod";
 import type { OpenCodePromptResult } from "./protocol.js";
 import { extractStructuredOutput } from "./structured-output.js";
+import { terminalObservationFromParsedResponse } from "./observations.js";
+
+const nonNegativeFinite = z.number().finite().nonnegative();
 
 const responseSchema = z.looseObject({
   info: z.looseObject({
     id: z.string().min(1),
     sessionID: z.string().min(1),
+    role: z.literal("assistant"),
     error: z.looseObject({ name: z.string() }).optional(),
     time: z.object({
-      created: z.number(),
-      completed: z.number().optional(),
+      created: nonNegativeFinite,
+      completed: nonNegativeFinite.optional(),
     }),
     modelID: z.string(),
     providerID: z.string(),
-    cost: z.number(),
+    cost: nonNegativeFinite,
     tokens: z.object({
-      total: z.number().optional(),
-      input: z.number(),
-      output: z.number(),
-      reasoning: z.number(),
-      cache: z.object({ read: z.number(), write: z.number() }),
+      total: nonNegativeFinite.optional(),
+      input: nonNegativeFinite,
+      output: nonNegativeFinite,
+      reasoning: nonNegativeFinite,
+      cache: z.object({ read: nonNegativeFinite, write: nonNegativeFinite }),
     }),
   }),
   parts: z.array(
@@ -115,6 +119,7 @@ export function parseOpenCodePromptResponse(
       strategy === "native" ? extractStructuredOutput(parsed) : undefined,
     ...(strategy === "prompt" ? { text: extractAssistantText(parsed) } : {}),
     metrics: getResponseMetrics(parsed.info),
+    observation: terminalObservationFromParsedResponse(parsed.info),
     checkpoint: {
       sessionId: parsed.info.sessionID,
       messageId: parsed.info.id,
