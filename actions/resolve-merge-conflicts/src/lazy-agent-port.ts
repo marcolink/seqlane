@@ -7,9 +7,9 @@ export function createLazyAgentPort(
   factory: () => AgentRunnerPort,
 ): AgentRunnerPort {
   let runner: AgentRunnerPort | undefined;
-  let started = false;
-  let stopped = true;
-  let stopping: Promise<void> | undefined;
+  let state: "stopped" | "starting" | "started" | "cleanup-required" =
+    "stopped";
+  let cleanupInFlight: Promise<void> | undefined;
 
   const getRunner = (): AgentRunnerPort => {
     runner ??= factory();
@@ -18,14 +18,16 @@ export function createLazyAgentPort(
 
   return {
     start: async () => {
-      if (started) return;
+      if (state === "started") return;
+      if (state === "cleanup-required") await cleanup();
       const current = getRunner();
+      state = "starting";
       try {
         await current.start?.();
-        started = true;
-        stopped = false;
+        state = "started";
       } catch (error: unknown) {
-        await current.stop?.().catch(() => undefined);
+        state = "cleanup-required";
+        await cleanup().catch(() => undefined);
         throw error;
       }
     },
@@ -34,19 +36,27 @@ export function createLazyAgentPort(
     },
     stop: async () => {
       const current = runner;
-      if (current === undefined || stopped) return;
-      if (stopping !== undefined) return stopping;
-
-      stopping = (async () => {
-        try {
-          await current.stop?.();
-          stopped = true;
-          started = false;
-        } finally {
-          stopping = undefined;
-        }
-      })();
-      return stopping;
+      if (current === undefined || state === "stopped") return;
+      return cleanup();
     },
   };
+
+  async function cleanup(): Promise<void> {
+    if (cleanupInFlight !== undefined) return cleanupInFlight;
+    const current = runner;
+    if (current === undefined || state === "stopped") return;
+
+    cleanupInFlight = (async () => {
+      try {
+        await current.stop?.();
+        state = "stopped";
+      } catch (error: unknown) {
+        state = "cleanup-required";
+        throw error;
+      } finally {
+        cleanupInFlight = undefined;
+      }
+    })();
+    return cleanupInFlight;
+  }
 }

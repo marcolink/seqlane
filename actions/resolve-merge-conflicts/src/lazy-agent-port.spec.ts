@@ -58,4 +58,26 @@ describe("lazy Action agent port", () => {
 
     expect(stopCalls).toBe(2);
   });
+
+  it("preserves a startup error and retries rejected startup cleanup", async () => {
+    const startupError = new Error("startup failed");
+    const cleanupError = new Error("cleanup failed");
+    let stopCalls = 0;
+    const runner: AgentRunnerPort = {
+      start: async () => {
+        throw startupError;
+      },
+      resolve: async () => undefined,
+      stop: async () => {
+        stopCalls += 1;
+        if (stopCalls === 1) throw cleanupError;
+      },
+    };
+    const port = createLazyAgentPort(() => runner);
+
+    await expect(port.start?.()).rejects.toBe(startupError);
+    await expect(port.stop?.()).resolves.toBeUndefined();
+
+    expect(stopCalls).toBe(2);
+  });
 });
