@@ -2,11 +2,14 @@ import type {
   AgentTaskDefinition,
   JsonValue,
   ModelSelection,
+  RunId,
   RuntimeProfileReference,
   TaskDefinitionRegistry,
 } from "@seqlane/core";
+import { randomUUID } from "node:crypto";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
 import type { AgentAdapter } from "@seqlane/agent-adapter";
+import type { RequestContext } from "@mastra/core/request-context";
 import type { ExecutorResolvers } from "../../runtime/execution/executor.js";
 import type {
   ExecutorRequest,
@@ -31,7 +34,9 @@ import {
   createRuntimeAdapterRegistry,
   loadRuntimeAdapterConfiguration,
   redactRuntimeAdapter,
+  assertRuntimeAdapterCapabilities,
   type RuntimeAdapterFactoryContext,
+  type RuntimeAdapterFactoryResult,
   type RuntimeAdapterRegistry,
 } from "./runtime-adapter.js";
 
@@ -95,6 +100,37 @@ function createSessionUiExecutor(
   };
 }
 
+const boundCheckpointSchema = z.strictObject({
+  version: z.literal(1),
+  adapter: z.string().min(1),
+  runId: z.string().min(1),
+  configurationBinding: z.string().uuid(),
+  lineageId: z.string().min(1),
+  generation: z.number().int().nonnegative(),
+  value: z.unknown(),
+});
+
+type BoundCheckpoint = z.output<typeof boundCheckpointSchema>;
+
+export class RuntimeAdapterCheckpointError extends Error {
+  constructor(readonly reason: "malformed" | "foreign" | "stale") {
+    super(`Runtime adapter checkpoint is ${reason}`);
+    this.name = "RuntimeAdapterCheckpointError";
+  }
+}
+
+interface SessionCheckpointBinding {
+  readonly adapter: string;
+  readonly runId: RunId;
+  readonly configurationBinding: string;
+  readonly capabilities: AgentAdapter["capabilities"];
+}
+
+interface SessionCheckpointState {
+  generation: number;
+  latest?: BoundCheckpoint;
+}
+
 export function executeAgentAdapterRequest(
   adapter: AgentAdapter,
   taskDefinitions: TaskDefinitionRegistry,
@@ -127,14 +163,45 @@ function createAgentSession(
   adapter: AgentAdapter,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
+  checkpointBinding: SessionCheckpointBinding,
 ): ResolvedExecutorSession {
-  const captureCheckpoint = adapter.captureCheckpoint;
+  const checkpointState: SessionCheckpointState = { generation: 0 };
+  const capture = adapter.captureCheckpoint;
+  const captureCheckpoint =
+    capture === undefined
+      ? undefined
+      : async (): Promise<BoundCheckpoint> => {
+          if (checkpointState.generation === 0) {
+            throw new RuntimeAdapterCheckpointError("stale");
+          }
+          const value = await capture();
+          const checkpoint = Object.freeze({
+            version: 1 as const,
+            adapter: checkpointBinding.adapter,
+            runId: checkpointBinding.runId,
+            configurationBinding: checkpointBinding.configurationBinding,
+            lineageId: checkpointBinding.runId + ":" + randomUUID(),
+            generation: checkpointState.generation,
+            value,
+          });
+          checkpointState.latest = checkpoint;
+          return checkpoint;
+        };
   const fork = adapter.fork;
+  const sessionAdapter: AgentAdapter = {
+    ...adapter,
+    execute: async (request) => {
+      const result = await adapter.execute(request);
+      checkpointState.generation += 1;
+      checkpointState.latest = undefined;
+      return result;
+    },
+  };
   return {
     key: Symbol("agent-adapter-session"),
     ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
     executor: createSessionUiExecutor(
-      adapter,
+      sessionAdapter,
       taskDefinitions,
       effectiveSelection,
       onSessionUiAvailable,
@@ -147,16 +214,39 @@ function createAgentSession(
       : {
           fork: async ({ checkpoint, effectiveSelection: branchSelection }) => {
             const selection = branchSelection ?? effectiveSelection;
+            const parsed = boundCheckpointSchema.safeParse(checkpoint);
+            if (!parsed.success) {
+              throw new RuntimeAdapterCheckpointError("malformed");
+            }
+            if (
+              parsed.data.adapter !== checkpointBinding.adapter ||
+              parsed.data.runId !== checkpointBinding.runId ||
+              parsed.data.configurationBinding !==
+                checkpointBinding.configurationBinding ||
+              parsed.data.lineageId !== checkpointState.latest?.lineageId
+            ) {
+              throw new RuntimeAdapterCheckpointError("foreign");
+            }
+            if (
+              checkpoint !== checkpointState.latest ||
+              parsed.data.generation !== checkpointState.generation
+            ) {
+              throw new RuntimeAdapterCheckpointError("stale");
+            }
+            const child = await fork({
+              checkpoint: parsed.data.value,
+              ...(selection === undefined ? {} : { modelSelection: selection }),
+            });
+            assertRuntimeAdapterCapabilities(
+              child,
+              checkpointBinding.capabilities,
+            );
             return createAgentSession(
               taskDefinitions,
-              await fork({
-                checkpoint,
-                ...(selection === undefined
-                  ? {}
-                  : { modelSelection: selection }),
-              }),
+              child,
               onSessionUiAvailable,
               selection,
+              checkpointBinding,
             );
           },
         }),
@@ -165,22 +255,28 @@ function createAgentSession(
 
 function createLazyAgentSession(
   taskDefinitions: TaskDefinitionRegistry,
-  createAdapter: (context: RuntimeAdapterFactoryContext) => AgentAdapter,
+  createAdapter: (
+    context: RuntimeAdapterFactoryContext,
+  ) => RuntimeAdapterFactoryResult,
   signal: AbortSignal,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
+  checkpointBinding: SessionCheckpointBinding,
 ): ResolvedExecutorSession {
-  const adapter = createAdapter({
+  const binding = createAdapter({
     signal,
     ...(effectiveSelection === undefined
       ? {}
       : { modelSelection: effectiveSelection }),
   });
+  const adapter = binding.createAdapter();
+  assertRuntimeAdapterCapabilities(adapter, checkpointBinding.capabilities);
   return createAgentSession(
     taskDefinitions,
     adapter,
     onSessionUiAvailable,
     effectiveSelection,
+    checkpointBinding,
   );
 }
 
@@ -189,6 +285,9 @@ export interface RuntimeProfileResolutionOptions {
   readonly adapterConfiguration?: unknown;
   /** Test seam and private composition-root override. */
   readonly adapterRegistry?: RuntimeAdapterRegistry;
+  readonly runId?: RunId;
+  /** Existing Mastra invocation context for operational runs. */
+  readonly requestContext?: RequestContext;
   readonly environment?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -255,27 +354,53 @@ export async function resolveRuntimeProfile(
     configurationWithWorkspace(rawConfiguration, workspacePath),
   );
   const preparation = await selected.prepare(signal);
-  const binding = selected.create({ signal, ...preparation });
+  const capabilities = selected.resolveCapabilities(preparation);
+  const binding = selected.create({
+    signal,
+    ...preparation,
+    ...(options.requestContext === undefined
+      ? {}
+      : { requestContext: options.requestContext }),
+  });
+  const checkpointBinding: SessionCheckpointBinding = {
+    adapter: selected.identity,
+    runId: options.runId ?? randomUUID(),
+    configurationBinding: selected.configurationBinding,
+    capabilities,
+  };
   const workspaceIdentities = await resolveTaskWorkspaceIdentities(
     taskDefinitions,
     workspacePath,
   );
   const workspaceResources = createWorkspaceResources(workspaceIdentities);
   const sessionResolver: SessionResolver = {
+    adapterCapabilities: capabilities,
     modelCapabilities: binding.modelCapabilities,
     resolve: async ({ effectiveSelection }): Promise<ResolvedExecutorSession> =>
       createLazyAgentSession(
         taskDefinitions,
-        (context) =>
-          redactRuntimeAdapter(
-            selected
-              .create({ ...context, signal, ...preparation })
-              .createAdapter(),
-            selected.configuration,
-          ),
+        (context) => {
+          const result = selected.create({
+            ...context,
+            signal,
+            ...preparation,
+            ...(options.requestContext === undefined
+              ? {}
+              : { requestContext: options.requestContext }),
+          });
+          return {
+            ...result,
+            createAdapter: () =>
+              redactRuntimeAdapter(
+                result.createAdapter(),
+                selected.configuration,
+              ),
+          };
+        },
         signal,
         onSessionUiAvailable,
         effectiveSelection,
+        checkpointBinding,
       ),
   };
 

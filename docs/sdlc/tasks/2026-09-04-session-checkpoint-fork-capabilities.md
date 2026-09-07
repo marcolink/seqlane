@@ -1,11 +1,11 @@
 ---
 id: task.session-checkpoint-fork-capabilities
 title: Map Session, Checkpoint, and Fork Capabilities
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-07
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
@@ -85,7 +85,27 @@ each adapter and active configuration.
 
 ## Outcome
 
-Planned.
+Completed. Added private adapter capability preflight and run/configuration
+bound checkpoint validation. Shared-session, checkpoint, and exact-fork
+requirements now fail before session resolution when unsupported, while
+OpenCode uses its native checkpoint/fork operations and ACP declares no
+checkpoint or fork support. Runtime tests, dependent typechecks, and lint
+pass.
+
+The task is delivered in [pull request 41](https://github.com/marcolink/seqlane/pull/41).
+
+Post-review repairs make OpenCode session UI capability detection depend on
+the prepared endpoint. They validate adapter operations and capabilities for
+new and forked sessions. Capability admission now occurs before model work.
+
+Follow-up repairs preserve the actual Seqlane run ID and Mastra request context
+through profile resolution. Adapter instances are now created and validated
+only for the session that uses them, and capability admission has one
+orchestration owner per execution entry point.
+
+Checkpoint configuration ownership uses an opaque per-resolution binding. It
+continues to reject foreign checkpoints without exposing a hash of private
+adapter configuration.
 
 ## Traceability
 
