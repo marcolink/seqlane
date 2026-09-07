@@ -197,3 +197,6 @@
 | [task.review-progress-and-run-metrics](./2026-09-05-review-progress-and-run-metrics.md) | Show Review Progress and Persist Run Metrics | completed | 2026-09-05 | core |
 | [task.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Apply Pull Request Review Dispositions Without Agent Runs | planned | 2026-09-06 | core |
 | [task.operational-workflow-registration-boundary](./2026-09-06-operational-workflow-registration-boundary.md) | Narrow the Operational Workflow Registration Boundary | planned | 2026-09-06 | core |
+| [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | planned | 2026-09-08 | core |
+| [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | planned | 2026-09-08 | core |
+| [task.propagate-mastra-observability-context](./2026-09-08-propagate-mastra-observability-context.md) | Propagate Per-Invocation Mastra Observability Context | planned | 2026-09-08 | core |
