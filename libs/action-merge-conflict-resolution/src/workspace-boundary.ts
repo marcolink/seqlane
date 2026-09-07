@@ -33,6 +33,7 @@ import {
   type GitCommandResult,
   type GitWorkspacePort,
 } from "./git-port.js";
+import { validateLockfileInput } from "./lockfile-policy.js";
 
 export const maximumAgentFileBytes = MAX_AGENT_FILE_BYTES;
 export const maximumAgentTotalBytes = MAX_AGENT_TOTAL_BYTES;
@@ -622,9 +623,13 @@ export async function prepareLockfileWorkspace(
     ]),
   );
   const paths = asPaths(trackedPaths);
+  const safeSourceRoot = await assertSafeRoot(sourceRoot, "Lockfile source");
+  for (const path of paths) {
+    await validateLockfileInput(safeSourceRoot, path);
+  }
   await copyFiles(
     {
-      sourceRoot: await assertSafeRoot(sourceRoot, "Lockfile source"),
+      sourceRoot: safeSourceRoot,
       outputRoot: output,
     },
     paths,

@@ -1,5 +1,6 @@
 // @test-scope ./lockfile-docker.ts
 // @test-scope ./lockfile-port.ts
+// @test-scope ./lockfile-policy.ts
 // @test-scope ./workspace-boundary.ts
 
 import {
@@ -190,6 +191,96 @@ describe("lockfile Docker adapter", () => {
       await expect(
         readFile(join(target, "pnpm-lock.yaml"), "utf8"),
       ).resolves.toBe("old\n");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects dependency URLs before Docker can make network requests", async () => {
+    const root = await mkdtemp(join(tmpdir(), "seqlane-lockfile-egress-"));
+    const source = join(root, "source");
+    const target = join(root, "target");
+    await Promise.all([mkdir(source), mkdir(target)]);
+    await writeFile(
+      join(source, "package.json"),
+      '{"packageManager":"pnpm@10.33.0"}\n',
+    );
+    await writeFile(
+      join(target, "package.json"),
+      '{"dependencies":{"untrusted":"https://evil.example/pkg.tgz"}}\n',
+    );
+    await writeFile(join(target, "pnpm-workspace.yaml"), "packages: []\n");
+    let dockerCalls = 0;
+    try {
+      await expect(
+        new NodeLockfileRegenerator({
+          targetRoot: target,
+          trustedSourceRoot: source,
+          docker: {
+            run: async () => {
+              dockerCalls += 1;
+              return { exitCode: 0 };
+            },
+          },
+          git: {
+            cwd: target,
+            run: async (args) =>
+              args.join(" ") ===
+              "ls-files -z -- pnpm-workspace.yaml :(glob)**/package.json"
+                ? gitResult("pnpm-workspace.yaml\0package.json\0")
+                : gitResult(""),
+          },
+        }).regenerate(),
+      ).rejects.toMatchObject({
+        category: "lockfile",
+        code: "LOCKFILE_REGENERATION_FAILED",
+      });
+      expect(dockerCalls).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects custom registry configuration before Docker starts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "seqlane-lockfile-registry-"));
+    const source = join(root, "source");
+    const target = join(root, "target");
+    await Promise.all([mkdir(source), mkdir(target)]);
+    await writeFile(
+      join(source, "package.json"),
+      '{"packageManager":"pnpm@10.33.0"}\n',
+    );
+    await writeFile(join(target, "package.json"), "{}\n");
+    await writeFile(
+      join(target, "pnpm-workspace.yaml"),
+      "registry: https://evil.example/\n",
+    );
+    let dockerCalls = 0;
+    try {
+      await expect(
+        new NodeLockfileRegenerator({
+          targetRoot: target,
+          trustedSourceRoot: source,
+          docker: {
+            run: async () => {
+              dockerCalls += 1;
+              return { exitCode: 0 };
+            },
+          },
+          git: {
+            cwd: target,
+            run: async (args) =>
+              args.join(" ") ===
+              "ls-files -z -- pnpm-workspace.yaml :(glob)**/package.json"
+                ? gitResult("pnpm-workspace.yaml\0package.json\0")
+                : gitResult(""),
+          },
+        }).regenerate(),
+      ).rejects.toMatchObject({
+        category: "lockfile",
+        code: "LOCKFILE_REGENERATION_FAILED",
+      });
+      expect(dockerCalls).toBe(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
