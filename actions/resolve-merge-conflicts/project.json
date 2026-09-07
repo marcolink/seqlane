@@ -10,7 +10,8 @@
       "options": {
         "cwd": "actions/resolve-merge-conflicts",
         "command": "tsc --noEmit --project tsconfig.json"
-      }
+      },
+      "dependsOn": ["^build"]
     },
     "build": {
       "executor": "@nx/esbuild:esbuild",
