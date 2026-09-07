@@ -1,0 +1,22 @@
+{
+  "name": "@seqlane/action-opencode-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  },
+  "files": [
+    "action.yml",
+    "dist",
+    "process-anchor.js"
+  ],
+  "dependencies": {
+    "@actions/core": "3.0.1",
+    "@seqlane/action-service-lifecycle": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=10.33.0"
+  }
+}

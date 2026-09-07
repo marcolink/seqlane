@@ -35,6 +35,15 @@
     },
     {
       "path": "./actions/resolve-merge-conflicts"
+    },
+    {
+      "path": "./libs/action-service-lifecycle"
+    },
+    {
+      "path": "./actions/zvec-grep-server"
+    },
+    {
+      "path": "./actions/opencode-server"
     }
   ]
 }

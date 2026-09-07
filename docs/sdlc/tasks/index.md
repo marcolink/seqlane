@@ -163,6 +163,7 @@
 | [task.bounded-pr-code-review-evidence](./2026-09-04-bounded-pr-code-review-evidence.md) | Add Bounded Patch Evidence to Pull Request Reviews | completed | 2026-09-04 | core |
 | [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
 | [task.resolve-pull-request-merge-conflicts](./2026-09-04-resolve-pull-request-merge-conflicts.md) | Resolve Pull Request Merge Conflicts | completed | 2026-09-04 | core |
+| [task.github-service-lifecycle-actions](./2026-09-05-github-service-lifecycle-actions.md) | Extract GitHub Actions Service Lifecycles | completed | 2026-09-05 | core |
 | [task.preserve-pull-request-review-run-history](./2026-09-05-preserve-pull-request-review-run-history.md) | Preserve Pull Request Review Run History | completed | 2026-09-05 | core |
 | [task.prevent-comment-triggered-review-cancellation](./2026-09-05-prevent-comment-triggered-review-cancellation.md) | Prevent Irrelevant Comments from Cancelling Pull Request Reviews | completed | 2026-09-05 | core |
 | [task.publish-versioned-pull-request-review-comments](./2026-09-05-publish-versioned-pull-request-review-comments.md) | Publish Versioned Pull Request Review Comments | completed | 2026-09-05 | core |
@@ -177,4 +178,5 @@
 | [task.seqlane-action-integration-verification](./2026-09-06-seqlane-action-integration-verification.md) | Verify the Seqlane Action Merge Conflict Resolver | completed | 2026-09-06 | core |
 | [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |
 | [task.harden-seqlane-action-push-and-cleanup](./2026-09-07-harden-seqlane-action-push-and-cleanup.md) | Harden Seqlane Action Push and Cleanup | completed | 2026-09-07 | core |
+| [task.migrate-service-actions-to-workspace-structure](./2026-09-07-migrate-service-actions-to-workspace-structure.md) | Migrate Service Actions to the Workspace Structure | completed | 2026-09-07 | core |
 | [task.seqlane-action-resolution-summaries](./2026-09-07-seqlane-action-resolution-summaries.md) | Publish Human-Readable Merge Resolution Summaries | completed | 2026-09-07 | core |
