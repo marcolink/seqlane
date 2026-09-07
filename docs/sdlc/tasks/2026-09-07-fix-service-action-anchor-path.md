@@ -66,6 +66,8 @@ does not depend on `GITHUB_ACTION_PATH`. Added source and bundle regression
 coverage with that variable absent; focused Action tests, typechecks, and
 bundle-drift checks passed.
 
+Delivered in [PR #70](https://github.com/marcolink/seqlane/pull/70).
+
 ## Traceability
 
 - Upstream: [adr.seqlane-action-library-boundary](../adrs/2026-09-06-seqlane-action-library-boundary.md)
