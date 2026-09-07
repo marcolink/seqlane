@@ -97,10 +97,11 @@ async function continueRebase(
     const skipped = await ports.git.skipRebase();
     if (skipped.exitCode === 0) {
       const afterSkip = await ports.git.readConflictSet();
-      if (
-        afterSkip.length === 0 &&
-        !(await ports.git.inspectState()).rebaseInProgress
-      ) {
+      const afterSkipState = await ports.git.inspectState();
+      if (afterSkip.length > 0 && afterSkipState.rebaseInProgress) {
+        return afterSkip;
+      }
+      if (afterSkip.length === 0 && !afterSkipState.rebaseInProgress) {
         return "completed";
       }
     }
@@ -136,6 +137,14 @@ export async function resolveMergeConflicts(
       request.strategy,
       liveBase.revision,
     );
+    if (integration.headBefore !== pullRequest.headRevision) {
+      throw new ActionResolutionError(
+        "remote-race",
+        "REMOTE_HEAD_CHANGED",
+        "The pull-request head changed before integration completed.",
+        integration,
+      );
+    }
     if (integration.kind === "error") integrationError(integration);
 
     const cleanHistoryChanged =

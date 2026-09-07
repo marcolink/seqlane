@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-07
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -112,8 +112,9 @@ pnpm format:check
 git diff --check
 ```
 
-Run the Action through `uses: ./actions/resolve-merge-conflicts` in the hosted
-Action test workflow. Keep remote push behavior disabled in that test.
+Run the production workflow through the trusted local Action invocation
+`uses: ./seqlane-source/actions/resolve-merge-conflicts`. Keep any verification
+run free of remote push credentials and mutations.
 
 ## Completion criteria
 
@@ -125,7 +126,8 @@ Action test workflow. Keep remote push behavior disabled in that test.
 - Secret values are masked before child processes start.
 - Typed failures produce failed Actions without leaking executor details.
 - The generated bundle matches committed source output.
-- The local Action test runs with `uses: ./actions/resolve-merge-conflicts`.
+- The production workflow runs the trusted local Action from
+  `./seqlane-source/actions/resolve-merge-conflicts`.
 
 ## Outcome
 

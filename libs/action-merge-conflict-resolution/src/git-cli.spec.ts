@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -205,6 +206,22 @@ describe("NodeGitCli", () => {
         { path: "file.txt", stage: 2 },
         { path: "file.txt", stage: 3 },
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("detects rebase directories as active operations", async () => {
+    const root = createRepository();
+    try {
+      writeFileSync(join(root, "file.txt"), "content\n");
+      commit(root, "initial");
+      mkdirSync(join(root, ".git", "rebase-merge"));
+
+      const state = await new NodeGitCli(root).inspectState();
+
+      assert.equal(state.rebaseInProgress, true);
+      assert.equal(state.worktreeClean, true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

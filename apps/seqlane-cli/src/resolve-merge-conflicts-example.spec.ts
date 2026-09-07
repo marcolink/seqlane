@@ -104,7 +104,9 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).toContain("timeout-minutes: 30");
     expect(workflow).toContain("ref: ${{ github.workflow_sha }}");
-    expect(workflow).toContain("uses: ./actions/resolve-merge-conflicts");
+    expect(workflow).toContain(
+      "uses: ./seqlane-source/actions/resolve-merge-conflicts",
+    );
     expect(workflow).toContain("commit: true");
     expect(workflow).toContain("push: true");
     expect(workflow).not.toContain("Apply selected integration strategy");

@@ -57,6 +57,17 @@ export function parseActionInputs(
 export function validateRequest(value: unknown): ResolveMergeConflictsRequest {
   const parsed = resolveMergeConflictsRequestSchema.safeParse(value);
   if (!parsed.success) throw inputError("INVALID_REQUEST", parsed.error);
+  if (
+    parsed.data.strategy === "merge" &&
+    parsed.data.push &&
+    !parsed.data.commit
+  ) {
+    throw new ActionResolutionError(
+      "input-validation",
+      "INVALID_REQUEST",
+      "Merge pushes require commit permission.",
+    );
+  }
   return parsed.data;
 }
 

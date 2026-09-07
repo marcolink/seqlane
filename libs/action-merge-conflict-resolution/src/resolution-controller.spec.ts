@@ -39,11 +39,20 @@ function ports(
     ReturnType<ResolveMergeConflictsPorts["git"]["integrate"]>
   >,
   conflicts: ConflictSet[] = [],
+  inspectStates: Array<{
+    readonly mergeInProgress: boolean;
+    readonly rebaseInProgress: boolean;
+    readonly worktreeClean: boolean;
+  }> = [],
+  onIntegrate?: () => void,
 ) {
   const summary: unknown[] = [];
   const agent: unknown[] = [];
   const lockfiles: unknown[] = [];
+  const commits: unknown[] = [];
+  const pushes: unknown[] = [];
   let reads = 0;
+  let stateReads = 0;
   const git = {
     cwd: "/tmp/target",
     run: async () => ({
@@ -54,12 +63,16 @@ function ports(
       stdout: "",
       stderr: "",
     }),
-    inspectState: async () => ({
-      mergeInProgress: false,
-      rebaseInProgress: false,
-      worktreeClean: true,
-    }),
-    integrate: async () => integration,
+    inspectState: async () =>
+      inspectStates[stateReads++] ?? {
+        mergeInProgress: false,
+        rebaseInProgress: false,
+        worktreeClean: true,
+      },
+    integrate: async () => {
+      onIntegrate?.();
+      return integration;
+    },
     readConflictSet: async () => conflicts[reads++] ?? [],
     stageConflictSet: async () => undefined,
     continueRebase: async () => ({
@@ -115,11 +128,15 @@ function ports(
       },
     },
     commitAndPush: {
-      commit: async () => undefined,
-      push: async () => undefined,
+      commit: async () => {
+        commits.push(true);
+      },
+      push: async () => {
+        pushes.push(true);
+      },
     },
   };
-  return { value, summary, agent, lockfiles };
+  return { value, summary, agent, lockfiles, commits, pushes };
 }
 
 describe("resolveMergeConflicts", () => {
@@ -142,6 +159,8 @@ describe("resolveMergeConflicts", () => {
     });
     expect(fake.agent).toEqual([]);
     expect(fake.lockfiles).toEqual([]);
+    expect(fake.commits).toEqual([]);
+    expect(fake.pushes).toEqual([]);
     expect(fake.summary).toHaveLength(1);
   });
 
@@ -187,5 +206,90 @@ describe("resolveMergeConflicts", () => {
       kind: "error",
       error: { category: "attempt-limit", code: "ATTEMPT_LIMIT_EXCEEDED" },
     });
+  });
+
+  it("rejects a stale integrated head before agent, commit, or push work", async () => {
+    const fake = ports({
+      kind: "conflicted",
+      operation: "merge",
+      headBefore: revision("c"),
+      targetRevision: revision("d"),
+      conflicts: [{ path: "src/file.ts", stage: 1 }],
+    });
+
+    await expect(
+      resolveMergeConflicts(request(), fake.value),
+    ).resolves.toMatchObject({
+      kind: "error",
+      error: { category: "remote-race", code: "REMOTE_HEAD_CHANGED" },
+    });
+    expect(fake.agent).toEqual([]);
+    expect(fake.lockfiles).toEqual([]);
+  });
+
+  it("continues resolving a new conflict after skipping an empty rebase commit", async () => {
+    const firstConflict = [{ path: "src/first.ts", stage: 1 as const }];
+    const secondConflict = [{ path: "src/second.ts", stage: 1 as const }];
+    const fake = ports(
+      {
+        kind: "conflicted",
+        operation: "rebase",
+        headBefore: revision("b"),
+        targetRevision: revision("c"),
+        conflicts: firstConflict,
+      },
+      [firstConflict, [], [], secondConflict, [], []],
+      [
+        {
+          mergeInProgress: false,
+          rebaseInProgress: true,
+          worktreeClean: true,
+        },
+        {
+          mergeInProgress: false,
+          rebaseInProgress: true,
+          worktreeClean: true,
+        },
+        {
+          mergeInProgress: false,
+          rebaseInProgress: false,
+          worktreeClean: true,
+        },
+      ],
+    );
+
+    await expect(
+      resolveMergeConflicts(request("rebase"), fake.value),
+    ).resolves.toMatchObject({ kind: "resolved", attempts: 2 });
+    expect(fake.agent).toHaveLength(4);
+  });
+
+  it("rejects merge push without commit before integration", async () => {
+    let integrated = false;
+    const fake = ports(
+      {
+        kind: "clean",
+        operation: "merge",
+        headBefore: revision("b"),
+        targetRevision: revision("c"),
+        headAfter: revision("b"),
+      },
+      [],
+      [],
+      () => {
+        integrated = true;
+      },
+    );
+
+    await expect(
+      resolveMergeConflicts(
+        { ...request(), push: true, commit: false },
+        fake.value,
+      ),
+    ).resolves.toMatchObject({
+      kind: "error",
+      error: { category: "input-validation", code: "INVALID_REQUEST" },
+    });
+    expect(integrated).toBe(false);
   });
 });

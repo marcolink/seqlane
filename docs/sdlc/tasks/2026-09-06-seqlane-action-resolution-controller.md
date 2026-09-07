@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-07
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -47,6 +47,8 @@ Depend on:
 - Stop after the configured attempt limit.
 - Create the merge commit only when commit permission is enabled.
 - Verify remote base and head revisions before a push.
+- Reject a stale integrated head before agent edits, commit, or push.
+- Reject merge pushes when commit permission is disabled.
 - Use the exact force-with-lease expectation.
 - Stop runtime processes before push authentication.
 - Return bounded structured results.
@@ -146,11 +148,14 @@ Completed. Added the typed resolution controller and commit/push adapter. The
 controller validates the request and pull-request preflight, reads the live
 base revision, follows the conflict-attempt order, separates agent and
 lockfile work, validates and stages only the original conflict set, continues
-rebases, and enforces the attempt limit. Commit and push remain separate. The
-commit adapter sets identity only in the target repository, verifies fetched
-base and head revisions, and uses the required force-with-lease refspec.
+rebases, returns later conflict sets after a skipped rebase commit, and
+enforces the attempt limit. It rejects a stale integrated head before agent or
+write work and rejects merge pushes without commit permission. Commit and push
+remain separate. The commit adapter sets identity only in the target
+repository, verifies fetched base and head revisions, and uses the required
+force-with-lease refspec.
 
-Verification passed for the dependent TypeScript build, 51 focused tests,
+Verification passed for the dependent TypeScript build, 55 focused tests,
 `pnpm run test:mapping`, `pnpm docs:index`, `pnpm docs:validate`,
 `pnpm docs:test`, `pnpm format:check`, and `git diff --check`.
 

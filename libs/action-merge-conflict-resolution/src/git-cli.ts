@@ -121,7 +121,8 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
     ]);
     const path = operationPath(this.cwd, result.stdout);
     try {
-      return lstatSync(path).isFile();
+      const stats = lstatSync(path);
+      return stats.isFile() || stats.isDirectory();
     } catch (error: unknown) {
       if (
         typeof error === "object" &&

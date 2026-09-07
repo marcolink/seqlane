@@ -79,7 +79,7 @@ jobs:
           ref: ${{ steps.pull-request.outputs.head_sha }}
 
       - name: Resolve merge conflicts
-        uses: ./actions/resolve-merge-conflicts
+        uses: ./seqlane-source/actions/resolve-merge-conflicts
         with:
           pull-request-number: ${{ inputs.pull_request_number }}
           resolution-strategy: ${{ inputs.resolution_strategy }}
