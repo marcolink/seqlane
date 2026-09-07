@@ -1,7 +1,7 @@
 ---
 id: task.adopt-opencode-tool-setup-in-review-workflow
 title: Adopt OpenCode Tool Setup in the Review Workflow
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
@@ -67,6 +67,7 @@ Use the required Server Action input from
 ## Affected areas
 
 - `.github/workflows/seqlane-code-review.yml`
+- `apps/seqlane-cli/src/pr-code-review-example.spec.ts`
 
 ## Verification
 
@@ -94,7 +95,11 @@ Run `pnpm docs:index`, `pnpm docs:validate`, and `git diff --check`.
 
 ## Outcome
 
-This task is planned. The review workflow still uses its inline installer.
+The review workflow now validates the explicit `OPENCODE_VERSION` against the
+SDK version. It passes the matched version to the trusted local Setup Action.
+The workflow passes the executable output to the Server Action. The workflow
+no longer uses the inline installer. The server configuration stays unchanged.
+Focused workflow assertions cover the contract.
 
 ## Traceability
 
