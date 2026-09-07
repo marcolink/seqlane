@@ -17,16 +17,10 @@ import {
   prepareAgentWorkspace,
   prepareLockfileWorkspace,
   validateStagedConflictMarkers,
-} from "./resolve-merge-conflicts-workflow.ts";
+} from "@seqlane/action-merge-conflict-resolution";
 
 function createFixture(): string {
   return mkdtempSync(join(tmpdir(), "seqlane-conflict-workflow-"));
-}
-
-function writePaths(root: string, name: string, paths: string[]): string {
-  const path = join(root, name);
-  writeFileSync(path, `${paths.join("\0")}\0`);
-  return path;
 }
 
 function initializeGit(root: string): void {
@@ -37,7 +31,7 @@ function initializeGit(root: string): void {
   execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
 }
 
-test("does not copy a conflicted lockfile into the regeneration workspace", () => {
+test("does not copy a conflicted lockfile into the regeneration workspace", async () => {
   const root = createFixture();
   try {
     initializeGit(root);
@@ -57,7 +51,7 @@ test("does not copy a conflicted lockfile into the regeneration workspace", () =
     const output = join(root, "lockfile-workspace");
     mkdirSync(output);
 
-    prepareLockfileWorkspace(root, output);
+    await prepareLockfileWorkspace(root, output);
 
     assert.equal(
       readFileSync(join(output, "package.json"), "utf8"),
@@ -77,7 +71,7 @@ test("does not copy a conflicted lockfile into the regeneration workspace", () =
   }
 });
 
-test("prepares only bounded regular agent files", () => {
+test("prepares only bounded regular agent files", async () => {
   const root = createFixture();
   try {
     const source = join(root, "source");
@@ -85,9 +79,7 @@ test("prepares only bounded regular agent files", () => {
     mkdirSync(source);
     mkdirSync(agent);
     writeFileSync(join(source, "conflict.ts"), "resolved\n");
-    const paths = writePaths(root, "paths", ["conflict.ts"]);
-
-    prepareAgentWorkspace(source, agent, paths);
+    await prepareAgentWorkspace(source, agent, ["conflict.ts"]);
 
     assert.equal(
       readFileSync(join(agent, "conflict.ts"), "utf8"),
@@ -99,17 +91,19 @@ test("prepares only bounded regular agent files", () => {
   }
 });
 
-test("rejects conflict markers in staged files", () => {
+test("rejects conflict markers in staged files", async () => {
   const root = createFixture();
   try {
     initializeGit(root);
     writeFileSync(join(root, "conflict.txt"), "<<<<<<< HEAD\nvalue\n");
     execFileSync("git", ["add", "conflict.txt"], { cwd: root });
-    const paths = writePaths(root, "paths", ["conflict.txt"]);
-
-    assert.throws(
-      () => validateStagedConflictMarkers(root, paths),
-      /Conflict marker remains in conflict\.txt\./,
+    await assert.rejects(
+      () => validateStagedConflictMarkers(root, ["conflict.txt"]),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "CONFLICT_MARKER_REMAINS",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

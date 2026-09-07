@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "action-merge-conflict-resolution",
+  "projectType": "library",
+  "sourceRoot": "libs/action-merge-conflict-resolution/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/action-merge-conflict-resolution",
+        "command": "tsc --build tsconfig.json"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/action-merge-conflict-resolution",
+        "command": "vitest run"
+      }
+    }
+  }
+}

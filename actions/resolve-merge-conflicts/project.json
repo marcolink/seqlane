@@ -3,13 +3,15 @@
   "name": "action-resolve-merge-conflicts",
   "projectType": "application",
   "sourceRoot": "actions/resolve-merge-conflicts/src",
+  "implicitDependencies": ["action-merge-conflict-resolution"],
   "targets": {
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {
         "cwd": "actions/resolve-merge-conflicts",
         "command": "tsc --noEmit --project tsconfig.json"
-      }
+      },
+      "dependsOn": ["^build"]
     },
     "build": {
       "executor": "@nx/esbuild:esbuild",
@@ -24,11 +26,21 @@
         "platform": "node",
         "target": "node24",
         "outputHashing": "none",
+        "minify": true,
         "sourcemap": false,
         "declaration": false,
         "skipTypeCheck": true
       },
-      "outputs": ["{projectRoot}/dist"]
+      "outputs": ["{projectRoot}/dist"],
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": ".",
+        "command": "node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs && git diff --exit-code -- actions/resolve-merge-conflicts/dist/"
+      }
     }
   }
 }

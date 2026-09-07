@@ -1,11 +1,11 @@
 ---
 id: task.seqlane-action-workflow-migration
 title: Migrate the Merge Conflict Workflow to the Seqlane Action
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-07
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -41,7 +41,8 @@ Follow [`.github/workflows/AGENTS.md`](../../../.github/workflows/AGENTS.md).
 - Keep the trusted source checkout at an explicit trusted revision.
 - Keep the pull-request head checkout separate from trusted source.
 - Keep full checkout history for merge bases and rebase operations.
-- Invoke `uses: ./actions/resolve-merge-conflicts`.
+- Invoke `uses: ./seqlane-source/actions/resolve-merge-conflicts` from the
+  trusted source checkout.
 - Pass `commit: true` and `push: true` explicitly.
 - Pass the source and target directories explicitly.
 - Keep required permissions, concurrency, runner, and timeout declarations.
@@ -50,7 +51,6 @@ Follow [`.github/workflows/AGENTS.md`](../../../.github/workflows/AGENTS.md).
 - Remove direct lockfile regeneration shell steps.
 - Remove direct staging, commit, and push shell steps.
 - Keep only the bootstrap metadata needed before target checkout.
-- Update `test-actions.yml` for the new Action contract.
 - Update `examples/README.md` with the Action-based operator flow.
 - Update the example contract test to stop asserting implementation shell text.
 - Remove production references to the old helper after the cutover.
@@ -78,10 +78,9 @@ Follow [`.github/workflows/AGENTS.md`](../../../.github/workflows/AGENTS.md).
    trusted Seqlane source.
 8. Keep `persist-credentials: false` until the Action enables authentication
    for the final push phase.
-9. Update the Action test workflow without adding remote mutations.
-10. Update operator documentation for the secret, strategy, permissions,
+9. Update operator documentation for the secret, strategy, permissions,
     commit behavior, push guard, and failure cases.
-11. Remove the old helper script only after `rg` finds no production reference.
+10. Remove the old helper script only after `rg` finds no production reference.
 
 Keep the workflow text focused on GitHub job composition. Do not replace the
 removed shell with a new large shell block.
@@ -89,11 +88,10 @@ removed shell with a new large shell block.
 ## Affected areas
 
 - `.github/workflows/seqlane-resolve-merge-conflicts.yml`
-- `.github/workflows/test-actions.yml`
 - `examples/README.md`
 - `apps/seqlane-cli/src/resolve-merge-conflicts-example.spec.ts`
-- `scripts/resolve-merge-conflicts-workflow.ts`
 - `scripts/resolve-merge-conflicts-workflow.test.ts`
+- `libs/action-merge-conflict-resolution/src/workspace-boundary.ts`
 - generated Action bundle and workflow tests
 
 ## Verification
@@ -137,7 +135,23 @@ strategies and inspect the final remote branch state.
 
 ## Outcome
 
-Planned.
+Completed. The manual resolver workflow now keeps the default-branch guard,
+pull-request bootstrap, full-history trusted and target checkouts, minimal
+permissions, per-pull-request concurrency, Ubuntu runner, and 30-minute
+timeout. It invokes `./seqlane-source/actions/resolve-merge-conflicts` with
+explicit source and target paths plus `commit: true` and `push: true`. The YAML no longer owns
+integration, conflict classification, OpenCode, lockfile, staging, commit, or
+push loops, and operator documentation describes the Action contract and trust
+model.
+
+The former helper script was removed after its focused tests moved to the
+private Action library. The production workflow has no reference to the old
+helper.
+
+Verification passed for the updated workflow contract test, `pnpm run
+test:mapping`, `pnpm docs:validate`, `pnpm format:check`, and
+`git diff --check`. Hosted GitHub execution remains required to verify the
+manual dispatch, checkout permissions, credentials, and remote race behavior.
 
 ## Traceability
 

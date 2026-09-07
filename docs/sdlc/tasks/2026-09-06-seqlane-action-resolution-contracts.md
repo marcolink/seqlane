@@ -1,7 +1,7 @@
 ---
 id: task.seqlane-action-resolution-contracts
 title: Establish Seqlane Action Resolution Contracts
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-06
@@ -134,7 +134,18 @@ Inspect the package exports and confirm that no source file imports
 
 ## Outcome
 
-Planned.
+Completed. Added the private `@seqlane/action-merge-conflict-resolution`
+package with schema-backed contracts, stable typed errors, pure resolver
+policies, resolution-attempt state transitions, package exports, and colocated
+tests. The package remains independent of GitHub Action Toolkit types,
+OpenCode, Seqlane application packages, and workflow code.
+
+Verification passed for `pnpm install --frozen-lockfile`, `pnpm run
+test:mapping`, the package TypeScript typecheck and build, the package Vitest
+suite (15 tests), `pnpm docs:validate`, `pnpm format:check`, and `git diff
+--check`. Nx target execution was also attempted, but the local Nx workspace
+data lock resolves to `/Users/marco.link/projects/contentful/taskflow/.nx`,
+outside this worktree's writable scope; the direct package checks passed.
 
 ## Traceability
 

@@ -1,11 +1,11 @@
 ---
 id: task.seqlane-action-entrypoint-and-bundle
 title: Wire and Bundle the Seqlane Conflict Resolution Action
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-07
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -112,8 +112,9 @@ pnpm format:check
 git diff --check
 ```
 
-Run the Action through `uses: ./actions/resolve-merge-conflicts` in the hosted
-Action test workflow. Keep remote push behavior disabled in that test.
+Run the production workflow through the trusted local Action invocation
+`uses: ./seqlane-source/actions/resolve-merge-conflicts`. Keep any verification
+run free of remote push credentials and mutations.
 
 ## Completion criteria
 
@@ -125,11 +126,27 @@ Action test workflow. Keep remote push behavior disabled in that test.
 - Secret values are masked before child processes start.
 - Typed failures produce failed Actions without leaking executor details.
 - The generated bundle matches committed source output.
-- The local Action test runs with `uses: ./actions/resolve-merge-conflicts`.
+- The production workflow runs the trusted local Action from
+  `./seqlane-source/actions/resolve-merge-conflicts`.
 
 ## Outcome
 
-Planned.
+Completed. The Action now declares all resolver inputs and outputs, uses the
+Node 24 runtime, reads Action Toolkit and GitHub context only in the
+entrypoint, masks the OpenAI key before application work starts, and maps
+typed resolver failures to failed Action status. The resolver library remains
+the owner of Git, workspace, lockfile, Seqlane, and OpenCode behavior. The
+agent workflow is available through the declared private runtime export, so
+the Action does not import an example through a relative path.
+
+The bundle is self-contained and includes the Action Toolkit, resolver
+library, and private runtime dependencies. It was built with the equivalent
+local esbuild command because the Nx target cannot create workspace data in
+the shared external `.nx` path.
+
+Verification passed for the Action typecheck, dependent TypeScript builds,
+`pnpm run test:mapping`, `pnpm format:check`, and `git diff --check`. The
+focused resolver suite remains green at 51 tests.
 
 ## Traceability
 

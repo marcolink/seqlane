@@ -167,12 +167,12 @@
 | [task.prevent-comment-triggered-review-cancellation](./2026-09-05-prevent-comment-triggered-review-cancellation.md) | Prevent Irrelevant Comments from Cancelling Pull Request Reviews | completed | 2026-09-05 | core |
 | [task.publish-versioned-pull-request-review-comments](./2026-09-05-publish-versioned-pull-request-review-comments.md) | Publish Versioned Pull Request Review Comments | completed | 2026-09-05 | core |
 | [task.review-progress-and-run-metrics](./2026-09-05-review-progress-and-run-metrics.md) | Show Review Progress and Persist Run Metrics | completed | 2026-09-05 | core |
-| [task.seqlane-action-runtime-adapters](./2026-09-06-seqlane-action-runtime-adapters.md) | Add Seqlane Action GitHub and Runtime Adapters | planned | 2026-09-06 | core |
+| [task.seqlane-action-runtime-adapters](./2026-09-06-seqlane-action-runtime-adapters.md) | Add Seqlane Action GitHub and Runtime Adapters | completed | 2026-09-06 | core |
 | [task.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Apply Pull Request Review Dispositions Without Agent Runs | planned | 2026-09-06 | core |
-| [task.seqlane-action-git-workspace-boundary](./2026-09-06-seqlane-action-git-workspace-boundary.md) | Build the Seqlane Action Git and Workspace Boundary | planned | 2026-09-06 | core |
-| [task.seqlane-action-resolution-controller](./2026-09-06-seqlane-action-resolution-controller.md) | Compose the Seqlane Action Resolution Controller | planned | 2026-09-06 | core |
+| [task.seqlane-action-git-workspace-boundary](./2026-09-06-seqlane-action-git-workspace-boundary.md) | Build the Seqlane Action Git and Workspace Boundary | completed | 2026-09-06 | core |
+| [task.seqlane-action-resolution-controller](./2026-09-06-seqlane-action-resolution-controller.md) | Compose the Seqlane Action Resolution Controller | completed | 2026-09-06 | core |
 | [task.consolidate-pull-request-review-run-metrics](./2026-09-06-consolidate-pull-request-review-run-metrics.md) | Consolidate Pull Request Review Run Metrics | completed | 2026-09-06 | core |
-| [task.seqlane-action-resolution-contracts](./2026-09-06-seqlane-action-resolution-contracts.md) | Establish Seqlane Action Resolution Contracts | planned | 2026-09-06 | core |
-| [task.seqlane-action-workflow-migration](./2026-09-06-seqlane-action-workflow-migration.md) | Migrate the Merge Conflict Workflow to the Seqlane Action | planned | 2026-09-06 | core |
-| [task.seqlane-action-integration-verification](./2026-09-06-seqlane-action-integration-verification.md) | Verify the Seqlane Action Merge Conflict Resolver | planned | 2026-09-06 | core |
-| [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | planned | 2026-09-06 | core |
+| [task.seqlane-action-resolution-contracts](./2026-09-06-seqlane-action-resolution-contracts.md) | Establish Seqlane Action Resolution Contracts | completed | 2026-09-06 | core |
+| [task.seqlane-action-workflow-migration](./2026-09-06-seqlane-action-workflow-migration.md) | Migrate the Merge Conflict Workflow to the Seqlane Action | completed | 2026-09-06 | core |
+| [task.seqlane-action-integration-verification](./2026-09-06-seqlane-action-integration-verification.md) | Verify the Seqlane Action Merge Conflict Resolver | completed | 2026-09-06 | core |
+| [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |

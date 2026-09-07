@@ -15,12 +15,14 @@
     "models:update": "node scripts/update-models-catalog.mjs",
     "test": "pnpm run test:mapping && pnpm run test:workflow-helper && pnpm exec nx run-many -t test",
     "test:mapping": "node scripts/check-test-mapping.mjs",
-    "test:workflow-helper": "node --experimental-strip-types --test scripts/resolve-merge-conflicts-workflow.test.ts",
+    "test:workflow-helper": "pnpm exec tsc --build libs/action-merge-conflict-resolution/tsconfig.json && node --experimental-strip-types --test scripts/resolve-merge-conflicts-workflow.test.ts",
     "typecheck": "pnpm exec tsc --build && pnpm run typecheck:specs",
     "typecheck:specs": "pnpm exec tsc --noEmit --project tsconfig.spec.json"
   },
   "devDependencies": {
+    "@seqlane/action-merge-conflict-resolution": "workspace:*",
     "@seqlane/core": "workspace:*",
+    "@seqlane/runtime": "workspace:*",
     "@nx/esbuild": "catalog:",
     "@nx/eslint": "catalog:",
     "@nx/eslint-plugin": "catalog:",

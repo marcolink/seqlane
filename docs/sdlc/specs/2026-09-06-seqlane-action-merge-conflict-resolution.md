@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-07
 upstream:
   - adr.seqlane-action-library-boundary
   - adr.executor-neutral-workflow-authoring
@@ -184,8 +184,8 @@ The Action must accept these inputs:
 | --- | --- | --- | --- |
 | `pull-request-number` | positive integer string | none | Pull request to update |
 | `resolution-strategy` | `rebase` or `merge` | `rebase` | Integration method |
-| `source-directory` | relative path | `.` | Trusted Seqlane source |
-| `target-directory` | relative path | `resolution-target` | Pull-request checkout |
+| `source-directory` | relative path | none | Trusted Seqlane source; required and separate from the target |
+| `target-directory` | relative path | none | Pull-request checkout; required and separate from the source |
 | `commit` | boolean string | `false` | Permit a merge commit |
 | `push` | boolean string | `false` | Permit a remote write |
 | `max-attempts` | positive integer string | `10` | Rebase resolution limit |
@@ -375,6 +375,10 @@ fail.
 The resolver must reject a rebase that remains active after a successful skip
 without a new conflict set.
 
+When a successful skip advances to another conflicting commit, the resolver
+must return the new conflict set and continue the resolution attempts. It must
+complete only when the rebase state ends.
+
 ### requirement-commit-and-push
 
 Commit and push must remain separate operations.
@@ -392,6 +396,13 @@ Merge <base branch> and resolve conflicts
 Before a remote write, the resolver must fetch the base and head branch refs.
 It must reject a changed live base revision.
 It must reject a changed remote head revision.
+
+After integration reports its starting head revision, the resolver must
+compare it with the captured pull-request head revision. A mismatch must fail
+with `REMOTE_HEAD_CHANGED` before agent edits, commit, or push.
+
+For the merge strategy, `push: true` requires `commit: true`. The resolver
+must reject that invalid combination before target mutation.
 
 The resolver must push with:
 
@@ -540,8 +551,9 @@ merge, content conflict, modify/delete conflict, binary conflict, empty
 commit, repeated rebase stop, unrelated changes, shallow history, and remote
 head race scenarios.
 
-The Action workflow must run the local Action with `uses: ./actions/resolve-merge-conflicts`.
-The test workflow must not push to a remote branch.
+The production workflow must run the trusted local Action with
+`uses: ./seqlane-source/actions/resolve-merge-conflicts`. Any local Action
+verification must keep remote push behavior disabled.
 
 ## Acceptance criteria
 

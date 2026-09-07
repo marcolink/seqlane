@@ -1,5 +1,44 @@
 name: Resolve Merge Conflicts
 description: Resolve merge conflicts in a pull request.
+inputs:
+  pull-request-number:
+    description: Pull request number to update.
+    required: true
+  resolution-strategy:
+    description: Integration strategy.
+    required: false
+    default: rebase
+  source-directory:
+    description: Trusted Seqlane source directory.
+    required: true
+  target-directory:
+    description: Pull request checkout directory.
+    required: true
+  commit:
+    description: Permit a merge commit.
+    required: false
+    default: false
+  push:
+    description: Permit a remote write.
+    required: false
+    default: false
+  max-attempts:
+    description: Maximum number of conflict resolution attempts.
+    required: false
+    default: "10"
+outputs:
+  result:
+    description: Resolution result.
+  strategy:
+    description: Selected integration strategy.
+  base-sha:
+    description: Captured live base revision.
+  head-sha:
+    description: Captured pull request head revision.
+  attempts:
+    description: Number of resolution attempts.
+  pushed:
+    description: Whether the result was pushed.
 runs:
   using: node24
   main: dist/main.js

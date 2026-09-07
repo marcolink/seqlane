@@ -1,3 +1,4 @@
+// @test-scope ./workflow-run.ts
 // @test-scope ../compile/compile-plan.ts
 // @test-scope ../invocation/invocation-execution.ts
 import type {
@@ -78,6 +79,47 @@ function compile(
 }
 
 describe("Seqlane lifecycle events and outcomes", () => {
+  it("cancels a workflow when its external signal aborts", async () => {
+    const controller = new AbortController();
+    let resolveStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    let executorAborted = false;
+    const compiled = compile(plan([task("slow")]), {
+      executor: async ({ signal }) => {
+        resolveStarted?.();
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) {
+            executorAborted = true;
+            resolve();
+            return;
+          }
+          signal.addEventListener(
+            "abort",
+            () => {
+              executorAborted = true;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        return { value: "cancelled" };
+      },
+    });
+    const active = startCompiledWorkflow(compiled, {
+      signal: controller.signal,
+    });
+
+    await started;
+    controller.abort();
+
+    await expect(active.outcome).resolves.toMatchObject({
+      status: "cancelled",
+    });
+    expect(executorAborted).toBe(true);
+  });
+
   it("releases a DAG result after its final distinct task consumer", async () => {
     const availability: boolean[] = [];
     const compiled = compile(

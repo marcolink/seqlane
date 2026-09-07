@@ -16,6 +16,11 @@
       "types": "./dist/runner/main.d.ts",
       "import": "./dist/runner/main.js",
       "default": "./dist/runner/main.js"
+    },
+    "./workflows/resolve-merge-conflicts": {
+      "types": "./dist/workflows/resolve-merge-conflicts.d.ts",
+      "import": "./dist/workflows/resolve-merge-conflicts.js",
+      "default": "./dist/workflows/resolve-merge-conflicts.js"
     }
   },
   "nx": {

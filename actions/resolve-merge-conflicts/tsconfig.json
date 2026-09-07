@@ -7,5 +7,9 @@
     "types": ["node"],
     "emitDeclarationOnly": false
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../libs/action-merge-conflict-resolution" },
+    { "path": "../../libs/seqlane-runtime" }
+  ]
 }

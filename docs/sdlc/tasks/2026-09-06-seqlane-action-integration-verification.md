@@ -1,11 +1,11 @@
 ---
 id: task.seqlane-action-integration-verification
 title: Verify the Seqlane Action Merge Conflict Resolver
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-07
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -39,7 +39,8 @@ Run this task after the implementation tasks complete:
 - Run temporary repository Git integration tests.
 - Run Action adapter tests with fixture GitHub context.
 - Run lockfile and workspace bound tests.
-- Run the local Action through `uses: ./actions/resolve-merge-conflicts`.
+- Run the production workflow's trusted local Action through
+  `uses: ./seqlane-source/actions/resolve-merge-conflicts`.
 - Run `actionlint` against all workflow files.
 - Run the local Action smoke workflow with `act` when Docker is available.
 - Keep `act` runs free of push credentials and remote mutations.
@@ -72,7 +73,7 @@ Run this task after the implementation tasks complete:
 4. Inspect index state and remote refs after every mutating scenario.
 5. Run the Action bundle build.
 6. Run `git diff --exit-code -- actions/*/dist/`.
-7. Run the hosted Action test workflow.
+7. Run the hosted production workflow.
 8. Parse the migrated workflow and inspect permissions, checkouts, concurrency,
    and Action invocation.
 9. Run the manual workflow on a disposable pull request.
@@ -88,7 +89,6 @@ Run this task after the implementation tasks complete:
 - Action library test files
 - Action adapter test files
 - Git integration fixtures
-- `.github/workflows/test-actions.yml`
 - `.github/workflows/seqlane-resolve-merge-conflicts.yml`
 - `docs/sdlc/adrs/index.md`
 - `docs/sdlc/specs/index.md`
@@ -139,7 +139,25 @@ verification.
 
 ## Outcome
 
-Planned.
+Completed local verification for the Action migration. The focused resolver
+suite passes 51 tests across 13 files, including temporary-repository Git
+scenarios, workspace and lockfile boundaries, controller ordering, remote
+guard behavior, archive pin validation, and bounded recording. The CLI
+workflow contract test passes, the test-to-implementation mapping passes, the
+repository TypeScript build passes, Nx TypeScript sync is clean, scoped lint
+passes with no warnings, the Action typecheck passes, and the minified bundle
+is reproducible from source.
+
+SDLC indexing, validation, documentation tests, formatting, and diff checks
+also pass. The production workflow contains only bootstrap, trusted and
+target checkouts, and the trusted local Action invocation.
+
+The following evidence requires an environment with access not available in
+this workspace: `actionlint`, `act`, Docker, a GitHub-hosted Action run, and a
+disposable same-repository pull request. Repository-wide Nx `test`, `lint`, and
+`build` commands are also blocked by the shared external Nx workspace-data
+lock path. These are recorded as verification limitations; no local test
+result was treated as remote CI evidence.
 
 ## Traceability
 
