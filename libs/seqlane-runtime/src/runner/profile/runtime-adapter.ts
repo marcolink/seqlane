@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type {
   AgentAdapter,
   AgentAdapterCapabilities,
@@ -156,32 +156,14 @@ export interface RuntimeAdapterFactory {
 export interface ResolvedRuntimeAdapter {
   readonly identity: RuntimeAdapterIdentity;
   readonly configuration: RuntimeAdapterConfiguration;
-  readonly configurationFingerprint: string;
+  /** Opaque binding for this validated adapter configuration resolution. */
+  readonly configurationBinding: string;
   readonly capabilities: AgentAdapterCapabilities;
   resolveCapabilities(
     preparation?: RuntimeAdapterPreparation,
   ): AgentAdapterCapabilities;
   prepare(signal: AbortSignal): Promise<RuntimeAdapterPreparation>;
   create(context: RuntimeAdapterFactoryContext): RuntimeAdapterFactoryResult;
-}
-
-function canonicalConfiguration(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalConfiguration);
-  if (typeof value !== "object" || value === null) return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([first], [second]) => first.localeCompare(second))
-      .map(([key, entry]) => [key, canonicalConfiguration(entry)]),
-  );
-}
-
-/** Identifies the exact validated configuration without retaining its values. */
-export function runtimeAdapterConfigurationFingerprint(
-  configuration: RuntimeAdapterConfiguration,
-): string {
-  return createHash("sha256")
-    .update(JSON.stringify(canonicalConfiguration(configuration)))
-    .digest("hex");
 }
 
 export interface RuntimeAdapterRegistry {
@@ -404,8 +386,7 @@ export function createRuntimeAdapterRegistry(
       return {
         identity: configuration.adapter,
         configuration,
-        configurationFingerprint:
-          runtimeAdapterConfigurationFingerprint(configuration),
+        configurationBinding: randomUUID(),
         capabilities,
         resolveCapabilities,
         async prepare(signal) {

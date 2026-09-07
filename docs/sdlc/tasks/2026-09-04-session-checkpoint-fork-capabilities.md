@@ -103,6 +103,10 @@ through profile resolution. Adapter instances are now created and validated
 only for the session that uses them, and capability admission has one
 orchestration owner per execution entry point.
 
+Checkpoint configuration ownership uses an opaque per-resolution binding. It
+continues to reject foreign checkpoints without exposing a hash of private
+adapter configuration.
+
 ## Traceability
 
 - [spec.agent-adapter-boundary-and-capabilities](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md)

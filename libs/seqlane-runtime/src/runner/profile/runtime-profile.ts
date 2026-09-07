@@ -104,7 +104,7 @@ const boundCheckpointSchema = z.strictObject({
   version: z.literal(1),
   adapter: z.string().min(1),
   runId: z.string().min(1),
-  configurationFingerprint: z.string().length(64),
+  configurationBinding: z.string().uuid(),
   lineageId: z.string().min(1),
   generation: z.number().int().nonnegative(),
   value: z.unknown(),
@@ -122,7 +122,7 @@ export class RuntimeAdapterCheckpointError extends Error {
 interface SessionCheckpointBinding {
   readonly adapter: string;
   readonly runId: RunId;
-  readonly configurationFingerprint: string;
+  readonly configurationBinding: string;
   readonly capabilities: AgentAdapter["capabilities"];
 }
 
@@ -179,8 +179,7 @@ function createAgentSession(
             version: 1 as const,
             adapter: checkpointBinding.adapter,
             runId: checkpointBinding.runId,
-            configurationFingerprint:
-              checkpointBinding.configurationFingerprint,
+            configurationBinding: checkpointBinding.configurationBinding,
             lineageId: checkpointBinding.runId + ":" + randomUUID(),
             generation: checkpointState.generation,
             value,
@@ -222,8 +221,8 @@ function createAgentSession(
             if (
               parsed.data.adapter !== checkpointBinding.adapter ||
               parsed.data.runId !== checkpointBinding.runId ||
-              parsed.data.configurationFingerprint !==
-                checkpointBinding.configurationFingerprint ||
+              parsed.data.configurationBinding !==
+                checkpointBinding.configurationBinding ||
               parsed.data.lineageId !== checkpointState.latest?.lineageId
             ) {
               throw new RuntimeAdapterCheckpointError("foreign");
@@ -366,7 +365,7 @@ export async function resolveRuntimeProfile(
   const checkpointBinding: SessionCheckpointBinding = {
     adapter: selected.identity,
     runId: options.runId ?? randomUUID(),
-    configurationFingerprint: selected.configurationFingerprint,
+    configurationBinding: selected.configurationBinding,
     capabilities,
   };
   const workspaceIdentities = await resolveTaskWorkspaceIdentities(

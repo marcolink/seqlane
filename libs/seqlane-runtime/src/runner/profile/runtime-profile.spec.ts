@@ -8,6 +8,7 @@ import type {
 import type { AgentAdapter, AgentAdapterRequest } from "@seqlane/agent-adapter";
 import { RequestContext } from "@mastra/core/request-context";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   executeAgentAdapterRequest,
   resolveRuntimeProfile,
@@ -16,6 +17,9 @@ import { createRuntimeAdapterRegistry } from "./runtime-adapter.js";
 import type { ExecutorRequest } from "../../runtime/execution/executor.js";
 
 const schema: SeqlaneSchema = { parse: (value) => value };
+const checkpointBindingSchema = z.object({
+  configurationBinding: z.string(),
+});
 
 function writeJson(response: ServerResponse, value: unknown): void {
   response.writeHead(200, { "content-type": "application/json" });
@@ -289,6 +293,103 @@ describe("resolveRuntimeProfile", () => {
     } finally {
       await server.close();
     }
+  });
+
+  it("uses opaque resolution bindings for checkpoints and rejects foreign configurations", async () => {
+    const source = task("source", "shared");
+    const tasks: TaskDefinitionRegistry = new Map([[source.id, source]]);
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: true,
+      fork: true,
+      activity: false,
+      sessionUi: false,
+    };
+    const createAdapter = (): AgentAdapter => ({
+      capabilities,
+      execute: async () => ({ value: "done" }),
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => createAdapter(),
+    });
+    const adapterRegistry = createRuntimeAdapterRegistry([
+      {
+        identity: "opencode",
+        resolveCapabilities: () => capabilities,
+        prepare: async () => ({}),
+        create: () => ({ createAdapter }),
+      },
+    ]);
+    const resolve = (url: string) =>
+      resolveRuntimeProfile(
+        { id: url, workspace: process.cwd() },
+        tasks,
+        new AbortController().signal,
+        null,
+        undefined,
+        {
+          adapterConfiguration: { adapter: "opencode", url },
+          adapterRegistry,
+          runId: "run-1",
+        },
+      );
+    const execute = async (session: {
+      readonly executor: {
+        execute(request: ExecutorRequest): Promise<unknown>;
+      };
+    }) => {
+      await session.executor.execute({
+        invocationId: "invocation:source",
+        taskId: source.id,
+        executor: "agent",
+        input: null,
+        signal: new AbortController().signal,
+      });
+    };
+
+    const first = await resolve("http://adapter-a.test");
+    const firstSession = await first.sessionResolver.resolve({
+      invocationId: "invocation:source",
+      task: source,
+    });
+    await execute(firstSession);
+    const firstCheckpoint = await firstSession.checkpoint?.();
+    expect(firstCheckpoint).toMatchObject({
+      configurationBinding: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      ),
+    });
+    expect(firstCheckpoint).not.toHaveProperty("configurationFingerprint");
+    const firstBinding = checkpointBindingSchema.parse(firstCheckpoint);
+
+    const second = await resolve("http://adapter-a.test");
+    const secondSession = await second.sessionResolver.resolve({
+      invocationId: "invocation:source",
+      task: source,
+    });
+    await execute(secondSession);
+    const secondCheckpoint = await secondSession.checkpoint?.();
+    expect(
+      checkpointBindingSchema.parse(secondCheckpoint).configurationBinding,
+    ).not.toBe(firstBinding.configurationBinding);
+
+    const foreign = await resolve("http://adapter-b.test");
+    const foreignSession = await foreign.sessionResolver.resolve({
+      invocationId: "invocation:branch",
+      task: source,
+    });
+    if (foreignSession.fork === undefined || firstCheckpoint === undefined) {
+      throw new Error("test adapter did not expose checkpoint and fork");
+    }
+    await expect(
+      foreignSession.fork({
+        checkpoint: firstCheckpoint,
+        invocationId: "invocation:branch",
+        task: source,
+      }),
+    ).rejects.toMatchObject({ reason: "foreign" });
   });
 
   it("rejects a forked adapter whose capabilities drift from the source", async () => {
