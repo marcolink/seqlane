@@ -15,6 +15,7 @@ import type {
 } from "@seqlane/core";
 import type { SeqlanePlanSnapshot } from "@seqlane/events";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import {
   compilePlanToMastra,
   type MastraPlanInvocation,
@@ -85,6 +86,19 @@ export interface OperationalHost {
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4111;
 const DEFAULT_STORAGE_URL = "file:./.seqlane/mastra.db";
+const LOOPBACK_STUDIO_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function localStudioOrigin(origin: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return undefined;
+  }
+  return url.protocol === "http:" && LOOPBACK_STUDIO_HOSTS.has(url.hostname)
+    ? origin
+    : undefined;
+}
 
 interface LoopbackHost {
   readonly bindHost: string;
@@ -305,6 +319,7 @@ export async function createOperationalHost(
       storage,
     );
     const app = new Hono();
+    app.use(cors({ origin: localStudioOrigin, credentials: true }));
     const adapter = new MastraServer({ app, mastra: composition.mastra });
 
     await storage.init();
@@ -314,6 +329,9 @@ export async function createOperationalHost(
     let listeningPort = port;
     let ready = false;
 
+    app.get("/", (context) =>
+      context.json({ status: "ok", service: "seqlane" }),
+    );
     app.get("/healthz", (context) =>
       context.json({ status: "ok", service: "seqlane" }),
     );

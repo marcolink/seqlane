@@ -241,9 +241,10 @@ commit author and records that name as its committer.
 `all-features.ts` is the compact feature tour. It uses typed input/output,
 shared and exclusive workspaces, isolated/reused/branched sessions, explicit
 dependencies, whole/nested/literal bindings, references, Studio observability
-selections, fan-out/fan-in, mechanical gates, a task-backed repeat
-postcondition, and a one-iteration repeat. The two branch lanes can run
-concurrently, so the example stays small and fast.
+selections, fan-out/fan-in, mechanical gates, and one validated polish step.
+The two branch lanes can run concurrently, so the example stays small and
+fast. It currently omits repeat nodes because the Mastra Plan compiler does
+not support them.
 
 ```sh
 pnpm exec node apps/seqlane-cli/bin/run.js run examples/all-features.ts \

@@ -5,7 +5,6 @@ import {
   defineValidator,
   isolated,
   reuse,
-  validatedBy,
 } from "@seqlane/core";
 import { z } from "zod";
 
@@ -188,15 +187,6 @@ const polishTask = defineTask({
   ],
 });
 
-const evaluateTask = defineTask({
-  id: "all-features.evaluate",
-  workspace: "shared",
-  input: polishStateSchema,
-  output: validationResultSchema,
-  goal: ({ ready }) => `Check whether the polished summary is ready: ${ready}.`,
-  instructions: ["Accept only when ready is true and return brief evidence."],
-});
-
 export default createFlow({
   id: "all-features",
   input: inputSchema,
@@ -235,19 +225,18 @@ export default createFlow({
     },
   )
   .validate("ready", joinedValidator, ({ tasks }) => tasks.joined.output)
-  .repeat("polish", {
-    initial: ({ tasks }) => ({
+  .task(
+    "polish",
+    polishTask,
+    ({ tasks }) => ({
       summary: tasks.ready.output.summary,
       ready: false,
       passes: 0,
     }),
-    body: ({ input, task, validate }) => {
-      const polished = task(polishTask, { input });
-      return validate(polishValidator, { input: polished.output }).output;
+    {
+      validateOutput: polishValidator,
     },
-    until: validatedBy(evaluateTask),
-    maximumIterations: 1,
-  })
+  )
   .output(({ tasks }) => ({
     context: tasks.context.output,
     policy: tasks.policy.output,

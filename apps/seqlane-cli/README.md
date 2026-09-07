@@ -138,6 +138,11 @@ seqlane studio --port 3001 --server-port 4112
 The command launches the pinned Community Studio CLI. Seqlane does not bundle,
 rebrand, or embed a separate Studio application.
 
+The operational host permits browser API requests only from HTTP loopback
+origins, including the Studio UI at `http://localhost:3000`.
+It also responds successfully at its root URL so Community Studio can detect
+the local Mastra instance automatically.
+
 ## Dry run
 
 Print the calculated, execution-safe Plan without connecting to the runtime or

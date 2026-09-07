@@ -115,6 +115,16 @@ describe("Mastra operational host", () => {
       200,
     );
 
+    const studioProbe = await host.fetch(
+      new Request("http://host/", {
+        headers: { origin: "http://localhost:3000" },
+      }),
+    );
+    expect(studioProbe.status).toBe(200);
+    expect(studioProbe.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:3000",
+    );
+
     const workflows = await host.fetch(
       new Request("http://host/api/workflows"),
     );
@@ -124,6 +134,39 @@ describe("Mastra operational host", () => {
     await host.close();
     await host.close();
     expect(host.ready).toBe(false);
+  });
+
+  it("allows Community Studio requests from loopback origins only", async () => {
+    const host = await createOperationalHost({
+      workflows: [registration()],
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+
+    try {
+      const studioResponse = await host.fetch(
+        new Request("http://host/api/auth/capabilities", {
+          headers: { origin: "http://localhost:3000" },
+        }),
+      );
+      expect(studioResponse.headers.get("access-control-allow-origin")).toBe(
+        "http://localhost:3000",
+      );
+      expect(
+        studioResponse.headers.get("access-control-allow-credentials"),
+      ).toBe("true");
+
+      const untrustedResponse = await host.fetch(
+        new Request("http://host/api/auth/capabilities", {
+          headers: { origin: "https://untrusted.example" },
+        }),
+      );
+      expect(
+        untrustedResponse.headers.get("access-control-allow-origin"),
+      ).toBeNull();
+    } finally {
+      await host.close();
+    }
   });
 
   it("rejects non-loopback startup before opening storage or a listener", async () => {
