@@ -74,6 +74,14 @@ async function boundedCleanup(
   ]);
 }
 
+function disconnectAgent(agent: AcpAgent): void {
+  try {
+    agent.disconnect?.();
+  } catch {
+    // Preserve the stream failure that requires this best-effort teardown.
+  }
+}
+
 function readTextDelta(value: unknown): string | undefined {
   if (
     typeof value !== "object" ||
@@ -126,10 +134,16 @@ async function streamAgent(
     request.signal,
     streamAbortController.signal,
   ]);
-  const stream = await agent.stream([{ role: "user", content: prompt }], {
-    abortSignal: streamSignal,
-    runId: request.invocationId,
-  });
+  let stream: Awaited<ReturnType<AcpAgent["stream"]>>;
+  try {
+    stream = await agent.stream([{ role: "user", content: prompt }], {
+      abortSignal: streamSignal,
+      runId: request.invocationId,
+    });
+  } catch (cause) {
+    disconnectAgent(agent);
+    throw cause;
+  }
   const textResult: Promise<TextResult> = stream.text.then(
     (value) => ({ status: "fulfilled", value }),
     (cause) => ({ status: "rejected", cause }),
@@ -228,7 +242,7 @@ async function streamAgent(
     removeAbortListener();
     if (failed) {
       streamAbortController.abort(failure);
-      agent.disconnect?.();
+      disconnectAgent(agent);
       const cancel = reader.cancel();
       void cancel.catch(() => undefined);
       await boundedCleanup([

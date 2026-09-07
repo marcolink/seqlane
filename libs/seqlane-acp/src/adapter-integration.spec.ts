@@ -34,6 +34,7 @@ function configuration(
   persistSession = false,
   exitFile?: string,
   stateFile?: string,
+  exitLogFile?: string,
 ) {
   return {
     id: "controlled-acp",
@@ -46,6 +47,9 @@ function configuration(
       ...(stateFile === undefined
         ? {}
         : { CONTROLLED_ACP_STATE_FILE: stateFile }),
+      ...(exitLogFile === undefined
+        ? {}
+        : { CONTROLLED_ACP_EXIT_LOG_FILE: exitLogFile }),
     },
     cwd,
     persistSession,
@@ -58,6 +62,22 @@ async function waitForExitFile(path: string): Promise<void> {
   while (!existsSync(path)) {
     if (Date.now() >= deadline) {
       throw new Error(`Controlled ACP process did not exit: ${path}`);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function waitForExitCount(path: string, count: number): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    const exits = existsSync(path)
+      ? readFileSync(path, "utf8").trim().split("\n").filter(Boolean)
+      : [];
+    if (exits.length >= count) return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Expected ${count} controlled ACP process exits, received ${exits.length}`,
+      );
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
@@ -201,5 +221,33 @@ describe("Mastra ACP adapter boundary", () => {
       argument: "configured-argument",
       promptCount: 1,
     });
+  });
+
+  it("tears down each failed ACP setup before replacing its queued agent", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "seqlane-acp-"));
+    const exitLog = join(cwd, "setup-failure-exits");
+    const adapter = createAcpAdapter(
+      configuration(cwd, "setup-failure", true, undefined, undefined, exitLog),
+    );
+
+    await expect(
+      adapter.execute(request(new AbortController().signal)),
+    ).rejects.toMatchObject({
+      name: "AcpAdapterError",
+      code: "execution",
+    });
+    await waitForExitCount(exitLog, 1);
+
+    await expect(
+      adapter.execute(
+        request(new AbortController().signal, {
+          invocationId: "controlled-acp-second-failure",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "AcpAdapterError",
+      code: "execution",
+    });
+    await waitForExitCount(exitLog, 2);
   });
 });

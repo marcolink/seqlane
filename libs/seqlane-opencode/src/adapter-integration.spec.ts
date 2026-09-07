@@ -92,6 +92,7 @@ async function startServer(
     resolveAbortStarted = resolve;
   });
   let nextSession = 0;
+  let nextMessage = 0;
 
   const sendEvent = (sessionId: string, event: Record<string, unknown>) => {
     for (const response of eventResponses) {
@@ -199,6 +200,7 @@ async function startServer(
         pendingPrompts.set(sessionId, response);
         return;
       }
+      nextMessage += 1;
       sendEvent(sessionId, {
         type: "message.part.updated",
         properties: {
@@ -225,7 +227,7 @@ async function startServer(
         },
       });
       writeJson(response, {
-        info: responseInfo(sessionId, `message-${sessionId}`, {
+        info: responseInfo(sessionId, `message-${sessionId}-${nextMessage}`, {
           result: "done",
         }),
         parts: [],
@@ -353,7 +355,7 @@ describe("OpenCode SDK adapter boundary", () => {
     }
   });
 
-  it("reuses the selected session, then forks from its exact checkpoint", async () => {
+  it("reuses the selected session, then forks from its latest checkpoint", async () => {
     const server = await startServer();
     try {
       const adapter = createOpenCodeAdapter({
@@ -391,7 +393,7 @@ describe("OpenCode SDK adapter boundary", () => {
           expect.objectContaining({
             method: "POST",
             path: "/session/session-1/fork",
-            body: { messageID: "message-session-1" },
+            body: { messageID: "message-session-1-2" },
           }),
           expect.objectContaining({
             method: "POST",

@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 
 const rpcRequestSchema = z.object({
@@ -15,6 +15,7 @@ const paramsRecordSchema = z.record(z.string(), z.unknown());
 
 const mode = process.env.CONTROLLED_ACP_MODE ?? "success";
 const exitFile = process.env.CONTROLLED_ACP_EXIT_FILE;
+const exitLogFile = process.env.CONTROLLED_ACP_EXIT_LOG_FILE;
 const stateFile = process.env.CONTROLLED_ACP_STATE_FILE;
 const argument = process.argv[2] ?? "missing-argument";
 const sessionId = "controlled-session";
@@ -22,9 +23,14 @@ let sessionCwd = "";
 let selectedModel = "";
 let promptCount = 0;
 let pendingPromptId;
+let exitRecorded = false;
 
 function recordExit() {
+  if (exitRecorded) return;
+  exitRecorded = true;
   if (exitFile !== undefined) writeFileSync(exitFile, "exit");
+  if (exitLogFile !== undefined)
+    appendFileSync(exitLogFile, `${process.pid}\n`);
 }
 
 process.on("exit", recordExit);
@@ -91,6 +97,14 @@ function handleRequest(request) {
         jsonrpc: "2.0",
         id: request.id,
         error: { code: -32602, message: "invalid session" },
+      });
+      return;
+    }
+    if (mode === "setup-failure") {
+      send({
+        jsonrpc: "2.0",
+        id: request.id,
+        error: { code: -32000, message: "controlled setup failure" },
       });
       return;
     }

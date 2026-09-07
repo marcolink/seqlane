@@ -68,6 +68,7 @@ function stream(text: string, chunks: readonly unknown[] = []) {
 }
 
 type TestAgent = {
+  disconnect?(): void;
   stream(
     messages: unknown,
     options: { readonly abortSignal?: AbortSignal; readonly runId?: string },
@@ -769,6 +770,52 @@ describe("private ACP adapter", () => {
       code: "cancellation",
     });
     expect(secondStarted).toBe(false);
+  });
+
+  it("tears down every stream setup failure before replacing the private agent", async () => {
+    const disconnected: string[] = [];
+    const agents: TestAgent[] = [
+      {
+        disconnect: () => disconnected.push("first"),
+        stream: async () => {
+          throw new Error("first setup failed");
+        },
+      },
+      {
+        disconnect: () => disconnected.push("second"),
+        stream: async () => {
+          throw new Error("second setup failed");
+        },
+      },
+      {
+        stream: async () => stream('{"value":"recovered"}'),
+      },
+    ];
+    const executor = createAcpAdapter(configuration(), {
+      createAgent: () => {
+        const agent = agents.shift();
+        if (agent === undefined) throw new Error("test agent exhausted");
+        return agent;
+      },
+    });
+
+    await expect(executor.execute(request())).rejects.toMatchObject({
+      name: "AcpAdapterError",
+      code: "execution",
+    });
+    expect(disconnected).toEqual(["first"]);
+
+    await expect(
+      executor.execute(request({ invocationId: "invocation-2" })),
+    ).rejects.toMatchObject({
+      name: "AcpAdapterError",
+      code: "execution",
+    });
+    expect(disconnected).toEqual(["first", "second"]);
+
+    await expect(
+      executor.execute(request({ invocationId: "invocation-3" })),
+    ).resolves.toEqual({ value: "recovered" });
   });
 
   it("fails malformed stream data through the typed private boundary", async () => {
