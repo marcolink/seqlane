@@ -30,10 +30,15 @@ export interface AgentUncertainActivity {
   readonly termination?: Promise<unknown>;
 }
 
-export interface AgentBackgroundProcess {
-  readonly mutatesWorkspace: boolean;
-  readonly termination?: Promise<unknown>;
-}
+export type AgentBackgroundProcess =
+  | {
+      readonly mutatesWorkspace: false;
+      readonly termination?: Promise<unknown>;
+    }
+  | {
+      readonly mutatesWorkspace: true;
+      readonly termination: Promise<unknown>;
+    };
 
 export interface AgentAdapterCapabilities {
   readonly execute: true;

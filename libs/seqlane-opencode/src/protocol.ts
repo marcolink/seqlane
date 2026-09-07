@@ -57,6 +57,7 @@ export interface OpenCodeActivity {
 
 export interface OpenCodeBackgroundProcess {
   readonly mutatesWorkspace: true;
+  readonly termination: Promise<unknown>;
 }
 
 export interface OpenCodePromptResult {

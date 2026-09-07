@@ -75,6 +75,7 @@ function createAdapterForRun(
   configuredSelection: ModelSelection | undefined,
   sessionUi: () => Promise<string | undefined>,
   hasSessionUi: boolean,
+  onCancellation?: () => void,
 ): AgentAdapter {
   return {
     capabilities: {
@@ -90,100 +91,105 @@ function createAdapterForRun(
 
     async execute(request: AgentAdapterRequest): Promise<unknown> {
       const schema = toOpenCodeJsonSchema(request.task);
-      const run = await resolveRun(request.signal);
-      const selection = await run.structuredOutput?.();
-      const strategy = selection?.strategy ?? "native";
-      const retryCount = selection?.retryCount ?? 0;
-      const diagnostic =
-        selection === undefined
-          ? undefined
-          : promptStrategyDiagnostic(selection);
-      if (diagnostic !== undefined) {
-        request.onDiagnostic?.({
-          code: "structured-output",
-          message: diagnostic,
-        });
-      }
-
-      const basePrompt = buildOpenCodePrompt(request.task, request.input);
-      let promptText =
-        strategy === "prompt"
-          ? buildStructuredOutputPrompt(basePrompt, schema)
-          : basePrompt;
-      let attempts = 0;
-      let lastIssues: StructuredOutputValidationError | undefined;
-
-      while (true) {
-        attempts += 1;
-        selection?.report?.({ type: "attempt", attempt: attempts });
-        const response = await run.prompt({
-          text: promptText,
-          schema,
-          strategy,
-          retryCount,
-          ...(lastIssues === undefined
-            ? {}
-            : { tools: { "*": false, StructuredOutput: true } }),
-          selection: request.modelSelection ?? configuredSelection,
-          signal: request.signal,
-          onActivity: (activity) =>
-            request.onActivity?.(normalizeActivity(activity)),
-          onUncertainActivity: request.onUncertainActivity,
-          onBackgroundProcess: request.onBackgroundProcess,
-        });
-        if (response.metrics !== undefined) {
-          request.onMetrics?.(response.metrics);
-        }
-        if (strategy === "native") {
-          selection?.report?.({
-            type: "completed",
-            attempt: attempts,
-            success: true,
+      let run: OpenCodeRun;
+      try {
+        run = await resolveRun(request.signal);
+        const selection = await run.structuredOutput?.();
+        const strategy = selection?.strategy ?? "native";
+        const retryCount = selection?.retryCount ?? 0;
+        const diagnostic =
+          selection === undefined
+            ? undefined
+            : promptStrategyDiagnostic(selection);
+        if (diagnostic !== undefined) {
+          request.onDiagnostic?.({
+            code: "structured-output",
+            message: diagnostic,
           });
-          return response.structured;
         }
 
-        try {
-          const parsed = parsePromptJson(response.text ?? "");
-          const output = validatePromptJson(parsed, request.task.output);
-          selection?.report?.({
-            type: "completed",
-            attempt: attempts,
-            success: true,
+        const basePrompt = buildOpenCodePrompt(request.task, request.input);
+        let promptText =
+          strategy === "prompt"
+            ? buildStructuredOutputPrompt(basePrompt, schema)
+            : basePrompt;
+        let attempts = 0;
+        let lastIssues: StructuredOutputValidationError | undefined;
+
+        while (true) {
+          attempts += 1;
+          selection?.report?.({ type: "attempt", attempt: attempts });
+          const response = await run.prompt({
+            text: promptText,
+            schema,
+            strategy,
+            retryCount,
+            ...(lastIssues === undefined
+              ? {}
+              : { tools: { "*": false, StructuredOutput: true } }),
+            selection: request.modelSelection ?? configuredSelection,
+            signal: request.signal,
+            onActivity: (activity) =>
+              request.onActivity?.(normalizeActivity(activity)),
+            onUncertainActivity: request.onUncertainActivity,
+            onBackgroundProcess: request.onBackgroundProcess,
           });
-          return output;
-        } catch (cause) {
-          const validationError =
-            cause instanceof StructuredOutputValidationError
-              ? cause
-              : new StructuredOutputValidationError(
-                  1,
-                  [
-                    {
-                      kind: "validation",
-                      code: "schema_validation_failed",
-                      message: "Output did not satisfy the task schema",
-                    },
-                  ],
-                  cause,
-                );
-          lastIssues = validationError;
-          if (attempts > retryCount) {
+          if (response.metrics !== undefined) {
+            request.onMetrics?.(response.metrics);
+          }
+          if (strategy === "native") {
             selection?.report?.({
               type: "completed",
               attempt: attempts,
-              success: false,
+              success: true,
             });
-            throw new StructuredOutputValidationError(
-              attempts,
-              validationError.issues,
-              validationError,
+            return response.structured;
+          }
+
+          try {
+            const parsed = parsePromptJson(response.text ?? "");
+            const output = validatePromptJson(parsed, request.task.output);
+            selection?.report?.({
+              type: "completed",
+              attempt: attempts,
+              success: true,
+            });
+            return output;
+          } catch (cause) {
+            const validationError =
+              cause instanceof StructuredOutputValidationError
+                ? cause
+                : new StructuredOutputValidationError(
+                    1,
+                    [
+                      {
+                        kind: "validation",
+                        code: "schema_validation_failed",
+                        message: "Output did not satisfy the task schema",
+                      },
+                    ],
+                    cause,
+                  );
+            lastIssues = validationError;
+            if (attempts > retryCount) {
+              selection?.report?.({
+                type: "completed",
+                attempt: attempts,
+                success: false,
+              });
+              throw new StructuredOutputValidationError(
+                attempts,
+                validationError.issues,
+                validationError,
+              );
+            }
+            promptText = buildStructuredOutputRepairPrompt(
+              summarizeStructuredOutputIssues(validationError.issues),
             );
           }
-          promptText = buildStructuredOutputRepairPrompt(
-            summarizeStructuredOutputIssues(validationError.issues),
-          );
         }
+      } finally {
+        if (request.signal.aborted) onCancellation?.();
       }
     },
 
@@ -237,5 +243,8 @@ export function createOpenCodeAdapter(
       (await resolveRun(options.signal ?? new AbortController().signal))
         .browserUrl,
     connection.browserUiUrl !== undefined,
+    () => {
+      run = undefined;
+    },
   );
 }

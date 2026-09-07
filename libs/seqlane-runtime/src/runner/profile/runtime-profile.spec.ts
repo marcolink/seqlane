@@ -166,7 +166,10 @@ describe("resolveRuntimeProfile", () => {
       },
       execute: async (received) => {
         received.onUncertainActivity?.({ reason: "timeout", termination });
-        received.onBackgroundProcess?.({ mutatesWorkspace: true });
+        received.onBackgroundProcess?.({
+          mutatesWorkspace: true,
+          termination,
+        });
         return { value: "done" };
       },
     };
@@ -184,7 +187,9 @@ describe("resolveRuntimeProfile", () => {
       executeAgentAdapterRequest(adapter, tasks, undefined, request),
     ).resolves.toEqual({ value: "done" });
     expect(uncertainActivities).toEqual([{ reason: "timeout", termination }]);
-    expect(backgroundProcesses).toEqual([{ mutatesWorkspace: true }]);
+    expect(backgroundProcesses).toEqual([
+      { mutatesWorkspace: true, termination },
+    ]);
   });
 
   it("resolves local workspace resources without contacting OpenCode", async () => {

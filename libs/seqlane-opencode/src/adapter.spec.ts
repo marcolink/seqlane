@@ -5,10 +5,18 @@ import {
   type AgentTaskDefinition,
   type SeqlaneInvocationMetrics,
 } from "@seqlane/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createOpenCodeAdapterForRun } from "./adapter.js";
+import {
+  createOpenCodeAdapter,
+  createOpenCodeAdapterForRun,
+} from "./adapter.js";
 import type { OpenCodePrompt, OpenCodeRun } from "./protocol.js";
+import { createOpenCodeRun } from "./session.js";
+
+vi.mock("./session.js", () => ({
+  createOpenCodeRun: vi.fn(),
+}));
 
 const task: AgentTaskDefinition = {
   id: "agent-task",
@@ -123,7 +131,7 @@ describe("OpenCode AgentAdapter", () => {
     const backgroundProcesses: unknown[] = [];
     const run = createRun(async (prompt) => {
       prompt.onUncertainActivity?.({ reason: "disconnect", termination });
-      prompt.onBackgroundProcess?.({ mutatesWorkspace: true });
+      prompt.onBackgroundProcess?.({ mutatesWorkspace: true, termination });
       return { structured: { result: "done" } };
     });
     const adapter = createOpenCodeAdapterForRun(run);
@@ -140,7 +148,47 @@ describe("OpenCode AgentAdapter", () => {
     expect(uncertainActivities).toEqual([
       { reason: "disconnect", termination },
     ]);
-    expect(backgroundProcesses).toEqual([{ mutatesWorkspace: true }]);
+    expect(backgroundProcesses).toEqual([
+      { mutatesWorkspace: true, termination },
+    ]);
+  });
+
+  it("replaces a cached run after cancellation before the next invocation", async () => {
+    const firstController = new AbortController();
+    let resolvePromptStarted!: () => void;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    const cancelledRun = createRun(
+      (prompt) =>
+        new Promise<never>((_resolve, reject) => {
+          resolvePromptStarted();
+          prompt.signal?.addEventListener(
+            "abort",
+            () => reject(new Error("cancelled")),
+            { once: true },
+          );
+        }),
+    );
+    const replacementRun = createRun(async () => ({
+      structured: { result: "replacement" },
+    }));
+    vi.mocked(createOpenCodeRun)
+      .mockResolvedValueOnce(cancelledRun)
+      .mockResolvedValueOnce(replacementRun);
+    const adapter = createOpenCodeAdapter({ url: "http://opencode.test" });
+
+    const cancelled = adapter.execute(
+      request({ signal: firstController.signal }),
+    );
+    await promptStarted;
+    firstController.abort(new Error("cancelled by caller"));
+    await expect(cancelled).rejects.toThrow("cancelled");
+
+    await expect(adapter.execute(request())).resolves.toEqual({
+      result: "replacement",
+    });
+    expect(createOpenCodeRun).toHaveBeenCalledTimes(2);
   });
 
   it("validates and repairs prompt-mode structured output", async () => {

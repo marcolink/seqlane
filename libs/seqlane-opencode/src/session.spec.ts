@@ -817,27 +817,27 @@ describe("OpenCode run session", () => {
     }
   });
 
-  it("reports an untracked background shell command", async () => {
+  it("reports uncertain termination for a mutating background shell command", async () => {
     const fake = await startServer({
       backgroundShellEvent: true,
       holdPrompt: true,
     });
     try {
       const run = await createOpenCodeRun({ url: fake.url });
-      let reportBackgroundProcess!: (value: unknown) => void;
-      const backgroundProcess = new Promise<unknown>((resolve) => {
-        reportBackgroundProcess = resolve;
+      let reportUncertainActivity!: (value: unknown) => void;
+      const uncertainActivity = new Promise<unknown>((resolve) => {
+        reportUncertainActivity = resolve;
       });
 
       const prompt = run.prompt({
         text: "format the workspace",
         schema: { type: "object" },
-        onBackgroundProcess: reportBackgroundProcess,
+        onUncertainActivity: reportUncertainActivity,
       });
       await fake.promptStarted;
 
-      await expect(backgroundProcess).resolves.toEqual({
-        mutatesWorkspace: true,
+      await expect(uncertainActivity).resolves.toEqual({
+        reason: "disconnect",
       });
       fake.completeNextPrompt();
       await prompt;
