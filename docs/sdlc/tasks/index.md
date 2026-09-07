@@ -180,6 +180,7 @@
 | [task.adopt-zvec-grep-action-owned-indexing](./2026-09-07-adopt-zvec-grep-action-owned-indexing.md) | Adopt Action-Owned zvec-grep Indexing | completed | 2026-09-07 | core |
 | [task.configure-zvec-grep-action-indexing](./2026-09-07-configure-zvec-grep-action-indexing.md) | Configure zvec-grep Action Indexing | completed | 2026-09-07 | core |
 | [task.fix-service-action-anchor-path](./2026-09-07-fix-service-action-anchor-path.md) | Fix Service Action Anchor Path Resolution | completed | 2026-09-07 | core |
+| [task.account-opencode-invocation-metrics](./2026-09-07-account-opencode-invocation-metrics.md) | Account for all OpenCode model responses per invocation | completed | 2026-09-07 | core |
 | [task.harden-seqlane-action-push-and-cleanup](./2026-09-07-harden-seqlane-action-push-and-cleanup.md) | Harden Seqlane Action Push and Cleanup | completed | 2026-09-07 | core |
 | [task.harden-zvec-grep-index-policy-and-entrypoint](./2026-09-07-harden-zvec-grep-index-policy-and-entrypoint.md) | Harden zvec-grep Index Policy and Entrypoint | completed | 2026-09-07 | core |
 | [task.harden-zvec-grep-review-execution](./2026-09-07-harden-zvec-grep-review-execution.md) | Harden zvec-grep Review Execution | completed | 2026-09-07 | core |

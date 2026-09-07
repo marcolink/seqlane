@@ -72,6 +72,97 @@ function metricsWithModelSelection(
   };
 }
 
+interface InvocationMetricsAccumulator {
+  add(metrics: SeqlaneInvocationMetrics): void;
+  snapshot(): SeqlaneInvocationMetrics | undefined;
+}
+
+function createInvocationMetricsAccumulator(): InvocationMetricsAccumulator {
+  let count = 0;
+  let hasDuration = false;
+  let durationMs = 0;
+  let hasModel = false;
+  let model: string | undefined;
+  let modelIsConsistent = true;
+  let hasProvider = false;
+  let provider: string | undefined;
+  let providerIsConsistent = true;
+  let hasCost = false;
+  let cost = 0;
+  let tokenCount = 0;
+  let tokensHaveTotals = true;
+  let totalTokens = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let reasoningTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
+
+  return {
+    add(metrics) {
+      count += 1;
+      if (metrics.durationMs !== undefined) {
+        hasDuration = true;
+        durationMs += metrics.durationMs;
+      }
+      if (metrics.model === undefined) {
+        modelIsConsistent = false;
+      } else if (!hasModel) {
+        hasModel = true;
+        model = metrics.model;
+      } else if (model !== metrics.model) {
+        modelIsConsistent = false;
+      }
+      if (metrics.provider === undefined) {
+        providerIsConsistent = false;
+      } else if (!hasProvider) {
+        hasProvider = true;
+        provider = metrics.provider;
+      } else if (provider !== metrics.provider) {
+        providerIsConsistent = false;
+      }
+      if (metrics.cost !== undefined) {
+        hasCost = true;
+        cost += metrics.cost;
+      }
+      if (metrics.tokens !== undefined) {
+        tokenCount += 1;
+        if (metrics.tokens.total === undefined) {
+          tokensHaveTotals = false;
+        } else {
+          totalTokens += metrics.tokens.total;
+        }
+        inputTokens += metrics.tokens.input;
+        outputTokens += metrics.tokens.output;
+        reasoningTokens += metrics.tokens.reasoning;
+        cacheReadTokens += metrics.tokens.cacheRead;
+        cacheWriteTokens += metrics.tokens.cacheWrite;
+      }
+    },
+    snapshot() {
+      if (count === 0) return undefined;
+      return {
+        ...(hasDuration ? { durationMs } : {}),
+        ...(modelIsConsistent && hasModel ? { model } : {}),
+        ...(providerIsConsistent && hasProvider ? { provider } : {}),
+        ...(hasCost ? { cost } : {}),
+        ...(tokenCount === 0
+          ? {}
+          : {
+              tokens: {
+                ...(tokensHaveTotals ? { total: totalTokens } : {}),
+                input: inputTokens,
+                output: outputTokens,
+                reasoning: reasoningTokens,
+                cacheRead: cacheReadTokens,
+                cacheWrite: cacheWriteTokens,
+              },
+            }),
+      };
+    },
+  };
+}
+
 export async function executeTaskNode(
   context: ExecutionContext,
   node: TaskNode,
@@ -180,6 +271,33 @@ export async function executeTaskNode(
       ...optionalIteration(options.iteration),
     });
 
+    const reportedMetrics = createInvocationMetricsAccumulator();
+    let metricsEmitted = false;
+    const emitMetrics = (): void => {
+      if (metricsEmitted) return;
+      const aggregateMetrics = reportedMetrics.snapshot();
+      if (aggregateMetrics === undefined) return;
+      const observableMetrics = metricsWithModelSelection(
+        aggregateMetrics,
+        isLocalTask
+          ? undefined
+          : effectiveModelSelection(context, invocationId, session),
+      );
+      if (observableMetrics === undefined) return;
+      context.events.emit({
+        type: "invocation.output",
+        workId: context.workId,
+        runId: context.runId,
+        invocationId,
+        policy: "persistent",
+        channel: "task",
+        content: "Task metrics",
+        metrics: observableMetrics,
+        ...optionalIteration(options.iteration),
+      });
+      metricsEmitted = true;
+    };
+
     try {
       const taskSchema = getTaskSchema(
         context.taskSchemas,
@@ -212,7 +330,6 @@ export async function executeTaskNode(
       });
 
       let rawOutput: unknown;
-      let metrics: SeqlaneInvocationMetrics | undefined;
       const effects = new InvocationEffects();
       const reportUncertainActivity = (
         activity: SeqlaneUncertainActivity,
@@ -331,7 +448,7 @@ export async function executeTaskNode(
             input,
             signal: abortSignal,
             onMetrics: (value) => {
-              metrics = value;
+              reportedMetrics.add(value);
             },
             onDiagnostic: (message) => {
               context.events.emit({
@@ -370,6 +487,7 @@ export async function executeTaskNode(
         };
       }
       if (executorFailure !== undefined) {
+        emitMetrics();
         throwTaskPhaseError(
           executorFailure.cause,
           "executor",
@@ -387,12 +505,11 @@ export async function executeTaskNode(
       }
 
       const observableMetrics = metricsWithModelSelection(
-        isLocalTask ? undefined : metrics,
+        reportedMetrics.snapshot(),
         isLocalTask
           ? undefined
           : effectiveModelSelection(context, invocationId, session),
       );
-
       context.events.emit({
         type: "invocation.result",
         workId: context.workId,
@@ -435,10 +552,12 @@ export async function executeTaskNode(
         summary: summarizeSeqlaneOutput(output),
         ...optionalIteration(options.iteration),
       });
+      if (observableMetrics !== undefined) metricsEmitted = true;
       releaseIfUnused(results, remainingConsumers, node.nodeId);
 
       return output;
     } catch (cause) {
+      emitMetrics();
       return throwInvocationFailure(cause, {
         context,
         abortSignal,
