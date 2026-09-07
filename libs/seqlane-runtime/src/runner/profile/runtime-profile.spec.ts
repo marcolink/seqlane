@@ -11,6 +11,7 @@ import {
   executeAgentAdapterRequest,
   resolveRuntimeProfile,
 } from "./runtime-profile.js";
+import { createRuntimeAdapterRegistry } from "./runtime-adapter.js";
 import type { ExecutorRequest } from "../../runtime/execution/executor.js";
 
 const schema: SeqlaneSchema = { parse: (value) => value };
@@ -287,6 +288,82 @@ describe("resolveRuntimeProfile", () => {
     } finally {
       await server.close();
     }
+  });
+
+  it("rejects a forked adapter whose capabilities drift from the source", async () => {
+    const source = task("source", "shared");
+    const tasks: TaskDefinitionRegistry = new Map([[source.id, source]]);
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: true,
+      fork: true,
+      activity: false,
+      sessionUi: false,
+    };
+    const child: AgentAdapter = {
+      capabilities: {
+        ...capabilities,
+        checkpoint: false,
+        fork: false,
+      },
+      execute: async () => ({ value: "child" }),
+    };
+    const parent: AgentAdapter = {
+      capabilities,
+      execute: async () => ({ value: "parent" }),
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => child,
+    };
+    const adapterRegistry = createRuntimeAdapterRegistry([
+      {
+        identity: "opencode",
+        resolveCapabilities: () => capabilities,
+        prepare: async () => ({}),
+        create: () => ({ createAdapter: () => parent }),
+      },
+    ]);
+
+    const execution = await resolveRuntimeProfile(
+      { id: "http://adapter.test", workspace: process.cwd() },
+      tasks,
+      new AbortController().signal,
+      null,
+      undefined,
+      {
+        adapterConfiguration: {
+          adapter: "opencode",
+          url: "http://adapter.test",
+        },
+        adapterRegistry,
+        runId: "run-1",
+      },
+    );
+    const session = await execution.sessionResolver.resolve({
+      invocationId: "invocation:source",
+      task: source,
+    });
+    await session.executor.execute({
+      invocationId: "invocation:source",
+      taskId: source.id,
+      executor: "agent",
+      input: null,
+      signal: new AbortController().signal,
+    });
+    if (session.checkpoint === undefined || session.fork === undefined) {
+      throw new Error("test adapter did not expose checkpoint and fork");
+    }
+    const checkpoint = await session.checkpoint();
+
+    await expect(
+      session.fork({
+        checkpoint,
+        invocationId: "invocation:branch",
+        task: source,
+      }),
+    ).rejects.toThrow(/capability/i);
   });
 
   it("exposes the OpenCode model catalog and configured default", async () => {

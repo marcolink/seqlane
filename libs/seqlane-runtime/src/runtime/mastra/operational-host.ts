@@ -25,7 +25,10 @@ import { resolveRuntimeProfile } from "../../runner/profile/runtime-profile.js";
 import type { RuntimeSessionUiAvailable } from "../../runner/runtime-session-ui.js";
 import { planContainsAgentWork } from "../../runner/run.js";
 import { createSeqlanePlanSnapshot } from "../../runner/workflow/plan-snapshot.js";
-import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
+import {
+  preflightCompiledWorkflowSessionCapabilities,
+  resolveCompiledWorkflowSessions,
+} from "../session/session-preflight.js";
 import { createMastraPlanInvocationHandler } from "./mastra-execution.js";
 import {
   createMastraComposition,
@@ -238,6 +241,7 @@ function createOperationalInvocationHandler(
           validatorDefinitions: source.validatorDefinitions,
           events,
         });
+        preflightCompiledWorkflowSessionCapabilities(prepared);
         await preflightCompiledWorkflowModels(prepared);
         await resolveCompiledWorkflowSessions(prepared);
         if (source.eventSink !== undefined) {

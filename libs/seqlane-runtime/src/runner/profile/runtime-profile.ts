@@ -33,6 +33,7 @@ import {
   createRuntimeAdapterRegistry,
   loadRuntimeAdapterConfiguration,
   redactRuntimeAdapter,
+  assertRuntimeAdapterCapabilities,
   type RuntimeAdapterFactoryContext,
   type RuntimeAdapterFactoryResult,
   type RuntimeAdapterRegistry,
@@ -127,26 +128,6 @@ interface SessionCheckpointBinding {
 interface SessionCheckpointState {
   generation: number;
   latest?: BoundCheckpoint;
-}
-
-const capabilityKeys = [
-  "execute",
-  "modelSelection",
-  "structuredOutput",
-  "sessionReuse",
-  "checkpoint",
-  "fork",
-  "activity",
-  "sessionUi",
-] as const;
-
-function assertAdapterCapabilities(
-  expected: AgentAdapter["capabilities"],
-  actual: AgentAdapter["capabilities"],
-): void {
-  if (capabilityKeys.some((key) => expected[key] !== actual[key])) {
-    throw new Error("Selected adapter capabilities changed after preflight");
-  }
 }
 
 export function executeAgentAdapterRequest(
@@ -252,14 +233,17 @@ function createAgentSession(
             ) {
               throw new RuntimeAdapterCheckpointError("stale");
             }
+            const child = await fork({
+              checkpoint: parsed.data.value,
+              ...(selection === undefined ? {} : { modelSelection: selection }),
+            });
+            assertRuntimeAdapterCapabilities(
+              child,
+              checkpointBinding.capabilities,
+            );
             return createAgentSession(
               taskDefinitions,
-              await fork({
-                checkpoint: parsed.data.value,
-                ...(selection === undefined
-                  ? {}
-                  : { modelSelection: selection }),
-              }),
+              child,
               onSessionUiAvailable,
               selection,
               checkpointBinding,
@@ -286,10 +270,7 @@ function createLazyAgentSession(
       : { modelSelection: effectiveSelection }),
   });
   const adapter = binding.createAdapter();
-  assertAdapterCapabilities(
-    checkpointBinding.capabilities,
-    adapter.capabilities,
-  );
+  assertRuntimeAdapterCapabilities(adapter, checkpointBinding.capabilities);
   return createAgentSession(
     taskDefinitions,
     adapter,
@@ -371,12 +352,14 @@ export async function resolveRuntimeProfile(
     configurationWithWorkspace(rawConfiguration, workspacePath),
   );
   const preparation = await selected.prepare(signal);
+  const capabilities = selected.resolveCapabilities(preparation);
   const binding = selected.create({ signal, ...preparation });
+  assertRuntimeAdapterCapabilities(binding.createAdapter(), capabilities);
   const checkpointBinding: SessionCheckpointBinding = {
     adapter: selected.identity,
     runId: options.runId ?? randomUUID(),
     configurationFingerprint: selected.configurationFingerprint,
-    capabilities: selected.capabilities,
+    capabilities,
   };
   const workspaceIdentities = await resolveTaskWorkspaceIdentities(
     taskDefinitions,
@@ -384,7 +367,7 @@ export async function resolveRuntimeProfile(
   );
   const workspaceResources = createWorkspaceResources(workspaceIdentities);
   const sessionResolver: SessionResolver = {
-    adapterCapabilities: selected.capabilities,
+    adapterCapabilities: capabilities,
     modelCapabilities: binding.modelCapabilities,
     resolve: async ({ effectiveSelection }): Promise<ResolvedExecutorSession> =>
       createLazyAgentSession(

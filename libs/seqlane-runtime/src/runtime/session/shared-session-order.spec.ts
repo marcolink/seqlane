@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import {
+  preflightCompiledWorkflowSessionCapabilities,
   resolveCompiledWorkflowSessions,
   UnsupportedSessionCapabilityError,
 } from "./session-preflight.js";
@@ -54,6 +55,62 @@ function sharedSessionResolver(
 }
 
 describe("shared-session order preflight", () => {
+  it("rejects capability requirements before model preflight work", async () => {
+    let modelWork = 0;
+    const source = task("source");
+    const branch = {
+      ...task("branch", ["source"]),
+      session: { type: "branch" as const, from: "source" },
+    };
+    const compiled = new PlanCompiler().compileWorkflow(
+      {
+        workflow: { id: "capability-first" },
+        nodes: [source, branch],
+        output: { type: "ref", nodeId: "branch", path: [] },
+      },
+      {
+        createInvocationId: (nodeId) => `inv:${nodeId}`,
+        executors: new Map([["test", { execute: async () => ({}) }]]),
+        sessionResolver: {
+          adapterCapabilities: {
+            execute: true,
+            modelSelection: true,
+            structuredOutput: true,
+            sessionReuse: true,
+            checkpoint: false,
+            fork: false,
+            activity: false,
+            sessionUi: false,
+          },
+          modelCapabilities: {
+            executor: "test",
+            listModels: async () => {
+              modelWork += 1;
+              return [{ provider: "test", model: "default" }];
+            },
+            resolveDefaultModel: async () => {
+              modelWork += 1;
+              return { model: { provider: "test", model: "default" } };
+            },
+          },
+          resolve: async () => ({
+            key: Symbol("unreachable"),
+            executor: { execute: async () => ({}) },
+          }),
+        },
+        taskDefinitions: new Map([
+          [source.taskId, taskDefinition(source.taskId)],
+          [branch.taskId, taskDefinition(branch.taskId)],
+        ]),
+      },
+    );
+
+    expect(() => {
+      preflightCompiledWorkflowSessionCapabilities(compiled);
+    }).toThrow(UnsupportedSessionCapabilityError);
+    expect(modelWork).toBe(0);
+  });
+
   it("rejects an unsupported branch before resolving an adapter session", async () => {
     let resolved = 0;
     const source = task("source");
