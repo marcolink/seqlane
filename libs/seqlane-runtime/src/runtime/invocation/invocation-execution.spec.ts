@@ -20,13 +20,14 @@ function compile(
   source: Plan,
   executor: (request: ExecutorRequest) => Promise<unknown>,
   events: SeqlaneEvent[],
+  emit: (event: SeqlaneEvent) => void = (event) => events.push(event),
 ) {
   return new EffectCompiler().compileWorkflow(source, {
     workId: "test-work",
     runId: "run-1",
     createInvocationId: (nodeId) => nodeId,
     executors: new Map([["test-executor", { execute: executor }]]),
-    events: { emit: (event) => events.push(event) },
+    events: { emit },
   });
 }
 
@@ -136,6 +137,52 @@ describe("task invocation events", () => {
     });
     expect(output).not.toHaveProperty("metrics.model");
     expect(output).not.toHaveProperty("metrics.provider");
+  });
+
+  it("retries metrics emission after a one-time persistent event failure", async () => {
+    const events: SeqlaneEvent[] = [];
+    let failMetricsEmission = true;
+    const metrics = {
+      model: "model-a",
+      provider: "provider-a",
+      cost: 0.004,
+    } as const;
+    const compiled = compile(
+      {
+        workflow: { id: "test-workflow" },
+        nodes: [task("task:1")],
+        output: { type: "ref", nodeId: "task:1", path: [] },
+      },
+      async ({ onMetrics }) => {
+        onMetrics?.(metrics);
+        return { value: "output" };
+      },
+      events,
+      (event) => {
+        if (
+          failMetricsEmission &&
+          event.type === "invocation.output" &&
+          event.policy === "persistent" &&
+          event.metrics !== undefined
+        ) {
+          failMetricsEmission = false;
+          throw new Error("temporary event sink failure");
+        }
+        events.push(event);
+      },
+    );
+
+    const outcome = await runCompiledWorkflow(compiled);
+
+    expect(outcome.status).toBe("failed");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "invocation.output",
+        policy: "persistent",
+        invocationId: "task:1",
+        metrics,
+      }),
+    );
   });
 
   it("emits metrics received before a terminal executor failure", async () => {

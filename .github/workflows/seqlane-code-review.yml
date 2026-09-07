@@ -678,12 +678,12 @@ jobs:
                 + (if $created.taskId != null then {taskId: $created.taskId} else {} end)
                 + (if $metrics.model != null then
                     {model: $metrics.model}
-                  elif ($metrics.cost == null and $metrics.tokens == null and $metrics.modelSelection.model.model != null) then
+                  elif ($metrics.durationMs == null and $metrics.cost == null and $metrics.tokens == null and $metrics.modelSelection.model.model != null) then
                     {model: $metrics.modelSelection.model.model}
                   else {} end)
                 + (if $metrics.provider != null then
                     {provider: $metrics.provider}
-                  elif ($metrics.cost == null and $metrics.tokens == null and $metrics.modelSelection.model.provider != null) then
+                  elif ($metrics.durationMs == null and $metrics.cost == null and $metrics.tokens == null and $metrics.modelSelection.model.provider != null) then
                     {provider: $metrics.modelSelection.model.provider}
                   else {} end)
                 + (if $metrics.tokens != null then {tokens: $metrics.tokens} else {} end)

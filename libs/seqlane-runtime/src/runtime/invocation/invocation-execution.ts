@@ -72,63 +72,94 @@ function metricsWithModelSelection(
   };
 }
 
-function sumDefined(
-  values: readonly (number | undefined)[],
-): number | undefined {
-  if (values.every((value) => value === undefined)) return undefined;
-  return values.reduce<number>((total, value) => total + (value ?? 0), 0);
+interface InvocationMetricsAccumulator {
+  add(metrics: SeqlaneInvocationMetrics): void;
+  snapshot(): SeqlaneInvocationMetrics | undefined;
 }
 
-function consistentValue<T>(values: readonly (T | undefined)[]): T | undefined {
-  if (values.length === 0 || values.some((value) => value === undefined)) {
-    return undefined;
-  }
-  const first = values[0];
-  return values.every((value) => value === first) ? first : undefined;
-}
+function createInvocationMetricsAccumulator(): InvocationMetricsAccumulator {
+  let count = 0;
+  let hasDuration = false;
+  let durationMs = 0;
+  let hasModel = false;
+  let model: string | undefined;
+  let modelIsConsistent = true;
+  let hasProvider = false;
+  let provider: string | undefined;
+  let providerIsConsistent = true;
+  let hasCost = false;
+  let cost = 0;
+  let tokenCount = 0;
+  let tokensHaveTotals = true;
+  let totalTokens = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let reasoningTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
 
-function aggregateInvocationMetrics(
-  metrics: readonly SeqlaneInvocationMetrics[],
-): SeqlaneInvocationMetrics | undefined {
-  if (metrics.length === 0) return undefined;
-  const tokens = metrics
-    .map((value) => value.tokens)
-    .filter((value): value is NonNullable<typeof value> => value !== undefined);
-  const tokenTotals = metrics.map((value) => value.tokens?.total);
-  const durationMs = sumDefined(metrics.map((value) => value.durationMs));
-  const model = consistentValue(metrics.map((value) => value.model));
-  const provider = consistentValue(metrics.map((value) => value.provider));
-  const cost = sumDefined(metrics.map((value) => value.cost));
-  const totalTokens = sumDefined(tokenTotals);
   return {
-    ...(durationMs === undefined ? {} : { durationMs }),
-    ...(model === undefined ? {} : { model }),
-    ...(provider === undefined ? {} : { provider }),
-    ...(cost === undefined ? {} : { cost }),
-    ...(tokens.length === 0
-      ? {}
-      : {
-          tokens: {
-            ...(tokens.every((value) => value.total !== undefined) &&
-            totalTokens !== undefined
-              ? { total: totalTokens }
-              : {}),
-            input: tokens.reduce((total, value) => total + value.input, 0),
-            output: tokens.reduce((total, value) => total + value.output, 0),
-            reasoning: tokens.reduce(
-              (total, value) => total + value.reasoning,
-              0,
-            ),
-            cacheRead: tokens.reduce(
-              (total, value) => total + value.cacheRead,
-              0,
-            ),
-            cacheWrite: tokens.reduce(
-              (total, value) => total + value.cacheWrite,
-              0,
-            ),
-          },
-        }),
+    add(metrics) {
+      count += 1;
+      if (metrics.durationMs !== undefined) {
+        hasDuration = true;
+        durationMs += metrics.durationMs;
+      }
+      if (metrics.model === undefined) {
+        modelIsConsistent = false;
+      } else if (!hasModel) {
+        hasModel = true;
+        model = metrics.model;
+      } else if (model !== metrics.model) {
+        modelIsConsistent = false;
+      }
+      if (metrics.provider === undefined) {
+        providerIsConsistent = false;
+      } else if (!hasProvider) {
+        hasProvider = true;
+        provider = metrics.provider;
+      } else if (provider !== metrics.provider) {
+        providerIsConsistent = false;
+      }
+      if (metrics.cost !== undefined) {
+        hasCost = true;
+        cost += metrics.cost;
+      }
+      if (metrics.tokens !== undefined) {
+        tokenCount += 1;
+        if (metrics.tokens.total === undefined) {
+          tokensHaveTotals = false;
+        } else {
+          totalTokens += metrics.tokens.total;
+        }
+        inputTokens += metrics.tokens.input;
+        outputTokens += metrics.tokens.output;
+        reasoningTokens += metrics.tokens.reasoning;
+        cacheReadTokens += metrics.tokens.cacheRead;
+        cacheWriteTokens += metrics.tokens.cacheWrite;
+      }
+    },
+    snapshot() {
+      if (count === 0) return undefined;
+      return {
+        ...(hasDuration ? { durationMs } : {}),
+        ...(modelIsConsistent && hasModel ? { model } : {}),
+        ...(providerIsConsistent && hasProvider ? { provider } : {}),
+        ...(hasCost ? { cost } : {}),
+        ...(tokenCount === 0
+          ? {}
+          : {
+              tokens: {
+                ...(tokensHaveTotals ? { total: totalTokens } : {}),
+                input: inputTokens,
+                output: outputTokens,
+                reasoning: reasoningTokens,
+                cacheRead: cacheReadTokens,
+                cacheWrite: cacheWriteTokens,
+              },
+            }),
+      };
+    },
   };
 }
 
@@ -240,11 +271,11 @@ export async function executeTaskNode(
       ...optionalIteration(options.iteration),
     });
 
-    const reportedMetrics: SeqlaneInvocationMetrics[] = [];
+    const reportedMetrics = createInvocationMetricsAccumulator();
     let metricsEmitted = false;
     const emitMetrics = (): void => {
       if (metricsEmitted) return;
-      const aggregateMetrics = aggregateInvocationMetrics(reportedMetrics);
+      const aggregateMetrics = reportedMetrics.snapshot();
       if (aggregateMetrics === undefined) return;
       const observableMetrics = metricsWithModelSelection(
         aggregateMetrics,
@@ -253,7 +284,6 @@ export async function executeTaskNode(
           : effectiveModelSelection(context, invocationId, session),
       );
       if (observableMetrics === undefined) return;
-      metricsEmitted = true;
       context.events.emit({
         type: "invocation.output",
         workId: context.workId,
@@ -265,6 +295,7 @@ export async function executeTaskNode(
         metrics: observableMetrics,
         ...optionalIteration(options.iteration),
       });
+      metricsEmitted = true;
     };
 
     try {
@@ -417,7 +448,7 @@ export async function executeTaskNode(
             input,
             signal: abortSignal,
             onMetrics: (value) => {
-              reportedMetrics.push(value);
+              reportedMetrics.add(value);
             },
             onDiagnostic: (message) => {
               context.events.emit({
@@ -474,13 +505,11 @@ export async function executeTaskNode(
       }
 
       const observableMetrics = metricsWithModelSelection(
-        aggregateInvocationMetrics(reportedMetrics),
+        reportedMetrics.snapshot(),
         isLocalTask
           ? undefined
           : effectiveModelSelection(context, invocationId, session),
       );
-      metricsEmitted = observableMetrics !== undefined;
-
       context.events.emit({
         type: "invocation.result",
         workId: context.workId,
@@ -523,6 +552,7 @@ export async function executeTaskNode(
         summary: summarizeSeqlaneOutput(output),
         ...optionalIteration(options.iteration),
       });
+      if (observableMetrics !== undefined) metricsEmitted = true;
       releaseIfUnused(results, remainingConsumers, node.nodeId);
 
       return output;
