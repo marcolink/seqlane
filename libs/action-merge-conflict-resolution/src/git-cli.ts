@@ -6,11 +6,13 @@ import {
   conflictSetSchema,
   conflictPathSchema,
   gitRevisionSchema,
+  rebaseConflictCommitSchema,
   type ConflictPath,
   type ConflictSet,
   type GitPort,
   type GitRevision,
   type IntegrationResult,
+  type RebaseConflictCommit,
   type ResolutionStrategy,
 } from "./contracts.js";
 import { ActionResolutionError, type ResolutionErrorCode } from "./errors.js";
@@ -111,6 +113,22 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
       );
     }
     return parsed.data;
+  }
+
+  async readRebaseConflictCommit(): Promise<RebaseConflictCommit | undefined> {
+    const revision = await this.run([
+      "rev-parse",
+      "--verify",
+      "REBASE_HEAD^{commit}",
+    ]);
+    if (revision.exitCode !== 0) return undefined;
+    const subject = await this.run(["log", "-1", "--format=%s", "REBASE_HEAD"]);
+    if (subject.exitCode !== 0) return undefined;
+    const parsed = rebaseConflictCommitSchema.safeParse({
+      sha: revision.stdout.trim(),
+      subject: subject.stdout.trim(),
+    });
+    return parsed.success ? parsed.data : undefined;
   }
 
   private async operationInProgress(name: string): Promise<boolean> {

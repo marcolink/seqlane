@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { GitCommandResult } from "./git-port.js";
 import { resolutionErrorDetailsSchema } from "./errors.js";
+import type { ResolveMergeConflictsWorkflowOutput } from "@seqlane/runtime/workflows/resolve-merge-conflicts";
 export type { ResolutionErrorDetails } from "./errors.js";
 
 export const DEFAULT_MAX_ATTEMPTS = 10;
@@ -131,6 +132,13 @@ export type ConflictSet = z.infer<typeof conflictSetSchema>;
 export const integrationOperationSchema = z.enum(["merge", "rebase"]);
 export type IntegrationOperation = z.infer<typeof integrationOperationSchema>;
 
+export const MAX_REBASE_SUBJECT_LENGTH = 512;
+export const rebaseConflictCommitSchema = z.strictObject({
+  sha: gitRevisionSchema,
+  subject: z.string().max(MAX_REBASE_SUBJECT_LENGTH),
+});
+export type RebaseConflictCommit = z.infer<typeof rebaseConflictCommitSchema>;
+
 export const agentResolutionRequestSchema = z.strictObject({
   paths: z.array(conflictPathSchema).min(1).max(MAX_CONFLICT_PATHS),
   baseRevision: gitRevisionSchema,
@@ -222,6 +230,9 @@ export interface PullRequestMetadataPort {
 export interface GitPort {
   readonly cwd: string;
   readonly run: (args: readonly string[]) => Promise<GitCommandResult>;
+  readonly readRebaseConflictCommit?: () => Promise<
+    RebaseConflictCommit | undefined
+  >;
   readonly inspectState: () => Promise<{
     readonly mergeInProgress: boolean;
     readonly rebaseInProgress: boolean;
@@ -251,13 +262,33 @@ export interface LockfilePort {
 }
 
 export interface AgentRunnerPort {
-  readonly resolve: (request: AgentResolutionRequest) => Promise<void>;
+  readonly resolve: (
+    request: AgentResolutionRequest,
+  ) => Promise<ResolveMergeConflictsWorkflowOutput>;
   readonly start?: () => Promise<void>;
   readonly stop?: () => Promise<void>;
 }
 
+export interface ResolutionAttemptReport {
+  readonly attempt: number;
+  readonly commit?: {
+    readonly oldSha: GitRevision;
+    readonly subject: string;
+  };
+  readonly summary: string;
+  readonly decisions: readonly ResolveMergeConflictsWorkflowOutput["decisions"][number][];
+}
+
+export interface ResolutionSummaryReport {
+  readonly strategy?: ResolutionStrategy;
+  readonly attempts: readonly ResolutionAttemptReport[];
+}
+
 export interface SummaryPort {
-  readonly write: (result: ResolveMergeConflictsResult) => Promise<void>;
+  readonly write: (
+    result: ResolveMergeConflictsResult,
+    report?: ResolutionSummaryReport,
+  ) => Promise<void>;
 }
 
 export interface CommitAndPushPort {

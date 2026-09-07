@@ -431,8 +431,20 @@ child environment.
 
 The resolver must preserve one bounded Seqlane recording per attempt.
 
-The Action must route bounded execution information to the job log and
-summary. It must not print raw OpenCode logs or secret values.
+The Action must route a concise overall outcome and human-readable resolution
+report to the job summary. Rebase reports must contain one section per
+conflicting commit with the old commit short SHA, subject, validated model
+summary, and per-file decisions. Merge reports must contain one
+`Merge resolution` section. All untrusted Markdown values must be escaped.
+
+The job log and summary may include only a bounded diagnostics digest with the
+event count and truncation status. They must not print raw OpenCode event
+payloads, full file contents, or secret values. Attempt reports must be
+aggregated by the resolver controller and must not expose executor internals.
+
+The runtime workflow output schema is the canonical validator for agent
+summaries and decisions. The runner must return validated output and reject
+malformed output before the controller records an attempt report.
 
 The Action must mask `OPENAI_API_KEY` before a child process can write output.
 

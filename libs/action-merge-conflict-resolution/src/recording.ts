@@ -67,8 +67,5 @@ export function createBoundedRecording(
 }
 
 export function formatBoundedRecording(recording: BoundedRecording): string {
-  const lines = ["Agent recording:"];
-  lines.push(...recording.events.map((event) => JSON.stringify(event)));
-  if (recording.truncated) lines.push("Agent recording truncated: true");
-  return lines.join("\n");
+  return `Diagnostics: ${recording.events.length} bounded event(s); truncated: ${String(recording.truncated)}`;
 }

@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import {
+  conflictResolutionOutputSchema,
+  type ResolveMergeConflictsWorkflowOutput,
+} from "@seqlane/runtime/workflows/resolve-merge-conflicts";
+
+import {
   agentResolutionRequestSchema,
   type AgentResolutionRequest,
 } from "./contracts.js";
@@ -22,6 +27,16 @@ export const seqlaneAgentExecutionResultSchema = z.discriminatedUnion(
 export type SeqlaneAgentExecutionResult = z.infer<
   typeof seqlaneAgentExecutionResultSchema
 >;
+
+export function validateSeqlaneAgentWorkflowOutput(
+  value: unknown,
+): ResolveMergeConflictsWorkflowOutput {
+  const parsed = conflictResolutionOutputSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new TypeError("The Seqlane workflow output is malformed.");
+  }
+  return parsed.data;
+}
 
 export interface SeqlaneAgentExecutionRequest extends AgentResolutionRequest {
   readonly workspace: string;

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   seqlaneAgentExecutionResultSchema,
+  validateSeqlaneAgentWorkflowOutput,
   validateAgentResolutionRequest,
 } from "./agent-runner-port.js";
 
@@ -32,5 +33,22 @@ describe("agent runner port", () => {
     expect(
       seqlaneAgentExecutionResultSchema.safeParse({ status: "failed" }).success,
     ).toBe(false);
+  });
+
+  it("propagates only validated workflow output", () => {
+    expect(
+      validateSeqlaneAgentWorkflowOutput({
+        summary: "Resolved the file.",
+        resolvedFiles: ["src/file.ts"],
+        decisions: [{ file: "src/file.ts", decision: "Kept both changes." }],
+      }),
+    ).toEqual({
+      summary: "Resolved the file.",
+      resolvedFiles: ["src/file.ts"],
+      decisions: [{ file: "src/file.ts", decision: "Kept both changes." }],
+    });
+    expect(() =>
+      validateSeqlaneAgentWorkflowOutput({ summary: "missing" }),
+    ).toThrow("malformed");
   });
 });

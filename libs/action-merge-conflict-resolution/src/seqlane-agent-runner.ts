@@ -13,6 +13,7 @@ import {
 import { ActionResolutionError } from "./errors.js";
 import {
   seqlaneAgentExecutionResultSchema,
+  validateSeqlaneAgentWorkflowOutput,
   type SeqlaneAgentExecutionRequest,
   validateAgentResolutionRequest,
 } from "./agent-runner-port.js";
@@ -85,7 +86,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
     this.runtime = undefined;
   }
 
-  async resolve(request: AgentResolutionRequest): Promise<void> {
+  async resolve(request: AgentResolutionRequest) {
     const parsed = validateAgentResolutionRequest(request);
     await this.start();
     const execution = await this.execute({
@@ -98,6 +99,11 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         "The Seqlane conflict-resolution task failed.",
         result.success ? result.data : result.error,
       );
+    }
+    try {
+      return validateSeqlaneAgentWorkflowOutput(result.data.output);
+    } catch (error: unknown) {
+      throw agentError("The Seqlane workflow output was malformed.", error);
     }
   }
 
