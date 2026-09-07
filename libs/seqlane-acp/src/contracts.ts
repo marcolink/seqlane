@@ -25,6 +25,7 @@ export interface AcpAgentStream {
 }
 
 export interface AcpAgent {
+  disconnect?(): void;
   stream(
     messages: { readonly role: "user"; readonly content: string }[],
     options: { readonly abortSignal?: AbortSignal; readonly runId?: string },
