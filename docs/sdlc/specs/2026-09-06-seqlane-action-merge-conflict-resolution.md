@@ -300,6 +300,11 @@ The copy-back operation must use the same path allowlist and bounds.
 The agent task must receive the exact agent conflict paths and both captured
 revisions. It must not receive the lockfile path as an agent-resolvable file.
 
+At the agent runner/output boundary, `resolvedFiles` and decision paths must
+each exactly and uniquely cover the requested agent conflict paths. Missing,
+extra, and duplicate paths must be rejected before the controller records an
+attempt report.
+
 The agent task must remain non-interactive. It must not use shell commands,
 Git commands, tests, builds, package managers, formatters, or network tools.
 
@@ -429,7 +434,8 @@ child environment.
 
 ### requirement-observability-and-secrets
 
-The resolver must preserve one bounded Seqlane recording per attempt.
+The resolver must create one independently bounded Seqlane recording per agent
+attempt. Mechanical-only attempts must report zero events and `truncated: false`.
 
 The Action must route a concise overall outcome and human-readable resolution
 report to the job summary. Rebase reports must contain one section per
@@ -437,10 +443,18 @@ conflicting commit with the old commit short SHA, subject, validated model
 summary, and per-file decisions. Merge reports must contain one
 `Merge resolution` section. All untrusted Markdown values must be escaped.
 
-The job log and summary may include only a bounded diagnostics digest with the
-event count and truncation status. They must not print raw OpenCode event
-payloads, full file contents, or secret values. Attempt reports must be
-aggregated by the resolver controller and must not expose executor internals.
+The job log and summary may include only bounded per-attempt diagnostics
+digests with the event count and truncation status. They must not print raw
+OpenCode event payloads, full file contents, or secret values. Model summaries,
+commit subjects, paths, and decisions must pass through the canonical
+configured-secret redaction boundary before Markdown escaping or publication.
+Attempt reports must be aggregated by the resolver controller and must not
+expose executor internals.
+
+The job summary must enforce an independent total character budget. It must
+cap retained/rendered attempts and decisions and append a bounded,
+human-readable truncation digest when caps or the total budget omit content.
+The final rendered summary must never exceed the declared total limit.
 
 The runtime workflow output schema is the canonical validator for agent
 summaries and decisions. The runner must return validated output and reject

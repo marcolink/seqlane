@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ResolveMergeConflictsResult } from "./contracts.js";
+import { createBoundedRecording } from "./recording.js";
 import {
   formatResolutionSummary,
   type ResolutionSummaryReport,
@@ -38,6 +39,7 @@ describe("resolution summary", () => {
               decision: "Kept both compatible branches.",
             },
           ],
+          diagnostics: { eventCount: 2, truncated: false },
         },
         {
           attempt: 2,
@@ -49,6 +51,7 @@ describe("resolution summary", () => {
               decision: "Used the newer fixture.",
             },
           ],
+          diagnostics: { eventCount: 1, truncated: true },
         },
       ],
     };
@@ -82,6 +85,7 @@ describe("resolution summary", () => {
           decisions: [
             { file: "config.ts", decision: "Combined both settings." },
           ],
+          diagnostics: { eventCount: 0, truncated: false },
         },
       ],
     };
@@ -109,32 +113,78 @@ describe("resolution summary", () => {
           commit: { oldSha: revision("c"), subject: "bad *subject* [x]" },
           summary: "bad *summary* with [markdown]",
           decisions: [{ file: "src/`secret`.ts", decision: "bad `content`" }],
+          diagnostics: { eventCount: 1, truncated: false },
         },
       ],
     };
 
+    const recording = createBoundedRecording(undefined);
+    recording.record({
+      type: "task.output",
+      output: "FULL_FILE_CONTENT_SHOULD_NOT_APPEAR",
+    } as never);
     const formatted = formatResolutionSummary(
       resolved,
       { ref: "refs/heads/bad*ref", sha: revision("f") },
-      {
-        events: [
-          {
-            type: "task.output",
-            output: "FULL_FILE_CONTENT_SHOULD_NOT_APPEAR",
-          } as never,
-        ],
-        truncated: true,
-        record: () => undefined,
-      },
+      recording,
       report,
     );
 
     expect(formatted).toContain("bad \\*subject\\* \\[x\\]");
     expect(formatted).toContain("src/\\`secret\\`.ts: bad \\`content\\`");
     expect(formatted).toContain(
-      "Diagnostics: 1 bounded event(s); truncated: true",
+      "Diagnostics: 1 bounded event(s); truncated: false",
     );
     expect(formatted).not.toContain("FULL_FILE_CONTENT_SHOULD_NOT_APPEAR");
     expect(formatted).not.toContain('"type":"task.output"');
+  });
+
+  it("redacts configured secrets before Markdown escaping and publication", () => {
+    const secret = "summary-secret";
+    const formatted = formatResolutionSummary(
+      resolved,
+      undefined,
+      createBoundedRecording(secret),
+      {
+        strategy: "rebase",
+        attempts: [
+          {
+            attempt: 1,
+            summary: `model contains ${secret}`,
+            decisions: [{ file: "src/file.ts", decision: `used ${secret}` }],
+            diagnostics: { eventCount: 0, truncated: false },
+          },
+        ],
+      },
+    );
+
+    expect(formatted).not.toContain(secret);
+    expect(formatted).toContain("\\[REDACTED\\]");
+  });
+
+  it("keeps the complete summary within the declared total budget", async () => {
+    const report: ResolutionSummaryReport = {
+      strategy: "rebase",
+      attempts: Array.from({ length: 20 }, (_, attempt) => ({
+        attempt: attempt + 1,
+        summary: "s".repeat(1_000),
+        decisions: Array.from({ length: 200 }, (_, index) => ({
+          file: `src/file-${index}.ts`,
+          decision: "d".repeat(2_000),
+        })),
+        diagnostics: { eventCount: 128, truncated: true },
+      })),
+    };
+
+    const formatted = formatResolutionSummary(
+      resolved,
+      undefined,
+      undefined,
+      report,
+    );
+
+    const { MAX_SUMMARY_TOTAL_CHARS } = await import("./summary.js");
+    expect(formatted.length).toBeLessThanOrEqual(MAX_SUMMARY_TOTAL_CHARS);
+    expect(formatted).toContain("Summary truncated:");
   });
 });

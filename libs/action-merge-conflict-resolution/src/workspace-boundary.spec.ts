@@ -171,6 +171,8 @@ describe("workspace boundary", () => {
 
       const request = await workspace.prepareAgentWorkspace([
         { path: "conflict.ts", stage: 1 },
+        { path: "conflict.ts", stage: 2 },
+        { path: "conflict.ts", stage: 3 },
         { path: "pnpm-lock.yaml", stage: 1 },
       ]);
       assert.deepEqual(request.paths, ["conflict.ts"]);

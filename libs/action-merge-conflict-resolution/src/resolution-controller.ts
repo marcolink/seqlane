@@ -5,6 +5,7 @@ import {
   type ResolveMergeConflictsRequest,
   type ResolveMergeConflictsResult,
   type ResolveMergeConflictsPorts,
+  type ResolutionAttemptDiagnostics,
   type ResolutionAttemptReport,
 } from "./contracts.js";
 import { ActionResolutionError, resolutionErrorDetails } from "./errors.js";
@@ -54,6 +55,11 @@ function integrationError(
     integration,
   );
 }
+
+const NO_ATTEMPT_DIAGNOSTICS: ResolutionAttemptDiagnostics = {
+  eventCount: 0,
+  truncated: false,
+};
 
 function successResult(
   kind: "clean" | "resolved",
@@ -219,6 +225,11 @@ export async function resolveMergeConflicts(
               }),
           summary: workflowOutput.summary,
           decisions: workflowOutput.decisions,
+          diagnostics:
+            classified.agent.length > 0
+              ? (ports.agent.getAttemptDiagnostics?.() ??
+                NO_ATTEMPT_DIAGNOSTICS)
+              : NO_ATTEMPT_DIAGNOSTICS,
         };
         reports.push(report);
         if (classified.lockfile.length > 0) {

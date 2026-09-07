@@ -44,7 +44,7 @@ export interface SeqlaneAgentRunnerOptions {
   readonly strategy?: "merge" | "rebase";
   readonly baseBranch?: string;
   readonly headBranch?: string;
-  readonly recording?: BoundedRecording;
+  readonly recording?: () => BoundedRecording;
   readonly attemptTimeoutMs?: number;
 }
 
@@ -56,6 +56,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
   private readonly options: SeqlaneAgentRunnerOptions;
   private runtime: OpenCodeRuntimeHandle | undefined;
   private run: Awaited<ReturnType<typeof createOpenCodeRun>> | undefined;
+  private lastRecording: BoundedRecording | undefined;
 
   constructor(options: SeqlaneAgentRunnerOptions) {
     this.options = options;
@@ -101,7 +102,10 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
       );
     }
     try {
-      return validateSeqlaneAgentWorkflowOutput(result.data.output);
+      return validateSeqlaneAgentWorkflowOutput(
+        result.data.output,
+        parsed.paths,
+      );
     } catch (error: unknown) {
       throw agentError("The Seqlane workflow output was malformed.", error);
     }
@@ -115,7 +119,8 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
       if (run === undefined) {
         throw agentError("The OpenCode runtime is not started.");
       }
-      const recording = this.options.recording ?? createBoundedRecording();
+      const recording = this.options.recording?.() ?? createBoundedRecording();
+      this.lastRecording = recording;
       const events = {
         emit: (event: SeqlaneEvent) => recording.record(event),
       };
@@ -170,6 +175,13 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
       if (error instanceof ActionResolutionError) throw error;
       throw agentError("The Seqlane workflow could not be executed.", error);
     }
+  }
+
+  getAttemptDiagnostics() {
+    return {
+      eventCount: this.lastRecording?.events.length ?? 0,
+      truncated: this.lastRecording?.truncated ?? false,
+    };
   }
 }
 

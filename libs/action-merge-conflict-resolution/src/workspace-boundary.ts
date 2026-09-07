@@ -538,7 +538,7 @@ export async function prepareAgentResolutionWorkspace(
   const agentConflicts = parsed.data.filter(
     ({ path }) => path !== lockfilePath,
   );
-  const paths = asPaths(agentConflicts);
+  const paths = [...new Set(asPaths(agentConflicts))];
   if (paths.length === 0) {
     throw new ActionResolutionError(
       "workspace",

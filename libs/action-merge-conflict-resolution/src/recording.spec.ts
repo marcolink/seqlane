@@ -54,4 +54,12 @@ describe("bounded Seqlane recording", () => {
     expect(formatted).not.toContain("openai-secret");
     expect(formatted).not.toContain(REDACTED_VALUE);
   });
+
+  it("provides the same redaction boundary for published text", () => {
+    const recording = createBoundedRecording(["summary-secret"]);
+
+    expect(recording.redactText("summary-secret in model output")).toBe(
+      `${REDACTED_VALUE} in model output`,
+    );
+  });
 });

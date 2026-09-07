@@ -45,6 +45,7 @@ vi.mock("@seqlane/runtime", () => ({
 }));
 
 import { SeqlaneAgentRunner } from "./seqlane-agent-runner.js";
+import { createBoundedRecording } from "./recording.js";
 
 const request = {
   paths: ["src/file.ts"],
@@ -52,7 +53,10 @@ const request = {
   headRevision: "b".repeat(40),
 };
 
-function runner(output: unknown) {
+function runner(
+  output: unknown,
+  recording?: () => ReturnType<typeof createBoundedRecording>,
+) {
   buildWorkflow.mockReturnValue({
     taskDefinitions: [],
     plan: {},
@@ -72,6 +76,7 @@ function runner(output: unknown) {
         stop: async () => undefined,
       }),
     },
+    recording,
   });
 }
 
@@ -98,4 +103,45 @@ describe("SeqlaneAgentRunner output", () => {
       code: "AGENT_FAILED",
     });
   });
+
+  it("rejects output that does not exactly cover requested conflict paths", async () => {
+    await expect(
+      runner({
+        summary: "Resolved the file.",
+        resolvedFiles: ["src/file.ts", "src/extra.ts"],
+        decisions: [
+          { file: "src/file.ts", decision: "Resolved." },
+          { file: "src/extra.ts", decision: "Unexpected." },
+        ],
+      }).resolve(request),
+    ).rejects.toMatchObject({
+      category: "agent",
+      code: "AGENT_FAILED",
+    });
+  });
+
+  it("creates an independently bounded recording for each agent attempt", async () => {
+    let recordings = 0;
+    const agent = runner(outputForRequest(), () => {
+      recordings += 1;
+      return createBoundedRecording(undefined, 1, 1_024);
+    });
+
+    await agent.resolve(request);
+    expect(agent.getAttemptDiagnostics?.()).toEqual({
+      eventCount: 0,
+      truncated: false,
+    });
+    await agent.resolve(request);
+
+    expect(recordings).toBe(2);
+  });
 });
+
+function outputForRequest() {
+  return {
+    summary: "Resolved the file.",
+    resolvedFiles: ["src/file.ts"],
+    decisions: [{ file: "src/file.ts", decision: "Kept both changes." }],
+  };
+}

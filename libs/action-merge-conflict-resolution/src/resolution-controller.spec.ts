@@ -140,6 +140,7 @@ function ports(
       stop: async () => {
         events.push("agent-stop");
       },
+      getAttemptDiagnostics: () => ({ eventCount: 4, truncated: true }),
     },
     summary: {
       write: async (value, report) => {
@@ -217,6 +218,11 @@ describe("resolveMergeConflicts", () => {
     expect(fake.agent).toEqual([]);
     expect(fake.lockfiles).toEqual([true]);
     expect(fake.baselines).toEqual([true]);
+    expect(fake.summary[0]).toMatchObject({
+      report: {
+        attempts: [{ diagnostics: { eventCount: 0, truncated: false } }],
+      },
+    });
   });
 
   it("returns a typed attempt-limit failure", async () => {
@@ -318,11 +324,15 @@ describe("resolveMergeConflicts", () => {
     expect(fake.summary[0]).toMatchObject({
       report: {
         attempts: [
-          { commit: { oldSha: revision("d") } },
+          {
+            commit: { oldSha: revision("d") },
+            diagnostics: { eventCount: 4, truncated: true },
+          },
           {
             commit: {
               oldSha: revision("e"),
             },
+            diagnostics: { eventCount: 4, truncated: true },
           },
         ],
       },

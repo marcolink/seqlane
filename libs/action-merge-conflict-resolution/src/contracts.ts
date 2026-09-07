@@ -267,6 +267,12 @@ export interface AgentRunnerPort {
   ) => Promise<ResolveMergeConflictsWorkflowOutput>;
   readonly start?: () => Promise<void>;
   readonly stop?: () => Promise<void>;
+  readonly getAttemptDiagnostics?: () => ResolutionAttemptDiagnostics;
+}
+
+export interface ResolutionAttemptDiagnostics {
+  readonly eventCount: number;
+  readonly truncated: boolean;
 }
 
 export interface ResolutionAttemptReport {
@@ -277,6 +283,7 @@ export interface ResolutionAttemptReport {
   };
   readonly summary: string;
   readonly decisions: readonly ResolveMergeConflictsWorkflowOutput["decisions"][number][];
+  readonly diagnostics: ResolutionAttemptDiagnostics;
 }
 
 export interface ResolutionSummaryReport {
