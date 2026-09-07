@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 
 const rpcRequestSchema = z.object({
@@ -15,6 +15,7 @@ const paramsRecordSchema = z.record(z.string(), z.unknown());
 
 const mode = process.env.CONTROLLED_ACP_MODE ?? "success";
 const exitFile = process.env.CONTROLLED_ACP_EXIT_FILE;
+const stateFile = process.env.CONTROLLED_ACP_STATE_FILE;
 const argument = process.argv[2] ?? "missing-argument";
 const sessionId = "controlled-session";
 let sessionCwd = "";
@@ -125,7 +126,14 @@ function handleRequest(request) {
   if (request.method === "session/prompt") {
     pendingPromptId = request.id;
     promptCount += 1;
-    if (mode === "permission") {
+    if (
+      mode === "permission" ||
+      (mode === "permission-then-success" &&
+        (stateFile === undefined || !existsSync(stateFile)))
+    ) {
+      if (mode === "permission-then-success" && stateFile !== undefined) {
+        writeFileSync(stateFile, "permission-failed");
+      }
       send({
         jsonrpc: "2.0",
         id: "permission-1",
@@ -207,7 +215,9 @@ process.stdin.on("data", (chunk) => {
       const response = rpcResponseSchema.safeParse(value);
       if (response.success && response.data.id === "permission-1") {
         completePrompt("cancelled");
-        if (mode === "permission") exitAfterResponse();
+        if (mode === "permission" || mode === "permission-then-success") {
+          exitAfterResponse();
+        }
       }
     }
   }

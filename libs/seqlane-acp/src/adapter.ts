@@ -44,6 +44,10 @@ interface PermissionScope {
   rejectInteraction?: (reason?: unknown) => void;
 }
 
+interface AgentPermissionScope {
+  current?: PermissionScope;
+}
+
 function createExecutionQueue(): <T>(
   operation: () => Promise<T>,
 ) => Promise<T> {
@@ -251,19 +255,24 @@ export function createAcpAdapter(
   // agent-level permission callback. Keep one prompt active per adapter so
   // the callback can be associated with exactly one execution.
   const enqueueExecution = createExecutionQueue();
-  let activePermissionScope: PermissionScope | undefined;
-  const agent = createAgent({
-    ...validatedConfiguration,
-    onPermissionRequest: async () => {
-      if (activePermissionScope !== undefined) {
-        activePermissionScope.requested = true;
-        activePermissionScope.rejectInteraction?.(
-          new InteractionRequiredError("user-input"),
-        );
-      }
-      return { outcome: { outcome: "cancelled" } };
-    },
-  });
+  const createAgentState = () => {
+    const permissionScope: AgentPermissionScope = {};
+    const agent = createAgent({
+      ...validatedConfiguration,
+      onPermissionRequest: async () => {
+        const activePermissionScope = permissionScope.current;
+        if (activePermissionScope !== undefined) {
+          activePermissionScope.requested = true;
+          activePermissionScope.rejectInteraction?.(
+            new InteractionRequiredError("user-input"),
+          );
+        }
+        return { outcome: { outcome: "cancelled" } };
+      },
+    });
+    return { agent, permissionScope };
+  };
+  let agentState = createAgentState();
   const retryCount = options.structuredOutputRetryCount ?? 0;
 
   return {
@@ -283,7 +292,7 @@ export function createAcpAdapter(
             request.signal.reason ?? new Error("ACP execution aborted"),
           );
         }
-        activePermissionScope = permissionScope;
+        agentState.permissionScope.current = permissionScope;
         try {
           const taskPrompt = buildAgentPrompt(request.task, request.input);
           const schema = toJsonSchema(request.task);
@@ -300,8 +309,18 @@ export function createAcpAdapter(
             });
             void interaction.catch(() => undefined);
             try {
-              text = await streamAgent(agent, prompt, request, interaction);
+              text = await streamAgent(
+                agentState.agent,
+                prompt,
+                request,
+                interaction,
+              );
             } catch (cause) {
+              // A failed stream disconnects the ACP connection. Recreate the
+              // private agent before the next queued execution while keeping
+              // the failed agent's permission callback scoped to its run.
+              agentState.permissionScope.current = undefined;
+              agentState = createAgentState();
               if (permissionScope.requested) {
                 throw new InteractionRequiredError("user-input");
               }
@@ -370,8 +389,8 @@ export function createAcpAdapter(
             }
           }
         } finally {
-          if (activePermissionScope === permissionScope) {
-            activePermissionScope = undefined;
+          if (agentState.permissionScope.current === permissionScope) {
+            agentState.permissionScope.current = undefined;
           }
         }
       });

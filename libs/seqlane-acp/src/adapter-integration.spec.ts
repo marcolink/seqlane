@@ -33,6 +33,7 @@ function configuration(
   mode: string,
   persistSession = false,
   exitFile?: string,
+  stateFile?: string,
 ) {
   return {
     id: "controlled-acp",
@@ -42,6 +43,9 @@ function configuration(
     env: {
       CONTROLLED_ACP_MODE: mode,
       ...(exitFile === undefined ? {} : { CONTROLLED_ACP_EXIT_FILE: exitFile }),
+      ...(stateFile === undefined
+        ? {}
+        : { CONTROLLED_ACP_STATE_FILE: stateFile }),
     },
     cwd,
     persistSession,
@@ -172,5 +176,30 @@ describe("Mastra ACP adapter boundary", () => {
     });
     await waitForExitFile(permissionExitFile);
     expect(readFileSync(permissionExitFile, "utf8")).toBe("exit");
+  });
+
+  it("recreates a persistent ACP agent after a permission failure", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "seqlane-acp-"));
+    const stateFile = join(cwd, "permission-failed");
+    const adapter = createAcpAdapter(
+      configuration(cwd, "permission-then-success", true, undefined, stateFile),
+    );
+
+    await expect(
+      adapter.execute(request(new AbortController().signal)),
+    ).rejects.toMatchObject({
+      name: "InteractionRequiredError",
+      requirement: "user-input",
+    });
+
+    await expect(
+      adapter.execute(request(new AbortController().signal)),
+    ).resolves.toEqual({
+      value: "done",
+      cwd,
+      model: "controlled-model",
+      argument: "configured-argument",
+      promptCount: 1,
+    });
   });
 });
