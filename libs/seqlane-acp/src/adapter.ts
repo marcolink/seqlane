@@ -39,6 +39,24 @@ type TextResult =
   | { readonly status: "fulfilled"; readonly value: string }
   | { readonly status: "rejected"; readonly cause: unknown };
 
+interface PermissionScope {
+  requested: boolean;
+}
+
+function createExecutionQueue(): <T>(
+  operation: () => Promise<T>,
+) => Promise<T> {
+  let tail: Promise<void> = Promise.resolve();
+  return <T>(operation: () => Promise<T>): Promise<T> => {
+    const execution = tail.then(operation);
+    tail = execution.then(
+      () => undefined,
+      () => undefined,
+    );
+    return execution;
+  };
+}
+
 async function boundedCleanup(
   promises: readonly PromiseLike<unknown>[],
 ): Promise<void> {
@@ -96,8 +114,13 @@ async function streamAgent(
   prompt: string,
   request: AgentAdapterRequest,
 ): Promise<string> {
+  const streamAbortController = new AbortController();
+  const streamSignal = AbortSignal.any([
+    request.signal,
+    streamAbortController.signal,
+  ]);
   const stream = await agent.stream([{ role: "user", content: prompt }], {
-    abortSignal: request.signal,
+    abortSignal: streamSignal,
     runId: request.invocationId,
   });
   const textResult: Promise<TextResult> = stream.text.then(
@@ -150,6 +173,7 @@ async function streamAgent(
     return next;
   };
   let failed = false;
+  let failure: unknown;
   try {
     while (true) {
       const next = await Promise.race([readNext(), cancellation]);
@@ -191,10 +215,12 @@ async function streamAgent(
     return result.value;
   } catch (cause) {
     failed = true;
+    failure = cause;
     throw cause;
   } finally {
     removeAbortListener();
     if (failed) {
+      streamAbortController.abort(failure);
       const cancel = reader.cancel();
       void cancel.catch(() => undefined);
       await boundedCleanup([
@@ -217,11 +243,17 @@ export function createAcpAdapter(
 ): AgentAdapter {
   const validatedConfiguration = parseAcpLaunchConfiguration(configuration);
   const createAgent = options.createAgent ?? createDefaultAgent;
-  let permissionRequested = false;
+  // @mastra/acp 0.4.0 has one ACPConnection.currentPrompt and one
+  // agent-level permission callback. Keep one prompt active per adapter so
+  // the callback can be associated with exactly one execution.
+  const enqueueExecution = createExecutionQueue();
+  let activePermissionScope: PermissionScope | undefined;
   const agent = createAgent({
     ...validatedConfiguration,
     onPermissionRequest: async () => {
-      permissionRequested = true;
+      if (activePermissionScope !== undefined) {
+        activePermissionScope.requested = true;
+      }
       return { outcome: { outcome: "cancelled" } };
     },
   });
@@ -235,85 +267,101 @@ export function createAcpAdapter(
           "dynamic model selection is not supported by ACP",
         );
       }
-      permissionRequested = false;
-      const schema = toJsonSchema(request.task);
-      let prompt = buildStructuredOutputPrompt(
-        buildAgentPrompt(request.task, request.input),
-        schema,
-      );
-      let attempts = 0;
-      let lastError: AcpStructuredOutputError | undefined;
-      const startedAt = Date.now();
-
-      while (true) {
-        attempts += 1;
-        let text: string;
-        try {
-          text = await streamAgent(agent, prompt, request);
-        } catch (cause) {
-          if (permissionRequested) {
-            throw new InteractionRequiredError("user-input");
-          }
-          if (request.signal.aborted) {
-            throw new AcpAdapterError(
-              "cancellation",
-              "execution was cancelled",
-              cause,
-            );
-          }
-          if (cause instanceof AcpAdapterError) throw cause;
+      const permissionScope: PermissionScope = { requested: false };
+      return enqueueExecution(async () => {
+        if (request.signal.aborted) {
           throw new AcpAdapterError(
-            "execution",
-            "stream execution failed",
-            cause,
+            "cancellation",
+            "execution was cancelled",
+            request.signal.reason ?? new Error("ACP execution aborted"),
           );
         }
-        if (permissionRequested) {
-          throw new InteractionRequiredError("user-input");
-        }
-        request.onMetrics?.({
-          durationMs: Math.max(0, Date.now() - startedAt),
-          ...(validatedConfiguration.model === undefined
-            ? {}
-            : { model: validatedConfiguration.model }),
-        });
+        activePermissionScope = permissionScope;
         try {
-          return validateStructuredOutput(
-            parseStructuredOutput(text),
-            request.task.output,
-          );
-        } catch (cause) {
-          const validationError =
-            cause instanceof AcpStructuredOutputError
-              ? cause
-              : new AcpStructuredOutputError(
-                  1,
-                  [
-                    {
-                      kind: "validation",
-                      code: "schema_validation_failed",
-                      message: "Output did not satisfy the task schema",
-                    },
-                  ],
+          const taskPrompt = buildAgentPrompt(request.task, request.input);
+          const schema = toJsonSchema(request.task);
+          let prompt = buildStructuredOutputPrompt(taskPrompt, schema);
+          let attempts = 0;
+          let lastError: AcpStructuredOutputError | undefined;
+          const startedAt = Date.now();
+
+          while (true) {
+            attempts += 1;
+            let text: string;
+            try {
+              text = await streamAgent(agent, prompt, request);
+            } catch (cause) {
+              if (permissionScope.requested) {
+                throw new InteractionRequiredError("user-input");
+              }
+              if (request.signal.aborted) {
+                throw new AcpAdapterError(
+                  "cancellation",
+                  "execution was cancelled",
                   cause,
                 );
-          lastError = validationError;
-          if (attempts > retryCount) {
-            throw new AcpStructuredOutputError(
-              attempts,
-              validationError.issues,
-              validationError,
-            );
+              }
+              if (cause instanceof AcpAdapterError) throw cause;
+              throw new AcpAdapterError(
+                "execution",
+                "stream execution failed",
+                cause,
+              );
+            }
+            if (permissionScope.requested) {
+              throw new InteractionRequiredError("user-input");
+            }
+            request.onMetrics?.({
+              durationMs: Math.max(0, Date.now() - startedAt),
+              ...(validatedConfiguration.model === undefined
+                ? {}
+                : { model: validatedConfiguration.model }),
+            });
+            try {
+              return validateStructuredOutput(
+                parseStructuredOutput(text),
+                request.task.output,
+              );
+            } catch (cause) {
+              const validationError =
+                cause instanceof AcpStructuredOutputError
+                  ? cause
+                  : new AcpStructuredOutputError(
+                      1,
+                      [
+                        {
+                          kind: "validation",
+                          code: "schema_validation_failed",
+                          message: "Output did not satisfy the task schema",
+                        },
+                      ],
+                      cause,
+                    );
+              lastError = validationError;
+              if (attempts > retryCount) {
+                throw new AcpStructuredOutputError(
+                  attempts,
+                  validationError.issues,
+                  validationError,
+                );
+              }
+              prompt = buildStructuredOutputRepairPrompt(
+                taskPrompt,
+                schema,
+                summarizeStructuredOutputIssues(lastError.issues),
+              );
+              request.onDiagnostic?.({
+                code: "structured-output",
+                message: `ACP structured output was repaired after attempt ${attempts}`,
+              });
+            }
           }
-          prompt = buildStructuredOutputRepairPrompt(
-            summarizeStructuredOutputIssues(lastError.issues),
-          );
-          request.onDiagnostic?.({
-            code: "structured-output",
-            message: `ACP structured output was repaired after attempt ${attempts}`,
-          });
+        } finally {
+          if (activePermissionScope === permissionScope) {
+            activePermissionScope = undefined;
+          }
         }
-      }
+      });
     },
     capabilities: {
       execute: true,

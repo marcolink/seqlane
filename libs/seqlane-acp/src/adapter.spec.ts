@@ -26,6 +26,7 @@ import {
   MAX_ACTIVITY_INPUT_LENGTH,
   MAX_TOOL_CALL_ID_LENGTH,
   MAX_TOOL_NAME_LENGTH,
+  MAX_TOOL_RESULT_BYTES,
 } from "./stream.js";
 
 const outputSchema = z.object({ value: z.string() });
@@ -72,6 +73,20 @@ type TestAgent = {
     options: { readonly abortSignal?: AbortSignal; readonly runId?: string },
   ): Promise<ReturnType<typeof stream>>;
 };
+
+function firstMessageContent(messages: unknown): string {
+  if (
+    !Array.isArray(messages) ||
+    messages[0] === undefined ||
+    typeof messages[0] !== "object" ||
+    messages[0] === null ||
+    !("content" in messages[0]) ||
+    typeof messages[0].content !== "string"
+  ) {
+    throw new Error("missing user prompt");
+  }
+  return messages[0].content;
+}
 
 function request(overrides: Partial<AgentAdapterRequest> = {}) {
   return {
@@ -170,6 +185,52 @@ describe("private ACP adapter", () => {
       },
     ]);
     expect(metrics[0]).toMatchObject({ durationMs: expect.any(Number) });
+  });
+
+  it("maps an ACP tool call before its direct tool result", async () => {
+    const activities: unknown[] = [];
+    const executor = createTestExecutor(['{"value":"done"}'], {
+      chunks: [
+        {
+          type: "tool-call",
+          payload: {
+            toolCallId: "call-1",
+            toolName: "read_file",
+            args: { path: "README.md" },
+          },
+        },
+        {
+          type: "tool-result",
+          payload: {
+            toolCallId: "call-1",
+            toolName: "read_file",
+            result: "ok",
+          },
+        },
+      ],
+    });
+
+    await expect(
+      executor.execute(
+        request({ onActivity: (activity) => activities.push(activity) }),
+      ),
+    ).resolves.toEqual({ value: "done" });
+    expect(activities).toEqual([
+      {
+        activityId: "call-1",
+        kind: "tool",
+        name: "read_file",
+        state: "started",
+        input: { path: "README.md" },
+      },
+      {
+        activityId: "call-1",
+        kind: "tool",
+        name: "read_file",
+        state: "succeeded",
+        output: "ok",
+      },
+    ]);
   });
 
   it("maps failed tool activity and preserves generic ACP configuration", async () => {
@@ -313,6 +374,30 @@ describe("private ACP adapter", () => {
     ]);
   });
 
+  it("preserves the task prompt and schema in structured-output repairs", async () => {
+    const prompts: string[] = [];
+    const outputs = ["not json", '{"value":"repaired"}'];
+    const executor = createAcpAdapter(configuration(), {
+      structuredOutputRetryCount: 1,
+      createAgent: () => ({
+        stream: async (messages) => {
+          prompts.push(firstMessageContent(messages));
+          const output = outputs.shift();
+          if (output === undefined) throw new Error("test output exhausted");
+          return stream(output);
+        },
+      }),
+    });
+
+    await expect(executor.execute(request())).resolves.toEqual({
+      value: "repaired",
+    });
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("Complete the input");
+    expect(prompts[1]).toContain(JSON.stringify(z.toJSONSchema(outputSchema)));
+    expect(prompts[1]).toContain("Validation errors:");
+  });
+
   it("passes cancellation to the ACP stream and normalizes the failure", async () => {
     const controller = new AbortController();
     let receivedSignal: AbortSignal | undefined;
@@ -344,7 +429,8 @@ describe("private ACP adapter", () => {
     await expect(execution).rejects.toMatchObject({
       code: "cancellation",
     });
-    expect(receivedSignal).toBe(controller.signal);
+    expect(receivedSignal).not.toBe(controller.signal);
+    expect(receivedSignal?.aborted).toBe(true);
     expect(streamCancelled).toBe(true);
   });
 
@@ -362,14 +448,86 @@ describe("private ACP adapter", () => {
 
   it("cancels the ACP stream when streamed response text exceeds its limit", async () => {
     let streamCancelled = false;
+    let promptCancelled = false;
+    let receivedSignal: AbortSignal | undefined;
+    const executor = createAcpAdapter(configuration(), {
+      createAgent: () => ({
+        stream: async (_messages, options) => {
+          receivedSignal = options.abortSignal;
+          receivedSignal?.addEventListener("abort", () => {
+            promptCancelled = true;
+          });
+          return {
+            fullStream: new ReadableStream<unknown>({
+              start(controller) {
+                controller.enqueue({
+                  type: "text-delta",
+                  payload: { text: "x".repeat(MAX_RESPONSE_TEXT_LENGTH + 1) },
+                });
+              },
+              cancel() {
+                streamCancelled = true;
+              },
+            }),
+            text: new Promise<string>(() => undefined),
+          };
+        },
+      }),
+    });
+
+    await expect(executor.execute(request())).rejects.toMatchObject({
+      name: "AcpLimitError",
+      code: "limit",
+      resource: "response text",
+    });
+    expect(streamCancelled).toBe(true);
+    expect(promptCancelled).toBe(true);
+    expect(receivedSignal?.aborted).toBe(true);
+  });
+
+  it("accepts a tool result at the serialized byte boundary", async () => {
+    const result = "x".repeat(MAX_TOOL_RESULT_BYTES - 2);
+    const executor = createTestExecutor(['{"value":"done"}'], {
+      chunks: [
+        {
+          type: "tool-call-delta",
+          payload: { toolCallId: "call-1", toolName: "tool" },
+        },
+        {
+          type: "tool-result",
+          payload: {
+            toolCallId: "call-1",
+            toolName: "tool",
+            result,
+          },
+        },
+      ],
+    });
+
+    await expect(executor.execute(request())).resolves.toEqual({
+      value: "done",
+    });
+  });
+
+  it("cancels the ACP stream and returns a typed error for an oversized tool result", async () => {
+    let streamCancelled = false;
+    const result = "x".repeat(MAX_TOOL_RESULT_BYTES - 1);
     const executor = createAcpAdapter(configuration(), {
       createAgent: () => ({
         stream: async () => ({
           fullStream: new ReadableStream<unknown>({
             start(controller) {
               controller.enqueue({
-                type: "text-delta",
-                payload: { text: "x".repeat(MAX_RESPONSE_TEXT_LENGTH + 1) },
+                type: "tool-call-delta",
+                payload: { toolCallId: "call-1", toolName: "tool" },
+              });
+              controller.enqueue({
+                type: "tool-result",
+                payload: {
+                  toolCallId: "call-1",
+                  toolName: "tool",
+                  result,
+                },
               });
             },
             cancel() {
@@ -384,9 +542,35 @@ describe("private ACP adapter", () => {
     await expect(executor.execute(request())).rejects.toMatchObject({
       name: "AcpLimitError",
       code: "limit",
-      resource: "response text",
+      resource: "tool result",
+      maximum: MAX_TOOL_RESULT_BYTES,
     });
     expect(streamCancelled).toBe(true);
+  });
+
+  it("rejects non-serializable tool results as malformed stream data", async () => {
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+    const executor = createTestExecutor(['{"value":"done"}'], {
+      chunks: [
+        {
+          type: "tool-call-delta",
+          payload: { toolCallId: "call-1", toolName: "tool" },
+        },
+        {
+          type: "tool-result",
+          payload: {
+            toolCallId: "call-1",
+            toolName: "tool",
+            result: circular,
+          },
+        },
+      ],
+    });
+
+    await expect(executor.execute(request())).rejects.toBeInstanceOf(
+      AcpMalformedStreamError,
+    );
   });
 
   it("bounds structured output before JSON parsing", () => {
@@ -502,6 +686,89 @@ describe("private ACP adapter", () => {
     await expect(onPermissionRequest?.(permissionRequest)).resolves.toEqual({
       outcome: { outcome: "cancelled" },
     });
+  });
+
+  it("serializes concurrent executions because ACP has one active prompt", async () => {
+    let onPermissionRequest:
+      NonNullable<AcpAgentFactoryOptions["onPermissionRequest"]> | undefined;
+    let permissionRequested!: () => void;
+    const permissionRequestedPromise = new Promise<void>((resolve) => {
+      permissionRequested = resolve;
+    });
+    let releaseFirst!: () => void;
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let secondStarted = false;
+    const executor = createAcpAdapter(configuration(), {
+      createAgent: (options) => {
+        onPermissionRequest = options.onPermissionRequest;
+        return {
+          stream: async (_messages, options) => {
+            if (options.runId === "invocation-1") {
+              await onPermissionRequest?.({});
+              permissionRequested();
+              await firstRelease;
+            } else {
+              secondStarted = true;
+            }
+            return stream('{"value":"done"}');
+          },
+        };
+      },
+    });
+
+    const first = executor.execute(request());
+    await permissionRequestedPromise;
+    const second = executor.execute(request({ invocationId: "invocation-2" }));
+    expect(secondStarted).toBe(false);
+    releaseFirst();
+
+    await expect(first).rejects.toMatchObject({
+      name: "InteractionRequiredError",
+    });
+    await expect(second).resolves.toEqual({ value: "done" });
+    expect(secondStarted).toBe(true);
+  });
+
+  it("does not start a queued execution after cancellation", async () => {
+    let firstStarted!: () => void;
+    const firstStartedPromise = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    let releaseFirst!: () => void;
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let secondStarted = false;
+    const executor = createAcpAdapter(configuration(), {
+      createAgent: () => ({
+        stream: async (_messages, options) => {
+          if (options.runId === "invocation-1") {
+            firstStarted();
+            await firstRelease;
+          } else {
+            secondStarted = true;
+          }
+          return stream('{"value":"done"}');
+        },
+      }),
+    });
+    const first = executor.execute(request());
+    await firstStartedPromise;
+    const controller = new AbortController();
+    const second = executor.execute(
+      request({ invocationId: "invocation-2", signal: controller.signal }),
+    );
+    controller.abort(new Error("cancel queued execution"));
+    releaseFirst();
+
+    await expect(first).resolves.toEqual({ value: "done" });
+    await expect(second).rejects.toMatchObject({
+      name: "AcpAdapterError",
+      code: "cancellation",
+    });
+    expect(secondStarted).toBe(false);
   });
 
   it("fails malformed stream data through the typed private boundary", async () => {

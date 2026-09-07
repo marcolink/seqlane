@@ -39,11 +39,18 @@ export function buildStructuredOutputPrompt(
   ].join("\n");
 }
 
-export function buildStructuredOutputRepairPrompt(issues: string): string {
+export function buildStructuredOutputRepairPrompt(
+  taskPrompt: string,
+  schema: JsonSchema,
+  issues: string,
+): string {
   return [
+    taskPrompt,
     "--- Seqlane structured output repair ---",
-    "Return only a corrected JSON value for the already completed task.",
+    "Return only a corrected JSON value for the task above.",
     "Do not repeat the task, use tools, or include Markdown or commentary.",
+    "Your response must contain exactly one JSON value matching this JSON Schema.",
+    JSON.stringify(schema),
     `Validation errors: ${issues}`,
     "--- End Seqlane structured output repair ---",
   ].join("\n");

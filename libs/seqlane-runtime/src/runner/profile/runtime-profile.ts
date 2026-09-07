@@ -83,7 +83,7 @@ function createSessionUiExecutor(
   };
 }
 
-function executeAgentAdapterRequest(
+export function executeAgentAdapterRequest(
   adapter: AgentAdapter,
   taskDefinitions: TaskDefinitionRegistry,
   effectiveSelection: ModelSelection | undefined,
@@ -98,7 +98,7 @@ function executeAgentAdapterRequest(
     invocationId: request.invocationId,
     task: agentTask,
     input: request.input,
-    ...(effectiveSelection === undefined
+    ...(effectiveSelection === undefined || !adapter.capabilities.modelSelection
       ? {}
       : { modelSelection: effectiveSelection }),
     signal: request.signal,
