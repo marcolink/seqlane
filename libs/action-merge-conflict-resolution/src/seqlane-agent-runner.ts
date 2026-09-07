@@ -62,6 +62,9 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
 
   async start(): Promise<void> {
     if (this.runtime !== undefined && this.run !== undefined) return;
+    if (this.runtime !== undefined || this.run !== undefined) {
+      await this.stop();
+    }
     const runtime = await this.options.openCode.start(this.options.workspace);
     this.runtime = runtime;
     try {

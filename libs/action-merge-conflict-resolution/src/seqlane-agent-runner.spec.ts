@@ -68,27 +68,70 @@ describe("Seqlane agent runner", () => {
   });
 
   it("retries runtime cleanup after startup and cleanup reject", async () => {
+    vi.mocked(createOpenCodeRun).mockClear();
     const startupError = new Error("run creation failed");
     const cleanupError = new Error("runtime cleanup failed");
-    const runtimeStop = vi
-      .fn<() => Promise<void>>()
-      .mockRejectedValueOnce(cleanupError)
-      .mockResolvedValueOnce(undefined);
-    vi.mocked(createOpenCodeRun).mockRejectedValueOnce(startupError);
+    const lifecycleEvents: string[] = [];
+    const runtimeStop = vi.fn<() => Promise<void>>();
+    runtimeStop
+      .mockImplementationOnce(async () => {
+        lifecycleEvents.push("old-runtime-stop");
+        throw cleanupError;
+      })
+      .mockImplementationOnce(async () => {
+        lifecycleEvents.push("old-runtime-stop");
+        throw cleanupError;
+      })
+      .mockImplementationOnce(async () => {
+        lifecycleEvents.push("old-runtime-stop");
+      });
+    const replacementRun: OpenCodeRun = {
+      prompt: async () => ({ structured: undefined }),
+      checkpoint: async () => ({
+        sessionId: "replacement-session",
+        messageId: "replacement-message",
+      }),
+      fork: async () => replacementRun,
+      abort: async () => undefined,
+    };
+    const oldRuntime = {
+      connection: { url: "http://127.0.0.1:4096" },
+      stop: runtimeStop,
+    };
+    const newRuntime = {
+      connection: { url: "http://127.0.0.1:4097" },
+      stop: vi.fn(async () => undefined),
+    };
+    const runtimeStart = vi.fn(async () => {
+      lifecycleEvents.push("runtime-start");
+      return runtimeStart.mock.calls.length === 1 ? oldRuntime : newRuntime;
+    });
+    vi.mocked(createOpenCodeRun)
+      .mockRejectedValueOnce(startupError)
+      .mockResolvedValueOnce(replacementRun);
     const runner = createSeqlaneAgentRunner({
       workspace: "/tmp/agent",
       workflow,
       openCode: {
-        start: async () => ({
-          connection: { url: "http://127.0.0.1:4096" },
-          stop: runtimeStop,
-        }),
+        start: runtimeStart,
       },
     });
 
     await expect(runner.start?.()).rejects.toBe(startupError);
-    await expect(runner.stop?.()).resolves.toBeUndefined();
+    await expect(runner.start?.()).rejects.toBe(cleanupError);
+    expect(runtimeStart).toHaveBeenCalledTimes(1);
 
-    expect(runtimeStop).toHaveBeenCalledTimes(2);
+    await expect(runner.start?.()).resolves.toBeUndefined();
+
+    expect(runtimeStop).toHaveBeenCalledTimes(3);
+    expect(runtimeStart).toHaveBeenCalledTimes(2);
+    expect(createOpenCodeRun).toHaveBeenCalledTimes(2);
+    expect(lifecycleEvents).toEqual([
+      "runtime-start",
+      "old-runtime-stop",
+      "old-runtime-stop",
+      "old-runtime-stop",
+      "runtime-start",
+    ]);
   });
 });
