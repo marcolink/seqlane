@@ -18,14 +18,15 @@ import {
   createSummaryWriter,
   formatBoundedRecording,
   parseActionInputs,
+  ActionResolutionError,
   resolveMergeConflicts,
   workflowDefinitionMetadata,
-  type AgentRunnerPort,
   type PullRequestMetadata,
   type WorkspaceFilesPort,
   validateSeparateWorkspaceRoots,
 } from "@seqlane/action-merge-conflict-resolution";
 import workflow from "@seqlane/runtime/workflows/resolve-merge-conflicts";
+import { createLazyAgentPort } from "./lazy-agent-port.js";
 
 function requiredWorkspace(): string {
   const value = process.env.GITHUB_WORKSPACE;
@@ -59,6 +60,18 @@ export async function run(): Promise<void> {
     push: core.getInput("push"),
     maxAttempts: core.getInput("max-attempts"),
   });
+  const pushToken = core.getInput("push-token");
+  if (request.push && pushToken.length === 0) {
+    throw new ActionResolutionError(
+      "input-validation",
+      "PUSH_TOKEN_REQUIRED",
+      "The push-token input is required when push is true.",
+    );
+  }
+  if (pushToken.length > 0) {
+    core.setSecret(pushToken);
+    secrets.push(pushToken);
+  }
   const root = requiredWorkspace();
   const { sourceRoot, targetRoot } = await validateSeparateWorkspaceRoots(
     resolve(root, request.sourceDirectory),
@@ -73,7 +86,6 @@ export async function run(): Promise<void> {
   const recording = createBoundedRecording(secrets);
   let metadata: PullRequestMetadata | undefined;
   let boundary: NodeWorkspaceBoundary | undefined;
-  let agent: AgentRunnerPort | undefined;
   const git = new NodeGitCli(targetRoot);
   const githubAdapter = new GitHubMetadataAdapter({
     repository: {
@@ -140,26 +152,21 @@ export async function run(): Promise<void> {
       targetRoot,
       trustedSourceRoot: sourceRoot,
     }),
-    agent: {
-      resolve: async (
-        agentRequest: Parameters<AgentRunnerPort["resolve"]>[0],
-      ) => {
-        if (metadata === undefined)
-          throw new Error("Pull-request metadata is unavailable.");
-        agent ??= createSeqlaneAgentRunner({
-          workspace: agentRoot,
-          workflow,
-          openCode: runtime,
-          repository: `${metadata.baseRepository.owner}/${metadata.baseRepository.name}`,
-          pullRequestNumber: metadata.number,
-          strategy: request.strategy,
-          baseBranch: metadata.baseBranch,
-          headBranch: metadata.headBranch,
-          recording,
-        });
-        await agent.resolve(agentRequest);
-      },
-    },
+    agent: createLazyAgentPort(() => {
+      if (metadata === undefined)
+        throw new Error("Pull-request metadata is unavailable.");
+      return createSeqlaneAgentRunner({
+        workspace: agentRoot,
+        workflow,
+        openCode: runtime,
+        repository: `${metadata.baseRepository.owner}/${metadata.baseRepository.name}`,
+        pullRequestNumber: metadata.number,
+        strategy: request.strategy,
+        baseBranch: metadata.baseBranch,
+        headBranch: metadata.headBranch,
+        recording,
+      });
+    }),
     summary: createSummaryWriter(
       async (summary) => {
         await core.summary.addRaw(summary).write();
@@ -167,7 +174,10 @@ export async function run(): Promise<void> {
       workflowRef,
       recording,
     ),
-    commitAndPush: new NodeCommitAndPush(git, token),
+    commitAndPush: new NodeCommitAndPush(
+      git,
+      request.push ? pushToken : undefined,
+    ),
   };
 
   try {
@@ -176,6 +186,9 @@ export async function run(): Promise<void> {
     core.setOutput("result", result.result);
     if (result.kind === "error") {
       core.setFailed(`${result.error.category}/${result.error.code}`);
+      if (result.error.diagnostic !== undefined) {
+        core.error(`Git push rejected: ${result.error.diagnostic}`);
+      }
       return;
     }
     core.setOutput("strategy", result.strategy);
@@ -190,6 +203,10 @@ export async function run(): Promise<void> {
 
 if (process.env.NODE_ENV !== "test") {
   run().catch((error: unknown) => {
+    if (error instanceof ActionResolutionError) {
+      core.setFailed(`${error.category}/${error.code}`);
+      return;
+    }
     core.setFailed(error instanceof Error ? error.message : "Action failed.");
   });
 }

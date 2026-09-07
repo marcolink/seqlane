@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { NodeCommitAndPush } from "./commit-and-push.js";
+import { ActionResolutionError, resolutionErrorDetails } from "./errors.js";
 import type { GitWorkspacePort } from "./git-port.js";
 
 const revision = (letter: string): string => letter.repeat(40);
@@ -131,5 +132,44 @@ describe("commit and push adapter", () => {
         "base64",
       ).toString(),
     ).toContain("secret-token");
+  });
+
+  it("reports a typed push refusal with the bounded Git diagnostic", async () => {
+    const git: GitWorkspacePort = {
+      cwd: "/tmp/target",
+      run: async (args) => ({
+        executable: "git",
+        args,
+        cwd: "/tmp/target",
+        exitCode: args[0] === "push" ? 1 : 0,
+        stdout:
+          args[0] === "rev-parse"
+            ? args.at(-1)?.endsWith("main")
+              ? revision("c")
+              : revision("b")
+            : "",
+        stderr: args[0] === "push" ? "remote: rejected by policy\n" : "",
+      }),
+    };
+    const adapter = new NodeCommitAndPush(git, "secret-token");
+    await adapter.beforePush();
+
+    try {
+      await adapter.push({
+        baseBranch: "main",
+        headBranch: "feature",
+        baseRevision: revision("c"),
+        headRevision: revision("b"),
+      });
+      throw new Error("Expected the push to be refused.");
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(ActionResolutionError);
+      if (!(error instanceof ActionResolutionError)) return;
+      expect(resolutionErrorDetails(error)).toEqual({
+        category: "push",
+        code: "PUSH_REFUSED",
+        diagnostic: "remote: rejected by policy",
+      });
+    }
   });
 });

@@ -99,7 +99,8 @@ describe("merge-conflict resolution example workflow", () => {
     );
 
     expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("contents: write");
+    expect(workflow).toContain("contents: read");
+    expect(workflow).not.toContain("contents: write");
     expect(workflow).toContain("pull-requests: read");
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).toContain("timeout-minutes: 30");
@@ -109,6 +110,9 @@ describe("merge-conflict resolution example workflow", () => {
     );
     expect(workflow).toContain("commit: true");
     expect(workflow).toContain("push: true");
+    expect(workflow).toContain(
+      "push-token: ${{ secrets.SEQLANE_RESOLVER_TOKEN }}",
+    );
     expect(workflow).not.toContain("Apply selected integration strategy");
     expect(workflow).not.toContain("Install OpenCode");
     expect(workflow).not.toContain("docker run");

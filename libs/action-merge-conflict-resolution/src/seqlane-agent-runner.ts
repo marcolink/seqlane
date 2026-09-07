@@ -62,13 +62,16 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
 
   async start(): Promise<void> {
     if (this.runtime !== undefined && this.run !== undefined) return;
+    if (this.runtime !== undefined || this.run !== undefined) {
+      await this.stop();
+    }
     const runtime = await this.options.openCode.start(this.options.workspace);
+    this.runtime = runtime;
     try {
       const run = await createOpenCodeRun(runtime.connection);
-      this.runtime = runtime;
       this.run = run;
     } catch (error: unknown) {
-      await runtime.stop().catch(() => undefined);
+      await this.stop().catch(() => undefined);
       throw error;
     }
   }
@@ -76,10 +79,10 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
   async stop(): Promise<void> {
     const run = this.run;
     const runtime = this.runtime;
-    this.run = undefined;
-    this.runtime = undefined;
     await run?.abort().catch(() => undefined);
     await runtime?.stop();
+    this.run = undefined;
+    this.runtime = undefined;
   }
 
   async resolve(request: AgentResolutionRequest): Promise<void> {

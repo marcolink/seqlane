@@ -11,6 +11,32 @@ const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../../..",
 );
+
+async function runAction(environment) {
+  const child = spawn(
+    process.execPath,
+    [join(repositoryRoot, "actions/resolve-merge-conflicts/dist/main.js")],
+    {
+      cwd: repositoryRoot,
+      env: environment,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += String(chunk);
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+  const exitCode = await new Promise((resolveChild, rejectChild) => {
+    child.once("error", rejectChild);
+    child.once("exit", (code) => resolveChild(code ?? 1));
+  });
+  return { exitCode, stdout, stderr };
+}
+
 const workspace = await mkdtemp(join(tmpdir(), "seqlane-action-smoke-"));
 const sourceDirectory = join(workspace, "source");
 const targetDirectory = join(workspace, "target");
@@ -106,48 +132,30 @@ try {
     throw new Error("The smoke API server did not expose a port.");
   }
 
-  const child = spawn(
-    process.execPath,
-    [join(repositoryRoot, "actions/resolve-merge-conflicts/dist/main.js")],
-    {
-      cwd: repositoryRoot,
-      env: {
-        ...process.env,
-        "INPUT_PULL-REQUEST-NUMBER": "1",
-        "INPUT_RESOLUTION-STRATEGY": "rebase",
-        "INPUT_SOURCE-DIRECTORY": "source",
-        "INPUT_TARGET-DIRECTORY": "target",
-        INPUT_COMMIT: "false",
-        INPUT_PUSH: "false",
-        "INPUT_MAX-ATTEMPTS": "10",
-        GITHUB_ACTIONS: "true",
-        GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
-        GITHUB_REPOSITORY: "marcolink/seqlane",
-        GITHUB_WORKSPACE: workspace,
-        GITHUB_WORKFLOW_REF: "marcolink/seqlane/.github/workflows/ci.yml@main",
-        GITHUB_WORKFLOW_SHA: revision,
-        GITHUB_TOKEN: "local-smoke-token",
-        GH_TOKEN: "local-smoke-token",
-        OPENAI_API_KEY: "local-smoke-key",
-        GITHUB_OUTPUT: outputFile,
-        GITHUB_STEP_SUMMARY: summaryFile,
-        RUNNER_TEMP: workspace,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  let stdout = "";
-  let stderr = "";
-  child.stdout.on("data", (chunk) => {
-    stdout += String(chunk);
-  });
-  child.stderr.on("data", (chunk) => {
-    stderr += String(chunk);
-  });
-  const exitCode = await new Promise((resolveChild, rejectChild) => {
-    child.once("error", rejectChild);
-    child.once("exit", (code) => resolveChild(code ?? 1));
-  });
+  const actionEnvironment = {
+    ...process.env,
+    "INPUT_PULL-REQUEST-NUMBER": "1",
+    "INPUT_RESOLUTION-STRATEGY": "rebase",
+    "INPUT_SOURCE-DIRECTORY": "source",
+    "INPUT_TARGET-DIRECTORY": "target",
+    INPUT_COMMIT: "false",
+    INPUT_PUSH: "false",
+    "INPUT_PUSH-TOKEN": "",
+    "INPUT_MAX-ATTEMPTS": "10",
+    GITHUB_ACTIONS: "true",
+    GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+    GITHUB_REPOSITORY: "marcolink/seqlane",
+    GITHUB_WORKSPACE: workspace,
+    GITHUB_WORKFLOW_REF: "marcolink/seqlane/.github/workflows/ci.yml@main",
+    GITHUB_WORKFLOW_SHA: revision,
+    GITHUB_TOKEN: "local-smoke-token",
+    GH_TOKEN: "local-smoke-token",
+    OPENAI_API_KEY: "local-smoke-key",
+    GITHUB_OUTPUT: outputFile,
+    GITHUB_STEP_SUMMARY: summaryFile,
+    RUNNER_TEMP: workspace,
+  };
+  const { exitCode, stdout, stderr } = await runAction(actionEnvironment);
   if (exitCode !== 0) {
     const summary = await readFile(summaryFile, "utf8");
     throw new Error(
@@ -161,7 +169,27 @@ try {
   if (!output.includes("result<<")) {
     throw new Error("The Action smoke did not write its result output.");
   }
-  console.log("Action entrypoint smoke passed with commit and push disabled.");
+  const requestsBeforeMissingToken = requests.length;
+  const missingToken = await runAction({
+    ...actionEnvironment,
+    INPUT_PUSH: "true",
+  });
+  if (
+    missingToken.exitCode !== 1 ||
+    !missingToken.stdout.includes("input-validation/PUSH_TOKEN_REQUIRED")
+  ) {
+    throw new Error(
+      `Action did not reject a missing push token.\n${missingToken.stdout}\n${missingToken.stderr}`,
+    );
+  }
+  if (requests.length !== requestsBeforeMissingToken) {
+    throw new Error(
+      "The Action contacted GitHub before rejecting a missing push token.",
+    );
+  }
+  console.log(
+    "Action entrypoint smoke passed with writes disabled and rejected a missing push token.",
+  );
 } finally {
   if (server !== undefined)
     await new Promise((resolveServer) => server.close(resolveServer));

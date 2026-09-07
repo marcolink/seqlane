@@ -160,7 +160,7 @@ The manual workflow must keep these declarations in YAML:
 - `workflow_dispatch` input
 - `pull_request_number` input
 - `resolution_strategy` input with `rebase` as the default
-- `contents: write` permission
+- `contents: read` permission for metadata and checkout operations
 - `pull-requests: read` permission
 - per-pull-request concurrency with `cancel-in-progress: false`
 - the Ubuntu runner and the 30-minute timeout
@@ -173,6 +173,12 @@ captured pull-request head revision.
 The workflow can retain the bootstrap step that obtains the target revision
 before the target checkout. The workflow must not retain resolver policy or
 Git mutation loops.
+
+The production workflow must pass `secrets.SEQLANE_RESOLVER_TOKEN` to the
+Action's `push-token` input. This dedicated secret must have only the
+repository `Contents: write` and `Workflows: write` permissions required for
+the force-with-lease branch update and workflow-file changes. The workflow's
+`GITHUB_TOKEN` must remain read-only and must be used only for metadata reads.
 
 ### requirement-action-contract
 
@@ -188,6 +194,7 @@ The Action must accept these inputs:
 | `target-directory` | relative path | none | Pull-request checkout; required and separate from the source |
 | `commit` | boolean string | `false` | Permit a merge commit |
 | `push` | boolean string | `false` | Permit a remote write |
+| `push-token` | secret string | empty | Dedicated token used for remote writes when `push` is `true` |
 | `max-attempts` | positive integer string | `10` | Rebase resolution limit |
 
 The production workflow must pass `commit: true` and `push: true` to preserve
@@ -340,7 +347,10 @@ external-directory, and project-configuration access. The policy must allow
 only the tools required by the current agent workflow.
 
 The resolver must stop OpenCode in a cleanup path before it configures GitHub
-authentication for the push.
+authentication for the push. The Action adapter must expose `start`,
+`resolve`, and idempotent `stop` on one lazily created runner instance. It must
+create that runner only after pull-request metadata is available and must
+delegate cleanup on failures as well as before push authentication.
 
 ### requirement-target-validation
 
@@ -412,6 +422,11 @@ git push --force-with-lease=refs/heads/<head-ref>:<captured-head-sha>
 
 The resolver must never fall back to unconditional force push.
 
+When `push` is `true`, the Action must reject an empty `push-token` before
+integration or agent startup. The token must be masked before application
+work starts, passed only to the push adapter, and excluded from the OpenCode
+child environment.
+
 ### requirement-observability-and-secrets
 
 The resolver must preserve one bounded Seqlane recording per attempt.
@@ -422,7 +437,11 @@ summary. It must not print raw OpenCode logs or secret values.
 The Action must mask `OPENAI_API_KEY` before a child process can write output.
 
 Failures must use typed error categories or stable error codes. Behavior must
-not depend on matching error-message text.
+not depend on matching error-message text. A refused Git push must retain a
+bounded, control-character-free, credential-free diagnostic derived from Git
+stderr. The Action must log that diagnostic through the Actions Toolkit after
+it masks all configured secrets. It must not log raw command arguments,
+credentials, credential URLs, or unbounded output.
 
 ## Detailed design or contracts
 
@@ -498,6 +517,7 @@ The resolver must return a typed failure for each case below:
 - remote head race
 - remote base race
 - refused push
+- missing dedicated push token
 
 The resolver must preserve the current target checkout when it stops with a
 failure. It must not use `git reset --hard` or `git clean -fd` as recovery.
@@ -577,12 +597,18 @@ verification must keep remote push behavior disabled.
 - Agent files and lockfile files use separate resolution paths.
 - All workspace, staged-content, marker, and size guards remain active.
 - OpenCode runs only for agent conflicts and stops before push authentication.
+- The Action exposes one lazy agent lifecycle with idempotent cleanup on
+  success and failure.
+- Pushes require a dedicated masked token and use a read-only workflow token
+  for metadata.
+- Refused pushes expose only bounded, sanitized operator diagnostics.
 - Merge commits and force-with-lease pushes remain explicit.
 - Remote base and head races fail without an unsafe push.
 - The Action bundle is current and self-contained.
 - Tests cover the required Git scenarios with real temporary repositories.
 - The old workflow helper has no remaining production references.
-- Operator documentation explains the Action inputs, secret, permissions,
+- Operator documentation explains the Action inputs, dedicated secret,
+  permissions,
   checkout trust model, and push behavior.
 
 ## Traceability

@@ -176,3 +176,4 @@
 | [task.seqlane-action-workflow-migration](./2026-09-06-seqlane-action-workflow-migration.md) | Migrate the Merge Conflict Workflow to the Seqlane Action | completed | 2026-09-06 | core |
 | [task.seqlane-action-integration-verification](./2026-09-06-seqlane-action-integration-verification.md) | Verify the Seqlane Action Merge Conflict Resolver | completed | 2026-09-06 | core |
 | [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |
+| [task.harden-seqlane-action-push-and-cleanup](./2026-09-07-harden-seqlane-action-push-and-cleanup.md) | Harden Seqlane Action Push and Cleanup | completed | 2026-09-07 | core |
