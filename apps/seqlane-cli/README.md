@@ -129,18 +129,35 @@ request.
 
 ## Community Studio
 
-Start the upstream Mastra Community Studio:
+Start the upstream Mastra Community Studio with an owned operational host:
 
 ```sh
 seqlane studio
 ```
 
-By default, the Studio connects to the Seqlane/Mastra server at
-`http://127.0.0.1:4111/api`. Configure the UI and server endpoints when needed:
+By default, this one command starts the Seqlane/Mastra host at
+`http://127.0.0.1:4111`, waits for `/readyz`, then starts Studio at
+`http://127.0.0.1:3000` against `/api`. It stops only those two processes when
+the Studio exits or the command receives `SIGINT`/`SIGTERM`.
+
+Configure the UI and owned server endpoints when needed:
 
 ```sh
 seqlane studio --port 3001 --server-port 4112
 ```
+
+The owned server endpoint flags are `--server-host`, `--server-port`,
+`--server-protocol`, and `--server-api-prefix`.
+
+Attach Studio to an existing loopback host without owning or stopping it:
+
+```sh
+seqlane studio --server-url http://127.0.0.1:4111
+```
+
+`--server-url` accepts only an unauthenticated HTTP loopback origin. In attach
+mode, the command waits for `/readyz` before launching Studio. `seqlane serve`
+remains headless and never starts Studio.
 
 The command launches the pinned Community Studio CLI. Seqlane does not bundle,
 rebrand, or embed a separate Studio application.

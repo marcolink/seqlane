@@ -69,7 +69,7 @@ export class OperationalClientError extends Error {
   }
 }
 
-function baseUrl(value: string): string {
+export function parseOperationalServerUrl(value: string): URL {
   try {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
@@ -83,12 +83,16 @@ function baseUrl(value: string): string {
         "Operational server URL must be an unauthenticated HTTP loopback URL",
       );
     }
-    return url.toString().replace(/\/$/, "");
+    return url;
   } catch (cause) {
     throw new OperationalClientError("Operational server URL is invalid", {
       cause,
     });
   }
+}
+
+function baseUrl(value: string): string {
+  return parseOperationalServerUrl(value).toString().replace(/\/$/, "");
 }
 
 function responseError(status: number, body: unknown): OperationalClientError {
