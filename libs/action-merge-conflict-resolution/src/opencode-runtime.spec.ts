@@ -13,6 +13,7 @@ import {
   buildOpenCodeChildEnvironment,
   downloadOpenCodeArchive,
   verifyOpenCodeArchive,
+  waitForOpenCodeReady,
 } from "./opencode-runtime.js";
 
 describe("resolver OpenCode runtime", () => {
@@ -72,5 +73,39 @@ describe("resolver OpenCode runtime", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("fails immediately when the OpenCode child exits before readiness", async () => {
+    const child = { exitCode: 1 };
+    let healthChecks = 0;
+    await expect(
+      waitForOpenCodeReady(
+        child,
+        async () => {
+          healthChecks += 1;
+          return false;
+        },
+        60_000,
+        60_000,
+      ),
+    ).rejects.toMatchObject({ code: "AGENT_FAILED" });
+    expect(healthChecks).toBe(0);
+  });
+
+  it("fails immediately when the OpenCode child reports a startup error", async () => {
+    let healthChecks = 0;
+    await expect(
+      waitForOpenCodeReady(
+        { exitCode: null },
+        async () => {
+          healthChecks += 1;
+          return false;
+        },
+        60_000,
+        60_000,
+        () => new Error("spawn failed"),
+      ),
+    ).rejects.toMatchObject({ code: "AGENT_FAILED" });
+    expect(healthChecks).toBe(0);
   });
 });

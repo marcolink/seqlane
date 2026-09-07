@@ -153,6 +153,30 @@ function defaultHealthcheck(url: string): Promise<boolean> {
     .catch(() => false);
 }
 
+export async function waitForOpenCodeReady(
+  child: Pick<ChildProcess, "exitCode">,
+  healthcheck: () => Promise<boolean>,
+  timeoutMs: number,
+  pollIntervalMs: number,
+  startupError: () => unknown = () => undefined,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const error = startupError();
+    if (error !== undefined) {
+      throw runtimeError("OpenCode failed before becoming ready.", error);
+    }
+    if (child.exitCode !== null) {
+      throw runtimeError("OpenCode exited before becoming ready.", {
+        exitCode: child.exitCode,
+      });
+    }
+    if (await healthcheck()) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, pollIntervalMs));
+  }
+  throw runtimeError("OpenCode did not become ready before the timeout.");
+}
+
 function waitForExit(child: ChildProcess, timeoutMs = 5_000): Promise<void> {
   if (child.exitCode !== null) return Promise.resolve();
   return new Promise((resolveExit) => {
@@ -214,44 +238,51 @@ export class NodeOpenCodeRuntime {
           env: buildOpenCodeChildEnvironment(),
         },
       );
+      let startupError: unknown;
+      const onStartupError = (error: unknown) => {
+        startupError = error;
+      };
+      child.on("error", onStartupError);
       const healthcheck = this.options.healthcheck ?? defaultHealthcheck;
       const timeout = this.options.readinessTimeoutMs ?? 120_000;
       const interval = this.options.pollIntervalMs ?? 1_000;
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < timeout) {
-        if (
-          await healthcheck(
-            `http://${OPENCODE_HOST}:${OPENCODE_PORT}/global/health`,
-          )
-        ) {
-          let stopped = false;
-          return {
-            connection: {
-              url: `http://${OPENCODE_HOST}:${OPENCODE_PORT}`,
-              workspace: resolve(workspace),
-            },
-            stop: async () => {
-              if (stopped) return;
-              stopped = true;
-              const processHandle = child;
-              if (processHandle === undefined) {
-                await rm(directory, { recursive: true, force: true });
-                return;
-              }
-              if (processHandle.exitCode === null)
-                processHandle.kill("SIGTERM");
-              await waitForExit(processHandle);
-              if (processHandle.exitCode === null) {
-                processHandle.kill("SIGKILL");
-                await waitForExit(processHandle, 1_000);
-              }
-              await rm(directory, { recursive: true, force: true });
-            },
-          };
-        }
-        await new Promise((resolveWait) => setTimeout(resolveWait, interval));
+      try {
+        await waitForOpenCodeReady(
+          child,
+          () =>
+            healthcheck(
+              `http://${OPENCODE_HOST}:${OPENCODE_PORT}/global/health`,
+            ),
+          timeout,
+          interval,
+          () => startupError,
+        );
+      } finally {
+        child.off("error", onStartupError);
       }
-      throw runtimeError("OpenCode did not become ready before the timeout.");
+      let stopped = false;
+      return {
+        connection: {
+          url: `http://${OPENCODE_HOST}:${OPENCODE_PORT}`,
+          workspace: resolve(workspace),
+        },
+        stop: async () => {
+          if (stopped) return;
+          stopped = true;
+          const processHandle = child;
+          if (processHandle === undefined) {
+            await rm(directory, { recursive: true, force: true });
+            return;
+          }
+          if (processHandle.exitCode === null) processHandle.kill("SIGTERM");
+          await waitForExit(processHandle);
+          if (processHandle.exitCode === null) {
+            processHandle.kill("SIGKILL");
+            await waitForExit(processHandle, 1_000);
+          }
+          await rm(directory, { recursive: true, force: true });
+        },
+      };
     } catch (error: unknown) {
       if (child?.exitCode === null) child.kill("SIGTERM");
       if (child !== undefined) await waitForExit(child);
