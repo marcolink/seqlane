@@ -138,7 +138,7 @@ export async function run(): Promise<void> {
     files,
     lockfile: new NodeLockfileRegenerator({
       targetRoot,
-      trustedSourceRoot: root,
+      trustedSourceRoot: sourceRoot,
     }),
     agent: {
       resolve: async (

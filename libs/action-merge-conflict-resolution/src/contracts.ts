@@ -247,7 +247,7 @@ export interface WorkspaceFilesPort {
 }
 
 export interface LockfilePort {
-  readonly regenerate: (sourceDirectory: RelativeDirectory) => Promise<void>;
+  readonly regenerate: () => Promise<void>;
 }
 
 export interface AgentRunnerPort {

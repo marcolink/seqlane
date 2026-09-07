@@ -101,7 +101,7 @@ describe("lockfile Docker adapter", () => {
         temporaryParent,
         docker,
         git,
-      }).regenerate(".");
+      }).regenerate();
       await expect(
         readFile(join(target, "pnpm-lock.yaml"), "utf8"),
       ).resolves.toBe("new\n");
@@ -128,7 +128,7 @@ describe("lockfile Docker adapter", () => {
           trustedSourceRoot: source,
           docker: { run: async () => ({ exitCode: 17, stderr: "failed" }) },
           git: { cwd: target, run: async () => gitResult("package.json\0") },
-        }).regenerate("."),
+        }).regenerate(),
       ).rejects.toMatchObject({
         category: "lockfile",
         code: "LOCKFILE_REGENERATION_FAILED",
@@ -154,7 +154,7 @@ describe("lockfile Docker adapter", () => {
               return { exitCode: 0 };
             },
           },
-        }).regenerate("."),
+        }).regenerate(),
       ).rejects.toMatchObject({ code: "UNSAFE_PATH" });
       expect(dockerCalls).toBe(0);
     } finally {
@@ -162,36 +162,79 @@ describe("lockfile Docker adapter", () => {
     }
   });
 
-  it("rejects symlink roots and source-directory escapes", async () => {
+  it("rejects symlink roots", async () => {
     const root = await mkdtemp(join(tmpdir(), "seqlane-lockfile-symlink-"));
     const source = join(root, "source");
     const target = join(root, "target");
-    const outside = join(root, "outside");
     const sourceLink = join(root, "source-link");
-    await Promise.all([mkdir(source), mkdir(target), mkdir(outside)]);
+    await Promise.all([mkdir(source), mkdir(target)]);
     await symlink(source, sourceLink, "dir");
     await writeFile(
       join(source, "package.json"),
       '{"packageManager":"pnpm@10.33.0"}\n',
     );
-    await writeFile(
-      join(outside, "package.json"),
-      '{"packageManager":"pnpm@10.33.0"}\n',
-    );
-    await symlink(outside, join(source, "linked"), "dir");
     try {
       await expect(
         new NodeLockfileRegenerator({
           targetRoot: target,
           trustedSourceRoot: sourceLink,
-        }).regenerate("."),
+        }).regenerate(),
       ).rejects.toMatchObject({ code: "UNSAFE_PATH" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses trusted source metadata in the production checkout layout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "seqlane-lockfile-layout-"));
+    const source = join(root, "seqlane-source");
+    const target = join(root, "resolution-target");
+    const temporaryParent = join(root, "temporary");
+    await Promise.all([mkdir(source), mkdir(target), mkdir(temporaryParent)]);
+    await writeFile(
+      join(source, "package.json"),
+      '{"packageManager":"pnpm@10.33.0"}\n',
+    );
+    await writeFile(
+      join(target, "package.json"),
+      '{"packageManager":"pnpm@9.0.0"}\n',
+    );
+    await writeFile(join(target, "pnpm-workspace.yaml"), "packages: []\n");
+
+    let pnpmVersion: string | undefined;
+    const docker: DockerCommandPort = {
+      run: async (request: { readonly args: readonly string[] }) => {
+        pnpmVersion = request.args
+          .find((arg) => arg.startsWith("PNPM_VERSION="))
+          ?.slice("PNPM_VERSION=".length);
+        const mount = request.args.find((arg) => arg.startsWith("type=bind,"));
+        const workspace = mount?.match(/source=(.*),target=\/workspace/)?.[1];
+        if (workspace === undefined) throw new Error("missing workspace mount");
+        await writeFile(join(workspace, "pnpm-lock.yaml"), "new\n");
+        return { exitCode: 0 };
+      },
+    };
+    const git: GitWorkspacePort = {
+      cwd: target,
+      run: async (args: readonly string[]) =>
+        args.join(" ") ===
+        "ls-files -z -- pnpm-workspace.yaml :(glob)**/package.json"
+          ? gitResult("pnpm-workspace.yaml\0package.json\0")
+          : gitResult(""),
+    };
+
+    try {
+      await new NodeLockfileRegenerator({
+        targetRoot: target,
+        trustedSourceRoot: source,
+        temporaryParent,
+        docker,
+        git,
+      }).regenerate();
+      expect(pnpmVersion).toBe("10.33.0");
       await expect(
-        new NodeLockfileRegenerator({
-          targetRoot: target,
-          trustedSourceRoot: source,
-        }).regenerate("linked"),
-      ).rejects.toMatchObject({ code: "UNSAFE_PATH" });
+        readFile(join(target, "pnpm-lock.yaml"), "utf8"),
+      ).resolves.toBe("new\n");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

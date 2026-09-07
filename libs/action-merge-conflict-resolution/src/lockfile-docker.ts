@@ -5,10 +5,6 @@ import { join, resolve } from "node:path";
 
 import { z } from "zod";
 
-import {
-  relativeDirectorySchema,
-  type RelativeDirectory,
-} from "./contracts.js";
 import { ActionResolutionError } from "./errors.js";
 import { NodeGitCli } from "./git-cli.js";
 import { type GitWorkspacePort } from "./git-port.js";
@@ -20,7 +16,6 @@ import {
 } from "./lockfile-port.js";
 import {
   prepareLockfileWorkspace,
-  validateSafeDirectoryWithinRoot,
   validateSafeFileWithinRoot,
   validateSeparateWorkspaceRoots,
 } from "./workspace-boundary.js";
@@ -226,26 +221,13 @@ export class NodeLockfileRegenerator implements LockfileRegenerationPort {
     this.git = options.git ?? new NodeGitCli(this.targetRoot);
   }
 
-  async regenerate(sourceDirectory: RelativeDirectory): Promise<void> {
-    const parsedDirectory = relativeDirectorySchema.safeParse(sourceDirectory);
-    if (!parsedDirectory.success) {
-      throw lockfileError(
-        "The trusted source directory is malformed.",
-        parsedDirectory.error,
-      );
-    }
-
+  async regenerate(): Promise<void> {
     const roots = await validateSeparateWorkspaceRoots(
       this.trustedSourceRoot,
       this.targetRoot,
     );
-    const sourceDirectoryPath = await validateSafeDirectoryWithinRoot(
-      roots.sourceRoot,
-      parsedDirectory.data,
-      "Trusted source directory",
-    );
     const packageJsonPath = await validateSafeFileWithinRoot(
-      sourceDirectoryPath,
+      roots.sourceRoot,
       "package.json",
       "Trusted package.json",
     );

@@ -185,7 +185,7 @@ export async function resolveMergeConflicts(
           await ports.files.copyAgentEdits(agentRequest.paths);
         }
         if (classified.lockfile.length > 0) {
-          await ports.lockfile.regenerate(request.sourceDirectory);
+          await ports.lockfile.regenerate();
         }
         await ports.files.validateTarget(conflicts);
         await ports.git.stageConflictSet(conflicts);
