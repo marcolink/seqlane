@@ -82,6 +82,10 @@ export interface WorkspaceLimitDiagnosticOptions {
   readonly observed: number;
   readonly limit: number;
   readonly unit: WorkspaceLimitUnit;
+  readonly aggregate?: {
+    readonly offendingFileBytes: number;
+    readonly accumulatedBytes: number;
+  };
 }
 const pushFailureCauseSchema = z.looseObject({
   stderr: z.string().min(1),
@@ -106,7 +110,10 @@ export function formatWorkspaceLimitDiagnostic(
   options: WorkspaceLimitDiagnosticOptions,
 ): string {
   const pathPrefix = options.path === undefined ? "" : ": ";
-  const suffix = ` (observed ${options.observed} ${options.unit} > ${options.limit} ${options.unit}).`;
+  const suffix =
+    options.aggregate === undefined
+      ? ` (observed ${options.observed} ${options.unit} > ${options.limit} ${options.unit}).`
+      : ` (offending file ${options.aggregate.offendingFileBytes} bytes; accumulated ${options.aggregate.accumulatedBytes} bytes; aggregate limit ${options.limit} bytes; resulting total ${options.observed} bytes).`;
   const availablePathLength =
     MAX_WORKSPACE_DIAGNOSTIC_LENGTH -
     prefix.length -

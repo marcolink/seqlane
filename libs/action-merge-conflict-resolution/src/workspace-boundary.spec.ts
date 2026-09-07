@@ -181,7 +181,10 @@ describe("workspace boundary", () => {
           "code" in error &&
           error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
           error.message.includes("third.ts") &&
-          error.message.includes("observed 2097153 bytes > 2097152 bytes"),
+          error.message.includes("offending file 1 bytes") &&
+          error.message.includes("accumulated 2097152 bytes") &&
+          error.message.includes("aggregate limit 2097152 bytes") &&
+          error.message.includes("resulting total 2097153 bytes"),
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -249,8 +252,13 @@ describe("workspace boundary", () => {
           "code" in error &&
           error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
           error.message.includes("four.json") &&
+          error.message.includes("offending file 524285 bytes") &&
+          error.message.includes("accumulated 1572868 bytes") &&
           error.message.includes(
-            `observed ${MAX_LOCKFILE_INPUT_TOTAL_BYTES + 1} bytes > ${MAX_LOCKFILE_INPUT_TOTAL_BYTES} bytes`,
+            `aggregate limit ${MAX_LOCKFILE_INPUT_TOTAL_BYTES} bytes`,
+          ) &&
+          error.message.includes(
+            `resulting total ${MAX_LOCKFILE_INPUT_TOTAL_BYTES + 1} bytes`,
           ),
       );
     } finally {

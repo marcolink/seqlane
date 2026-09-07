@@ -389,6 +389,10 @@ async function enforceLockfileInputLimits(
             observed: totalBytes + details.size,
             limit: maximumLockfileInputTotalBytes,
             unit: "bytes",
+            aggregate: {
+              offendingFileBytes: details.size,
+              accumulatedBytes: totalBytes,
+            },
           },
         ),
       );
@@ -446,6 +450,10 @@ async function copyFiles(
             observed: totalBytes + details.size,
             limit: limits.maximumTotalBytes,
             unit: "bytes",
+            aggregate: {
+              offendingFileBytes: details.size,
+              accumulatedBytes: totalBytes,
+            },
           },
         ),
       );
