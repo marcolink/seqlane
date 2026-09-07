@@ -15,8 +15,8 @@ import {
   NodeWorkspaceBoundary,
   createSeqlaneAgentRunner,
   createBoundedRecording,
+  createSecretRedactor,
   createSummaryWriter,
-  formatBoundedRecording,
   parseActionInputs,
   ActionResolutionError,
   resolveMergeConflicts,
@@ -83,7 +83,7 @@ export async function run(): Promise<void> {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? "";
   const octokit = github.getOctokit(token);
   const workflowRef = workflowMetadata();
-  const recording = createBoundedRecording(secrets);
+  const redactor = createSecretRedactor(secrets);
   let metadata: PullRequestMetadata | undefined;
   let boundary: NodeWorkspaceBoundary | undefined;
   const git = new NodeGitCli(targetRoot);
@@ -164,7 +164,7 @@ export async function run(): Promise<void> {
         strategy: request.strategy,
         baseBranch: metadata.baseBranch,
         headBranch: metadata.headBranch,
-        recording,
+        recording: () => createBoundedRecording(secrets),
       });
     }),
     summary: createSummaryWriter(
@@ -172,7 +172,7 @@ export async function run(): Promise<void> {
         await core.summary.addRaw(summary).write();
       },
       workflowRef,
-      recording,
+      redactor,
     ),
     commitAndPush: new NodeCommitAndPush(
       git,
@@ -182,7 +182,6 @@ export async function run(): Promise<void> {
 
   try {
     const result = await resolveMergeConflicts(request, ports);
-    core.info(formatBoundedRecording(recording));
     core.setOutput("result", result.result);
     if (result.kind === "error") {
       core.setFailed(`${result.error.category}/${result.error.code}`);

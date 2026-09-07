@@ -5,6 +5,7 @@ import {
   actionInputsSchema,
   conflictSetSchema,
   gitRevisionSchema,
+  rebaseConflictCommitSchema,
   positiveIntegerSchema,
   positiveIntegerStringSchema,
   pullRequestMetadataSchema,
@@ -133,6 +134,21 @@ describe("action merge-conflict contracts", () => {
         headSha: headRevision,
         attempts: 1,
         pushed: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("bounds rebase commit subjects at the Git boundary", () => {
+    expect(
+      rebaseConflictCommitSchema.safeParse({
+        sha: baseRevision,
+        subject: "s".repeat(512),
+      }).success,
+    ).toBe(true);
+    expect(
+      rebaseConflictCommitSchema.safeParse({
+        sha: baseRevision,
+        subject: "s".repeat(513),
       }).success,
     ).toBe(false);
   });

@@ -5,6 +5,14 @@ import { describe, expect, it } from "vitest";
 import type { AgentRunnerPort } from "@seqlane/action-merge-conflict-resolution";
 import { createLazyAgentPort } from "./lazy-agent-port.js";
 
+const resolvedOutput = {
+  summary: "Resolved the conflict.",
+  resolvedFiles: ["src/conflict.ts"],
+  decisions: [
+    { file: "src/conflict.ts", decision: "Kept the target-side change." },
+  ],
+};
+
 describe("lazy Action agent port", () => {
   it("creates one runner after metadata is available and stops it once", async () => {
     const events: string[] = [];
@@ -15,6 +23,7 @@ describe("lazy Action agent port", () => {
       },
       resolve: async () => {
         events.push("resolve");
+        return resolvedOutput;
       },
       stop: async () => {
         events.push("stop");
@@ -26,11 +35,13 @@ describe("lazy Action agent port", () => {
     });
 
     await port.start?.();
-    await port.resolve({
-      paths: ["src/conflict.ts"],
-      baseRevision: "a".repeat(40),
-      headRevision: "b".repeat(40),
-    });
+    await expect(
+      port.resolve({
+        paths: ["src/conflict.ts"],
+        baseRevision: "a".repeat(40),
+        headRevision: "b".repeat(40),
+      }),
+    ).resolves.toEqual(resolvedOutput);
     await port.stop?.();
     await port.stop?.();
 
@@ -43,7 +54,7 @@ describe("lazy Action agent port", () => {
     let stopCalls = 0;
     const runner: AgentRunnerPort = {
       start: async () => undefined,
-      resolve: async () => undefined,
+      resolve: async () => resolvedOutput,
       stop: async () => {
         stopCalls += 1;
         if (stopCalls === 1) throw cleanupError;
@@ -67,7 +78,7 @@ describe("lazy Action agent port", () => {
       start: async () => {
         throw startupError;
       },
-      resolve: async () => undefined,
+      resolve: async () => resolvedOutput,
       stop: async () => {
         stopCalls += 1;
         if (stopCalls === 1) throw cleanupError;

@@ -23,11 +23,14 @@ const conflictDecisionSchema = z.object({
   decision: z.string().min(1).max(2_000),
 });
 
-const conflictResolutionOutputSchema = z.object({
+export const conflictResolutionOutputSchema = z.strictObject({
   summary: z.string().min(1).max(4_000),
   resolvedFiles: z.array(conflictPathSchema).min(1).max(200),
   decisions: z.array(conflictDecisionSchema).min(1).max(200),
 });
+export type ResolveMergeConflictsWorkflowOutput = z.infer<
+  typeof conflictResolutionOutputSchema
+>;
 
 const conflictResolutionTask = defineTask({
   id: "merge-conflicts.resolve",

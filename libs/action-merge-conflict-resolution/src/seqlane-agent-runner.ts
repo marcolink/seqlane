@@ -13,6 +13,7 @@ import {
 import { ActionResolutionError } from "./errors.js";
 import {
   seqlaneAgentExecutionResultSchema,
+  validateSeqlaneAgentWorkflowOutput,
   type SeqlaneAgentExecutionRequest,
   validateAgentResolutionRequest,
 } from "./agent-runner-port.js";
@@ -43,7 +44,7 @@ export interface SeqlaneAgentRunnerOptions {
   readonly strategy?: "merge" | "rebase";
   readonly baseBranch?: string;
   readonly headBranch?: string;
-  readonly recording?: BoundedRecording;
+  readonly recording?: () => BoundedRecording;
   readonly attemptTimeoutMs?: number;
 }
 
@@ -55,6 +56,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
   private readonly options: SeqlaneAgentRunnerOptions;
   private runtime: OpenCodeRuntimeHandle | undefined;
   private run: Awaited<ReturnType<typeof createOpenCodeRun>> | undefined;
+  private lastRecording: BoundedRecording | undefined;
 
   constructor(options: SeqlaneAgentRunnerOptions) {
     this.options = options;
@@ -85,7 +87,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
     this.runtime = undefined;
   }
 
-  async resolve(request: AgentResolutionRequest): Promise<void> {
+  async resolve(request: AgentResolutionRequest) {
     const parsed = validateAgentResolutionRequest(request);
     await this.start();
     const execution = await this.execute({
@@ -99,6 +101,14 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         result.success ? result.data : result.error,
       );
     }
+    try {
+      return validateSeqlaneAgentWorkflowOutput(
+        result.data.output,
+        parsed.paths,
+      );
+    } catch (error: unknown) {
+      throw agentError("The Seqlane workflow output was malformed.", error);
+    }
   }
 
   private async execute(
@@ -109,7 +119,8 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
       if (run === undefined) {
         throw agentError("The OpenCode runtime is not started.");
       }
-      const recording = this.options.recording ?? createBoundedRecording();
+      const recording = this.options.recording?.() ?? createBoundedRecording();
+      this.lastRecording = recording;
       const events = {
         emit: (event: SeqlaneEvent) => recording.record(event),
       };
@@ -164,6 +175,13 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
       if (error instanceof ActionResolutionError) throw error;
       throw agentError("The Seqlane workflow could not be executed.", error);
     }
+  }
+
+  getAttemptDiagnostics() {
+    return {
+      eventCount: this.lastRecording?.events.length ?? 0,
+      truncated: this.lastRecording?.truncated ?? false,
+    };
   }
 }
 

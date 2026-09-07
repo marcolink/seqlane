@@ -224,6 +224,12 @@ Lockfile conflicts use a separate Docker-based regeneration workspace. The
 workspace contains only tracked manifests and `pnpm-workspace.yaml`; it does
 not contain the conflicted lockfile or a model workspace.
 
+The job summary reports the overall outcome and bounded diagnostics. For a
+rebase it adds one escaped, human-readable section per conflicting commit with
+the old short SHA, subject, model summary, and file decisions. A merge uses one
+`Merge resolution` section. Raw executor events and full file contents are not
+printed.
+
 After Seqlane finishes, the Action rejects new files and edits outside the
 initial conflict list. It also rejects unresolved conflicts and Git whitespace
 errors. It rejects staged Git conflict markers. A rebase can use no more than

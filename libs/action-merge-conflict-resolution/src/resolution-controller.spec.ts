@@ -129,14 +129,22 @@ function ports(
       resolve: async () => {
         events.push("agent-resolve");
         agent.push(true);
+        return {
+          summary: "Resolved the requested files.",
+          resolvedFiles: ["src/file.ts"],
+          decisions: [
+            { file: "src/file.ts", decision: "Kept compatible changes." },
+          ],
+        };
       },
       stop: async () => {
         events.push("agent-stop");
       },
+      getAttemptDiagnostics: () => ({ eventCount: 4, truncated: true }),
     },
     summary: {
-      write: async (value) => {
-        summary.push(value);
+      write: async (value, report) => {
+        summary.push({ result: value, report });
       },
     },
     commitAndPush: {
@@ -210,6 +218,11 @@ describe("resolveMergeConflicts", () => {
     expect(fake.agent).toEqual([]);
     expect(fake.lockfiles).toEqual([true]);
     expect(fake.baselines).toEqual([true]);
+    expect(fake.summary[0]).toMatchObject({
+      report: {
+        attempts: [{ diagnostics: { eventCount: 0, truncated: false } }],
+      },
+    });
   });
 
   it("returns a typed attempt-limit failure", async () => {
@@ -287,11 +300,19 @@ describe("resolveMergeConflicts", () => {
     );
     let starts = 0;
     let stops = 0;
+    let commitReads = 0;
     fake.value.agent.start = async () => {
       starts += 1;
     };
     fake.value.agent.stop = async () => {
       stops += 1;
+    };
+    fake.value.git.readRebaseConflictCommit = async () => {
+      commitReads += 1;
+      return {
+        sha: revision(commitReads === 1 ? "d" : "e"),
+        subject: commitReads === 1 ? "Empty commit" : "Second commit",
+      };
     };
 
     await expect(
@@ -300,6 +321,67 @@ describe("resolveMergeConflicts", () => {
     expect(fake.agent).toHaveLength(4);
     expect(starts).toBe(1);
     expect(stops).toBe(1);
+    expect(fake.summary[0]).toMatchObject({
+      report: {
+        attempts: [
+          {
+            commit: { oldSha: revision("d") },
+            diagnostics: { eventCount: 4, truncated: true },
+          },
+          {
+            commit: {
+              oldSha: revision("e"),
+            },
+            diagnostics: { eventCount: 4, truncated: true },
+          },
+        ],
+      },
+    });
+    expect(
+      (fake.summary[0] as { report: { attempts: Array<{ commit?: unknown }> } })
+        .report.attempts[0]?.commit,
+    ).not.toHaveProperty("rewrittenSha");
+  });
+
+  it("does not report the final rebase head as the rewritten conflict commit", async () => {
+    const conflict = [{ path: "src/file.ts", stage: 1 as const }];
+    const fake = ports(
+      {
+        kind: "conflicted",
+        operation: "rebase",
+        headBefore: revision("b"),
+        targetRevision: revision("c"),
+        conflicts: conflict,
+      },
+      [conflict, []],
+    );
+    fake.value.git.readRebaseConflictCommit = async () => ({
+      sha: revision("d"),
+      subject: "Resolve parser conflict",
+    });
+
+    await expect(
+      resolveMergeConflicts(request("rebase"), fake.value),
+    ).resolves.toMatchObject({ kind: "resolved", attempts: 1 });
+
+    expect(fake.summary[0]).toMatchObject({
+      report: {
+        strategy: "rebase",
+        attempts: [
+          {
+            attempt: 1,
+            commit: {
+              oldSha: revision("d"),
+              subject: "Resolve parser conflict",
+            },
+          },
+        ],
+      },
+    });
+    expect(
+      (fake.summary[0] as { report: { attempts: Array<{ commit?: unknown }> } })
+        .report.attempts[0]?.commit,
+    ).not.toHaveProperty("rewrittenSha");
   });
 
   it("rejects merge push without commit before integration", async () => {

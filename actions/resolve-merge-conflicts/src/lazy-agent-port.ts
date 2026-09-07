@@ -32,7 +32,7 @@ export function createLazyAgentPort(
       }
     },
     resolve: async (request: AgentResolutionRequest) => {
-      await getRunner().resolve(request);
+      return await getRunner().resolve(request);
     },
     stop: async () => {
       const current = runner;
