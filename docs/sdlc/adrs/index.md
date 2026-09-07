@@ -27,3 +27,4 @@
 | [adr.local-mechanical-tasks](./2026-09-03-local-mechanical-tasks.md) | Run Local Mechanical Tasks Without an Agent | superseded | 2026-09-03 | core |
 | [adr.mastra-local-mechanical-tasks](./2026-09-04-mastra-local-mechanical-tasks.md) | Run Local Mechanical Tasks Through Mastra LocalSandbox | accepted | 2026-09-04 | core |
 | [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md) | Run Seqlane Through a Local Mastra Operational Host | accepted | 2026-09-05 | core |
+| [adr.mastra-native-agent-observability](./2026-09-07-mastra-native-agent-observability.md) | Project Executor Observations into Native Mastra Agent Observability | accepted | 2026-09-07 | core |
