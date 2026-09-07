@@ -32,7 +32,8 @@ export interface OpenCodePrompt {
   readonly onActivity?: (activity: OpenCodeActivity) => void;
   /** Reports an external request whose termination cannot be confirmed. */
   readonly onUncertainActivity?: (activity: OpenCodeUncertainActivity) => void;
-  readonly onBackgroundProcess?: (process: OpenCodeBackgroundProcess) => void;
+  /** Invalidates the cached adapter run after an internal abort. */
+  readonly onRunInvalidated?: () => void;
 }
 
 export interface OpenCodeUncertainActivity {
@@ -53,10 +54,6 @@ export interface OpenCodeActivity {
   readonly startedAt?: number;
   readonly endedAt?: number;
   readonly message?: string;
-}
-
-export interface OpenCodeBackgroundProcess {
-  readonly mutatesWorkspace: true;
 }
 
 export interface OpenCodePromptResult {

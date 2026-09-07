@@ -258,6 +258,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: 1.18.27
         version: 1.18.27
+      '@seqlane/agent-adapter':
+        specifier: workspace:*
+        version: link:../seqlane-agent-adapter
       '@seqlane/core':
         specifier: workspace:*
         version: link:../seqlane-core
@@ -297,9 +300,6 @@ importers:
       '@mastra/server':
         specifier: 1.64.0
         version: 1.64.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
-      '@seqlane/acp':
-        specifier: workspace:*
-        version: link:../seqlane-acp
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../seqlane-agent-adapter
