@@ -2,8 +2,9 @@ import { existsSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// @test-scope ./lifecycle.ts
 import { afterEach, describe, expect, it } from "vitest";
-import { packageExecutionDirectory, processAnchorPath } from "./main.js";
+import { packageExecutionDirectory, processAnchorPath } from "./lifecycle.js";
 
 const originalActionPath = process.env.GITHUB_ACTION_PATH;
 

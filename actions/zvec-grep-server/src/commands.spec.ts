@@ -90,9 +90,19 @@ describe("zvec-grep command plan", () => {
       "--glob",
       "!**/*.key",
       "--glob",
+      "!**/*.p8",
+      "--glob",
       "!**/*.p12",
       "--glob",
       "!**/*.pfx",
+      "--glob",
+      "!**/*.crt",
+      "--glob",
+      "!**/*.cer",
+      "--glob",
+      "!**/*.der",
+      "--glob",
+      "!**/*.csr",
       "--glob",
       "!**/secrets/**",
       "--glob",
@@ -100,9 +110,21 @@ describe("zvec-grep command plan", () => {
       "--glob",
       "!**/credentials/**",
       "--glob",
-      "!**/*secret*.json",
+      "!**/*secret*",
       "--glob",
-      "!**/*credential*.json",
+      "!**/*credential*",
+      "--glob",
+      "!**/*token*",
+      "--glob",
+      "!**/*service-account*",
+      "--glob",
+      "!**/*service_account*",
+      "--glob",
+      "!**/*auth*.json",
+      "--glob",
+      "!**/*auth*.yaml",
+      "--glob",
+      "!**/*auth*.yml",
     ]);
     expect(plan[2]?.args).toEqual([
       "dlx",
@@ -175,6 +197,60 @@ describe("zvec-grep command plan", () => {
     expect(args.indexOf("!**/private/**")).toBeGreaterThan(
       args.indexOf("*.py"),
     );
+  });
+
+  it("excludes sensitive configuration and credential filenames", () => {
+    const args = buildIndexArguments("@zvec/zvec-grep@0.2.1", "/workspace", {
+      additionalGlobs: ["*.py"],
+    });
+
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "!**/*.p8",
+        "!**/*.crt",
+        "!**/*.cer",
+        "!**/*.der",
+        "!**/*.csr",
+        "!**/*secret*",
+        "!**/*credential*",
+        "!**/*token*",
+        "!**/*service-account*",
+        "!**/*service_account*",
+        "!**/*auth*.json",
+        "!**/*auth*.yaml",
+        "!**/*auth*.yml",
+      ]),
+    );
+  });
+
+  it("keeps every immutable sensitive exclusion after additional globs", () => {
+    const args = buildIndexArguments("@zvec/zvec-grep@0.2.1", "/workspace", {
+      additionalGlobs: ["*.py", "fixtures/**"],
+    });
+    const firstExclusion = args.indexOf("!**/node_modules/**");
+
+    for (const additionalGlob of ["*.py", "fixtures/**"]) {
+      expect(args.indexOf(additionalGlob)).toBeLessThan(firstExclusion);
+    }
+    for (const sensitiveExclusion of [
+      "!**/*.p8",
+      "!**/*.crt",
+      "!**/*.cer",
+      "!**/*.der",
+      "!**/*.csr",
+      "!**/*secret*",
+      "!**/*credential*",
+      "!**/*token*",
+      "!**/*service-account*",
+      "!**/*service_account*",
+      "!**/*auth*.json",
+      "!**/*auth*.yaml",
+      "!**/*auth*.yml",
+    ]) {
+      expect(args.indexOf(sensitiveExclusion)).toBeGreaterThan(
+        args.indexOf("fixtures/**"),
+      );
+    }
   });
 
   it("omits the model cache environment variable when disabled", () => {

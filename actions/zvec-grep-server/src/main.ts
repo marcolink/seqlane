@@ -1,71 +1,14 @@
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 import * as core from "@actions/core";
-import {
-  adoptDetachedProcess,
-  spawnDetached,
-  terminateProcessGroup,
-  type DetachedProcess,
-} from "@seqlane/action-service-lifecycle";
-import { assertDirectory } from "./filesystem.js";
-import { buildZvecCommandPlan, buildZvecEnvironment } from "./commands.js";
-import {
-  parseListenAddress,
-  runCommand,
-  runReadinessCommand,
-  waitForCommandHealth,
-} from "./readiness.js";
+import { buildZvecEnvironment } from "./commands.js";
+import { parseListenAddress } from "./readiness.js";
+import { runZvecGrepLifecycle } from "./lifecycle.js";
+
+export { packageExecutionDirectory, processAnchorPath } from "./lifecycle.js";
 
 function runnerTempPath(fileName: string): string {
   return resolve(process.env.RUNNER_TEMP ?? "/tmp", fileName);
-}
-
-export function processAnchorPath(): string {
-  return fileURLToPath(new URL("../process-anchor.js", import.meta.url));
-}
-
-export function packageExecutionDirectory(): string {
-  return dirname(processAnchorPath());
-}
-
-async function saveProcessState(service: DetachedProcess): Promise<void> {
-  try {
-    core.saveState("pid", String(service.pid));
-    core.saveState("process-group-id", String(service.identity.processGroupId));
-    core.saveState("process-start-time", service.identity.processStartTime);
-    core.saveState("sentinel-pid", String(service.sentinelPid));
-    core.saveState(
-      "sentinel-process-group-id",
-      String(service.sentinelIdentity.processGroupId),
-    );
-    core.saveState(
-      "sentinel-process-start-time",
-      service.sentinelIdentity.processStartTime,
-    );
-    await adoptDetachedProcess(service);
-  } catch (error) {
-    try {
-      const stopped = await terminateProcessGroup(
-        service.pid,
-        service.identity,
-        {
-          pid: service.sentinelPid,
-          identity: service.sentinelIdentity,
-        },
-      );
-      if (!stopped) {
-        core.warning(
-          `Process group ${service.pid} could not be verified during cleanup`,
-        );
-      }
-    } catch (cleanupError) {
-      core.warning(
-        `Startup cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
-      );
-    }
-    throw error;
-  }
 }
 
 export async function run(): Promise<void> {
@@ -92,74 +35,29 @@ export async function run(): Promise<void> {
     throw new Error("startup-timeout-seconds must be a positive integer");
   }
 
-  await assertDirectory(workingDirectory);
   const env = buildZvecEnvironment(process.env, home, modelCache);
   const packageSpec = `@zvec/zvec-grep@${version}`;
-  const [resolveCommand, indexCommand, serverCommand, readinessCommand] =
-    buildZvecCommandPlan({
+  const logPath = runnerTempPath("zvec-grep.log");
+
+  await runZvecGrepLifecycle(
+    {
+      packageManager,
       packageSpec,
       projectDirectory: workingDirectory,
       listen: parsedListen.listen,
       home,
-      indexOptions: {
-        embedding,
-        maxFilesize,
-        additionalGlobs,
-      },
-    });
-  const logPath = runnerTempPath("zvec-grep.log");
-  const commandCwd = packageExecutionDirectory();
-
-  await runCommand({
-    command: packageManager,
-    args: resolveCommand.args,
-    cwd: commandCwd,
-    env,
-  });
-
-  await runCommand({
-    command: packageManager,
-    args: indexCommand.args,
-    cwd: commandCwd,
-    env,
-  });
-
-  const service = await spawnDetached({
-    command: packageManager,
-    args: [...serverCommand.args],
-    cwd: commandCwd,
-    env,
-    logPath,
-    anchorPath: processAnchorPath(),
-  });
-
-  await saveProcessState(service);
-
-  try {
-    await waitForCommandHealth(
-      () =>
-        runReadinessCommand({
-          command: packageManager,
-          args: [...readinessCommand.args],
-          cwd: commandCwd,
-          env,
-        }),
-      timeoutSeconds * 1_000,
-      "zvec-grep",
-    );
-  } catch (error) {
-    try {
-      await terminateProcessGroup(service.pid, service.identity, {
-        pid: service.sentinelPid,
-        identity: service.sentinelIdentity,
-      });
-    } catch (cleanupError) {
-      core.warning(
-        `zvec-grep startup cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
-      );
-    }
-    throw error;
-  }
+      embedding,
+      maxFilesize,
+      additionalGlobs,
+      environment: env,
+      logPath,
+      timeoutMilliseconds: timeoutSeconds * 1_000,
+    },
+    {
+      saveState: core.saveState,
+      warning: core.warning,
+    },
+  );
 
   core.setOutput("mcp-url", parsedListen.mcpUrl);
   core.setOutput("log-path", logPath);

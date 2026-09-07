@@ -93,9 +93,12 @@ The exclusions remain exactly:
 
 `**/node_modules/**`, `**/dist/**`, `**/build/**`, `**/coverage/**`,
 `**/.cache/**`, `**/.next/**`, `**/vendor/**`, `**/.env`, `**/.env.*`,
-`**/.envrc`, `**/.npmrc`, `**/id_*`, `**/*.pem`, `**/*.key`, `**/*.p12`,
-`**/*.pfx`, `**/secrets/**`, `**/private/**`, `**/credentials/**`,
-`**/*secret*.json`, and `**/*credential*.json`.
+`**/.envrc`, `**/.npmrc`, `**/id_*`, `**/*.pem`, `**/*.key`, `**/*.p8`,
+`**/*.p12`, `**/*.pfx`, `**/*.crt`, `**/*.cer`, `**/*.der`, `**/*.csr`,
+`**/secrets/**`, `**/private/**`, `**/credentials/**`, `**/*secret*`,
+`**/*credential*`, `**/*token*`, `**/*service-account*`,
+`**/*service_account*`, `**/*auth*.json`, `**/*auth*.yaml`, and
+`**/*auth*.yml`.
 
 The optional `glob` input is newline-delimited. Each non-empty value is sent
 as a separate `--glob <value>` pair after the built-in allowlist and before
@@ -135,6 +138,11 @@ The index command always passes `--mode direct`, `--hidden`, and the built-in
 allowlist/exclusion sequence. It passes `embedding`, `max-filesize`, and each
 `glob` value as separate argument-array entries.
 
+`src/main.ts` is the Action adapter: it reads Action inputs, delegates the
+zvec-grep lifecycle to a private Action module, and writes outputs or reports
+failures. The private module owns resolve, index, server startup, readiness,
+and process cleanup orchestration.
+
 No new consuming-workflow package installation is required; the committed
 Action bundle contains its Action runtime dependencies, while zvec-grep is
 resolved by the package manager at the requested version at execution time.
@@ -161,8 +169,8 @@ project directory receive indexing as part of Action startup.
 ## Verification
 
 - Unit-test pure command construction, defaults and overrides, exact file
-  policy and glob ordering, immutable exclusions, and zvec home/model-cache
-  environment construction.
+  policy and glob ordering, representative sensitive-file exclusions,
+  immutable exclusions, and zvec home/model-cache environment construction.
 - Run focused Action tests, typecheck, bundle build/drift checks, workflow and
   metadata parsing, and `actionlint` when available.
 - Run test mapping and SDLC index/validation checks.
@@ -180,6 +188,11 @@ project directory receive indexing as part of Action startup.
 - Index option defaults and overrides are passed as argument arrays, additive
   globs precede immutable exclusions, and model-cache false omits its
   environment variable.
+- Sensitive JSON/YAML configuration, service-account, token, certificate, and
+  private-key filenames remain unindexed even when they match an allowlisted
+  extension.
+- The Action entrypoint delegates zvec lifecycle orchestration to a private
+  Action module.
 - Existing service cleanup and `mcp-url`/`log-path` outputs remain intact.
 - The review workflow has no standalone zvec-grep index command and invokes
   the Action against `review-target`.
@@ -190,3 +203,4 @@ project directory receive indexing as part of Action startup.
 - [task.migrate-service-actions-to-workspace-structure](../tasks/2026-09-07-migrate-service-actions-to-workspace-structure.md)
 - [task.adopt-zvec-grep-action-owned-indexing](../tasks/2026-09-07-adopt-zvec-grep-action-owned-indexing.md)
 - [task.configure-zvec-grep-action-indexing](../tasks/2026-09-07-configure-zvec-grep-action-indexing.md)
+- [task.harden-zvec-grep-index-policy-and-entrypoint](../tasks/2026-09-07-harden-zvec-grep-index-policy-and-entrypoint.md)
