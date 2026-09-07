@@ -166,9 +166,10 @@ The result MUST match `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`. A value that does
 not match uses the constant `ACP v1 tool call`. The adapter MUST allow at most
 128 distinct normalized names per invocation. Additional names use that same
 constant and emit at most one bounded diagnostic. The normalized name MUST be
-the span `name` and MAY be its `entityName`. This keeps the tool identity in
-Mastra's trace and metric correlation context without adding a custom metric
-label. Arguments, content, and results do not enter native telemetry.
+the span `name`. It MUST NOT also become an `entityName`, tag, metadata field,
+or custom attribute. This keeps named-tool correlation in the native span name
+without creating an implicit metric dimension outside the typed attribute
+allowlist. Arguments, content, and results do not enter native telemetry.
 
 The reducer MUST implement these transitions:
 
@@ -278,7 +279,7 @@ The projection MUST use this allowlist:
 | Invocation ID | Use the validated Seqlane ID. Omit from spans above 128 characters |
 | Attempt index | Zero-based non-negative integer |
 | Diagnostic | Allowlisted code and constant message of at most 256 characters |
-| Tool count | At most 1,024 records per prompt attempt |
+| Tool count | At most 1,024 records per admitted invocation, across all prompt attempts |
 
 Prompts, text, thought content, arguments, results, credentials,
 authorization data, configured models, and raw errors MUST be omitted from

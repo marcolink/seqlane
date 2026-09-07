@@ -1,7 +1,7 @@
 ---
 id: task.project-acp-v1-observations-into-mastra
 title: Project ACP v1 Observations Into Native Mastra Spans
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
@@ -232,7 +232,32 @@ The deterministic sink must prove:
 
 ## Outcome
 
-Planned. No implementation is included in this document change.
+Completed on `feature/mastra-agent-observability`, based on `mastra` at
+`d43416f`.
+
+- Added one post-admission `AGENT_RUN` per ACP v1 invocation and one typed
+  `TOOL_CALL` span per canonical tool lifecycle across structured-output
+  repair attempts.
+- Added one Zod-derived stream parser and one adapter-local reducer for both
+  existing activity callbacks and native span transitions.
+- Added invocation-wide record, activity, input, and normalized-name bounds;
+  tuple identity; duplicate suppression; and bounded conflict diagnostics.
+- Added descendant-first success, failure, incomplete, and cancellation
+  closure with safe errors. Span-operation failures disable only native
+  projection and preserve ACP execution.
+- Kept queue wait, aggregate callbacks, prompts, content, results, requested
+  model data, pseudo-model identity, and synthetic usage outside native spans.
+  The private `AcpAgentStream` execution seam remains unchanged.
+- Added the direct pinned `@mastra/core` 1.64.0 dependency and verified
+  `@mastra/acp` 0.4.0 with ACP SDK 0.21.1 protocol version 1.
+
+Focused ACP tests pass with 46 tests. Runtime tests pass with 318 tests. Test
+mapping, the complete test suite, lint, build, Nx sync, documentation
+validation, and diff checks pass. Repository-wide typecheck and format checks
+retain only the pre-existing failures from the unchanged `mastra` baseline:
+PR-review example type errors, plus formatting in
+`apps/seqlane-cli/src/all-features-example.spec.ts` and
+`libs/seqlane-runtime/src/runtime/mastra/operational-host.spec.ts`.
 
 ## Traceability
 

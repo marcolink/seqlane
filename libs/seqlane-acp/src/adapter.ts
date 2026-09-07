@@ -11,7 +11,6 @@ import {
 import {
   AcpAdapterError,
   AcpLimitError,
-  AcpMalformedStreamError,
   AcpStructuredOutputError,
 } from "./errors.js";
 import {
@@ -26,11 +25,8 @@ import {
   buildStructuredOutputRepairPrompt,
 } from "./prompt.js";
 import { toJsonSchema } from "./task.js";
-import {
-  MAX_ACTIVITY_COUNT,
-  MAX_ACTIVITY_INPUT_LENGTH,
-  reportAcpStreamChunk,
-} from "./stream.js";
+import { AcpToolReducer } from "./stream.js";
+import { createAcpObservability } from "./observability.js";
 
 const STREAM_CLEANUP_TIMEOUT_MS = 100;
 const textEncoder = new TextEncoder();
@@ -82,29 +78,6 @@ function disconnectAgent(agent: AcpAgent): void {
   }
 }
 
-function readTextDelta(value: unknown): string | undefined {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("type" in value) ||
-    value.type !== "text-delta"
-  ) {
-    return undefined;
-  }
-
-  if (
-    !("payload" in value) ||
-    typeof value.payload !== "object" ||
-    value.payload === null ||
-    !("text" in value.payload) ||
-    typeof value.payload.text !== "string"
-  ) {
-    throw new AcpMalformedStreamError("text-delta");
-  }
-
-  return value.payload.text;
-}
-
 function createDefaultAgent(options: AcpAgentFactoryOptions): AcpAgent {
   const agent = new MastraAcpAgent({
     ...options,
@@ -128,6 +101,8 @@ async function streamAgent(
   prompt: string,
   request: AgentAdapterRequest,
   interaction: Promise<never>,
+  attemptIndex: number,
+  reducer: AcpToolReducer,
 ): Promise<string> {
   const streamAbortController = new AbortController();
   const streamSignal = AbortSignal.any([
@@ -149,9 +124,6 @@ async function streamAgent(
     (cause) => ({ status: "rejected", cause }),
   );
   const reader = stream.fullStream.getReader();
-  const activities = new Map<string, string>();
-  let activityCount = 0;
-  let activityInputLength = 0;
   let responseTextBytes = 0;
   let activeRead: Promise<ReadableStreamReadResult<unknown>> | undefined;
   let readSettled = true;
@@ -199,7 +171,9 @@ async function streamAgent(
     while (true) {
       const next = await Promise.race([readNext(), cancellation, interaction]);
       if (next.done) break;
-      const textDelta = readTextDelta(next.value);
+      const chunk = reducer.consume(next.value, attemptIndex);
+      const textDelta =
+        chunk?.type === "text-delta" ? chunk.payload.text : undefined;
       if (textDelta !== undefined) {
         if (textDelta.length > MAX_RESPONSE_TEXT_LENGTH - responseTextBytes) {
           throw new AcpLimitError("response text", MAX_RESPONSE_TEXT_LENGTH);
@@ -209,22 +183,6 @@ async function streamAgent(
           throw new AcpLimitError("response text", MAX_RESPONSE_TEXT_LENGTH);
         }
       }
-      reportAcpStreamChunk(next.value, activities, (activity) => {
-        activityCount += 1;
-        if (activityCount > MAX_ACTIVITY_COUNT) {
-          throw new AcpLimitError("activity count", MAX_ACTIVITY_COUNT);
-        }
-        if (typeof activity.input === "string") {
-          activityInputLength += activity.input.length;
-          if (activityInputLength > MAX_ACTIVITY_INPUT_LENGTH) {
-            throw new AcpLimitError(
-              "activity input",
-              MAX_ACTIVITY_INPUT_LENGTH,
-            );
-          }
-        }
-        request.onActivity?.(activity);
-      });
     }
     const result = await Promise.race([textResult, interaction]);
     if (result.status === "rejected") throw result.cause;
@@ -233,10 +191,15 @@ async function streamAgent(
     ) {
       throw new AcpLimitError("response text", MAX_RESPONSE_TEXT_LENGTH);
     }
+    reducer.finishAttempt(attemptIndex, "incomplete");
     return result.value;
   } catch (cause) {
     failed = true;
     failure = cause;
+    reducer.finishAttempt(
+      attemptIndex,
+      request.signal.aborted ? "cancelled" : "failure",
+    );
     throw cause;
   } finally {
     removeAbortListener();
@@ -291,12 +254,6 @@ export function createAcpAdapter(
 
   return {
     async execute(request) {
-      if (request.modelSelection !== undefined) {
-        throw new AcpAdapterError(
-          "configuration",
-          "dynamic model selection is not supported by ACP",
-        );
-      }
       const permissionScope: PermissionScope = { requested: false };
       return enqueueExecution(async () => {
         if (request.signal.aborted) {
@@ -306,8 +263,34 @@ export function createAcpAdapter(
             request.signal.reason ?? new Error("ACP execution aborted"),
           );
         }
+        const reportDiagnostic = (code: string, message: string): void => {
+          try {
+            request.onDiagnostic?.({ code, message });
+          } catch {
+            // Diagnostics are best effort and must not affect execution.
+          }
+        };
+        const observability = createAcpObservability(
+          request.observability,
+          request.invocationId,
+          (message) => reportDiagnostic("acp-observability", message),
+        );
+        const reducer = new AcpToolReducer(request.invocationId, {
+          onActivity: (activity) => request.onActivity?.(activity),
+          onToolOpened: observability.onToolOpened,
+          onToolClosed: observability.onToolClosed,
+          onDiagnostic: (diagnostic) =>
+            reportDiagnostic(diagnostic.code, diagnostic.message),
+        });
+        let observabilityOutcome: "cancelled" | "failed" | undefined;
         agentState.permissionScope.current = permissionScope;
         try {
+          if (request.modelSelection !== undefined) {
+            throw new AcpAdapterError(
+              "configuration",
+              "dynamic model selection is not supported by ACP",
+            );
+          }
           const taskPrompt = buildAgentPrompt(request.task, request.input);
           const schema = toJsonSchema(request.task);
           let prompt = buildStructuredOutputPrompt(taskPrompt, schema);
@@ -328,6 +311,8 @@ export function createAcpAdapter(
                 prompt,
                 request,
                 interaction,
+                attempts - 1,
+                reducer,
               );
             } catch (cause) {
               // A failed stream disconnects the ACP connection. Recreate the
@@ -402,7 +387,13 @@ export function createAcpAdapter(
               });
             }
           }
+        } catch (cause) {
+          observabilityOutcome = request.signal.aborted
+            ? "cancelled"
+            : "failed";
+          throw cause;
         } finally {
+          observability.finish(observabilityOutcome);
           if (agentState.permissionScope.current === permissionScope) {
             agentState.permissionScope.current = undefined;
           }

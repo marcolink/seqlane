@@ -7,6 +7,7 @@
 // @test-scope ./task.ts
 
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
+import { SpanType } from "@mastra/core/observability";
 import type { AgentTaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -97,6 +98,59 @@ function request(overrides: Partial<AgentAdapterRequest> = {}) {
     signal: new AbortController().signal,
     ...overrides,
     observability: overrides.observability ?? {},
+  };
+}
+
+interface RecordedSpan {
+  readonly id: string;
+  readonly type: SpanType;
+  readonly parent?: RecordedSpan;
+  readonly options: Record<string, unknown>;
+  readonly endCalls: unknown[];
+  readonly errorCalls: unknown[];
+}
+
+function spanRecorder() {
+  const spans: RecordedSpan[] = [];
+  const closeOrder: string[] = [];
+  const attach = (record: RecordedSpan): object => ({
+    id: record.id,
+    isValid: true,
+    createChildSpan: (options: Record<string, unknown>) => {
+      const child: RecordedSpan = {
+        id: `${String(options.type)}-${spans.length}`,
+        type: options.type as SpanType,
+        parent: record,
+        options,
+        endCalls: [],
+        errorCalls: [],
+      };
+      spans.push(child);
+      return attach(child);
+    },
+    end: (options?: unknown) => {
+      record.endCalls.push(options);
+      closeOrder.push(record.id);
+    },
+    error: (options: unknown) => {
+      record.errorCalls.push(options);
+      closeOrder.push(record.id);
+    },
+    update: () => undefined,
+  });
+  const root: RecordedSpan = {
+    id: "workflow-step",
+    type: SpanType.WORKFLOW_STEP,
+    options: {},
+    endCalls: [],
+    errorCalls: [],
+  };
+  return {
+    spans,
+    closeOrder,
+    observability: {
+      tracingContext: { currentSpan: attach(root) as never },
+    },
   };
 }
 
@@ -329,6 +383,7 @@ describe("private ACP adapter", () => {
   it("rejects dynamic model selection before ACP execution or metrics", async () => {
     let streamCalls = 0;
     const metrics: unknown[] = [];
+    const recorder = spanRecorder();
     const executor = createTestExecutor(['{"value":"done"}'], {
       createAgent: () => ({
         stream: async () => {
@@ -346,6 +401,7 @@ describe("private ACP adapter", () => {
             reasoning: "high",
           },
           onMetrics: (metric) => metrics.push(metric),
+          observability: recorder.observability,
         }),
       ),
     ).rejects.toMatchObject({
@@ -355,6 +411,11 @@ describe("private ACP adapter", () => {
     expect(streamCalls).toBe(0);
     expect(metrics).toEqual([]);
     expect(executor.capabilities.modelSelection).toBe(false);
+    const runs = recorder.spans.filter(
+      (span) => span.type === SpanType.AGENT_RUN,
+    );
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.errorCalls).toHaveLength(1);
   });
 
   it("repairs structured output and reports the normalized diagnostic", async () => {
@@ -400,8 +461,102 @@ describe("private ACP adapter", () => {
     expect(prompts[1]).toContain("Validation errors:");
   });
 
+  it("keeps one native run across repair attempts while callbacks remain separate outputs", async () => {
+    const recorder = spanRecorder();
+    const activities: unknown[] = [];
+    const metrics: unknown[] = [];
+    const diagnostics: unknown[] = [];
+    const responses = [
+      {
+        text: "not json",
+        chunks: [
+          {
+            type: "tool-call-delta",
+            payload: { toolCallId: "repair-0", toolName: "read_file" },
+          },
+          {
+            type: "tool-result",
+            payload: { toolCallId: "repair-0", toolName: "read_file" },
+          },
+        ],
+      },
+      {
+        text: '{"value":"repaired"}',
+        chunks: [
+          {
+            type: "tool-call-delta",
+            payload: { toolCallId: "repair-1", toolName: "write_file" },
+          },
+          {
+            type: "tool-result",
+            payload: { toolCallId: "repair-1", toolName: "write_file" },
+          },
+        ],
+      },
+    ];
+    const executor = createAcpAdapter(
+      configuration({ model: "requested-model" }),
+      {
+        structuredOutputRetryCount: 1,
+        createAgent: () => ({
+          stream: async () => {
+            const response = responses.shift();
+            if (response === undefined) throw new Error("responses exhausted");
+            return stream(response.text, response.chunks);
+          },
+        }),
+      },
+    );
+
+    await expect(
+      executor.execute(
+        request({
+          observability: recorder.observability,
+          onActivity: (activity) => activities.push(activity),
+          onMetrics: (metric) => metrics.push(metric),
+          onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+        }),
+      ),
+    ).resolves.toEqual({ value: "repaired" });
+
+    const runs = recorder.spans.filter(
+      (span) => span.type === SpanType.AGENT_RUN,
+    );
+    const tools = recorder.spans.filter(
+      (span) => span.type === SpanType.TOOL_CALL,
+    );
+    expect(runs).toHaveLength(1);
+    expect(tools).toHaveLength(2);
+    expect(tools.map((tool) => tool.options.metadata)).toEqual([
+      { "seqlane.attemptIndex": 0 },
+      { "seqlane.attemptIndex": 1 },
+    ]);
+    expect(
+      recorder.spans.some((span) => span.type === SpanType.MODEL_GENERATION),
+    ).toBe(false);
+    expect(JSON.stringify(recorder.spans)).not.toContain("requested-model");
+    expect(activities).toHaveLength(4);
+    expect(metrics).toHaveLength(2);
+    expect(metrics).toEqual([
+      expect.objectContaining({ model: "requested-model" }),
+      expect.objectContaining({ model: "requested-model" }),
+    ]);
+    expect(diagnostics).toEqual([
+      {
+        code: "structured-output",
+        message: "ACP structured output was repaired after attempt 1",
+      },
+    ]);
+    expect(recorder.closeOrder).toEqual([
+      tools[0]?.id,
+      tools[1]?.id,
+      runs[0]?.id,
+    ]);
+  });
+
   it("passes cancellation to the ACP stream and normalizes the failure", async () => {
     const controller = new AbortController();
+    const recorder = spanRecorder();
     let receivedSignal: AbortSignal | undefined;
     let streamCancelled = false;
     let started!: () => void;
@@ -415,6 +570,12 @@ describe("private ACP adapter", () => {
           started();
           return {
             fullStream: new ReadableStream<unknown>({
+              start(streamController) {
+                streamController.enqueue({
+                  type: "tool-call-delta",
+                  payload: { toolCallId: "active-tool", toolName: "read_file" },
+                });
+              },
               cancel() {
                 streamCancelled = true;
               },
@@ -424,7 +585,12 @@ describe("private ACP adapter", () => {
         },
       }),
     });
-    const execution = executor.execute(request({ signal: controller.signal }));
+    const execution = executor.execute(
+      request({
+        signal: controller.signal,
+        observability: recorder.observability,
+      }),
+    );
     await startedPromise;
     controller.abort(new Error("cancelled by caller"));
 
@@ -434,6 +600,27 @@ describe("private ACP adapter", () => {
     expect(receivedSignal).not.toBe(controller.signal);
     expect(receivedSignal?.aborted).toBe(true);
     expect(streamCancelled).toBe(true);
+    const agent = recorder.spans.find(
+      (span) => span.type === SpanType.AGENT_RUN,
+    );
+    const tool = recorder.spans.find(
+      (span) => span.type === SpanType.TOOL_CALL,
+    );
+    expect(recorder.closeOrder).toEqual([tool?.id, agent?.id]);
+    expect(tool?.errorCalls).toHaveLength(1);
+    expect(tool?.errorCalls[0]).toMatchObject({
+      endSpan: true,
+      attributes: { success: false },
+      metadata: { "seqlane.acp.outcome": "cancelled" },
+    });
+    expect((tool?.errorCalls[0] as { error: Error }).error.message).toBe(
+      "ACP v1 tool call cancelled",
+    );
+    expect(agent?.errorCalls).toHaveLength(1);
+    expect(agent?.errorCalls[0]).toMatchObject({
+      endSpan: true,
+      metadata: { "seqlane.acp.outcome": "cancelled" },
+    });
   });
 
   it("bounds response text before structured-output parsing", async () => {
@@ -612,16 +799,13 @@ describe("private ACP adapter", () => {
   );
 
   it("bounds the number of accumulated activities", async () => {
-    const chunks = Array.from(
-      { length: MAX_ACTIVITY_COUNT + 1 },
-      (_, index) => ({
-        type: "tool-call-delta",
-        payload: {
-          toolCallId: `call-${index}`,
-          toolName: "tool",
-        },
-      }),
-    );
+    const chunks = Array.from({ length: MAX_ACTIVITY_COUNT + 1 }, () => ({
+      type: "tool-call-delta",
+      payload: {
+        toolCallId: "call-1",
+        toolName: "tool",
+      },
+    }));
     const executor = createTestExecutor(['{"value":"done"}'], { chunks });
 
     await expect(executor.execute(request())).rejects.toMatchObject({
@@ -759,9 +943,15 @@ describe("private ACP adapter", () => {
     const first = executor.execute(request());
     await firstStartedPromise;
     const controller = new AbortController();
+    const recorder = spanRecorder();
     const second = executor.execute(
-      request({ invocationId: "invocation-2", signal: controller.signal }),
+      request({
+        invocationId: "invocation-2",
+        signal: controller.signal,
+        observability: recorder.observability,
+      }),
     );
+    expect(recorder.spans).toEqual([]);
     controller.abort(new Error("cancel queued execution"));
     releaseFirst();
 
@@ -771,6 +961,7 @@ describe("private ACP adapter", () => {
       code: "cancellation",
     });
     expect(secondStarted).toBe(false);
+    expect(recorder.spans).toEqual([]);
   });
 
   it("tears down every stream setup failure before replacing the private agent", async () => {
