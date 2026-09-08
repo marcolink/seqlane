@@ -35,8 +35,8 @@ valid MCP initialize response, and stops the service after the job.
 - Changing the Ripwire binary or MCP protocol.
 - Supporting unsupported operating systems or architectures.
 - Running the upstream install script or a third-party setup Action.
-- Adopting the Action in `.github/workflows/seqlane-code-review.yml`; that is
-  a later change and is out of scope for this specification.
+- Adopting the Action in `.github/workflows/seqlane-code-review.yml`; that is a
+  later change and is out of scope for this specification.
 
 ## Terminology
 
@@ -131,9 +131,19 @@ the caller checks the deadline again after the probe. The probe has bounded
 response size and cancels the response body during cleanup.
 
 Before spawn, the Action checks that the canonical listen port is available.
-After readiness, it verifies that the spawned process is alive and still has
-the recorded process identity. A failed check uses the same startup cleanup
-helper as readiness and state-save failures. That helper warns when
+The check is an early failure signal, not an ownership proof. During each
+startup probe, the Action opens one unauthenticated TCP connection to the
+canonical listener. It uses `/usr/bin/ss` on Linux and `/usr/sbin/lsof` on
+macOS to verify that a listening PID belongs to the spawned process group. It
+keeps the connection open during this check, then sends the MCP request and
+bearer token over the same connection. It does not send request bytes or the
+token before ownership is verified. The ownership command uses the probe's
+remaining timeout and a bounded output buffer. An unrelated listener cannot
+satisfy readiness.
+
+After readiness, the Action verifies that the spawned process is alive and
+still has the recorded process identity. A failed check uses the same startup
+cleanup helper as readiness and state-save failures. That helper warns when
 identity-checked termination returns false or throws.
 
 The startup timeout in milliseconds must be a safe integer from 1 through
@@ -158,7 +168,13 @@ failure removes the install directory only when no process was spawned or
 identity-checked cleanup succeeded; otherwise post cleanup retains ownership.
 Lifecycle startup failures use a typed error with a `cleanupSucceeded` field so
 main can make this decision without guessing from the error message. If spawn
-rejects before returning a validated `DetachedProcess`, startup reports
+rejects after creating an anchor, the shared lifecycle library waits for the
+anchor and observes the process group exit. When process identity is available,
+it also uses identity-checked process-group termination. It wraps the rejection
+in a typed `SpawnDetachedError` with the verified `cleanupSucceeded` result and
+any validated primary or sentinel ownership. If cleanup is not verified, the
+Action persists that ownership in `service-state` for post-job retry. If spawn
+rejects before returning a validated `DetachedProcess`, the Action reports
 `cleanupSucceeded=false` without inventing an identity. Post cannot safely
 retry without validated ownership, so the install remains for runner-level
 cleanup.

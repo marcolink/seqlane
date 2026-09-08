@@ -23,9 +23,11 @@ repository-controlled SHA-256 digest before extraction. The release
 server. Ambient credentials, Action inputs, Node loader variables, and other
 ambient secret variables are not inherited.
 
-If spawn fails before it returns validated process state, startup reports that
-cleanup is not verified. Post cannot safely retry without validated ownership,
-so the install remains for runner-level cleanup.
+If spawn fails after it validates primary or sentinel process identity, startup
+saves that ownership in `service-state` when cleanup is not verified. Post can
+retry identity-checked termination from that state. If spawn returns no
+validated ownership, post cannot safely retry and the install remains for
+runner-level cleanup.
 
 If partial-install removal fails, the Action wraps the acquisition failure in a
 typed `RipwireInstallError`. The wrapper preserves the original error as its
@@ -38,6 +40,12 @@ listen port before it starts Ripwire. It verifies process identity and liveness
 after readiness. A readiness response must report the exact MCP protocol
 version, `serverInfo.name` `ripwire`, and Ripwire server software version
 `1.0`. This server version is separate from the downloaded release version.
+Each probe opens one unauthenticated TCP connection before it sends a request.
+On Linux, the Action uses `/usr/bin/ss`; on macOS, it uses `/usr/sbin/lsof`. It
+verifies that the listening process belongs to the spawned process group while
+the connection is held. It then sends the authenticated request on that same
+connection. A racer cannot receive the bearer token or satisfy readiness
+without this proof.
 Child processes receive an explicit minimal environment. The Action removes
 failed partial installs when possible. It removes a successful install
 directory only after the post step confirms process termination.

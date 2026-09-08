@@ -45,4 +45,12 @@ describe("Ripwire service state", () => {
       ),
     ).toBeUndefined();
   });
+
+  it("accepts primary ownership without a validated sentinel", () => {
+    const primaryOnly = {
+      pid: 42,
+      identity: { processGroupId: 42, processStartTime: "service-start" },
+    };
+    expect(parseServiceState(JSON.stringify(primaryOnly))).toEqual(primaryOnly);
+  });
 });

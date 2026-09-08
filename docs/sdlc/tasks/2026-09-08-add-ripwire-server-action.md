@@ -38,8 +38,7 @@ and cleans up the detached process after the job.
 ## Out of scope
 
 - Adoption in `.github/workflows/seqlane-code-review.yml`.
-- Changes to Ripwire upstream, the shared lifecycle library, or Seqlane
-  application packages.
+- Changes to Ripwire upstream or Seqlane application packages.
 - A third-party installer or consuming-workflow dependency installation.
 
 ## Implementation plan
@@ -96,25 +95,33 @@ The follow-up hardening also uses repository-pinned SHA-256 digests for each
 supported Ripwire `0.4.0` asset, rejects versions outside that trust table, and
 checks the pinned digest before extraction. It uses one startup deadline capped
 at 600 seconds. It also applies strict protocol and server identity checks,
-listen-port preflight, a unique
-per-run bearer ownership token, post-readiness liveness checks, an explicit
-child environment allowlist, direct-entry detection instead of a `NODE_ENV`
-gate, child-exit process-anchor cleanup, one schema-validated service-state
-value, typed startup cleanup outcomes, safe install-directory cleanup, and
-typed handling for ambiguous spawn rejection. Post cannot retry such cleanup
-without validated service state, so the install remains for runner-level
-cleanup. Partial-install cleanup failure now returns a typed
-`RipwireInstallError` with the acquisition error preserved as its cause and
-message. It persists the install path and a validated cleanup-only marker, and
-lets post retry only that explicit cleanup path.
+listen-port preflight, a unique per-run bearer ownership token, and
+post-readiness liveness checks. Each readiness probe verifies Linux `ss` or
+macOS `lsof` ownership while holding its TCP connection, then sends the bearer
+token over that same connection. An unrelated listener cannot receive the
+token or satisfy readiness.
 
-Focused Action typecheck, tests (66 tests), bundle build and drift checks,
-test mapping, SDLC validation/tests, formatting, YAML parsing, and diff checks
-passed. The existing shared lifecycle tests passed with host process
-permissions. A local run of the production bundle downloaded Ripwire `0.4.0`,
+The Action uses an explicit child environment allowlist, direct-entry
+detection instead of a `NODE_ENV` gate, child-exit process-anchor cleanup, one
+schema-validated service-state value, typed startup cleanup outcomes, safe
+install-directory cleanup, and typed handling for ambiguous spawn rejection.
+The shared lifecycle library reports verified cleanup when an anchored child
+fails after creation. Post cannot retry cleanup without validated service
+state, so the install remains for runner-level cleanup. Partial-install
+cleanup failure returns a typed `RipwireInstallError` with the acquisition
+error preserved as its cause and message. The Action persists the install path
+and a validated cleanup-only marker, and post retries only that explicit path.
+
+Focused Action typecheck, tests (77 tests), bundle build and drift checks,
+shared lifecycle tests (7 tests), test mapping, SDLC validation/tests,
+formatting, YAML parsing, and diff checks passed. A local run of the production
+bundle downloaded Ripwire `0.4.0`,
 published all outputs, completed MCP readiness, and ran post-job cleanup.
 `actionlint` was not available locally. The hosted smoke job provides the
 remote runner evidence.
+
+The shared lifecycle change regenerated the embedded OpenCode and zvec-grep
+main bundles. Their source behavior was unchanged.
 
 ## Traceability
 

@@ -8,10 +8,12 @@ const processIdentitySchema = z.object({
 export const serviceStateSchema = z.object({
   pid: z.number().int().positive(),
   identity: processIdentitySchema,
-  sentinel: z.object({
-    pid: z.number().int().positive(),
-    identity: processIdentitySchema,
-  }),
+  sentinel: z
+    .object({
+      pid: z.number().int().positive(),
+      identity: processIdentitySchema,
+    })
+    .optional(),
 });
 
 export const CLEANUP_ONLY_STATE_KEY = "cleanup-only";

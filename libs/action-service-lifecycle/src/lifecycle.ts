@@ -14,12 +14,38 @@ export interface ProcessIdentity {
   processStartTime: string;
 }
 
+export interface DetachedProcessOwnership {
+  pid: number;
+  identity: ProcessIdentity;
+  sentinel?: {
+    pid: number;
+    identity: ProcessIdentity;
+  };
+}
+
 export interface DetachedProcess {
   pid: number;
   identity: ProcessIdentity;
   sentinelPid: number;
   sentinelIdentity: ProcessIdentity;
   anchor: ChildProcess;
+}
+
+export class SpawnDetachedError extends Error {
+  readonly cleanupSucceeded: boolean;
+  readonly ownership: DetachedProcessOwnership | undefined;
+
+  constructor(
+    command: string,
+    cause: unknown,
+    cleanupSucceeded: boolean,
+    ownership?: DetachedProcessOwnership,
+  ) {
+    super(`Could not start anchored process for ${command}`, { cause });
+    this.name = "SpawnDetachedError";
+    this.cleanupSucceeded = cleanupSucceeded;
+    this.ownership = ownership;
+  }
 }
 
 export interface ProcessMember {
@@ -181,13 +207,20 @@ export async function spawnDetached({
     }
     return { pid, identity, sentinelPid, sentinelIdentity, anchor: child };
   } catch (error) {
-    await terminateFailedAnchor(child, pid, identity, {
+    const cleanupSucceeded = await terminateFailedAnchor(child, pid, identity, {
       pid: sentinelPid,
       identity: sentinelIdentity,
     });
-    throw new Error(`Could not start anchored process for ${command}`, {
-      cause: error,
-    });
+    const ownership = identity
+      ? {
+          pid,
+          identity,
+          ...(sentinelPid && sentinelIdentity
+            ? { sentinel: { pid: sentinelPid, identity: sentinelIdentity } }
+            : {}),
+        }
+      : undefined;
+    throw new SpawnDetachedError(command, error, cleanupSucceeded, ownership);
   }
 }
 
@@ -331,12 +364,12 @@ async function terminateFailedAnchor(
   pid: number,
   identity: ProcessIdentity | undefined,
   sentinel: Partial<ProcessMember>,
-): Promise<void> {
+): Promise<boolean> {
   disconnectAnchor(child);
+  const processGroupId = identity?.processGroupId ?? pid;
   if (identity) {
     try {
-      await terminateProcessGroup(pid, identity, sentinel);
-      return;
+      if (await terminateProcessGroup(pid, identity, sentinel)) return true;
     } catch {
       // Fall through to direct anchor cleanup if group cleanup cannot run.
     }
@@ -345,7 +378,12 @@ async function terminateFailedAnchor(
   await waitForChildExit(child, 1_000);
   if (child.exitCode === null && child.signalCode === null) {
     child.kill("SIGKILL");
+    await waitForChildExit(child, 1_000);
   }
+  return (
+    (child.exitCode !== null || child.signalCode !== null) &&
+    (await waitForProcessGroupExit(processGroupId, 1_000))
+  );
 }
 
 function waitForChildExit(

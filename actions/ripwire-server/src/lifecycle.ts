@@ -5,8 +5,10 @@ import {
   adoptDetachedProcess,
   readProcessIdentity,
   spawnDetached,
+  SpawnDetachedError,
   terminateProcessGroup,
   type DetachedProcess,
+  type DetachedProcessOwnership,
   type ProcessIdentity,
 } from "@seqlane/action-service-lifecycle";
 import { assertDirectory } from "./filesystem.js";
@@ -14,6 +16,7 @@ import { buildRipwireArguments, buildRipwireEnvironment } from "./commands.js";
 import { checkMcpInitialize, waitForMcpHealth } from "./readiness.js";
 import type { RipwireConfig } from "./config.js";
 import { assertListenAvailable } from "./port.js";
+import { assertListenOwnedByProcess } from "./socket-ownership.js";
 import { serializeServiceState, type ServiceState } from "./state.js";
 
 export interface RipwireLifecycleInput {
@@ -35,6 +38,7 @@ export interface RipwireLifecycleDependencies {
   readonly adoptDetachedProcess: typeof adoptDetachedProcess;
   readonly terminateProcessGroup: typeof terminateProcessGroup;
   readonly assertListenAvailable: typeof assertListenAvailable;
+  readonly assertListenOwnedByProcess: typeof assertListenOwnedByProcess;
   readonly readProcessIdentity: typeof readProcessIdentity;
   readonly isProcessAlive: (pid: number) => boolean;
   readonly checkMcpInitialize: typeof checkMcpInitialize;
@@ -43,11 +47,17 @@ export interface RipwireLifecycleDependencies {
 
 export class RipwireStartupError extends Error {
   readonly cleanupSucceeded: boolean;
+  readonly ownership: DetachedProcessOwnership | undefined;
 
-  constructor(cause: unknown, cleanupSucceeded: boolean) {
+  constructor(
+    cause: unknown,
+    cleanupSucceeded: boolean,
+    ownership?: DetachedProcessOwnership,
+  ) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = "RipwireStartupError";
     this.cleanupSucceeded = cleanupSucceeded;
+    this.ownership = ownership;
   }
 }
 
@@ -57,6 +67,7 @@ const defaultDependencies: RipwireLifecycleDependencies = {
   adoptDetachedProcess,
   terminateProcessGroup,
   assertListenAvailable,
+  assertListenOwnedByProcess,
   readProcessIdentity,
   isProcessAlive,
   checkMcpInitialize,
@@ -173,9 +184,27 @@ export async function runRipwireLifecycle(
       anchorPath: processAnchorPath(),
     });
   } catch (error) {
-    // No validated DetachedProcess was returned. Do not invent an identity or
-    // retry termination; retain the install for runner-level cleanup.
-    throw new RipwireStartupError(error, false);
+    // No validated DetachedProcess was returned. Preserve the shared spawn
+    // cleanup result instead of inventing an identity or retrying termination.
+    const spawnError = error instanceof SpawnDetachedError ? error : undefined;
+    const cleanupSucceeded = spawnError?.cleanupSucceeded ?? false;
+    if (!cleanupSucceeded && spawnError?.ownership) {
+      try {
+        hooks.saveState(
+          "service-state",
+          serializeServiceState(spawnError.ownership),
+        );
+      } catch (stateError) {
+        hooks.warning(
+          `Ripwire ambiguous spawn state persistence failed: ${stateError instanceof Error ? stateError.message : String(stateError)}`,
+        );
+      }
+    }
+    throw new RipwireStartupError(
+      error,
+      cleanupSucceeded,
+      !cleanupSucceeded ? spawnError?.ownership : undefined,
+    );
   }
 
   await saveProcessState(service, hooks, dependencies);
@@ -186,6 +215,14 @@ export async function runRipwireLifecycle(
           input.config.mcpUrl,
           input.sessionToken,
           remainingMilliseconds,
+          fetch,
+          (remainingMilliseconds) =>
+            dependencies.assertListenOwnedByProcess(
+              input.config.listen,
+              service,
+              dependencies.readProcessIdentity,
+              remainingMilliseconds,
+            ),
         ),
       input.config.startupTimeoutSeconds * 1_000,
     );

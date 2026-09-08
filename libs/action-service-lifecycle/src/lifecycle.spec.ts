@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 import {
   adoptDetachedProcess,
+  SpawnDetachedError,
   spawnDetached,
   terminateProcessGroup,
   type DetachedProcess,
@@ -138,7 +139,7 @@ describe("action service lifecycle", () => {
     await waitForProcessGroupExit(service.identity.processGroupId);
   }, 15_000);
 
-  it("rejects a nonexistent command without leaving an anchor behind", async () => {
+  it("reports verified cleanup when an anchored child fails after spawn", async () => {
     const directory = await createDirectory();
 
     await expect(
@@ -150,7 +151,53 @@ describe("action service lifecycle", () => {
         logPath: join(directory, "service.log"),
         anchorPath,
       }),
-    ).rejects.toThrow("Could not start anchored process");
+    ).rejects.toMatchObject({
+      name: "SpawnDetachedError",
+      cleanupSucceeded: true,
+      ownership: {
+        pid: expect.any(Number),
+        identity: {
+          processGroupId: expect.any(Number),
+          processStartTime: expect.any(String),
+        },
+      },
+    } satisfies Partial<SpawnDetachedError>);
+  }, 15_000);
+
+  it("cleans a live descendant before reporting a post-spawn failure", async () => {
+    const directory = await createDirectory();
+    const childPidPath = join(directory, "failed-child.pid");
+    const failingAnchorPath = join(directory, "failing-anchor.cjs");
+    await writeFile(
+      failingAnchorPath,
+      `const { spawn } = require("node:child_process");
+const { writeFileSync } = require("node:fs");
+process.on("exit", () => { try { process.kill(-process.pid, "SIGKILL"); } catch {} });
+const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], { stdio: "ignore" });
+child.once("spawn", () => {
+  writeFileSync(process.env.TEST_CHILD_PID_PATH, String(child.pid));
+  process.send?.({ type: "error", message: "post-spawn failure" }, () => process.exit(1));
+});
+setInterval(() => {}, 60000);
+`,
+    );
+
+    await expect(
+      spawnDetached({
+        command: process.execPath,
+        args: [],
+        cwd: process.cwd(),
+        env: { ...process.env, TEST_CHILD_PID_PATH: childPidPath },
+        logPath: join(directory, "service.log"),
+        anchorPath: failingAnchorPath,
+      }),
+    ).rejects.toMatchObject({
+      name: "SpawnDetachedError",
+      cleanupSucceeded: true,
+    } satisfies Partial<SpawnDetachedError>);
+
+    const childPid = await waitForProcessId(childPidPath);
+    await waitForProcessExit(childPid);
   }, 15_000);
 
   it("does not signal a process group when its identity changed", async () => {

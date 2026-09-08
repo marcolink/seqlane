@@ -1,6 +1,7 @@
 // @test-scope ./lifecycle.ts
 // @test-scope ./commands.ts
 // @test-scope ./port.ts
+// @test-scope ./socket-ownership.ts
 // @test-scope ./state.ts
 
 import { describe, expect, it, vi } from "vitest";
@@ -8,6 +9,7 @@ import type {
   DetachedProcess,
   ProcessIdentity,
 } from "@seqlane/action-service-lifecycle";
+import { SpawnDetachedError } from "@seqlane/action-service-lifecycle";
 import { parseRipwireInputs } from "./config.js";
 import {
   packageExecutionDirectory,
@@ -16,6 +18,7 @@ import {
   runRipwireLifecycle,
   type RipwireLifecycleDependencies,
 } from "./lifecycle.js";
+import { ListenOwnershipError } from "./socket-ownership.js";
 
 const identity: ProcessIdentity = {
   processGroupId: 42,
@@ -42,9 +45,20 @@ function dependencies(
     spawnDetached: vi.fn(async () => service),
     adoptDetachedProcess: vi.fn(async () => undefined),
     terminateProcessGroup: vi.fn(async () => true),
+    assertListenOwnedByProcess: vi.fn(async () => undefined),
     readProcessIdentity: vi.fn(async () => identity),
     isProcessAlive: vi.fn(() => true),
-    checkMcpInitialize: vi.fn(async () => undefined),
+    checkMcpInitialize: vi.fn(
+      async (
+        _url,
+        _token,
+        _remainingMilliseconds,
+        _fetchImpl,
+        assertOwnership,
+      ) => {
+        await assertOwnership?.();
+      },
+    ),
     waitForMcpHealth: vi.fn(async (check) => check(1_000)),
     ...overrides,
   };
@@ -115,6 +129,8 @@ describe("Ripwire lifecycle", () => {
       config.mcpUrl,
       "session-token",
       1_000,
+      fetch,
+      expect.any(Function),
     );
     expect(packageExecutionDirectory()).toBeDefined();
   });
@@ -148,6 +164,45 @@ describe("Ripwire lifecycle", () => {
     );
   });
 
+  it("does not send the bearer token to an unrelated listener", async () => {
+    const checkMcpInitialize = vi.fn(
+      async (
+        _url,
+        _token,
+        _remainingMilliseconds,
+        _fetchImpl,
+        assertOwnership,
+      ) => {
+        await assertOwnership?.();
+      },
+    );
+    const deps = dependencies({
+      assertListenOwnedByProcess: vi.fn(async () => {
+        throw new ListenOwnershipError();
+      }),
+      checkMcpInitialize,
+    });
+
+    await expect(
+      runRipwireLifecycle(
+        {
+          config,
+          binaryDirectory: "/tmp/ripwire-install",
+          logPath: "/tmp/ripwire.log",
+          environment: {},
+          sessionToken: "session-token",
+        },
+        { saveState: vi.fn(), warning: vi.fn() },
+        deps,
+      ),
+    ).rejects.toMatchObject({
+      name: "RipwireStartupError",
+      cleanupSucceeded: true,
+    } satisfies Partial<RipwireStartupError>);
+    expect(checkMcpInitialize).toHaveBeenCalledOnce();
+    expect(deps.terminateProcessGroup).toHaveBeenCalled();
+  });
+
   it("retains ownership as ambiguous when spawn rejects without state", async () => {
     const terminateProcessGroup = vi.fn(async () => true);
     const deps = dependencies({
@@ -174,6 +229,46 @@ describe("Ripwire lifecycle", () => {
       message: "process ownership ambiguous",
     } satisfies Partial<RipwireStartupError>);
     expect(terminateProcessGroup).not.toHaveBeenCalled();
+  });
+
+  it("persists validated ownership when spawn cleanup is unverified", async () => {
+    const ownership = {
+      pid: 41,
+      identity,
+    };
+    const saveState = vi.fn();
+    const deps = dependencies({
+      spawnDetached: vi.fn(async () => {
+        throw new SpawnDetachedError(
+          "ripwire",
+          new Error("anchor failed after child creation"),
+          false,
+          ownership,
+        );
+      }),
+    });
+
+    await expect(
+      runRipwireLifecycle(
+        {
+          config,
+          binaryDirectory: "/tmp/ripwire-install",
+          logPath: "/tmp/ripwire.log",
+          environment: {},
+          sessionToken: "session-token",
+        },
+        { saveState, warning: vi.fn() },
+        deps,
+      ),
+    ).rejects.toMatchObject({
+      name: "RipwireStartupError",
+      cleanupSucceeded: false,
+      ownership,
+    } satisfies Partial<RipwireStartupError>);
+    expect(saveState).toHaveBeenCalledWith(
+      "service-state",
+      JSON.stringify(ownership),
+    );
   });
 
   it("warns when startup cleanup cannot verify the process group", async () => {
