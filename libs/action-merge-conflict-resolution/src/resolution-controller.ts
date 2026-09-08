@@ -5,17 +5,12 @@ import {
   type ResolveMergeConflictsRequest,
   type ResolveMergeConflictsResult,
   type ResolveMergeConflictsPorts,
-  type ResolutionAttemptDiagnostics,
   type ResolutionAttemptReport,
 } from "./contracts.js";
 import { ActionResolutionError, resolutionErrorDetails } from "./errors.js";
-import {
-  classifyConflicts,
-  validatePullRequestPreflight,
-  validateRequest,
-} from "./policy.js";
+import { validatePullRequestPreflight, validateRequest } from "./policy.js";
 import { validateStagedWhitespaceAndMarkers } from "./marker-validation.js";
-import type { ResolveMergeConflictsWorkflowOutput } from "@seqlane/runtime/workflows/resolve-merge-conflicts";
+import { resolveConflictAttempt } from "./conflict-resolution-attempt.js";
 
 function operationalError(
   message: string,
@@ -55,11 +50,6 @@ function integrationError(
     integration,
   );
 }
-
-const NO_ATTEMPT_DIAGNOSTICS: ResolutionAttemptDiagnostics = {
-  eventCount: 0,
-  truncated: false,
-};
 
 function successResult(
   kind: "clean" | "resolved",
@@ -190,54 +180,20 @@ export async function resolveMergeConflicts(
           );
         }
         attempts += 1;
-        const classified = classifyConflicts(conflicts);
-        const rebaseCommit =
-          request.strategy === "rebase"
-            ? await ports.git.readRebaseConflictCommit?.()
-            : undefined;
-        let workflowOutput: ResolveMergeConflictsWorkflowOutput = {
-          summary: "No model resolution was required.",
-          resolvedFiles: conflicts.map(({ path }) => path),
-          decisions: conflicts.map(({ path }) => ({
-            file: path,
-            decision: "Resolved mechanically without a model attempt.",
-          })),
-        };
-        if (classified.agent.length > 0) {
-          if (!agentLifecycleStarted) {
-            agentLifecycleStarted = true;
-            await ports.agent.start?.();
-          }
-          const agentRequest =
-            await ports.files.prepareAgentWorkspace(conflicts);
-          workflowOutput = await ports.agent.resolve(agentRequest);
-          await ports.files.copyAgentEdits(agentRequest.paths);
-        }
-        const report: ResolutionAttemptReport = {
+        const attempt = await resolveConflictAttempt({
+          request,
+          ports,
+          conflicts,
           attempt: attempts,
-          ...(rebaseCommit === undefined
-            ? {}
-            : {
-                commit: {
-                  oldSha: rebaseCommit.sha,
-                  subject: rebaseCommit.subject,
-                },
-              }),
-          summary: workflowOutput.summary,
-          decisions: workflowOutput.decisions,
-          diagnostics:
-            classified.agent.length > 0
-              ? (ports.agent.getAttemptDiagnostics?.() ??
-                NO_ATTEMPT_DIAGNOSTICS)
-              : NO_ATTEMPT_DIAGNOSTICS,
-        };
-        reports.push(report);
-        if (classified.lockfile.length > 0) {
-          await ports.lockfile.regenerate();
-        }
-        await ports.files.validateTarget(conflicts);
-        await ports.git.stageConflictSet(conflicts);
-        const remaining = await ports.git.readConflictSet();
+          startAgent: async () => {
+            if (!agentLifecycleStarted) {
+              agentLifecycleStarted = true;
+              await ports.agent.start?.();
+            }
+          },
+        });
+        reports.push(attempt.report);
+        const remaining = attempt.remaining;
         if (remaining.length > 0) {
           conflicts = remaining;
           continue;
@@ -252,6 +208,7 @@ export async function resolveMergeConflicts(
           resolved = true;
           break;
         }
+        await ports.files.captureIntegrationBaseline?.();
         conflicts = next;
       }
     }

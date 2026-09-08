@@ -38,7 +38,9 @@ import {
 } from "./workspace-boundary-filesystem.js";
 
 export {
+  assertSafeRoot,
   assertSeparateWorkspaceRootPaths,
+  copyFiles,
   createOwnedAgentWorkspace,
   readNullDelimitedPaths,
   validateSafeDirectoryWithinRoot,
@@ -139,7 +141,7 @@ async function requiredGitCommand(
   return result.stdout;
 }
 
-async function readWorkspaceChangePaths(
+export async function readWorkspaceChangePaths(
   git: GitCommandPort,
 ): Promise<readonly ConflictPath[]> {
   const trackedChanges = [
@@ -235,7 +237,7 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
   private readonly git: GitWorkspacePort;
   private originalConflicts: ConflictSet = [];
   private originalAgentPaths: readonly ConflictPath[] = [];
-  private integrationBaselinePaths: readonly ConflictPath[] = [];
+  private readonly integrationBaselinePaths = new Set<ConflictPath>();
 
   constructor(options: NodeWorkspaceBoundaryOptions) {
     this.options = options;
@@ -265,7 +267,9 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
   }
 
   async captureIntegrationBaseline(): Promise<void> {
-    this.integrationBaselinePaths = await readWorkspaceChangePaths(this.git);
+    for (const path of await readWorkspaceChangePaths(this.git)) {
+      this.integrationBaselinePaths.add(path);
+    }
   }
 
   private rememberConflicts(conflicts: ConflictSet): void {
@@ -324,7 +328,10 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
     );
   }
 
-  async validateTarget(conflicts: ConflictSet): Promise<void> {
+  async validateTarget(
+    conflicts: ConflictSet,
+    generatedPaths: readonly ConflictPath[] = [],
+  ): Promise<void> {
     const parsed = conflictSetSchema.safeParse(conflicts);
     if (!parsed.success) {
       throw workspaceError(
@@ -337,6 +344,7 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
     const allowed = [
       ...asPaths(this.originalConflicts),
       ...this.integrationBaselinePaths,
+      ...asPaths(generatedPaths ?? []),
     ];
     await validateResolutionWorkspace(this.options.targetRoot, allowed);
   }

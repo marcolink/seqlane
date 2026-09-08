@@ -1,4 +1,5 @@
 // @test-scope ./resolution-controller.ts
+// @test-scope ./conflict-resolution-attempt.ts
 // @test-scope ./policy.ts
 // @test-scope ./marker-validation.ts
 
@@ -34,6 +35,26 @@ function metadata() {
   };
 }
 
+function prepareAgentRequest(conflicts: ConflictSet, prepared: unknown[]) {
+  const paths = conflicts.map(({ path }) => path);
+  prepared.push(paths);
+  return {
+    paths,
+    baseRevision: revision("c"),
+    headRevision: revision("b"),
+  };
+}
+
+function generatedHandlerRecorder(generated: unknown[]) {
+  return async (
+    rule: Parameters<ResolveMergeConflictsPorts["generatedFiles"]["run"]>[0],
+    conflicts: ConflictSet,
+  ) => {
+    generated.push({ rule, conflicts });
+    return conflicts.map(({ path }) => path);
+  };
+}
+
 function ports(
   integration: Awaited<
     ReturnType<ResolveMergeConflictsPorts["git"]["integrate"]>
@@ -49,6 +70,8 @@ function ports(
   const summary: unknown[] = [];
   const agent: unknown[] = [];
   const lockfiles: unknown[] = [];
+  const generated: unknown[] = [];
+  const prepared: unknown[] = [];
   const baselines: unknown[] = [];
   const commits: unknown[] = [];
   const pushes: unknown[] = [];
@@ -107,11 +130,8 @@ function ports(
       captureIntegrationBaseline: async () => {
         baselines.push(true);
       },
-      prepareAgentWorkspace: async (value) => ({
-        paths: value.map(({ path }) => path),
-        baseRevision: revision("c"),
-        headRevision: revision("b"),
-      }),
+      prepareAgentWorkspace: async (value) =>
+        prepareAgentRequest(value, prepared),
       copyAgentEdits: async (paths) => {
         agent.push(paths);
       },
@@ -121,6 +141,9 @@ function ports(
       regenerate: async () => {
         lockfiles.push(true);
       },
+    },
+    generatedFiles: {
+      run: generatedHandlerRecorder(generated),
     },
     agent: {
       start: async () => {
@@ -164,6 +187,8 @@ function ports(
     summary,
     agent,
     lockfiles,
+    generated,
+    prepared,
     baselines,
     commits,
     pushes,
@@ -223,6 +248,98 @@ describe("resolveMergeConflicts", () => {
         attempts: [{ diagnostics: { eventCount: 0, truncated: false } }],
       },
     });
+  });
+
+  it("runs generated handlers mechanically and sends only unmatched conflicts to the agent", async () => {
+    const generatedConflict = {
+      path: "actions/example/dist/main.js",
+      stage: 1 as const,
+    };
+    const sourceConflict = { path: "src/file.ts", stage: 1 as const };
+    const fake = ports(
+      {
+        kind: "conflicted",
+        operation: "merge",
+        headBefore: revision("b"),
+        targetRevision: revision("c"),
+        conflicts: [generatedConflict, sourceConflict],
+      },
+      [[generatedConflict, sourceConflict], []],
+    );
+
+    await expect(
+      resolveMergeConflicts(
+        {
+          ...request(),
+          conflictHandlers: {
+            version: 1,
+            rules: [
+              {
+                match: "actions/*/dist/*.js",
+                outputs: ["actions/*/dist/*.js"],
+                handler: { command: ["pnpm", "build"] },
+              },
+            ],
+          },
+        },
+        fake.value,
+      ),
+    ).resolves.toMatchObject({ kind: "resolved", attempts: 1 });
+    expect(fake.generated).toEqual([
+      {
+        rule: expect.objectContaining({ match: "actions/*/dist/*.js" }),
+        conflicts: [generatedConflict],
+      },
+    ]);
+    expect(fake.prepared).toEqual([["src/file.ts"]]);
+    expect(fake.agent[1]).toEqual(["src/file.ts"]);
+  });
+
+  it("does not start the agent when a generated handler fails", async () => {
+    const generatedConflict = {
+      path: "actions/example/dist/main.js",
+      stage: 1 as const,
+    };
+    const sourceConflict = { path: "src/file.ts", stage: 1 as const };
+    const fake = ports(
+      {
+        kind: "conflicted",
+        operation: "merge",
+        headBefore: revision("b"),
+        targetRevision: revision("c"),
+        conflicts: [generatedConflict, sourceConflict],
+      },
+      [[generatedConflict, sourceConflict]],
+    );
+    fake.value.generatedFiles.run = async () => {
+      throw new Error("generated handler failed");
+    };
+
+    await expect(
+      resolveMergeConflicts(
+        {
+          ...request(),
+          conflictHandlers: {
+            version: 1,
+            rules: [
+              {
+                match: "actions/*/dist/*.js",
+                outputs: ["actions/*/dist/*.js"],
+                handler: { command: ["pnpm", "build"] },
+              },
+            ],
+          },
+        },
+        fake.value,
+      ),
+    ).resolves.toMatchObject({
+      kind: "error",
+      error: { category: "operational", code: "OPERATION_FAILED" },
+    });
+    expect(fake.events).not.toContain("agent-start");
+    expect(fake.prepared).toEqual([]);
+    expect(fake.agent).toEqual([]);
+    expect(fake.lockfiles).toEqual([]);
   });
 
   it("returns a typed attempt-limit failure", async () => {
@@ -319,6 +436,7 @@ describe("resolveMergeConflicts", () => {
       resolveMergeConflicts(request("rebase"), fake.value),
     ).resolves.toMatchObject({ kind: "resolved", attempts: 2 });
     expect(fake.agent).toHaveLength(4);
+    expect(fake.baselines).toEqual([true, true]);
     expect(starts).toBe(1);
     expect(stops).toBe(1);
     expect(fake.summary[0]).toMatchObject({
