@@ -145,17 +145,23 @@ starting work.
 The post entrypoint reads and validates the single persisted service state and
 asks the shared lifecycle library to terminate the matching process group. It
 warns when the group cannot be verified or stopped and never signals a reused
-process group. Without valid service state, post does not remove the install
-directory. After successful termination, it removes the persisted install
-directory. If acquisition fails, the partial install directory is removed
-immediately. A startup failure removes the install directory only when no
-process was spawned or identity-checked cleanup succeeded; otherwise post
-cleanup retains ownership. Lifecycle startup failures use a typed error with a
-`cleanupSucceeded` field so main can make this decision without guessing from
-the error message. If spawn rejects before returning a validated
-`DetachedProcess`, startup reports `cleanupSucceeded=false` without inventing
-an identity. Post cannot safely retry without validated ownership, so the
-install remains for runner-level cleanup.
+process group. Without valid service state or a validated cleanup-only marker,
+post does not remove the install directory. After successful termination, it
+removes the persisted install directory. If acquisition fails, the partial
+install directory is removed immediately. If partial-install removal fails,
+acquisition raises a typed error that preserves the original cause and carries
+the install path and cleanup error. Main warns about the cleanup error and
+persists the install path with a validated cleanup-only marker. It propagates
+the typed install error with the original acquisition error as its cause and
+message. Post removes that path only when the marker is present. A startup
+failure removes the install directory only when no process was spawned or
+identity-checked cleanup succeeded; otherwise post cleanup retains ownership.
+Lifecycle startup failures use a typed error with a `cleanupSucceeded` field so
+main can make this decision without guessing from the error message. If spawn
+rejects before returning a validated `DetachedProcess`, startup reports
+`cleanupSucceeded=false` without inventing an identity. Post cannot safely
+retry without validated ownership, so the install remains for runner-level
+cleanup.
 
 The child environment is an explicit allowlist containing the trusted binary
 `PATH`, temporary and home paths, locale values, XDG paths, and the optional

@@ -2,7 +2,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  parseCleanupOnlyState,
   parseServiceState,
+  serializeCleanupOnlyState,
   serializeServiceState,
   serviceStateSchema,
 } from "./state.js";
@@ -17,6 +19,14 @@ const state = {
 };
 
 describe("Ripwire service state", () => {
+  it("round-trips and validates the cleanup-only state", () => {
+    expect(parseCleanupOnlyState(serializeCleanupOnlyState())).toBe(true);
+    expect(parseCleanupOnlyState(JSON.stringify({ kind: "other" }))).toBe(
+      false,
+    );
+    expect(parseCleanupOnlyState("not-json")).toBe(false);
+  });
+
   it("round-trips one validated state value", () => {
     const serialized = serializeServiceState(state);
     expect(parseServiceState(serialized)).toEqual(state);

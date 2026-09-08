@@ -3,12 +3,32 @@ import { terminateProcessGroup } from "@seqlane/action-service-lifecycle";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { removeInstallDirectory } from "./release.js";
-import { parseServiceState } from "./state.js";
+import {
+  CLEANUP_ONLY_STATE_KEY,
+  parseCleanupOnlyState,
+  parseServiceState,
+} from "./state.js";
 
 export async function run(): Promise<void> {
   const installDirectory = core.getState("install-directory");
   const serviceState = parseServiceState(core.getState("service-state"));
+  const cleanupOnly = parseCleanupOnlyState(
+    core.getState(CLEANUP_ONLY_STATE_KEY),
+  );
   if (!serviceState) {
+    if (installDirectory && cleanupOnly) {
+      try {
+        await removeInstallDirectory(
+          installDirectory,
+          process.env.RUNNER_TEMP ?? "/tmp",
+        );
+      } catch (error) {
+        core.warning(
+          `Ripwire install cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return;
+    }
     if (installDirectory) {
       core.warning(
         "Ripwire service state is missing or invalid; retaining the install directory",

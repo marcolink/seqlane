@@ -4,9 +4,14 @@ import { fileURLToPath } from "node:url";
 import * as core from "@actions/core";
 import { assertDirectory } from "./filesystem.js";
 import { parseRipwireInputs } from "./config.js";
-import { installRipwire, removeInstallDirectory } from "./release.js";
+import {
+  installRipwire,
+  removeInstallDirectory,
+  RipwireInstallError,
+} from "./release.js";
 import { RipwireStartupError, runRipwireLifecycle } from "./lifecycle.js";
 import { createSessionToken } from "./token.js";
+import { CLEANUP_ONLY_STATE_KEY, serializeCleanupOnlyState } from "./state.js";
 
 function runnerTempPath(fileName: string): string {
   return resolve(process.env.RUNNER_TEMP ?? "/tmp", fileName);
@@ -14,6 +19,27 @@ function runnerTempPath(fileName: string): string {
 
 export { packageExecutionDirectory } from "./lifecycle.js";
 export { processAnchorPath } from "./lifecycle.js";
+
+export interface InstallFailureHooks {
+  readonly saveState: (name: string, value: string) => void;
+  readonly warning: (message: string) => void;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function recordInstallFailure(
+  error: unknown,
+  hooks: InstallFailureHooks,
+): void {
+  if (!(error instanceof RipwireInstallError)) return;
+  hooks.warning(
+    `Ripwire partial install cleanup failed: ${describeError(error.cleanupError)}`,
+  );
+  hooks.saveState("install-directory", error.installDirectory);
+  hooks.saveState(CLEANUP_ONLY_STATE_KEY, serializeCleanupOnlyState());
+}
 
 export async function run(): Promise<void> {
   const mcpTokenSeed = core.getInput("mcp-token") || undefined;
@@ -58,6 +84,16 @@ export async function run(): Promise<void> {
       },
     );
   } catch (error) {
+    try {
+      recordInstallFailure(error, {
+        saveState: core.saveState,
+        warning: core.warning,
+      });
+    } catch (stateError) {
+      core.warning(
+        `Ripwire cleanup state persistence failed: ${describeError(stateError)}`,
+      );
+    }
     const cleanupSucceeded =
       error instanceof RipwireStartupError ? error.cleanupSucceeded : true;
     if (install && cleanupSucceeded) {

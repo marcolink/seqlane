@@ -27,14 +27,20 @@ If spawn fails before it returns validated process state, startup reports that
 cleanup is not verified. Post cannot safely retry without validated ownership,
 so the install remains for runner-level cleanup.
 
+If partial-install removal fails, the Action wraps the acquisition failure in a
+typed `RipwireInstallError`. The wrapper preserves the original error as its
+cause and message. The Action warns about the cleanup error and saves the
+install path with a validated cleanup-only marker. Post removes that path only
+when the marker is present.
+
 Startup uses one timeout deadline for all MCP probes. The Action checks the
 listen port before it starts Ripwire. It verifies process identity and liveness
 after readiness. A readiness response must report the exact MCP protocol
 version, `serverInfo.name` `ripwire`, and Ripwire server software version
 `1.0`. This server version is separate from the downloaded release version.
 Child processes receive an explicit minimal environment. The Action removes
-failed partial installs. It removes a successful install directory only after
-the post step confirms process termination.
+failed partial installs when possible. It removes a successful install
+directory only after the post step confirms process termination.
 
 Each run creates a new bearer token. If `mcp-token` is provided, the Action
 uses it only as a secret derivation seed. The child and readiness probe receive

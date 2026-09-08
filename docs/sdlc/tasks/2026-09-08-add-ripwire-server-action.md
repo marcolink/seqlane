@@ -103,9 +103,12 @@ gate, child-exit process-anchor cleanup, one schema-validated service-state
 value, typed startup cleanup outcomes, safe install-directory cleanup, and
 typed handling for ambiguous spawn rejection. Post cannot retry such cleanup
 without validated service state, so the install remains for runner-level
-cleanup.
+cleanup. Partial-install cleanup failure now returns a typed
+`RipwireInstallError` with the acquisition error preserved as its cause and
+message. It persists the install path and a validated cleanup-only marker, and
+lets post retry only that explicit cleanup path.
 
-Focused Action typecheck, tests (61 tests), bundle build and drift checks,
+Focused Action typecheck, tests (66 tests), bundle build and drift checks,
 test mapping, SDLC validation/tests, formatting, YAML parsing, and diff checks
 passed. The existing shared lifecycle tests passed with host process
 permissions. A local run of the production bundle downloaded Ripwire `0.4.0`,

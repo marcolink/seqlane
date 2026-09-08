@@ -15,6 +15,7 @@ import {
   verifySha256,
   verifyBinaryVersion,
   trustedReleaseDigest,
+  RipwireInstallError,
   type ReleaseTarget,
   type VersionCommandOptions,
 } from "./release.js";
@@ -283,5 +284,36 @@ describe("Ripwire release acquisition", () => {
       }),
     ).rejects.toThrow("download failed");
     await expect(readdir(directory)).resolves.toEqual([]);
+  });
+
+  it("preserves the acquisition cause when partial cleanup fails", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ripwire-release-test-"));
+    temporaryDirectories.push(directory);
+    const acquisitionError = new Error("download failed");
+    const cleanupError = new Error("remove failed");
+    let caught: unknown;
+    try {
+      await installRipwire({
+        version: "0.4.0",
+        runnerTemp: directory,
+        platform: "linux",
+        architecture: "x64",
+        fetchImpl: async () => {
+          throw acquisitionError;
+        },
+        removePartialInstall: async (installDirectory) => {
+          expect(installDirectory).toMatch(/^.+\/ripwire-/);
+          throw cleanupError;
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(RipwireInstallError);
+    if (!(caught instanceof RipwireInstallError)) return;
+    expect(caught.cause).toBe(acquisitionError);
+    expect(caught.cleanupError).toBe(cleanupError);
+    expect(caught.cleanupSucceeded).toBe(false);
+    expect(caught.installDirectory).toMatch(/^.+\/ripwire-/);
   });
 });

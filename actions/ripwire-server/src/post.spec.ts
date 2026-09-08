@@ -6,7 +6,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { serializeServiceState } from "./state.js";
+import {
+  CLEANUP_ONLY_STATE_KEY,
+  serializeCleanupOnlyState,
+  serializeServiceState,
+} from "./state.js";
 
 const state = new Map<string, string>();
 const terminate = vi.fn(async () => true);
@@ -111,5 +115,22 @@ describe("Ripwire post cleanup", () => {
     ).resolves.toBeDefined();
     expect(terminate).not.toHaveBeenCalled();
     expect(warnings.join(" ")).toContain("missing or invalid");
+  });
+
+  it("removes a cleanup-only install without service state", async () => {
+    const runnerTemp = await mkdtemp(join(tmpdir(), "ripwire-post-test-"));
+    temporaryDirectories.push(runnerTemp);
+    const installDirectory = join(runnerTemp, "ripwire-install");
+    await mkdir(installDirectory);
+    process.env.RUNNER_TEMP = runnerTemp;
+    state.set("install-directory", installDirectory);
+    state.set(CLEANUP_ONLY_STATE_KEY, serializeCleanupOnlyState());
+
+    await run();
+
+    await expect(
+      import("node:fs/promises").then(({ stat }) => stat(installDirectory)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(terminate).not.toHaveBeenCalled();
   });
 });

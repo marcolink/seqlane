@@ -372,6 +372,20 @@ export interface InstallOptions {
   readonly architecture?: NodeJS.Architecture;
   readonly fetchImpl?: typeof fetch;
   readonly runVersion?: (binaryPath: string) => Promise<string>;
+  readonly removePartialInstall?: (installDirectory: string) => Promise<void>;
+}
+
+export class RipwireInstallError extends Error {
+  readonly installDirectory: string;
+  readonly cleanupSucceeded = false;
+  readonly cleanupError: unknown;
+
+  constructor(cause: unknown, installDirectory: string, cleanupError: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "RipwireInstallError";
+    this.installDirectory = installDirectory;
+    this.cleanupError = cleanupError;
+  }
 }
 
 export async function removeInstallDirectory(
@@ -469,7 +483,14 @@ export async function installRipwire(
       binaryDirectory: installDirectory,
     };
   } catch (error) {
-    await rm(installDirectory, { recursive: true, force: true });
+    try {
+      await (
+        options.removePartialInstall ??
+        ((directory: string) => rm(directory, { recursive: true, force: true }))
+      )(installDirectory);
+    } catch (cleanupError) {
+      throw new RipwireInstallError(error, installDirectory, cleanupError);
+    }
     throw error;
   }
 }
