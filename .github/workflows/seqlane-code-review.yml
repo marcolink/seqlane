@@ -514,8 +514,9 @@ jobs:
         with:
           working-directory: ${{ github.workspace }}/review-target
 
-      - name: Install OpenCode
+      - name: Resolve OpenCode version
         if: steps.pull-request.outputs.eligible == 'true'
+        id: opencode-version
         working-directory: seqlane-source
         env:
           OPENCODE_VERSION: 1.18.27
@@ -525,7 +526,14 @@ jobs:
             echo "::error::OpenCode CLI $OPENCODE_VERSION must match @opencode-ai/sdk $SDK_VERSION."
             exit 1
           fi
-          curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION"
+          echo "version=$OPENCODE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up OpenCode
+        if: steps.pull-request.outputs.eligible == 'true'
+        id: setup-opencode
+        uses: ./seqlane-source/actions/setup-opencode
+        with:
+          version: ${{ steps.opencode-version.outputs.version }}
 
       - name: Start OpenCode
         if: steps.pull-request.outputs.eligible == 'true'
@@ -534,6 +542,7 @@ jobs:
         uses: ./seqlane-source/actions/opencode-server
         with:
           working-directory: ${{ github.workspace }}/review-target
+          executable: ${{ steps.setup-opencode.outputs.executable }}
           hostname: 127.0.0.1
           port: "4096"
           startup-timeout-seconds: "30"

@@ -131,6 +131,13 @@ function workflowJobBlock(workflow: string, jobId: string): string {
   return workflow.slice(start, end === -1 ? workflow.length : end);
 }
 
+function workflowStepBlock(workflow: string, stepName: string): string {
+  const start = workflow.indexOf(`      - name: ${stepName}`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const nextStep = workflow.indexOf("\n      - name:", start + 1);
+  return workflow.slice(start, nextStep === -1 ? workflow.length : nextStep);
+}
+
 describe("pull-request code review example workflow", () => {
   it("keeps review tooling on the immutable workflow source", async () => {
     const workflow = await readFile(
@@ -442,6 +449,62 @@ describe("pull-request code review example workflow", () => {
     expect(workflow.indexOf("\n  admit-review:")).toBeLessThan(
       reviewConcurrency,
     );
+  });
+
+  it("resolves a matched OpenCode version and wires the setup executable", async () => {
+    const workflow = await readFile(
+      new URL(
+        "../../../.github/workflows/seqlane-code-review.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const review = workflowJobBlock(workflow, "code-review");
+    const versionStep = workflowStepBlock(workflow, "Resolve OpenCode version");
+    const setupStep = workflowStepBlock(workflow, "Set up OpenCode");
+    const serverStep = workflowStepBlock(workflow, "Start OpenCode");
+
+    expect(versionStep).toContain("id: opencode-version");
+    expect(versionStep).toContain("OPENCODE_VERSION: 1.18.27");
+    expect(versionStep).toContain(
+      "SDK_VERSION=$(node -p \"require('./libs/seqlane-opencode/package.json').dependencies['@opencode-ai/sdk']\")",
+    );
+    expect(versionStep).toContain(
+      'if [ "$SDK_VERSION" != "$OPENCODE_VERSION" ]; then',
+    );
+    expect(versionStep).toContain(
+      'echo "version=$OPENCODE_VERSION" >> "$GITHUB_OUTPUT"',
+    );
+
+    expect(setupStep).toContain("id: setup-opencode");
+    expect(setupStep).toContain(
+      "uses: ./seqlane-source/actions/setup-opencode",
+    );
+    expect(setupStep).toContain(
+      "version: ${{ steps.opencode-version.outputs.version }}",
+    );
+
+    expect(serverStep).toContain("id: opencode");
+    expect(serverStep).toContain(
+      "uses: ./seqlane-source/actions/opencode-server",
+    );
+    expect(serverStep).toContain(
+      "executable: ${{ steps.setup-opencode.outputs.executable }}",
+    );
+    expect(serverStep).toContain(
+      "working-directory: ${{ github.workspace }}/review-target",
+    );
+    expect(serverStep).toContain("hostname: 127.0.0.1");
+    expect(serverStep).toContain('port: "4096"');
+    expect(serverStep).toContain('startup-timeout-seconds: "30"');
+    expect(serverStep).toContain(
+      "OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}",
+    );
+    expect(serverStep).toContain('OPENCODE_DISABLE_PROJECT_CONFIG: "true"');
+    expect(serverStep).toContain("OPENCODE_CONFIG_CONTENT: >-");
+    expect(review).toContain('--runtime "${{ steps.opencode.outputs.url }}"');
+    expect(review).not.toContain("- name: Install OpenCode");
+    expect(review).not.toContain("curl -fsSL https://opencode.ai/install");
   });
 
   it("requires explicit revisions and pull-request context", () => {

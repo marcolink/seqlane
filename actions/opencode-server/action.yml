@@ -15,8 +15,7 @@ inputs:
     default: "4096"
   executable:
     description: OpenCode executable name or path
-    required: false
-    default: opencode
+    required: true
   startup-timeout-seconds:
     description: Maximum time to wait for the OpenCode health endpoint
     required: false
