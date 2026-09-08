@@ -12,7 +12,9 @@ import {
   installRipwire,
   releaseTarget,
   verifySha256,
+  verifyBinaryVersion,
   type ReleaseTarget,
+  type VersionCommandOptions,
 } from "./release.js";
 
 const temporaryDirectories: string[] = [];
@@ -182,6 +184,50 @@ describe("Ripwire release acquisition", () => {
         runVersion: async () => "0.3.9",
       }),
     ).rejects.toThrow("version mismatch");
+  });
+
+  it("runs version verification with a sanitized child environment", async () => {
+    let capturedEnvironment: NodeJS.ProcessEnv | undefined;
+    const execImpl = async (
+      _binaryPath: string,
+      _args: string[],
+      options: VersionCommandOptions,
+    ) => {
+      capturedEnvironment = options.env;
+      return { stdout: "ripwire 0.4.0" };
+    };
+
+    await expect(
+      verifyBinaryVersion("/tmp/ripwire-install/ripwire", "0.4.0", execImpl, {
+        PATH: "/usr/bin",
+        HOME: "/home/runner",
+        LANG: "C.UTF-8",
+        TMPDIR: "/tmp",
+        GITHUB_TOKEN: "github-secret",
+        AWS_ACCESS_KEY_ID: "cloud-secret",
+        NODE_OPTIONS: "--require=malicious-loader",
+        NODE_PATH: "/tmp/ambient-modules",
+        NODE_EXTRA_CA_CERTS: "/tmp/ambient-ca.pem",
+        INPUT_MCP_TOKEN: "action-secret",
+        RIPWIRE_MCP_TOKEN: "old-token",
+        LD_PRELOAD: "/tmp/ambient.so",
+      }),
+    ).resolves.toBe("0.4.0");
+
+    expect(capturedEnvironment).toMatchObject({
+      PATH: expect.stringContaining("/tmp/ripwire-install"),
+      HOME: "/home/runner",
+      LANG: "C.UTF-8",
+      TMPDIR: "/tmp",
+    });
+    expect(capturedEnvironment).not.toHaveProperty("GITHUB_TOKEN");
+    expect(capturedEnvironment).not.toHaveProperty("AWS_ACCESS_KEY_ID");
+    expect(capturedEnvironment).not.toHaveProperty("NODE_OPTIONS");
+    expect(capturedEnvironment).not.toHaveProperty("NODE_PATH");
+    expect(capturedEnvironment).not.toHaveProperty("NODE_EXTRA_CA_CERTS");
+    expect(capturedEnvironment).not.toHaveProperty("INPUT_MCP_TOKEN");
+    expect(capturedEnvironment).not.toHaveProperty("RIPWIRE_MCP_TOKEN");
+    expect(capturedEnvironment).not.toHaveProperty("LD_PRELOAD");
   });
 
   it("removes a partial install directory when acquisition fails", async () => {

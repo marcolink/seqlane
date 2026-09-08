@@ -12,8 +12,23 @@ import {
   resolve,
 } from "node:path";
 import { promisify } from "node:util";
+import { buildRipwireEnvironment } from "./commands.js";
 
-const execFileAsync = promisify(execFile);
+export interface VersionCommandOptions {
+  readonly cwd: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly timeout: number;
+  readonly maxBuffer: number;
+}
+
+export type VersionCommandRunner = (
+  binaryPath: string,
+  args: string[],
+  options: VersionCommandOptions,
+) => Promise<{ readonly stdout: string }>;
+
+// Narrow the promisified Node overload to the options used by version checks.
+const execFileAsync = promisify(execFile) as VersionCommandRunner;
 
 export const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 export const MAX_CHECKSUM_BYTES = 4 * 1024;
@@ -336,9 +351,16 @@ export async function removeInstallDirectory(
 export async function verifyBinaryVersion(
   binaryPath: string,
   expectedVersion: string,
+  execImpl: VersionCommandRunner = execFileAsync,
+  baseEnvironment: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
-  const { stdout } = await execFileAsync(binaryPath, ["--version"], {
+  const { stdout } = await execImpl(binaryPath, ["--version"], {
     cwd: dirname(binaryPath),
+    env: buildRipwireEnvironment(
+      baseEnvironment,
+      dirname(binaryPath),
+      undefined,
+    ),
     timeout: 5_000,
     maxBuffer: 64 * 1024,
   });

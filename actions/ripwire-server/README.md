@@ -17,6 +17,10 @@ macOS x64 and arm64 assets. It validates all inputs before downloading or
 starting a process and uses the shared identity-checked service lifecycle for
 cleanup.
 
+The release `--version` check runs with the same explicit minimal environment
+as the server. Ambient credentials, Action inputs, Node loader variables, and
+other ambient secret variables are not inherited.
+
 Startup uses one timeout deadline for all MCP probes. The Action checks the
 listen port before it starts Ripwire and verifies process identity and
 liveness after readiness. A readiness response must report the exact MCP

@@ -87,7 +87,9 @@ contain a regular `ripwire` member, and contain no symlinks, hard links,
 unsupported tar members, absolute paths, or parent traversal. The Action
 extracts only that binary member, sets executable permissions, and verifies that
 `ripwire --version` reports the requested version. It never runs the upstream
-install script.
+install script. The version check uses the explicit child environment
+allowlist; it does not inherit credentials, Action inputs, Node loader
+variables, or other ambient secret variables.
 
 ### requirement-service
 

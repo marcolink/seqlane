@@ -99,7 +99,7 @@ child environment allowlist, direct-entry detection instead of a `NODE_ENV`
 gate, child-exit process-anchor cleanup, one schema-validated service-state
 value, typed startup cleanup outcomes, and safe install-directory cleanup.
 
-Focused Action typecheck, tests (57 tests), bundle build and drift checks,
+Focused Action typecheck, tests (58 tests), bundle build and drift checks,
 test mapping, SDLC validation/tests, formatting, YAML parsing, and diff checks
 passed. The existing shared lifecycle tests passed with host process
 permissions. A local run of the production bundle downloaded Ripwire `0.4.0`,
