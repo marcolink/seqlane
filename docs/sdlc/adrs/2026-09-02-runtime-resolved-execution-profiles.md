@@ -5,7 +5,7 @@ status: proposed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -186,6 +186,13 @@ Revisit this decision when Seqlane needs direct model selection in workflow
 source, task-level policy overlays, multiple sessions per run, explicit
 context handoff, or executor-neutral capability requirements that cannot be
 represented by runtime-owned agent profiles.
+
+## Delivery state
+
+This decision is not delivered on the current default branch as of
+2026-09-08. The legacy, local, or disconnected implementation is not current
+delivery evidence. The ADR remains proposed, its specification remains draft,
+and its implementation tasks remain planned.
 
 ## Traceability
 

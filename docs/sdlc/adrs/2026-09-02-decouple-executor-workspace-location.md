@@ -1,11 +1,11 @@
 ---
 id: adr.decouple-executor-workspace-location
 title: Decouple Executor Workspace Location from Seqlane Execution Location
-status: proposed
+status: accepted
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -166,6 +166,13 @@ The design is correct when a Seqlane Run launched from an arbitrary control
 directory can connect to an independently started executor server and execute
 against the explicitly configured workspace, without changing workflow source,
 serialized Plans, or public executor-neutral contracts.
+
+## Delivery state
+
+Current main implements the explicit CLI workspace, runtime propagation, and
+OpenCode session-directory binding. This accepted ADR records the architecture
+decision. Delivery claims still require current target-branch implementation
+and reachable Git evidence.
 
 ## Traceability
 

@@ -17,4 +17,5 @@ supersedes: []
 ## Decision
 ## Alternatives considered
 ## Consequences
+## Delivery state
 ## Traceability

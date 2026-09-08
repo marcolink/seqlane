@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - adr.builtin-workflow-distribution
 supersedes: []
@@ -14,6 +14,12 @@ supersedes: []
 # Built-in Workflow Distribution
 
 > Migrated from legacy technical specification `TS-009`.
+
+## Status note
+
+This specification was historically implemented and later removed. Current
+top-level examples and direct references are the source for the supported
+workflow examples. The retired behavior has no replacement.
 
 ## 1. Objective
 

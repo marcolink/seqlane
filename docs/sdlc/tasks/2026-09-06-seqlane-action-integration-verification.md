@@ -1,11 +1,11 @@
 ---
 id: task.seqlane-action-integration-verification
 title: Verify the Seqlane Action Merge Conflict Resolver
-status: completed
+status: in-progress
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-07
+updated: 2026-09-08
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -139,7 +139,7 @@ verification.
 
 ## Outcome
 
-Completed local verification for the Action migration. The focused resolver
+Local verification for the Action migration is complete. The focused resolver
 suite passes 51 tests across 13 files, including temporary-repository Git
 scenarios, workspace and lockfile boundaries, controller ordering, remote
 guard behavior, archive pin validation, and bounded recording. The CLI
@@ -152,12 +152,15 @@ SDLC indexing, validation, documentation tests, formatting, and diff checks
 also pass. The production workflow contains only bootstrap, trusted and
 target checkouts, and the trusted local Action invocation.
 
-The following evidence requires an environment with access not available in
-this workspace: `actionlint`, `act`, Docker, a GitHub-hosted Action run, and a
-disposable same-repository pull request. Repository-wide Nx `test`, `lint`, and
-`build` commands are also blocked by the shared external Nx workspace-data
-lock path. These are recorded as verification limitations; no local test
-result was treated as remote CI evidence.
+A successful GitHub-hosted workflow run is available at [run
+34163697786](https://github.com/marcolink/seqlane/actions/runs/34163697786).
+
+Completion evidence remains unrecorded for the full manual scenario matrix,
+remote base and head races, and `actionlint` and `act` checks where applicable.
+The task remains in progress until its own completion criteria record those
+results. Local checks and the hosted run do not replace that evidence. The
+repository-wide Nx `test`, `lint`, and `build` commands remain blocked by the
+shared external Nx workspace-data lock path.
 
 ## Traceability
 

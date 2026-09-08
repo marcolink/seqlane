@@ -10,10 +10,13 @@ Use this workflow for a named Seqlane ADR. Read `docs/sdlc/AGENTS.md` first. Wor
 ## 1. Establish Context
 
 1. Read `AGENTS.md`, the target ADR, its active spec, its task entries, relevant RFC/PRD documents, and `git status`.
-2. Run `sdlc-impact` before implementation work and record its documentation impact assessment.
-3. Read the affected source, tests, package manifests, Nx configuration, and nearby documentation before planning edits.
-4. Preserve unrelated staged or unstaged work. Never reset, checkout, stash, or reformat unrelated files.
-5. Work on the requested ADR branch. Create one only when asked or when the task explicitly requires a dedicated ADR branch. Do not merge to `main` unless explicitly asked.
+2. Separate ADR lifecycle state from implementation delivery state. An accepted
+   ADR, active spec, or completed task does not prove delivery on the current
+   target branch.
+3. Run `sdlc-impact` before implementation work and record its documentation impact assessment.
+4. Read the affected source, tests, package manifests, Nx configuration, and nearby documentation before planning edits.
+5. Preserve unrelated staged or unstaged work. Never reset, checkout, stash, or reformat unrelated files.
+6. Work on the requested ADR branch. Create one only when asked or when the task explicitly requires a dedicated ADR branch. Do not merge to `main` unless explicitly asked.
 
 ## 2. Make the Delivery Backlog
 
@@ -64,8 +67,8 @@ filename naming.
    ```
 
 8. If a gate or acceptance criterion fails, start another fresh subagent to make the scoped repair, then rerun the affected gates and the full gate before continuing.
-9. Run `sdlc-sync` for canonical SDLC reconciliation. Run `docs-sync` for nearby README, AGENTS.md, command, configuration, or package-layout documentation. Do not routinely rewrite accepted or implemented ADRs.
-10. Mark the task completed, record its outcome, run `pnpm docs:index` and `pnpm docs:validate`, then commit only the completed task on the ADR branch. Use one clear conventional commit per task; do not skip hooks. Confirm a clean working tree before moving on.
+9. Run `sdlc-sync` for canonical SDLC reconciliation. Run `docs-sync` for nearby README, AGENTS.md, command, configuration, or package-layout documentation. Do not routinely rewrite accepted ADRs.
+10. Mark the task completed only when its implementation and required checks are represented. Record delivery evidence separately. Run `pnpm docs:index` and `pnpm docs:validate`. Commit only the completed task on the ADR branch. Use one clear conventional commit per task. Do not skip hooks. Confirm a clean working tree before moving on.
 
 ## 4. Complete the ADR
 
@@ -73,6 +76,7 @@ Repeat Section 3 for every remaining task. At completion, report:
 
 - ADR, spec, and task IDs committed;
 - acceptance criteria and verification evidence;
+- current target-branch delivery evidence, or the explicit delivery gap;
 - branch and clean/dirty status;
 - deferred work or explicit gaps.
 

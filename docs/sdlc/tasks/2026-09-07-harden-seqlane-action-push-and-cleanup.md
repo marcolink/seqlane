@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-08
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -85,6 +85,12 @@ bundle rebuild passed.
 The repository-wide spec typecheck still fails in existing pull-request review
 example code outside this task. A hosted workflow run must verify the
 `SEQLANE_RESOLVER_TOKEN` permissions and remote push.
+
+A subsequent successful GitHub-hosted workflow run is available at [run
+34163697786](https://github.com/marcolink/seqlane/actions/runs/34163697786).
+This is additional hosted evidence. It does not replace the remaining manual
+scenario matrix or prove every remote race and permission condition in the
+completion criteria.
 
 ## Traceability
 

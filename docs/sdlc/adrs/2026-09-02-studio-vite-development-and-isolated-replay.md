@@ -1,11 +1,11 @@
 ---
 id: adr.studio-vite-development-and-isolated-replay
 title: Make Studio a Vite React App with Isolated Replay
-status: proposed
+status: accepted
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -148,6 +148,13 @@ Revisit this decision if Studio needs remote development, shared replay files,
 durable replay sessions, multi-run recording files, timeline seeking, replay
 of events that are not canonical Seqlane execution events, or replay controls
 that affect execution.
+
+## Delivery state
+
+The five implementation tasks linked to this decision are completed. Current
+code and documentation implement Vite HMR and isolated replay. This accepted
+ADR records the architecture decision. Delivery claims still require current
+target-branch implementation and reachable Git evidence.
 
 ## Traceability
 
