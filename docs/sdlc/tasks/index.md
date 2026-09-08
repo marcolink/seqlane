@@ -189,3 +189,4 @@
 | [task.add-opencode-tool-setup-action](./2026-09-08-add-opencode-tool-setup-action.md) | Add the OpenCode Tool Setup Action | completed | 2026-09-08 | core |
 | [task.adopt-opencode-tool-setup-in-review-workflow](./2026-09-08-adopt-opencode-tool-setup-in-review-workflow.md) | Adopt OpenCode Tool Setup in the Review Workflow | completed | 2026-09-08 | core |
 | [task.require-explicit-opencode-server-executable](./2026-09-08-require-explicit-opencode-server-executable.md) | Require an Explicit OpenCode Server Executable | completed | 2026-09-08 | core |
+| [task.add-ripwire-server-action](./2026-09-08-add-ripwire-server-action.md) | Add the Ripwire HTTP MCP GitHub Action | completed | 2026-09-08 | core |

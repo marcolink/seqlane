@@ -45,3 +45,66 @@ jobs:
           pnpm exec nx affected -t test --output-style=static --
           --reporter=default
           --reporter=../../scripts/scoped-github-summary.ts
+
+  ripwire-smoke:
+    name: Ripwire server smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Start Ripwire MCP server
+        id: ripwire
+        uses: ./actions/ripwire-server
+        with:
+          working-directory: ${{ github.workspace }}
+
+      - name: Verify Ripwire outputs and initialize MCP
+        env:
+          MCP_URL: ${{ steps.ripwire.outputs.mcp-url }}
+          RIPWIRE_VERSION: ${{ steps.ripwire.outputs.version }}
+          RIPWIRE_BINARY: ${{ steps.ripwire.outputs.binary-path }}
+          RIPWIRE_LOG: ${{ steps.ripwire.outputs.log-path }}
+        run: |
+          test "$RIPWIRE_VERSION" = "0.4.0"
+          test -x "$RIPWIRE_BINARY"
+          test -f "$RIPWIRE_LOG"
+          case "$MCP_URL" in
+            http://127.0.0.1:*\/mcp) ;;
+            *) echo "Unexpected MCP URL: $MCP_URL" >&2; exit 1 ;;
+          esac
+          node --input-type=module <<'NODE'
+          const url = process.env.MCP_URL;
+          const token = process.env.RIPWIRE_MCP_TOKEN;
+          const headers = {
+            Accept: "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          };
+          const response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: { name: "seqlane-ripwire-smoke", version: "1.0.0" },
+              },
+            }),
+          });
+          if (response.status !== 200) throw new Error(`MCP initialize returned HTTP ${response.status}`);
+          const payload = await response.json();
+          if (payload.jsonrpc !== "2.0" || payload.id !== 1 || !payload.result?.serverInfo) {
+            throw new Error("MCP initialize response was not a valid JSON-RPC result");
+          }
+          NODE

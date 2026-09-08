@@ -188,6 +188,15 @@ importers:
       '@actions/tool-cache':
         specifier: 4.0.0
         version: 4.0.0
+
+  actions/ripwire-server:
+    dependencies:
+      '@actions/core':
+        specifier: 3.0.1
+        version: 3.0.1
+      '@seqlane/action-service-lifecycle':
+        specifier: workspace:*
+        version: link:../../libs/action-service-lifecycle
       zod:
         specifier: 4.5.4
         version: 4.5.4
