@@ -12,6 +12,7 @@ import type {
 } from "./observations.js";
 
 const MAX_METADATA_VALUE = 256;
+const MAX_PROVIDER_MODEL_IDENTITIES = 128;
 const MAX_MODEL_IDENTITIES = 1_024;
 const MAX_TOOL_IDENTITIES = 2_048;
 
@@ -103,10 +104,10 @@ function safeEnd<T extends SpanType>(
   diagnose: () => void,
 ): void {
   if (record.closed) return;
-  record.closed = true;
   try {
     if (cause === undefined) record.span.end();
     else record.span.error({ error: errorFor(cause), endSpan: true });
+    record.closed = true;
   } catch {
     // Native observability must never affect executor execution.
     diagnose();
@@ -116,6 +117,7 @@ function safeEnd<T extends SpanType>(
 function modelAttributes(
   observation: OpenCodeAssistantObservation,
   diagnoseCostUnit: () => void,
+  includeProviderModel: boolean,
 ) {
   const costContext =
     observation.cost === undefined
@@ -124,8 +126,12 @@ function modelAttributes(
         // an estimated cost without a verified unit.
         (diagnoseCostUnit(), undefined);
   return {
-    provider: bounded(observation.provider),
-    model: bounded(observation.model),
+    ...(includeProviderModel
+      ? {
+          provider: bounded(observation.provider),
+          model: bounded(observation.model),
+        }
+      : {}),
     responseId: bounded(observation.messageID),
     ...(observation.finish === undefined
       ? {}
@@ -147,6 +153,31 @@ function isTerminal(observation: OpenCodeAssistantObservation): boolean {
   return observation.completed !== undefined || observation.error !== undefined;
 }
 
+function createProviderModelBudget(
+  reportDiagnostic: (message: string) => void,
+) {
+  const identities = new Set<string>();
+  let diagnosed = false;
+  return (observation: OpenCodeAssistantObservation): boolean => {
+    const key = tupleKey(
+      bounded(observation.provider),
+      bounded(observation.model),
+    );
+    if (identities.has(key)) return true;
+    if (identities.size < MAX_PROVIDER_MODEL_IDENTITIES) {
+      identities.add(key);
+      return true;
+    }
+    if (!diagnosed) {
+      diagnosed = true;
+      reportDiagnostic(
+        "OpenCode provider/model cardinality limit reached; omitted provider/model attributes",
+      );
+    }
+    return false;
+  };
+}
+
 /** Creates the adapter-owned OpenCode to Mastra span projection. */
 export function createOpenCodeObservability(
   context: Partial<ObservabilityContext>,
@@ -155,7 +186,7 @@ export function createOpenCodeObservability(
 ): OpenCodeObservability {
   const reportDiagnostic = (message: string): void => {
     try {
-      onDiagnostic(message);
+      onDiagnostic(bounded(message));
     } catch {
       // Diagnostics are best effort and must not affect execution.
     }
@@ -168,6 +199,8 @@ export function createOpenCodeObservability(
       "OpenCode cost unit is not verified; omitted native cost context",
     );
   };
+  const providerModelAttributesAllowed =
+    createProviderModelBudget(reportDiagnostic);
 
   const parent = currentSpan(context, reportDiagnostic);
   if (parent === undefined || parent.isValid === false) {
@@ -191,12 +224,13 @@ export function createOpenCodeObservability(
     cause: unknown,
   ): void => {
     if (record.closed) return;
-    record.closed = true;
     try {
       record.span.error({ error: errorFor(cause), endSpan: true });
+      record.closed = true;
     } catch {
       try {
         record.span.end();
+        record.closed = true;
       } catch {
         // Best effort only: exporter failures must not affect execution.
       }
@@ -269,7 +303,11 @@ export function createOpenCodeObservability(
           type: MastraSpanType.MODEL_GENERATION,
           name: "OpenCode model generation",
           startTime: new Date(observation.created),
-          attributes: modelAttributes(observation, diagnoseCostUnit),
+          attributes: modelAttributes(
+            observation,
+            diagnoseCostUnit,
+            providerModelAttributesAllowed(observation),
+          ),
           metadata: {
             sessionID: bounded(observation.sessionID),
             messageID: bounded(observation.messageID),
@@ -290,7 +328,13 @@ export function createOpenCodeObservability(
     if (record === undefined) return;
     safeUpdate(
       record,
-      { attributes: modelAttributes(observation, diagnoseCostUnit) },
+      {
+        attributes: modelAttributes(
+          observation,
+          diagnoseCostUnit,
+          providerModelAttributesAllowed(observation),
+        ),
+      },
       () => disableProjection("update"),
     );
     if (isTerminal(observation))

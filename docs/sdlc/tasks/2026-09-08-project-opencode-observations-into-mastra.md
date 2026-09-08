@@ -255,6 +255,10 @@ Completed on `feature/mastra-agent-observability`, based on `mastra` at
   disables after its first span-operation failure, bounds model and tool
   identities, deduplicates terminal reducer output, and caps malformed-event
   diagnostics.
+- Follow-up review repair on PR #75: a dedicated per-attempt transition
+  dispatcher is the shared lifecycle authority for activity and span fan-out.
+  Closure failures remain retryable during projection disablement, and distinct
+  provider/model attributes use a bounded invocation-local budget.
 - Preserved existing interaction, activity, background-process, aggregate
   metrics, structured-output repair, session, and cancellation behavior.
 

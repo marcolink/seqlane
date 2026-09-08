@@ -20,12 +20,9 @@ import {
   type StructuredOutputState,
 } from "./structured-output-strategy.js";
 import { isNativeReadbackCompatibilityError } from "./structured-output-compatibility.js";
-import {
-  parseOpenCodeEvent,
-  type OpenCodeLegacyToolObservation,
-  type OpenCodeEventObservation,
-  type OpenCodeToolObservation,
-} from "./observations.js";
+import { parseOpenCodeEvent } from "./observations.js";
+import type { OpenCodeEventObservation } from "./observations.js";
+import { createAttemptTransitionDispatcher } from "./attempt-transitions.js";
 
 const checkpointSchema = z.object({
   sessionId: z.string().min(1),
@@ -37,100 +34,6 @@ const structuredOutputStates = new WeakMap<
   StructuredOutputState
 >();
 
-function stringField(
-  details: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = details[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-interface ActivityIdentity {
-  readonly kind: OpenCodeActivity["kind"];
-  readonly name: string;
-}
-
-function observationIdentity(observation: OpenCodeEventObservation): string {
-  return observation.kind === "assistant"
-    ? JSON.stringify([
-        "assistant",
-        observation.sessionID,
-        observation.messageID,
-      ])
-    : JSON.stringify(["tool", observation.messageID, observation.callID]);
-}
-
-function observationIsTerminal(observation: OpenCodeEventObservation): boolean {
-  return observation.kind === "assistant"
-    ? observation.completed !== undefined || observation.error !== undefined
-    : observation.status === "completed" || observation.status === "error";
-}
-
-function activityIdentity(
-  tool: string,
-  input: Record<string, unknown> | undefined,
-  metadata: Record<string, unknown> | undefined,
-  previous: ActivityIdentity | undefined,
-): ActivityIdentity | undefined {
-  if (tool !== "skill") return { kind: "tool", name: tool };
-  const name =
-    stringField(metadata ?? {}, "name") ??
-    stringField(input ?? {}, "name") ??
-    (previous?.kind === "skill" ? previous.name : undefined);
-  return name === undefined ? undefined : { kind: "skill", name };
-}
-
-function activityFromToolObservation(
-  observation: OpenCodeToolObservation | OpenCodeLegacyToolObservation,
-  activityIdentities: Map<string, ActivityIdentity>,
-): OpenCodeActivity | undefined {
-  const callID = observation.callID;
-  const identity =
-    observation.tool === undefined
-      ? activityIdentities.get(callID)
-      : activityIdentity(
-          observation.tool,
-          observation.input,
-          observation.metadata,
-          activityIdentities.get(callID),
-        );
-  if (
-    identity === undefined ||
-    callID.length > 256 ||
-    identity.name.length > 256
-  )
-    return undefined;
-  activityIdentities.set(callID, identity);
-  const state =
-    observation.status === "pending" ||
-    observation.status === "running" ||
-    observation.status === "called"
-      ? "started"
-      : observation.status === "progress"
-        ? "progress"
-        : observation.status === "completed" || observation.status === "success"
-          ? "succeeded"
-          : "failed";
-  return {
-    activityId: callID,
-    kind: identity.kind,
-    name: identity.name,
-    state,
-    ...(observation.input === undefined ? {} : { input: observation.input }),
-    ...(observation.output === undefined ? {} : { output: observation.output }),
-    ...(observation.metadata === undefined
-      ? {}
-      : { metadata: observation.metadata }),
-    ...(observation.startedAt === undefined
-      ? {}
-      : { startedAt: observation.startedAt }),
-    ...(observation.endedAt === undefined
-      ? {}
-      : { endedAt: observation.endedAt }),
-    ...(state === "failed" ? { message: "Tool failed" } : {}),
-  };
-}
-
 async function waitForInteraction(
   events: AsyncIterable<OpenCodeEvent>,
   sessionID: string,
@@ -141,37 +44,10 @@ async function waitForInteraction(
   onObservation: ((observation: OpenCodeEventObservation) => void) | undefined,
   onDiagnostic: ((message: string) => void) | undefined,
 ): Promise<void> {
-  const activityIdentities = new Map<string, ActivityIdentity>();
-  const terminalObservations = new Set<string>();
-  const dispatchObservation = (observation: OpenCodeEventObservation): void => {
-    const identity = observationIdentity(observation);
-    if (terminalObservations.has(identity)) return;
-    if (observationIsTerminal(observation)) terminalObservations.add(identity);
-    onObservation?.(observation);
-    if (observation.kind !== "tool") return;
-    const activity = activityFromToolObservation(
-      observation,
-      activityIdentities,
-    );
-    if (activity !== undefined) onActivity?.(activity);
-  };
-  const dispatchLegacyTool = (
-    observation: OpenCodeLegacyToolObservation,
-  ): void => {
-    const identity = JSON.stringify(["legacy-tool", observation.callID]);
-    if (terminalObservations.has(identity)) return;
-    const terminal =
-      observation.status === "completed" ||
-      observation.status === "error" ||
-      observation.status === "success" ||
-      observation.status === "failed";
-    if (terminal) terminalObservations.add(identity);
-    const activity = activityFromToolObservation(
-      observation,
-      activityIdentities,
-    );
-    if (activity !== undefined) onActivity?.(activity);
-  };
+  const dispatcher = createAttemptTransitionDispatcher({
+    onActivity,
+    onObservation,
+  });
   const reportDiagnostic = (message: string): void => {
     try {
       onDiagnostic?.(message);
@@ -188,11 +64,11 @@ async function waitForInteraction(
     if (parsed.interaction) return;
     const observation = parsed.observation;
     if (observation !== undefined) {
-      dispatchObservation(observation);
+      dispatcher.observation(observation);
       continue;
     }
     if (parsed.legacyTool !== undefined) {
-      dispatchLegacyTool(parsed.legacyTool);
+      dispatcher.legacyTool(parsed.legacyTool);
     }
     if (parsed.backgroundProcess) {
       // OpenCode's event does not expose a lifetime handle for this process.

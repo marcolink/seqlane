@@ -242,6 +242,9 @@ Completed on `feature/mastra-agent-observability`, based on `mastra` at
   existing activity callbacks and native span transitions.
 - Added invocation-wide record, activity, input, and normalized-name bounds;
   tuple identity; duplicate suppression; and bounded conflict diagnostics.
+- Follow-up review repair on PR #75: late and conflicting tool observations
+  share an invocation-local diagnostic budget and one no-throw suppression
+  summary after that budget is exhausted.
 - Added descendant-first success, failure, incomplete, and cancellation
   closure with safe errors. Span-operation failures disable only native
   projection and preserve ACP execution.

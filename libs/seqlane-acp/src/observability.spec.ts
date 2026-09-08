@@ -249,6 +249,46 @@ describe("ACP v1 Mastra observability", () => {
     ]);
   });
 
+  it("bounds repeated late and conflicting diagnostics per invocation", () => {
+    const opened: string[] = [];
+    const closed: string[] = [];
+    const activities: unknown[] = [];
+    const diagnostics: Array<{ code: string; message: string }> = [];
+    const reducer = new AcpToolReducer("invocation", {
+      onToolOpened: (record) => opened.push(record.toolCallId),
+      onToolClosed: (record, outcome) =>
+        closed.push(`${record.toolCallId}:${outcome}`),
+      onActivity: (activity) => activities.push(activity),
+      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+
+    openTool(reducer, 0, "same", "tool");
+    for (let index = 0; index < 5; index += 1) {
+      openTool(reducer, 0, "same", "other");
+    }
+    closeTool(reducer, 0, "same", "tool");
+    for (let index = 0; index < 5; index += 1) {
+      closeTool(reducer, 0, "same", "other");
+    }
+    for (let index = 0; index < 5; index += 1) {
+      openTool(reducer, 0, "same", "tool");
+    }
+
+    expect(opened).toEqual(["same"]);
+    expect(closed).toEqual(["same:success"]);
+    expect(activities).toHaveLength(2);
+    expect(diagnostics).toHaveLength(9);
+    expect(diagnostics.slice(0, 8).map(({ code }) => code)).toEqual([
+      ...Array.from({ length: 5 }, () => "acp-tool-conflicting-name"),
+      ...Array.from({ length: 3 }, () => "acp-tool-conflicting-terminal"),
+    ]);
+    expect(diagnostics[8]).toEqual({
+      code: "acp-diagnostics-suppressed",
+      message:
+        "ACP v1 suppressed additional tool diagnostics after diagnostic budget exhaustion",
+    });
+  });
+
   it("rejects an unseen tool result before inspecting its raw result", () => {
     let serializationCount = 0;
     const reducer = new AcpToolReducer("invocation", {});

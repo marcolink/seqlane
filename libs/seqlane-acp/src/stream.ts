@@ -9,6 +9,11 @@ export const MAX_ACTIVITY_COUNT = 1_024;
 export const MAX_TOOL_RECORD_COUNT = 1_024;
 export const MAX_ACTIVITY_INPUT_LENGTH = 1_000_000;
 
+const MAX_DIAGNOSTICS = 8;
+const DIAGNOSTICS_SUPPRESSED_CODE = "acp-diagnostics-suppressed";
+const DIAGNOSTICS_SUPPRESSED_MESSAGE =
+  "ACP v1 suppressed additional tool diagnostics after diagnostic budget exhaustion";
+
 const textEncoder = new TextEncoder();
 const boundedToolString = (maximum: number) => z.string().min(1).max(maximum);
 
@@ -159,9 +164,29 @@ function reportDiagnostic(
   }
 }
 
+function createBoundedDiagnosticReporter(sinks: AcpToolReducerSinks) {
+  let count = 0;
+  let suppressionReported = false;
+  return (code: string, message: string): void => {
+    if (count < MAX_DIAGNOSTICS) {
+      count += 1;
+      reportDiagnostic(sinks, code, message);
+      return;
+    }
+    if (suppressionReported) return;
+    suppressionReported = true;
+    reportDiagnostic(
+      sinks,
+      DIAGNOSTICS_SUPPRESSED_CODE,
+      DIAGNOSTICS_SUPPRESSED_MESSAGE,
+    );
+  };
+}
+
 /** Adapter-local ACP v1 lifecycle authority for activity and native spans. */
 export class AcpToolReducer {
   private readonly records = new Map<string, AcpToolRecord>();
+  private readonly reportDiagnostic: (code: string, message: string) => void;
   private recordCount = 0;
   private activityCount = 0;
   private activityInputLength = 0;
@@ -169,7 +194,9 @@ export class AcpToolReducer {
   constructor(
     private readonly invocationId: string,
     private readonly sinks: AcpToolReducerSinks,
-  ) {}
+  ) {
+    this.reportDiagnostic = createBoundedDiagnosticReporter(sinks);
+  }
 
   consume(value: unknown, attemptIndex: number): AcpV1StreamChunk | undefined {
     const chunk = parseAcpV1StreamChunk(value);
@@ -205,16 +232,14 @@ export class AcpToolReducer {
     const existing = this.records.get(key);
     if (existing !== undefined) {
       if (existing.state === "closed") {
-        reportDiagnostic(
-          this.sinks,
+        this.reportDiagnostic(
           "acp-tool-late-observation",
           "ACP v1 ignored a tool observation after terminal closure",
         );
         return;
       }
       if (existing.toolName !== toolName) {
-        reportDiagnostic(
-          this.sinks,
+        this.reportDiagnostic(
           "acp-tool-conflicting-name",
           "ACP v1 ignored a tool observation with a conflicting name",
         );
@@ -275,16 +300,14 @@ export class AcpToolReducer {
       if (record.toolName === toolName && record.terminalOutcome === outcome) {
         return;
       }
-      reportDiagnostic(
-        this.sinks,
+      this.reportDiagnostic(
         "acp-tool-conflicting-terminal",
         "ACP v1 ignored a conflicting or late tool terminal observation",
       );
       return;
     }
     if (record.toolName !== toolName) {
-      reportDiagnostic(
-        this.sinks,
+      this.reportDiagnostic(
         "acp-tool-conflicting-terminal",
         "ACP v1 ignored a tool terminal observation with a conflicting name",
       );

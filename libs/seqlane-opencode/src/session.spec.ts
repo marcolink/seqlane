@@ -1,3 +1,4 @@
+// @test-scope ./attempt-transitions.ts
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { describe, expect, it, vi } from "vitest";
@@ -275,7 +276,10 @@ async function startServer(
                 type: "tool",
                 callID: "call-1",
                 tool: "filesystem.read",
-                state: { status: "completed", output: "12 bytes" },
+                state: {
+                  status: "completed",
+                  output: "12 bytes",
+                },
               },
             },
           },

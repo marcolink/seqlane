@@ -48,6 +48,8 @@ function tool(
 function spanFactory(idPrefix = "") {
   const lifecycle: string[] = [];
   let failNextUpdate = false;
+  let failNextEnd = false;
+  let failNextError = false;
   const spans: Array<{
     id: string;
     type: SpanType;
@@ -84,10 +86,18 @@ function spanFactory(idPrefix = "") {
         record.updates.push(options);
       },
       end: () => {
+        if (failNextEnd) {
+          failNextEnd = false;
+          throw new Error("exporter unavailable");
+        }
         record.ended = true;
         lifecycle.push(`end:${id}`);
       },
       error: (value: unknown) => {
+        if (failNextError) {
+          failNextError = false;
+          throw new Error("exporter unavailable");
+        }
         record.ended = true;
         record.error = value;
         lifecycle.push(`error:${id}`);
@@ -102,6 +112,12 @@ function spanFactory(idPrefix = "") {
     lifecycle,
     failNextUpdate: () => {
       failNextUpdate = true;
+    },
+    failNextEnd: () => {
+      failNextEnd = true;
+    },
+    failNextError: () => {
+      failNextError = true;
     },
     root: makeSpan(SpanType.WORKFLOW_STEP) as never,
   };
@@ -236,6 +252,23 @@ describe("OpenCode Mastra observability projection", () => {
     );
   });
 
+  it("retries closure of the failed record during disable cleanup", () => {
+    const factory = spanFactory();
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: factory.root } },
+      "invocation-1",
+    );
+
+    projector.observe(assistant({ completed: undefined }));
+    factory.failNextError();
+    projector.finish(new Error("later failure"));
+
+    const model = factory.spans.find(
+      (span) => span.type === SpanType.MODEL_GENERATION,
+    );
+    expect(model?.ended).toBe(true);
+  });
+
   it("bounds distinct model identities", () => {
     const factory = spanFactory();
     const diagnostics: string[] = [];
@@ -257,6 +290,42 @@ describe("OpenCode Mastra observability projection", () => {
     expect(diagnostics).toContain(
       "OpenCode native projection disabled after span model identity limit failure",
     );
+  });
+
+  it("omits provider and model after the invocation cardinality budget", () => {
+    const factory = spanFactory();
+    const diagnostics: string[] = [];
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: factory.root } },
+      "invocation-1",
+      (message) => diagnostics.push(message),
+    );
+
+    for (let index = 0; index < 130; index += 1) {
+      projector.observe(
+        assistant({
+          messageID: `message-${index}`,
+          provider: `provider-${index}`,
+          model: `model-${index}`,
+          cost: undefined,
+          completed: 120,
+        }),
+      );
+    }
+
+    const models = factory.spans.filter(
+      (span) => span.type === SpanType.MODEL_GENERATION,
+    );
+    expect(models).toHaveLength(130);
+    expect(models[127]?.attributes).toMatchObject({
+      provider: "provider-127",
+      model: "model-127",
+    });
+    expect(models[128]?.attributes).not.toHaveProperty("provider");
+    expect(models[128]?.attributes).not.toHaveProperty("model");
+    expect(diagnostics).toEqual([
+      "OpenCode provider/model cardinality limit reached; omitted provider/model attributes",
+    ]);
   });
 
   it("keeps one fallback and ignores later unmatched terminal identities", () => {
