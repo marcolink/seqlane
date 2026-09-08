@@ -123,6 +123,13 @@ remote runner evidence.
 The shared lifecycle change regenerated the embedded OpenCode and zvec-grep
 main bundles. Their source behavior was unchanged.
 
+The endpoint-ownership fix for `SEQ-PR76-018` now matches the configured
+listener host and port before it sends the bearer token. It treats macOS
+`lsof`'s `*:<port>` display as equivalent to configured `0.0.0.0:<port>` only;
+wildcard output cannot satisfy a specific host. The full Ripwire Action test
+suite now contains 85 tests. The earlier focused 77-test result and all prior
+verification evidence remain recorded above.
+
 ## Traceability
 
 - [spec.ripwire-server-action](../specs/2026-09-08-ripwire-server-action.md)

@@ -132,12 +132,16 @@ Before spawn, the Action checks that the canonical listen port is available.
 The check is an early failure signal, not an ownership proof. During each
 startup probe, the Action opens one unauthenticated TCP connection to the
 canonical listener. It uses `/usr/bin/ss` on Linux and `/usr/sbin/lsof` on
-macOS to verify that a listening PID belongs to the spawned process group. It
-keeps the connection open during this check, then sends the MCP request and
-bearer token over the same connection. It does not send request bytes or the
-token before ownership is verified. The ownership command uses the probe's
-remaining timeout and a bounded output buffer. An unrelated listener cannot
-satisfy readiness.
+macOS to verify that the discovered listener has the exact configured host and
+port and that its listening PID belongs to the spawned process group. For a
+configured `0.0.0.0:<port>` listener, macOS `lsof` output may display
+`*:<port>`; that display is a safe wildcard equivalent only for the configured
+`0.0.0.0` host. Wildcard output never satisfies a specific configured host such
+as `127.0.0.1`. The Action keeps the connection open during this check, then
+sends the MCP request and bearer token over the same connection. It does not
+send request bytes or the token before ownership is verified. The ownership
+command uses the probe's remaining timeout and a bounded output buffer. An
+unrelated listener cannot satisfy readiness.
 
 After readiness, the Action verifies that the spawned process is alive and
 still has the recorded process identity. A failed check uses the same startup
@@ -209,7 +213,10 @@ keeps `*` denied and explicitly allows all Ripwire read-only tools:
 generated Ripwire token is added as a second newline-delimited redaction value
 where the workflow processes or exports the review recording. The workflow
 continues to use trusted workflow/source checkouts and does not execute
-untrusted pull-request code.
+untrusted pull-request code. Review task instructions use workspace-relative
+paths for native read, glob, and grep, pass the exact `repository` workspace
+root to zvec-grep, and omit `path` and `paths` from Ripwire calls so Ripwire
+uses its pinned review-workspace root.
 
 ## Failure and edge cases
 
@@ -237,6 +244,10 @@ GitHub-hosted smoke job.
 - It installs only a verified Ripwire binary from a direct versioned release
   URL for a supported target.
 - It starts, probes, exposes outputs, and cleans up the service as specified.
+- Before sending the bearer token, readiness proves ownership of the exact
+  configured listener host and port, including only the documented macOS
+  `0.0.0.0` and `*` display equivalence; wildcard output does not satisfy a
+  specific host.
 - All input and token security combinations are tested.
 - `.github/workflows/unit-tests.yml` runs a read-only hosted smoke job.
 - The review workflow starts zvec-grep and Ripwire against `review-target`,

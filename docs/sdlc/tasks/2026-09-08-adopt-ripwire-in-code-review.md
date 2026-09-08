@@ -36,6 +36,10 @@ trusted Seqlane pull-request review workflow while preserving zvec-grep.
   zvec/read policy.
 - Add the generated Ripwire token to both workflow recording redaction
   environments without removing the OpenAI key.
+- Document the provider-specific review path rule: native read, glob, and grep
+  use workspace-relative paths; zvec-grep receives the exact workspace root;
+  Ripwire calls omit `path` and `paths` and use its pinned review-workspace
+  root.
 - Update the Ripwire spec, this task, and `examples/README.md`; refresh the
   generated SDLC task index.
 
@@ -55,7 +59,9 @@ trusted Seqlane pull-request review workflow while preserving zvec-grep.
 2. Add the authenticated Ripwire MCP configuration and read-only allowlist to
    the existing OpenCode policy.
 3. Redact the generated Ripwire token in recording and export steps.
-4. Align the active spec and example documentation, then regenerate indexes.
+4. Keep shared review-task instructions provider-specific and bounded: do not
+   force indexed searches when native evidence is sufficient.
+5. Align the active spec and example documentation, then regenerate indexes.
 
 ## Affected areas
 
@@ -72,6 +78,10 @@ trusted Seqlane pull-request review workflow while preserving zvec-grep.
   existing YAML mechanism.
 - Run `pnpm docs:index` and `pnpm docs:validate`.
 - Run the focused `pr-code-review-example.spec.ts` test and `pnpm test:mapping`.
+- Run a GitHub-hosted manual dispatch of `Seqlane code review` and verify that
+  both service Actions start, OpenCode connects to both MCP servers, a Ripwire
+  read-only tool call succeeds, the review publishes, and all service post
+  hooks run.
 - Run Prettier on changed files and the repository formatting check.
 - Run `git diff --check` and `actionlint` when available.
 
@@ -82,6 +92,8 @@ trusted Seqlane pull-request review workflow while preserving zvec-grep.
 - OpenCode retains `*` denied, permits the 27 Ripwire read-only tools, and
   denies all four Ripwire write-capable tools.
 - Both review recording paths redact OpenAI and Ripwire token values.
+- Review instructions scope native tools, zvec-grep, and Ripwire correctly and
+  prohibit parent, runner, and trusted-source paths.
 - The spec, task index, and examples describe the combined provider setup.
 - The task Outcome remains empty for parent reconciliation.
 

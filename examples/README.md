@@ -204,7 +204,12 @@ Ripwire token is generated for each run and is redacted from review recordings
 and exported events. Indexing uses a review-source allowlist and explicitly
 excludes dependency, generated, cache, environment, credential, and key paths;
 in particular, `node_modules` is never indexed. Default zvec-grep and
-repository ignore rules remain enabled.
+repository ignore rules remain enabled. Review tasks use workspace-relative
+paths for native read, glob, and grep. They pass the exact review workspace root
+to zvec-grep, while Ripwire calls omit `path` and `paths` so the pinned
+review-workspace root supplies scope. Tasks do not force indexed searches when
+native evidence is sufficient, and they never search parent, runner, or trusted
+source paths.
 
 ## Manual merge-conflict resolution
 
