@@ -109,17 +109,24 @@ The review instructions now separate provider path rules. Native tools use
 workspace-relative paths, zvec-grep receives the exact review root, and
 Ripwire omits `path` and `paths` so its pinned root controls scope.
 
-Local verification passed test mapping, all 45 code-review workflow tests,
+Local verification passed test mapping, all 46 code-review workflow tests,
 YAML configuration extraction, documentation validation and tests, formatting,
 and diff checks. The Action verification also passed typecheck, bundle build
 and drift, and all 85 Ripwire tests. An authenticated local `analyze` call with
 an omitted path succeeded against the Action-managed service.
 
-GitHub-hosted workflow run `34206891601` used the branch workflow at commit
-`f34fd6264857b7d2b9325e7a3f512e1e2cd5870b`. It started both service Actions,
-loaded the authenticated dual-provider OpenCode configuration, completed and
-published the review, and ran the OpenCode, Ripwire, and zvec-grep post hooks.
-The published review approved the change with no required findings.
+GitHub-hosted workflow run `34206891601` started both service Actions, loaded
+the authenticated dual-provider OpenCode configuration, published the review,
+and ran all post hooks. The published review approved the change with no
+required findings.
+
+After the branch was rebased onto `origin/main`, CI run `34208233395` passed
+the affected unit, lint, typecheck, format, documentation, and hosted Ripwire
+smoke jobs. Branch workflow run `34208730088` then validated the rebased head
+at `8be6f3cf74568f1f04e0e1c42daa3b32350ded63`. It started zvec-grep and
+Ripwire, used the new cached OpenCode setup, completed the review and export,
+and ran the OpenCode, Ripwire, and zvec-grep post hooks. Its stale-write guard
+correctly kept the existing authoritative report after the history rewrite.
 
 ## Traceability
 
