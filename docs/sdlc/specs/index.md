@@ -28,3 +28,6 @@
 | [spec.agent-adapter-boundary-and-capabilities](./2026-09-04-agent-adapter-boundary-and-capabilities.md) | Generic ACP Adapter Boundary and Capability Model | active | 2026-09-04 | core |
 | [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md) | Versioned Pull Request Review Comments | active | 2026-09-05 | core |
 | [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Mechanical Pull Request Review Dispositions | draft | 2026-09-06 | core |
+| [spec.acp-mastra-observability-projection](./2026-09-07-acp-mastra-observability-projection.md) | ACP v1-to-Mastra Observability Projection | active | 2026-09-07 | core |
+| [spec.mastra-native-agent-observability](./2026-09-07-mastra-native-agent-observability.md) | Native Mastra Agent Observability Projection | active | 2026-09-07 | core |
+| [spec.opencode-mastra-observability-projection](./2026-09-08-opencode-mastra-observability-projection.md) | OpenCode-to-Mastra Observability Projection | active | 2026-09-08 | core |

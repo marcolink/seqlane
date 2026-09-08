@@ -144,6 +144,7 @@ export function executeAgentAdapterRequest(
   const agentTask = task as AgentTaskDefinition;
   return adapter.execute({
     invocationId: request.invocationId,
+    observability: request.observability,
     task: agentTask,
     input: request.input,
     ...(effectiveSelection === undefined || !adapter.capabilities.modelSelection

@@ -21,6 +21,7 @@
     ]
   },
   "dependencies": {
+    "@mastra/core": "1.64.0",
     "@opencode-ai/sdk": "1.18.27",
     "@seqlane/agent-adapter": "workspace:*",
     "@seqlane/core": "workspace:*",

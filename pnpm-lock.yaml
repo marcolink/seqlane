@@ -179,6 +179,9 @@ importers:
       '@mastra/acp':
         specifier: 0.4.0
         version: 0.4.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
+      '@mastra/core':
+        specifier: 1.64.0
+        version: 1.64.0(express@5.2.1)(zod@4.5.4)
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../seqlane-agent-adapter
@@ -191,6 +194,9 @@ importers:
 
   libs/seqlane-agent-adapter:
     dependencies:
+      '@mastra/core':
+        specifier: 1.64.0
+        version: 1.64.0(express@5.2.1)(zod@4.5.4)
       '@seqlane/core':
         specifier: workspace:*
         version: link:../seqlane-core
@@ -221,6 +227,9 @@ importers:
 
   libs/seqlane-opencode:
     dependencies:
+      '@mastra/core':
+        specifier: 1.64.0
+        version: 1.64.0(express@5.2.1)(zod@4.5.4)
       '@opencode-ai/sdk':
         specifier: 1.18.27
         version: 1.18.27

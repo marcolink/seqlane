@@ -147,8 +147,10 @@ describe("resolveRuntimeProfile", () => {
         return { value: "done" };
       },
     };
+    const observability = { tracing: "invocation-context" };
     const request: ExecutorRequest = {
       invocationId: "invocation:source",
+      observability: observability as never,
       taskId: source.id,
       executor: "agent",
       input: null,
@@ -160,6 +162,7 @@ describe("resolveRuntimeProfile", () => {
     ).resolves.toEqual({ value: "done" });
     expect(received).toBeDefined();
     expect(received).not.toHaveProperty("modelSelection");
+    expect(received?.observability).toBe(observability);
   });
 
   it("forwards lifecycle callbacks through the private adapter boundary", async () => {
@@ -190,6 +193,7 @@ describe("resolveRuntimeProfile", () => {
     };
     const request: ExecutorRequest = {
       invocationId: "invocation:source",
+      observability: {},
       taskId: source.id,
       executor: "agent",
       input: null,
@@ -342,6 +346,7 @@ describe("resolveRuntimeProfile", () => {
     }) => {
       await session.executor.execute({
         invocationId: "invocation:source",
+        observability: {},
         taskId: source.id,
         executor: "agent",
         input: null,
@@ -449,6 +454,7 @@ describe("resolveRuntimeProfile", () => {
     });
     await session.executor.execute({
       invocationId: "invocation:source",
+      observability: {},
       taskId: source.id,
       executor: "agent",
       input: null,
