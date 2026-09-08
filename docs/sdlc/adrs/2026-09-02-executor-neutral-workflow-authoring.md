@@ -1,11 +1,11 @@
 ---
 id: adr.executor-neutral-workflow-authoring
 title: Keep Workflow Authoring and Plans Executor-Neutral
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes:
@@ -158,3 +158,4 @@ cannot represent the required task semantics without backend leakage.
 ## Traceability
 
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
+- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](./2026-09-08-mastra-backed-seqlane-workflows.md)
