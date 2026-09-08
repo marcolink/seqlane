@@ -188,6 +188,9 @@ importers:
       '@actions/tool-cache':
         specifier: 4.0.0
         version: 4.0.0
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
 
   actions/ripwire-server:
     dependencies:
