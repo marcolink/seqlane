@@ -1,10 +1,9 @@
 import { Command, Flags } from "@oclif/core";
 import {
-  createOperationalHost,
   loadRuntimeAdapterConfiguration,
   runtimeAdapterConfigurationEnvironment,
 } from "@seqlane/runtime/operational-host";
-import { loadOperationalWorkflows } from "../operational-workflows.js";
+import { startOwnedOperationalHost } from "../operational-command-host.js";
 import { workflowRootsFromFlags } from "../workflow-roots.js";
 
 function errorMessage(error: unknown): string {
@@ -43,24 +42,19 @@ export default class ServeCommand extends Command {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(ServeCommand);
-    let operationalHost: Awaited<ReturnType<typeof createOperationalHost>>;
+    let operationalHost: Awaited<ReturnType<typeof startOwnedOperationalHost>>;
     try {
       const roots = workflowRootsFromFlags(flags);
       const adapterConfiguration =
         process.env[runtimeAdapterConfigurationEnvironment] === undefined
           ? undefined
           : loadRuntimeAdapterConfiguration();
-      const workflows = await loadOperationalWorkflows(
+      operationalHost = await startOwnedOperationalHost({
         roots,
-        undefined,
-        undefined,
-        adapterConfiguration,
-      );
-      operationalHost = await createOperationalHost({
-        workflows,
         host: flags.hostname,
         port: flags.port,
         storageUrl: flags["storage-url"],
+        adapterConfiguration,
       });
     } catch (error) {
       this.error(

@@ -1,11 +1,11 @@
 ---
 id: task.mastra-studio-run-inspection
 title: Inspect Seqlane Runs in Mastra Community Studio
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-07
 upstream:
   - spec.mastra-runtime-and-operational-integration
 supersedes: []
@@ -39,8 +39,15 @@ Connect Community Studio to a working Seqlane/Mastra host and its real runs.
 
 ## Scope
 
-- Start an owned operational host when no external server URL is set.
-- Connect to an external loopback host when its URL is set and reject other URLs.
+- Make `seqlane studio` the primary one-command local inspection workflow.
+- In its default mode, start and supervise one owned operational host at
+  `127.0.0.1:4111`, then start Community Studio at `127.0.0.1:3000`.
+- Accept `--server-url <loopback-url>` to attach Community Studio to an
+  external host. Validate the URL and never start, replace, or stop that host.
+- Keep `seqlane serve` headless. A `serve --studio` alias is out of scope;
+  it may be added later only as a thin delegation to the same lifecycle.
+- Treat this as one command with two processes, not an embedded Studio or a
+  single combined server.
 - Wait for host readiness before Community Studio starts.
 - Print the host and Studio URLs.
 - Stop only the host and Studio processes owned by the command.
@@ -57,12 +64,15 @@ Connect Community Studio to a working Seqlane/Mastra host and its real runs.
 
 ## Implementation plan
 
-1. Add an owned-host lifecycle to the existing Studio launcher.
-2. Add readiness checks and clear startup failures.
-3. Connect Studio to the resolved operational server URL.
-4. Add supported Seqlane metadata to Mastra runs and steps.
-5. Add process ownership, signal, and same-run inspection tests.
-6. Update the local Studio runbook.
+1. Extract a reusable owned-host lifecycle from the foreground `serve` path.
+2. Make `studio` use that lifecycle by default and attach-only mode for
+   `--server-url`.
+3. Add readiness checks and clear startup failures before spawning Studio.
+4. Stop owned children on Studio failure and on `SIGINT` or `SIGTERM`; preserve
+   attached hosts.
+5. Add supported Seqlane metadata to Mastra runs and steps.
+6. Add process ownership, signal, and same-run inspection tests.
+7. Update the local Studio runbook with both command forms.
 
 ## Affected areas
 
@@ -75,6 +85,7 @@ Connect Community Studio to a working Seqlane/Mastra host and its real runs.
 
 - The default command starts one host and one Community Studio process.
 - External-host mode does not stop or replace that host.
+- `seqlane serve` starts no Community Studio process.
 - Studio lists the discovered Seqlane workflows.
 - A CLI-started run appears with the same Work and Run identifiers.
 - An MCP-started run appears with the same Work and Run identifiers.
@@ -88,7 +99,15 @@ shows the same runs that CLI and MCP clients started.
 
 ## Outcome
 
-Not started.
+`seqlane studio` now starts and supervises an owned loopback operational host
+by default, waits for readiness, then launches the pinned upstream Mastra
+Community Studio. `--server-url` attaches to a validated loopback host without
+owning or stopping it. Studio failure and process signals close only the owned
+host and Studio processes. `seqlane serve` reuses the owned-host startup path
+and remains headless.
+
+The CLI README documents both modes. Command-level coverage proves ownership,
+readiness, attach mode, Studio startup failure, signal forwarding, and cleanup.
 
 ## Traceability
 

@@ -181,7 +181,7 @@
 | [task.explicit-runtime-adapter-selection](./2026-09-04-explicit-runtime-adapter-selection.md) | Define Explicit Runtime Adapter Selection and Configuration | completed | 2026-09-04 | core |
 | [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
 | [task.protocol-agnostic-acp-adapter](./2026-09-04-protocol-agnostic-acp-adapter.md) | Implement a Protocol-Agnostic ACP Adapter | completed | 2026-09-04 | core |
-| [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | planned | 2026-09-04 | core |
+| [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | completed | 2026-09-04 | core |
 | [task.session-checkpoint-fork-capabilities](./2026-09-04-session-checkpoint-fork-capabilities.md) | Map Session, Checkpoint, and Fork Capabilities | completed | 2026-09-04 | core |
 | [task.mastra-operational-end-to-end](./2026-09-04-mastra-operational-end-to-end.md) | Prove One Run Across All Mastra Operational Surfaces | planned | 2026-09-04 | core |
 | [task.resolve-pull-request-merge-conflicts](./2026-09-04-resolve-pull-request-merge-conflicts.md) | Resolve Pull Request Merge Conflicts | completed | 2026-09-04 | core |
