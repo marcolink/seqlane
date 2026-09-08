@@ -5,7 +5,7 @@ status: proposed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -171,6 +171,14 @@ Convenient but hides which automation is actually executing.
 ## Decision Test
 
 Reconsider this ADR if repository/user scope proves insufficient, cross-scope compatibility becomes unmanageable, or organizational scale requires a central catalog.
+
+## Delivery state
+
+This decision is not delivered on the current default branch as of
+2026-09-08. Pull request [#28](https://github.com/marcolink/seqlane/pull/28)
+reports a merge, but commit `7d9d8f5` is not reachable from current
+`origin/main`, and the discovery source files are absent. The decision remains
+proposed.
 
 ## Traceability
 

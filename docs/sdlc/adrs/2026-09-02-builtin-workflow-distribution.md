@@ -1,17 +1,23 @@
 ---
 id: adr.builtin-workflow-distribution
 title: Store and Ship Built-in Workflows as a Dedicated Package
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
 ---
 
 # Store and Ship Built-in Workflows as a Dedicated Package
+
+## Status note
+
+This decision was implemented and later retired. It has no current
+replacement. Current top-level examples and direct workflow references replace
+the dedicated built-ins package and catalog described here.
 
 ## Context
 
@@ -131,3 +137,4 @@ cross-version compatibility beyond the Seqlane CLI release.
 ## Traceability
 
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
+- [spec.builtin-workflow-distribution](../specs/2026-09-02-builtin-workflow-distribution.md)

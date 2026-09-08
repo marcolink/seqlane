@@ -11,6 +11,8 @@
 - Keep runtime-engine types and dependencies out of core, serialized Plans, and public workflow-author APIs.
 - Keep executor implementations, including OpenCode, out of workflow definitions, serialized Plans, public APIs, runner IPC, and documented CLI/configuration. Follow [adr.executor-neutral-workflow-authoring](docs/sdlc/adrs/2026-09-02-executor-neutral-workflow-authoring.md) when changing these boundaries.
 - For SDLC documents, follow [the SDLC agent instructions](docs/sdlc/AGENTS.md).
+- Treat SDLC lifecycle states as document metadata, not as proof that code is delivered. An accepted ADR records a decision. An active spec defines a contract. A completed task records a historical document claim. None of these states alone proves implementation on the current target branch.
+- For delivery claims, inspect the current target-branch source, tests, and configuration. Require a reachable delivery commit or a merged pull request whose result is reachable from that target branch. Do not use a local branch, disconnected worktree, task or spec status, index row, or pull-request label as sole evidence.
 - Use pnpm and keep `pnpm-lock.yaml` synchronized.
 - Breaking changes are allowed in this phase. Preserve observable behavior unless a behavior change is intentional, documented, and tested.
 

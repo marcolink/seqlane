@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - prd.seqlane
 supersedes: []
@@ -104,6 +104,24 @@ does not depend on a documentation renderer or agent-specific copy.
 reference, index, and relative SDLC link errors in one run. The validator uses
 Node.js standard-library APIs and adds no documentation dependency.
 
+### C10: Delivery-state verification
+
+The corpus must distinguish normative document state from implementation and
+delivery state. ADR, spec, and task statuses support architecture, contract,
+and work history. They do not prove that implementation is delivered.
+
+Delivery claims must use this evidence hierarchy:
+
+1. Inspect the current target-branch source, tests, and configuration.
+2. Confirm a reachable commit or a merged pull request whose resulting commit
+   is reachable from that target branch.
+3. Use hosted runs and task outcomes as supporting verification evidence.
+
+Local branches, disconnected worktrees, index rows, document statuses, pull
+request labels, and merged-PR reports without reachable results cannot establish
+current delivery. A task marked `completed` records a historical or
+document-revision claim unless the required delivery evidence is also present.
+
 ## Detailed contracts
 
 Allowed statuses and the authority model are defined in
@@ -125,6 +143,8 @@ complete the chain.
 - Legacy numeric IDs can remain only in migration history, not as canonical
   metadata IDs or relationships.
 - Git history, not a duplicate file, preserves obsolete source locations.
+- A superseded document can have no replacement only when a status note records
+  that the work was retired and identifies the current references, if any.
 
 ## Migration
 

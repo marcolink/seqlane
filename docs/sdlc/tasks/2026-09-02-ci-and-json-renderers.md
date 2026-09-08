@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - spec.seqlane-execution-output-package
 supersedes: []

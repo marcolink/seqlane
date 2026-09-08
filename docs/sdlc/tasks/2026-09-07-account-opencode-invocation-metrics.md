@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-08
 upstream:
   - spec.opencode-executor-integration
 supersedes: []
