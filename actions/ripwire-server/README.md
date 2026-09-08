@@ -15,6 +15,15 @@ The Action publishes `mcp-url`, `log-path`, `binary-path`, and normalized
 assets. It validates all inputs before downloading or starting a process and
 uses the shared identity-checked service lifecycle for cleanup.
 
+Startup uses one timeout deadline for all MCP probes. The Action checks the
+listen port before it starts Ripwire and verifies process identity and
+liveness after readiness. A readiness response must report the exact MCP
+protocol version, `serverInfo.name` `ripwire`, and Ripwire server software
+version `1.0`; this is separate from the downloaded release version. Child
+processes receive an explicit minimal environment. The Action removes failed
+partial installs and removes a successful install directory only after the post
+step confirms process termination.
+
 ## Usage
 
 ```yaml

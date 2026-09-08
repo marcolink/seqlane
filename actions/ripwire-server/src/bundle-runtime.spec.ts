@@ -32,4 +32,15 @@ describe("Ripwire action bundle", () => {
       true,
     );
   });
+
+  it("does not let NODE_ENV disable the directly executed main bundle", async () => {
+    const main = new URL("../dist/main.js", import.meta.url);
+    await expect(
+      execFileAsync(process.execPath, [main.pathname], {
+        env: { ...process.env, NODE_ENV: "test" },
+      }),
+    ).rejects.toMatchObject({
+      stdout: expect.stringContaining("working-directory"),
+    });
+  });
 });

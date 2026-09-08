@@ -92,7 +92,13 @@ security validation, HTTP MCP initialize readiness, identity-checked process
 lifecycle, post cleanup, committed bundles, and a read-only hosted smoke job.
 The code-review workflow remains unchanged as required.
 
-Focused Action typecheck, tests (38 tests), bundle build and drift checks,
+The follow-up hardening also uses one startup deadline, strict protocol and
+server identity checks, listen-port preflight, post-readiness liveness checks,
+an explicit child environment allowlist, direct-entry detection instead of a
+`NODE_ENV` gate, child-exit process-anchor cleanup, and safe install-directory
+cleanup.
+
+Focused Action typecheck, tests (48 tests), bundle build and drift checks,
 test mapping, SDLC validation/tests, formatting, YAML parsing, and diff checks
 passed. The existing shared lifecycle tests passed with host process
 permissions. A local run of the production bundle downloaded Ripwire `0.4.0`,

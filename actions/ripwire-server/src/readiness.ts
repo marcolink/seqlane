@@ -7,22 +7,6 @@ export interface ParsedListenAddress {
   readonly mcpUrl: string;
 }
 
-const initializeResponseSchema = z
-  .object({
-    jsonrpc: z.literal("2.0"),
-    id: z.literal(1),
-    result: z
-      .object({
-        protocolVersion: z.string().min(1),
-        capabilities: z.record(z.string(), z.unknown()),
-        serverInfo: z
-          .object({ name: z.string().min(1), version: z.string().min(1) })
-          .passthrough(),
-      })
-      .passthrough(),
-  })
-  .passthrough();
-
 export const MCP_INITIALIZE_REQUEST = {
   jsonrpc: "2.0",
   id: 1,
@@ -33,6 +17,31 @@ export const MCP_INITIALIZE_REQUEST = {
     clientInfo: { name: "seqlane-ripwire-action", version: "1.0.0" },
   },
 } as const;
+
+export const RIPWIRE_SERVER_INFO_VERSION = "1.0";
+
+function initializeResponseSchema() {
+  return z
+    .object({
+      jsonrpc: z.literal("2.0"),
+      id: z.literal(1),
+      result: z
+        .object({
+          protocolVersion: z.literal(
+            MCP_INITIALIZE_REQUEST.params.protocolVersion,
+          ),
+          capabilities: z.record(z.string(), z.unknown()),
+          serverInfo: z
+            .object({
+              name: z.literal("ripwire"),
+              version: z.literal(RIPWIRE_SERVER_INFO_VERSION),
+            })
+            .passthrough(),
+        })
+        .passthrough(),
+    })
+    .passthrough();
+}
 
 function parsePort(value: string): number {
   if (!/^\d{1,5}$/.test(value))
@@ -82,13 +91,25 @@ export function parseListenAddress(listen: string): ParsedListenAddress {
   };
 }
 
-function parseSsePayload(text: string): unknown {
-  const dataLines = text
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trim());
-  if (dataLines.length === 0) return JSON.parse(text);
-  return JSON.parse(dataLines.join("\n"));
+export function parseMcpResponseBody(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Continue with the one-event Streamable HTTP SSE representation.
+  }
+  const events = text
+    .split(/\r?\n\r?\n/)
+    .map((event) =>
+      event
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim()),
+    )
+    .filter((dataLines) => dataLines.length > 0);
+  if (events.length !== 1) {
+    throw new Error("Ripwire MCP readiness returned more than one SSE event");
+  }
+  return JSON.parse(events[0]?.join("\n") ?? "");
 }
 
 async function readBody(response: Response, maxBytes: number): Promise<string> {
@@ -127,6 +148,7 @@ async function readBody(response: Response, maxBytes: number): Promise<string> {
 export async function checkMcpInitialize(
   url: string,
   token: string | undefined,
+  timeoutMilliseconds: number,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   const headers: Record<string, string> = {
@@ -134,11 +156,14 @@ export async function checkMcpInitialize(
     "Content-Type": "application/json",
   };
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (!Number.isFinite(timeoutMilliseconds) || timeoutMilliseconds <= 0) {
+    throw new Error("Ripwire MCP readiness deadline expired");
+  }
   const response = await fetchImpl(url, {
     method: "POST",
     headers,
     body: JSON.stringify(MCP_INITIALIZE_REQUEST),
-    signal: AbortSignal.timeout(3_000),
+    signal: AbortSignal.timeout(Math.max(1, Math.floor(timeoutMilliseconds))),
   });
   try {
     const body = await readBody(response, 1_024 * 1_024);
@@ -147,13 +172,13 @@ export async function checkMcpInitialize(
     }
     let parsed: unknown;
     try {
-      parsed = parseSsePayload(body);
+      parsed = parseMcpResponseBody(body);
     } catch (error) {
       throw new Error("Ripwire MCP readiness returned invalid JSON", {
         cause: error,
       });
     }
-    const result = initializeResponseSchema.safeParse(parsed);
+    const result = initializeResponseSchema().safeParse(parsed);
     if (!result.success) {
       throw new Error(
         "Ripwire MCP readiness returned an invalid initialize response",
@@ -168,16 +193,22 @@ export async function checkMcpInitialize(
 }
 
 export async function waitForMcpHealth(
-  check: () => Promise<void>,
+  check: (remainingMilliseconds: number) => Promise<void>,
   timeoutMilliseconds: number,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMilliseconds;
   while (Date.now() < deadline) {
+    const remainingMilliseconds = deadline - Date.now();
     try {
-      await check();
+      await check(remainingMilliseconds);
+      if (Date.now() >= deadline) break;
       return;
     } catch {
-      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      const remainingAfterProbe = deadline - Date.now();
+      if (remainingAfterProbe <= 0) break;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, Math.min(250, remainingAfterProbe)),
+      );
     }
   }
   throw new Error("ripwire did not become ready before the startup timeout");

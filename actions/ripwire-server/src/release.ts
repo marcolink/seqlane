@@ -3,7 +3,14 @@ import { writeFileSync } from "node:fs";
 import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { gunzipSync } from "node:zlib";
-import { dirname, join } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -306,6 +313,26 @@ export interface InstallOptions {
   readonly runVersion?: (binaryPath: string) => Promise<string>;
 }
 
+export async function removeInstallDirectory(
+  installDirectory: string,
+  runnerTemp: string,
+): Promise<void> {
+  const root = resolve(runnerTemp);
+  const target = resolve(installDirectory);
+  const relativePath = relative(root, target);
+  if (
+    !relativePath ||
+    relativePath.startsWith("..") ||
+    isAbsolute(relativePath) ||
+    !basename(target).startsWith("ripwire-")
+  ) {
+    throw new Error(
+      "Refusing to remove an install directory outside RUNNER_TEMP",
+    );
+  }
+  await rm(target, { recursive: true, force: true });
+}
+
 export async function verifyBinaryVersion(
   binaryPath: string,
   expectedVersion: string,
@@ -333,44 +360,49 @@ export async function installRipwire(
     options.architecture,
   );
   const installDirectory = await mkdtemp(join(options.runnerTemp, "ripwire-"));
-  const archivePath = join(installDirectory, target.archiveName);
-  const checksumPath = join(installDirectory, target.checksumName);
-  const [archive, checksum] = await Promise.all([
-    downloadBytes(target.archiveUrl, {
-      maxBytes: MAX_ARCHIVE_BYTES,
-      fetchImpl: options.fetchImpl,
-    }),
-    downloadBytes(target.checksumUrl, {
-      maxBytes: MAX_CHECKSUM_BYTES,
-      fetchImpl: options.fetchImpl,
-    }),
-  ]);
-  await writeFile(archivePath, archive, { mode: 0o600 });
-  await writeFile(checksumPath, checksum, { mode: 0o600 });
-  verifySha256(archive, checksum, target.archiveName);
-  const binaryPath = join(installDirectory, "ripwire");
-  extractBinary(archive, target, binaryPath);
-  await chmod(binaryPath, 0o755);
-  const version = options.runVersion
-    ? await options.runVersion(binaryPath)
-    : await verifyBinaryVersion(binaryPath, target.version);
-  if (version !== target.version) {
-    throw new Error(
-      `Ripwire binary version mismatch; expected ${target.version}`,
-    );
+  try {
+    const archivePath = join(installDirectory, target.archiveName);
+    const checksumPath = join(installDirectory, target.checksumName);
+    const [archive, checksum] = await Promise.all([
+      downloadBytes(target.archiveUrl, {
+        maxBytes: MAX_ARCHIVE_BYTES,
+        fetchImpl: options.fetchImpl,
+      }),
+      downloadBytes(target.checksumUrl, {
+        maxBytes: MAX_CHECKSUM_BYTES,
+        fetchImpl: options.fetchImpl,
+      }),
+    ]);
+    await writeFile(archivePath, archive, { mode: 0o600 });
+    await writeFile(checksumPath, checksum, { mode: 0o600 });
+    verifySha256(archive, checksum, target.archiveName);
+    const binaryPath = join(installDirectory, "ripwire");
+    extractBinary(archive, target, binaryPath);
+    await chmod(binaryPath, 0o755);
+    const version = options.runVersion
+      ? await options.runVersion(binaryPath)
+      : await verifyBinaryVersion(binaryPath, target.version);
+    if (version !== target.version) {
+      throw new Error(
+        `Ripwire binary version mismatch; expected ${target.version}`,
+      );
+    }
+    await Promise.all([
+      rm(archivePath, { force: true }),
+      rm(checksumPath, { force: true }),
+    ]);
+    const details = await stat(binaryPath);
+    if (!details.isFile())
+      throw new Error("Installed Ripwire binary is not a regular file");
+    return {
+      version: target.version,
+      binaryPath,
+      binaryDirectory: installDirectory,
+    };
+  } catch (error) {
+    await rm(installDirectory, { recursive: true, force: true });
+    throw error;
   }
-  await Promise.all([
-    rm(archivePath, { force: true }),
-    rm(checksumPath, { force: true }),
-  ]);
-  const details = await stat(binaryPath);
-  if (!details.isFile())
-    throw new Error("Installed Ripwire binary is not a regular file");
-  return {
-    version: target.version,
-    binaryPath,
-    binaryDirectory: installDirectory,
-  };
 }
 
 export function assetNameForPlatform(

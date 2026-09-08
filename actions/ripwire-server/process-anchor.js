@@ -101,4 +101,15 @@ sentinel.once("spawn", () => {
   child.once("spawn", () => {
     sendMessage({ type: "ready", sentinelPid: sentinel.pid });
   });
+
+  child.once("exit", (code, signal) => {
+    sendMessage(
+      {
+        type: "child-exited",
+        code,
+        signal,
+      },
+      () => process.exit(code === 0 ? 0 : 1),
+    );
+  });
 });

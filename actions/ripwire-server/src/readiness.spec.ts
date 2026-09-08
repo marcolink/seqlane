@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   checkMcpInitialize,
   MCP_INITIALIZE_REQUEST,
+  parseMcpResponseBody,
   parseListenAddress,
+  RIPWIRE_SERVER_INFO_VERSION,
+  waitForMcpHealth,
 } from "./readiness.js";
 
 describe("Ripwire MCP readiness", () => {
@@ -24,7 +27,10 @@ describe("Ripwire MCP readiness", () => {
           result: {
             protocolVersion: "2025-06-18",
             capabilities: {},
-            serverInfo: { name: "ripwire", version: "0.4.0" },
+            serverInfo: {
+              name: "ripwire",
+              version: RIPWIRE_SERVER_INFO_VERSION,
+            },
           },
         }),
         { status: 200, headers: { "content-type": "application/json" } },
@@ -33,6 +39,7 @@ describe("Ripwire MCP readiness", () => {
     await checkMcpInitialize(
       "http://127.0.0.1:7998/mcp",
       "secret",
+      3_000,
       fetchImpl as unknown as typeof fetch,
     );
     expect(fetchImpl).toHaveBeenCalledOnce();
@@ -42,15 +49,24 @@ describe("Ripwire MCP readiness", () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response(
-          'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"ripwire","version":"0.4.0"}}}\n\n',
+          `event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"ripwire","version":"${RIPWIRE_SERVER_INFO_VERSION}"}}}\n\n`,
           { status: 200, headers: { "content-type": "text/event-stream" } },
         ),
     );
     await checkMcpInitialize(
       "http://127.0.0.1:7998/mcp",
       undefined,
+      3_000,
       fetchImpl as unknown as typeof fetch,
     );
+  });
+
+  it("accepts one SSE event with a multi-line data field", () => {
+    expect(
+      parseMcpResponseBody(
+        'event: message\ndata: {"jsonrpc":"2.0",\ndata: "id":1}\n\n',
+      ),
+    ).toEqual({ jsonrpc: "2.0", id: 1 });
   });
 
   it("rejects non-OK and malformed initialize responses", async () => {
@@ -58,6 +74,7 @@ describe("Ripwire MCP readiness", () => {
       checkMcpInitialize(
         "http://127.0.0.1:7998/mcp",
         undefined,
+        3_000,
         async () => new Response("unauthorized", { status: 401 }),
       ),
     ).rejects.toThrow("HTTP 401");
@@ -65,10 +82,57 @@ describe("Ripwire MCP readiness", () => {
       checkMcpInitialize(
         "http://127.0.0.1:7998/mcp",
         undefined,
+        3_000,
         async () =>
           new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }), {
             status: 200,
           }),
+      ),
+    ).rejects.toThrow("invalid initialize response");
+    await expect(
+      checkMcpInitialize(
+        "http://127.0.0.1:7998/mcp",
+        undefined,
+        3_000,
+        async () =>
+          new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              result: {
+                protocolVersion: "2024-11-05",
+                capabilities: {},
+                serverInfo: {
+                  name: "other",
+                  version: RIPWIRE_SERVER_INFO_VERSION,
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+    ).rejects.toThrow("invalid initialize response");
+    await expect(
+      checkMcpInitialize(
+        "http://127.0.0.1:7998/mcp",
+        undefined,
+        3_000,
+        async () =>
+          new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              result: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                serverInfo: {
+                  name: "ripwire",
+                  version: "0.4.0",
+                },
+              },
+            }),
+            { status: 200 },
+          ),
       ),
     ).rejects.toThrow("invalid initialize response");
   });
@@ -80,5 +144,18 @@ describe("Ripwire MCP readiness", () => {
       listen: "127.0.0.1:7998",
       mcpUrl: "http://127.0.0.1:7998/mcp",
     });
+  });
+
+  it("enforces one hard startup deadline, including a slow probe", async () => {
+    const seen: number[] = [];
+    const started = Date.now();
+    await expect(
+      waitForMcpHealth(async (remainingMilliseconds) => {
+        seen.push(remainingMilliseconds);
+        await new Promise<void>((resolve) => setTimeout(resolve, 1_100));
+      }, 1_000),
+    ).rejects.toThrow("startup timeout");
+    expect(seen[0]).toBeLessThanOrEqual(1_000);
+    expect(Date.now() - started).toBeLessThan(1_700);
   });
 });

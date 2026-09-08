@@ -1,5 +1,6 @@
 // @test-scope ./lifecycle.ts
 // @test-scope ./commands.ts
+// @test-scope ./port.ts
 
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -35,11 +36,14 @@ function dependencies(
 ): RipwireLifecycleDependencies {
   return {
     assertDirectory: vi.fn(async () => undefined),
+    assertListenAvailable: vi.fn(async () => undefined),
     spawnDetached: vi.fn(async () => service),
     adoptDetachedProcess: vi.fn(async () => undefined),
     terminateProcessGroup: vi.fn(async () => true),
+    readProcessIdentity: vi.fn(async () => identity),
+    isProcessAlive: vi.fn(() => true),
     checkMcpInitialize: vi.fn(async () => undefined),
-    waitForMcpHealth: vi.fn(async (check) => check()),
+    waitForMcpHealth: vi.fn(async (check) => check(1_000)),
     ...overrides,
   };
 }
@@ -51,6 +55,9 @@ describe("Ripwire lifecycle", () => {
       assertDirectory: vi.fn(async () => {
         events.push("validate");
       }),
+      assertListenAvailable: vi.fn(async () => {
+        events.push("port");
+      }),
       spawnDetached: vi.fn(async (options) => {
         events.push(`spawn:${options.cwd}`);
         return service;
@@ -60,7 +67,7 @@ describe("Ripwire lifecycle", () => {
       }),
       waitForMcpHealth: vi.fn(async (check) => {
         events.push("wait");
-        await check();
+        await check(1_000);
       }),
       checkMcpInitialize: vi.fn(async () => {
         events.push("ready");
@@ -79,6 +86,7 @@ describe("Ripwire lifecycle", () => {
     );
     expect(events).toEqual([
       "validate",
+      "port",
       "spawn:/tmp/ripwire-install",
       "state:pid",
       "state:process-group-id",
@@ -126,5 +134,49 @@ describe("Ripwire lifecycle", () => {
       service.identity,
       { pid: service.sentinelPid, identity: service.sentinelIdentity },
     );
+  });
+
+  it("warns when startup cleanup cannot verify the process group", async () => {
+    const warning = vi.fn();
+    const deps = dependencies({
+      waitForMcpHealth: vi.fn(async () => {
+        throw new Error("not ready");
+      }),
+      terminateProcessGroup: vi.fn(async () => false),
+    });
+    await expect(
+      runRipwireLifecycle(
+        {
+          config,
+          binaryDirectory: "/tmp/ripwire-install",
+          logPath: "/tmp/ripwire.log",
+          environment: {},
+        },
+        { saveState: vi.fn(), warning },
+        deps,
+      ),
+    ).rejects.toThrow("not ready");
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("could not be verified"),
+    );
+  });
+
+  it("cleans up when the process identity or liveness check fails", async () => {
+    const deps = dependencies({
+      isProcessAlive: vi.fn(() => false),
+    });
+    await expect(
+      runRipwireLifecycle(
+        {
+          config,
+          binaryDirectory: "/tmp/ripwire-install",
+          logPath: "/tmp/ripwire.log",
+          environment: {},
+        },
+        { saveState: vi.fn(), warning: vi.fn() },
+        deps,
+      ),
+    ).rejects.toThrow("exited before startup completed");
+    expect(deps.terminateProcessGroup).toHaveBeenCalled();
   });
 });

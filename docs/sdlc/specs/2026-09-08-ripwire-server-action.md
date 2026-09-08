@@ -111,15 +111,34 @@ Readiness posts a JSON-RPC MCP initialize request to `/mcp` with `Accept:
 application/json, text/event-stream` and `Content-Type: application/json`.
 When configured, it sends `Authorization: Bearer <token>`. A successful probe
 requires HTTP 200 and a JSON-RPC 2.0 response with the matching request ID,
-protocol version, capabilities, and server information. JSON and one-event SSE
-responses are accepted. The probe has bounded response size and cancels the
-response body during cleanup.
+the exact requested protocol version, `serverInfo.name` equal to `ripwire`,
+and the expected Ripwire server software version (`1.0`). The server software
+version is separate from the downloaded release version. JSON and one-event
+SSE responses are accepted. One startup deadline is shared by all probes. Each
+probe receives the remaining time, caps its request timeout to that time, and
+the caller checks the deadline again after the probe. The probe has bounded
+response size and cancels the response body during cleanup.
+
+Before spawn, the Action checks that the canonical listen port is available.
+After readiness, it verifies that the spawned process is alive and still has
+the recorded process identity. A failed check uses the same startup cleanup
+helper as readiness and state-save failures. That helper warns when
+identity-checked termination returns false or throws.
 
 ### requirement-cleanup
 
 The post entrypoint reads the persisted identities and asks the shared
 lifecycle library to terminate the matching process group. It warns when the
 group cannot be verified or stopped and never signals a reused process group.
+After successful termination, it removes the persisted install directory. If
+acquisition fails, the partial install directory is removed immediately. A
+startup failure removes the install directory when no process identity was
+persisted; otherwise post cleanup retains ownership.
+
+The child environment is an explicit allowlist containing the trusted binary
+`PATH`, temporary and home paths, locale values, XDG paths, and the optional
+`RIPWIRE_MCP_TOKEN`. Action inputs, GitHub tokens, cloud credentials, and
+other ambient variables are not inherited.
 
 ## Failure and edge cases
 

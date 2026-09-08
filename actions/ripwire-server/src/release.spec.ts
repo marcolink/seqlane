@@ -1,7 +1,7 @@
 // @test-scope ./release.ts
 
 import { gzipSync } from "node:zlib";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -182,5 +182,22 @@ describe("Ripwire release acquisition", () => {
         runVersion: async () => "0.3.9",
       }),
     ).rejects.toThrow("version mismatch");
+  });
+
+  it("removes a partial install directory when acquisition fails", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ripwire-release-test-"));
+    temporaryDirectories.push(directory);
+    await expect(
+      installRipwire({
+        version: "0.4.0",
+        runnerTemp: directory,
+        platform: "linux",
+        architecture: "x64",
+        fetchImpl: async () => {
+          throw new Error("download failed");
+        },
+      }),
+    ).rejects.toThrow("download failed");
+    await expect(readdir(directory)).resolves.toEqual([]);
   });
 });
