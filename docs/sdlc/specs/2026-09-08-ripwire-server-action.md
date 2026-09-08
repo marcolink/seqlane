@@ -35,8 +35,6 @@ valid MCP initialize response, and stops the service after the job.
 - Changing the Ripwire binary or MCP protocol.
 - Supporting unsupported operating systems or architectures.
 - Running the upstream install script or a third-party setup Action.
-- Adopting the Action in `.github/workflows/seqlane-code-review.yml`; that is a
-  later change and is out of scope for this specification.
 
 ## Terminology
 
@@ -184,6 +182,35 @@ The child environment is an explicit allowlist containing the trusted binary
 `RIPWIRE_MCP_TOKEN`. Action inputs, GitHub tokens, cloud credentials, and
 other ambient variables are not inherited.
 
+### requirement-review-workflow-caller
+
+The trusted `.github/workflows/seqlane-code-review.yml` caller starts both the
+existing `actions/zvec-grep-server` Action and `actions/ripwire-server` against
+`${{ github.workspace }}/review-target`. It starts Ripwire after zvec-grep and
+supplies `version: 0.4.0`, `listen: 127.0.0.1:7998`, `top-k: 200`,
+`stable-order: true`, `redact: true`, `allow-remote-edits: false`, and
+`startup-timeout-seconds: 30`. It does not supply an `mcp-token` seed. It uses
+Ripwire's generated `mcp-url` and per-run `mcp-token` outputs to configure a
+second authenticated remote MCP server in OpenCode.
+
+The caller keeps the existing zvec MCP configuration and permission. OpenCode
+keeps `*` denied and explicitly allows all Ripwire read-only tools:
+`ripwire_analyze`, `ripwire_find_symbol`, `ripwire_find_referencing_symbols`,
+`ripwire_grep`, `ripwire_cochange`, `ripwire_memory_recall`,
+`ripwire_situational_awareness`, `ripwire_mentions`, `ripwire_for`,
+`ripwire_lego`, `ripwire_owners`, `ripwire_fetch_body`, `ripwire_batch`,
+`ripwire_exemplar`, `ripwire_quality_delta`, `ripwire_impact`, `ripwire_uses`,
+`ripwire_path_between`, `ripwire_connect`, `ripwire_explore`,
+`ripwire_from_trace`, `ripwire_edit_check`, `ripwire_whereis`,
+`ripwire_stray_content`, `ripwire_flags`, `ripwire_doc_drift`, and
+`ripwire_slice`. The write-capable tools `ripwire_quality_baseline`,
+`ripwire_replace_symbol_body`, `ripwire_insert_before_symbol`, and
+`ripwire_insert_after_symbol` remain denied by the default policy. The
+generated Ripwire token is added as a second newline-delimited redaction value
+where the workflow processes or exports the review recording. The workflow
+continues to use trusted workflow/source checkouts and does not execute
+untrusted pull-request code.
+
 ## Failure and edge cases
 
 - Invalid input fails before download or process spawn.
@@ -212,10 +239,15 @@ GitHub-hosted smoke job.
 - It starts, probes, exposes outputs, and cleans up the service as specified.
 - All input and token security combinations are tested.
 - `.github/workflows/unit-tests.yml` runs a read-only hosted smoke job.
-- `.github/workflows/seqlane-code-review.yml` is unchanged by this work.
+- The review workflow starts zvec-grep and Ripwire against `review-target`,
+  uses Ripwire's generated URL and token, keeps remote edits disabled, and
+  adds all Ripwire read-only tools to the OpenCode allowlist while the four
+  write-capable tools remain denied.
 
 ## Traceability
 
 - [adr.seqlane-action-library-boundary](../adrs/2026-09-06-seqlane-action-library-boundary.md)
 - [task.migrate-service-actions-to-workspace-structure](../tasks/2026-09-07-migrate-service-actions-to-workspace-structure.md)
 - [task.add-ripwire-server-action](../tasks/2026-09-08-add-ripwire-server-action.md)
+- [task.adopt-ripwire-in-code-review](../tasks/2026-09-08-adopt-ripwire-in-code-review.md)
+- [spec.zvec-grep-action-owned-indexing](2026-09-07-zvec-grep-action-owned-indexing.md)
