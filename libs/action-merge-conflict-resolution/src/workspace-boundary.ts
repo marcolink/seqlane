@@ -237,7 +237,7 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
   private readonly git: GitWorkspacePort;
   private originalConflicts: ConflictSet = [];
   private originalAgentPaths: readonly ConflictPath[] = [];
-  private integrationBaselinePaths: readonly ConflictPath[] = [];
+  private readonly integrationBaselinePaths = new Set<ConflictPath>();
 
   constructor(options: NodeWorkspaceBoundaryOptions) {
     this.options = options;
@@ -267,12 +267,9 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
   }
 
   async captureIntegrationBaseline(): Promise<void> {
-    this.integrationBaselinePaths = [
-      ...new Set([
-        ...this.integrationBaselinePaths,
-        ...(await readWorkspaceChangePaths(this.git)),
-      ]),
-    ];
+    for (const path of await readWorkspaceChangePaths(this.git)) {
+      this.integrationBaselinePaths.add(path);
+    }
   }
 
   private rememberConflicts(conflicts: ConflictSet): void {

@@ -494,7 +494,7 @@ describe("workspace boundary", () => {
     }
   });
 
-  it("allows accumulated integration changes at a later rebase conflict", async () => {
+  it("keeps accumulated integration changes allowed at a later rebase conflict", async () => {
     const root = fixtureRoot();
     try {
       const source = join(root, "source");
