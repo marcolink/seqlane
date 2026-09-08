@@ -162,14 +162,21 @@ export async function runRipwireLifecycle(
     input.binaryDirectory,
     input.sessionToken,
   );
-  const service = await dependencies.spawnDetached({
-    command: "ripwire",
-    args: buildRipwireArguments(input.config),
-    cwd: input.binaryDirectory,
-    env: environment,
-    logPath: input.logPath,
-    anchorPath: processAnchorPath(),
-  });
+  let service: DetachedProcess;
+  try {
+    service = await dependencies.spawnDetached({
+      command: "ripwire",
+      args: buildRipwireArguments(input.config),
+      cwd: input.binaryDirectory,
+      env: environment,
+      logPath: input.logPath,
+      anchorPath: processAnchorPath(),
+    });
+  } catch (error) {
+    // No validated DetachedProcess was returned. Do not invent an identity or
+    // retry termination; retain the install for runner-level cleanup.
+    throw new RipwireStartupError(error, false);
+  }
 
   await saveProcessState(service, hooks, dependencies);
   try {

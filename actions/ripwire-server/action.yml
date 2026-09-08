@@ -6,7 +6,7 @@ inputs:
     description: Workspace directory to index and serve with Ripwire
     required: true
   version:
-    description: Ripwire GitHub Release version
+    description: Repository-trusted Ripwire release version (currently 0.4.0)
     required: false
     default: "0.4.0"
   listen:

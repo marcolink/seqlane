@@ -4,31 +4,37 @@
 SHA-256 checksum, extracts only the binary, starts its HTTP MCP server, and
 stops the process group in the post step.
 
-The Action accepts a required `working-directory`. It defaults to Ripwire
-`0.4.0`, loopback `127.0.0.1:7998`, `top-k=200`, stable output, redaction, and
-read-only remote behavior. Set `mcp-token` for a non-loopback listener or when
+The Action accepts a required `working-directory`. It supports the trusted
+Ripwire `0.4.0` assets for Linux and macOS on x64 and arm64. It defaults to
+loopback `127.0.0.1:7998`, `top-k=200`, stable output, redaction, and read-only
+remote behavior. Set `mcp-token` for a non-loopback listener or when
 `allow-remote-edits` is true. The input is a secret seed. The Action derives a
-new bearer token for each run and passes only that token to the child through
+new bearer token for each run. It passes only that token to the child through
 `RIPWIRE_MCP_TOKEN`. It never places either value in command arguments.
 
 The Action publishes `mcp-url`, `log-path`, `binary-path`, normalized `version`,
-and a secret per-run `mcp-token` output. It supports the released Linux and
-macOS x64 and arm64 assets. It validates all inputs before downloading or
-starting a process and uses the shared identity-checked service lifecycle for
-cleanup.
+and a secret per-run `mcp-token` output. It validates all inputs before a
+download or process start. It uses the shared identity-checked service
+lifecycle for cleanup.
 
-The release `--version` check runs with the same explicit minimal environment
-as the server. Ambient credentials, Action inputs, Node loader variables, and
-other ambient secret variables are not inherited.
+The release archive must match both the downloaded upstream checksum and the
+repository-controlled SHA-256 digest before extraction. The release
+`--version` check runs with the same explicit minimal environment as the
+server. Ambient credentials, Action inputs, Node loader variables, and other
+ambient secret variables are not inherited.
+
+If spawn fails before it returns validated process state, startup reports that
+cleanup is not verified. Post cannot safely retry without validated ownership,
+so the install remains for runner-level cleanup.
 
 Startup uses one timeout deadline for all MCP probes. The Action checks the
-listen port before it starts Ripwire and verifies process identity and
-liveness after readiness. A readiness response must report the exact MCP
-protocol version, `serverInfo.name` `ripwire`, and Ripwire server software
-version `1.0`; this is separate from the downloaded release version. Child
-processes receive an explicit minimal environment. The Action removes failed
-partial installs and removes a successful install directory only after the post
-step confirms process termination.
+listen port before it starts Ripwire. It verifies process identity and liveness
+after readiness. A readiness response must report the exact MCP protocol
+version, `serverInfo.name` `ripwire`, and Ripwire server software version
+`1.0`. This server version is separate from the downloaded release version.
+Child processes receive an explicit minimal environment. The Action removes
+failed partial installs. It removes a successful install directory only after
+the post step confirms process termination.
 
 Each run creates a new bearer token. If `mcp-token` is provided, the Action
 uses it only as a secret derivation seed. The child and readiness probe receive
@@ -53,17 +59,17 @@ output for authenticated callers.
 
 ## Inputs
 
-| Input                     | Required | Default          | Description                                                                                      |
-| ------------------------- | -------- | ---------------- | ------------------------------------------------------------------------------------------------ |
-| `working-directory`       | Yes      | -                | Directory that Ripwire indexes and serves.                                                       |
-| `version`                 | No       | `0.4.0`          | Exact Ripwire release version. A leading `v` is accepted and removed from the normalized output. |
-| `listen`                  | No       | `127.0.0.1:7998` | HTTP listen address in `host:port` format. A non-loopback address requires `mcp-token`.          |
-| `top-k`                   | No       | `200`            | Maximum number of ranked symbols.                                                                |
-| `stable-order`            | No       | `true`           | Enable stable MCP output order.                                                                  |
-| `redact`                  | No       | `true`           | Enable sensitive source-content redaction.                                                       |
-| `mcp-token`               | No       | -                | Secret seed for the per-run MCP bearer token.                                                    |
-| `allow-remote-edits`      | No       | `false`          | Enable remote MCP edit operations. This setting requires `mcp-token`.                            |
-| `startup-timeout-seconds` | No       | `30`             | Maximum time to wait for a valid MCP initialize response (1 through 600 seconds).                |
+| Input                     | Required | Default          | Description                                                                             |
+| ------------------------- | -------- | ---------------- | --------------------------------------------------------------------------------------- |
+| `working-directory`       | Yes      | -                | Directory that Ripwire indexes and serves.                                              |
+| `version`                 | No       | `0.4.0`          | Repository-trusted Ripwire release version. Currently, only `0.4.0` is trusted.         |
+| `listen`                  | No       | `127.0.0.1:7998` | HTTP listen address in `host:port` format. A non-loopback address requires `mcp-token`. |
+| `top-k`                   | No       | `200`            | Maximum number of ranked symbols.                                                       |
+| `stable-order`            | No       | `true`           | Enable stable MCP output order.                                                         |
+| `redact`                  | No       | `true`           | Enable sensitive source-content redaction.                                              |
+| `mcp-token`               | No       | -                | Secret seed for the per-run MCP bearer token.                                           |
+| `allow-remote-edits`      | No       | `false`          | Enable remote MCP edit operations. This setting requires `mcp-token`.                   |
+| `startup-timeout-seconds` | No       | `30`             | Maximum time to wait for a valid MCP initialize response (1 through 600 seconds).       |
 
 ## Outputs
 

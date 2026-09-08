@@ -148,6 +148,34 @@ describe("Ripwire lifecycle", () => {
     );
   });
 
+  it("retains ownership as ambiguous when spawn rejects without state", async () => {
+    const terminateProcessGroup = vi.fn(async () => true);
+    const deps = dependencies({
+      spawnDetached: vi.fn(async () => {
+        throw new Error("process ownership ambiguous");
+      }),
+      terminateProcessGroup,
+    });
+    await expect(
+      runRipwireLifecycle(
+        {
+          config,
+          binaryDirectory: "/tmp/ripwire-install",
+          logPath: "/tmp/ripwire.log",
+          environment: {},
+          sessionToken: "session-token",
+        },
+        { saveState: vi.fn(), warning: vi.fn() },
+        deps,
+      ),
+    ).rejects.toMatchObject({
+      name: "RipwireStartupError",
+      cleanupSucceeded: false,
+      message: "process ownership ambiguous",
+    } satisfies Partial<RipwireStartupError>);
+    expect(terminateProcessGroup).not.toHaveBeenCalled();
+  });
+
   it("warns when startup cleanup cannot verify the process group", async () => {
     const warning = vi.fn();
     const deps = dependencies({

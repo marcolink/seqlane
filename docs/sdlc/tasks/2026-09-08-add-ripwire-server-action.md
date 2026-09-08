@@ -92,14 +92,20 @@ security validation, HTTP MCP initialize readiness, identity-checked process
 lifecycle, post cleanup, committed bundles, and a read-only hosted smoke job.
 The code-review workflow remains unchanged as required.
 
-The follow-up hardening also uses one startup deadline capped at 600 seconds,
-strict protocol and server identity checks, listen-port preflight, a unique
+The follow-up hardening also uses repository-pinned SHA-256 digests for each
+supported Ripwire `0.4.0` asset, rejects versions outside that trust table, and
+checks the pinned digest before extraction. It uses one startup deadline capped
+at 600 seconds. It also applies strict protocol and server identity checks,
+listen-port preflight, a unique
 per-run bearer ownership token, post-readiness liveness checks, an explicit
 child environment allowlist, direct-entry detection instead of a `NODE_ENV`
 gate, child-exit process-anchor cleanup, one schema-validated service-state
-value, typed startup cleanup outcomes, and safe install-directory cleanup.
+value, typed startup cleanup outcomes, safe install-directory cleanup, and
+typed handling for ambiguous spawn rejection. Post cannot retry such cleanup
+without validated service state, so the install remains for runner-level
+cleanup.
 
-Focused Action typecheck, tests (58 tests), bundle build and drift checks,
+Focused Action typecheck, tests (61 tests), bundle build and drift checks,
 test mapping, SDLC validation/tests, formatting, YAML parsing, and diff checks
 passed. The existing shared lifecycle tests passed with host process
 permissions. A local run of the production bundle downloaded Ripwire `0.4.0`,

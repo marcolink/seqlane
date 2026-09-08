@@ -35,6 +35,20 @@ export const MAX_CHECKSUM_BYTES = 4 * 1024;
 export const MAX_UNPACKED_ARCHIVE_BYTES = 256 * 1024 * 1024;
 export const DOWNLOAD_TIMEOUT_MILLISECONDS = 60_000;
 
+/** Repository-owned digests for the supported Ripwire release assets. */
+export const TRUSTED_RELEASE_DIGESTS = {
+  "0.4.0": {
+    linux: {
+      x64: "fd0bd0fa849c0e08db59a6a7e5c2d3e9bc062d3089b54196daf9332cd21bbfc8",
+      arm64: "9b82e4d13928974349730b9e713ff71118f5a65967753b03a3ce0b5e352be9c1",
+    },
+    macos: {
+      x64: "34c0b99dcdc3c592d2bc41bb3a34f95338cba5e4fa4fbd0b9579ae0b80bd47e8",
+      arm64: "ee8392f4e48be2076f18558ebae08c51dd90d616988a396e14fcdbc192f7a53d",
+    },
+  },
+} as const;
+
 export interface ReleaseTarget {
   readonly version: string;
   readonly platform: "linux" | "macos";
@@ -44,6 +58,7 @@ export interface ReleaseTarget {
   readonly archiveUrl: string;
   readonly checksumUrl: string;
   readonly rootDirectory: string;
+  readonly trustedSha256: string;
 }
 
 export interface InstalledRipwire {
@@ -56,6 +71,19 @@ export interface DownloadOptions {
   readonly maxBytes: number;
   readonly timeoutMilliseconds?: number;
   readonly fetchImpl?: typeof fetch;
+}
+
+export function trustedReleaseDigest(
+  version: string,
+  platform: "linux" | "macos",
+  architecture: "x64" | "arm64",
+): string {
+  if (version !== "0.4.0") {
+    throw new Error(
+      `Ripwire release version ${version} is not in the repository trust table`,
+    );
+  }
+  return TRUSTED_RELEASE_DIGESTS[version][platform][architecture];
 }
 
 export function releaseTarget(
@@ -83,6 +111,11 @@ export function releaseTarget(
   if (!targetArchitecture) {
     throw new Error(`Ripwire does not publish a binary for ${architecture}`);
   }
+  const trustedSha256 = trustedReleaseDigest(
+    normalizedVersion,
+    targetPlatform,
+    targetArchitecture,
+  );
   const stem = `ripwire-${normalizedVersion}-${targetPlatform}-${targetArchitecture}`;
   return {
     version: normalizedVersion,
@@ -93,6 +126,7 @@ export function releaseTarget(
     archiveUrl: `https://github.com/redhat-et/ripwire/releases/download/v${normalizedVersion}/${stem}.tar.gz`,
     checksumUrl: `https://github.com/redhat-et/ripwire/releases/download/v${normalizedVersion}/${stem}.tar.gz.sha256`,
     rootDirectory: `${stem}/`,
+    trustedSha256,
   };
 }
 
@@ -191,6 +225,18 @@ export function verifySha256(
   const actual = createHash("sha256").update(archive).digest("hex");
   if (actual !== expected)
     throw new Error("Ripwire release checksum verification failed");
+}
+
+export function verifyTrustedSha256(
+  archive: Uint8Array,
+  expected: string,
+): void {
+  const actual = createHash("sha256").update(archive).digest("hex");
+  if (actual !== expected) {
+    throw new Error(
+      "Ripwire release does not match the repository trust digest",
+    );
+  }
 }
 
 function tarText(buffer: Uint8Array, start: number, length: number): string {
@@ -398,6 +444,7 @@ export async function installRipwire(
     await writeFile(archivePath, archive, { mode: 0o600 });
     await writeFile(checksumPath, checksum, { mode: 0o600 });
     verifySha256(archive, checksum, target.archiveName);
+    verifyTrustedSha256(archive, target.trustedSha256);
     const binaryPath = join(installDirectory, "ripwire");
     extractBinary(archive, target, binaryPath);
     await chmod(binaryPath, 0o755);

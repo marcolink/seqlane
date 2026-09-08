@@ -54,7 +54,7 @@ The Action requires `working-directory`. It accepts these optional inputs:
 
 | Input | Default | Contract |
 | --- | --- | --- |
-| `version` | `0.4.0` | `X.Y.Z`, with optional leading `v`; output is numeric `X.Y.Z` |
+| `version` | `0.4.0` | Repository trust-table version, currently `0.4.0`; optional leading `v` |
 | `listen` | `127.0.0.1:7998` | IPv4 literal or `localhost`, with port `1` through `65535` |
 | `top-k` | `200` | Non-negative integer |
 | `stable-order` | `true` | Boolean; `false` adds `--no-stable` |
@@ -76,11 +76,13 @@ The MCP URL is `http://<canonical-host>:<canonical-port>/mcp`.
 
 ### requirement-release
 
-The Action maps only these runner targets to release assets: Linux x64, Linux
-arm64, macOS x64, and macOS arm64. It constructs direct URLs under the exact
-`v<version>` release tag for both `<asset>.tar.gz` and the matching
-`<asset>.tar.gz.sha256` file. It applies a request timeout and maximum byte
-limits to both downloads. It verifies the SHA-256 digest before extraction.
+The Action maps only these runner targets to the repository trust table for
+Ripwire `0.4.0`: Linux x64, Linux arm64, macOS x64, and macOS arm64. It
+constructs direct URLs under the exact `v<version>` release tag for both
+`<asset>.tar.gz` and the matching `<asset>.tar.gz.sha256` file. It applies a
+request timeout and maximum byte limits to both downloads. It verifies the
+downloaded upstream checksum and the repository-controlled SHA-256 digest
+before extraction. Other release versions and targets are rejected.
 
 The archive must use the expected version/platform/architecture root directory,
 contain a regular `ripwire` member, and contain no symlinks, hard links,
@@ -150,7 +152,10 @@ immediately. A startup failure removes the install directory only when no
 process was spawned or identity-checked cleanup succeeded; otherwise post
 cleanup retains ownership. Lifecycle startup failures use a typed error with a
 `cleanupSucceeded` field so main can make this decision without guessing from
-the error message.
+the error message. If spawn rejects before returning a validated
+`DetachedProcess`, startup reports `cleanupSucceeded=false` without inventing
+an identity. Post cannot safely retry without validated ownership, so the
+install remains for runner-level cleanup.
 
 The child environment is an explicit allowlist containing the trusted binary
 `PATH`, temporary and home paths, locale values, XDG paths, and the optional

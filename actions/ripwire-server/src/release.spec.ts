@@ -1,5 +1,6 @@
 // @test-scope ./release.ts
 
+import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import {
   releaseTarget,
   verifySha256,
   verifyBinaryVersion,
+  trustedReleaseDigest,
   type ReleaseTarget,
   type VersionCommandOptions,
 } from "./release.js";
@@ -74,6 +76,19 @@ describe("Ripwire release acquisition", () => {
     expect(() => releaseTarget("0.4.0", "aix", "x64")).toThrow(
       "does not publish",
     );
+    expect(trustedReleaseDigest("0.4.0", "linux", "x64")).toBe(
+      "fd0bd0fa849c0e08db59a6a7e5c2d3e9bc062d3089b54196daf9332cd21bbfc8",
+    );
+    expect(trustedReleaseDigest("0.4.0", "linux", "arm64")).toBe(
+      "9b82e4d13928974349730b9e713ff71118f5a65967753b03a3ce0b5e352be9c1",
+    );
+    expect(trustedReleaseDigest("0.4.0", "macos", "x64")).toBe(
+      "34c0b99dcdc3c592d2bc41bb3a34f95338cba5e4fa4fbd0b9579ae0b80bd47e8",
+    );
+    expect(trustedReleaseDigest("0.4.0", "macos", "arm64")).toBe(
+      "ee8392f4e48be2076f18558ebae08c51dd90d616988a396e14fcdbc192f7a53d",
+    );
+    expect(() => releaseTarget("0.3.9", "linux", "x64")).toThrow("trust table");
   });
 
   it("verifies the checksum before extracting the exact binary member", async () => {
@@ -152,18 +167,42 @@ describe("Ripwire release acquisition", () => {
   });
 
   it("rejects an installed binary version mismatch", async () => {
-    const release = target();
-    const archive = tarArchive([
-      tarEntry(release.rootDirectory, new Uint8Array(), "5"),
-      tarEntry(
-        `${release.rootDirectory}ripwire`,
-        new TextEncoder().encode("binary"),
+    await expect(
+      verifyBinaryVersion(
+        "/tmp/ripwire-install/ripwire",
+        "0.4.0",
+        async () => ({ stdout: "ripwire 0.3.9" }),
       ),
-    ]);
-    const digest = (await import("node:crypto"))
-      .createHash("sha256")
-      .update(archive)
-      .digest("hex");
+    ).rejects.toThrow("version mismatch");
+  });
+
+  it("rejects an upstream checksum mismatch during installation", async () => {
+    const release = target();
+    const directory = await mkdtemp(join(tmpdir(), "ripwire-release-test-"));
+    temporaryDirectories.push(directory);
+    await expect(
+      installRipwire({
+        version: "0.4.0",
+        runnerTemp: directory,
+        platform: "linux",
+        architecture: "x64",
+        fetchImpl: async (url) => {
+          const urlText = typeof url === "string" ? url : url.toString();
+          return new Response(
+            urlText.endsWith(".sha256")
+              ? `${"0".repeat(64)}  ${release.archiveName}\n`
+              : new Uint8Array([1, 2, 3]),
+            { status: 200 },
+          );
+        },
+      }),
+    ).rejects.toThrow("checksum verification failed");
+  });
+
+  it("rejects a pinned digest mismatch before extraction", async () => {
+    const release = target();
+    const archive = new Uint8Array([1, 2, 3]);
+    const digest = createHash("sha256").update(archive).digest("hex");
     const directory = await mkdtemp(join(tmpdir(), "ripwire-release-test-"));
     temporaryDirectories.push(directory);
     await expect(
@@ -177,13 +216,12 @@ describe("Ripwire release acquisition", () => {
           return new Response(
             urlText.endsWith(".sha256")
               ? `${digest}  ${release.archiveName}\n`
-              : Buffer.from(archive),
+              : archive,
             { status: 200 },
           );
         },
-        runVersion: async () => "0.3.9",
       }),
-    ).rejects.toThrow("version mismatch");
+    ).rejects.toThrow("trust digest");
   });
 
   it("runs version verification with a sanitized child environment", async () => {
