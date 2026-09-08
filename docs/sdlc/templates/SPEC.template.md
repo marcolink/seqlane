@@ -23,4 +23,5 @@ supersedes: []
 ## Migration
 ## Verification
 ## Acceptance criteria
+## Delivery state
 ## Traceability

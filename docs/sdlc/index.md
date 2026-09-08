@@ -28,12 +28,27 @@ and tasks.
 - Accepted RFCs and ADRs record architectural rationale and decisions.
 - An active spec defines the current implementation contract.
 - A task defines execution work. It does not redefine requirements or contracts.
+- These lifecycle states do not prove implementation delivery. An accepted ADR
+  is not the same as an implemented ADR. An active spec is not the same as an
+  implemented spec. A completed task is a historical or document-revision
+  claim, not a default-branch delivery claim.
 - If code and an active spec disagree, fix the implementation or explicitly
   change the spec.
 - If a spec changes an accepted architecture decision, amend or supersede the
   RFC or ADR in the same change.
 - A newer document does not override an older document unless supersession is
   explicit.
+
+## Delivery evidence
+
+Document status and type indexes support discovery and history. They are not a
+single source of truth for implementation delivery. To claim delivery, inspect
+the current target-branch source, tests, and configuration. Also require a
+reachable commit or a merged pull request whose resulting commit is reachable
+from that target branch. A local branch, disconnected worktree, task or spec
+status, index row, or pull-request label alone is insufficient. A merged pull
+request whose commit is not reachable from the target branch does not establish
+current delivery.
 
 ## Naming and metadata
 
@@ -60,7 +75,10 @@ Allowed statuses are:
 | SPEC | `draft`, `active`, `superseded` |
 | TASK | `planned`, `in-progress`, `blocked`, `completed`, `cancelled` |
 
-Superseded and rejected documents remain at their original canonical path.
+Superseded and rejected documents remain at their original canonical path. A
+document can be retired without a replacement only when its body has a clear
+status note that explains the retirement and points readers to current
+examples or references where applicable.
 
 ## Create a document
 
@@ -78,4 +96,6 @@ Superseded and rejected documents remain at their original canonical path.
 
 Start with the assigned task or active spec. Follow upstream links only as far
 as needed to understand product intent and architecture constraints. Use the
-type indexes to distinguish current, proposed, completed, and superseded work.
+type indexes to find documents, not to prove implementation delivery. Compare
+delivery claims with the current target-branch source, tests, configuration,
+and reachable Git history.

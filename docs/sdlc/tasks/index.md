@@ -175,7 +175,7 @@
 | [task.consolidate-pull-request-review-run-metrics](./2026-09-06-consolidate-pull-request-review-run-metrics.md) | Consolidate Pull Request Review Run Metrics | completed | 2026-09-06 | core |
 | [task.seqlane-action-resolution-contracts](./2026-09-06-seqlane-action-resolution-contracts.md) | Establish Seqlane Action Resolution Contracts | completed | 2026-09-06 | core |
 | [task.seqlane-action-workflow-migration](./2026-09-06-seqlane-action-workflow-migration.md) | Migrate the Merge Conflict Workflow to the Seqlane Action | completed | 2026-09-06 | core |
-| [task.seqlane-action-integration-verification](./2026-09-06-seqlane-action-integration-verification.md) | Verify the Seqlane Action Merge Conflict Resolver | completed | 2026-09-06 | core |
+| [task.seqlane-action-integration-verification](./2026-09-06-seqlane-action-integration-verification.md) | Verify the Seqlane Action Merge Conflict Resolver | in-progress | 2026-09-06 | core |
 | [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |
 | [task.account-opencode-invocation-metrics](./2026-09-07-account-opencode-invocation-metrics.md) | Account for all OpenCode model responses per invocation | completed | 2026-09-07 | core |
 | [task.adopt-zvec-grep-action-owned-indexing](./2026-09-07-adopt-zvec-grep-action-owned-indexing.md) | Adopt Action-Owned zvec-grep Indexing | completed | 2026-09-07 | core |
@@ -190,5 +190,6 @@
 | [task.add-ripwire-server-action](./2026-09-08-add-ripwire-server-action.md) | Add the Ripwire HTTP MCP GitHub Action | completed | 2026-09-08 | core |
 | [task.adopt-opencode-tool-setup-in-review-workflow](./2026-09-08-adopt-opencode-tool-setup-in-review-workflow.md) | Adopt OpenCode Tool Setup in the Review Workflow | completed | 2026-09-08 | core |
 | [task.adopt-ripwire-in-code-review](./2026-09-08-adopt-ripwire-in-code-review.md) | Adopt Ripwire in Seqlane Code Review | completed | 2026-09-08 | core |
+| [task.audit-sdlc-delivery-state](./2026-09-08-audit-sdlc-delivery-state.md) | Audit SDLC Delivery State | completed | 2026-09-08 | core |
 | [task.configure-generated-file-conflict-handlers](./2026-09-08-configure-generated-file-conflict-handlers.md) | Configure Generated-File Conflict Handlers | completed | 2026-09-08 | core |
 | [task.require-explicit-opencode-server-executable](./2026-09-08-require-explicit-opencode-server-executable.md) | Require an Explicit OpenCode Server Executable | completed | 2026-09-08 | core |

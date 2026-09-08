@@ -57,14 +57,18 @@ When the task needs more concrete mapping cues, read [references/doc-sync-heuris
 
 ## Decision Records Are Historical
 
-ADR files or decision records with status `accepted` or `implemented` are historical records.
+ADR files or decision records with status `accepted` are historical records.
 
-For accepted or implemented ADRs:
+For accepted ADRs:
 
 - read them for context
 - report drift or contradictions
 - suggest a new ADR, superseding ADR, or non-ADR doc update
 - do not edit the historical ADR as part of routine doc-sync work
+
+Keep ADR lifecycle state separate from implementation delivery state. Use
+current target-branch source, tests, configuration, and reachable Git history
+to assess delivery. A task or spec status does not prove delivery.
 
 Only edit ADRs when the user explicitly asks for ADR lifecycle work.
 
