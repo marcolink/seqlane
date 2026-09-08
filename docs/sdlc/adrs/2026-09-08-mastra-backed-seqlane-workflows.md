@@ -69,19 +69,33 @@ nodes remain out of this delivery.
 The private runtime compiles the Seqlane Plan to Mastra. Mastra establishes
 graph eligibility. Seqlane admission decides when eligible work starts. The
 runtime preserves session reuse and branching, atomic admission, typed run
-outcomes, and narrow runner notifications.
+outcomes, and narrow runner notifications. Independent eligible nodes can run
+concurrently. Admission policy still decides which eligible nodes can start.
 
-The first runtime cutover preserves serial observable behavior. Concurrent DAG
-execution is a later decision. The invocation kernel remains the shared place
-for task execution, policy application, cancellation, cleanup, and typed
-errors.
+The existing engine-neutral `@seqlane/core` runner-protocol boundary owns the
+versioned Zod schemas and inferred types for runner notifications and
+serialized run outcomes. The private runtime owns emission. The protocol has
+one terminal serialized outcome per run and does not become a generic event
+bus. `@seqlane/events` remains until consumer compatibility tests pass.
 
-Subprocess execution moves out of Effect in a separate slice. It preserves
-cancellation, bounded output, process cleanup, and typed errors.
+The first runtime cutover preserves observable behavior while retaining the
+current dependency-aware concurrency. Dependencies establish eligibility;
+Seqlane session and workspace admission determine actual starts. The
+invocation kernel remains the shared place for task execution, policy
+application, cancellation, cleanup, and typed errors.
 
-Mastra observability carries Seqlane semantic attributes. Admission wait after
-dependencies are ready is a high-priority signal. The CLI, output, Studio,
-recording, and replay behavior stay available during this migration.
+Subprocess execution moves out of Effect in a separate slice. A shell task
+uses an executable and argv array with direct spawn and `shell: false`. The
+runtime owns the workspace, environment policy, timeout, output bounds,
+cancellation, process-group cleanup, and typed errors.
+
+Mastra observability carries a bounded allowlist of Seqlane semantic
+attributes. Admission wait after dependencies are ready is a high-priority
+signal. The CLI, output, Studio, recording, and replay behavior stay available
+during this migration.
+
+Bounded repeats accept a finite `maximumIterations` from 1 through 1,000. The
+run-wide repeat-body budget is also 1,000 executions.
 
 `@seqlane/events` is transitional. Consumers migrate to the replacement
 notification and observability contracts before the package is deleted.
@@ -115,11 +129,13 @@ admission policy. Seqlane must control the start boundary.
 - Core remains free of Mastra types and dependencies.
 - The runtime has one executable engine and one invocation kernel.
 - Plan inspection remains stable and serializable.
-- The first cutover keeps serial behavior while the compiler is introduced.
+- Independent eligible nodes retain dependency-aware concurrent execution.
 - Effect code, packages, and imports are removed after the migration slices.
 - Existing CLI, output, Studio, recording, and replay contracts require
   compatibility work during the consumer migration.
-- Concurrent DAG scheduling remains future work.
+- Runner notifications and serialized outcomes have a separate versioned
+  contract from Mastra observability.
+- Shell tasks cannot parse workflow data as command strings.
 
 ## Traceability
 

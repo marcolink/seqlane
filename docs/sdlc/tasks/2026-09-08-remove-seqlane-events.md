@@ -18,6 +18,10 @@ supersedes: []
 Delete the transitional `@seqlane/events` package after every consumer uses the
 replacement observability, notification, and typed outcome contracts.
 
+The replacement runner schemas and inferred types remain owned by the
+engine-neutral `@seqlane/core` runner-protocol boundary. Runtime emission,
+Mastra telemetry, and bounded Studio or recording projections remain separate.
+
 ## Upstream requirements
 
 - `REQ-OBS-002`: Migrate runner and event consumers.
@@ -32,6 +36,8 @@ replacement observability, notification, and typed outcome contracts.
 
 - Prove that no runtime, CLI, output, Studio, fixture, or documentation
   consumer imports `@seqlane/events`.
+- Prove that the core-owned versioned runner envelope, strict schemas, sequence
+  ordering, cancellation semantics, and one terminal outcome remain available.
 - Remove the package source, project configuration, tests, exports, and
   workspace dependency entries.
 - Remove obsolete event build artifacts from package and release metadata.
@@ -47,10 +53,11 @@ replacement observability, notification, and typed outcome contracts.
 ## Implementation plan
 
 1. Search the repository for package and symbol references.
-2. Resolve each remaining consumer through the migration contract.
-3. Delete the package and its workspace metadata.
-4. Update exports, lockfile, fixtures, and documentation.
-5. Run the full repository gate and inspect the final dependency graph.
+2. Resolve each remaining consumer through the versioned migration contract.
+3. Run compatibility and malformed-input tests for notifications and outcomes.
+4. Delete the package and its workspace metadata.
+5. Update exports, lockfile, fixtures, and documentation.
+6. Run the full repository gate and inspect the final dependency graph.
 
 ## Affected areas
 
@@ -82,6 +89,8 @@ Then run the full gate:
 - `@seqlane/events` has no source, project, export, or dependency reference.
 - Runner, CLI, output, Studio, recording, and replay checks pass.
 - Typed outcomes and narrow notifications remain available.
+- No duplicate replacement schema, generic event bus, or Mastra type is
+  introduced.
 - The changed behavior passes every required check.
 - Any remaining failure is proven on the unchanged baseline and recorded.
 - The active specification and ADR remain the only migration authority.

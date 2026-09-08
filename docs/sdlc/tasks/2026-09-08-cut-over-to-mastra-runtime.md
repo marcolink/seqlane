@@ -35,14 +35,17 @@ compiler, and remove Effect packages and code.
 
 - Route the runner and runtime through the private Mastra compiler.
 - Preserve admission, session, workspace, cancellation, cleanup, and outcomes.
-- Keep serial observable behavior during cutover.
+- Preserve dependency-aware concurrency during cutover. Independent eligible
+  nodes can start concurrently when admission allows it.
+- Keep deterministic graph and admission rules; do not require completion or
+  event order for independent work.
 - Delete Effect runtime packages, code, imports, and compatibility paths.
 - Update package manifests, lockfile, fixtures, and runtime documentation.
 - Run the full repository verification gate.
 
 ## Out of scope
 
-- Concurrent DAG scheduling.
+- Adding a new concurrency feature or changing admission policy.
 - Workflow composition changes after the compiler contract.
 - Mastra observability enrichment.
 - Execution-event consumer deletion.
@@ -51,7 +54,8 @@ compiler, and remove Effect packages and code.
 
 1. Select one runtime entry point for compiler-backed execution.
 2. Move policy admission after Mastra eligibility and before start.
-3. Compare serial fixtures and outcomes against the existing contract.
+3. Compare dependency-aware concurrency fixtures and outcomes against the
+   existing contract.
 4. Remove Effect dependencies and dead code.
 5. Run repository-wide checks and record baseline failures separately.
 
@@ -83,7 +87,8 @@ Then run the full gate:
 - Mastra is the only workflow engine in runtime execution.
 - Effect packages, imports, and runtime paths are absent.
 - Admission starts work only after dependencies and policy permit it.
-- Serial fixtures preserve current outcomes and user-visible behavior.
+- Concurrent independent fixtures preserve current outcomes and user-visible
+  behavior.
 - Cancellation, cleanup, and typed errors remain covered.
 - The changed behavior passes every required check.
 - Any remaining failure is proven on the unchanged baseline and recorded.

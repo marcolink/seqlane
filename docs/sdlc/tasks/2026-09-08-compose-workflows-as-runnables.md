@@ -41,7 +41,8 @@ inputs, outputs, identities, and runtime outcomes.
 ## Out of scope
 
 - New control-flow node kinds.
-- Concurrent child workflow execution.
+- Adding a new parallel control-flow node. Independent nested work follows the
+  current eligibility and admission concurrency contract.
 - Public Mastra types or engine configuration.
 - Changes to active session or model policy contracts.
 

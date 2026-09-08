@@ -34,6 +34,8 @@ Replace legacy workflow definition with `createFlow(...).task(...).output(...).d
 - Remove `defineWorkflow({ build })` support.
 - Lower task invocations, validation checks, validation gates, and bounded
   repeats.
+- Define `BoundedRepeatNode.maximumIterations` as a finite integer from 1
+  through 1,000 and retain the run-wide 1,000 repeat-body budget.
 - Preserve reference-based dependency inference and stable node addresses.
 - Validate Plan nodes, bindings, and registry data with Zod.
 - Preserve explicit session and workspace policy at invocation boundaries.
@@ -42,7 +44,8 @@ Replace legacy workflow definition with `createFlow(...).task(...).output(...).d
 
 - Mastra graph compilation.
 - Runtime admission or session policy changes.
-- Parallel, branch, choose, foreach, retry, persistence, or suspension nodes.
+- New parallel, branch, choose, foreach, retry, persistence, or suspension
+  nodes. Existing independent work keeps the current concurrency contract.
 - Nested workflow invocation and `WorkflowInvocationNode`.
 - Effect subprocess replacement.
 
@@ -52,7 +55,9 @@ Replace legacy workflow definition with `createFlow(...).task(...).output(...).d
 2. Add the `createFlow` chain and typed task overloads.
 3. Define the current task, validation, and repeat node schemas.
 4. Lower authoring values without executing runnable implementations.
-5. Migrate fixtures and add malformed-input and composition tests.
+5. Add per-node and run-wide repeat-limit validation, including nested
+   accumulation and the exact 1,000 boundary.
+6. Migrate fixtures and add malformed-input and composition tests.
 
 ## Affected areas
 
@@ -75,6 +80,9 @@ Then run:
 - Legacy `defineWorkflow({ build })` is unavailable.
 - The Plan contains only the supported node kinds.
 - Invocation policies remain serialized and type-safe.
+- Repeat limits reject non-finite or out-of-range values and stop before repeat
+  execution 1,001.
+- Per-node and run-wide exhaustion return their typed errors.
 - Plan serialization and malformed-input tests pass.
 
 ## Outcome

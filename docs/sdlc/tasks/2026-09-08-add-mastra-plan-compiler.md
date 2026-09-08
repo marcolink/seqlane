@@ -34,14 +34,17 @@ Mastra types to core or public authoring contracts.
 - Add a private Mastra compiler for the supported Plan node kinds.
 - Map bindings and stable Plan addresses to private Mastra steps.
 - Reuse the invocation kernel for task execution and typed outcomes.
-- Preserve serial node start order.
+- Preserve dependency-aware eligibility and allow independent admitted nodes to
+  execute concurrently.
+- Preserve deterministic node identity and admission rules, but do not require
+  deterministic completion or notification order for independent work.
 - Adapt Mastra lifecycle signals to Seqlane runtime state.
 - Add compiler and compatibility fixtures.
 
 ## Out of scope
 
 - Runtime cutover or Effect deletion.
-- Concurrent DAG scheduling.
+- Adding a new concurrency feature or changing admission policy.
 - Public Mastra exports or configuration.
 - New Plan node kinds.
 
@@ -51,7 +54,8 @@ Mastra types to core or public authoring contracts.
 2. Map each supported node to a Mastra step.
 3. Preserve Seqlane node and invocation identities.
 4. Integrate the invocation kernel and typed outcome adapter.
-5. Add serial, binding, cancellation, and malformed-Plan coverage.
+5. Add concurrency, binding, cancellation, admission, and malformed-Plan
+   coverage.
 
 ## Affected areas
 
@@ -74,7 +78,8 @@ Then run:
 - The compiler accepts only validated supported Plan nodes.
 - Mastra dependencies stay behind the private runtime boundary.
 - The invocation kernel remains the execution path.
-- Serial behavior and typed outcomes match existing fixtures.
+- Existing dependency-aware concurrency and typed outcomes match current
+  fixtures.
 - Compiler tests cover bindings, identity, cancellation, and malformed data.
 
 ## Outcome

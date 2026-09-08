@@ -19,6 +19,10 @@ Move runner, CLI, output, Studio, recording, and replay consumers to the
 replacement notification and typed outcome contracts before event-package
 deletion.
 
+The replacement contracts are owned by the engine-neutral `@seqlane/core`
+runner-protocol boundary. Runtime code owns emission. This task does not add a
+generic event bus or a second canonical schema.
+
 ## Upstream requirements
 
 - `REQ-OBS-002`: Migrate runner and event consumers.
@@ -32,10 +36,15 @@ deletion.
 ## Scope
 
 - Migrate runner IPC consumers to narrow notifications and typed outcomes.
+- Decode and encode the versioned strict runner envelope and serialized run
+  outcome.
 - Migrate CLI and output projections.
 - Migrate Studio protocol, state, and rendering consumers.
 - Preserve recording and replay file behavior.
-- Add compatibility and malformed-notification tests.
+- Preserve run-local sequence ordering, one terminal outcome, cancellation, and
+  uncertain-termination classification.
+- Add compatibility, version, malformed-notification, malformed-outcome, and
+  decode/encoding-failure tests.
 - Remove consumer imports that are no longer required from `@seqlane/events`.
 
 ## Out of scope
@@ -48,10 +57,12 @@ deletion.
 ## Implementation plan
 
 1. Inventory all event imports and runner message consumers.
-2. Add adapters or typed outcomes at the runtime-to-consumer boundary.
+2. Add the core-owned schemas and adapters at the runtime-to-consumer
+   boundary.
 3. Migrate CLI, output, Studio, recording, and replay in dependency order.
-4. Preserve ordering, redaction, bounds, and consumer isolation.
-5. Add compatibility fixtures and remove obsolete consumer references.
+4. Preserve ordering, redaction, bounds, cancellation, and consumer isolation.
+5. Add compatibility fixtures for supported protocol versions.
+6. Remove obsolete consumer references only after compatibility tests pass.
 
 ## Affected areas
 
@@ -84,6 +95,9 @@ Then run:
 - All in-scope consumers use the replacement contracts.
 - CLI, output, Studio, recording, and replay behavior stays compatible.
 - Consumer ordering and isolation remain covered.
+- Strict versioned schemas reject malformed or unsupported messages.
+- Each run has one terminal serialized outcome and no later notification.
+- Cancellation and uncertain termination remain distinguishable.
 - No consumer requires an undeclared event package transition.
 - The package is ready for a separate deletion task.
 

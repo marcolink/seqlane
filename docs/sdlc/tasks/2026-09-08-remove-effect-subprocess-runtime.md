@@ -15,8 +15,9 @@ supersedes: []
 
 ## Objective
 
-Replace Effect-based subprocess execution with a private implementation that
-preserves cancellation, bounded output, cleanup, and typed errors.
+Replace Effect-based subprocess execution with a private runtime-owned
+implementation that preserves cancellation, bounded output, cleanup, and typed
+errors.
 
 ## Upstream requirements
 
@@ -31,8 +32,12 @@ preserves cancellation, bounded output, cleanup, and typed errors.
 ## Scope
 
 - Replace Effect subprocess process, stream, and cancellation code.
+- Accept one executable and argv array and spawn directly with `shell: false`.
+- Keep canonical `cwd`, environment policy, timeout, workspace lease, and
+  process-group cleanup under runtime control.
 - Keep bounded stdout and stderr behavior.
-- Keep process-group cleanup on success, error, and cancellation.
+- Keep process-group cleanup on success, error, and cancellation. Quarantine
+  the workspace lease when termination cannot be confirmed.
 - Preserve typed domain errors and original causes.
 - Remove the affected Effect package dependencies and update their tests.
 
@@ -48,7 +53,8 @@ preserves cancellation, bounded output, cleanup, and typed errors.
 1. Record the current subprocess observable contract.
 2. Implement the private process boundary with explicit cleanup ownership.
 3. Adapt the invocation kernel to the replacement boundary.
-4. Add bounded-output, cancellation, cleanup, and error tests.
+4. Add hostile-input, argument-boundary, injection, timeout, bounded-output,
+   cancellation, cleanup, lease, and error tests.
 5. Remove unused Effect imports and package entries.
 
 ## Affected areas
@@ -71,7 +77,10 @@ Then run:
 ## Completion criteria
 
 - No Effect subprocess implementation remains.
-- Cancellation bounds cleanup and process termination.
+- Shell execution uses direct executable-plus-argv spawning with `shell: false`.
+- Public task input cannot override runtime `cwd` or environment policy.
+- Cancellation either confirms process termination or returns an uncertain
+  outcome while the workspace lease remains quarantined.
 - Output limits reject oversized output.
 - Typed errors preserve causes.
 - Runtime and OpenCode focused checks pass.

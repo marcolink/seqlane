@@ -30,10 +30,12 @@ consumer-agnostic events.
 - Provide one public task and workflow contract.
 - Compile a Seqlane-owned Plan to Mastra at a private runtime boundary.
 - Preserve typed inputs, outputs, validation, session policy, workspace policy,
-  admission, cancellation, cleanup, and serial behavior.
+  admission, cancellation, cleanup, and current dependency-aware concurrency.
 - Preserve CLI, output, Studio, recording, replay, runner, and typed outcome
   behavior during migration.
 - Move observability to Mastra with Seqlane semantic attributes.
+- Define a versioned runner protocol with strict schemas and one terminal
+  serialized outcome for each run.
 
 ## Non-goals
 
@@ -41,9 +43,10 @@ consumer-agnostic events.
 - Exposing Mastra types from `@seqlane/core` or public authoring APIs.
 - Adding branch, choose, parallel, foreach, retries, suspend or resume,
   persistence, or generic conditional nodes.
-- Selecting a final concurrent DAG execution model.
+- Adding a new concurrency feature or changing the active admission policy.
 - Deleting Studio, recording, or replay.
 - Redefining active session, model, local-task, admission, or runner policy.
+- Creating a generic replacement event bus or a new public protocol package.
 
 ## Terminology
 
@@ -57,6 +60,9 @@ consumer-agnostic events.
 - **Admission**: The Seqlane policy decision that permits work to start.
 - **Invocation**: One runtime execution of a task or workflow node.
 - **Run outcome**: A typed success, error, cancellation, or rejection result.
+- **Runner notification**: A non-terminal, versioned message for runner and UI
+  progress.
+- **Serialized run outcome**: The one terminal, versioned result for a Run.
 
 ## Requirements
 
@@ -144,28 +150,142 @@ workflow. Mastra types must remain inside runtime or adapter packages.
 The compiler must reuse the invocation kernel. It must preserve typed outcomes,
 cancellation, process cleanup, policy failures, and deterministic node identity.
 
-The initial compiler must preserve serial observable behavior. It must not add
-concurrent starts as an incidental result of Mastra graph construction.
+Dependencies establish eligibility. Independent eligible nodes can execute
+concurrently. Seqlane session and workspace admission determine actual starts.
+Completion and notification order for independent work is not deterministic.
+The compiler must not add a second scheduling policy.
 
 ### REQ-RUNTIME-002: Remove Effect
 
 Effect packages, imports, runtime modules, and Effect-based subprocess
 execution must be removed. Subprocess execution must preserve cancellation,
-bounded output, process cleanup, and typed errors in its replacement.
+bounded output, process cleanup, and typed errors in its replacement. A shell
+task must pass one executable and an argv array to direct spawn with
+`shell: false`. Workflow data can populate argv elements, but it must not form
+a parsed command string. The runtime owns the canonical workspace, environment
+policy, finite process timeout, process-group cleanup, and workspace lease.
 
 ### REQ-OBS-001: Preserve semantic observability
 
-Mastra observability must include Seqlane work, run, invocation, Plan node,
-workflow, task, session, workspace, admission, outcome, and error attributes
-when those values exist. The implementation must not expose Mastra as a public
-event contract.
+Mastra observability must use a canonical bounded projection. It can include
+allowlisted work, run, invocation, Plan node, workflow, task, session,
+workspace, admission, outcome, and error identifiers, enums, counts, booleans,
+and durations when those values exist. It must omit prompts, task inputs and
+outputs, credentials, tokens, secrets, headers, filesystem paths, arbitrary
+metadata, stack traces, and raw causes. Strings and attribute counts must have
+fixed bounds: at most 64 attributes per record, at most 256 UTF-8 bytes per
+string value, and at most 1,024 UTF-8 bytes for a sanitized local diagnostic.
+Counts must be non-negative safe integers. Durations must be finite,
+non-negative numbers. Exporter failure must not change the execution outcome
+and can produce only the bounded local diagnostic.
 
 ### REQ-OBS-002: Migrate runner and event consumers
 
-Runner notifications must stay narrow. Typed run outcomes must remain available
-for IPC and UI consumers. `@seqlane/events` is transitional and remains until
-all consumers migrate. The final deletion must leave no consumer or package
-reference.
+Runner notifications must stay narrow and use the versioned runner protocol
+defined below. Typed serialized run outcomes must remain available for IPC and
+UI consumers. `@seqlane/events` is transitional and remains until all
+consumer compatibility tests pass. The final deletion must leave no consumer
+or package reference.
+
+### REQ-RUNNER-001: Own the replacement runner protocol in core
+
+The existing engine-neutral `@seqlane/core` runner-protocol boundary owns the
+strict Zod schemas and inferred types for runner notifications, protocol
+envelopes, serialized errors, and serialized run outcomes. The runtime owns
+emission and encoding. No Mastra or executor type crosses the boundary, and no
+generic replacement event bus is added.
+
+Each Run uses a versioned JSON envelope. The envelope has a protocol version,
+the Work and Run identities, a run-local sequence, and exactly one payload.
+Sequence values start at 1 and increase by one for every emitted envelope.
+The runtime emits notifications before the terminal outcome. It emits exactly
+one terminal outcome. It emits no notification after that outcome.
+
+The contract has these conceptual Zod shapes. The implementation must use
+strict schemas and derive its public types with `z.infer`.
+
+```ts
+const runnerNotificationSchema = z.discriminatedUnion("type", [
+  runStartedNotificationSchema,
+  invocationStartedNotificationSchema,
+  invocationProgressNotificationSchema,
+  invocationSucceededNotificationSchema,
+  invocationFailedNotificationSchema,
+  invocationCancelledNotificationSchema,
+  runHeartbeatNotificationSchema,
+]);
+
+const serializedRunOutcomeSchema = z.discriminatedUnion("status", [
+  runSucceededOutcomeSchema,
+  runFailedOutcomeSchema,
+  runCancelledOutcomeSchema,
+  runUncertainOutcomeSchema,
+]);
+
+const runnerEnvelopeSchema = z
+  .object({
+    protocol: z.literal("seqlane.runner.v1"),
+    workId: z.string().min(1),
+    runId: z.string().min(1),
+    sequence: z.number().int().positive(),
+    payload: z.union([
+      z.object({ kind: z.literal("notification"), value: runnerNotificationSchema }).strict(),
+      z.object({ kind: z.literal("outcome"), value: serializedRunOutcomeSchema }).strict(),
+    ]),
+  })
+  .strict();
+
+type RunnerNotification = z.infer<typeof runnerNotificationSchema>;
+type SerializedRunOutcome = z.infer<typeof serializedRunOutcomeSchema>;
+type RunnerEnvelope = z.infer<typeof runnerEnvelopeSchema>;
+```
+
+The actual schemas must define bounded strings, safe serialized errors, and
+the complete field set for each variant. A run outcome is one of `succeeded`,
+`failed`, `cancelled`, or `uncertain`. A failed outcome uses a stable error
+category and code. Error categories are `protocol`, `validation`, `policy`,
+`task`, `subprocess`, `cancellation`, `uncertain-termination`, and `internal`.
+The serialized form contains only the category, a stable bounded code, and an
+optional sanitized bounded message. It never contains a cause, stack, input,
+output, path, prompt, credential, or arbitrary metadata. An uncertain outcome
+uses the `uncertain-termination` category when cancellation or process cleanup
+cannot confirm the final state. It must not claim success.
+
+Cancellation is a structural runner command. If cancellation completes before
+terminal work, the runtime emits `cancelled`. If termination remains
+unconfirmed, it emits the terminal `uncertain` outcome and quarantines the
+affected process, session, and workspace lease from reuse. Internal cleanup can
+continue until termination is confirmed or the runner is forcibly stopped,
+but it cannot emit a later protocol update. A cancellation request does not
+create a second terminal outcome.
+
+The runtime rejects malformed decoded input before dispatch. It converts
+malformed active-run messages to one failed protocol outcome when it can still
+encode that outcome. If encoding fails, it stops protocol output and records
+only a bounded local diagnostic. The parent reports uncertain termination when
+it cannot decode a terminal outcome; it must not treat a zero process exit as
+success.
+
+Version `v1` rejects unknown major versions and unknown fields. A later minor
+version can add explicitly optional fields without changing existing meaning.
+Consumers must advertise or select a supported version and must not silently
+downgrade an unsupported payload. Compatibility tests must cover every
+supported version before a version change is released.
+
+The current event categories map as follows:
+
+| `@seqlane/events` category | Replacement destination | Compatibility rule |
+| --- | --- | --- |
+| `run.started`, `invocation.started`, `invocation.progress`, `invocation.succeeded`, `invocation.failed`, `invocation.cancelled`, `run.heartbeat` | Runner notification | Preserve IDs, bounded fields, and run-local sequence semantics. |
+| `run.succeeded`, `run.failed`, `run.cancelled` | Serialized run outcome | Emit exactly one terminal outcome. |
+| `invocation.created`, `invocation.input`, `invocation.result`, `invocation.output`, `invocation.activity`, `invocation.retrying`, `invocation.skipped` | Mastra observability or bounded runner notification where a consumer needs lifecycle state | Do not expose raw values. |
+| `run.plan` and Plan-node topology | Compatibility projection for Studio, recording, and replay | Preserve static Plan identity and redaction until consumer tests pass. |
+| Error metadata and consumer diagnostics | Serialized error category/code or bounded local diagnostic | Omit causes, stacks, credentials, prompts, and unrestricted payloads. |
+
+`@seqlane/events` remains in the repository until runner, CLI, output,
+Studio, recording, and replay compatibility tests pass against the replacement
+contract. The migration must not create a generic event bus or duplicate
+canonical schemas.
 
 ### REQ-COMPAT-001: Preserve current user-visible behavior
 
@@ -197,9 +317,10 @@ const agentTask = defineAgentTask({
 
 const shellTask = defineShellTask({
   id: "format-change",
-  input: z.object({ command: z.string() }),
+  input: z.object({ file: z.string() }),
   output: z.object({ code: z.number() }),
-  command: ({ input }) => input.command,
+  executable: "format",
+  argv: ({ input }) => ["--file", input.file],
 });
 
 const review = createFlow({
@@ -212,7 +333,7 @@ const review = createFlow({
     workspace: "shared",
   })
   .task("format", shellTask, ({ tasks }) => ({
-    command: `format ${tasks.inspect.output.text}`,
+    file: tasks.inspect.output.text,
   }))
   .output(({ tasks }) => tasks.format.output)
   .define();
@@ -258,6 +379,26 @@ The implementation must keep node addresses separate from invocation
 identities. The Plan records dependencies and bindings. Runtime state records
 attempt, session, workspace, admission, outcome, and error data.
 
+### Shell task boundary
+
+`defineShellTask` accepts an executable and a function that returns an ordered
+argv array. The runtime passes both values directly to the process API with
+`shell: false`. It never joins argv values into a command string or parses a
+workflow value as shell syntax.
+
+The runtime owns the canonical workspace as `cwd` and owns the environment
+policy. Public task input cannot override `cwd` or environment values. The
+runtime also owns a finite timeout and bounded stdout and stderr limits. On
+timeout or cancellation, it terminates the process group and confirms
+termination before it releases the workspace lease. Spawn, timeout, output,
+cancellation, and termination failures use typed errors with a preserved
+cause. A non-zero exit stays in the validated shell task result. The task or
+its output schema decides whether that result is acceptable.
+
+The shell contract requires tests for hostile values in each argv element,
+argument-boundary preservation, shell metacharacters, output limits,
+cancellation, timeout, process-group cleanup, and workspace lease release.
+
 ### Policy ordering
 
 The runtime applies this sequence:
@@ -279,9 +420,10 @@ The compiler translates each supported Plan node to the smallest Mastra step
 that preserves Seqlane identity and bindings. It adapts Mastra lifecycle
 signals into Seqlane run outcomes and semantic observability.
 
-The cutover first runs existing serial fixtures through the compiler. It then
-removes the Effect runner and its packages. The compiler must not retain an
-Effect compatibility path after cutover.
+The cutover runs existing dependency-aware concurrency fixtures through the
+compiler. Independent eligible nodes can start concurrently when admission
+allows it. It then removes the Effect runner and its packages. The compiler
+must not retain an Effect compatibility path after cutover.
 
 ### Workflow composition
 
@@ -290,13 +432,36 @@ workflow invocation node and the child workflow key. The runtime compiles the
 child workflow through the same private compiler boundary and carries parent
 identity into the child invocation.
 
+### Bounded repeats
+
+The Plan contains a conceptual `BoundedRepeatNode` with a body and a
+`maximumIterations` field. `maximumIterations` is a finite integer from 1
+through 1,000. The runtime increments a run-wide repeat-body counter before
+each body execution. It rejects or stops before execution 1,001.
+
+Per-node exhaustion returns the existing typed `LoopLimitExceededError`. Run-
+wide exhaustion returns a Seqlane-owned typed run-limit error. Nested workflows
+and nested repeats add to the same run-wide counter. The implementation must
+test malformed limits, per-node exhaustion, run-wide exhaustion, nested
+accumulation, and exact-boundary execution at 1,000.
+
 ### Observability and runner notification migration
 
-Mastra spans and events carry Seqlane semantic attributes. The implementation
-must record time spent waiting for admission after dependencies become ready.
-Runner notifications remain narrow and serializable. Consumers use typed run
-outcomes for IPC and UI decisions. Existing `@seqlane/events` consumers move
-before the package is deleted.
+Mastra spans and events carry the canonical bounded telemetry projection. The
+projection allowlists safe identifiers, enums, counts, booleans, and
+durations. It omits prompts, task inputs and outputs, credentials, tokens,
+secrets, headers, filesystem paths, arbitrary metadata, stack traces, and raw
+causes. Strings and attribute counts have finite bounds.
+The canonical limits are 64 attributes per record, 256 UTF-8 bytes per string
+value, and 1,024 UTF-8 bytes for a sanitized local diagnostic. Counts must be
+non-negative safe integers. Durations must be finite, non-negative numbers.
+
+The implementation must record time spent waiting for admission after
+dependencies become ready. Runner notifications remain narrow and
+serializable. Consumers use typed run outcomes for IPC and UI decisions.
+Exporter failure must not alter the execution outcome and must produce only a
+bounded local diagnostic. Existing `@seqlane/events` consumers move before the
+package is deleted.
 
 ## Failure and edge cases
 
@@ -306,12 +471,19 @@ before the package is deleted.
 - Reject unsupported node kinds before Mastra execution.
 - Report policy denial before task execution starts.
 - Release every acquired resource after success, error, cancellation, or
-  uncertain subprocess termination.
+  confirmed subprocess termination. Quarantine resources while termination is
+  uncertain.
 - Preserve the original cause in typed domain errors.
 - Bound subprocess output and terminate the process group during cancellation.
 - Do not emit a start event before admission succeeds.
-- Keep an unresolved invocation active when cancellation leaves its outcome
-  uncertain.
+- Emit a terminal uncertain outcome and quarantine process, session, and
+  workspace resources when termination cannot be confirmed. Do not emit a
+  later protocol update.
+- Reject unknown runner protocol versions, fields, and malformed envelopes.
+- Emit one terminal serialized run outcome and no later notification.
+- Classify unconfirmed cancellation or termination as uncertain termination.
+- Stop before repeat execution 1,001 and return the typed run-limit error.
+- Keep telemetry export failure out of the execution outcome.
 
 ## Migration
 
@@ -352,11 +524,17 @@ The Mastra cutover and final event deletion also run `pnpm run test`,
 - Mastra is the only workflow engine.
 - Effect packages and code are absent after cutover.
 - Admission remains Seqlane-owned and atomic after Mastra eligibility.
-- Serial observable behavior remains compatible.
+- Existing dependency-aware concurrency remains compatible. Independent work
+  can complete and notify in non-deterministic order.
 - Cancellation, bounded output, cleanup, and typed errors remain covered.
 - Mastra observability includes Seqlane semantic attributes and admission wait.
 - Runner and UI consumers retain narrow notifications and typed outcomes.
 - `@seqlane/events` is removed only after its consumers migrate.
+- Runner schemas, envelope ordering, terminal outcome, cancellation,
+  malformed-input, and compatibility tests pass.
+- Shell tasks use direct executable-plus-argv spawning with `shell: false`.
+- Telemetry uses the bounded allowlist and exporter-failure behavior.
+- Repeat limits accept 1..1,000 and enforce the 1,000 run-wide budget.
 - CLI, output, Studio, recording, and replay behavior remains available.
 - All nine task slices have completed verification and traceability.
 

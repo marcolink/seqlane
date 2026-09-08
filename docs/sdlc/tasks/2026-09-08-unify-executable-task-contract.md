@@ -33,6 +33,9 @@ None. This is the first implementation slice.
 - Define the shared task shape with Zod input and output schemas.
 - Require `execute` in `defineTask`.
 - Make `defineAgentTask` and `defineShellTask` provide `execute`.
+- Define `defineShellTask` with an executable-plus-argv request shape.
+- Keep `cwd`, environment policy, timeout, output bounds, and cleanup runtime
+  owned.
 - Reject caller-supplied `execute` in specialized factory inputs.
 - Preserve executor-neutral public contracts in every specialized factory.
 - Update runtime registries, invocation execution, adapters, and fixtures.
@@ -77,6 +80,8 @@ Then run:
 
 - `defineTask` requires `execute`.
 - Specialized factories supply `execute` and reject a supplied implementation.
+- Shell tasks use direct spawn with `shell: false`; workflow data cannot become
+  a parsed command string.
 - Types come from the task schemas.
 - Specialized factories expose no executor product types.
 - Invalid definitions produce typed validation errors.

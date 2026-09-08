@@ -32,11 +32,22 @@ attributes, narrow runner notifications, and typed run outcomes.
 ## Scope
 
 - Add Mastra spans or events at private runtime boundaries.
-- Attach Seqlane work, run, invocation, Plan node, task, workflow, session,
-  workspace, admission, outcome, and error attributes.
+- Use the canonical bounded telemetry projection owned by the Seqlane runtime
+  boundary.
+- Allowlist work, run, invocation, Plan node, task, workflow, session,
+  workspace, admission, and outcome identifiers; enums; counts; booleans; and
+  durations.
+- Omit prompts, task inputs and outputs, credentials, tokens, secrets, headers,
+  filesystem paths, arbitrary metadata, stack traces, and raw causes.
+- Limit each record to 64 attributes and each string value to 256 UTF-8 bytes.
+  Limit a sanitized local diagnostic to 1,024 UTF-8 bytes. Require
+  non-negative safe-integer counts and finite, non-negative durations. Emit
+  only sanitized error category/code.
 - Measure wait after dependencies are ready and before admission succeeds.
 - Preserve narrow runner notifications and typed outcomes.
-- Add observability fixture and malformed-attribute tests.
+- Make exporter failure independent of the execution outcome.
+- Add allowlist, redaction, bounds, malformed-attribute, and exporter-failure
+  tests.
 
 ## Out of scope
 
@@ -51,8 +62,10 @@ attributes, narrow runner notifications, and typed run outcomes.
 2. Add private Mastra instrumentation at eligibility, admission, invocation,
    outcome, and cleanup boundaries.
 3. Record admission wait with stable identities.
-4. Keep runner messages narrow and serializable.
-5. Add semantic, timing, failure, and redaction coverage.
+4. Project only the allowlisted bounded attributes.
+5. Keep runner messages narrow and serializable.
+6. Add semantic, timing, failure, redaction, bounds, and exporter-failure
+   coverage.
 
 ## Affected areas
 
@@ -76,7 +89,12 @@ Then run:
 - Admission wait is visible after dependencies are ready.
 - Runner notifications remain narrow.
 - Typed outcomes remain available to IPC and UI consumers.
-- Attribute bounds, redaction, and failure behavior are tested.
+- The projection contains no disallowed values. Each record has at most 64
+  attributes, each string value has at most 256 UTF-8 bytes, and each local
+  diagnostic has at most 1,024 UTF-8 bytes.
+- Exporter failure produces only a bounded local diagnostic and does not change
+  the execution outcome.
+- Attribute bounds, redaction, malformed data, and failure behavior are tested.
 
 ## Outcome
 
