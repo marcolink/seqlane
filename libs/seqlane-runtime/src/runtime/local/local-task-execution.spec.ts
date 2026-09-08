@@ -340,7 +340,19 @@ describe("local task execution", () => {
 
       await expect(activeRun.cancel()).resolves.toBeUndefined();
       await expect(activeRun.outcome).resolves.toEqual({ status: "cancelled" });
-      expect(() => process.kill(pid, 0)).toThrow();
+      await expect
+        .poll(
+          () => {
+            try {
+              process.kill(pid, 0);
+              return false;
+            } catch (error) {
+              return (error as NodeJS.ErrnoException).code === "ESRCH";
+            }
+          },
+          { timeout: 5_000, interval: 10 },
+        )
+        .toBe(true);
 
       const lease = await compiled.context.workspaceLocks.acquire(
         { key: workspace },
