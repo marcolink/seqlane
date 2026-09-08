@@ -59,17 +59,19 @@ The Action requires `working-directory`. It accepts these optional inputs:
 | `top-k` | `200` | Non-negative integer |
 | `stable-order` | `true` | Boolean; `false` adds `--no-stable` |
 | `redact` | `true` | Boolean; `false` adds `--no-redact` |
-| `mcp-token` | unset | Optional secret bearer token |
+| `mcp-token` | unset | Optional secret seed for the per-run bearer token |
 | `allow-remote-edits` | `false` | Boolean; `true` adds `--allow-remote-edits` and requires a token |
-| `startup-timeout-seconds` | `30` | Positive integer |
+| `startup-timeout-seconds` | `30` | Positive integer from 1 through 600 |
 
 Boolean inputs accept only `true` or `false`, without silently accepting other
-values. The Action marks a configured token with the Actions Toolkit secret
-mask. A non-loopback listener also requires a token.
+values. The Action marks both the optional seed and generated per-run token
+with the Actions Toolkit secret mask. A non-loopback listener also requires a
+seed.
 
 ### requirement-outputs
 
-The Action emits `mcp-url`, `log-path`, `binary-path`, and normalized `version`.
+The Action emits `mcp-url`, `log-path`, `binary-path`, normalized `version`, and
+the secret per-run `mcp-token` output.
 The MCP URL is `http://<canonical-host>:<canonical-port>/mcp`.
 
 ### requirement-release
@@ -97,13 +99,18 @@ ripwire <working-directory> --listen=<canonical> --top-k=<n>
 
 It adds `--no-stable`, `--no-redact`, and `--allow-remote-edits` only when the
 corresponding options are false or enabled. The binary directory is prepended
-to `PATH`. A configured token is passed only as `RIPWIRE_MCP_TOKEN` in the
-child environment; it is not an argument. The child environment removes the
-raw `INPUT_MCP-TOKEN` Action variable.
+to `PATH`. Each run creates a new bearer token. If the optional `mcp-token`
+input is set, the input is a secret seed for an HMAC derivation with a random
+nonce. The seed is never sent to Ripwire. The derived token is passed only as
+`RIPWIRE_MCP_TOKEN` in the child environment and is used for readiness; it is
+not an argument. The Action masks both values and publishes only the derived
+token as the secret `mcp-token` output. The child environment removes the raw
+`INPUT_MCP-TOKEN` Action variable.
 
-Before readiness, the Action persists all six process and sentinel identity
-state fields through `@seqlane/action-service-lifecycle`. State-save failure
-and readiness failure both attempt identity-checked process-group cleanup.
+Before readiness, the Action persists one JSON `service-state` value with the
+process and sentinel identities through `@seqlane/action-service-lifecycle`.
+The value is validated by a Zod schema. State-save failure and readiness
+failure both attempt identity-checked process-group cleanup.
 
 ### requirement-readiness
 
@@ -125,15 +132,23 @@ the recorded process identity. A failed check uses the same startup cleanup
 helper as readiness and state-save failures. That helper warns when
 identity-checked termination returns false or throws.
 
+The startup timeout in milliseconds must be a safe integer from 1 through
+600000. The wait loop and every probe reject values outside that range before
+starting work.
+
 ### requirement-cleanup
 
-The post entrypoint reads the persisted identities and asks the shared
-lifecycle library to terminate the matching process group. It warns when the
-group cannot be verified or stopped and never signals a reused process group.
-After successful termination, it removes the persisted install directory. If
-acquisition fails, the partial install directory is removed immediately. A
-startup failure removes the install directory when no process identity was
-persisted; otherwise post cleanup retains ownership.
+The post entrypoint reads and validates the single persisted service state and
+asks the shared lifecycle library to terminate the matching process group. It
+warns when the group cannot be verified or stopped and never signals a reused
+process group. Without valid service state, post does not remove the install
+directory. After successful termination, it removes the persisted install
+directory. If acquisition fails, the partial install directory is removed
+immediately. A startup failure removes the install directory only when no
+process was spawned or identity-checked cleanup succeeded; otherwise post
+cleanup retains ownership. Lifecycle startup failures use a typed error with a
+`cleanupSucceeded` field so main can make this decision without guessing from
+the error message.
 
 The child environment is an explicit allowlist containing the trusted binary
 `PATH`, temporary and home paths, locale values, XDG paths, and the optional

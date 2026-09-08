@@ -69,11 +69,13 @@ jobs:
       - name: Verify Ripwire outputs and initialize MCP
         env:
           MCP_URL: ${{ steps.ripwire.outputs.mcp-url }}
+          RIPWIRE_TOKEN: ${{ steps.ripwire.outputs.mcp-token }}
           RIPWIRE_VERSION: ${{ steps.ripwire.outputs.version }}
           RIPWIRE_BINARY: ${{ steps.ripwire.outputs.binary-path }}
           RIPWIRE_LOG: ${{ steps.ripwire.outputs.log-path }}
         run: |
           test "$RIPWIRE_VERSION" = "0.4.0"
+          test -n "$RIPWIRE_TOKEN"
           test -x "$RIPWIRE_BINARY"
           test -f "$RIPWIRE_LOG"
           case "$MCP_URL" in
@@ -82,11 +84,11 @@ jobs:
           esac
           node --input-type=module <<'NODE'
           const url = process.env.MCP_URL;
-          const token = process.env.RIPWIRE_MCP_TOKEN;
+          const token = process.env.RIPWIRE_TOKEN;
           const headers = {
             Accept: "application/json, text/event-stream",
             "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            Authorization: `Bearer ${token}`,
           };
           const response = await fetch(url, {
             method: "POST",

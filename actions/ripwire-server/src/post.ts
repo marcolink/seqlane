@@ -3,36 +3,38 @@ import { terminateProcessGroup } from "@seqlane/action-service-lifecycle";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { removeInstallDirectory } from "./release.js";
+import { parseServiceState } from "./state.js";
 
 export async function run(): Promise<void> {
-  const pid = core.getState("pid");
-  let terminated = true;
-  if (pid) {
-    const identity = {
-      processGroupId: core.getState("process-group-id"),
-      processStartTime: core.getState("process-start-time"),
-    };
-    const sentinel = {
-      pid: core.getState("sentinel-pid"),
-      identity: {
-        processGroupId: core.getState("sentinel-process-group-id"),
-        processStartTime: core.getState("sentinel-process-start-time"),
-      },
-    };
-    try {
-      terminated = await terminateProcessGroup(pid, identity, sentinel);
-      if (!terminated) {
-        core.warning(`Ripwire process group ${pid} did not stop cleanly`);
-      }
-    } catch (error) {
-      terminated = false;
+  const installDirectory = core.getState("install-directory");
+  const serviceState = parseServiceState(core.getState("service-state"));
+  if (!serviceState) {
+    if (installDirectory) {
       core.warning(
-        `Ripwire process cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+        "Ripwire service state is missing or invalid; retaining the install directory",
       );
     }
+    return;
   }
 
-  const installDirectory = core.getState("install-directory");
+  let terminated = false;
+  try {
+    terminated = await terminateProcessGroup(
+      serviceState.pid,
+      serviceState.identity,
+      serviceState.sentinel,
+    );
+    if (!terminated) {
+      core.warning(
+        `Ripwire process group ${serviceState.pid} did not stop cleanly`,
+      );
+    }
+  } catch (error) {
+    core.warning(
+      `Ripwire process cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
   if (terminated && installDirectory) {
     try {
       await removeInstallDirectory(

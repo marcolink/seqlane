@@ -1,0 +1,38 @@
+// @test-scope ./state.ts
+
+import { describe, expect, it } from "vitest";
+import {
+  parseServiceState,
+  serializeServiceState,
+  serviceStateSchema,
+} from "./state.js";
+
+const state = {
+  pid: 42,
+  identity: { processGroupId: 42, processStartTime: "start" },
+  sentinel: {
+    pid: 41,
+    identity: { processGroupId: 42, processStartTime: "sentinel-start" },
+  },
+};
+
+describe("Ripwire service state", () => {
+  it("round-trips one validated state value", () => {
+    const serialized = serializeServiceState(state);
+    expect(parseServiceState(serialized)).toEqual(state);
+    expect(serviceStateSchema.safeParse(state).success).toBe(true);
+  });
+
+  it("rejects malformed or incomplete state", () => {
+    expect(parseServiceState("not-json")).toBeUndefined();
+    expect(parseServiceState(JSON.stringify({ pid: 42 }))).toBeUndefined();
+    expect(
+      parseServiceState(
+        JSON.stringify({
+          ...state,
+          identity: { ...state.identity, processGroupId: 0 },
+        }),
+      ),
+    ).toBeUndefined();
+  });
+});

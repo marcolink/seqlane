@@ -19,6 +19,19 @@ export const MCP_INITIALIZE_REQUEST = {
 } as const;
 
 export const RIPWIRE_SERVER_INFO_VERSION = "1.0";
+export const MAX_STARTUP_TIMEOUT_MILLISECONDS = 600_000;
+
+function assertReadinessTimeout(timeoutMilliseconds: number): void {
+  if (
+    !Number.isSafeInteger(timeoutMilliseconds) ||
+    timeoutMilliseconds <= 0 ||
+    timeoutMilliseconds > MAX_STARTUP_TIMEOUT_MILLISECONDS
+  ) {
+    throw new Error(
+      `Ripwire readiness timeout must be a safe integer from 1 to ${MAX_STARTUP_TIMEOUT_MILLISECONDS} milliseconds`,
+    );
+  }
+}
 
 function initializeResponseSchema() {
   return z
@@ -156,9 +169,7 @@ export async function checkMcpInitialize(
     "Content-Type": "application/json",
   };
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (!Number.isFinite(timeoutMilliseconds) || timeoutMilliseconds <= 0) {
-    throw new Error("Ripwire MCP readiness deadline expired");
-  }
+  assertReadinessTimeout(timeoutMilliseconds);
   const response = await fetchImpl(url, {
     method: "POST",
     headers,
@@ -196,6 +207,7 @@ export async function waitForMcpHealth(
   check: (remainingMilliseconds: number) => Promise<void>,
   timeoutMilliseconds: number,
 ): Promise<void> {
+  assertReadinessTimeout(timeoutMilliseconds);
   const deadline = Date.now() + timeoutMilliseconds;
   while (Date.now() < deadline) {
     const remainingMilliseconds = deadline - Date.now();

@@ -1,10 +1,12 @@
 // @test-scope ./post.ts
 // @test-scope ./release.ts
+// @test-scope ./state.ts
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { serializeServiceState } from "./state.js";
 
 const state = new Map<string, string>();
 const terminate = vi.fn(async () => true);
@@ -44,12 +46,17 @@ describe("Ripwire post cleanup", () => {
     await mkdir(installDirectory);
     await writeFile(join(installDirectory, "ripwire"), "binary");
     process.env.RUNNER_TEMP = runnerTemp;
-    state.set("pid", "42");
-    state.set("process-group-id", "42");
-    state.set("process-start-time", "start");
-    state.set("sentinel-pid", "41");
-    state.set("sentinel-process-group-id", "42");
-    state.set("sentinel-process-start-time", "start");
+    state.set(
+      "service-state",
+      serializeServiceState({
+        pid: 42,
+        identity: { processGroupId: 42, processStartTime: "start" },
+        sentinel: {
+          pid: 41,
+          identity: { processGroupId: 42, processStartTime: "start" },
+        },
+      }),
+    );
     state.set("install-directory", installDirectory);
 
     await run();
@@ -66,7 +73,17 @@ describe("Ripwire post cleanup", () => {
     const installDirectory = join(runnerTemp, "ripwire-install");
     await mkdir(installDirectory);
     process.env.RUNNER_TEMP = runnerTemp;
-    state.set("pid", "42");
+    state.set(
+      "service-state",
+      serializeServiceState({
+        pid: 42,
+        identity: { processGroupId: 42, processStartTime: "start" },
+        sentinel: {
+          pid: 41,
+          identity: { processGroupId: 42, processStartTime: "start" },
+        },
+      }),
+    );
     state.set("install-directory", installDirectory);
     terminate.mockResolvedValue(false);
 
@@ -76,5 +93,23 @@ describe("Ripwire post cleanup", () => {
       import("node:fs/promises").then(({ stat }) => stat(installDirectory)),
     ).resolves.toBeDefined();
     expect(warnings.join(" ")).toContain("did not stop cleanly");
+  });
+
+  it("retains the install directory when service state is invalid", async () => {
+    const runnerTemp = await mkdtemp(join(tmpdir(), "ripwire-post-test-"));
+    temporaryDirectories.push(runnerTemp);
+    const installDirectory = join(runnerTemp, "ripwire-install");
+    await mkdir(installDirectory);
+    process.env.RUNNER_TEMP = runnerTemp;
+    state.set("service-state", "not-json");
+    state.set("install-directory", installDirectory);
+
+    await run();
+
+    await expect(
+      import("node:fs/promises").then(({ stat }) => stat(installDirectory)),
+    ).resolves.toBeDefined();
+    expect(terminate).not.toHaveBeenCalled();
+    expect(warnings.join(" ")).toContain("missing or invalid");
   });
 });

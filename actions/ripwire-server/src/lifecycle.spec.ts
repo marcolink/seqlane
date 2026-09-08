@@ -1,6 +1,7 @@
 // @test-scope ./lifecycle.ts
 // @test-scope ./commands.ts
 // @test-scope ./port.ts
+// @test-scope ./state.ts
 
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -11,6 +12,7 @@ import { parseRipwireInputs } from "./config.js";
 import {
   packageExecutionDirectory,
   processAnchorPath,
+  RipwireStartupError,
   runRipwireLifecycle,
   type RipwireLifecycleDependencies,
 } from "./lifecycle.js";
@@ -80,6 +82,7 @@ describe("Ripwire lifecycle", () => {
         binaryDirectory: "/tmp/ripwire-install",
         logPath: "/tmp/ripwire.log",
         environment: { PATH: "/usr/bin" },
+        sessionToken: "session-token",
       },
       { saveState, warning: vi.fn() },
       deps,
@@ -88,12 +91,7 @@ describe("Ripwire lifecycle", () => {
       "validate",
       "port",
       "spawn:/tmp/ripwire-install",
-      "state:pid",
-      "state:process-group-id",
-      "state:process-start-time",
-      "state:sentinel-pid",
-      "state:sentinel-process-group-id",
-      "state:sentinel-process-start-time",
+      "state:service-state",
       "adopt",
       "wait",
       "ready",
@@ -107,6 +105,16 @@ describe("Ripwire lifecycle", () => {
     );
     expect(deps.spawnDetached).toHaveBeenCalledWith(
       expect.objectContaining({ args: expect.not.arrayContaining(["secret"]) }),
+    );
+    expect(deps.spawnDetached).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: expect.objectContaining({ RIPWIRE_MCP_TOKEN: "session-token" }),
+      }),
+    );
+    expect(deps.checkMcpInitialize).toHaveBeenCalledWith(
+      config.mcpUrl,
+      "session-token",
+      1_000,
     );
     expect(packageExecutionDirectory()).toBeDefined();
   });
@@ -124,11 +132,15 @@ describe("Ripwire lifecycle", () => {
           binaryDirectory: "/tmp/ripwire-install",
           logPath: "/tmp/ripwire.log",
           environment: {},
+          sessionToken: "session-token",
         },
         { saveState: vi.fn(), warning: vi.fn() },
         deps,
       ),
-    ).rejects.toThrow("not ready");
+    ).rejects.toMatchObject({
+      name: "RipwireStartupError",
+      cleanupSucceeded: true,
+    } satisfies Partial<RipwireStartupError>);
     expect(deps.terminateProcessGroup).toHaveBeenCalledWith(
       service.pid,
       service.identity,
@@ -151,11 +163,15 @@ describe("Ripwire lifecycle", () => {
           binaryDirectory: "/tmp/ripwire-install",
           logPath: "/tmp/ripwire.log",
           environment: {},
+          sessionToken: "session-token",
         },
         { saveState: vi.fn(), warning },
         deps,
       ),
-    ).rejects.toThrow("not ready");
+    ).rejects.toMatchObject({
+      name: "RipwireStartupError",
+      cleanupSucceeded: false,
+    } satisfies Partial<RipwireStartupError>);
     expect(warning).toHaveBeenCalledWith(
       expect.stringContaining("could not be verified"),
     );
@@ -172,6 +188,7 @@ describe("Ripwire lifecycle", () => {
           binaryDirectory: "/tmp/ripwire-install",
           logPath: "/tmp/ripwire.log",
           environment: {},
+          sessionToken: "session-token",
         },
         { saveState: vi.fn(), warning: vi.fn() },
         deps,

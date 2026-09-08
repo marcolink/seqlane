@@ -27,7 +27,7 @@
       "dependsOn": ["build"],
       "options": {
         "cwd": "actions/ripwire-server",
-        "command": "node --check process-anchor.js && pnpm exec vitest run src/config.spec.ts src/commands.spec.ts src/release.spec.ts src/readiness.spec.ts src/lifecycle.spec.ts src/port.spec.ts src/post.spec.ts src/bundle-runtime.spec.ts"
+        "command": "node --check process-anchor.js && pnpm exec vitest run src/config.spec.ts src/commands.spec.ts src/release.spec.ts src/readiness.spec.ts src/lifecycle.spec.ts src/port.spec.ts src/post.spec.ts src/state.spec.ts src/token.spec.ts src/bundle-runtime.spec.ts"
       }
     },
     "bundle-drift": {

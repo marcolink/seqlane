@@ -14,12 +14,14 @@ import { buildRipwireArguments, buildRipwireEnvironment } from "./commands.js";
 import { checkMcpInitialize, waitForMcpHealth } from "./readiness.js";
 import type { RipwireConfig } from "./config.js";
 import { assertListenAvailable } from "./port.js";
+import { serializeServiceState, type ServiceState } from "./state.js";
 
 export interface RipwireLifecycleInput {
   readonly config: RipwireConfig;
   readonly binaryDirectory: string;
   readonly logPath: string;
   readonly environment: NodeJS.ProcessEnv;
+  readonly sessionToken: string;
 }
 
 export interface RipwireLifecycleHooks {
@@ -37,6 +39,16 @@ export interface RipwireLifecycleDependencies {
   readonly isProcessAlive: (pid: number) => boolean;
   readonly checkMcpInitialize: typeof checkMcpInitialize;
   readonly waitForMcpHealth: typeof waitForMcpHealth;
+}
+
+export class RipwireStartupError extends Error {
+  readonly cleanupSucceeded: boolean;
+
+  constructor(cause: unknown, cleanupSucceeded: boolean) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "RipwireStartupError";
+    this.cleanupSucceeded = cleanupSucceeded;
+  }
 }
 
 const defaultDependencies: RipwireLifecycleDependencies = {
@@ -65,33 +77,27 @@ async function saveProcessState(
   dependencies: RipwireLifecycleDependencies,
 ): Promise<void> {
   try {
-    hooks.saveState("pid", String(service.pid));
-    hooks.saveState(
-      "process-group-id",
-      String(service.identity.processGroupId),
-    );
-    hooks.saveState("process-start-time", service.identity.processStartTime);
-    hooks.saveState("sentinel-pid", String(service.sentinelPid));
-    hooks.saveState(
-      "sentinel-process-group-id",
-      String(service.sentinelIdentity.processGroupId),
-    );
-    hooks.saveState(
-      "sentinel-process-start-time",
-      service.sentinelIdentity.processStartTime,
-    );
+    const state: ServiceState = {
+      pid: service.pid,
+      identity: service.identity,
+      sentinel: {
+        pid: service.sentinelPid,
+        identity: service.sentinelIdentity,
+      },
+    };
+    hooks.saveState("service-state", serializeServiceState(state));
     await dependencies.adoptDetachedProcess(service);
   } catch (error) {
-    await cleanupService(service, hooks, dependencies);
-    throw error;
+    const cleanupSucceeded = await cleanupService(service, hooks, dependencies);
+    throw new RipwireStartupError(error, cleanupSucceeded);
   }
 }
 
-async function cleanupService(
+export async function cleanupService(
   service: DetachedProcess,
   hooks: RipwireLifecycleHooks,
   dependencies: RipwireLifecycleDependencies,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const stopped = await dependencies.terminateProcessGroup(
       service.pid,
@@ -106,10 +112,12 @@ async function cleanupService(
         `Ripwire process group ${service.pid} could not be verified during cleanup`,
       );
     }
+    return stopped;
   } catch (error) {
     hooks.warning(
       `Ripwire startup cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
     );
+    return false;
   }
 }
 
@@ -152,7 +160,7 @@ export async function runRipwireLifecycle(
   const environment = buildRipwireEnvironment(
     input.environment,
     input.binaryDirectory,
-    input.config.mcpToken,
+    input.sessionToken,
   );
   const service = await dependencies.spawnDetached({
     command: "ripwire",
@@ -169,14 +177,14 @@ export async function runRipwireLifecycle(
       (remainingMilliseconds) =>
         dependencies.checkMcpInitialize(
           input.config.mcpUrl,
-          input.config.mcpToken,
+          input.sessionToken,
           remainingMilliseconds,
         ),
       input.config.startupTimeoutSeconds * 1_000,
     );
     await verifyServiceIdentity(service, dependencies);
   } catch (error) {
-    await cleanupService(service, hooks, dependencies);
-    throw error;
+    const cleanupSucceeded = await cleanupService(service, hooks, dependencies);
+    throw new RipwireStartupError(error, cleanupSucceeded);
   }
 }

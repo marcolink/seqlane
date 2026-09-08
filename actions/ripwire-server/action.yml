@@ -26,10 +26,10 @@ inputs:
     required: false
     default: "true"
   mcp-token:
-    description: Optional bearer token for the MCP HTTP server (secret)
+    description: Optional secret seed used to derive the per-run MCP bearer token
     required: false
   allow-remote-edits:
-    description: Allow remote MCP edit operations; requires mcp-token
+    description: Allow remote MCP edit operations; requires an mcp-token seed
     required: false
     default: "false"
   startup-timeout-seconds:
@@ -46,6 +46,8 @@ outputs:
     description: Installed Ripwire binary path
   version:
     description: Normalized Ripwire version
+  mcp-token:
+    description: Per-run bearer token for authenticated Ripwire MCP requests (secret)
 
 runs:
   using: node24

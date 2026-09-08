@@ -2,7 +2,7 @@
 // @test-scope ./readiness.ts
 
 import { describe, expect, it } from "vitest";
-import { parseRipwireInputs } from "./config.js";
+import { MAX_STARTUP_TIMEOUT_SECONDS, parseRipwireInputs } from "./config.js";
 
 const base = { workingDirectory: "/tmp/project" };
 
@@ -32,10 +32,27 @@ describe("Ripwire input validation", () => {
     ["topK", "1.5"],
     ["startupTimeoutSeconds", "0"],
     ["startupTimeoutSeconds", "1.5"],
+    ["startupTimeoutSeconds", "601"],
+    ["startupTimeoutSeconds", "9007199254740992"],
   ] as const)("rejects invalid integer input %s=%s", (key, value) => {
     expect(() => parseRipwireInputs({ ...base, [key]: value })).toThrow(
       key === "topK" ? "top-k" : "startup-timeout",
     );
+  });
+
+  it("caps the startup timeout at ten minutes", () => {
+    expect(
+      parseRipwireInputs({
+        ...base,
+        startupTimeoutSeconds: String(MAX_STARTUP_TIMEOUT_SECONDS),
+      }).startupTimeoutSeconds,
+    ).toBe(600);
+    expect(() =>
+      parseRipwireInputs({
+        ...base,
+        startupTimeoutSeconds: String(MAX_STARTUP_TIMEOUT_SECONDS + 1),
+      }),
+    ).toThrow("from 1 to 600");
   });
 
   it.each([

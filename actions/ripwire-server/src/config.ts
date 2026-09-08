@@ -9,6 +9,7 @@ export const DEFAULT_STABLE_ORDER = true;
 export const DEFAULT_REDACT = true;
 export const DEFAULT_ALLOW_REMOTE_EDITS = false;
 export const DEFAULT_STARTUP_TIMEOUT_SECONDS = 30;
+export const MAX_STARTUP_TIMEOUT_SECONDS = 600;
 
 export interface RipwireInputValues {
   readonly workingDirectory: string;
@@ -55,14 +56,19 @@ function parseInteger(
   value: string | undefined,
   name: string,
   minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
 ): number {
   const text = requiredString(value, name);
   if (!/^\d+$/.test(text)) {
     throw new Error(`${name} must be an integer`);
   }
   const number = Number(text);
-  if (!Number.isSafeInteger(number) || number < minimum) {
-    throw new Error(`${name} must be an integer >= ${minimum}`);
+  if (!Number.isSafeInteger(number) || number < minimum || number > maximum) {
+    throw new Error(
+      maximum === Number.MAX_SAFE_INTEGER
+        ? `${name} must be an integer >= ${minimum}`
+        : `${name} must be an integer from ${minimum} to ${maximum}`,
+    );
   }
   return number;
 }
@@ -108,6 +114,7 @@ export function parseRipwireInputs(input: RipwireInputValues): RipwireConfig {
     input.startupTimeoutSeconds ?? String(DEFAULT_STARTUP_TIMEOUT_SECONDS),
     "startup-timeout-seconds",
     1,
+    MAX_STARTUP_TIMEOUT_SECONDS,
   );
   const mcpToken = input.mcpToken?.trim() || undefined;
 

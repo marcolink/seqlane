@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   checkMcpInitialize,
   MCP_INITIALIZE_REQUEST,
+  MAX_STARTUP_TIMEOUT_MILLISECONDS,
   parseMcpResponseBody,
   parseListenAddress,
   RIPWIRE_SERVER_INFO_VERSION,
@@ -157,5 +158,24 @@ describe("Ripwire MCP readiness", () => {
     ).rejects.toThrow("startup timeout");
     expect(seen[0]).toBeLessThanOrEqual(1_000);
     expect(Date.now() - started).toBeLessThan(1_700);
+  });
+
+  it("rejects invalid probe and wait deadlines immediately", async () => {
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
+    for (const timeout of [0, -1, Number.MAX_SAFE_INTEGER + 1, 600_001]) {
+      await expect(
+        checkMcpInitialize(
+          "http://127.0.0.1:7998/mcp",
+          undefined,
+          timeout,
+          fetchImpl as unknown as typeof fetch,
+        ),
+      ).rejects.toThrow("safe integer");
+      await expect(
+        waitForMcpHealth(async () => undefined, timeout),
+      ).rejects.toThrow("safe integer");
+    }
+    expect(MAX_STARTUP_TIMEOUT_MILLISECONDS).toBe(600_000);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
