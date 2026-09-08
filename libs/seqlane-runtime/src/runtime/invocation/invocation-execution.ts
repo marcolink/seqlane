@@ -345,6 +345,7 @@ export async function executeTaskNode(
               : session.executor;
           rawOutput = await executor.execute({
             invocationId,
+            observability: options.observability,
             taskId: node.taskId,
             executor: (node as LegacyTaskNode).executor ?? node.taskId,
             input,

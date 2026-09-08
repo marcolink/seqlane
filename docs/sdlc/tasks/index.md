@@ -207,3 +207,6 @@
 | [task.harden-seqlane-action-push-and-cleanup](./2026-09-07-harden-seqlane-action-push-and-cleanup.md) | Harden Seqlane Action Push and Cleanup | completed | 2026-09-07 | core |
 | [task.seqlane-action-resolution-summaries](./2026-09-07-seqlane-action-resolution-summaries.md) | Publish Human-Readable Merge Resolution Summaries | completed | 2026-09-07 | core |
 | [task.operational-workflow-registration-boundary](./2026-09-06-operational-workflow-registration-boundary.md) | Narrow the Operational Workflow Registration Boundary | planned | 2026-09-06 | core |
+| [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
+| [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
+| [task.propagate-mastra-observability-context](./2026-09-08-propagate-mastra-observability-context.md) | Propagate Per-Invocation Mastra Observability Context | completed | 2026-09-08 | core |

@@ -204,6 +204,7 @@ export class PlanCompiler {
           if (node.type === "task") {
             await executeTaskNode(context, node, abortSignal, {
               invocationId: invocationIdForNode(context, node),
+              observability: {},
               results: context.results,
               remainingConsumers: context.remainingConsumers,
               subject: { type: "task", taskId: node.taskId },
@@ -212,6 +213,7 @@ export class PlanCompiler {
           } else if (node.type === "validation.check") {
             await executeValidationCheckNode(context, node, abortSignal, {
               invocationId: invocationIdForNode(context, node),
+              observability: {},
               results: context.results,
               remainingConsumers: context.remainingConsumers,
               workspaceAdmission: "graph",
@@ -230,6 +232,7 @@ export class PlanCompiler {
               abortSignal,
               {
                 invocationId: invocationIdForNode(context, node),
+                observability: {},
                 results: context.results,
                 remainingConsumers: context.remainingConsumers,
               },

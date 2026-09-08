@@ -10,6 +10,7 @@ import type {
   TaskDefinition,
   ValidationSource,
 } from "@seqlane/core";
+import type { ObservabilityContext } from "@mastra/core/observability";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
@@ -215,6 +216,61 @@ describe("Mastra Plan compiler", () => {
         workflowId: "mastra-plan-compiler",
       },
     ]);
+  });
+
+  it("preserves all flattened Mastra observability fields for an invocation", async () => {
+    const source = plan([task("source")], {
+      type: "ref",
+      nodeId: "source",
+      path: ["output"],
+    });
+    const observability = {
+      tracing: { tracing: "legacy" },
+      tracingContext: { tracing: "context" },
+      loggerVNext: { logger: "logger" },
+      metrics: { metrics: "metrics" },
+    } as unknown as Partial<ObservabilityContext>;
+    const received: Partial<ObservabilityContext>[] = [];
+    const compiled = compilePlanToMastra(source, {
+      taskDefinitions: definitions("source"),
+      workflow: { input: z.object({}), output: taskOutput },
+      executeInvocation: async (context) => {
+        received.push(context.observability);
+        return { value: 1 };
+      },
+    });
+
+    const step = compiled.workflow.steps.source;
+    if (step === undefined) throw new Error("source step is missing");
+    const executeStep = async (
+      stepObservability: Partial<ObservabilityContext>,
+    ): Promise<void> => {
+      await step.execute({
+        getInitData: () => ({}),
+        getStepResult: () => undefined,
+        runId: "run-observability",
+        resourceId: "work-observability",
+        workflowId: "mastra-plan-compiler",
+        abortSignal: new AbortController().signal,
+        requestContext: {},
+        ...stepObservability,
+      } as never);
+    };
+
+    await executeStep(observability);
+    const nextObservability = {
+      ...observability,
+      tracing: { tracing: "next" },
+    } as Partial<ObservabilityContext>;
+    await executeStep(nextObservability);
+
+    expect(received).toEqual([observability, nextObservability]);
+    expect(received[0]?.tracing).toBe(observability.tracing);
+    expect(received[0]?.tracingContext).toBe(observability.tracingContext);
+    expect(received[0]?.loggerVNext).toBe(observability.loggerVNext);
+    expect(received[0]?.metrics).toBe(observability.metrics);
+    expect(received[1]?.tracing).toBe(nextObservability.tracing);
+    expect(received[1]?.tracing).not.toBe(received[0]?.tracing);
   });
 
   it("rejects malformed plans before creating a Mastra workflow", () => {

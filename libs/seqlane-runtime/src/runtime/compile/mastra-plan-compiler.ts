@@ -1,5 +1,6 @@
 import { createStep, createWorkflow } from "@mastra/core/workflows";
 import type { RequestContext } from "@mastra/core/request-context";
+import type { ObservabilityContext } from "@mastra/core/observability";
 import type { AnyWorkflow, Step } from "@mastra/core/workflows";
 import { SeqlaneError } from "@seqlane/core";
 import type {
@@ -52,6 +53,7 @@ export interface MastraPlanInvocationContext {
   readonly workflowId: string;
   readonly abortSignal: AbortSignal;
   readonly requestContext?: RequestContext;
+  readonly observability: Partial<ObservabilityContext>;
   readonly getStepResult: <Output = unknown>(nodeId: string) => Output;
 }
 
@@ -322,6 +324,10 @@ function buildInvocationStep(
       workflowId,
       abortSignal,
       requestContext,
+      tracing,
+      tracingContext,
+      loggerVNext,
+      metrics,
     }) => {
       const workflowInput = getInitData<unknown>();
       const resolvedInput = resolveStepInput(
@@ -367,6 +373,7 @@ function buildInvocationStep(
           workflowId,
           abortSignal,
           requestContext,
+          observability: { tracing, tracingContext, loggerVNext, metrics },
           getStepResult,
         });
       } catch (cause) {

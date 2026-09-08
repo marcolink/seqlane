@@ -21,6 +21,7 @@
     ]
   },
   "dependencies": {
+    "@mastra/core": "1.64.0",
     "@seqlane/core": "workspace:*"
   },
   "files": [

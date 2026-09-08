@@ -287,6 +287,7 @@ describe("OpenCode SDK adapter boundary", () => {
       });
       const result = await adapter.execute({
         invocationId: "controlled-opencode-invocation",
+        observability: {},
         task: {
           id: "controlled-opencode-task",
           workspace: "shared",
@@ -364,6 +365,7 @@ describe("OpenCode SDK adapter boundary", () => {
       });
       const request = {
         invocationId: "reuse-invocation",
+        observability: {},
         task: {
           id: "reuse-task",
           input: z.string(),
@@ -416,6 +418,7 @@ describe("OpenCode SDK adapter boundary", () => {
       });
       const execution = adapter.execute({
         invocationId: "cancel-invocation",
+        observability: {},
         task: {
           id: "cancel-task",
           input: z.string(),
@@ -445,6 +448,7 @@ describe("OpenCode SDK adapter boundary", () => {
       await expect(
         adapter.execute({
           invocationId: "permission-invocation",
+          observability: {},
           task: {
             id: "permission-task",
             input: z.string(),
