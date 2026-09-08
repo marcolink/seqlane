@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-07
+updated: 2026-09-08
 upstream:
   - adr.seqlane-action-library-boundary
   - adr.executor-neutral-workflow-authoring
@@ -27,7 +27,11 @@ Expose the behavior through the JavaScript Action at
 
 Keep the workflow responsible for GitHub job composition. Keep the Action
 entrypoint responsible for GitHub input, output, logging, and failure mapping.
-Keep resolver policy and side effects in the private library.
+Keep resolver execution, validation, and side effects in the private library.
+Accept a versioned, repository-specific conflict-handler policy as the
+formatted multiline JSON value of the trusted workflow's `conflict-handlers`
+Action input. The policy supplies static mechanical handler recipes, is not
+model instructions, and is never loaded from the resolution target.
 
 The migration must preserve the behavior documented by
 `task.resolve-pull-request-merge-conflicts`.
@@ -46,6 +50,11 @@ The migration must preserve the behavior documented by
 - Preserve current conflict, lockfile, OpenCode, staging, and push behavior.
 - Make Git behavior testable with real temporary repositories.
 - Bundle the Action and all required Action runtime dependencies.
+- Allow repositories to declare mechanical handlers for generated-file
+  conflicts without moving handler execution into workflow shell logic.
+- Keep handler execution isolated from secrets, credentials, and the normal
+  workflow process even when a handler executes target checkout code or
+  configuration.
 
 ## Non-goals
 
@@ -59,6 +68,8 @@ The migration must preserve the behavior documented by
 - Change the generic Seqlane workflow authoring contract.
 - Change the OpenCode permission policy.
 - Change the current merge or rebase product behavior.
+- Load a conflict-handler policy from the resolution-target checkout.
+- Send generated-file conflicts to the model or use a model-selected handler.
 
 This Action code is CI and platform integration code. It uses private
 Seqlane runtime capabilities, but it is not part of the Seqlane application.
@@ -73,6 +84,16 @@ runtime contracts.
   regular conflict files.
 - **Conflict set:** The paths reported by the unmerged Git index.
 - **Agent conflict:** A conflict path that is not `pnpm-lock.yaml`.
+- **Conflict-handler policy:** A versioned static JSON policy supplied by the
+  trusted workflow through the `conflict-handlers` input. It maps
+  repository-relative conflict globs to mechanical handler definitions and
+  output globs.
+- **Generated-file rule:** One policy entry with a repository-relative `match`
+  glob, one or more repository-relative `outputs` globs, and a nested `handler`
+  recipe.
+- **Generated-file handler:** A deterministic operation selected by a policy
+  rule. Handler setup, command execution, output validation, and staging are
+  mechanical operations; none is delegated to the model.
 - **Lockfile conflict:** A conflict for `pnpm-lock.yaml`.
 - **Resolution attempt:** One resolver pass for one rebase stop or merge
   conflict state.
@@ -171,8 +192,17 @@ revision. The resolution-target checkout must use full history and the
 captured pull-request head revision.
 
 The workflow can retain the bootstrap step that obtains the target revision
-before the target checkout. The workflow must not retain resolver policy or
-Git mutation loops.
+before the target checkout. The Action must receive the formatted multiline
+JSON `conflict-handlers` input from the trusted workflow revision. It must not
+accept policy contents from the target checkout or retain resolver
+implementation or Git mutation loops.
+
+The workflow may bootstrap the pinned Node and pnpm toolchain and install
+trusted-source dependencies with a frozen lockfile and scripts disabled before
+the Action runs. It must not install or execute target dependencies in the
+ordinary workflow process. A handler that needs target dependencies must run
+its declared setup and command inside the isolated handler environment defined
+by `requirement-generated-file-handlers`.
 
 The production workflow must pass `secrets.SEQLANE_RESOLVER_TOKEN` to the
 Action's `push-token` input. This dedicated secret must have only the
@@ -196,6 +226,7 @@ The Action must accept these inputs:
 | `push` | boolean string | `false` | Permit a remote write |
 | `push-token` | secret string | empty | Dedicated token used for remote writes when `push` is `true` |
 | `max-attempts` | positive integer string | `10` | Rebase resolution limit |
+| `conflict-handlers` | formatted multiline JSON string | `{ "version": 1, "rules": [] }` | Trusted static conflict-handler policy |
 
 The production workflow must pass `commit: true` and `push: true` to preserve
 the current behavior. The library must not push when `push` is false.
@@ -264,20 +295,101 @@ push a new result.
 Each attempt must perform these actions in order:
 
 1. Read the current unmerged conflict set.
-2. Separate agent conflicts from the lockfile conflict.
-3. Prepare the agent workspace.
-4. Run Seqlane when at least one agent conflict exists.
-5. Copy only the allowed agent files back to the resolution target.
-6. Regenerate the lockfile when it is in the conflict set.
-7. Validate the target workspace.
-8. Stage only the original conflict set.
-9. Reject remaining unmerged index entries.
-10. Run staged whitespace and marker checks.
-11. Continue the merge or rebase operation.
+2. Classify generated-file, agent, and lockfile conflicts using the validated
+   static policy and built-in lockfile rule.
+3. Execute each matching generated-file handler mechanically.
+4. Prepare the agent workspace for remaining agent conflicts.
+5. Run Seqlane when at least one agent conflict exists.
+6. Copy only the allowed agent files back to the resolution target.
+7. Regenerate the lockfile when it is in the conflict set.
+8. Validate the target workspace and every generated-file handler output.
+9. Stage only the original conflict set.
+10. Reject remaining unmerged index entries.
+11. Run staged whitespace and marker checks.
+12. Continue the merge or rebase operation.
 
 The resolver must stop when the attempt count exceeds `max-attempts`.
 
 The default limit must remain `10`.
+
+### requirement-generated-file-handlers
+
+The Action must accept the formatted multiline JSON `conflict-handlers` input
+from the trusted workflow. It must parse and validate a versioned JSON document
+containing a list of rules. An empty rule list is valid and preserves the
+existing agent and built-in lockfile paths. The Action must never read this
+configuration from the resolution target.
+
+Each rule must contain:
+
+- `match`: a non-empty repository-relative glob used to match conflicted
+  paths;
+- `outputs`: a non-empty list of repository-relative globs that is the complete
+  allowlist of paths the handler may create or modify; and
+- `handler`: a nested validated static handler recipe, including executable and
+  argument data rather than an interpolated shell command string.
+
+The JSON shape is conceptually:
+
+```json
+{
+  "version": 1,
+  "rules": [
+    {
+      "match": "actions/*/dist/main.js",
+      "outputs": ["actions/*/dist/main.js"],
+      "handler": {
+        "command": ["pnpm", "build"]
+      }
+    }
+  ]
+}
+```
+
+The built-in `pnpm-lock.yaml` regeneration handler remains enabled without a
+policy rule. A policy rule that matches `pnpm-lock.yaml` must be rejected; the
+conflict-handlers policy cannot override, replace, or disable the built-in
+lockfile handler.
+
+The policy validator must reject absolute paths, `..` traversal, invalid glob
+syntax, empty output lists, duplicate or ambiguously overlapping rules, and
+handler recipes that do not meet the resolver's allowed command and resource
+limits. The resolver must normalize all paths to repository-relative form
+before matching. A policy rule must not be able to select the Action bundle,
+the resolver source, Git metadata, credentials, or files outside the target
+checkout. The policy must not override the built-in `pnpm-lock.yaml`
+regeneration path.
+
+For every conflicted path matched by a generated-file rule, the resolver must
+select the rule's handler deterministically and exclude that path from model
+resolution. The handler may operate on the complete set of paths selected by
+its rule. After setup and command execution, the resolver must compute the
+workspace change set and require every changed path to match that rule's
+`outputs` globs. It must stage only validated output paths that are part of
+the original conflict set and must reject unexpected changes or unresolved
+index entries.
+
+Handler setup, command execution, output validation, and staging are one
+mechanical operation. If any phase fails, the complete resolution attempt must
+fail. There is no stage-3, model, or other fallback for a generated-file
+handler failure.
+
+The handler command may execute code or configuration from the resolution
+target, including package-manager scripts or build configuration. Therefore
+the resolver must execute it in an isolated, unprivileged environment outside
+the normal workflow process. The environment must receive no GitHub token,
+push token, OpenAI key, credential helper, SSH key, or other Action secret. It
+must use a dedicated temporary workspace, bounded resource and output
+allowlists, and a disabled or explicitly allowlisted network. The handler
+must not be able to provide or replace the trusted Action bundle or resolver
+source.
+
+The workflow-level toolchain bootstrap is limited to the trusted source
+checkout: it may install the pinned Node/pnpm toolchain and trusted-source
+dependencies with a frozen lockfile and lifecycle scripts disabled. Any
+target dependency installation required by a handler is part of that handler's
+isolated recipe and is subject to the same no-secret, no-credential, network,
+and output restrictions.
 
 ### requirement-agent-workspace
 
@@ -482,6 +594,23 @@ export interface ResolveMergeConflictsRequest {
   readonly commit: boolean;
   readonly push: boolean;
   readonly maxAttempts: number;
+  readonly conflictHandlers: ConflictHandlerPolicy;
+}
+
+export interface ConflictHandlerPolicy {
+  readonly version: 1;
+  readonly rules: readonly ConflictHandlerRule[];
+}
+
+export interface ConflictHandlerRule {
+  readonly match: string;
+  readonly outputs: readonly string[];
+  readonly handler: ConflictHandler;
+}
+
+export interface ConflictHandler {
+  readonly command: readonly string[];
+  readonly setup?: readonly (readonly string[])[];
 }
 
 export interface ResolveMergeConflictsPorts {
@@ -535,6 +664,10 @@ The resolver must return a typed failure for each case below:
 - unresolved conflict after agent work
 - remaining conflict marker after staging
 - lockfile regeneration error
+- invalid or ambiguous `conflict-handlers` JSON policy
+- generated-file handler setup or command failure
+- generated-file handler output outside its declared globs
+- generated-file handler sandbox or staging failure
 - OpenCode archive hash mismatch
 - OpenCode readiness timeout
 - Seqlane task failure
@@ -619,6 +752,19 @@ verification must keep remote push behavior disabled.
   and bootstrap behavior.
 - The resolver preserves all requirements from
   `task.resolve-pull-request-merge-conflicts`.
+- The Action accepts only the trusted workflow's formatted multiline JSON
+  `conflict-handlers` input and validates its versioned rules, each with
+  repository-relative `match` and non-empty `outputs` globs plus a nested
+  static `handler` recipe.
+- The built-in `pnpm-lock.yaml` regeneration path works without a policy rule
+  and cannot be overridden by repository configuration.
+- Generated-file handlers run mechanically, outside model resolution, and
+  fail the complete attempt on setup, command, output-validation, sandbox, or
+  staging failure without a fallback.
+- Handler output validation rejects every changed path not covered by the
+  matching rule's `outputs` globs.
+- Handler execution receives no Action secrets or credentials and cannot
+  replace the trusted Action bundle or resolver source.
 - Git conflicts are detected from the unmerged index.
 - Agent files and lockfile files use separate resolution paths.
 - Agent workspace inputs cap each file at 1 MiB and the total at 2 MiB.
@@ -647,6 +793,7 @@ verification must keep remote push behavior disabled.
 - Autonomous execution: [spec.autonomous-non-interactive-execution](./2026-09-02-autonomous-non-interactive-execution.md)
 - Local commands: [spec.local-mechanical-tasks](./2026-09-03-local-mechanical-tasks.md)
 - Runner process: [spec.dedicated-runner-process](./2026-09-02-dedicated-runner-process.md)
+- Generated-file handlers: [task.configure-generated-file-conflict-handlers](../tasks/2026-09-08-configure-generated-file-conflict-handlers.md)
 - Executor boundary decision: [adr.executor-neutral-workflow-authoring](../adrs/2026-09-02-executor-neutral-workflow-authoring.md)
 - Autonomous execution decision: [adr.autonomous-non-interactive-execution](../adrs/2026-09-02-autonomous-non-interactive-execution.md)
 - Local command decision: [adr.local-mechanical-tasks](../adrs/2026-09-03-local-mechanical-tasks.md)

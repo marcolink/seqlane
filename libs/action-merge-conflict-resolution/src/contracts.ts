@@ -61,6 +61,61 @@ export const conflictPathSchema = z
   );
 export type ConflictPath = z.infer<typeof conflictPathSchema>;
 
+const generatedFileGlobSchema = z
+  .string()
+  .min(1)
+  .max(1_024)
+  .regex(
+    /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\\)(?!.*\0)[^/]+(?:\/[^/]+)*$/,
+  )
+  .refine(
+    (value) => {
+      let bracketDepth = 0;
+      for (const character of value) {
+        if (character === "[") bracketDepth += 1;
+        if (character === "]") {
+          if (bracketDepth === 0) return false;
+          bracketDepth -= 1;
+        }
+      }
+      return bracketDepth === 0;
+    },
+    { message: "Glob character classes must be balanced." },
+  );
+export type GeneratedFileGlob = z.infer<typeof generatedFileGlobSchema>;
+
+const generatedFileCommandArgumentSchema = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine((value) => !value.includes("\0"));
+
+const generatedFileCommandSchema = z
+  .array(generatedFileCommandArgumentSchema)
+  .min(1)
+  .max(64);
+
+export const conflictHandlerSchema = z.strictObject({
+  command: generatedFileCommandSchema,
+  setup: z.array(generatedFileCommandSchema).max(16).optional(),
+});
+export type ConflictHandler = z.infer<typeof conflictHandlerSchema>;
+
+export const conflictHandlerRuleSchema = z.strictObject({
+  match: generatedFileGlobSchema,
+  outputs: z.array(generatedFileGlobSchema).min(1).max(64),
+  handler: conflictHandlerSchema,
+});
+export type ConflictHandlerRule = z.infer<typeof conflictHandlerRuleSchema>;
+
+export const conflictHandlersConfigSchema = z.strictObject({
+  version: z.literal(1),
+  rules: z.array(conflictHandlerRuleSchema).max(64),
+});
+export type ConflictHandlersConfig = z.infer<
+  typeof conflictHandlersConfigSchema
+>;
+
 export const actionInputsSchema = z.strictObject({
   pullRequestNumber: positiveIntegerStringSchema,
   resolutionStrategy: resolutionStrategySchema.default("rebase"),
@@ -71,6 +126,11 @@ export const actionInputsSchema = z.strictObject({
   maxAttempts: positiveIntegerStringSchema.default(
     String(DEFAULT_MAX_ATTEMPTS),
   ),
+  conflictHandlers: z
+    .string()
+    .min(1)
+    .max(256 * 1024)
+    .default('{"version":1,"rules":[]}'),
 });
 export type ActionInputs = z.infer<typeof actionInputsSchema>;
 
@@ -82,6 +142,10 @@ export const resolveMergeConflictsRequestSchema = z.strictObject({
   commit: z.boolean(),
   push: z.boolean(),
   maxAttempts: positiveIntegerSchema,
+  conflictHandlers: conflictHandlersConfigSchema.default({
+    version: 1,
+    rules: [],
+  }),
 });
 export type ResolveMergeConflictsRequest = z.infer<
   typeof resolveMergeConflictsRequestSchema
@@ -245,7 +309,10 @@ export interface GitPort {
     baseRevision: GitRevision,
   ) => Promise<IntegrationResult>;
   readonly readConflictSet: () => Promise<ConflictSet>;
-  readonly stageConflictSet: (conflicts: ConflictSet) => Promise<void>;
+  readonly stageConflictSet: (
+    conflicts: ConflictSet,
+    generatedPaths?: readonly ConflictPath[],
+  ) => Promise<void>;
   readonly continueRebase: () => Promise<GitCommandResult>;
   readonly skipRebase: () => Promise<GitCommandResult>;
 }
@@ -256,7 +323,10 @@ export interface WorkspaceFilesPort {
     conflicts: ConflictSet,
   ) => Promise<AgentResolutionRequest>;
   readonly copyAgentEdits: (paths: readonly ConflictPath[]) => Promise<void>;
-  readonly validateTarget: (conflicts: ConflictSet) => Promise<void>;
+  readonly validateTarget: (
+    conflicts: ConflictSet,
+    generatedPaths?: readonly ConflictPath[],
+  ) => Promise<void>;
 }
 
 export interface LockfilePort {
@@ -270,6 +340,13 @@ export interface AgentRunnerPort {
   readonly start?: () => Promise<void>;
   readonly stop?: () => Promise<void>;
   readonly getAttemptDiagnostics?: () => ResolutionAttemptDiagnostics;
+}
+
+export interface GeneratedFileHandlerPort {
+  readonly run: (
+    rule: ConflictHandlerRule,
+    conflicts: ConflictSet,
+  ) => Promise<readonly ConflictPath[]>;
 }
 
 export interface ResolutionAttemptDiagnostics {
@@ -315,7 +392,8 @@ export interface ResolveMergeConflictsPorts {
   readonly github: PullRequestMetadataPort;
   readonly git: GitPort;
   readonly files: WorkspaceFilesPort;
-  readonly lockfile: LockfilePort;
+  readonly lockfile?: LockfilePort;
+  readonly generatedFiles: GeneratedFileHandlerPort;
   readonly agent: AgentRunnerPort;
   readonly summary: SummaryPort;
   readonly commitAndPush: CommitAndPushPort;

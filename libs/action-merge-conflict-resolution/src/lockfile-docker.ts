@@ -135,7 +135,10 @@ export function runDockerCommand(
       [...request.args],
       {
         cwd: request.cwd,
-        env: { ...process.env, ...request.env },
+        env: {
+          PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+          ...request.env,
+        },
         encoding: "utf8",
         maxBuffer: 8 * 1024 * 1024,
         signal: request.signal,

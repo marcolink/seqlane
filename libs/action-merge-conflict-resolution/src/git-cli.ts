@@ -310,7 +310,10 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
     };
   }
 
-  async stageConflictSet(conflicts: ConflictSet): Promise<void> {
+  async stageConflictSet(
+    conflicts: ConflictSet,
+    generatedPaths: readonly ConflictPath[] = [],
+  ): Promise<void> {
     const parsed = conflictSetSchema.safeParse(conflicts);
     if (!parsed.success) {
       throw new ActionResolutionError(
@@ -320,7 +323,21 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
         parsed.error,
       );
     }
-    const paths = uniqueConflictPaths(parsed.data);
+    const generated = generatedPaths.map((path) => {
+      const validated = conflictPathSchema.safeParse(path);
+      if (!validated.success) {
+        throw new ActionResolutionError(
+          "git",
+          "UNSAFE_PATH",
+          `The generated output path is unsafe: ${String(path)}.`,
+          validated.error,
+        );
+      }
+      return validated.data;
+    });
+    const paths = [
+      ...new Set([...uniqueConflictPaths(parsed.data), ...generated]),
+    ];
     if (paths.length === 0) return;
 
     const result = await this.run(["add", "--", ...paths]);
