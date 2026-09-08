@@ -250,6 +250,11 @@ Completed on `feature/mastra-agent-observability`, based on `mastra` at
 - Added bounded identities, payload exclusion, sanitized failure and
   cancellation closure, alias-conflict no-op behavior, and no-throw span and
   diagnostic operations.
+- Review repair on PR #75: repeat-body task, validation-check, and gate
+  execution now retain the active observability context. OpenCode projection
+  disables after its first span-operation failure, bounds model and tool
+  identities, deduplicates terminal reducer output, and caps malformed-event
+  diagnostics.
 - Preserved existing interaction, activity, background-process, aggregate
   metrics, structured-output repair, session, and cancellation behavior.
 

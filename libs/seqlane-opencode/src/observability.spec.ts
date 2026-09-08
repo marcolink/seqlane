@@ -47,6 +47,7 @@ function tool(
 
 function spanFactory(idPrefix = "") {
   const lifecycle: string[] = [];
+  let failNextUpdate = false;
   const spans: Array<{
     id: string;
     type: SpanType;
@@ -75,7 +76,13 @@ function spanFactory(idPrefix = "") {
           childRecord.attributes = options.attributes;
         return child;
       },
-      update: (options: unknown) => record.updates.push(options),
+      update: (options: unknown) => {
+        if (failNextUpdate) {
+          failNextUpdate = false;
+          throw new Error("exporter unavailable");
+        }
+        record.updates.push(options);
+      },
       end: () => {
         record.ended = true;
         lifecycle.push(`end:${id}`);
@@ -93,6 +100,9 @@ function spanFactory(idPrefix = "") {
   return {
     spans,
     lifecycle,
+    failNextUpdate: () => {
+      failNextUpdate = true;
+    },
     root: makeSpan(SpanType.WORKFLOW_STEP) as never,
   };
 }
@@ -206,6 +216,49 @@ describe("OpenCode Mastra observability projection", () => {
     );
   });
 
+  it("disables projection after a span operation fails", () => {
+    const factory = spanFactory();
+    const diagnostics: string[] = [];
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: factory.root } },
+      "invocation-1",
+      (message) => diagnostics.push(message),
+    );
+    projector.observe(assistant({ completed: undefined }));
+    factory.failNextUpdate();
+    projector.observe(assistant({ messageID: "message-1" }));
+
+    expect(
+      factory.spans.filter((span) => span.type === SpanType.MODEL_GENERATION),
+    ).toHaveLength(1);
+    expect(diagnostics).toContain(
+      "OpenCode native projection disabled after span update failure",
+    );
+  });
+
+  it("bounds distinct model identities", () => {
+    const factory = spanFactory();
+    const diagnostics: string[] = [];
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: factory.root } },
+      "invocation-1",
+      (message) => diagnostics.push(message),
+    );
+
+    for (let index = 0; index < 2_000; index += 1) {
+      projector.observe(
+        assistant({ messageID: `message-${index}`, completed: undefined }),
+      );
+    }
+
+    expect(
+      factory.spans.filter((span) => span.type === SpanType.MODEL_GENERATION),
+    ).toHaveLength(1_024);
+    expect(diagnostics).toContain(
+      "OpenCode native projection disabled after span model identity limit failure",
+    );
+  });
+
   it("keeps one fallback and ignores later unmatched terminal identities", () => {
     const factory = spanFactory();
     const diagnostics: string[] = [];
@@ -243,6 +296,14 @@ describe("OpenCode Mastra observability projection", () => {
     projector.observe(
       tool({ messageID: "message", callID: "a:b:c", status: "running" }),
     );
+    projector.observe(
+      tool({
+        sessionID: "another-session",
+        messageID: "message",
+        callID: "a:b:c",
+        status: "running",
+      }),
+    );
     projector.finish();
 
     expect(
@@ -251,6 +312,39 @@ describe("OpenCode Mastra observability projection", () => {
     expect(
       factory.spans.filter((span) => span.type === SpanType.TOOL_CALL),
     ).toHaveLength(2);
+  });
+
+  it("bounds distinct tool identities and diagnoses once", () => {
+    const factory = spanFactory();
+    const diagnostics: string[] = [];
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: factory.root } },
+      "invocation-1",
+      (message) => diagnostics.push(message),
+    );
+
+    for (let index = 0; index < 3_000; index += 1) {
+      projector.observe(
+        tool({
+          messageID: `message-${index}`,
+          callID: `call-${index}`,
+          status: "running",
+        }),
+      );
+    }
+
+    expect(
+      factory.spans.filter((span) => span.type === SpanType.TOOL_CALL),
+    ).toHaveLength(2_048);
+    expect(diagnostics).toEqual([
+      "OpenCode native projection disabled after span tool identity limit failure",
+    ]);
+    projector.observe(
+      tool({ messageID: "after-limit", callID: "after-limit" }),
+    );
+    expect(
+      factory.spans.filter((span) => span.type === SpanType.TOOL_CALL),
+    ).toHaveLength(2_048);
   });
 
   it("sanitizes executor failure data before ending spans", () => {

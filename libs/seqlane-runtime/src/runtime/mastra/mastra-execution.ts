@@ -259,7 +259,7 @@ export function createMastraPlanInvocationHandler(
         remainingConsumers: context.remainingConsumers,
       });
     }
-    return executeRepeatNode(context, node, abortSignal);
+    return executeRepeatNode(context, node, abortSignal, observability);
   };
 }
 

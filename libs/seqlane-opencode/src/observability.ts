@@ -12,6 +12,8 @@ import type {
 } from "./observations.js";
 
 const MAX_METADATA_VALUE = 256;
+const MAX_MODEL_IDENTITIES = 1_024;
+const MAX_TOOL_IDENTITIES = 2_048;
 
 type AgentSpan = Span<MastraSpanType.AGENT_RUN>;
 type ModelSpan = Span<MastraSpanType.MODEL_GENERATION>;
@@ -159,9 +161,6 @@ export function createOpenCodeObservability(
     }
   };
   let diagnosedCostUnit = false;
-  const diagnoseSpanOperation = (operation: string): void => {
-    reportDiagnostic(`OpenCode native span ${operation} failed`);
-  };
   const diagnoseCostUnit = (): void => {
     if (diagnosedCostUnit) return;
     diagnosedCostUnit = true;
@@ -179,7 +178,47 @@ export function createOpenCodeObservability(
     };
   }
 
+  const models = new Map<string, OpenSpan<ModelSpan>>();
+  const tools = new Map<string, OpenSpan<ToolSpan>>();
+  let disabled = false;
+  let finished = false;
   let agent: OpenSpan<AgentSpan> | undefined;
+  let fallbackModel: OpenSpan<ModelSpan> | undefined;
+  let diagnosedAdditionalFallback = false;
+
+  const closeAfterFailure = <TSpan extends SpanType>(
+    record: OpenSpan<Span<TSpan>>,
+    cause: unknown,
+  ): void => {
+    if (record.closed) return;
+    record.closed = true;
+    try {
+      record.span.error({ error: errorFor(cause), endSpan: true });
+    } catch {
+      try {
+        record.span.end();
+      } catch {
+        // Best effort only: exporter failures must not affect execution.
+      }
+    }
+  };
+
+  const disableProjection = (operation: string): void => {
+    if (disabled) return;
+    disabled = true;
+    reportDiagnostic(
+      `OpenCode native projection disabled after span ${operation} failure`,
+    );
+    const cause = new Error("OpenCode native projection disabled");
+    for (const record of tools.values()) closeAfterFailure(record, cause);
+    for (const record of models.values()) closeAfterFailure(record, cause);
+    if (fallbackModel !== undefined) closeAfterFailure(fallbackModel, cause);
+    if (agent !== undefined) closeAfterFailure(agent, cause);
+    tools.clear();
+    models.clear();
+    fallbackModel = undefined;
+  };
+
   try {
     agent = {
       span: parent.createChildSpan({
@@ -190,6 +229,7 @@ export function createOpenCodeObservability(
       closed: false,
     };
   } catch {
+    disabled = true;
     reportDiagnostic("OpenCode native agent span could not be created");
   }
 
@@ -201,10 +241,19 @@ export function createOpenCodeObservability(
     };
   }
 
-  const models = new Map<string, OpenSpan<ModelSpan>>();
-  const tools = new Map<string, OpenSpan<ToolSpan>>();
-  let fallbackModel: OpenSpan<ModelSpan> | undefined;
-  let diagnosedAdditionalFallback = false;
+  const admitIdentity = (
+    key: string,
+    active: ReadonlyMap<string, unknown>,
+    limit: number,
+    kind: string,
+  ): boolean => {
+    if (active.has(key)) return true;
+    if (active.size >= limit) {
+      disableProjection(`${kind} identity limit`);
+      return false;
+    }
+    return true;
+  };
 
   const createModel = (
     observation: OpenCodeAssistantObservation,
@@ -212,6 +261,8 @@ export function createOpenCodeObservability(
     const key = tupleKey(observation.sessionID, observation.messageID);
     const existing = models.get(key);
     if (existing !== undefined) return existing;
+    if (!admitIdentity(key, models, MAX_MODEL_IDENTITIES, "model"))
+      return undefined;
     try {
       const record = {
         span: agent.span.createChildSpan({
@@ -229,7 +280,7 @@ export function createOpenCodeObservability(
       models.set(key, record);
       return record;
     } catch {
-      reportDiagnostic("OpenCode native model span could not be created");
+      disableProjection("create");
       return undefined;
     }
   };
@@ -240,16 +291,17 @@ export function createOpenCodeObservability(
     safeUpdate(
       record,
       { attributes: modelAttributes(observation, diagnoseCostUnit) },
-      () => diagnoseSpanOperation("update"),
+      () => disableProjection("update"),
     );
     if (isTerminal(observation))
-      safeEnd(record, observation.error, () => diagnoseSpanOperation("end"));
+      safeEnd(record, observation.error, () => disableProjection("end"));
   };
 
   const applyTool = (observation: OpenCodeToolObservation): void => {
     const key = tupleKey(observation.messageID, observation.callID);
     let record = tools.get(key);
     if (record === undefined) {
+      if (!admitIdentity(key, tools, MAX_TOOL_IDENTITIES, "tool")) return;
       const model = models.get(
         tupleKey(observation.sessionID, observation.messageID),
       );
@@ -274,7 +326,7 @@ export function createOpenCodeObservability(
         };
         tools.set(key, record);
       } catch {
-        reportDiagnostic("OpenCode native tool span could not be created");
+        disableProjection("create");
         return;
       }
     }
@@ -290,22 +342,24 @@ export function createOpenCodeObservability(
                 : undefined,
         },
       },
-      () => diagnoseSpanOperation("update"),
+      () => disableProjection("update"),
     );
     if (observation.status === "completed")
-      safeEnd(record, undefined, () => diagnoseSpanOperation("end"));
+      safeEnd(record, undefined, () => disableProjection("end"));
     if (observation.status === "error")
       safeEnd(record, new Error("OpenCode tool failed"), () =>
-        diagnoseSpanOperation("end"),
+        disableProjection("end"),
       );
   };
 
   return {
     observe(observation) {
+      if (disabled || finished) return;
       if (observation.kind === "assistant") applyModel(observation);
       else applyTool(observation);
     },
     observeTerminal(observation) {
+      if (disabled || finished) return;
       const key = tupleKey(observation.sessionID, observation.messageID);
       const existing = models.get(key);
       if (existing !== undefined) {
@@ -324,24 +378,29 @@ export function createOpenCodeObservability(
       fallbackModel = createModel(observation);
       if (fallbackModel !== undefined && isTerminal(observation)) {
         safeEnd(fallbackModel, observation.error, () =>
-          diagnoseSpanOperation("end"),
+          disableProjection("end"),
         );
       }
     },
     finish(cause) {
+      if (finished) return;
+      finished = true;
+      if (disabled) return;
       // Close descendants before the adapter run. The workflow-step parent is
       // owned by Mastra and is intentionally never closed here.
       for (const record of tools.values())
-        safeEnd(record, cause, () => diagnoseSpanOperation("end"));
+        safeEnd(record, cause, () => disableProjection("end"));
       const modelRecords = new Set(models.values());
       for (const record of modelRecords)
-        safeEnd(record, cause, () => diagnoseSpanOperation("end"));
+        safeEnd(record, cause, () => disableProjection("end"));
       if (fallbackModel !== undefined && !modelRecords.has(fallbackModel)) {
         // Keep an invocation-local fallback in the model closure phase even if
         // its implementation is changed not to use the identity map.
-        safeEnd(fallbackModel, cause, () => diagnoseSpanOperation("end"));
+        safeEnd(fallbackModel, cause, () => disableProjection("end"));
       }
-      safeEnd(agent, cause, () => diagnoseSpanOperation("end"));
+      safeEnd(agent, cause, () => disableProjection("end"));
+      tools.clear();
+      models.clear();
     },
   };
 }

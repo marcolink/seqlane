@@ -74,6 +74,8 @@ async function startServer(
     readonly holdSession?: boolean;
     readonly readbackCompatibilityError?: boolean;
     readonly toolEvents?: boolean;
+    readonly duplicateToolTerminal?: boolean;
+    readonly malformedEventCount?: number;
     readonly nextToolEvents?: boolean;
     readonly skillEvents?: boolean;
     readonly backgroundShellEvent?: boolean;
@@ -277,6 +279,22 @@ async function startServer(
               },
             },
           },
+          ...(options.duplicateToolTerminal
+            ? [
+                {
+                  type: "message.part.updated",
+                  properties: {
+                    sessionID: "session-1",
+                    part: {
+                      type: "tool",
+                      callID: "call-1",
+                      tool: "filesystem.read",
+                      state: { status: "completed", output: "12 bytes" },
+                    },
+                  },
+                },
+              ]
+            : []),
         ]) {
           response.write(`data: ${JSON.stringify(event)}\n\n`);
         }
@@ -377,6 +395,18 @@ async function startServer(
               callID: "shell-1",
               command: "pnpm format &",
             },
+          })}\n\n`,
+        );
+      }
+      for (
+        let index = 0;
+        index < (options.malformedEventCount ?? 0);
+        index += 1
+      ) {
+        response.write(
+          `data: ${JSON.stringify({
+            type: "message.updated",
+            properties: { info: { role: "assistant" } },
           })}\n\n`,
         );
       }
@@ -859,6 +889,46 @@ describe("OpenCode run session", () => {
           output: "12 bytes",
         },
       ]);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("does not fan out duplicate terminal activity transitions", async () => {
+    const fake = await startServer({
+      toolEvents: true,
+      duplicateToolTerminal: true,
+    });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const activities: OpenCodeActivity[] = [];
+
+      await run.prompt({
+        text: "inspect the repository",
+        schema: { type: "object" },
+        onActivity: (activity) => activities.push(activity),
+      });
+
+      expect(activities).toHaveLength(2);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("bounds malformed and unsupported event diagnostics", async () => {
+    const fake = await startServer({ malformedEventCount: 100 });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const diagnostics: string[] = [];
+
+      await run.prompt({
+        text: "ignore malformed events",
+        schema: { type: "object" },
+        onDiagnostic: (message) => diagnostics.push(message),
+      });
+
+      expect(diagnostics.length).toBeLessThanOrEqual(9);
+      expect(diagnostics.at(-1)).toContain("suppressed");
     } finally {
       await closeServer(fake.server);
     }

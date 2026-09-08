@@ -50,6 +50,22 @@ interface ActivityIdentity {
   readonly name: string;
 }
 
+function observationIdentity(observation: OpenCodeEventObservation): string {
+  return observation.kind === "assistant"
+    ? JSON.stringify([
+        "assistant",
+        observation.sessionID,
+        observation.messageID,
+      ])
+    : JSON.stringify(["tool", observation.messageID, observation.callID]);
+}
+
+function observationIsTerminal(observation: OpenCodeEventObservation): boolean {
+  return observation.kind === "assistant"
+    ? observation.completed !== undefined || observation.error !== undefined
+    : observation.status === "completed" || observation.status === "error";
+}
+
 function activityIdentity(
   tool: string,
   input: Record<string, unknown> | undefined,
@@ -126,6 +142,36 @@ async function waitForInteraction(
   onDiagnostic: ((message: string) => void) | undefined,
 ): Promise<void> {
   const activityIdentities = new Map<string, ActivityIdentity>();
+  const terminalObservations = new Set<string>();
+  const dispatchObservation = (observation: OpenCodeEventObservation): void => {
+    const identity = observationIdentity(observation);
+    if (terminalObservations.has(identity)) return;
+    if (observationIsTerminal(observation)) terminalObservations.add(identity);
+    onObservation?.(observation);
+    if (observation.kind !== "tool") return;
+    const activity = activityFromToolObservation(
+      observation,
+      activityIdentities,
+    );
+    if (activity !== undefined) onActivity?.(activity);
+  };
+  const dispatchLegacyTool = (
+    observation: OpenCodeLegacyToolObservation,
+  ): void => {
+    const identity = JSON.stringify(["legacy-tool", observation.callID]);
+    if (terminalObservations.has(identity)) return;
+    const terminal =
+      observation.status === "completed" ||
+      observation.status === "error" ||
+      observation.status === "success" ||
+      observation.status === "failed";
+    if (terminal) terminalObservations.add(identity);
+    const activity = activityFromToolObservation(
+      observation,
+      activityIdentities,
+    );
+    if (activity !== undefined) onActivity?.(activity);
+  };
   const reportDiagnostic = (message: string): void => {
     try {
       onDiagnostic?.(message);
@@ -142,22 +188,11 @@ async function waitForInteraction(
     if (parsed.interaction) return;
     const observation = parsed.observation;
     if (observation !== undefined) {
-      onObservation?.(observation);
-      if (observation.kind === "tool") {
-        const activity = activityFromToolObservation(
-          observation,
-          activityIdentities,
-        );
-        if (activity !== undefined) onActivity?.(activity);
-      }
+      dispatchObservation(observation);
       continue;
     }
     if (parsed.legacyTool !== undefined) {
-      const activity = activityFromToolObservation(
-        parsed.legacyTool,
-        activityIdentities,
-      );
-      if (activity !== undefined) onActivity?.(activity);
+      dispatchLegacyTool(parsed.legacyTool);
     }
     if (parsed.backgroundProcess) {
       // OpenCode's event does not expose a lifetime handle for this process.
@@ -262,6 +297,23 @@ async function createOpenCodeRunForSession(
   let aborted = false;
   let abortPromise: Promise<void> | undefined;
   let terminalCheckpoint: z.infer<typeof checkpointSchema> | undefined;
+  let eventDiagnosticCount = 0;
+  let eventDiagnosticSuppressionReported = false;
+  const reportEventDiagnostic = (
+    callback: ((message: string) => void) | undefined,
+    message: string,
+  ): void => {
+    if (eventDiagnosticCount < 8) {
+      eventDiagnosticCount += 1;
+      callback?.(message);
+      return;
+    }
+    if (eventDiagnosticSuppressionReported) return;
+    eventDiagnosticSuppressionReported = true;
+    callback?.(
+      "suppressed additional malformed or unsupported OpenCode event diagnostics",
+    );
+  };
 
   const prompt = (request: OpenCodePrompt): Promise<OpenCodePromptResult> => {
     const operation = queue.then(async () => {
@@ -315,7 +367,7 @@ async function createOpenCodeRunForSession(
             request.onActivity,
             request.onUncertainActivity,
             request.onObservation,
-            request.onDiagnostic,
+            (message) => reportEventDiagnostic(request.onDiagnostic, message),
           )
             .then(() => ({ type: "interaction" as const }))
             .catch((cause) => ({ type: "monitor-error" as const, cause }));
