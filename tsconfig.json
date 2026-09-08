@@ -47,6 +47,9 @@
     },
     {
       "path": "./actions/setup-opencode"
+    },
+    {
+      "path": "./actions/ripwire-server"
     }
   ]
 }

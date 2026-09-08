@@ -1,0 +1,56 @@
+name: ripwire server
+description: Start a Ripwire HTTP MCP server and stop it automatically after the job
+
+inputs:
+  working-directory:
+    description: Workspace directory to index and serve with Ripwire
+    required: true
+  version:
+    description: Repository-trusted Ripwire release version (currently 0.4.0)
+    required: false
+    default: "0.4.0"
+  listen:
+    description: Ripwire HTTP listen address
+    required: false
+    default: 127.0.0.1:7998
+  top-k:
+    description: Maximum number of ranked symbols
+    required: false
+    default: "200"
+  stable-order:
+    description: Keep MCP output in stable order
+    required: false
+    default: "true"
+  redact:
+    description: Redact sensitive source content
+    required: false
+    default: "true"
+  mcp-token:
+    description: Optional secret seed used to derive the per-run MCP bearer token
+    required: false
+  allow-remote-edits:
+    description: Allow remote MCP edit operations; requires an mcp-token seed
+    required: false
+    default: "false"
+  startup-timeout-seconds:
+    description: Maximum time to wait for Ripwire MCP readiness
+    required: false
+    default: "30"
+
+outputs:
+  mcp-url:
+    description: Ripwire MCP HTTP endpoint
+  log-path:
+    description: Ripwire server log path
+  binary-path:
+    description: Installed Ripwire binary path
+  version:
+    description: Normalized Ripwire version
+  mcp-token:
+    description: Per-run bearer token for authenticated Ripwire MCP requests (secret)
+
+runs:
+  using: node24
+  main: dist/main.js
+  post: dist/post.js
+  post-if: always()

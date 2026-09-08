@@ -514,6 +514,21 @@ jobs:
         with:
           working-directory: ${{ github.workspace }}/review-target
 
+      - name: Start Ripwire
+        if: steps.pull-request.outputs.eligible == 'true'
+        id: ripwire
+        timeout-minutes: 10
+        uses: ./seqlane-source/actions/ripwire-server
+        with:
+          working-directory: ${{ github.workspace }}/review-target
+          version: "0.4.0"
+          listen: 127.0.0.1:7998
+          top-k: "200"
+          stable-order: "true"
+          redact: "true"
+          allow-remote-edits: "false"
+          startup-timeout-seconds: "30"
+
       - name: Resolve OpenCode version
         if: steps.pull-request.outputs.eligible == 'true'
         id: opencode-version
@@ -550,7 +565,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENCODE_DISABLE_PROJECT_CONFIG: "true"
           OPENCODE_CONFIG_CONTENT: >-
-            {"model":"openai/gpt-5.6-luna","mcp":{"zvec_grep":{"type":"remote","url":"${{ steps.zvec-grep.outputs.mcp-url }}","enabled":true,"oauth":false,"timeout":10000}},"permission":{"*":"deny","StructuredOutput":"allow","zvec_grep_zvec_grep_search":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","bash":"deny","external_directory":"deny"}}
+            {"model":"openai/gpt-5.6-luna","mcp":{"zvec_grep":{"type":"remote","url":"${{ steps.zvec-grep.outputs.mcp-url }}","enabled":true,"oauth":false,"timeout":10000},"ripwire":{"type":"remote","url":"${{ steps.ripwire.outputs.mcp-url }}","headers":{"Authorization":"Bearer ${{ steps.ripwire.outputs.mcp-token }}"},"enabled":true,"oauth":false,"timeout":10000}},"permission":{"*":"deny","StructuredOutput":"allow","zvec_grep_zvec_grep_search":"allow","ripwire_analyze":"allow","ripwire_find_symbol":"allow","ripwire_find_referencing_symbols":"allow","ripwire_grep":"allow","ripwire_cochange":"allow","ripwire_memory_recall":"allow","ripwire_situational_awareness":"allow","ripwire_mentions":"allow","ripwire_for":"allow","ripwire_lego":"allow","ripwire_owners":"allow","ripwire_fetch_body":"allow","ripwire_batch":"allow","ripwire_exemplar":"allow","ripwire_quality_delta":"allow","ripwire_impact":"allow","ripwire_uses":"allow","ripwire_path_between":"allow","ripwire_connect":"allow","ripwire_explore":"allow","ripwire_from_trace":"allow","ripwire_edit_check":"allow","ripwire_whereis":"allow","ripwire_stray_content":"allow","ripwire_flags":"allow","ripwire_doc_drift":"allow","ripwire_slice":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","bash":"deny","external_directory":"deny"}}
 
       - name: Run Seqlane code review
         if: steps.pull-request.outputs.eligible == 'true'
@@ -563,7 +578,9 @@ jobs:
           HEAD_REVISION: ${{ steps.pull-request.outputs.head_revision }}
           REVIEW_TARGET: ${{ github.workspace }}/review-target
           REVIEW_HISTORY_PATH: ${{ runner.temp }}/seqlane-review-history.json
-          SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
+          SEQLANE_REDACT_VALUES: |-
+            ${{ secrets.OPENAI_API_KEY }}
+            ${{ steps.ripwire.outputs.mcp-token }}
         run: |
           jq --compact-output \
             --slurpfile reviewHistory "$REVIEW_HISTORY_PATH" \
@@ -593,7 +610,9 @@ jobs:
         if: steps.pull-request.outputs.eligible == 'true' && steps.seqlane.outcome == 'success'
         working-directory: seqlane-source
         env:
-          SEQLANE_REDACT_VALUES: ${{ secrets.OPENAI_API_KEY }}
+          SEQLANE_REDACT_VALUES: |-
+            ${{ secrets.OPENAI_API_KEY }}
+            ${{ steps.ripwire.outputs.mcp-token }}
         run: |
           ./apps/seqlane-cli/bin/dev.js replay \
             "$RUNNER_TEMP/seqlane-code-review-recording.jsonl" \
