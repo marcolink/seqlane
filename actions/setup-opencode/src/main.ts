@@ -25,9 +25,3 @@ export async function run(): Promise<void> {
   core.addPath(dirname(executable));
   core.setOutput("executable", executable);
 }
-
-if (process.env.NODE_ENV !== "test") {
-  run().catch((error: unknown) => {
-    core.setFailed(error instanceof Error ? error.message : String(error));
-  });
-}

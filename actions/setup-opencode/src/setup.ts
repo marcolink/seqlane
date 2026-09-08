@@ -21,24 +21,21 @@ export interface SetupDependencies {
   verifyExecutable(executable: string, version: string): Promise<void>;
   logger: SetupLogger;
   temporaryDirectory?: string;
+  toolCacheRoot?: string;
 }
 
 export function toolCacheRoot(): string {
   const configured = process.env.RUNNER_TOOL_CACHE;
   if (configured !== undefined && configured.length > 0) return configured;
-  const fallback = join(
-    process.env.RUNNER_TEMP ?? tmpdir(),
-    "seqlane-tool-cache",
-  );
-  process.env.RUNNER_TOOL_CACHE = fallback;
-  return fallback;
+  return join(process.env.RUNNER_TEMP ?? tmpdir(), "seqlane-tool-cache");
 }
 
 export function installationPath(
   platform: Pick<SupportedPlatform, "architecture">,
   version: string,
+  root = toolCacheRoot(),
 ): string {
-  return join(toolCacheRoot(), TOOL_NAME, version, platform.architecture);
+  return join(root, TOOL_NAME, version, platform.architecture);
 }
 
 async function verifyCachedExecutable(
@@ -61,7 +58,11 @@ export async function setupOpenCode(
   dependencies: SetupDependencies,
 ): Promise<string> {
   const key = cacheKey(platform, version);
-  const destination = installationPath(platform, version);
+  const destination = installationPath(
+    platform,
+    version,
+    dependencies.toolCacheRoot,
+  );
   await mkdir(destination, { recursive: true });
 
   const restored = await tryRestore(
@@ -90,7 +91,7 @@ export async function setupOpenCode(
     version,
     platform,
   );
-  await installArchive({
+  const executable = await installArchive({
     metadata,
     platform,
     version,
@@ -98,17 +99,6 @@ export async function setupOpenCode(
     verifyExecutable: dependencies.verifyExecutable,
     temporaryDirectory: dependencies.temporaryDirectory,
   });
-  const executable = await verifyCachedExecutable(
-    destination,
-    version,
-    dependencies.verifyExecutable,
-  );
-  if (executable === undefined) {
-    throw new Error(
-      "OpenCode installation did not produce a verified executable.",
-    );
-  }
-
   await trySave(dependencies.cache, destination, key, (error) =>
     dependencies.logger.debug(
       `OpenCode cache save was unavailable: ${error instanceof Error ? error.message : String(error)}`,

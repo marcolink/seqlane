@@ -1,7 +1,11 @@
 // @test-scope ./io.ts
 
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  createExecutableRunner,
   fetchReleaseMetadata,
   verifyExecutableVersion,
   type FetchLike,
@@ -77,5 +81,29 @@ describe("OpenCode I/O adapters", () => {
         stdout: "1.18.26\n",
       })),
     ).rejects.toThrow(/expected 1.18.27/);
+  });
+
+  it("terminates a non-terminating version check", async () => {
+    const root = await mkdtemp(join(tmpdir(), "setup-opencode-test-"));
+    const executable = join(root, "opencode");
+    await writeFile(
+      executable,
+      "#!/usr/bin/env node\nsetInterval(() => {}, 1_000);\n",
+    );
+    await chmod(executable, 0o755);
+
+    try {
+      const startedAt = Date.now();
+      await expect(
+        verifyExecutableVersion(
+          executable,
+          "1.18.27",
+          createExecutableRunner(100),
+        ),
+      ).rejects.toThrow(/could not report its version/);
+      expect(Date.now() - startedAt).toBeLessThan(2_000);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

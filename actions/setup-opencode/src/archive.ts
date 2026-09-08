@@ -59,7 +59,9 @@ export async function installArchive({
       version,
       platform.architecture,
     );
-    return locateExecutable(installationPath);
+    const installedExecutable = await locateExecutable(installationPath);
+    await verifyExecutable(installedExecutable, version);
+    return installedExecutable;
   } finally {
     await rm(archivePath, { force: true }).catch(() => undefined);
     if (extractionRoot !== undefined) {

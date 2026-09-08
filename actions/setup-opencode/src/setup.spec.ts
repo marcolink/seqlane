@@ -33,7 +33,7 @@ async function dependencies(
   root: string,
   cached = false,
 ): Promise<SetupDependencies> {
-  const destination = installationPath(platform, version);
+  const destination = installationPath(platform, version, root);
   await rm(destination, { recursive: true, force: true });
   if (cached) {
     await mkdir(destination, { recursive: true });
@@ -62,6 +62,7 @@ async function dependencies(
     verifyExecutable: vi.fn().mockResolvedValue(undefined),
     logger: { debug: vi.fn() },
     temporaryDirectory: root,
+    toolCacheRoot: root,
   };
 }
 
@@ -94,12 +95,6 @@ describe("setupOpenCode", () => {
       deps.toolCache.extractTar = vi.fn().mockResolvedValue(root);
       // The archive test fixture is not a real release archive; make the digest
       // and placement path explicit so orchestration remains isolated here.
-      deps.getRelease = vi.fn().mockResolvedValue({
-        ...release(),
-        assets: [
-          { ...release().assets[0], digest: "sha256:" + "b".repeat(64) },
-        ],
-      });
       const actual = await import("node:crypto").then(({ createHash }) =>
         createHash("sha256").update("archive").digest("hex"),
       );

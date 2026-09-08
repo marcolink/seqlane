@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const RELEASE_API_URL =
   "https://api.github.com/repos/anomalyco/opencode/releases/tags";
+export const EXECUTABLE_VERSION_TIMEOUT_MS = 5_000;
 
 export type FetchLike = (
   input: string | URL,
@@ -38,14 +39,22 @@ export type ExecutableRunner = (
   args: string[],
 ) => Promise<{ stdout: string }>;
 
-const runExecutable: ExecutableRunner = async (executable, args) => {
-  const result = await execFileAsync(executable, args, {
-    encoding: "utf8",
-    maxBuffer: 1_048_576,
-    windowsHide: true,
-  });
-  return { stdout: result.stdout };
-};
+export function createExecutableRunner(
+  timeoutMs = EXECUTABLE_VERSION_TIMEOUT_MS,
+): ExecutableRunner {
+  return async (executable, args) => {
+    const result = await execFileAsync(executable, args, {
+      encoding: "utf8",
+      killSignal: "SIGKILL",
+      maxBuffer: 1_048_576,
+      timeout: timeoutMs,
+      windowsHide: true,
+    });
+    return { stdout: result.stdout };
+  };
+}
+
+const runExecutable = createExecutableRunner();
 
 export async function verifyExecutableVersion(
   executable: string,
