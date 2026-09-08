@@ -265,7 +265,12 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
   }
 
   async captureIntegrationBaseline(): Promise<void> {
-    this.integrationBaselinePaths = await readWorkspaceChangePaths(this.git);
+    this.integrationBaselinePaths = [
+      ...new Set([
+        ...this.integrationBaselinePaths,
+        ...(await readWorkspaceChangePaths(this.git)),
+      ]),
+    ];
   }
 
   private rememberConflicts(conflicts: ConflictSet): void {

@@ -319,6 +319,7 @@ describe("resolveMergeConflicts", () => {
       resolveMergeConflicts(request("rebase"), fake.value),
     ).resolves.toMatchObject({ kind: "resolved", attempts: 2 });
     expect(fake.agent).toHaveLength(4);
+    expect(fake.baselines).toEqual([true, true]);
     expect(starts).toBe(1);
     expect(stops).toBe(1);
     expect(fake.summary[0]).toMatchObject({

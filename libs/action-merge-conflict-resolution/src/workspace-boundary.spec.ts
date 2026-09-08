@@ -494,6 +494,40 @@ describe("workspace boundary", () => {
     }
   });
 
+  it("allows accumulated integration changes at a later rebase conflict", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      const agent = join(root, "agent");
+      mkdirSync(source);
+      mkdirSync(agent);
+      mkdirSync(target);
+      initRepository(target);
+      const workspace = new NodeWorkspaceBoundary({
+        sourceRoot: source,
+        targetRoot: target,
+        agentRoot: agent,
+        baseRevision: "a".repeat(40),
+        headRevision: "b".repeat(40),
+      });
+
+      writeFileSync(join(target, "first-integrated.ts"), "first\n");
+      await workspace.captureIntegrationBaseline();
+      git(target, ["add", "--", "first-integrated.ts"]);
+      git(target, ["commit", "-qm", "first integrated change"]);
+      writeFileSync(join(target, "second-integrated.ts"), "second\n");
+      await workspace.captureIntegrationBaseline();
+      writeFileSync(join(target, "first-integrated.ts"), "first updated\n");
+
+      await expect(
+        workspace.validateTarget([{ path: "later-conflict.ts", stage: 1 }]),
+      ).resolves.toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("adds a later lockfile-only conflict to the cumulative allowlist", async () => {
     const root = fixtureRoot();
     try {

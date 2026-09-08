@@ -252,6 +252,7 @@ export async function resolveMergeConflicts(
           resolved = true;
           break;
         }
+        await ports.files.captureIntegrationBaseline?.();
         conflicts = next;
       }
     }
