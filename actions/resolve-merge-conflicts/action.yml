@@ -30,6 +30,10 @@ inputs:
     description: Maximum number of conflict resolution attempts.
     required: false
     default: "10"
+  conflict-handlers:
+    description: Versioned JSON handler configuration for mechanically regenerating generated-file conflicts.
+    required: false
+    default: '{"version":1,"rules":[]}'
 outputs:
   result:
     description: Resolution result.

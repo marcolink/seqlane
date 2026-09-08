@@ -38,7 +38,9 @@ import {
 } from "./workspace-boundary-filesystem.js";
 
 export {
+  assertSafeRoot,
   assertSeparateWorkspaceRootPaths,
+  copyFiles,
   createOwnedAgentWorkspace,
   readNullDelimitedPaths,
   validateSafeDirectoryWithinRoot,
@@ -139,7 +141,7 @@ async function requiredGitCommand(
   return result.stdout;
 }
 
-async function readWorkspaceChangePaths(
+export async function readWorkspaceChangePaths(
   git: GitCommandPort,
 ): Promise<readonly ConflictPath[]> {
   const trackedChanges = [
@@ -329,7 +331,10 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
     );
   }
 
-  async validateTarget(conflicts: ConflictSet): Promise<void> {
+  async validateTarget(
+    conflicts: ConflictSet,
+    generatedPaths: readonly ConflictPath[] = [],
+  ): Promise<void> {
     const parsed = conflictSetSchema.safeParse(conflicts);
     if (!parsed.success) {
       throw workspaceError(
@@ -342,6 +347,7 @@ export class NodeWorkspaceBoundary implements WorkspaceFilesPort {
     const allowed = [
       ...asPaths(this.originalConflicts),
       ...this.integrationBaselinePaths,
+      ...asPaths(generatedPaths ?? []),
     ];
     await validateResolutionWorkspace(this.options.targetRoot, allowed);
   }

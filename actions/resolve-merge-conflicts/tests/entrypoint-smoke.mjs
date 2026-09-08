@@ -142,6 +142,7 @@ try {
     INPUT_PUSH: "false",
     "INPUT_PUSH-TOKEN": "",
     "INPUT_MAX-ATTEMPTS": "10",
+    "INPUT_CONFLICT-HANDLERS": '{"version":1,"rules":[]}',
     GITHUB_ACTIONS: "true",
     GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
     GITHUB_REPOSITORY: "marcolink/seqlane",
