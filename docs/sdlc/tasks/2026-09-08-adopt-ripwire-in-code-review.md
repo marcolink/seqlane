@@ -1,7 +1,7 @@
 ---
 id: task.adopt-ripwire-in-code-review
 title: Adopt Ripwire in Seqlane Code Review
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-08
@@ -79,9 +79,10 @@ trusted Seqlane pull-request review workflow while preserving zvec-grep.
 - Run `pnpm docs:index` and `pnpm docs:validate`.
 - Run the focused `pr-code-review-example.spec.ts` test and `pnpm test:mapping`.
 - Run a GitHub-hosted manual dispatch of `Seqlane code review` and verify that
-  both service Actions start, OpenCode connects to both MCP servers, a Ripwire
-  read-only tool call succeeds, the review publishes, and all service post
-  hooks run.
+  both service Actions start, OpenCode loads both MCP servers, the review
+  publishes, and all service post hooks run. Separately issue a successful
+  authenticated read-only Ripwire tool call against the Action-managed
+  service.
 - Run Prettier on changed files and the repository formatting check.
 - Run `git diff --check` and `actionlint` when available.
 
@@ -95,9 +96,30 @@ trusted Seqlane pull-request review workflow while preserving zvec-grep.
 - Review instructions scope native tools, zvec-grep, and Ripwire correctly and
   prohibit parent, runner, and trusted-source paths.
 - The spec, task index, and examples describe the combined provider setup.
-- The task Outcome remains empty for parent reconciliation.
 
 ## Outcome
+
+The code-review workflow now starts zvec-grep and Ripwire against the trusted
+`review-target` checkout. OpenCode keeps default-deny permissions, preserves
+the existing zvec-grep search tool, and exposes all 27 Ripwire read-only tools.
+The four Ripwire write-capable tools remain denied. Ripwire uses a generated
+bearer token, and both recording paths redact that token with the OpenAI key.
+
+The review instructions now separate provider path rules. Native tools use
+workspace-relative paths, zvec-grep receives the exact review root, and
+Ripwire omits `path` and `paths` so its pinned root controls scope.
+
+Local verification passed test mapping, all 45 code-review workflow tests,
+YAML configuration extraction, documentation validation and tests, formatting,
+and diff checks. The Action verification also passed typecheck, bundle build
+and drift, and all 85 Ripwire tests. An authenticated local `analyze` call with
+an omitted path succeeded against the Action-managed service.
+
+GitHub-hosted workflow run `34206891601` used the branch workflow at commit
+`f34fd6264857b7d2b9325e7a3f512e1e2cd5870b`. It started both service Actions,
+loaded the authenticated dual-provider OpenCode configuration, completed and
+published the review, and ran the OpenCode, Ripwire, and zvec-grep post hooks.
+The published review approved the change with no required findings.
 
 ## Traceability
 
