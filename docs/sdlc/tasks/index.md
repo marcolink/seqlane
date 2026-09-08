@@ -193,4 +193,5 @@
 | [task.audit-sdlc-delivery-state](./2026-09-08-audit-sdlc-delivery-state.md) | Audit SDLC Delivery State | completed | 2026-09-08 | core |
 | [task.configure-generated-file-conflict-handlers](./2026-09-08-configure-generated-file-conflict-handlers.md) | Configure Generated-File Conflict Handlers | completed | 2026-09-08 | core |
 | [task.publish-live-merge-resolution-progress](./2026-09-08-publish-live-merge-resolution-progress.md) | Publish Live Merge Resolution Progress | completed | 2026-09-08 | core |
+| [task.deliver-direct-runtime-code-review-action](./2026-09-08-deliver-direct-runtime-code-review-action.md) | Deliver the Direct-Runtime Code-Review Action | planned | 2026-09-08 | core |
 | [task.require-explicit-opencode-server-executable](./2026-09-08-require-explicit-opencode-server-executable.md) | Require an Explicit OpenCode Server Executable | completed | 2026-09-08 | core |
