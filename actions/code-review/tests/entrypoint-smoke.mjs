@@ -1,5 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { strict as assert } from "node:assert";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const action = await readFile(
   new URL("../action.yml", import.meta.url),
@@ -46,3 +50,16 @@ const post = await readFile(
 );
 assert.ok(main.length > 1000);
 assert.ok(post.length > 1000);
+
+for (const bundle of ["main.js", "post.js"]) {
+  await execFileAsync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "await import(process.argv[1])",
+      new URL(`../dist/${bundle}`, import.meta.url),
+    ],
+    { env: { ...process.env, NODE_ENV: "test" } },
+  );
+}
