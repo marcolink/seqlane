@@ -1,0 +1,9 @@
+{
+  "name": "@seqlane/action-code-review-entrypoint",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": ["action.yml", "dist"],
+  "dependencies": { "@actions/core": "3.0.1", "@actions/github": "9.1.1", "@seqlane/action-code-review": "workspace:*", "@seqlane/core": "workspace:*", "@seqlane/runtime": "workspace:*" },
+  "engines": { "node": ">=24.0.0", "pnpm": ">=10.33.0" }
+}

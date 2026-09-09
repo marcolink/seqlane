@@ -119,11 +119,13 @@ patch and pull-request description first, then use targeted workspace reads
 only when the patch is truncated or surrounding context is needed. They run in
 independent sessions before the final synthesis, which preserves the exact
 repository and base/head identity fields from its supplied review context. The
-workflow installs and builds the checked-out Seqlane
-source, but does not install dependencies or execute repository scripts from
-the separate review target. OpenCode ignores project runtime configuration
-during the review and receives a read-only tool policy. The workflow reads a
-bounded set of recent issue and review comments. It updates one marked comment
+workflow invokes the committed Node 24 `actions/code-review` bundle from the
+trusted Seqlane checkout. The Action calls `startWorkflowRun` with its
+statically bundled workflow; it does not install dependencies, build the CLI,
+or execute repository scripts from the separate review target. OpenCode ignores
+project runtime configuration during the review and receives a read-only tool
+policy. The workflow reads a bounded set of recent issue and review comments.
+It updates one marked comment
 from the trusted GitHub Actions bot. It records the report verdict without
 failing the review job when it is `request-changes`. It accepts review reruns
 and disposition commands only from reviewers with GitHub `OWNER`, `MEMBER`, or
