@@ -25,7 +25,7 @@ function escapeMarkdown(value: string): string {
 }
 
 function sanitizeControlCharacters(value: string): string {
-  return value.replace(/\p{Cc}+/gu, " ");
+  return value.replace(/[\p{Cc}\u2028\u2029]+/gu, " ");
 }
 
 function truncateText(value: string, maximumLength: number): string {
