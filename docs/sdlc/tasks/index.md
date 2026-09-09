@@ -202,11 +202,12 @@
 | [task.consolidate-pull-request-review-run-metrics](./2026-09-06-consolidate-pull-request-review-run-metrics.md) | Consolidate Pull Request Review Run Metrics | completed | 2026-09-06 | core |
 | [task.seqlane-action-resolution-contracts](./2026-09-06-seqlane-action-resolution-contracts.md) | Establish Seqlane Action Resolution Contracts | completed | 2026-09-06 | core |
 | [task.seqlane-action-workflow-migration](./2026-09-06-seqlane-action-workflow-migration.md) | Migrate the Merge Conflict Workflow to the Seqlane Action | completed | 2026-09-06 | core |
+| [task.operational-workflow-registration-boundary](./2026-09-06-operational-workflow-registration-boundary.md) | Narrow the Operational Workflow Registration Boundary | planned | 2026-09-06 | core |
 | [task.seqlane-action-integration-verification](./2026-09-06-seqlane-action-integration-verification.md) | Verify the Seqlane Action Merge Conflict Resolver | completed | 2026-09-06 | core |
 | [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |
 | [task.harden-seqlane-action-push-and-cleanup](./2026-09-07-harden-seqlane-action-push-and-cleanup.md) | Harden Seqlane Action Push and Cleanup | completed | 2026-09-07 | core |
 | [task.seqlane-action-resolution-summaries](./2026-09-07-seqlane-action-resolution-summaries.md) | Publish Human-Readable Merge Resolution Summaries | completed | 2026-09-07 | core |
-| [task.operational-workflow-registration-boundary](./2026-09-06-operational-workflow-registration-boundary.md) | Narrow the Operational Workflow Registration Boundary | planned | 2026-09-06 | core |
 | [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
 | [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
 | [task.propagate-mastra-observability-context](./2026-09-08-propagate-mastra-observability-context.md) | Propagate Per-Invocation Mastra Observability Context | completed | 2026-09-08 | core |
+| [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | planned | 2026-09-09 | core |

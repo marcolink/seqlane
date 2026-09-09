@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - adr.mastra-native-agent-observability
 supersedes: []
@@ -170,6 +170,14 @@ remain absent. Usage values MUST be numeric, non-negative, and tied to one
 observed generation. Cost MUST preserve its source, unit, and precision. An
 adapter MUST NOT invent usage, cost, or a model identity.
 
+For `TOOL_CALL`, an adapter MUST use the pinned Mastra typed attributes only
+for the typed tool contract: `toolType`, `toolCallId`, and terminal `success`.
+Mastra has no typed tool-name attribute. A validated, normalized, bounded tool
+identity therefore belongs in the span `name`, not an untyped duplicate
+attribute or metadata field. Adapter and correlation details belong only in
+bounded namespaced metadata. Each adapter specification MUST define its
+tool-name fallback and cardinality limit before it makes names observable.
+
 ### R6. Native metrics and aggregate metrics
 
 Mastra MUST derive native duration and usage metrics from completed typed
@@ -219,6 +227,12 @@ sampling, flushing, and dropped-event behavior. The adapter MUST NOT flush,
 retry, or shut down the export pipeline. Failures at either boundary MUST use
 Seqlane's bounded diagnostic path and MUST NOT block, retry, fail, or change
 the execution outcome.
+
+The runtime MUST verify persisted traces through its configured
+`MastraStorageExporter`; deterministic span sinks alone do not prove storage
+or inspection visibility. A remote platform exporter MUST NOT be configured by
+default unless it is confirmed to satisfy the repository's Community-only
+runtime policy and has an explicit operational owner.
 
 ### R10. Compatibility
 

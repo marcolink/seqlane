@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - adr.mastra-native-agent-observability
   - spec.mastra-native-agent-observability
@@ -188,6 +188,13 @@ OpenCode `skill` parts remain `TOOL_CALL` activity. The adapter uses a bounded
 skill load MUST NOT become a `SKILL_RESOLUTION` span. That category is reserved
 for a separately observed dynamic skills-resolver lifecycle.
 
+For an ordinary tool part, `toolType` MUST be `"tool"`; it classifies the
+operation and is not a place for the executor or protocol identity. The
+validated `tool` value MUST be normalized and used as the `TOOL_CALL` span
+name, subject to an invocation-local cardinality limit and a constant fallback.
+It MUST NOT duplicate the raw or normalized tool name in metadata. It MUST not
+persist tool input, output, or tool-part metadata.
+
 ### R6. Terminal-response fallback and deduplication
 
 `parseOpenCodePromptResponse` MUST remain the source of the existing terminal
@@ -206,6 +213,13 @@ The first valid terminal outcome is authoritative. Repeated terminal signals,
 duplicate response handling, and equivalent fallback observations MUST be
 idempotent. If the response is malformed, the existing executor error path
 remains authoritative and no unverifiable native span is created.
+
+OpenCode supplies observed start and end timestamps for tool parts. Mastra
+1.64 child-span creation supports a backdated start time but its public end and
+error APIs do not accept an end timestamp. The adapter MAY retain a bounded
+observed terminal timestamp as namespaced metadata for trace diagnosis, but
+MUST NOT represent it as the Mastra span end time or claim that automatic
+duration metrics use it.
 
 ### R7. Usage and cost mapping
 

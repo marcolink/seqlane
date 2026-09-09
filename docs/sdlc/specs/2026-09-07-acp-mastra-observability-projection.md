@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - adr.mastra-native-agent-observability
   - spec.mastra-native-agent-observability
@@ -207,7 +207,7 @@ tool name or its constant fallback. It MAY contain only these typed attributes:
 
 ```ts
 {
-  toolType: "acp-v1",
+  toolType: "tool",
   toolCallId: boundedExternalToolCallId,
   success?: boolean,
 }
@@ -224,6 +224,9 @@ incomplete, and failed outcomes MUST use bounded namespaced metadata and safe
 constant errors. An incomplete tool leaves `success` unset but ends through
 the error path. The original execution error remains the private execution
 cause and MUST NOT enter the span.
+
+`acp-v1` identifies the adapter, not the tool category. The agent span MAY
+record it as `seqlane.adapter` metadata; it MUST NOT occupy `toolType`.
 
 Mastra derives agent/tool duration metrics when these spans end. Those metrics
 are outputs. The adapter MUST NOT submit a second manual native metric row.
