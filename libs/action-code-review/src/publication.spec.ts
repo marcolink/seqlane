@@ -94,6 +94,59 @@ describe("model-free publication", () => {
     expect(result.publication.body).toContain("summary &#124; with a pipe");
   });
 
+  it("neutralizes model-controlled Markdown links, images, and external URLs", () => {
+    const malicious =
+      "[click](https://evil.example) ![image](https://evil.example/a.png) www.evil.example";
+    const result = derivePublication({
+      report: {
+        repository: "owner/repository",
+        baseBranch: "main",
+        baseRevision: "a".repeat(40),
+        overallRating: 3,
+        verdict: "request-changes",
+        summary: malicious,
+        ratings: [
+          "correctness",
+          "readability",
+          "architecture",
+          "security",
+          "performance",
+        ].map((axis) => ({
+          axis: axis as "correctness",
+          rating: 3,
+          rationale: malicious,
+        })),
+        findings: [
+          {
+            id: "F-1",
+            severity: "required",
+            effectiveSeverity: "required",
+            disposition: "open",
+            status: "open",
+            summary: malicious,
+            recommendation: malicious,
+            axis: "security",
+            aliases: [],
+          },
+        ],
+        verification: [malicious],
+        headRevision: "b".repeat(40),
+        pullRequestNumber: 1,
+        nextFindingIndex: 2,
+        limitations: [malicious],
+        stateTruncated: false,
+        runMetricsLedger: { schemaVersion: 1, runs: [] },
+      },
+      runId: "run-1",
+      events: [],
+    });
+
+    expect(result.publication.body).not.toContain("https://evil.example");
+    expect(result.publication.body).not.toContain("www.evil.example");
+    expect(result.publication.body).not.toContain("[click](");
+    expect(result.publication.body).not.toContain("![image](");
+  });
+
   it("keeps required markers and stays within the UTF-8 byte limit", () => {
     const result = derivePublication({
       report: {

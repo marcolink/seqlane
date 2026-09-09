@@ -12,6 +12,7 @@ import {
   trustedCodeReviewWorkflow,
   type PublicationPort,
   BoundedEventRecorder,
+  findAuthoritativeReport,
   guardPublicationTarget,
 } from "@seqlane/action-code-review";
 
@@ -288,9 +289,7 @@ export async function run(): Promise<void> {
   const reviewHistory = await adapter.readComments(
     parsed.data.pullRequestNumber,
   );
-  const existingReport = await adapter.readAuthoritativeReport(
-    parsed.data.pullRequestNumber,
-  );
+  const existingReport = findAuthoritativeReport(reviewHistory);
   // The admission job and this Action run are separated by an arbitrary
   // queueing delay. Re-check the immutable review identity immediately before
   // writing the in-progress marker so a newer push cannot be claimed by this
@@ -373,7 +372,7 @@ export async function run(): Promise<void> {
   // event sink while the review run is still completing.
   const snapshot = Object.freeze({
     report: jsonValueSchema.parse(outcome.result),
-    events: jsonValueSchema.parse(eventRecorder.events),
+    events: jsonValueSchema.parse(eventRecorder.serializedEvents),
     eventsTruncated: eventRecorder.truncated,
     runId: handle.runId,
     ...(process.env.GITHUB_RUN_ID === undefined

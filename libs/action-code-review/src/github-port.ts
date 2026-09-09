@@ -32,6 +32,19 @@ const COMMAND_PATTERN =
   /^\s*\/seqlane\s+(fixed|wont-fix|downgrade)\s+((?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-[0-9]{3,}))(?:\s+(.*))?\s*$/i;
 const commentLineSchema = z.number().int().positive();
 
+export function findAuthoritativeReport(
+  history: ReviewHistory,
+): ReviewComment | undefined {
+  return [...history.comments]
+    .reverse()
+    .find(
+      (comment) =>
+        (comment.author === "github-actions" ||
+          comment.author === "github-actions[bot]") &&
+        comment.body.includes("<!-- seqlane-code-review -->"),
+    );
+}
+
 function normalizeComment(
   value: object,
   kind: "issue" | "review",
@@ -323,15 +336,7 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
   async readAuthoritativeReport(
     number: number,
   ): Promise<ReviewComment | undefined> {
-    const { comments } = await this.readComments(number);
-    return [...comments]
-      .reverse()
-      .find(
-        (comment) =>
-          (comment.author === "github-actions" ||
-            comment.author === "github-actions[bot]") &&
-          comment.body.includes("<!-- seqlane-code-review -->"),
-      );
+    return findAuthoritativeReport(await this.readComments(number));
   }
 
   async readIssueComment(commentId: string): Promise<ReviewComment> {

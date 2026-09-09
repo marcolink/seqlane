@@ -1,8 +1,38 @@
 // @test-scope ./github-port.ts
 import { describe, expect, it } from "vitest";
-import { GitHubReviewAdapter, type GitHubReviewClient } from "./github-port.js";
+import {
+  findAuthoritativeReport,
+  GitHubReviewAdapter,
+  type GitHubReviewClient,
+} from "./github-port.js";
 
 describe("GitHubReviewAdapter", () => {
+  it("finds the newest trusted report from already-read history", () => {
+    const history = {
+      truncated: false,
+      comments: [
+        {
+          id: "1",
+          kind: "issue" as const,
+          author: "github-actions[bot]",
+          authorAssociation: "NONE",
+          body: "<!-- seqlane-code-review --> old",
+          createdAt: "2026-09-09T00:00:00Z",
+        },
+        {
+          id: "2",
+          kind: "issue" as const,
+          author: "github-actions[bot]",
+          authorAssociation: "NONE",
+          body: "<!-- seqlane-code-review --> new",
+          createdAt: "2026-09-09T00:00:01Z",
+        },
+      ],
+    };
+
+    expect(findAuthoritativeReport(history)?.id).toBe("2");
+  });
+
   it("retrieves newest-first pages only until the bounded history budget", async () => {
     const requests: Array<{ kind: string; page: number }> = [];
     const page =

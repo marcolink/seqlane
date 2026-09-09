@@ -447,11 +447,17 @@ export type PublicationSnapshotInput = z.infer<
 
 function safeText(value: string): string {
   return value
+    .replace(/\b(?:https?|ftp):\/\/[^\s<>"'`]+/gi, "[external URL omitted]")
+    .replace(/\bwww\.[^\s<>"'`]+/gi, "[external URL omitted]")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll("|", "&#124;")
     .replaceAll(String.fromCharCode(96), "&#96;")
+    .replaceAll("[", "&#91;")
+    .replaceAll("]", "&#93;")
+    .replaceAll("(", "&#40;")
+    .replaceAll(")", "&#41;")
     .replaceAll("@", "@&#8203;")
     .replace(/[\r\n]+/g, " ");
 }
