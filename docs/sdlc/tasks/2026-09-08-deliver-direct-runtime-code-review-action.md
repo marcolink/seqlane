@@ -195,6 +195,16 @@ report, and neutralizes model-controlled URLs and Markdown link or image
 syntax. Focused Action-library tests, Action typecheck, test mapping, and the
 committed-bundle smoke and drift check passed locally.
 
+Further review hardening is committed in `adbe2ad`
+(`fix(actions): harden review execution`). The runtime now preserves a typed
+terminal outcome when its event sink continues to fail. The Toolkit-free Action
+library owns review and publication lifecycle orchestration, while the
+entrypoint only adapts inputs, GitHub clients, outputs, and top-level errors.
+Metrics derivation now indexes retained invocation events linearly without
+changing the existing output-total semantics. Focused runtime and Action-library
+tests, Action typecheck, test mapping, and the committed-bundle smoke and drift
+check passed locally.
+
 ## Traceability
 
 - [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-code-review-action.md)
