@@ -82,4 +82,75 @@ describe("review metrics", () => {
     expect(metrics.tasks[0]).not.toHaveProperty("model");
     expect(metrics.tasks[0]).not.toHaveProperty("provider");
   });
+
+  it("indexes invocation events while retaining every output in totals", () => {
+    const metrics = deriveRunMetrics(
+      [
+        {
+          type: "invocation.created",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+          planNodeId: "p",
+          subject: { type: "task", taskId: "t" },
+          kind: "task",
+          label: "Review",
+          siblingOrder: 0,
+          dependencyIds: [],
+          taskId: "t",
+        },
+        {
+          type: "invocation.output",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+          policy: "persistent",
+          channel: "task",
+          content: "first",
+          metrics: {
+            durationMs: 10,
+            cost: 1,
+            tokens: {
+              input: 1,
+              output: 1,
+              reasoning: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+          },
+        },
+        {
+          type: "invocation.output",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+          policy: "persistent",
+          channel: "task",
+          content: "last",
+          metrics: {
+            durationMs: 20,
+            cost: 2,
+            tokens: {
+              input: 2,
+              output: 2,
+              reasoning: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+          },
+        },
+        {
+          type: "invocation.succeeded",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+        },
+        { type: "run.succeeded", workId: "w", runId: "r", output: null },
+      ],
+      "r",
+    );
+    expect(metrics.tasks).toMatchObject([{ durationMs: 20, cost: 2 }]);
+    expect(metrics.totalCost).toBe(3);
+    expect(metrics.totalTokens.total).toBe(6);
+  });
 });

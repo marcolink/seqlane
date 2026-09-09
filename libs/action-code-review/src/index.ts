@@ -6,6 +6,7 @@ export * from "./publication.js";
 export * from "./publication-workflow.js";
 export * from "./event-recorder.js";
 export * from "./publication-guard.js";
+export * from "./review-run.js";
 export { default as trustedCodeReviewWorkflow } from "./trusted-workflow.js";
 export { default } from "./review-workflow.js";
 export { default as prCodeReviewWorkflow } from "./review-workflow.js";

@@ -2,7 +2,9 @@ import {
   gitRevisionSchema,
   pullRequestContextSchema,
   reviewCommentSchema,
+  livePullRequestSchema,
   type PullRequestContext,
+  type LivePullRequest,
   type ReviewComment,
   type ReviewHistory,
 } from "./contracts.js";
@@ -11,6 +13,7 @@ import { z } from "zod";
 
 export interface GitHubReviewPort {
   readPullRequest(number: number): Promise<PullRequestContext>;
+  readLivePullRequest(number: number): Promise<LivePullRequest>;
   readComments(number: number): Promise<ReviewHistory>;
   readAuthoritativeReport(number: number): Promise<ReviewComment | undefined>;
   readIssueComment(commentId: string): Promise<ReviewComment>;
@@ -259,6 +262,53 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
         number: source.number,
         title: source.title ?? "",
         description: source.description ?? source.body ?? "",
+      });
+      if (!parsed.success)
+        throw githubError(
+          "MALFORMED_PULL_REQUEST",
+          "GitHub returned malformed pull-request data.",
+          parsed.error,
+        );
+      return parsed.data;
+    } catch (cause) {
+      if (cause instanceof CodeReviewError) throw cause;
+      throw githubError(
+        "PULL_REQUEST_READ_FAILED",
+        "Could not read pull-request data.",
+        cause,
+      );
+    }
+  }
+
+  async readLivePullRequest(number: number): Promise<LivePullRequest> {
+    try {
+      const value = await this.client.getPullRequest(number);
+      const source =
+        typeof value === "object" && value !== null
+          ? (value as Record<string, unknown>)
+          : {};
+      const head =
+        typeof source.head === "object" && source.head !== null
+          ? (source.head as Record<string, unknown>)
+          : undefined;
+      const headRepo =
+        typeof head?.repo === "object" && head.repo !== null
+          ? (head.repo as Record<string, unknown>)
+          : undefined;
+      const parsed = livePullRequestSchema.safeParse({
+        ...(typeof source.state === "string" ? { state: source.state } : {}),
+        ...(typeof source.draft === "boolean" ? { draft: source.draft } : {}),
+        ...(head === undefined
+          ? {}
+          : {
+              head: {
+                ...(headRepo !== undefined &&
+                typeof headRepo.full_name === "string"
+                  ? { repo: { full_name: headRepo.full_name } }
+                  : {}),
+                ...(typeof head.sha === "string" ? { sha: head.sha } : {}),
+              },
+            }),
       });
       if (!parsed.success)
         throw githubError(

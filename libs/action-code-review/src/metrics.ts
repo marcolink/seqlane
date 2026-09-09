@@ -55,25 +55,33 @@ export function deriveRunMetrics(
   events: readonly SeqlaneEvent[],
   runId: string,
 ): ReviewRunMetrics {
-  const ended = [...events]
-    .reverse()
-    .find(
-      (event) =>
-        event.type === "run.succeeded" ||
-        event.type === "run.failed" ||
-        event.type === "run.cancelled",
-    );
+  type InvocationOutput = Extract<SeqlaneEvent, { type: "invocation.output" }>;
+  type InvocationResult = Extract<
+    SeqlaneEvent,
+    {
+      type:
+        | "invocation.succeeded"
+        | "invocation.failed"
+        | "invocation.skipped"
+        | "invocation.cancelled";
+    }
+  >;
+  const createdTasks: Array<
+    Extract<SeqlaneEvent, { type: "invocation.created" }>
+  > = [];
+  const latestOutputs = new Map<string, InvocationOutput>();
+  const latestResults = new Map<string, InvocationResult>();
+  let ended:
+    | Extract<
+        SeqlaneEvent,
+        { type: "run.succeeded" | "run.failed" | "run.cancelled" }
+      >
+    | undefined;
   // The public event contract intentionally does not expose wall-clock
   // metadata. Runtime-provided task durations remain authoritative; the
   // direct Action records zero when no duration is available instead of
   // pretending that the largest task duration is the run duration.
   const durationMs = 0;
-  const outcome =
-    ended?.type === "run.succeeded"
-      ? "succeeded"
-      : ended?.type === "run.cancelled"
-        ? "cancelled"
-        : "failed";
   const totals = {
     input: 0,
     output: 0,
@@ -82,31 +90,52 @@ export function deriveRunMetrics(
     cacheWrite: 0,
   };
   let totalCost = 0;
-  const taskEntries = events
-    .filter(
-      (event): event is Extract<SeqlaneEvent, { type: "invocation.created" }> =>
-        event.type === "invocation.created" && event.kind === "task",
-    )
+  for (const event of events) {
+    if (
+      event.type === "run.succeeded" ||
+      event.type === "run.failed" ||
+      event.type === "run.cancelled"
+    ) {
+      ended = event;
+    }
+    if (event.type === "invocation.created" && event.kind === "task") {
+      createdTasks.push(event);
+    }
+    if (event.type === "invocation.output") {
+      latestOutputs.set(event.invocationId, event);
+    }
+    if (
+      event.type === "invocation.succeeded" ||
+      event.type === "invocation.failed" ||
+      event.type === "invocation.skipped" ||
+      event.type === "invocation.cancelled"
+    ) {
+      latestResults.set(event.invocationId, event);
+    }
+    if (event.type !== "invocation.output" || event.metrics === undefined)
+      continue;
+    const tokens = event.metrics.tokens;
+    if (tokens !== undefined) {
+      totals.input += tokens.input;
+      totals.output += tokens.output;
+      totals.reasoning += tokens.reasoning;
+      totals.cacheRead += tokens.cacheRead;
+      totals.cacheWrite += tokens.cacheWrite;
+    }
+    totalCost += event.metrics.cost ?? 0;
+  }
+
+  const outcome =
+    ended?.type === "run.succeeded"
+      ? "succeeded"
+      : ended?.type === "run.cancelled"
+        ? "cancelled"
+        : "failed";
+
+  const taskEntries = createdTasks
     .map((created) => {
-      const outputs = events.filter(
-        (
-          event,
-        ): event is Extract<SeqlaneEvent, { type: "invocation.output" }> =>
-          event.type === "invocation.output" &&
-          event.invocationId === created.invocationId,
-      );
-      const output = outputs.at(-1);
-      const result = [...events]
-        .reverse()
-        .find(
-          (event) =>
-            "invocationId" in event &&
-            event.invocationId === created.invocationId &&
-            (event.type === "invocation.succeeded" ||
-              event.type === "invocation.failed" ||
-              event.type === "invocation.skipped" ||
-              event.type === "invocation.cancelled"),
-        );
+      const output = latestOutputs.get(created.invocationId);
+      const result = latestResults.get(created.invocationId);
       const resultState =
         result?.type === "invocation.succeeded"
           ? ("succeeded" as const)
@@ -156,19 +185,6 @@ export function deriveRunMetrics(
       };
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
-  for (const event of events) {
-    if (event.type !== "invocation.output" || event.metrics === undefined)
-      continue;
-    const tokens = event.metrics.tokens;
-    if (tokens !== undefined) {
-      totals.input += tokens.input;
-      totals.output += tokens.output;
-      totals.reasoning += tokens.reasoning;
-      totals.cacheRead += tokens.cacheRead;
-      totals.cacheWrite += tokens.cacheWrite;
-    }
-    totalCost += event.metrics.cost ?? 0;
-  }
   return {
     schemaVersion: 1,
     runId,

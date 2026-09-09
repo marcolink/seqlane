@@ -113,7 +113,12 @@ export function startWorkflowRunInternal<Input, Output>(
 
   const outcome = (async (): Promise<SeqlaneRunOutcome> => {
     const emitCancelled = (): SeqlaneRunOutcome => {
-      request.events.emit({ type: "run.cancelled", workId, runId });
+      try {
+        request.events.emit({ type: "run.cancelled", workId, runId });
+      } catch {
+        // Terminal event delivery is best effort. It must not replace the
+        // typed cancellation outcome or change cancellation semantics.
+      }
       return { status: "cancelled" };
     };
     try {
@@ -173,7 +178,12 @@ export function startWorkflowRunInternal<Input, Output>(
     } catch (cause) {
       if (cancellationRequested) return emitCancelled();
       const error = new RuntimeError(cause);
-      request.events.emit({ type: "run.failed", workId, runId, error });
+      try {
+        request.events.emit({ type: "run.failed", workId, runId, error });
+      } catch {
+        // Terminal event delivery is best effort. Preserve the original
+        // RuntimeError and failed outcome when the sink is unavailable.
+      }
       return { status: "failed", error };
     } finally {
       request.signal?.removeEventListener("abort", onAbort);

@@ -34,6 +34,19 @@ export const pullRequestContextSchema = z.strictObject({
 });
 export type PullRequestContext = z.infer<typeof pullRequestContextSchema>;
 
+/** The mutable pull-request fields used by review admission and publication. */
+export const livePullRequestSchema = z.strictObject({
+  state: z.string().optional(),
+  draft: z.boolean().optional(),
+  head: z
+    .strictObject({
+      repo: z.strictObject({ full_name: z.string().optional() }).optional(),
+      sha: z.string().optional(),
+    })
+    .optional(),
+});
+export type LivePullRequest = z.infer<typeof livePullRequestSchema>;
+
 export const reviewCommentSchema = z.strictObject({
   id: z.string().min(1).max(128),
   kind: z.enum(["issue", "review"]),

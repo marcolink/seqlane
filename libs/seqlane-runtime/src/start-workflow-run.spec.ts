@@ -92,4 +92,26 @@ describe("startWorkflowRun", () => {
       }),
     ]);
   });
+
+  it("preserves a typed failure when terminal event delivery keeps throwing", async () => {
+    let eventCount = 0;
+    const handle = startWorkflowRun({
+      workflow: buildWorkflow(workflow),
+      input: null,
+      runtime: { id: "local" },
+      events: {
+        emit: () => {
+          eventCount += 1;
+          if (eventCount > 1) throw new Error("event sink unavailable");
+        },
+      },
+    });
+
+    const outcome = await handle.outcome;
+    expect(outcome.status).toBe("failed");
+    if (outcome.status !== "failed") return;
+    expect(outcome.error.category).toBe("RuntimeError");
+    expect(outcome.error.cause).toBeInstanceOf(Error);
+    expect((outcome.error.cause as Error).message).toBe("value is required");
+  });
 });
