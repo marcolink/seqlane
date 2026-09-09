@@ -24,6 +24,7 @@ import {
   type GitCommandResult,
   type GitWorkspacePort,
 } from "./git-port.js";
+import { readRebaseCommitCount } from "./git-count.js";
 
 const maximumGitOutputBytes = 8 * 1024 * 1024;
 
@@ -113,6 +114,13 @@ export class NodeGitCli implements GitPort, GitWorkspacePort {
       );
     }
     return parsed.data;
+  }
+
+  async countRebaseCommits(baseRevision: GitRevision): Promise<number> {
+    return readRebaseCommitCount(
+      (args) => this.requiredCommand(args),
+      baseRevision,
+    );
   }
 
   async readRebaseConflictCommit(): Promise<RebaseConflictCommit | undefined> {

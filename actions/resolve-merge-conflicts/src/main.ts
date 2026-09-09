@@ -17,6 +17,7 @@ import {
   createSeqlaneAgentRunner,
   createBoundedRecording,
   createSecretRedactor,
+  createProgressWriter,
   createSummaryWriter,
   parseActionInputs,
   ActionResolutionError,
@@ -179,6 +180,7 @@ export async function run(): Promise<void> {
       workflowRef,
       redactor,
     ),
+    progress: createProgressWriter((line) => core.info(line), redactor),
     commitAndPush: new NodeCommitAndPush(
       git,
       request.push ? pushToken : undefined,

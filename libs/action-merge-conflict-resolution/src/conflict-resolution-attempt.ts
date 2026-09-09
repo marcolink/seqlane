@@ -5,6 +5,7 @@ import {
   type ResolveMergeConflictsRequest,
   type ResolutionAttemptDiagnostics,
   type ResolutionAttemptReport,
+  type RebaseConflictCommit,
 } from "./contracts.js";
 import { ActionResolutionError } from "./errors.js";
 import { classifyConflicts } from "./policy.js";
@@ -72,6 +73,9 @@ export async function resolveConflictAttempt(context: {
   readonly conflicts: ConflictSet;
   readonly attempt: number;
   readonly startAgent: () => Promise<void>;
+  readonly onAttemptStarted?: (
+    commit: RebaseConflictCommit | undefined,
+  ) => void | Promise<void>;
 }): Promise<{
   readonly report: ResolutionAttemptReport;
   readonly remaining: ConflictSet;
@@ -82,6 +86,7 @@ export async function resolveConflictAttempt(context: {
     request.strategy === "rebase"
       ? await ports.git.readRebaseConflictCommit?.()
       : undefined;
+  await context.onAttemptStarted?.(rebaseCommit);
   const generatedPaths = await runGeneratedHandlers(
     ports,
     classified.generated,

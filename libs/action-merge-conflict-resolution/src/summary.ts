@@ -24,11 +24,21 @@ function escapeMarkdown(value: string): string {
     .replace(/[\\`*_[\]{}()#+!|<>~=]/g, "\\$&");
 }
 
-function boundedText(value: string, redactText: RedactText): string {
+export function boundedText(
+  value: string,
+  redactText: RedactText,
+  maximumLength = MAX_SUMMARY_TEXT,
+  compact = false,
+): string {
   const redacted = redactText(value);
-  const singleLine = redacted.replace(/[\r\n]+/g, " ");
-  if (singleLine.length <= MAX_SUMMARY_TEXT) return singleLine;
-  return `${singleLine.slice(0, MAX_SUMMARY_TEXT - 1)}…`;
+  const singleLine = compact
+    ? redacted
+        .replace(/[\u0000-\u001f\u007f]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    : redacted.replace(/[\r\n]+/g, " ");
+  if (singleLine.length <= maximumLength) return singleLine;
+  return `${singleLine.slice(0, maximumLength - 1)}…`;
 }
 
 function shortRevision(value: string): string {

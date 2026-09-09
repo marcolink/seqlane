@@ -1,16 +1,17 @@
 import {
-  type ConflictSet,
   type GitRevision,
   type IntegrationResult,
   type ResolveMergeConflictsRequest,
   type ResolveMergeConflictsResult,
   type ResolveMergeConflictsPorts,
-  type ResolutionAttemptReport,
 } from "./contracts.js";
 import { ActionResolutionError, resolutionErrorDetails } from "./errors.js";
 import { validatePullRequestPreflight, validateRequest } from "./policy.js";
-import { validateStagedWhitespaceAndMarkers } from "./marker-validation.js";
-import { resolveConflictAttempt } from "./conflict-resolution-attempt.js";
+import { createResolutionProgress } from "./progress.js";
+import {
+  resolveIntegration,
+  type ResolutionRunState,
+} from "./resolution-flow.js";
 
 function operationalError(
   message: string,
@@ -81,47 +82,16 @@ function successResult(
   };
 }
 
-async function continueRebase(
-  ports: ResolveMergeConflictsPorts,
-  conflicts: ConflictSet,
-): Promise<ConflictSet | "completed"> {
-  const continuation = await ports.git.continueRebase();
-  const remaining = await ports.git.readConflictSet();
-  if (remaining.length > 0) return remaining;
-  const state = await ports.git.inspectState();
-  if (continuation.exitCode === 0 && !state.rebaseInProgress)
-    return "completed";
-  if (state.rebaseInProgress && state.worktreeClean) {
-    const skipped = await ports.git.skipRebase();
-    if (skipped.exitCode === 0) {
-      const afterSkip = await ports.git.readConflictSet();
-      const afterSkipState = await ports.git.inspectState();
-      if (afterSkip.length > 0 && afterSkipState.rebaseInProgress) {
-        return afterSkip;
-      }
-      if (afterSkip.length === 0 && !afterSkipState.rebaseInProgress) {
-        return "completed";
-      }
-    }
-  }
-  throw new ActionResolutionError(
-    "git",
-    "GIT_OPERATION_FAILED",
-    "The rebase could not continue after conflict resolution.",
-    { continuation, conflicts },
-  );
-}
-
 export async function resolveMergeConflicts(
   requestValue: unknown,
   ports: ResolveMergeConflictsPorts,
 ): Promise<ResolveMergeConflictsResult> {
-  let attempts = 0;
   let result: ResolveMergeConflictsResult;
-  const reports: ResolutionAttemptReport[] = [];
+  const state: ResolutionRunState = { attempts: 0, reports: [] };
   let strategy: ResolveMergeConflictsRequest["strategy"] | undefined;
   let agentLifecycleStarted = false;
   let agentLifecycleStopped = false;
+  const progress = createResolutionProgress(ports.progress);
   const stopAgent = async (): Promise<void> => {
     if (!agentLifecycleStarted || agentLifecycleStopped) return;
     await ports.agent.stop?.();
@@ -141,6 +111,11 @@ export async function resolveMergeConflicts(
     const liveBase = await ports.github.readLiveBaseRevision(
       pullRequest.baseBranch,
     );
+    const commitsToReplay =
+      request.strategy === "rebase"
+        ? await ports.git.countRebaseCommits?.(liveBase.revision)
+        : undefined;
+    progress.started(request.strategy, request.maxAttempts, commitsToReplay);
     const integration = await ports.git.integrate(
       request.strategy,
       liveBase.revision,
@@ -155,63 +130,19 @@ export async function resolveMergeConflicts(
     }
     if (integration.kind === "error") integrationError(integration);
 
-    const cleanHistoryChanged =
-      integration.kind === "clean" &&
-      integration.operation === "rebase" &&
-      integration.headAfter !== integration.headBefore;
-    let resolved = cleanHistoryChanged;
-
-    if (integration.kind === "conflicted") {
-      await ports.files.captureIntegrationBaseline?.();
-      let conflicts = await ports.git.readConflictSet();
-      if (conflicts.length === 0) {
-        throw new ActionResolutionError(
-          "git",
-          "CONFLICT_SET_REQUIRED",
-          "Git reported a conflict without an unmerged index.",
-        );
-      }
-      while (true) {
-        if (attempts >= request.maxAttempts) {
-          throw new ActionResolutionError(
-            "attempt-limit",
-            "ATTEMPT_LIMIT_EXCEEDED",
-            "The maximum number of resolution attempts was exceeded.",
-          );
+    const resolved = await resolveIntegration({
+      request,
+      ports,
+      integration,
+      progress,
+      state,
+      startAgent: async () => {
+        if (!agentLifecycleStarted) {
+          agentLifecycleStarted = true;
+          await ports.agent.start?.();
         }
-        attempts += 1;
-        const attempt = await resolveConflictAttempt({
-          request,
-          ports,
-          conflicts,
-          attempt: attempts,
-          startAgent: async () => {
-            if (!agentLifecycleStarted) {
-              agentLifecycleStarted = true;
-              await ports.agent.start?.();
-            }
-          },
-        });
-        reports.push(attempt.report);
-        const remaining = attempt.remaining;
-        if (remaining.length > 0) {
-          conflicts = remaining;
-          continue;
-        }
-        await validateStagedWhitespaceAndMarkers(ports.git, conflicts);
-        if (request.strategy === "merge") {
-          resolved = true;
-          break;
-        }
-        const next = await continueRebase(ports, conflicts);
-        if (next === "completed") {
-          resolved = true;
-          break;
-        }
-        await ports.files.captureIntegrationBaseline?.();
-        conflicts = next;
-      }
-    }
+      },
+    });
 
     if (resolved && request.strategy === "merge" && request.commit) {
       await ports.commitAndPush.commit(pullRequest.baseBranch);
@@ -219,6 +150,7 @@ export async function resolveMergeConflicts(
     let pushed = false;
     if (resolved && request.push) {
       await stopAgent();
+      progress.pushStarted();
       await ports.commitAndPush.beforePush?.();
       await ports.commitAndPush.push({
         baseBranch: pullRequest.baseBranch,
@@ -226,6 +158,7 @@ export async function resolveMergeConflicts(
         baseRevision: liveBase.revision,
         headRevision: pullRequest.headRevision,
       });
+      progress.pushCompleted();
       pushed = true;
     }
     result = successResult(
@@ -233,20 +166,33 @@ export async function resolveMergeConflicts(
       request,
       liveBase.revision,
       pullRequest.headRevision,
-      attempts,
+      state.attempts,
       pushed,
     );
   } catch (error: unknown) {
-    result = failureResult(attempts, error);
+    result = failureResult(state.attempts, error);
   } finally {
     if (agentLifecycleStarted && !agentLifecycleStopped) {
       try {
         await stopAgent();
       } catch (error: unknown) {
-        result = failureResult(attempts, error);
+        result = failureResult(state.attempts, error);
       }
     }
   }
-  await ports.summary.write(result, { strategy, attempts: reports });
+  if (result.kind === "error") {
+    progress.failed({
+      category: result.error.category,
+      code: result.error.code,
+      attempts: state.attempts,
+    });
+  } else {
+    progress.completed({
+      result: result.result,
+      attempts: state.attempts,
+      pushed: result.pushed,
+    });
+  }
+  await ports.summary.write(result, { strategy, attempts: state.reports });
   return result;
 }

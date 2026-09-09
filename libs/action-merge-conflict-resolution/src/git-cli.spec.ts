@@ -1,5 +1,6 @@
 // @test-scope ./git-cli.ts
 // @test-scope ./git-port.ts
+// @test-scope ./git-count.ts
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -13,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { NodeGitCli } from "./git-cli.js";
 
@@ -56,6 +57,21 @@ function createConflictRepository(
 }
 
 describe("NodeGitCli", () => {
+  it("counts commits that a rebase will replay", async () => {
+    const { root, baseRevision } = createConflictRepository(
+      "base\n",
+      "feature\n",
+      "main\n",
+    );
+    try {
+      await expect(
+        new NodeGitCli(root).countRebaseCommits(baseRevision),
+      ).resolves.toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("reports a clean merge and aborts its temporary no-commit merge", async () => {
     const { root, baseRevision } = createConflictRepository(
       "base line\nsecond line\nthird line\nfourth line\n",

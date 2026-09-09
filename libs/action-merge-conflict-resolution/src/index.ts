@@ -19,3 +19,4 @@ export * from "./recording.js";
 export * from "./commit-and-push.js";
 export * from "./resolution-controller.js";
 export * from "./summary.js";
+export * from "./progress.js";
