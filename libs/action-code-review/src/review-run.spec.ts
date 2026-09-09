@@ -92,13 +92,20 @@ function createGithubPort(
   };
 }
 
-function createRunner(outcomes: readonly SeqlaneRunOutcome[]): WorkflowRunner {
+function createRunner(
+  outcomes: readonly SeqlaneRunOutcome[],
+  onRequest?: (
+    request: StartWorkflowRunRequest<unknown, unknown>,
+    index: number,
+  ) => void,
+): WorkflowRunner {
   let index = 0;
   return <Input, Output>(
     _workflow: StartWorkflowRunRequest<Input, Output>,
   ): WorkflowRunHandle => {
     const outcome = outcomes[index++];
     if (outcome === undefined) throw new Error("Unexpected workflow run");
+    onRequest?.(_workflow as StartWorkflowRunRequest<unknown, unknown>, index);
     return {
       workId: `work-${index}`,
       runId: index === 1 ? "review-run" : "publication-run",
@@ -155,5 +162,74 @@ describe("runCodeReview", () => {
       "<!-- seqlane-review-in-progress-run: review-run -->",
     );
     expect(github.updates[1]).toBe(`\n${marker}`);
+  });
+
+  it("forwards safe review lifecycle progress from runtime events", async () => {
+    const progress: string[] = [];
+    let now = 1_000;
+    const result = await runCodeReview(request, {
+      github: createGithubPort(true),
+      now: () => now,
+      progress: {
+        write: (event) => progress.push(event.kind),
+      },
+      runWorkflow: createRunner(
+        [
+          { status: "succeeded", result: {} },
+          {
+            status: "succeeded",
+            result: {
+              status: "published",
+              publication: {
+                verdict: "approve",
+                reviewedRevision: headRevision,
+                body: "published report",
+              },
+            },
+          },
+        ],
+        (workflow, index) => {
+          if (index !== 1) return;
+          const emit = workflow.events?.emit;
+          if (emit === undefined) throw new Error("Missing event sink");
+          const common = { workId: "work-1", runId: "review-run" };
+          emit({ type: "run.started", ...common });
+          emit({
+            type: "invocation.created",
+            ...common,
+            invocationId: "invocation-1",
+            planNodeId: "node-1",
+            subject: { type: "task", taskId: "task-1" },
+            taskId: "task-1",
+            kind: "task",
+            label: "correctness",
+            siblingOrder: 0,
+            dependencyIds: [],
+          });
+          emit({
+            type: "invocation.started",
+            ...common,
+            invocationId: "invocation-1",
+            subject: { type: "task", taskId: "task-1" },
+            taskId: "task-1",
+          });
+          emit({
+            type: "invocation.succeeded",
+            ...common,
+            invocationId: "invocation-1",
+          });
+          now = 4_000;
+          emit({ type: "run.succeeded", ...common, output: {} });
+        },
+      ),
+    });
+
+    expect(result.status).toBe("published");
+    expect(progress).toEqual([
+      "review-started",
+      "task-started",
+      "task-completed",
+      "review-completed",
+    ]);
   });
 });

@@ -17,6 +17,10 @@ import { type LivePullRequest, type ReviewTargetInput } from "./contracts.js";
 import { findAuthoritativeReport } from "./github-port.js";
 import { trustedCodeReviewWorkflow } from "./trusted-workflow.js";
 import { BoundedEventRecorder } from "./event-recorder.js";
+import {
+  createReviewProgress,
+  type ReviewProgressPort,
+} from "./review-progress.js";
 
 const markerStart = "<!-- seqlane-review-in-progress-start -->";
 const markerEnd = "<!-- seqlane-review-in-progress-end -->";
@@ -138,6 +142,9 @@ export interface CodeReviewRunRequest extends ReviewTargetInput {
 export interface CodeReviewRunPorts {
   readonly github: GitHubReviewPort;
   readonly onRunStarted?: (run: ReviewRunStarted) => void | Promise<void>;
+  readonly progress?: ReviewProgressPort;
+  /** Test seam for deterministic Action-local progress elapsed time. */
+  readonly now?: () => number;
   /** Test seam for lifecycle orchestration; production defaults to runtime. */
   readonly runWorkflow?: WorkflowRunner;
 }
@@ -191,6 +198,10 @@ export async function runCodeReview(
     return { status: "stale" };
 
   const eventRecorder = new BoundedEventRecorder(10_000);
+  const reviewProgress = createReviewProgress(ports.progress, {
+    headRevision: request.headRevision,
+    now: ports.now,
+  });
   const handle = runWorkflow({
     workflow: buildWorkflow(trustedCodeReviewWorkflow),
     input: {
@@ -202,7 +213,12 @@ export async function runCodeReview(
       reviewHistory,
     },
     runtime: { id: request.runtime, workspace: request.reviewTarget },
-    events: { emit: (event) => eventRecorder.emit(event) },
+    events: {
+      emit: (event) => {
+        eventRecorder.emit(event);
+        reviewProgress.emit(event);
+      },
+    },
   });
   await ports.onRunStarted?.({
     workId: handle.workId,
@@ -217,6 +233,7 @@ export async function runCodeReview(
   }
 
   const outcome = await handle.outcome;
+  reviewProgress.complete(outcome.status);
   if (outcome.status !== "succeeded") {
     await clearOwnedMarker(adapter, markerId, handle.runId);
     return outcome.status === "cancelled"

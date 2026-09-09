@@ -7,6 +7,7 @@ import {
   type GitHubReviewClient,
   repositorySchema,
   reviewTargetInputSchema,
+  formatReviewProgressEvent,
   runCodeReview,
 } from "@seqlane/action-code-review";
 
@@ -161,6 +162,9 @@ export async function run(): Promise<void> {
         core.saveState("review-run-id", runId);
         if (markerId !== undefined)
           core.saveState("review-marker-id", markerId);
+      },
+      progress: {
+        write: (event) => core.info(formatReviewProgressEvent(event)),
       },
     },
   );
