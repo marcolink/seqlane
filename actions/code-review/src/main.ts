@@ -10,6 +10,10 @@ import {
   formatReviewProgressEvent,
   runCodeReview,
 } from "@seqlane/action-code-review";
+import {
+  createReviewFailureContext,
+  formatCodeReviewFailure,
+} from "./failure-diagnostics.js";
 
 function input(name: string): string {
   return core.getInput(name, { required: true });
@@ -145,6 +149,7 @@ export async function run(): Promise<void> {
   );
   core.setOutput("reviewed-revision", parsed.data.headRevision);
   core.setOutput("publication-status", "not-published");
+  const failureContext = createReviewFailureContext();
 
   const result = await runCodeReview(
     {
@@ -164,7 +169,10 @@ export async function run(): Promise<void> {
           core.saveState("review-marker-id", markerId);
       },
       progress: {
-        write: (event) => core.info(formatReviewProgressEvent(event)),
+        write: (event) => {
+          failureContext.observe(event);
+          core.info(formatReviewProgressEvent(event));
+        },
       },
     },
   );
@@ -183,7 +191,9 @@ export async function run(): Promise<void> {
   if (result.status === "failed") {
     core.setOutput("verdict", "error");
     core.saveState("review-marker-id", "");
-    core.setFailed(result.error.category);
+    core.setFailed(
+      formatCodeReviewFailure(result.error, failureContext.snapshot()),
+    );
     return;
   }
   core.setOutput("verdict", result.verdict);

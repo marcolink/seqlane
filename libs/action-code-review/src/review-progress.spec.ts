@@ -56,7 +56,10 @@ describe("code review progress", () => {
     };
 
     const line = formatReviewProgressEvent(event);
-    expect(line).not.toMatch(/[\r\n\u0000-\u001f\u007f]/);
+    expect([...line].some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 0x1f || code === 0x7f;
+    })).toBe(false);
     expect(line).not.toContain("secret-content");
     expect(line).toContain("status=failed");
     expect(line.length).toBeLessThanOrEqual(240);
