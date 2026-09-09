@@ -28,6 +28,7 @@ const request: CodeReviewRunRequest = {
 function createGithubPort(
   live: boolean,
   initialReport?: { readonly id: string; readonly body: string },
+  versionUnavailable = false,
 ): GitHubReviewPort & { readonly updates: string[] } {
   let report =
     initialReport === undefined
@@ -74,17 +75,20 @@ function createGithubPort(
     }),
     readAuthoritativeReport: async () => undefined,
     readAuthoritativeReportVersioned: async () => undefined,
-    readIssueCommentVersioned: async () => ({
-      comment: {
-        id: report!.id,
-        kind: "issue" as const,
-        author: "github-actions[bot]",
-        authorAssociation: "OWNER",
-        body: report!.body,
-        createdAt: "2026-09-09T00:00:00.000Z",
-      },
-      version: `"etag-${version}"`,
-    }),
+    readIssueCommentVersioned: async () =>
+      versionUnavailable
+        ? undefined
+        : {
+            comment: {
+              id: report!.id,
+              kind: "issue" as const,
+              author: "github-actions[bot]",
+              authorAssociation: "OWNER",
+              body: report!.body,
+              createdAt: "2026-09-09T00:00:00.000Z",
+            },
+            version: `"etag-${version}"`,
+          },
     readIssueComment: async () => ({
       id: report!.id,
       kind: "issue" as const,
@@ -166,6 +170,39 @@ describe("runCodeReview", () => {
     expect(result).toEqual({ status: "stale", runId: "review-run" });
     expect(conditionalWrites).toBe(1);
     expect(github.updates).toHaveLength(0);
+  });
+
+  it("continues safely without marker writes when the report has no strong ETag", async () => {
+    const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
+    const github = createGithubPort(
+      true,
+      { id: "report-1", body: marker },
+      true,
+    );
+
+    const result = await runCodeReview(request, {
+      github,
+      runWorkflow: createRunner([
+        { status: "succeeded", result: {} },
+        {
+          status: "succeeded",
+          result: {
+            status: "published",
+            publication: {
+              verdict: "approve",
+              reviewedRevision: headRevision,
+              body: "published report",
+            },
+          },
+        },
+      ]),
+    });
+
+    expect(result).toMatchObject({
+      status: "published",
+      runId: "review-run",
+    });
+    expect(github.updates).toEqual([]);
   });
 
   it("clears only the trusted run marker after publication", async () => {

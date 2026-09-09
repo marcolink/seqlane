@@ -190,4 +190,74 @@ describe("GitHubReviewAdapter", () => {
     ).toBe("stale");
     expect(updates).toEqual([{ id: "1", body: "new report", version: '"v1"' }]);
   });
+
+  it("treats a weak ETag as unavailable without writing", async () => {
+    const updates: string[] = [];
+    const adapter = new GitHubReviewAdapter({
+      getPullRequest: async () => ({}),
+      listIssueComments: async () => [],
+      listReviewComments: async () => [],
+      getIssueComment: async () => ({}),
+      getIssueCommentWithVersion: async () => ({
+        data: {
+          id: 1,
+          user: { login: "github-actions[bot]" },
+          body: "<!-- seqlane-code-review --> report",
+          author_association: "NONE",
+          created_at: "2026-09-09T00:00:00Z",
+        },
+        etag: 'W/"weak"',
+      }),
+      createIssueComment: async () => ({}),
+      updateIssueComment: async () => {
+        updates.push("unconditional");
+        return {};
+      },
+      updateIssueCommentIfUnchanged: async () => {
+        updates.push("conditional");
+        return {};
+      },
+      deleteIssueComment: async () => ({}),
+    });
+
+    await expect(
+      adapter.readIssueCommentVersioned("1"),
+    ).resolves.toBeUndefined();
+    expect(updates).toEqual([]);
+  });
+
+  it("distinguishes an unversioned existing report from no report", async () => {
+    const report = {
+      id: 1,
+      user: { login: "github-actions[bot]" },
+      body: "<!-- seqlane-code-review --> report",
+      author_association: "NONE",
+      created_at: "2026-09-09T00:00:00Z",
+    };
+    const client: GitHubReviewClient = {
+      getPullRequest: async () => ({}),
+      listIssueComments: async () => [report],
+      listReviewComments: async () => [],
+      getIssueComment: async () => report,
+      getIssueCommentWithVersion: async () => ({
+        data: report,
+        etag: 'W/"weak"',
+      }),
+      createIssueComment: async () => ({}),
+      updateIssueComment: async () => ({}),
+      deleteIssueComment: async () => ({}),
+    };
+    const adapter = new GitHubReviewAdapter(client);
+
+    await expect(adapter.readAuthoritativeReportVersioned(1)).resolves.toEqual({
+      comment: expect.objectContaining({ id: "1" }),
+      versionUnavailable: true,
+    });
+    await expect(
+      new GitHubReviewAdapter({
+        ...client,
+        listIssueComments: async () => [],
+      }).readAuthoritativeReportVersioned(1),
+    ).resolves.toBeUndefined();
+  });
 });

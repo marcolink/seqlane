@@ -52,7 +52,7 @@ function issueCommentRequest(
 interface ConditionalGitHubReviewClient {
   readonly getIssueCommentWithVersion: (
     commentId: string,
-  ) => Promise<{ readonly data: unknown; readonly etag: string }>;
+  ) => Promise<{ readonly data: unknown; readonly etag?: string }>;
   readonly createIssueCommentIfAbsent: (
     number: number,
     body: string,
@@ -67,15 +67,16 @@ interface ConditionalGitHubReviewClient {
 async function versionedIssueCommentRequest(
   request: () => Promise<{
     readonly data: unknown;
-    readonly headers: { readonly etag?: string };
+    readonly headers?: { readonly etag?: string };
   }>,
-): Promise<{ readonly data: unknown; readonly etag: string }> {
+): Promise<{ readonly data: unknown; readonly etag?: string }> {
   const response = await request();
-  const etag = response.headers.etag;
-  if (etag === undefined || etag.length === 0 || etag.startsWith("W/")) {
-    throw new Error("GitHub did not return a strong issue-comment ETag.");
-  }
-  return { data: response.data, etag };
+  const etag = response.headers?.etag;
+  const strongEtag =
+    typeof etag === "string" && etag.length > 0 && !etag.startsWith("W/")
+      ? etag
+      : undefined;
+  return { data: response.data, etag: strongEtag };
 }
 
 export function createIssueCommentMethods(

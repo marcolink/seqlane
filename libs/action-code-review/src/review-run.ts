@@ -62,6 +62,7 @@ async function clearOwnedMarker(
   if (!isLivePullRequest(live, input.repository, input.expectedHeadRevision))
     return;
   const versioned = await adapter.readIssueCommentVersioned(markerId);
+  if (versioned === undefined) return;
   const report = versioned.comment;
   const target = guardPublicationTarget(report, input);
   const ownedMarker = `<!-- seqlane-review-in-progress-run: ${input.workflowRunId} -->`;
@@ -138,6 +139,8 @@ function createPublicationPort(adapter: GitHubReviewPort): PublicationPort {
       // because its comment ID was observed earlier.
       const authoritative =
         await adapter.readAuthoritativeReportVersioned(pullRequestNumber);
+      if (authoritative !== undefined && "versionUnavailable" in authoritative)
+        return "stale" as const;
       const target = guardPublicationTarget(authoritative?.comment, {
         pullRequestNumber,
         expectedHeadRevision,
@@ -279,24 +282,26 @@ export async function runCodeReview(
       return { status: "stale", runId: handle.runId };
     }
     const versioned = await adapter.readIssueCommentVersioned(markerId);
-    const target = guardPublicationTarget(versioned.comment, guardInput);
-    if (target.status !== "eligible") {
-      await handle.cancel();
-      return { status: "stale", runId: handle.runId };
-    }
-    const markerWrite = await adapter.updateReportIfUnchanged(
-      markerId,
-      marker(
-        handle.runId,
-        githubActionsRunUrl(request.repository, request.githubRunId ?? ""),
-      ) +
-        "\n\n" +
-        removeMarker(versioned.comment.body),
-      versioned.version,
-    );
-    if (markerWrite !== "written") {
-      await handle.cancel();
-      return { status: "stale", runId: handle.runId };
+    if (versioned !== undefined) {
+      const target = guardPublicationTarget(versioned.comment, guardInput);
+      if (target.status !== "eligible") {
+        await handle.cancel();
+        return { status: "stale", runId: handle.runId };
+      }
+      const markerWrite = await adapter.updateReportIfUnchanged(
+        markerId,
+        marker(
+          handle.runId,
+          githubActionsRunUrl(request.repository, request.githubRunId ?? ""),
+        ) +
+          "\n\n" +
+          removeMarker(versioned.comment.body),
+        versioned.version,
+      );
+      if (markerWrite !== "written") {
+        await handle.cancel();
+        return { status: "stale", runId: handle.runId };
+      }
     }
   }
 

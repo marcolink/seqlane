@@ -74,15 +74,16 @@ describe("code-review GitHub adapter", () => {
     ]);
   });
 
-  it("rejects a versioned read without a strong ETag", async () => {
+  it("reports a versioned read without a strong ETag as unavailable", async () => {
     const client = createClient(
       { get: [], create: [], update: [] },
       'W/"weak"',
     );
     const methods = createIssueCommentMethods(client, "owner", "repo");
 
-    await expect(methods.getIssueCommentWithVersion("1")).rejects.toThrow(
-      "strong issue-comment ETag",
-    );
+    await expect(methods.getIssueCommentWithVersion("1")).resolves.toEqual({
+      data: { id: 1, body: "report" },
+      etag: undefined,
+    });
   });
 });
