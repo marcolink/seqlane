@@ -84,6 +84,8 @@ outputs and final job summary remain unchanged.
 Implemented and verified in this working tree. It is not delivered to a target
 branch until a reachable commit is merged.
 
+Delivery tracking: [PR #82](https://github.com/marcolink/seqlane/pull/82).
+
 ## Traceability
 
 - [spec.seqlane-action-merge-conflict-resolution](../specs/2026-09-06-seqlane-action-merge-conflict-resolution.md)
