@@ -76,8 +76,7 @@ function formatDuration(milliseconds: number): string {
     unit: "minute",
   };
   const { divisor, unit } =
-    units.find(({ limit }) => safeMilliseconds < limit) ??
-    fallbackUnit;
+    units.find(({ limit }) => safeMilliseconds < limit) ?? fallbackUnit;
   return new Intl.NumberFormat("en", {
     style: "unit",
     unit,
