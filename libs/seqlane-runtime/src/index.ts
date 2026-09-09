@@ -58,3 +58,10 @@ export type {
   SeqlaneEventSink,
   SeqlaneRunOutcome,
 } from "@seqlane/core";
+export {
+  startWorkflowRun,
+} from "./start-workflow-run.js";
+export type {
+  StartWorkflowRunRequest,
+  WorkflowRunHandle,
+} from "./start-workflow-run.js";

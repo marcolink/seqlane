@@ -3,19 +3,7 @@ import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
 } from "@seqlane/events";
-import {
-  RuntimeError,
-  type Plan,
-  type PlanNode,
-  type RunRequest,
-} from "@seqlane/core";
-import { EffectCompiler } from "../runtime/compile/compile-plan.js";
-import {
-  startCompiledWorkflow,
-  type ActiveWorkflowRun,
-} from "../runtime/execution/workflow-run.js";
-import { preflightCompiledWorkflowModels } from "../runtime/execution/model-preflight.js";
-import { resolveCompiledWorkflowSessions } from "../runtime/session/session-preflight.js";
+import { RuntimeError, type Plan, type PlanNode, type RunRequest } from "@seqlane/core";
 import { createExecutionEventBridge } from "./event-bridge.js";
 import { loadWorkflow, type LoadedWorkflow } from "./workflow/load-workflow.js";
 import { createSeqlanePlanSnapshot } from "./workflow/plan-snapshot.js";
@@ -24,6 +12,10 @@ import {
   type RuntimeExecution,
   type RuntimeSessionUiNotifier,
 } from "./profile/runtime-profile.js";
+import {
+  startWorkflowRunInternal,
+  type WorkflowRunHandle,
+} from "../start-workflow-run.js";
 import {
   encodeRuntimeSessionUiAvailable,
   type RuntimeSessionUiAvailable,
@@ -38,7 +30,7 @@ export interface RunnerHost {
 export interface RunnerRunControl {
   cancellationRequested: boolean;
   abortController?: AbortController;
-  activeRun?: ActiveWorkflowRun;
+  activeRun?: WorkflowRunHandle;
 }
 
 export type RuntimeExecutionResolver = (
@@ -143,49 +135,25 @@ export async function startRun(
       return;
     }
 
-    if (
-      request.runtime.id === "local" &&
-      planContainsAgentWork(loadedWorkflow.plan)
-    ) {
-      throw new Error(
-        'Runtime profile "local" is not configured for agent workflows',
-      );
-    }
-
-    const execution = await resolveExecution(
-      request.runtime,
-      loadedWorkflow.taskDefinitions,
-      abortController.signal,
-      request.input,
-      (notification) => sendRuntimeSessionUi(host, notification),
+    const activeRun = startWorkflowRunInternal(
+      {
+        workflow: loadedWorkflow.built,
+        input: request.input,
+        runtime: request.runtime,
+        events,
+        signal: abortController.signal,
+        identity: { workId, runId },
+        onRuntimeSessionUi: (notification) =>
+          sendRuntimeSessionUi(host, notification),
+      },
+      {
+        resolveExecution,
+        createInvocationId,
+        emitRunStarted: false,
+        emitPlan: (plan) =>
+          events.emitPlan(createSeqlanePlanSnapshot(plan), workId, runId),
+      },
     );
-    const compiled = new EffectCompiler().compileWorkflow(loadedWorkflow.plan, {
-      workId,
-      runId,
-      createInvocationId,
-      workflowInput: request.input,
-      executors: execution.executors,
-      sessionResolver: execution.sessionResolver,
-      workspaceResources: execution.workspaceResources,
-      taskDefinitions: execution.taskDefinitions,
-      validatorDefinitions: loadedWorkflow.validatorDefinitions,
-      events,
-    });
-    await preflightCompiledWorkflowModels(compiled);
-    await resolveCompiledWorkflowSessions(compiled);
-
-    events.emitPlan(createSeqlanePlanSnapshot(compiled.plan), workId, runId);
-
-    if (control.cancellationRequested) {
-      events.emit({ type: "run.cancelled", workId, runId });
-      await events.flush();
-      host.exit(0);
-      return;
-    }
-
-    const activeRun = startCompiledWorkflow(compiled, {
-      emitRunStarted: false,
-    });
     control.activeRun = activeRun;
     if (control.cancellationRequested) await activeRun.cancel();
     await activeRun.outcome;
