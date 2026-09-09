@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - adr.mastra-backed-seqlane-workflows
 supersedes:
@@ -183,17 +183,27 @@ and can produce only the bounded local diagnostic.
 
 Runner notifications must stay narrow and use the versioned runner protocol
 defined below. Typed serialized run outcomes must remain available for IPC and
-UI consumers. `@seqlane/events` is transitional and remains until all
-consumer compatibility tests pass. The final deletion must leave no consumer
-or package reference.
+UI consumers. Before a consumer migrates, `@seqlane/events` remains the
+canonical serialized event contract for that consumer. Its active consumer
+specification remains authoritative for current behavior.
+
+The migration creates the core-owned replacement schemas. It must update each
+affected active consumer specification with its implementation change. The
+transition ends only when runner, CLI, output, Studio, recording, and replay
+compatibility tests pass. The final deletion must leave no consumer or package
+reference.
 
 ### REQ-RUNNER-001: Own the replacement runner protocol in core
 
-The existing engine-neutral `@seqlane/core` runner-protocol boundary owns the
-strict Zod schemas and inferred types for runner notifications, protocol
-envelopes, serialized errors, and serialized run outcomes. The runtime owns
-emission and encoding. No Mastra or executor type crosses the boundary, and no
-generic replacement event bus is added.
+The migration creates strict Zod schemas and inferred types in the
+engine-neutral `@seqlane/core` runner-protocol boundary. The current boundary
+owns runner commands and references only. `@seqlane/events` owns the current
+serialized events until each consumer migrates.
+
+After migration, core owns runner notifications, protocol envelopes,
+serialized errors, and serialized run outcomes. The runtime owns emission and
+encoding. No Mastra or executor type crosses the boundary. The migration must
+not add a generic replacement event bus.
 
 Each Run uses a versioned JSON envelope. The envelope has a protocol version,
 the Work and Run identities, a run-local sequence, and exactly one payload.
@@ -272,6 +282,18 @@ Consumers must advertise or select a supported version and must not silently
 downgrade an unsupported payload. Compatibility tests must cover every
 supported version before a version change is released.
 
+The migration also defines one strict `PlanSnapshot` schema for static Plan
+data that crosses IPC, Studio, recording, or replay boundaries. The schema has
+only the Work and workflow identities plus static node topology. A node can
+contain its Plan-node identity, node kind, optional task identity, dependency
+identities, parent identity, sibling order, and repeat limit.
+
+The snapshot must not contain task inputs, task outputs, serialized bindings,
+schemas, callbacks, credentials, prompts, tokens, secrets, executor data, or
+arbitrary metadata. Consumers must receive this snapshot, not a raw Plan. The
+schema rejects unknown fields. IPC, Studio, recording, and replay tests must
+prove these exclusions.
+
 The current event categories map as follows:
 
 | `@seqlane/events` category | Replacement destination | Compatibility rule |
@@ -279,7 +301,7 @@ The current event categories map as follows:
 | `run.started`, `invocation.started`, `invocation.progress`, `invocation.succeeded`, `invocation.failed`, `invocation.cancelled`, `run.heartbeat` | Runner notification | Preserve IDs, bounded fields, and run-local sequence semantics. |
 | `run.succeeded`, `run.failed`, `run.cancelled` | Serialized run outcome | Emit exactly one terminal outcome. |
 | `invocation.created`, `invocation.input`, `invocation.result`, `invocation.output`, `invocation.activity`, `invocation.retrying`, `invocation.skipped` | Mastra observability or bounded runner notification where a consumer needs lifecycle state | Do not expose raw values. |
-| `run.plan` and Plan-node topology | Compatibility projection for Studio, recording, and replay | Preserve static Plan identity and redaction until consumer tests pass. |
+| `run.plan` and Plan-node topology | Strict `PlanSnapshot` compatibility projection for Studio, recording, and replay | Preserve static identity and topology. Exclude values and executable data. |
 | Error metadata and consumer diagnostics | Serialized error category/code or bounded local diagnostic | Omit causes, stacks, credentials, prompts, and unrestricted payloads. |
 
 `@seqlane/events` remains in the repository until runner, CLI, output,
@@ -461,7 +483,10 @@ dependencies become ready. Runner notifications remain narrow and
 serializable. Consumers use typed run outcomes for IPC and UI decisions.
 Exporter failure must not alter the execution outcome and must produce only a
 bounded local diagnostic. Existing `@seqlane/events` consumers move before the
-package is deleted.
+package is deleted. The migration replaces raw Plan transport with the strict
+topology-only `PlanSnapshot` projection. IPC, Studio, recording, and replay
+tests must reject unknown fields and prove that excluded data cannot cross
+their boundaries.
 
 ## Failure and edge cases
 
@@ -480,10 +505,14 @@ package is deleted.
   workspace resources when termination cannot be confirmed. Do not emit a
   later protocol update.
 - Reject unknown runner protocol versions, fields, and malformed envelopes.
+- Reject an unknown `PlanSnapshot` field or a snapshot that contains excluded
+  Plan values or executable data.
 - Emit one terminal serialized run outcome and no later notification.
 - Classify unconfirmed cancellation or termination as uncertain termination.
 - Stop before repeat execution 1,001 and return the typed run-limit error.
 - Keep telemetry export failure out of the execution outcome.
+- Prove that IPC, Studio, recording, and replay receive only the typed
+  topology-only `PlanSnapshot`.
 
 ## Migration
 

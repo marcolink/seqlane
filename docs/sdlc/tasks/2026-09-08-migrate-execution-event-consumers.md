@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -19,9 +19,11 @@ Move runner, CLI, output, Studio, recording, and replay consumers to the
 replacement notification and typed outcome contracts before event-package
 deletion.
 
-The replacement contracts are owned by the engine-neutral `@seqlane/core`
-runner-protocol boundary. Runtime code owns emission. This task does not add a
-generic event bus or a second canonical schema.
+Before this migration completes, `@seqlane/events` remains canonical for
+existing consumers. After migration, the replacement contracts are owned by
+the engine-neutral `@seqlane/core` runner-protocol boundary. Runtime code owns
+emission. This task does not add a generic event bus or a second canonical
+schema.
 
 ## Upstream requirements
 
@@ -41,10 +43,16 @@ generic event bus or a second canonical schema.
 - Migrate CLI and output projections.
 - Migrate Studio protocol, state, and rendering consumers.
 - Preserve recording and replay file behavior.
+- Keep the typed Plan snapshot topology-only; exclude inputs, outputs,
+  bindings, schemas, callbacks, prompts, and credentials.
+- Update downstream active consumer specs in this migration when their owners
+  or contract assertions change.
 - Preserve run-local sequence ordering, one terminal outcome, cancellation, and
   uncertain-termination classification.
 - Add compatibility, version, malformed-notification, malformed-outcome, and
   decode/encoding-failure tests.
+- Add IPC, Studio, recording, and replay redaction compatibility tests for the
+  topology-only Plan snapshot.
 - Remove consumer imports that are no longer required from `@seqlane/events`.
 
 ## Out of scope
