@@ -1,20 +1,18 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import {
-  buildWorkflow,
-  jsonValueSchema,
-  type SeqlaneEvent,
-} from "@seqlane/core";
+import { buildWorkflow, jsonValueSchema } from "@seqlane/core";
 import { startWorkflowRun } from "@seqlane/runtime";
 import {
   buildPublicationWorkflow,
   GitHubReviewAdapter,
+  type GitHubReviewClient,
   publicationResultSchema,
   repositorySchema,
-  reviewPublicationMetadataSchema,
   reviewTargetInputSchema,
   trustedCodeReviewWorkflow,
   type PublicationPort,
+  BoundedEventRecorder,
+  guardPublicationTarget,
 } from "@seqlane/action-code-review";
 
 function input(name: string): string {
@@ -38,38 +36,6 @@ function removeMarker(body: string): string {
     "",
   );
 }
-function reportRunMetadata(body: string):
-  | {
-      readonly id: string;
-      readonly attempt: number;
-      readonly reviewedRevision: string;
-    }
-  | undefined {
-  const matches = [
-    ...body.matchAll(/<!-- seqlane-code-review-meta-v3: ([^\r\n]+) -->/g),
-  ];
-  if (matches.length !== 1) return undefined;
-  try {
-    const parsed = reviewPublicationMetadataSchema.safeParse(
-      JSON.parse(matches[0]![1]!),
-    );
-    if (!parsed.success) return undefined;
-    return {
-      id: parsed.data.run.id,
-      attempt: parsed.data.run.attempt,
-      reviewedRevision: parsed.data.reviewedRevision,
-    };
-  } catch {
-    return undefined;
-  }
-}
-function compareRunIds(left: string, right: string): number {
-  const normalizedLeft = left.replace(/^0+/, "") || "0";
-  const normalizedRight = right.replace(/^0+/, "") || "0";
-  return normalizedLeft.length === normalizedRight.length
-    ? normalizedLeft.localeCompare(normalizedRight)
-    : normalizedLeft.length - normalizedRight.length;
-}
 async function clearOwnedMarker(
   adapter: GitHubReviewAdapter,
   markerId: string | undefined,
@@ -92,6 +58,215 @@ async function clearOwnedMarker(
   await adapter.updateReport(markerId, removeMarker(report.body));
 }
 
+type GitHubClient = ReturnType<typeof github.getOctokit>;
+interface LivePullRequest {
+  readonly state?: string;
+  readonly draft?: boolean;
+  readonly head?: {
+    readonly repo?: { readonly full_name?: string };
+    readonly sha?: string;
+  };
+}
+
+function isLivePullRequest(
+  pullRequest: LivePullRequest,
+  repository: string,
+  expectedHeadRevision: string,
+): boolean {
+  return (
+    pullRequest.state === "open" &&
+    pullRequest.draft !== true &&
+    pullRequest.head?.repo?.full_name === repository &&
+    pullRequest.head?.sha === expectedHeadRevision
+  );
+}
+
+async function readPullRequest(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+  number: number,
+): Promise<LivePullRequest> {
+  return (await client.rest.pulls.get({ owner, repo, pull_number: number }))
+    .data;
+}
+
+async function fetchCommentPage(
+  request: () => Promise<{
+    readonly data: unknown[];
+    readonly headers: { readonly link?: string };
+  }>,
+): Promise<unknown> {
+  const response = await request();
+  return {
+    items: response.data,
+    hasNextPage: response.headers.link?.includes('rel="next"') === true,
+  };
+}
+
+function commentPageOptions(page: number): {
+  readonly per_page: 100;
+  readonly page: number;
+  readonly sort: "updated";
+  readonly direction: "desc";
+} {
+  return { per_page: 100, page, sort: "updated", direction: "desc" };
+}
+
+function issueCommentRequest(
+  request: () => Promise<{ readonly data: unknown }>,
+): Promise<unknown> {
+  return request().then((response) => response.data);
+}
+
+function createIssueCommentMethods(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+): Pick<
+  GitHubReviewClient,
+  | "getIssueComment"
+  | "createIssueComment"
+  | "updateIssueComment"
+  | "deleteIssueComment"
+> {
+  return {
+    getIssueComment: (commentId) =>
+      issueCommentRequest(() =>
+        client.rest.issues.getComment({
+          owner,
+          repo,
+          comment_id: Number(commentId),
+        }),
+      ),
+    createIssueComment: (number, body) =>
+      issueCommentRequest(() =>
+        client.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: number,
+          body,
+        }),
+      ),
+    updateIssueComment: (commentId, body) =>
+      issueCommentRequest(() =>
+        client.rest.issues.updateComment({
+          owner,
+          repo,
+          comment_id: Number(commentId),
+          body,
+        }),
+      ),
+    deleteIssueComment: (commentId) =>
+      issueCommentRequest(() =>
+        client.rest.issues.deleteComment({
+          owner,
+          repo,
+          comment_id: Number(commentId),
+        }),
+      ),
+  };
+}
+
+function createGitHubReviewClient(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+): GitHubReviewClient {
+  return {
+    getPullRequest: async (number) =>
+      (await client.rest.pulls.get({ owner, repo, pull_number: number })).data,
+    listIssueComments: (number, page = 1) =>
+      fetchCommentPage(() =>
+        client.rest.issues.listComments({
+          owner,
+          repo,
+          issue_number: number,
+          ...commentPageOptions(page),
+        }),
+      ),
+    listReviewComments: (number, page = 1) =>
+      fetchCommentPage(() =>
+        client.rest.pulls.listReviewComments({
+          owner,
+          repo,
+          pull_number: number,
+          ...commentPageOptions(page),
+        }),
+      ),
+    ...createIssueCommentMethods(client, owner, repo),
+  };
+}
+
+function createReviewAdapter(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+): GitHubReviewAdapter {
+  return new GitHubReviewAdapter(createGitHubReviewClient(client, owner, repo));
+}
+
+function createPublicationPort(
+  client: GitHubClient,
+  adapter: GitHubReviewAdapter,
+  owner: string,
+  repo: string,
+): PublicationPort {
+  return {
+    checkLiveState: async ({
+      repository,
+      pullRequestNumber,
+      expectedHeadRevision,
+    }) =>
+      isLivePullRequest(
+        await readPullRequest(client, owner, repo, pullRequestNumber),
+        repository,
+        expectedHeadRevision,
+      )
+        ? "live"
+        : "stale",
+    publishReport: async ({
+      repository,
+      pullRequestNumber,
+      expectedHeadRevision,
+      workflowRunId,
+      githubRunId,
+      attempt,
+      existingReportId,
+      publication,
+    }) => {
+      const current = await readPullRequest(
+        client,
+        owner,
+        repo,
+        pullRequestNumber,
+      );
+      if (!isLivePullRequest(current, repository, expectedHeadRevision))
+        return "stale" as const;
+      // Reconcile the authoritative report immediately before writing. This
+      // closes the create-vs-create race and prevents an untrusted replacement
+      // from being updated merely because its comment ID was observed earlier.
+      const authoritative =
+        await adapter.readAuthoritativeReport(pullRequestNumber);
+      const target = guardPublicationTarget(authoritative, {
+        pullRequestNumber,
+        expectedHeadRevision,
+        workflowRunId,
+        githubRunId,
+        attempt,
+      });
+      if (target.status === "stale") return "stale" as const;
+      if (target.status === "create") {
+        if (existingReportId !== undefined) return "stale" as const;
+        await adapter.createReport(pullRequestNumber, publication.body);
+        return "published" as const;
+      }
+      await adapter.updateReport(target.report.id, publication.body);
+      return "published" as const;
+    },
+  };
+}
+
 export async function run(): Promise<void> {
   const token = input("github-token");
   core.setSecret(token);
@@ -108,58 +283,7 @@ export async function run(): Promise<void> {
   if (!parsed.success) throw new Error("Invalid code-review Action inputs.");
   const { owner, repo } = repositorySchema.parse(parsed.data.repository);
   const client = github.getOctokit(token);
-  const adapter = new GitHubReviewAdapter({
-    getPullRequest: async (number) =>
-      (await client.rest.pulls.get({ owner, repo, pull_number: number })).data,
-    listIssueComments: async (number) =>
-      client.paginate(client.rest.issues.listComments, {
-        owner,
-        repo,
-        issue_number: number,
-        per_page: 100,
-      }),
-    listReviewComments: async (number) =>
-      client.paginate(client.rest.pulls.listReviewComments, {
-        owner,
-        repo,
-        pull_number: number,
-        per_page: 100,
-      }),
-    getIssueComment: async (commentId) =>
-      (
-        await client.rest.issues.getComment({
-          owner,
-          repo,
-          comment_id: Number(commentId),
-        })
-      ).data,
-    createIssueComment: async (number, body) =>
-      (
-        await client.rest.issues.createComment({
-          owner,
-          repo,
-          issue_number: number,
-          body,
-        })
-      ).data,
-    updateIssueComment: async (commentId, body) =>
-      (
-        await client.rest.issues.updateComment({
-          owner,
-          repo,
-          comment_id: Number(commentId),
-          body,
-        })
-      ).data,
-    deleteIssueComment: async (commentId) =>
-      (
-        await client.rest.issues.deleteComment({
-          owner,
-          repo,
-          comment_id: Number(commentId),
-        })
-      ).data,
-  });
+  const adapter = createReviewAdapter(client, owner, repo);
   const pr = await adapter.readPullRequest(parsed.data.pullRequestNumber);
   const reviewHistory = await adapter.readComments(
     parsed.data.pullRequestNumber,
@@ -171,18 +295,18 @@ export async function run(): Promise<void> {
   // queueing delay. Re-check the immutable review identity immediately before
   // writing the in-progress marker so a newer push cannot be claimed by this
   // run.
-  const liveBeforeRun = (
-    await client.rest.pulls.get({
-      owner,
-      repo,
-      pull_number: parsed.data.pullRequestNumber,
-    })
-  ).data;
+  const liveBeforeRun = await readPullRequest(
+    client,
+    owner,
+    repo,
+    parsed.data.pullRequestNumber,
+  );
   if (
-    liveBeforeRun.state !== "open" ||
-    liveBeforeRun.draft === true ||
-    liveBeforeRun.head?.repo?.full_name !== parsed.data.repository ||
-    liveBeforeRun.head?.sha !== parsed.data.headRevision
+    !isLivePullRequest(
+      liveBeforeRun,
+      parsed.data.repository,
+      parsed.data.headRevision,
+    )
   ) {
     core.setOutput("publication-status", "stale");
     core.setOutput("verdict", "stale");
@@ -192,7 +316,7 @@ export async function run(): Promise<void> {
   if (existingReport !== undefined) {
     markerId = existingReport.id;
   }
-  const events: SeqlaneEvent[] = [];
+  const eventRecorder = new BoundedEventRecorder(10_000);
   const handle = startWorkflowRun({
     workflow: buildWorkflow(trustedCodeReviewWorkflow),
     input: {
@@ -204,7 +328,7 @@ export async function run(): Promise<void> {
       reviewHistory,
     },
     runtime: { id: parsed.data.runtime, workspace: parsed.data.reviewTarget },
-    events: { emit: (event) => events.push(event) },
+    events: { emit: (event) => eventRecorder.emit(event) },
   });
   core.setOutput("work-id", handle.workId);
   core.setOutput("run-id", handle.runId);
@@ -229,18 +353,14 @@ export async function run(): Promise<void> {
     if (outcome.status === "failed") core.setFailed(outcome.error.category);
     return;
   }
-  const live = (
-    await client.rest.pulls.get({
-      owner,
-      repo,
-      pull_number: parsed.data.pullRequestNumber,
-    })
-  ).data;
+  const live = await readPullRequest(
+    client,
+    owner,
+    repo,
+    parsed.data.pullRequestNumber,
+  );
   if (
-    live.state !== "open" ||
-    live.draft === true ||
-    live.head?.repo?.full_name !== parsed.data.repository ||
-    live.head?.sha !== parsed.data.headRevision
+    !isLivePullRequest(live, parsed.data.repository, parsed.data.headRevision)
   ) {
     await clearOwnedMarker(adapter, markerId, handle.runId);
     core.saveState("review-marker-id", "");
@@ -253,7 +373,8 @@ export async function run(): Promise<void> {
   // event sink while the review run is still completing.
   const snapshot = Object.freeze({
     report: jsonValueSchema.parse(outcome.result),
-    events: jsonValueSchema.parse(events),
+    events: jsonValueSchema.parse(eventRecorder.events),
+    eventsTruncated: eventRecorder.truncated,
     runId: handle.runId,
     ...(process.env.GITHUB_RUN_ID === undefined
       ? {}
@@ -261,76 +382,7 @@ export async function run(): Promise<void> {
     attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? "1"),
     completedAt: new Date().toISOString(),
   });
-  const publicationPort: PublicationPort = {
-    checkLiveState: async ({
-      repository,
-      pullRequestNumber,
-      expectedHeadRevision,
-    }) => {
-      const current = (
-        await client.rest.pulls.get({
-          owner,
-          repo,
-          pull_number: pullRequestNumber,
-        })
-      ).data;
-      return current.state === "open" &&
-        current.draft !== true &&
-        current.head?.repo?.full_name === repository &&
-        current.head?.sha === expectedHeadRevision
-        ? "live"
-        : "stale";
-    },
-    publishReport: async ({
-      repository,
-      pullRequestNumber,
-      expectedHeadRevision,
-      workflowRunId,
-      githubRunId,
-      attempt,
-      existingReportId,
-      publication,
-    }) => {
-      const current = (
-        await client.rest.pulls.get({
-          owner,
-          repo,
-          pull_number: pullRequestNumber,
-        })
-      ).data;
-      if (
-        current.state !== "open" ||
-        current.draft === true ||
-        current.head?.repo?.full_name !== repository ||
-        current.head?.sha !== expectedHeadRevision
-      ) {
-        return "stale" as const;
-      }
-      if (existingReportId === undefined) {
-        await adapter.createReport(pullRequestNumber, publication.body);
-        return "published" as const;
-      }
-      const existing = await adapter.readIssueComment(existingReportId);
-      const markerMatch = existing.body.match(
-        /<!-- seqlane-review-in-progress-run: ([^\r\n]+) -->/,
-      );
-      if (markerMatch !== null && markerMatch[1] !== workflowRunId) {
-        return "stale" as const;
-      }
-      const prior = reportRunMetadata(existing.body);
-      if (prior?.reviewedRevision === expectedHeadRevision) {
-        if (
-          compareRunIds(prior.id, githubRunId) > 0 ||
-          (compareRunIds(prior.id, githubRunId) === 0 &&
-            prior.attempt > attempt)
-        ) {
-          return "stale" as const;
-        }
-      }
-      await adapter.updateReport(existingReportId, publication.body);
-      return "published" as const;
-    },
-  };
+  const publicationPort = createPublicationPort(client, adapter, owner, repo);
   const publicationHandle = startWorkflowRun({
     workflow: buildPublicationWorkflow(publicationPort),
     input: {

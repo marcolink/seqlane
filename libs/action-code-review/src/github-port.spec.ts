@@ -3,6 +3,40 @@ import { describe, expect, it } from "vitest";
 import { GitHubReviewAdapter, type GitHubReviewClient } from "./github-port.js";
 
 describe("GitHubReviewAdapter", () => {
+  it("retrieves newest-first pages only until the bounded history budget", async () => {
+    const requests: Array<{ kind: string; page: number }> = [];
+    const page =
+      (kind: string, number: number) => async (requested: number) => {
+        requests.push({ kind, page: requested });
+        return {
+          items: Array.from({ length: 100 }, (_, index) => ({
+            id: `${kind}-${requested}-${index}`,
+            user: { login: "octo" },
+            body: "context",
+            author_association: "NONE",
+            created_at: `2026-09-${String(30 - requested).padStart(2, "0")}T00:${String(index).padStart(2, "0")}:00Z`,
+          })),
+          hasNextPage: true,
+        };
+      };
+    const history = await new GitHubReviewAdapter({
+      getPullRequest: async () => ({}),
+      listIssueComments: page("issue", 1),
+      listReviewComments: page("review", 1),
+      getIssueComment: async () => ({}),
+      createIssueComment: async () => ({}),
+      updateIssueComment: async () => ({}),
+      deleteIssueComment: async () => ({}),
+    }).readComments(1);
+
+    expect(requests).toEqual([
+      { kind: "issue", page: 1 },
+      { kind: "review", page: 1 },
+    ]);
+    expect(history.comments).toHaveLength(200);
+    expect(history.truncated).toBe(true);
+  });
+
   it("keeps only valid non-null line and commit metadata", async () => {
     const client: GitHubReviewClient = {
       getPullRequest: async () => ({}),

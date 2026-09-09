@@ -7,10 +7,31 @@ describe("model-free publication", () => {
   it("renders a bounded report from frozen data", () => {
     const result = derivePublication({
       report: {
+        repository: "owner/repository",
+        baseBranch: "main",
+        baseRevision: "a".repeat(40),
+        overallRating: 5,
         verdict: "approve",
         summary: "No issues.",
+        ratings: [
+          "correctness",
+          "readability",
+          "architecture",
+          "security",
+          "performance",
+        ].map((axis) => ({
+          axis: axis as "correctness",
+          rating: 5,
+          rationale: "ok",
+        })),
         findings: [],
+        verification: [],
         headRevision: "a".repeat(40),
+        pullRequestNumber: 1,
+        nextFindingIndex: 1,
+        limitations: [],
+        stateTruncated: false,
+        runMetricsLedger: { schemaVersion: 1, runs: [] },
       },
       runId: "run-1",
       events: [
@@ -30,16 +51,41 @@ describe("model-free publication", () => {
   it("bounds long publication input and escapes table separators", () => {
     const result = derivePublication({
       report: {
+        repository: "owner/repository",
+        baseBranch: "main",
+        baseRevision: "a".repeat(40),
+        overallRating: 3,
         verdict: "request-changes",
         summary: "summary | with a pipe",
+        ratings: [
+          "correctness",
+          "readability",
+          "architecture",
+          "security",
+          "performance",
+        ].map((axis) => ({
+          axis: axis as "correctness",
+          rating: 3,
+          rationale: "ok",
+        })),
         findings: Array.from({ length: 40 }, (_, index) => ({
           id: `F-${index + 1}`,
           severity: "required" as const,
+          effectiveSeverity: "required" as const,
+          disposition: "open" as const,
+          status: "open" as const,
           summary: "x".repeat(2_000),
           recommendation: "y".repeat(2_000),
           axis: "security",
+          aliases: [],
         })),
+        verification: [],
         headRevision: "a".repeat(40),
+        pullRequestNumber: 1,
+        nextFindingIndex: 41,
+        limitations: [],
+        stateTruncated: false,
+        runMetricsLedger: { schemaVersion: 1, runs: [] },
       },
       runId: "run-1",
       events: [],
@@ -48,15 +94,144 @@ describe("model-free publication", () => {
     expect(result.publication.body).toContain("summary &#124; with a pipe");
   });
 
+  it("keeps required markers and stays within the UTF-8 byte limit", () => {
+    const result = derivePublication({
+      report: {
+        repository: "owner/repository",
+        baseBranch: "main",
+        baseRevision: "a".repeat(40),
+        overallRating: 5,
+        verdict: "approve",
+        summary: "😀".repeat(6_000),
+        ratings: [
+          "correctness",
+          "readability",
+          "architecture",
+          "security",
+          "performance",
+        ].map((axis) => ({
+          axis: axis as "correctness",
+          rating: 5,
+          rationale: "ok",
+        })),
+        findings: [],
+        verification: [],
+        headRevision: "b".repeat(40),
+        pullRequestNumber: 1,
+        nextFindingIndex: 1,
+        limitations: [],
+        stateTruncated: false,
+        runMetricsLedger: { schemaVersion: 1, runs: [] },
+      },
+      runId: "run-1",
+      events: [],
+    });
+    expect(
+      new TextEncoder().encode(result.publication.body).length,
+    ).toBeLessThanOrEqual(60_000);
+    expect(result.publication.body).toContain(
+      "<!-- seqlane-code-review-meta-v3:",
+    );
+    expect(result.publication.body).toContain(
+      "<!-- seqlane-code-review-run-metrics-v1-start -->",
+    );
+    expect(result.publication.body).toContain(
+      "<!-- seqlane-code-review-state-v3-start -->",
+    );
+    expect(result.publication.body).toContain(
+      "<!-- seqlane-code-review-state-v3-end -->",
+    );
+  });
+
+  it("retains only the latest forty metric runs and records the omission", () => {
+    const runs = Array.from({ length: 40 }, (_, index) => ({
+      githubRunId: String(index + 1),
+      attempt: 1,
+      completedAt: `2026-09-09T00:${String(index).padStart(2, "0")}:00.000Z`,
+      reviewedRevision: "a".repeat(40),
+      metrics: {
+        schemaVersion: 1 as const,
+        runId: `run-${index + 1}`,
+        outcome: "succeeded" as const,
+        durationMs: 0,
+        totalCost: 0,
+        totalTokens: {
+          input: 0,
+          output: 0,
+          reasoning: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+        tasks: [],
+      },
+    }));
+    const result = derivePublication({
+      report: {
+        repository: "owner/repository",
+        baseBranch: "main",
+        baseRevision: "a".repeat(40),
+        overallRating: 5,
+        verdict: "approve",
+        summary: "ok",
+        ratings: [
+          "correctness",
+          "readability",
+          "architecture",
+          "security",
+          "performance",
+        ].map((axis) => ({
+          axis: axis as "correctness",
+          rating: 5,
+          rationale: "ok",
+        })),
+        findings: [],
+        verification: [],
+        headRevision: "b".repeat(40),
+        pullRequestNumber: 1,
+        nextFindingIndex: 1,
+        limitations: [],
+        stateTruncated: false,
+        runMetricsLedger: { schemaVersion: 1, runs },
+      },
+      runId: "run-41",
+      githubRunId: "41",
+      attempt: 1,
+      events: [],
+    });
+    expect(result.publication.body).toContain('"githubRunId": "41"');
+    expect(result.publication.body).not.toContain('"githubRunId": "1"');
+    expect(result.publication.body).toContain("metrics ledger was bounded");
+  });
+
   it("rejects malformed or unbounded publication snapshots", () => {
     const base = {
       report: {
         repository: "owner/repository",
         baseBranch: "main",
+        baseRevision: "a".repeat(40),
+        overallRating: 5,
         verdict: "approve",
         summary: "ok",
+        ratings: [
+          "correctness",
+          "readability",
+          "architecture",
+          "security",
+          "performance",
+        ].map((axis) => ({
+          axis: axis as "correctness",
+          rating: 5,
+          rationale: "ok",
+        })),
         findings: [],
+        verification: [],
         headRevision: "a".repeat(40),
+        pullRequestNumber: 1,
+        nextFindingIndex: 1,
+        limitations: [],
+        stateTruncated: false,
+        runMetricsLedger: { schemaVersion: 1, runs: [] },
       },
       events: [],
       runId: "run-1",
@@ -197,10 +372,31 @@ describe("model-free publication", () => {
     ];
     const result = publicationSnapshotSchema.safeParse({
       report: {
+        repository: "owner/repository",
+        baseBranch: "main",
+        baseRevision: "a".repeat(40),
+        overallRating: 5,
         verdict: "approve",
         summary: "ok",
+        ratings: [
+          "correctness",
+          "readability",
+          "architecture",
+          "security",
+          "performance",
+        ].map((axis) => ({
+          axis: axis as "correctness",
+          rating: 5,
+          rationale: "ok",
+        })),
         findings: [],
+        verification: [],
         headRevision: "a".repeat(40),
+        pullRequestNumber: 1,
+        nextFindingIndex: 1,
+        limitations: [],
+        stateTruncated: false,
+        runMetricsLedger: { schemaVersion: 1, runs: [] },
       },
       events,
       runId: "run-1",

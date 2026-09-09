@@ -57,8 +57,20 @@ describe("publicationWorkflow", () => {
             repository: "owner/repository",
             baseBranch: "main",
             baseRevision,
+            overallRating: 5,
             verdict: "approve",
             summary: "No blocking findings.",
+            ratings: [
+              "correctness",
+              "readability",
+              "architecture",
+              "security",
+              "performance",
+            ].map((axis) => ({
+              axis: axis as "correctness",
+              rating: 5,
+              rationale: "ok",
+            })),
             findings: [],
             verification: [],
             headRevision,
@@ -66,6 +78,7 @@ describe("publicationWorkflow", () => {
             nextFindingIndex: 1,
             limitations: [],
             stateTruncated: false,
+            runMetricsLedger: { schemaVersion: 1, runs: [] },
           },
           events: [],
           runId: "review-run",
@@ -106,10 +119,29 @@ describe("publicationWorkflow", () => {
           report: {
             repository: "owner/repository",
             baseBranch: "main",
+            baseRevision,
+            overallRating: 5,
             verdict: "approve",
             summary: "No blocking findings.",
+            ratings: [
+              "correctness",
+              "readability",
+              "architecture",
+              "security",
+              "performance",
+            ].map((axis) => ({
+              axis: axis as "correctness",
+              rating: 5,
+              rationale: "ok",
+            })),
             findings: [],
+            verification: [],
             headRevision,
+            pullRequestNumber: 1,
+            nextFindingIndex: 1,
+            limitations: [],
+            stateTruncated: false,
+            runMetricsLedger: { schemaVersion: 1, runs: [] },
           },
           events: [],
           runId: "review-run",
@@ -125,5 +157,57 @@ describe("publicationWorkflow", () => {
       status: "succeeded",
       result: { status: "stale" },
     });
+  });
+
+  it("rejects a frozen report whose identity does not match the publication target", async () => {
+    const handle = startWorkflowRun({
+      workflow: buildPublicationWorkflow({
+        checkLiveState: async () => "live",
+        publishReport: async () => "published",
+      }),
+      input: {
+        repository: "owner/repository",
+        pullRequestNumber: 1,
+        expectedHeadRevision: headRevision,
+        githubRunId: "0",
+        attempt: 1,
+        existingReportId: "",
+        snapshot: {
+          report: {
+            repository: "owner/repository",
+            baseBranch: "main",
+            baseRevision,
+            overallRating: 5,
+            verdict: "approve",
+            summary: "No blocking findings.",
+            ratings: [
+              "correctness",
+              "readability",
+              "architecture",
+              "security",
+              "performance",
+            ].map((axis) => ({
+              axis: axis as "correctness",
+              rating: 5,
+              rationale: "ok",
+            })),
+            findings: [],
+            verification: [],
+            headRevision: "c".repeat(40),
+            pullRequestNumber: 1,
+            nextFindingIndex: 1,
+            limitations: [],
+            stateTruncated: false,
+            runMetricsLedger: { schemaVersion: 1, runs: [] },
+          },
+          events: [],
+          runId: "review-run",
+        },
+      },
+      runtime: { id: "local", workspace: "/tmp" },
+      events: { emit: () => undefined },
+    });
+    const outcome = await handle.outcome;
+    expect(outcome.status).toBe("failed");
   });
 });

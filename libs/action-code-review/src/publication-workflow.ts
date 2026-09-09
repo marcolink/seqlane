@@ -36,15 +36,39 @@ export interface PublicationPort {
   }): Promise<"published" | "stale">;
 }
 
-const publicationInputSchema = z.object({
-  repository: z.string().min(1),
-  pullRequestNumber: z.number().int().positive(),
-  expectedHeadRevision: gitRevisionSchema,
-  githubRunId: z.string().regex(/^\d+$/).max(128),
-  attempt: z.number().int().positive(),
-  snapshot: publicationSnapshotSchema,
-  existingReportId: z.string().max(128),
-});
+const publicationInputSchema = z
+  .strictObject({
+    repository: z.string().min(1),
+    pullRequestNumber: z.number().int().positive(),
+    expectedHeadRevision: gitRevisionSchema,
+    githubRunId: z.string().regex(/^\d+$/).max(128),
+    attempt: z.number().int().positive(),
+    snapshot: publicationSnapshotSchema,
+    existingReportId: z.string().max(128),
+  })
+  .superRefine((input, context) => {
+    if (input.snapshot.report.repository !== input.repository) {
+      context.addIssue({
+        code: "custom",
+        path: ["snapshot", "report", "repository"],
+        message: "Snapshot repository does not match publication target.",
+      });
+    }
+    if (input.snapshot.report.pullRequestNumber !== input.pullRequestNumber) {
+      context.addIssue({
+        code: "custom",
+        path: ["snapshot", "report", "pullRequestNumber"],
+        message: "Snapshot pull request does not match publication target.",
+      });
+    }
+    if (input.snapshot.report.headRevision !== input.expectedHeadRevision) {
+      context.addIssue({
+        code: "custom",
+        path: ["snapshot", "report", "headRevision"],
+        message: "Snapshot head revision does not match publication target.",
+      });
+    }
+  });
 
 const metricsTask = defineTask({
   id: "pr-code-review.publication.metrics",

@@ -128,12 +128,100 @@ function normalizeComment(
 
 export interface GitHubReviewClient {
   getPullRequest(number: number): Promise<unknown>;
-  listIssueComments(number: number): Promise<unknown>;
-  listReviewComments(number: number): Promise<unknown>;
+  listIssueComments(number: number, page?: number): Promise<unknown>;
+  listReviewComments(number: number, page?: number): Promise<unknown>;
   getIssueComment(commentId: string): Promise<unknown>;
   createIssueComment(number: number, body: string): Promise<unknown>;
   updateIssueComment(commentId: string, body: string): Promise<unknown>;
   deleteIssueComment(commentId: string): Promise<unknown>;
+}
+
+const commentPageSchema = z.strictObject({
+  items: z.array(z.unknown()),
+  hasNextPage: z.boolean(),
+});
+type CommentPage = z.infer<typeof commentPageSchema>;
+
+function parseCommentPage(value: unknown): CommentPage {
+  if (Array.isArray(value)) return { items: value, hasNextPage: false };
+  const parsed = commentPageSchema.safeParse(value);
+  if (!parsed.success)
+    throw githubError(
+      "MALFORMED_COMMENTS",
+      "GitHub returned malformed comment data.",
+      parsed.error,
+    );
+  return parsed.data;
+}
+
+function commentTime(value: unknown): string {
+  if (typeof value !== "object" || value === null) return "";
+  const source = value as Record<string, unknown>;
+  return typeof source.updated_at === "string"
+    ? source.updated_at
+    : typeof source.created_at === "string"
+      ? source.created_at
+      : "";
+}
+
+function commentIdentity(value: unknown, kind: "issue" | "review"): string {
+  if (typeof value !== "object" || value === null) return `${kind}:`;
+  const id = (value as Record<string, unknown>).id;
+  return `${kind}:${typeof id === "string" || typeof id === "number" ? id : ""}`;
+}
+
+interface CommentSource {
+  readonly kind: "issue" | "review";
+  readonly fetchPage: (page: number) => Promise<unknown>;
+  readonly values: Map<string, unknown>;
+  page: number;
+  hasNextPage: boolean;
+}
+
+async function readNewestComments(sources: readonly CommentSource[]): Promise<{
+  readonly values: ReadonlyArray<readonly [unknown, "issue" | "review"]>;
+  readonly truncated: boolean;
+}> {
+  const readPage = async (source: CommentSource): Promise<void> => {
+    const result = parseCommentPage(await source.fetchPage(source.page));
+    for (const value of result.items) {
+      if (typeof value === "object" && value !== null)
+        source.values.set(commentIdentity(value, source.kind), value);
+    }
+    source.hasNextPage = result.hasNextPage;
+    source.page += 1;
+  };
+  await Promise.all(sources.map((source) => readPage(source)));
+  while (
+    sources.some((source) => source.hasNextPage) &&
+    sources.reduce((total, source) => total + source.values.size, 0) <
+      MAX_COMMENTS
+  ) {
+    const source = [...sources]
+      .filter((candidate) => candidate.hasNextPage)
+      .sort((left, right) => {
+        const leftValues = [...left.values.values()];
+        const rightValues = [...right.values.values()];
+        return commentTime(rightValues.at(-1)).localeCompare(
+          commentTime(leftValues.at(-1)),
+        );
+      })[0];
+    if (source === undefined) break;
+    await readPage(source);
+  }
+  const values = new Map<string, readonly [unknown, "issue" | "review"]>();
+  for (const source of sources)
+    for (const [identity, value] of source.values)
+      values.set(identity, [value, source.kind]);
+  const ordered = [...values.values()].sort((left, right) =>
+    commentTime(right[0]).localeCompare(commentTime(left[0])),
+  );
+  return {
+    values: ordered.slice(0, MAX_COMMENTS),
+    truncated:
+      sources.some((source) => source.hasNextPage) ||
+      ordered.length > MAX_COMMENTS,
+  };
 }
 
 function githubError(
@@ -178,20 +266,22 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
 
   async readComments(number: number): Promise<ReviewHistory> {
     try {
-      const [issues, reviews] = await Promise.all([
-        this.client.listIssueComments(number),
-        this.client.listReviewComments(number),
-      ]);
-      if (!Array.isArray(issues) || !Array.isArray(reviews)) {
-        throw githubError(
-          "MALFORMED_COMMENTS",
-          "GitHub returned malformed comment data.",
-        );
-      }
-      const values = [
-        ...issues.map((value) => [value, "issue"] as const),
-        ...reviews.map((value) => [value, "review"] as const),
-      ]
+      const issues: CommentSource = {
+        kind: "issue",
+        fetchPage: (page) => this.client.listIssueComments(number, page),
+        values: new Map(),
+        page: 1,
+        hasNextPage: true,
+      };
+      const reviews: CommentSource = {
+        kind: "review",
+        fetchPage: (page) => this.client.listReviewComments(number, page),
+        values: new Map(),
+        page: 1,
+        hasNextPage: true,
+      };
+      const history = await readNewestComments([issues, reviews]);
+      const values = history.values
         .filter(
           (entry): entry is readonly [object, "issue" | "review"] =>
             typeof entry[0] === "object" && entry[0] !== null,
@@ -217,6 +307,7 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
       return {
         comments,
         truncated:
+          history.truncated ||
           ordered.length > MAX_COMMENTS ||
           comments.some((comment) => comment.bodyTruncated === true),
       };
