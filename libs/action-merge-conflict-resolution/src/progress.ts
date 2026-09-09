@@ -5,7 +5,7 @@ import type {
   ResolutionStrategy,
 } from "./contracts.js";
 import type { SecretRedactor } from "./recording.js";
-import { boundedText } from "./summary.js";
+import { compactBoundedText } from "./summary.js";
 
 const MAX_SUBJECT_LENGTH = 160;
 
@@ -27,7 +27,7 @@ function formatProgressEvent(
       const suffix =
         commit === undefined
           ? ""
-          : `; rebase commit ${commit.sha.slice(0, 7)} ${boundedText(commit.subject, redactText, MAX_SUBJECT_LENGTH, true)}`;
+          : `; rebase commit ${commit.sha.slice(0, 7)} ${compactBoundedText(commit.subject, redactText, MAX_SUBJECT_LENGTH)}`;
       return `Resolution pass ${event.attempt}/${event.maxAttempts}${suffix}`;
     }
     case "push-started":
