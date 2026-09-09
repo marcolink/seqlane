@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - rfc.seqlane-technical-architecture
   - rfc.execution-observability-and-debugging
@@ -21,14 +21,15 @@ supersedes:
 
 ## Context
 
-Seqlane needs one authoring contract for tasks and workflows. The current
-contracts split workflow definition, task factories, a Seqlane Plan, and an
-Effect runtime. This split creates duplicate execution models.
+Seqlane needs one authoring contract for tasks and workflows. The former
+contracts split workflow definition, task factories, a Seqlane Plan, and a
+private Effect runtime. That runtime was removed in PR #26. The split created
+duplicate execution models.
 
-Mastra is the only workflow engine for this design. Effect is not a second
-engine and is removed from the runtime. Seqlane still owns authoring meaning,
-serializable inspection, admission policy, session policy, runner boundaries,
-and semantic observability.
+Mastra is the only workflow engine. The runtime has no Effect package, import,
+or compatibility path. Seqlane still owns authoring meaning, serializable
+inspection, admission policy, session policy, runner boundaries, and semantic
+observability.
 
 ## Decision
 
@@ -84,10 +85,10 @@ Seqlane session and workspace admission determine actual starts. The
 invocation kernel remains the shared place for task execution, policy
 application, cancellation, cleanup, and typed errors.
 
-Subprocess execution moves out of Effect in a separate slice. A shell task
-uses an executable and argv array with direct spawn and `shell: false`. The
-runtime owns the workspace, environment policy, timeout, output bounds,
-cancellation, process-group cleanup, and typed errors.
+PR #17 replaced the former Effect subprocess path with Mastra process
+execution. A shell task uses an executable and argv array with direct spawn
+and `shell: false`. The runtime owns the workspace, environment policy,
+timeout, output bounds, cancellation, process-group cleanup, and typed errors.
 
 Mastra observability carries a bounded allowlist of Seqlane semantic
 attributes. Admission wait after dependencies are ready is a high-priority
@@ -130,7 +131,7 @@ admission policy. Seqlane must control the start boundary.
 - The runtime has one executable engine and one invocation kernel.
 - Plan inspection remains stable and serializable.
 - Independent eligible nodes retain dependency-aware concurrent execution.
-- Effect code, packages, and imports are removed after the migration slices.
+- Effect code, packages, imports, and compatibility paths are absent.
 - Existing CLI, output, Studio, recording, and replay contracts require
   compatibility work during the consumer migration.
 - Runner notifications and serialized outcomes have a separate versioned
@@ -146,3 +147,4 @@ admission policy. Seqlane must control the start boundary.
 - [adr.executor-neutral-workflow-authoring: Keep Workflow Authoring and Plans Executor-Neutral](./2026-09-02-executor-neutral-workflow-authoring.md)
 - [adr.seqlane-plan-ir-and-typed-dataflow: Use a Seqlane-Owned Plan IR with Typed Dataflow](./2026-09-02-seqlane-plan-ir-and-typed-dataflow.md)
 - [adr.consumer-agnostic-seqlane-execution-events: Define Consumer-Agnostic Seqlane Execution Events](./2026-09-02-consumer-agnostic-seqlane-execution-events.md)
+- [PR #26: Remove Superseded Runtime Architecture](https://github.com/marcolink/seqlane/pull/26)

@@ -1,11 +1,11 @@
 ---
 id: task.cut-over-to-mastra-runtime
 title: Cut Over to the Mastra Runtime
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -16,12 +16,12 @@ supersedes: []
 ## Objective
 
 Make Mastra the only workflow engine, route runtime execution through the
-compiler, and remove Effect packages and code.
+compiler, and remove the former Effect orchestration and compatibility paths.
 
 ## Upstream requirements
 
 - `REQ-RUNTIME-001`: Compile behind a private boundary.
-- `REQ-RUNTIME-002`: Remove Effect.
+- `REQ-RUNTIME-002`: Keep Effect removed.
 - `REQ-POLICY-001`: Apply policy after eligibility.
 - `REQ-COMPAT-001`: Preserve current user-visible behavior.
 - [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
@@ -39,7 +39,7 @@ compiler, and remove Effect packages and code.
   nodes can start concurrently when admission allows it.
 - Keep deterministic graph and admission rules; do not require completion or
   event order for independent work.
-- Delete Effect runtime packages, code, imports, and compatibility paths.
+- Delete Effect packages, code, imports, and compatibility paths.
 - Update package manifests, lockfile, fixtures, and runtime documentation.
 - Run the full repository verification gate.
 
@@ -95,7 +95,18 @@ Then run the full gate:
 
 ## Outcome
 
-Not started.
+Completed in [PR #26](https://github.com/marcolink/seqlane/pull/26), building
+on the compiler and deterministic-process deliveries in [PR #16](https://github.com/marcolink/seqlane/pull/16)
+and [PR #17](https://github.com/marcolink/seqlane/pull/17).
+
+Mastra is the only production workflow authority. The runner consumes the
+prepared plan context directly; the legacy execution bridge and interruption
+adapter were removed, cancellation remains native and waits for active
+executor work to settle, and Effect dependencies and lockfile entries were
+removed. Public Seqlane contracts, serialized Plans and events, runner IPC,
+and stable CLI results remain engine-neutral. The private in-process test
+harness uses native Promise dependency execution and is not a second
+production runtime.
 
 ## Traceability
 

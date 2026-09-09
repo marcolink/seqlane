@@ -1,11 +1,11 @@
 ---
 id: task.add-mastra-plan-compiler
 title: Add the Mastra Plan Compiler
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -43,7 +43,7 @@ Mastra types to core or public authoring contracts.
 
 ## Out of scope
 
-- Runtime cutover or Effect deletion.
+- Runtime entry-point cutover or final removal of the former Effect runtime.
 - Adding a new concurrency feature or changing admission policy.
 - Public Mastra exports or configuration.
 - New Plan node kinds.
@@ -84,7 +84,18 @@ Then run:
 
 ## Outcome
 
-Not started.
+Completed in [PR #16](https://github.com/marcolink/seqlane/pull/16).
+
+The private Mastra compiler validates supported non-repeat Plans, creates one
+inspectable step per invocation with deterministic IDs and Seqlane metadata,
+preserves typed bindings and schemas, retains dependency-layer parallelism,
+and resolves the declared workflow output. Mastra types remain behind the
+private runtime boundary. Repeat nodes are rejected explicitly pending a
+dedicated Mastra-native lowering. Invocation execution was injected for this
+delivery slice; later runtime slices provide the concrete task paths.
+
+Effect removal was outside this compiler delivery. PR #26 removed the remaining
+Effect orchestration after the runtime cutover.
 
 ## Traceability
 

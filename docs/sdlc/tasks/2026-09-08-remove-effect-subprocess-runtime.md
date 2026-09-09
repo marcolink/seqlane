@@ -1,11 +1,11 @@
 ---
 id: task.remove-effect-subprocess-runtime
 title: Remove the Effect Subprocess Runtime
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -15,13 +15,13 @@ supersedes: []
 
 ## Objective
 
-Replace Effect-based subprocess execution with a private runtime-owned
+Replace the former Effect-based subprocess execution with a private runtime-owned
 implementation that preserves cancellation, bounded output, cleanup, and typed
 errors.
 
 ## Upstream requirements
 
-- `REQ-RUNTIME-002`: Remove Effect.
+- `REQ-RUNTIME-002`: Keep Effect removed.
 - `REQ-RUNTIME-001`: Reuse the invocation kernel and typed outcomes.
 - [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
 
@@ -31,7 +31,7 @@ errors.
 
 ## Scope
 
-- Replace Effect subprocess process, stream, and cancellation code.
+- Replace former Effect subprocess process, stream, and cancellation code.
 - Accept one executable and argv array and spawn directly with `shell: false`.
 - Keep canonical `cwd`, environment policy, timeout, workspace lease, and
   process-group cleanup under runtime control.
@@ -87,7 +87,16 @@ Then run:
 
 ## Outcome
 
-Not started.
+Completed in [PR #17](https://github.com/marcolink/seqlane/pull/17).
+
+Deterministic tasks now use the pinned Mastra `LocalSandbox` process path with
+direct executable-plus-argv arguments. The implementation preserves normalized
+exit status, bounded output, timing, timeout, cancellation, task identity, and
+invocation identity; rejects malformed process results; and keeps runtime
+control of `cwd`, environment policy, and cleanup. The former Effect subprocess
+implementation, prototype, tests, direct `@effect/platform` dependencies, and
+related lockfile entries were removed. Focused process/local-task tests, repository
+checks, and public-boundary checks passed.
 
 ## Traceability
 

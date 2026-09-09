@@ -21,9 +21,9 @@ supersedes:
 ## Summary
 
 This specification defines the authoring, Plan, compilation, and migration
-contracts for Mastra-backed Seqlane workflows. It replaces the active specs
-for the Effect runtime, fluent DSL, executor-neutral authoring, Plan IR, and
-consumer-agnostic events.
+contracts for Mastra-backed Seqlane workflows. It replaces the former
+Effect-runtime specification and the active fluent DSL, executor-neutral
+authoring, Plan IR, and consumer-agnostic event specifications.
 
 ## Goals
 
@@ -113,7 +113,8 @@ workflow invocations must retain node identity and input binding information.
 
 ### REQ-PLAN-001: Keep a small Seqlane Plan boundary
 
-The Plan must be serializable and independent of Mastra and Effect. Authors
+The Plan must be serializable and independent of Mastra. It must not contain
+Effect values or types. Authors
 must receive a workflow or runnable; they must not hand-build a Plan.
 
 The final Plan must contain only task invocation, workflow invocation,
@@ -155,12 +156,13 @@ concurrently. Seqlane session and workspace admission determine actual starts.
 Completion and notification order for independent work is not deterministic.
 The compiler must not add a second scheduling policy.
 
-### REQ-RUNTIME-002: Remove Effect
+### REQ-RUNTIME-002: Keep Effect Removed
 
-Effect packages, imports, runtime modules, and Effect-based subprocess
-execution must be removed. Subprocess execution must preserve cancellation,
-bounded output, process cleanup, and typed errors in its replacement. A shell
-task must pass one executable and an argv array to direct spawn with
+The active runtime has no Effect packages, imports, modules, or compatibility
+paths. PR #17 replaced the former Effect subprocess path with Mastra process
+execution. PR #26 removed the remaining Effect orchestration. Subprocess
+execution preserves cancellation, bounded output, process cleanup, and typed
+errors. A shell task must pass one executable and an argv array to direct spawn with
 `shell: false`. Workflow data can populate argv elements, but it must not form
 a parsed command string. The runtime owns the canonical workspace, environment
 policy, finite process timeout, process-group cleanup, and workspace lease.
@@ -442,10 +444,10 @@ The compiler translates each supported Plan node to the smallest Mastra step
 that preserves Seqlane identity and bindings. It adapts Mastra lifecycle
 signals into Seqlane run outcomes and semantic observability.
 
-The cutover runs existing dependency-aware concurrency fixtures through the
-compiler. Independent eligible nodes can start concurrently when admission
-allows it. It then removes the Effect runner and its packages. The compiler
-must not retain an Effect compatibility path after cutover.
+The completed cutover ran the dependency-aware concurrency fixtures through
+the compiler. Independent eligible nodes can start concurrently when admission
+allows it. The runtime removed the Effect runner and its packages. The
+compiler has no Effect compatibility path.
 
 ### Workflow composition
 
@@ -516,15 +518,15 @@ their boundaries.
 
 ## Migration
 
-Implement the slices in this order:
+The delivery records use this order:
 
 1. Unify the executable task contract.
 2. Unify flow authoring and the minimal Plan.
-3. Replace Effect subprocess execution.
+3. Replace the former Effect subprocess execution. Completed in PR #17.
 4. Add the private Mastra Plan compiler.
-5. Cut over the runtime to Mastra and remove Effect.
+5. Cut over the runtime to Mastra and remove Effect. Completed in PR #26.
 6. Compose workflows as runnables.
-7. Add Mastra observability.
+7. Add Mastra observability. Native agent projections completed in PR #75.
 8. Migrate execution-event consumers.
 9. Remove `@seqlane/events`.
 
@@ -551,7 +553,7 @@ The Mastra cutover and final event deletion also run `pnpm run test`,
 - The Plan is serializable, small, private to Seqlane, and Mastra-independent.
 - The compiler supports only the required node set.
 - Mastra is the only workflow engine.
-- Effect packages and code are absent after cutover.
+- Effect packages, code, and compatibility paths are absent.
 - Admission remains Seqlane-owned and atomic after Mastra eligibility.
 - Existing dependency-aware concurrency remains compatible. Independent work
   can complete and notify in non-deterministic order.
@@ -565,7 +567,8 @@ The Mastra cutover and final event deletion also run `pnpm run test`,
 - Telemetry uses the bounded allowlist and exporter-failure behavior.
 - Repeat limits accept 1..1,000 and enforce the 1,000 run-wide budget.
 - CLI, output, Studio, recording, and replay behavior remains available.
-- All nine task slices have completed verification and traceability.
+- Each completed task records its verification and traceability. Planned tasks
+  retain their own completion criteria.
 
 ## Traceability
 

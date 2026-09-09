@@ -1,11 +1,11 @@
 ---
 id: task.add-mastra-observability
 title: Add Mastra Observability
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -32,6 +32,10 @@ attributes, narrow runner notifications, and typed run outcomes.
 ## Scope
 
 - Add Mastra spans or events at private runtime boundaries.
+- Agent-level native Mastra tracing is delivered separately: per-invocation
+  context propagation and OpenCode and ACP projections are complete in PR #75.
+- Complete the remaining runtime-owned semantic and admission telemetry and
+  align runner and execution-event consumers.
 - Use the canonical bounded telemetry projection owned by the Seqlane runtime
   boundary.
 - Allowlist work, run, invocation, Plan node, task, workflow, session,
@@ -85,7 +89,7 @@ Then run:
 
 ## Completion criteria
 
-- Mastra observability carries Seqlane semantic attributes.
+- Runtime-owned Mastra observability carries Seqlane semantic attributes.
 - Admission wait is visible after dependencies are ready.
 - Runner notifications remain narrow.
 - Typed outcomes remain available to IPC and UI consumers.
@@ -98,7 +102,19 @@ Then run:
 
 ## Outcome
 
-Not started.
+In progress. [PR #75](https://github.com/marcolink/seqlane/pull/75) delivered native agent observability: per-invocation
+Mastra context propagation, OpenCode `AGENT_RUN`, `MODEL_GENERATION`, and
+`TOOL_CALL` projections, ACP v1 `AGENT_RUN` and `TOOL_CALL` projections,
+bounded identities and redaction, and projection-failure isolation. The
+implementation is documented in the completed [propagation](./2026-09-08-propagate-mastra-observability-context.md),
+[ACP](./2026-09-08-project-acp-v1-observations-into-mastra.md), and
+[OpenCode](./2026-09-08-project-opencode-observations-into-mastra.md)
+projection tasks.
+
+Runtime-level semantic and admission telemetry, including wait measured after
+eligibility, plus the remaining runner and execution-event consumer alignment,
+remain for this umbrella task. Agent tracing is implemented; it is not a
+remaining unbuilt capability.
 
 ## Traceability
 
