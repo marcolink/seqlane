@@ -111,11 +111,23 @@ export async function resolveMergeConflicts(
     const liveBase = await ports.github.readLiveBaseRevision(
       pullRequest.baseBranch,
     );
-    const commitsToReplay =
-      request.strategy === "rebase"
-        ? await ports.git.countRebaseCommits?.(liveBase.revision)
-        : undefined;
-    progress.started(request.strategy, request.maxAttempts, commitsToReplay);
+    if (request.strategy === "rebase") {
+      const commitsToReplay = await ports.git.countRebaseCommits(
+        liveBase.revision,
+      );
+      progress.started({
+        kind: "started",
+        strategy: "rebase",
+        maxAttempts: request.maxAttempts,
+        commitsToReplay,
+      });
+    } else {
+      progress.started({
+        kind: "started",
+        strategy: "merge",
+        maxAttempts: request.maxAttempts,
+      });
+    }
     const integration = await ports.git.integrate(
       request.strategy,
       liveBase.revision,

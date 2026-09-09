@@ -33,7 +33,7 @@ export function boundedText(
   const redacted = redactText(value);
   const singleLine = compact
     ? redacted
-        .replace(/[\u0000-\u001f\u007f]+/g, " ")
+        .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
         .replace(/\s+/g, " ")
         .trim()
     : redacted.replace(/[\r\n]+/g, " ");

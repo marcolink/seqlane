@@ -56,6 +56,30 @@ function createConflictRepository(
   return { root, baseRevision };
 }
 
+function createRebasePlanRepository(): {
+  readonly root: string;
+  readonly baseRevision: string;
+} {
+  const root = createRepository();
+  writeFileSync(join(root, "base.txt"), "base\n");
+  commit(root, "base");
+  git(root, ["checkout", "-qb", "feature"]);
+  writeFileSync(join(root, "shared.txt"), "shared\n");
+  commit(root, "shared change on feature");
+  writeFileSync(join(root, "feature.txt"), "feature\n");
+  commit(root, "feature change");
+  git(root, ["checkout", "-q", "main"]);
+  writeFileSync(join(root, "shared.txt"), "shared\n");
+  const baseRevision = commit(root, "equivalent shared change on base");
+  git(root, ["checkout", "-q", "feature"]);
+  git(root, ["checkout", "-qb", "side"]);
+  writeFileSync(join(root, "side.txt"), "side\n");
+  commit(root, "side change");
+  git(root, ["checkout", "-q", "feature"]);
+  git(root, ["merge", "--no-ff", "side", "-qm", "merge side branch"]);
+  return { root, baseRevision };
+}
+
 describe("NodeGitCli", () => {
   it("counts commits that a rebase will replay", async () => {
     const { root, baseRevision } = createConflictRepository(
@@ -67,6 +91,17 @@ describe("NodeGitCli", () => {
       await expect(
         new NodeGitCli(root).countRebaseCommits(baseRevision),
       ).resolves.toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("counts plain-rebase commits excluding merges and equivalent patches", async () => {
+    const { root, baseRevision } = createRebasePlanRepository();
+    try {
+      await expect(
+        new NodeGitCli(root).countRebaseCommits(baseRevision),
+      ).resolves.toBe(2);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -296,7 +296,7 @@ export interface PullRequestMetadataPort {
 export interface GitPort {
   readonly cwd: string;
   readonly run: (args: readonly string[]) => Promise<GitCommandResult>;
-  readonly countRebaseCommits?: (baseRevision: GitRevision) => Promise<number>;
+  readonly countRebaseCommits: (baseRevision: GitRevision) => Promise<number>;
   readonly readRebaseConflictCommit?: () => Promise<
     RebaseConflictCommit | undefined
   >;
@@ -374,9 +374,14 @@ export interface ResolutionSummaryReport {
 export type ResolutionProgressEvent =
   | {
       readonly kind: "started";
-      readonly strategy: ResolutionStrategy;
+      readonly strategy: "rebase";
       readonly maxAttempts: number;
-      readonly commitsToReplay?: number;
+      readonly commitsToReplay: number;
+    }
+  | {
+      readonly kind: "started";
+      readonly strategy: "merge";
+      readonly maxAttempts: number;
     }
   | {
       readonly kind: "conflict-stop";

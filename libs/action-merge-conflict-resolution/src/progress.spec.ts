@@ -50,12 +50,13 @@ describe("resolution progress", () => {
       conflictStops: 1,
       commit: {
         sha: "b".repeat(40),
-        subject: `secret-token\n${"x".repeat(300)}`,
+        subject: `secret-token\u009b\n${"x".repeat(300)}`,
       },
     });
 
     expect(lines[0]).toContain(REDACTED_VALUE);
     expect(lines[0]).not.toContain("secret-token");
+    expect(lines[0]).not.toContain("\u009b");
     expect(lines[0]).not.toMatch(/[\r\n]/);
     expect(lines[0]?.length).toBeLessThanOrEqual(220);
   });

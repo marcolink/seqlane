@@ -16,7 +16,7 @@ function formatProgressEvent(
   switch (event.kind) {
     case "started":
       return event.strategy === "rebase"
-        ? `Rebase plan: ${event.commitsToReplay ?? "unknown"} commits to replay; max ${event.maxAttempts} resolution passes.`
+        ? `Rebase plan: ${event.commitsToReplay} commits to replay; max ${event.maxAttempts} resolution passes.`
         : `Merge resolution started; max ${event.maxAttempts} resolution passes.`;
     case "conflict-stop":
       return event.strategy === "rebase"
@@ -54,9 +54,7 @@ export function createProgressWriter(
 export interface ResolutionProgress {
   readonly conflictStops: number;
   readonly started: (
-    strategy: ResolutionStrategy,
-    maxAttempts: number,
-    commitsToReplay?: number,
+    event: Extract<ResolutionProgressEvent, { kind: "started" }>,
   ) => void;
   readonly conflictStop: (strategy: ResolutionStrategy) => void;
   readonly attemptStarted: (options: {
@@ -90,13 +88,7 @@ export function createResolutionProgress(
     get conflictStops() {
       return conflictStops;
     },
-    started: (strategy, maxAttempts, commitsToReplay) =>
-      write({
-        kind: "started",
-        strategy,
-        maxAttempts,
-        ...(commitsToReplay === undefined ? {} : { commitsToReplay }),
-      }),
+    started: (event) => write(event),
     conflictStop: (strategy) => {
       conflictStops += 1;
       write({ kind: "conflict-stop", strategy, conflictStops });

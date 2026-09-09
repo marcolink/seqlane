@@ -8,7 +8,10 @@ export async function readRebaseCommitCount(
   const result = await requiredCommand([
     "rev-list",
     "--count",
-    `${baseRevision}..HEAD`,
+    "--no-merges",
+    "--cherry-pick",
+    "--right-only",
+    `${baseRevision}...HEAD`,
   ]);
   const count = result.stdout.trim();
   if (!/^\d+$/.test(count)) {
