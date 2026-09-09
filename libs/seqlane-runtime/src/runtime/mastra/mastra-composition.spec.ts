@@ -4,7 +4,7 @@ import { SpanType } from "@mastra/core/observability";
 import { MastraStorageExporter } from "@mastra/observability";
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
 import { createAcpAdapter, parseAcpLaunchConfiguration } from "@seqlane/acp";
-import { createOpenCodeAdapterForRun } from "@seqlane/opencode";
+import { createOpenCodeAdapterForRun } from "@seqlane/opencode/testing";
 import type { AgentTaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";

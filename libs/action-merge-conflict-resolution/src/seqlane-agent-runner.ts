@@ -99,6 +99,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
   private readonly options: SeqlaneAgentRunnerOptions;
   private runtime: OpenCodeRuntimeHandle | undefined;
   private adapter: ReturnType<typeof createOpenCodeAdapter> | undefined;
+  private activeAttemptController: AbortController | undefined;
   private lastRecording: BoundedRecording | undefined;
 
   constructor(options: SeqlaneAgentRunnerOptions) {
@@ -116,6 +117,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
   }
 
   async stop(): Promise<void> {
+    this.activeAttemptController?.abort();
     const runtime = this.runtime;
     await runtime?.stop();
     this.adapter = undefined;
@@ -178,10 +180,12 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         events,
       });
       const attemptController = new AbortController();
-      const timeout = setTimeout(
-        () => attemptController.abort(),
-        this.options.attemptTimeoutMs ?? AGENT_ATTEMPT_TIMEOUT_MS,
-      );
+      this.activeAttemptController = attemptController;
+      let timedOut = false;
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        attemptController.abort();
+      }, this.options.attemptTimeoutMs ?? AGENT_ATTEMPT_TIMEOUT_MS);
       try {
         const active = startCompiledWorkflow(compiled, {
           signal: attemptController.signal,
@@ -190,10 +194,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         if (outcome.status === "succeeded") {
           return { status: "succeeded", output: outcome.result };
         }
-        if (
-          outcome.status === "cancelled" &&
-          attemptController.signal.aborted
-        ) {
+        if (outcome.status === "cancelled" && timedOut) {
           throw agentError(
             "The conflict-resolution attempt exceeded its deadline.",
           );
@@ -205,6 +206,9 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         );
       } finally {
         clearTimeout(timeout);
+        if (this.activeAttemptController === attemptController) {
+          this.activeAttemptController = undefined;
+        }
       }
     } catch (error: unknown) {
       if (error instanceof ActionResolutionError) throw error;

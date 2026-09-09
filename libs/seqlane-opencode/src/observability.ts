@@ -277,9 +277,9 @@ export function createOpenCodeObservability(
         type: MastraSpanType.AGENT_RUN,
         name: "OpenCode agent run",
         metadata: {
-          "seqlane.invocationId": bounded(
-            invocationId.slice(0, MAX_INVOCATION_METADATA_LENGTH),
-          ),
+          ...(invocationId.length <= MAX_INVOCATION_METADATA_LENGTH
+            ? { "seqlane.invocationId": bounded(invocationId) }
+            : {}),
           "seqlane.adapter": "opencode",
         },
       }),

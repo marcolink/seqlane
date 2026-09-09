@@ -168,6 +168,34 @@ describe("OpenCode Mastra observability projection", () => {
     expect(JSON.stringify(factory.spans)).not.toContain("secret-");
   });
 
+  it("omits oversized invocation IDs instead of persisting a shared-prefix truncation", () => {
+    const factory = spanFactory();
+    const sharedPrefix = "x".repeat(128);
+    const sourceIds = [
+      `${sharedPrefix}-first-source-id`,
+      `${sharedPrefix}-second-source-id`,
+    ];
+
+    for (const sourceId of sourceIds) {
+      createOpenCodeObservability(
+        { tracingContext: { currentSpan: factory.root } },
+        sourceId,
+      );
+    }
+
+    const agentSpans = factory.spans.filter(
+      (span) => span.type === SpanType.AGENT_RUN,
+    );
+    expect(agentSpans).toHaveLength(2);
+    for (const agent of agentSpans) {
+      expect(agent.metadata).toEqual({ "seqlane.adapter": "opencode" });
+    }
+    const serializedSpans = JSON.stringify(agentSpans);
+    for (const sourceId of sourceIds) {
+      expect(serializedSpans).not.toContain(sourceId);
+    }
+  });
+
   it("falls back for invalid and over-budget tool names without disabling projection", () => {
     const factory = spanFactory();
     const diagnostics: string[] = [];

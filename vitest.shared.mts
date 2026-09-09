@@ -66,6 +66,10 @@ export const workspaceAliases = [
     ),
   },
   {
+    find: "@seqlane/opencode/testing",
+    replacement: resolve(workspaceRoot, "libs/seqlane-opencode/src/testing.ts"),
+  },
+  {
     find: "@seqlane/opencode",
     replacement: resolve(workspaceRoot, "libs/seqlane-opencode/src/index.ts"),
   },

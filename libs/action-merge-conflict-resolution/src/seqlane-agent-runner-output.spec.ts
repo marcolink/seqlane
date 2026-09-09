@@ -129,6 +129,45 @@ describe("SeqlaneAgentRunner output", () => {
 
     expect(recordings).toBe(2);
   });
+
+  it("cancels an in-flight resolve when stopped", async () => {
+    let activeSignal: AbortSignal | undefined;
+    startCompiledWorkflow.mockImplementation((_compiled, options) => {
+      activeSignal = options.signal;
+      return {
+        outcome: new Promise((resolve) => {
+          activeSignal?.addEventListener(
+            "abort",
+            () => resolve({ status: "cancelled" }),
+            { once: true },
+          );
+        }),
+      };
+    });
+    const runtimeStop = vi.fn(async () => undefined);
+    const agent = new SeqlaneAgentRunner({
+      workspace: "/tmp/agent",
+      workflow: {} as never,
+      openCode: {
+        start: async () => ({
+          connection: { url: "http://127.0.0.1:4096" },
+          stop: runtimeStop,
+        }),
+      },
+    });
+
+    const resolution = agent.resolve(request);
+    await vi.waitFor(() => expect(activeSignal).toBeInstanceOf(AbortSignal));
+
+    await agent.stop();
+
+    expect(activeSignal?.aborted).toBe(true);
+    await expect(resolution).rejects.toMatchObject({
+      message: "The Seqlane conflict-resolution task failed.",
+      cause: { status: "cancelled" },
+    });
+    expect(runtimeStop).toHaveBeenCalledTimes(1);
+  });
 });
 
 function outputForRequest() {
