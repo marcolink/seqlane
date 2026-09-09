@@ -4,6 +4,7 @@ import type {
   SpanType,
 } from "@mastra/core/observability";
 import { SpanType as MastraSpanType } from "@mastra/core/observability";
+import { createBoundedNormalizedNameAllocator } from "@seqlane/agent-adapter";
 import type {
   OpenCodeAssistantObservation,
   OpenCodeEventObservation,
@@ -12,9 +13,11 @@ import type {
 } from "./observations.js";
 
 const MAX_METADATA_VALUE = 256;
+const MAX_INVOCATION_METADATA_LENGTH = 128;
 const MAX_PROVIDER_MODEL_IDENTITIES = 128;
 const MAX_MODEL_IDENTITIES = 1_024;
 const MAX_TOOL_IDENTITIES = 2_048;
+const TOOL_NAME_FALLBACK = "OpenCode tool call";
 
 type AgentSpan = Span<MastraSpanType.AGENT_RUN>;
 type ModelSpan = Span<MastraSpanType.MODEL_GENERATION>;
@@ -178,6 +181,20 @@ function createProviderModelBudget(
   };
 }
 
+function createToolNameAllocator(reportDiagnostic: (message: string) => void) {
+  let diagnosed = false;
+  return createBoundedNormalizedNameAllocator({
+    fallback: TOOL_NAME_FALLBACK,
+    onOverflow: () => {
+      if (diagnosed) return;
+      diagnosed = true;
+      reportDiagnostic(
+        "OpenCode tool name cardinality limit reached; using fallback name",
+      );
+    },
+  });
+}
+
 /** Creates the adapter-owned OpenCode to Mastra span projection. */
 export function createOpenCodeObservability(
   context: Partial<ObservabilityContext>,
@@ -218,6 +235,7 @@ export function createOpenCodeObservability(
   let agent: OpenSpan<AgentSpan> | undefined;
   let fallbackModel: OpenSpan<ModelSpan> | undefined;
   let diagnosedAdditionalFallback = false;
+  const toolName = createToolNameAllocator(reportDiagnostic);
 
   const closeAfterFailure = <TSpan extends SpanType>(
     record: OpenSpan<Span<TSpan>>,
@@ -258,7 +276,12 @@ export function createOpenCodeObservability(
       span: parent.createChildSpan({
         type: MastraSpanType.AGENT_RUN,
         name: "OpenCode agent run",
-        metadata: { invocationId: bounded(invocationId), executor: "opencode" },
+        metadata: {
+          "seqlane.invocationId": bounded(
+            invocationId.slice(0, MAX_INVOCATION_METADATA_LENGTH),
+          ),
+          "seqlane.adapter": "opencode",
+        },
       }),
       closed: false,
     };
@@ -308,10 +331,6 @@ export function createOpenCodeObservability(
             diagnoseCostUnit,
             providerModelAttributesAllowed(observation),
           ),
-          metadata: {
-            sessionID: bounded(observation.sessionID),
-            messageID: bounded(observation.messageID),
-          },
         }),
         closed: false,
       } satisfies OpenSpan<ModelSpan>;
@@ -353,17 +372,13 @@ export function createOpenCodeObservability(
         record = {
           span: (model?.span ?? agent.span).createChildSpan({
             type: MastraSpanType.TOOL_CALL,
-            name: "OpenCode tool call",
+            name: toolName.resolve(observation.tool),
             ...(observation.startedAt === undefined
               ? {}
               : { startTime: new Date(observation.startedAt) }),
             attributes: {
               toolType: observation.tool === "skill" ? "skill" : "tool",
               toolCallId: bounded(observation.callID),
-            },
-            metadata: {
-              messageID: bounded(observation.messageID),
-              tool: bounded(observation.tool),
             },
           }),
           closed: false,

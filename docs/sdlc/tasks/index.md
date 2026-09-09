@@ -210,4 +210,4 @@
 | [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
 | [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
 | [task.propagate-mastra-observability-context](./2026-09-08-propagate-mastra-observability-context.md) | Propagate Per-Invocation Mastra Observability Context | completed | 2026-09-08 | core |
-| [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | planned | 2026-09-09 | core |
+| [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | completed | 2026-09-09 | core |

@@ -4,11 +4,11 @@ import type {
   SpanType,
 } from "@mastra/core/observability";
 import { SpanType as MastraSpanType } from "@mastra/core/observability";
+import { createBoundedNormalizedNameAllocator } from "@seqlane/agent-adapter";
 import type { AcpToolRecord, AcpToolTerminalOutcome } from "./stream.js";
 
 const MAX_INVOCATION_METADATA_LENGTH = 128;
 const MAX_DIAGNOSTIC_LENGTH = 256;
-const MAX_TOOL_NAMES = 128;
 const TOOL_NAME_FALLBACK = "ACP v1 tool call";
 
 interface OpenSpan<TSpan extends SpanType> {
@@ -67,29 +67,6 @@ function tupleKey(record: AcpToolRecord): string {
   return record.key;
 }
 
-function normalizedToolName(
-  name: string,
-  names: Set<string>,
-  diagnose: () => void,
-): string {
-  let normalized: string;
-  try {
-    normalized = name.normalize("NFKC");
-  } catch {
-    normalized = "";
-  }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(normalized)) {
-    return TOOL_NAME_FALLBACK;
-  }
-  if (names.has(normalized)) return normalized;
-  if (names.size >= MAX_TOOL_NAMES) {
-    diagnose();
-    return TOOL_NAME_FALLBACK;
-  }
-  names.add(normalized);
-  return normalized;
-}
-
 function safeError(kind: "incomplete" | "cancelled" | "failed"): Error {
   return new Error(
     kind === "incomplete"
@@ -117,7 +94,6 @@ export function createAcpObservability(
   let finished = false;
   let diagnosedDisabled = false;
   let diagnosedNameCardinality = false;
-  const names = new Set<string>();
   const tools = new Map<string, OpenSpan<MastraSpanType.TOOL_CALL>>();
   let agent: OpenSpan<MastraSpanType.AGENT_RUN> | undefined;
 
@@ -189,6 +165,10 @@ export function createAcpObservability(
     diagnosedNameCardinality = true;
     report("ACP v1 tool name cardinality limit reached; using fallback name");
   };
+  const toolName = createBoundedNormalizedNameAllocator({
+    fallback: TOOL_NAME_FALLBACK,
+    onOverflow: reportNameCardinality,
+  });
 
   const closeTool = (
     record: OpenSpan<MastraSpanType.TOOL_CALL>,
@@ -224,17 +204,13 @@ export function createAcpObservability(
   return {
     onToolOpened(record) {
       if (disabled || agent === undefined || finished) return;
-      const name = normalizedToolName(
-        record.toolName,
-        names,
-        reportNameCardinality,
-      );
+      const name = toolName.resolve(record.toolName);
       try {
         const span = agent.span.createChildSpan({
           type: MastraSpanType.TOOL_CALL,
           name,
           attributes: {
-            toolType: "acp-v1",
+            toolType: "tool",
             toolCallId: record.toolCallId,
           },
           metadata: { "seqlane.attemptIndex": record.attemptIndex },

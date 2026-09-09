@@ -1,7 +1,7 @@
 ---
 id: task.correct-mastra-observability-tool-semantics
 title: Correct Mastra Observability Tool Semantics and Storage Verification
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-09
@@ -130,6 +130,36 @@ duplicate manual metric row.
 - Default exporter configuration satisfies the repository's Community-only
   policy.
 - Public Seqlane contracts remain Mastra-free.
+
+## Outcome
+
+Implemented on `mastra-observability-tool-semantics`:
+
+- OpenCode and ACP now use one bounded, Unicode-normalized private naming
+  helper while retaining adapter-specific fallback names and diagnostics.
+- OpenCode tool spans use normalized names without raw tool payload metadata;
+  ACP uses `toolType: "tool"` and namespaced agent metadata.
+- The default composition keeps only the Community `MastraStorageExporter`.
+- Storage integration coverage executes both adapters, flushes the real
+  exporter, retrieves both traces, and verifies parentage, typed attributes,
+  terminal success, metadata, and payload redaction.
+
+Verification:
+
+- `pnpm nx test seqlane-agent-adapter --skipNxCache`
+- `pnpm nx test seqlane-opencode --skipNxCache`
+- `pnpm nx build seqlane-opencode --skipNxCache`
+- `pnpm nx test seqlane-acp --skipNxCache`
+- `pnpm nx build seqlane-acp --skipNxCache`
+- `pnpm --dir libs/seqlane-runtime exec vitest run src/runtime/mastra/mastra-composition.spec.ts`
+- `pnpm test:mapping`
+- `pnpm docs:index`
+- `pnpm docs:validate`
+- `git diff --check`
+
+The full runtime Nx test/build remains blocked by the pre-existing missing
+`EffectCompiler` and `CompiledWorkflow` exports in `compile-plan.ts`; the
+focused storage integration test passes.
 
 ## Traceability
 
