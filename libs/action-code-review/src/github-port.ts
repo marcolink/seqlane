@@ -17,6 +17,7 @@ export interface GitHubReviewPort {
   readComments(number: number): Promise<ReviewHistory>;
   readAuthoritativeReport(number: number): Promise<ReviewComment | undefined>;
   readIssueComment(commentId: string): Promise<ReviewComment>;
+  createMarker(number: number, body: string): Promise<string>;
   createReport(number: number, body: string): Promise<void>;
   updateReport(commentId: string, body: string): Promise<void>;
   deleteComment(commentId: string): Promise<void>;
@@ -34,6 +35,24 @@ const MAX_DISPOSITION_COMMANDS = 200;
 const COMMAND_PATTERN =
   /^\s*\/seqlane\s+(fixed|wont-fix|downgrade)\s+((?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-[0-9]{3,}))(?:\s+(.*))?\s*$/i;
 const commentLineSchema = z.number().int().positive();
+type DispositionCommand = NonNullable<
+  ReviewComment["omittedDispositionCommands"]
+>[number];
+
+interface ParsedDispositionCommand {
+  readonly line: number;
+  readonly command: DispositionCommand;
+}
+
+export interface DispositionCommandCandidate extends ParsedDispositionCommand {
+  readonly commentIdentity: string;
+  readonly commentTime: string;
+}
+
+interface DispositionCommandSelection {
+  readonly all: readonly ParsedDispositionCommand[];
+  readonly retained: readonly ParsedDispositionCommand[];
+}
 
 export function findAuthoritativeReport(
   history: ReviewHistory,
@@ -48,27 +67,17 @@ export function findAuthoritativeReport(
     );
 }
 
-function normalizeComment(
-  value: object,
-  kind: "issue" | "review",
-): ReviewComment {
-  const source = value as Record<string, unknown>;
-  const authorSource = source.user;
-  const author =
-    typeof authorSource === "object" && authorSource !== null
-      ? String((authorSource as Record<string, unknown>).login ?? "unknown")
-      : "unknown";
-  const originalBody = typeof source.body === "string" ? source.body : "";
-  const trusted =
-    TRUSTED_REPORT_AUTHORS.has(author) &&
-    originalBody.includes("<!-- seqlane-code-review -->");
-  const limit = trusted ? MAX_COMMENT_BODY : MAX_CONTEXT_BODY;
-  const bodyTruncated = originalBody.length > limit;
-  const lines = originalBody.slice(0, MAX_COMMENT_BODY).split(/\r?\n/);
-  const allCommands = lines.flatMap((line) => {
+function parseDispositionCommands(
+  body: string,
+  authorAssociation: string,
+): ParsedDispositionCommand[] {
+  return body.split(/\r?\n/).flatMap((line, lineIndex) => {
     const match = line.match(COMMAND_PATTERN);
     if (match === null) return [];
-    const action = match[1]!.toLowerCase() as
+    const actionValue = match[1];
+    const findingId = match[2];
+    if (actionValue === undefined || findingId === undefined) return [];
+    const action = actionValue.toLowerCase() as
       "fixed" | "wont-fix" | "downgrade";
     let effectiveSeverity:
       "critical" | "required" | "optional" | "nit" | undefined;
@@ -84,16 +93,70 @@ function normalizeComment(
     }
     return [
       {
-        findingId: match[2]!,
-        action,
-        authorized: AUTHORIZED_ASSOCIATIONS.has(
-          String(source.author_association ?? "NONE"),
-        ),
-        ...(effectiveSeverity === undefined ? {} : { effectiveSeverity }),
+        line: lineIndex,
+        command: {
+          findingId,
+          action,
+          authorized: AUTHORIZED_ASSOCIATIONS.has(authorAssociation),
+          ...(effectiveSeverity === undefined ? {} : { effectiveSeverity }),
+        },
       },
     ];
   });
-  const commands = allCommands.slice(-MAX_DISPOSITION_COMMANDS);
+}
+
+function compareDispositionCommands(
+  left: DispositionCommandCandidate,
+  right: DispositionCommandCandidate,
+): number {
+  return (
+    left.commentTime.localeCompare(right.commentTime) ||
+    left.commentIdentity.localeCompare(right.commentIdentity) ||
+    left.line - right.line
+  );
+}
+
+export function selectNewestDispositionCommands(
+  candidates: readonly DispositionCommandCandidate[],
+  limit = MAX_DISPOSITION_COMMANDS,
+): ReadonlySet<string> {
+  const retained = [...candidates]
+    .sort(compareDispositionCommands)
+    .slice(-limit);
+  return new Set(
+    retained.map(
+      (candidate) => `${candidate.commentIdentity}:${candidate.line}`,
+    ),
+  );
+}
+
+function normalizeComment(
+  value: object,
+  kind: "issue" | "review",
+  selection?: DispositionCommandSelection,
+): ReviewComment {
+  const source = value as Record<string, unknown>;
+  const authorSource = source.user;
+  const author =
+    typeof authorSource === "object" && authorSource !== null
+      ? String((authorSource as Record<string, unknown>).login ?? "unknown")
+      : "unknown";
+  const originalBody = typeof source.body === "string" ? source.body : "";
+  const trusted =
+    TRUSTED_REPORT_AUTHORS.has(author) &&
+    originalBody.includes("<!-- seqlane-code-review -->");
+  const limit = trusted ? MAX_COMMENT_BODY : MAX_CONTEXT_BODY;
+  const bodyTruncated = originalBody.length > limit;
+  const lines = originalBody.slice(0, MAX_COMMENT_BODY).split(/\r?\n/);
+  const allCommands =
+    selection?.all ??
+    parseDispositionCommands(
+      originalBody.slice(0, MAX_COMMENT_BODY),
+      String(source.author_association ?? "NONE"),
+    );
+  const commands =
+    selection?.retained ?? allCommands.slice(-MAX_DISPOSITION_COMMANDS);
+  const dispositionCommandsTruncated = commands.length < allCommands.length;
   const body = trusted
     ? originalBody.slice(0, MAX_COMMENT_BODY)
     : lines
@@ -102,7 +165,7 @@ function normalizeComment(
         .slice(0, MAX_CONTEXT_BODY) +
       (commands.length === 0
         ? ""
-        : `${lines.some((line) => line.match(COMMAND_PATTERN) !== null) ? "\n" : ""}${commands.map((command) => `/seqlane ${command.action} ${command.findingId}${command.effectiveSeverity === undefined ? "" : ` ${command.effectiveSeverity}`}`).join("\n")}`);
+        : `${lines.some((line) => line.match(COMMAND_PATTERN) !== null) ? "\n" : ""}${commands.map(({ command }) => `/seqlane ${command.action} ${command.findingId}${command.effectiveSeverity === undefined ? "" : ` ${command.effectiveSeverity}`}`).join("\n")}`);
   const line =
     source.line === null || source.line === undefined
       ? undefined
@@ -118,8 +181,12 @@ function normalizeComment(
     authorAssociation: String(source.author_association ?? "NONE"),
     body,
     ...(bodyTruncated ? { bodyTruncated: true } : {}),
-    ...(commands.length === 0 ? {} : { omittedDispositionCommands: commands }),
-    ...(allCommands.length > commands.length
+    ...(commands.length === 0
+      ? {}
+      : {
+          omittedDispositionCommands: commands.map(({ command }) => command),
+        }),
+    ...(dispositionCommandsTruncated
       ? { omittedDispositionCommandsTruncated: true }
       : {}),
     createdAt: String(source.created_at ?? ""),
@@ -229,8 +296,12 @@ async function readNewestComments(sources: readonly CommentSource[]): Promise<{
   for (const source of sources)
     for (const [identity, value] of source.values)
       values.set(identity, [value, source.kind]);
-  const ordered = [...values.values()].sort((left, right) =>
-    commentTime(right[0]).localeCompare(commentTime(left[0])),
+  const ordered = [...values.values()].sort(
+    (left, right) =>
+      commentTime(right[0]).localeCompare(commentTime(left[0])) ||
+      commentIdentity(right[0], right[1]).localeCompare(
+        commentIdentity(left[0], left[1]),
+      ),
   );
   return {
     values: ordered.slice(0, MAX_COMMENTS),
@@ -344,12 +415,45 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
         hasNextPage: true,
       };
       const history = await readNewestComments([issues, reviews]);
-      const values = history.values
-        .filter(
-          (entry): entry is readonly [object, "issue" | "review"] =>
-            typeof entry[0] === "object" && entry[0] !== null,
-        )
-        .map(([value, kind]) => normalizeComment(value, kind));
+      const rawValues = history.values.filter(
+        (entry): entry is readonly [object, "issue" | "review"] =>
+          typeof entry[0] === "object" && entry[0] !== null,
+      );
+      const parsedValues = rawValues.map(([value, kind]) => {
+        const source = value as Record<string, unknown>;
+        const body = typeof source.body === "string" ? source.body : "";
+        const authorAssociation = String(source.author_association ?? "NONE");
+        const identity = commentIdentity(value, kind);
+        const commands = parseDispositionCommands(
+          body.slice(0, MAX_COMMENT_BODY),
+          authorAssociation,
+        );
+        return {
+          value,
+          kind,
+          identity,
+          time: commentTime(value),
+          commands,
+        };
+      });
+      const commandCandidates = parsedValues.flatMap(
+        ({ identity, time, commands }) =>
+          commands.map((parsed) => ({
+            ...parsed,
+            commentIdentity: identity,
+            commentTime: time,
+          })),
+      );
+      const retainedCommandKeys =
+        selectNewestDispositionCommands(commandCandidates);
+      const values = parsedValues.map(({ value, kind, identity, commands }) =>
+        normalizeComment(value, kind, {
+          all: commands,
+          retained: commands.filter((command) =>
+            retainedCommandKeys.has(`${identity}:${command.line}`),
+          ),
+        }),
+      );
       const latestByIdentity = new Map<string, ReviewComment>();
       for (const comment of values) {
         const key = `${comment.kind}:${comment.id}`;
@@ -372,7 +476,11 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
         truncated:
           history.truncated ||
           ordered.length > MAX_COMMENTS ||
-          comments.some((comment) => comment.bodyTruncated === true),
+          comments.some((comment) => comment.bodyTruncated === true) ||
+          commandCandidates.length > MAX_DISPOSITION_COMMANDS ||
+          comments.some(
+            (comment) => comment.omittedDispositionCommandsTruncated === true,
+          ),
       };
     } catch (cause) {
       throw githubError(
@@ -416,6 +524,33 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
       throw githubError(
         "REPORT_CREATE_FAILED",
         "Could not publish the review report.",
+        cause,
+      );
+    }
+  }
+
+  async createMarker(number: number, body: string): Promise<string> {
+    try {
+      const value = await this.client.createIssueComment(number, body);
+      if (typeof value !== "object" || value === null) {
+        throw githubError(
+          "MALFORMED_COMMENT",
+          "GitHub returned a malformed created marker comment.",
+        );
+      }
+      const id = (value as Record<string, unknown>).id;
+      if (typeof id !== "string" && typeof id !== "number") {
+        throw githubError(
+          "MALFORMED_COMMENT",
+          "GitHub returned a created marker without an ID.",
+        );
+      }
+      return String(id);
+    } catch (cause) {
+      if (cause instanceof CodeReviewError) throw cause;
+      throw githubError(
+        "MARKER_CREATE_FAILED",
+        "Could not create the review marker.",
         cause,
       );
     }

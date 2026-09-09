@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { jsonValueSchema } from "@seqlane/core";
 import type { SeqlaneError } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
@@ -17,7 +18,6 @@ import {
 } from "./publication-guard.js";
 import { publicationResultSchema } from "./publication-workflow.js";
 import { type LivePullRequest, type ReviewTargetInput } from "./contracts.js";
-import { findAuthoritativeReport } from "./github-port.js";
 import { trustedCodeReviewWorkflow } from "./trusted-workflow.js";
 import { BoundedEventRecorder } from "./event-recorder.js";
 import {
@@ -43,6 +43,26 @@ function marker(runId: string, runUrl: string | undefined): string {
   ].join("\n");
 }
 
+function markerReport(request: CodeReviewRunRequest, runId: string): string {
+  const metadata = JSON.stringify({
+    schemaVersion: 3,
+    pullRequestNumber: request.pullRequestNumber,
+    reviewedRevision: request.headRevision,
+    run: {
+      id: request.githubRunId ?? "0",
+      attempt: request.attempt ?? 1,
+    },
+  });
+  return [
+    "<!-- seqlane-code-review -->",
+    `<!-- seqlane-code-review-meta-v3: ${metadata} -->`,
+    marker(
+      runId,
+      githubActionsRunUrl(request.repository, request.githubRunId ?? ""),
+    ),
+  ].join("\n");
+}
+
 function removeMarker(body: string): string {
   return body.replace(
     /<!-- seqlane-review-in-progress-start -->[\s\S]*?<!-- seqlane-review-in-progress-end -->\n?/g,
@@ -53,6 +73,7 @@ function removeMarker(body: string): string {
 async function clearOwnedMarker(
   adapter: GitHubReviewPort,
   markerId: string | undefined,
+  deleteMarker: boolean,
   input: PublicationGuardInput & {
     readonly repository: string;
   },
@@ -71,7 +92,8 @@ async function clearOwnedMarker(
     !report.body.includes(ownedMarker)
   )
     return;
-  await adapter.updateReport(markerId, removeMarker(report.body));
+  if (deleteMarker) await adapter.deleteComment(markerId);
+  else await adapter.updateReport(markerId, removeMarker(report.body));
 }
 
 function isLivePullRequest(
@@ -211,8 +233,6 @@ export async function runCodeReview(
   const runWorkflow = ports.runWorkflow ?? startWorkflowRun;
   const pullRequest = await adapter.readPullRequest(request.pullRequestNumber);
   const reviewHistory = await adapter.readComments(request.pullRequestNumber);
-  const existingReport = findAuthoritativeReport(reviewHistory);
-  const markerId = existingReport?.id;
   const liveBeforeRun = await adapter.readLivePullRequest(
     request.pullRequestNumber,
   );
@@ -220,6 +240,81 @@ export async function runCodeReview(
     !isLivePullRequest(liveBeforeRun, request.repository, request.headRevision)
   )
     return { status: "stale" };
+
+  // Reserve the runtime identity before touching the report. The marker must
+  // own the same identity that is passed to startWorkflowRun, so another run
+  // cannot replace it between admission and execution.
+  const reservedIdentity = { workId: randomUUID(), runId: randomUUID() };
+  const existingReport = await adapter.readAuthoritativeReport(
+    request.pullRequestNumber,
+  );
+  let markerId = existingReport?.id;
+  const markerCreated = markerId === undefined;
+  const guardInput = publicationGuardInput(request, reservedIdentity.runId);
+
+  if (markerId !== undefined) {
+    // Save the bounded marker identity before the marker mutation and before
+    // starting the expensive review. Post cleanup can therefore recover from
+    // a failure during marker establishment itself.
+    await ports.onRunStarted?.({
+      workId: reservedIdentity.workId,
+      runId: reservedIdentity.runId,
+      markerId,
+    });
+    const liveForMarker = await adapter.readLivePullRequest(
+      request.pullRequestNumber,
+    );
+    if (
+      !isLivePullRequest(
+        liveForMarker,
+        request.repository,
+        request.headRevision,
+      )
+    )
+      return { status: "stale", runId: reservedIdentity.runId };
+    const report = await adapter.readIssueComment(markerId);
+    const target = guardPublicationTarget(report, guardInput);
+    if (target.status !== "eligible")
+      return { status: "stale", runId: reservedIdentity.runId };
+    await adapter.updateReport(
+      markerId,
+      marker(
+        reservedIdentity.runId,
+        githubActionsRunUrl(request.repository, request.githubRunId ?? ""),
+      ) +
+        "\n\n" +
+        removeMarker(report.body),
+    );
+  } else {
+    // A missing report still needs an owned comment before expensive review
+    // work starts. Re-read the authoritative report immediately before the
+    // create so a report that appeared during admission wins the race.
+    const liveForMarker = await adapter.readLivePullRequest(
+      request.pullRequestNumber,
+    );
+    if (
+      !isLivePullRequest(
+        liveForMarker,
+        request.repository,
+        request.headRevision,
+      )
+    )
+      return { status: "stale", runId: reservedIdentity.runId };
+    const reportBeforeCreate = await adapter.readAuthoritativeReport(
+      request.pullRequestNumber,
+    );
+    if (reportBeforeCreate !== undefined)
+      return { status: "stale", runId: reservedIdentity.runId };
+    markerId = await adapter.createMarker(
+      request.pullRequestNumber,
+      markerReport(request, reservedIdentity.runId),
+    );
+    await ports.onRunStarted?.({
+      workId: reservedIdentity.workId,
+      runId: reservedIdentity.runId,
+      markerId,
+    });
+  }
 
   const eventRecorder = new BoundedEventRecorder(10_000);
   const reviewProgress = createReviewProgress(ports.progress, {
@@ -237,6 +332,7 @@ export async function runCodeReview(
       reviewHistory,
     },
     runtime: { id: request.runtime, workspace: request.reviewTarget },
+    identity: reservedIdentity,
     events: {
       emit: (event) => {
         eventRecorder.emit(event);
@@ -244,44 +340,6 @@ export async function runCodeReview(
       },
     },
   });
-  await ports.onRunStarted?.({
-    workId: handle.workId,
-    runId: handle.runId,
-    ...(markerId === undefined ? {} : { markerId }),
-  });
-  if (markerId !== undefined) {
-    const guardInput = publicationGuardInput(request, handle.runId);
-    const liveForMarker = await adapter.readLivePullRequest(
-      request.pullRequestNumber,
-    );
-    if (
-      !isLivePullRequest(
-        liveForMarker,
-        request.repository,
-        request.headRevision,
-      )
-    ) {
-      await handle.cancel();
-      return { status: "stale", runId: handle.runId };
-    }
-    const report = await adapter.readIssueComment(markerId);
-    {
-      const target = guardPublicationTarget(report, guardInput);
-      if (target.status !== "eligible") {
-        await handle.cancel();
-        return { status: "stale", runId: handle.runId };
-      }
-      await adapter.updateReport(
-        markerId,
-        marker(
-          handle.runId,
-          githubActionsRunUrl(request.repository, request.githubRunId ?? ""),
-        ) +
-          "\n\n" +
-          removeMarker(report.body),
-      );
-    }
-  }
 
   const outcome = await handle.outcome;
   reviewProgress.complete(outcome.status);
@@ -289,6 +347,7 @@ export async function runCodeReview(
     await clearOwnedMarker(
       adapter,
       markerId,
+      markerCreated,
       publicationGuardInput(request, handle.runId),
     );
     return outcome.status === "cancelled"
@@ -312,6 +371,7 @@ export async function runCodeReview(
     await clearOwnedMarker(
       adapter,
       markerId,
+      markerCreated,
       publicationGuardInput(request, handle.runId),
     );
     return { status: "stale", runId: handle.runId };
@@ -347,6 +407,7 @@ export async function runCodeReview(
     await clearOwnedMarker(
       adapter,
       markerId,
+      markerCreated,
       publicationGuardInput(request, handle.runId),
     );
     return publicationOutcome.status === "cancelled"
@@ -370,6 +431,7 @@ export async function runCodeReview(
   await clearOwnedMarker(
     adapter,
     markerId,
+    false,
     publicationGuardInput(request, handle.runId),
   );
   if (publicationResult.status === "stale")

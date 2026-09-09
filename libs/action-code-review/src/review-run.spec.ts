@@ -90,6 +90,11 @@ function createGithubPort(
       body: report!.body,
       createdAt: "2026-09-09T00:00:00.000Z",
     }),
+    createMarker: async (_number, body) => {
+      report = { id: "created-marker", body };
+      updates.push(body);
+      return report.id;
+    },
     createReport: async (_number, body) => {
       updates.push(body);
     },
@@ -110,14 +115,16 @@ function createRunner(
 ): WorkflowRunner {
   let index = 0;
   return <Input, Output>(
-    _workflow: StartWorkflowRunRequest<Input, Output>,
+    workflow: StartWorkflowRunRequest<Input, Output>,
   ): WorkflowRunHandle => {
     const outcome = outcomes[index++];
     if (outcome === undefined) throw new Error("Unexpected workflow run");
-    onRequest?.(_workflow as StartWorkflowRunRequest<unknown, unknown>, index);
+    onRequest?.(workflow as StartWorkflowRunRequest<unknown, unknown>, index);
     return {
-      workId: `work-${index}`,
-      runId: index === 1 ? "review-run" : "publication-run",
+      workId: workflow.identity?.workId ?? `work-${index}`,
+      runId:
+        workflow.identity?.runId ??
+        (index === 1 ? "review-run" : "publication-run"),
       outcome: Promise.resolve(outcome),
       cancel: async () => undefined,
     };
@@ -188,7 +195,6 @@ describe("runCodeReview", () => {
 
     expect(result).toMatchObject({
       status: "published",
-      runId: "review-run",
     });
     expect(github.updates).toHaveLength(2);
   });
@@ -223,18 +229,97 @@ describe("runCodeReview", () => {
 
     expect(result).toMatchObject({
       status: "published",
-      runId: "review-run",
       verdict: "approve",
     });
-    expect(started).toEqual(["review-run"]);
+    expect(started).toHaveLength(1);
     expect(github.updates).toHaveLength(2);
     expect(github.updates[0]).toContain(
-      "<!-- seqlane-review-in-progress-run: review-run -->",
+      `<!-- seqlane-review-in-progress-run: ${started[0]} -->`,
     );
     expect(github.updates[0]).toContain(
       "[View GitHub Actions run](https://github.com/owner/repository/actions/runs/123)",
     );
     expect(github.updates[1]).toBe(`\n${marker}`);
+  });
+
+  it("establishes report ownership before starting review execution", async () => {
+    const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
+    const github = createGithubPort(true, { id: "report-1", body: marker });
+    let markerAtWorkflowStart: string | undefined;
+
+    const result = await runCodeReview(request, {
+      github,
+      runWorkflow: createRunner(
+        [
+          { status: "succeeded", result: {} },
+          {
+            status: "succeeded",
+            result: {
+              status: "published",
+              publication: {
+                verdict: "approve",
+                reviewedRevision: headRevision,
+                body: "published report",
+              },
+            },
+          },
+        ],
+        (workflow, index) => {
+          if (index === 1) {
+            markerAtWorkflowStart = github.updates[0];
+            expect(workflow.identity).toBeDefined();
+          }
+        },
+      ),
+    });
+
+    expect(result.status).toBe("published");
+    expect(markerAtWorkflowStart).toContain(
+      "<!-- seqlane-review-in-progress-run:",
+    );
+  });
+
+  it("creates and owns a marker before reviewing without a report", async () => {
+    const github = createGithubPort(true);
+    let markerAtWorkflowStart: string | undefined;
+    let publicationInput: unknown;
+    const result = await runCodeReview(request, {
+      github,
+      runWorkflow: createRunner(
+        [
+          { status: "succeeded", result: {} },
+          {
+            status: "succeeded",
+            result: {
+              status: "published",
+              publication: {
+                verdict: "approve",
+                reviewedRevision: headRevision,
+                body: "published report",
+              },
+            },
+          },
+        ],
+        (workflow, index) => {
+          if (index === 1) markerAtWorkflowStart = github.updates[0];
+          if (index === 2) publicationInput = workflow.input;
+        },
+      ),
+      onRunStarted: ({ markerId }) => {
+        expect(markerId).toBe("created-marker");
+      },
+    });
+
+    expect(result.status).toBe("published");
+    expect(markerAtWorkflowStart).toContain(
+      "<!-- seqlane-review-in-progress-run:",
+    );
+    expect(markerAtWorkflowStart).toContain(
+      "<!-- seqlane-code-review-meta-v3:",
+    );
+    expect(publicationInput).toMatchObject({
+      existingReportId: "created-marker",
+    });
   });
 
   it("omits the run link when the GitHub run id is absent or unsafe", async () => {

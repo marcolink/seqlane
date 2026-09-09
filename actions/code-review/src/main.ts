@@ -165,8 +165,7 @@ export async function run(): Promise<void> {
         core.setOutput("work-id", workId);
         core.setOutput("run-id", runId);
         core.saveState("review-run-id", runId);
-        if (markerId !== undefined)
-          core.saveState("review-marker-id", markerId);
+        core.saveState("review-marker-id", markerId ?? "");
       },
       progress: {
         write: (event) => {
