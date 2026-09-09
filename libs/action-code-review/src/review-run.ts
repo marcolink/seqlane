@@ -222,6 +222,8 @@ export type CodeReviewRunResult =
       readonly runId: string;
       readonly verdict: "approve" | "request-changes";
       readonly publicationStatus: "published";
+      /** The exact bounded report body written to the pull-request comment. */
+      readonly publicationBody: string;
     };
 
 /** Runs the trusted review and model-free publication lifecycle. */
@@ -442,5 +444,6 @@ export async function runCodeReview(
     runId: handle.runId,
     verdict: publicationResult.publication.verdict,
     publicationStatus: "published",
+    publicationBody: publicationResult.publication.body,
   };
 }

@@ -157,7 +157,10 @@ describe("runCodeReview", () => {
       ),
     });
 
-    expect(result).toMatchObject({ status: "published" });
+    expect(result).toMatchObject({
+      status: "published",
+      publicationBody: "published report",
+    });
     expect(reviewInput).toMatchObject({ repository: request.repository });
   });
 

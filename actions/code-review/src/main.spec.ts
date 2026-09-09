@@ -1,6 +1,10 @@
 // @test-scope ./main.ts
 import { describe, expect, it } from "vitest";
-import { createIssueCommentMethods, type GitHubClient } from "./main.js";
+import {
+  appendPublicationSummary,
+  createIssueCommentMethods,
+  type GitHubClient,
+} from "./main.js";
 
 function createClient(calls: {
   readonly get: unknown[];
@@ -31,6 +35,19 @@ function createClient(calls: {
 }
 
 describe("code-review GitHub adapter", () => {
+  it("appends the published report to the GitHub job summary", async () => {
+    const written: string[] = [];
+    await appendPublicationSummary("# Seqlane review\n\nRun metrics", {
+      addRaw: (value) => ({
+        write: async () => {
+          written.push(value);
+        },
+      }),
+    });
+
+    expect(written).toEqual(["# Seqlane review\n\nRun metrics"]);
+  });
+
   it("uses ordinary comment mutations behind workflow serialization", async () => {
     const calls: { get: unknown[]; create: unknown[]; update: unknown[] } = {
       get: [],

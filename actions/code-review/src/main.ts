@@ -21,6 +21,18 @@ function input(name: string): string {
 
 export type GitHubClient = ReturnType<typeof github.getOctokit>;
 
+interface SummaryWriter {
+  addRaw(value: string): { write(): Promise<unknown> };
+}
+
+/** Appends the same rendered report that was published to the PR comment. */
+export async function appendPublicationSummary(
+  body: string,
+  summary: SummaryWriter = core.summary,
+): Promise<void> {
+  await summary.addRaw(body).write();
+}
+
 async function fetchCommentPage(
   request: () => Promise<{
     readonly data: unknown[];
@@ -197,6 +209,7 @@ export async function run(): Promise<void> {
   }
   core.setOutput("verdict", result.verdict);
   core.setOutput("publication-status", result.publicationStatus);
+  await appendPublicationSummary(result.publicationBody);
   core.saveState("review-marker-id", "");
 }
 
