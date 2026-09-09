@@ -1,8 +1,21 @@
 import { z } from "zod";
 
 export const gitRevisionSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i);
+const repositoryTextSchema = z.string().regex(/^[^/\s]+\/[^/\s]+$/);
+export const repositorySchema = z
+  .string()
+  .pipe(repositoryTextSchema)
+  .transform((value) => {
+    const separator = value.indexOf("/");
+    return {
+      owner: value.slice(0, separator),
+      repo: value.slice(separator + 1),
+    };
+  });
+export type Repository = z.infer<typeof repositorySchema>;
+
 export const reviewTargetInputSchema = z.strictObject({
-  repository: z.string().min(1),
+  repository: repositoryTextSchema,
   pullRequestNumber: z.number().int().positive(),
   reviewTarget: z.string().min(1),
   baseBranch: z.string().min(1),
@@ -26,6 +39,7 @@ export const reviewCommentSchema = z.strictObject({
   authorAssociation: z.string().min(1).max(64),
   body: z.string().max(65_536),
   bodyTruncated: z.boolean().optional(),
+  omittedDispositionCommandsTruncated: z.boolean().optional(),
   omittedDispositionCommands: z.array(z.strictObject({
     findingId: z.string().regex(/^(?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-[0-9]{3,})$/i),
     action: z.enum(["fixed", "wont-fix", "downgrade"]),
@@ -53,3 +67,18 @@ export const reviewPublicationSchema = z.strictObject({
   body: z.string().max(60_000),
 });
 export type ReviewPublication = z.infer<typeof reviewPublicationSchema>;
+
+/** Trusted identity metadata embedded in one authoritative review report. */
+export const reviewPublicationMetadataSchema = z.strictObject({
+  schemaVersion: z.literal(3),
+  pullRequestNumber: z.number().int().positive(),
+  reviewedRevision: gitRevisionSchema,
+  previousReviewedRevision: gitRevisionSchema.optional(),
+  run: z.strictObject({
+    id: z.string().regex(/^\d+$/).max(128),
+    attempt: z.number().int().positive(),
+  }),
+});
+export type ReviewPublicationMetadata = z.infer<
+  typeof reviewPublicationMetadataSchema
+>;

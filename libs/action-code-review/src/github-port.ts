@@ -1,4 +1,5 @@
 import {
+  gitRevisionSchema,
   pullRequestContextSchema,
   reviewCommentSchema,
   type PullRequestContext,
@@ -6,6 +7,7 @@ import {
   type ReviewHistory,
 } from "./contracts.js";
 import { CodeReviewError } from "./errors.js";
+import { z } from "zod";
 
 export interface GitHubReviewPort {
   readPullRequest(number: number): Promise<PullRequestContext>;
@@ -22,7 +24,9 @@ const AUTHORIZED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 const MAX_COMMENT_BODY = 65_536;
 const MAX_CONTEXT_BODY = 2_000;
 const MAX_COMMENTS = 200;
+const MAX_DISPOSITION_COMMANDS = 200;
 const COMMAND_PATTERN = /^\s*\/seqlane\s+(fixed|wont-fix|downgrade)\s+((?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-[0-9]{3,}))(?:\s+(.*))?\s*$/i;
+const commentLineSchema = z.number().int().positive();
 
 function normalizeComment(value: object, kind: "issue" | "review"): ReviewComment {
   const source = value as Record<string, unknown>;
@@ -30,12 +34,12 @@ function normalizeComment(value: object, kind: "issue" | "review"): ReviewCommen
   const author = typeof authorSource === "object" && authorSource !== null
     ? String((authorSource as Record<string, unknown>).login ?? "unknown")
     : "unknown";
-  const originalBody = String(source.body ?? "");
+  const originalBody = typeof source.body === "string" ? source.body : "";
   const trusted = TRUSTED_REPORT_AUTHORS.has(author) && originalBody.includes("<!-- seqlane-code-review -->");
   const limit = trusted ? MAX_COMMENT_BODY : MAX_CONTEXT_BODY;
   const bodyTruncated = originalBody.length > limit;
   const lines = originalBody.slice(0, MAX_COMMENT_BODY).split(/\r?\n/);
-  const commands = lines.flatMap((line) => {
+  const allCommands = lines.flatMap((line) => {
     const match = line.match(COMMAND_PATTERN);
     if (match === null) return [];
     const action = match[1]!.toLowerCase() as "fixed" | "wont-fix" | "downgrade";
@@ -47,20 +51,28 @@ function normalizeComment(value: object, kind: "issue" | "review"): ReviewCommen
     }
     return [{ findingId: match[2]!, action, authorized: AUTHORIZED_ASSOCIATIONS.has(String(source.author_association ?? "NONE")), ...(effectiveSeverity === undefined ? {} : { effectiveSeverity }) }];
   });
+  const commands = allCommands.slice(-MAX_DISPOSITION_COMMANDS);
   const body = trusted
     ? originalBody.slice(0, MAX_COMMENT_BODY)
     : lines.filter((line) => !line.toLowerCase().includes("/seqlane")).join("\n").slice(0, MAX_CONTEXT_BODY) +
       (commands.length === 0 ? "" : `${lines.some((line) => line.match(COMMAND_PATTERN) !== null) ? "\n" : ""}${commands.map((command) => `/seqlane ${command.action} ${command.findingId}${command.effectiveSeverity === undefined ? "" : ` ${command.effectiveSeverity}`}`).join("\n")}`);
+  const line = source.line === null || source.line === undefined
+    ? undefined
+    : commentLineSchema.safeParse(source.line).data;
+  const commitId = source.commit_id === null || source.commit_id === undefined
+    ? undefined
+    : gitRevisionSchema.safeParse(source.commit_id).data;
   const parsed = reviewCommentSchema.safeParse({
     id: String(source.id ?? ""), kind, author,
     authorAssociation: String(source.author_association ?? "NONE"), body,
     ...(bodyTruncated ? { bodyTruncated: true } : {}),
     ...(commands.length === 0 ? {} : { omittedDispositionCommands: commands }),
+    ...(allCommands.length > commands.length ? { omittedDispositionCommandsTruncated: true } : {}),
     createdAt: String(source.created_at ?? ""),
     ...(source.updated_at === undefined ? {} : { updatedAt: String(source.updated_at) }),
     ...(source.path === undefined ? {} : { path: String(source.path) }),
-    ...(source.line === undefined ? {} : { line: Number(source.line) }),
-    ...(source.commit_id === undefined ? {} : { commitId: String(source.commit_id) }),
+    ...(line === undefined ? {} : { line }),
+    ...(commitId === undefined ? {} : { commitId }),
     ...(source.in_reply_to_id === undefined ? {} : { inReplyTo: String(source.in_reply_to_id) }),
   });
   if (!parsed.success) throw githubError("MALFORMED_COMMENTS", "GitHub returned malformed comment data.", parsed.error);

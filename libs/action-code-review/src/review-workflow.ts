@@ -62,6 +62,7 @@ const reviewCommentSchema = z.object({
   authorAssociation: z.string().min(1).max(64),
   body: z.string().max(65_536),
   bodyTruncated: z.boolean().optional(),
+  omittedDispositionCommandsTruncated: z.boolean().optional(),
   omittedDispositionCommands: z
     .array(omittedDispositionCommandSchema)
     .max(200)
@@ -351,6 +352,9 @@ const reviewHistoryOutputSchema = z.object({
   comments: z.array(reviewCommentSchema).max(200),
   commentIds: z.array(z.string().min(1).max(128)).max(200),
   truncated: z.boolean(),
+  // Explicitly distinguishes a bounded disposition set from complete history
+  // so prompts and the final report can preserve the limitation safely.
+  dispositionsTruncated: z.boolean().default(false),
   previousReport: reviewCommentSchema.optional(),
   previousState: reviewStateSchema.optional(),
   previousSnapshot: reviewSnapshotSchema.optional(),
@@ -868,6 +872,7 @@ const reviewContextTask = defineTask({
         comment.id === previousReport?.id ||
         (commentDispositions.get(comment.id)?.length ?? 0) > 0 ||
         (comment.omittedDispositionCommands?.length ?? 0) > 0 ||
+        comment.omittedDispositionCommandsTruncated === true ||
         previousDispositionCommentIds.has(comment.id),
     );
 
@@ -877,7 +882,9 @@ const reviewContextTask = defineTask({
       truncated:
         normalizedReviewHistory.truncated ||
         comments.some((comment) => comment.bodyTruncated === true) ||
+        comments.some((comment) => comment.omittedDispositionCommandsTruncated === true) ||
         dispositionsTruncated,
+      dispositionsTruncated,
       ...(previousReport === undefined
         ? {}
         : { previousReport: compactReviewComment(previousReport) }),
@@ -1610,6 +1617,11 @@ const applyReviewDispositionTask = defineTask({
     if (review.reviewHistory.truncated) {
       limitations.push(
         "Review history was truncated; only bounded comment context was available.",
+      );
+    }
+    if (review.reviewHistory.dispositionsTruncated) {
+      limitations.push(
+        "Disposition commands were truncated; only the bounded decision set was retained.",
       );
     }
     if (review.reviewHistory.previousSnapshot?.truncated) {

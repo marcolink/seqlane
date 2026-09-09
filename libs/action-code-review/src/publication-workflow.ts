@@ -24,16 +24,23 @@ export interface PublicationPort {
     request: PublicationLiveStateRequest,
   ): Promise<"live" | "stale">;
   publishReport(request: {
+    readonly repository: string;
     readonly pullRequestNumber: number;
+    readonly expectedHeadRevision: string;
+    readonly workflowRunId: string;
+    readonly githubRunId: string;
+    readonly attempt: number;
     readonly existingReportId?: string;
     readonly publication: ReviewPublication;
-  }): Promise<void>;
+  }): Promise<"published" | "stale">;
 }
 
 const publicationInputSchema = z.object({
   repository: z.string().min(1),
   pullRequestNumber: z.number().int().positive(),
   expectedHeadRevision: gitRevisionSchema,
+  githubRunId: z.string().regex(/^\d+$/).max(128),
+  attempt: z.number().int().positive(),
   snapshot: publicationSnapshotSchema,
   existingReportId: z.string().max(128),
 });
@@ -122,7 +129,12 @@ export const publicationWorkflow = (port: PublicationPort) => createFlow({
     id: "pr-code-review.publication.publish",
     workspace: "shared",
     input: z.object({
+      repository: z.string().min(1),
       pullRequestNumber: z.number().int().positive(),
+      expectedHeadRevision: gitRevisionSchema,
+      workflowRunId: z.string().min(1).max(128),
+      githubRunId: z.string().regex(/^\d+$/).max(128),
+      attempt: z.number().int().positive(),
       existingReportId: z.string().max(128),
       decision: decisionSchema,
     }),
@@ -131,17 +143,27 @@ export const publicationWorkflow = (port: PublicationPort) => createFlow({
       if (input.decision.status === "stale") {
         return { status: "stale" as const, publication: input.decision.publication };
       }
-      await port.publishReport({
+      const status = await port.publishReport({
+        repository: input.repository,
         pullRequestNumber: input.pullRequestNumber,
+        expectedHeadRevision: input.expectedHeadRevision,
+        workflowRunId: input.workflowRunId,
+        githubRunId: input.githubRunId,
+        attempt: input.attempt,
         ...(input.existingReportId.length === 0
           ? {}
           : { existingReportId: input.existingReportId }),
         publication: input.decision.publication,
       });
-      return { status: "published" as const, publication: input.decision.publication };
+      return { status, publication: input.decision.publication };
     },
   }), ({ input, tasks }) => ({
+    repository: input.repository,
     pullRequestNumber: input.pullRequestNumber,
+    expectedHeadRevision: input.expectedHeadRevision,
+    workflowRunId: input.snapshot.runId,
+    githubRunId: input.githubRunId,
+    attempt: input.attempt,
     existingReportId: input.existingReportId,
     decision: tasks.decision.output,
   }))

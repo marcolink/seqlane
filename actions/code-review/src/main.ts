@@ -10,17 +10,14 @@ import {
   buildPublicationWorkflow,
   GitHubReviewAdapter,
   publicationResultSchema,
+  repositorySchema,
+  reviewPublicationMetadataSchema,
   reviewTargetInputSchema,
   trustedCodeReviewWorkflow,
   type PublicationPort,
 } from "@seqlane/action-code-review";
 
 function input(name: string): string { return core.getInput(name, { required: true }); }
-function repositoryParts(value: string): { owner: string; repo: string } {
-  const parts = value.split("/");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error("repository must be owner/name");
-  return { owner: parts[0], repo: parts[1] };
-}
 const markerStart = "<!-- seqlane-review-in-progress-start -->";
 const markerEnd = "<!-- seqlane-review-in-progress-end -->";
 function marker(runId: string): string {
@@ -28,6 +25,34 @@ function marker(runId: string): string {
 }
 function removeMarker(body: string): string {
   return body.replace(/<!-- seqlane-review-in-progress-start -->[\s\S]*?<!-- seqlane-review-in-progress-end -->\n?/g, "");
+}
+function reportRunMetadata(body: string):
+  | { readonly id: string; readonly attempt: number; readonly reviewedRevision: string }
+  | undefined {
+  const matches = [
+    ...body.matchAll(/<!-- seqlane-code-review-meta-v3: ([^\r\n]+) -->/g),
+  ];
+  if (matches.length !== 1) return undefined;
+  try {
+    const parsed = reviewPublicationMetadataSchema.safeParse(
+      JSON.parse(matches[0]![1]!),
+    );
+    if (!parsed.success) return undefined;
+    return {
+      id: parsed.data.run.id,
+      attempt: parsed.data.run.attempt,
+      reviewedRevision: parsed.data.reviewedRevision,
+    };
+  } catch {
+    return undefined;
+  }
+}
+function compareRunIds(left: string, right: string): number {
+  const normalizedLeft = left.replace(/^0+/, "") || "0";
+  const normalizedRight = right.replace(/^0+/, "") || "0";
+  return normalizedLeft.length === normalizedRight.length
+    ? normalizedLeft.localeCompare(normalizedRight)
+    : normalizedLeft.length - normalizedRight.length;
 }
 async function clearOwnedMarker(
   adapter: GitHubReviewAdapter,
@@ -64,7 +89,7 @@ export async function run(): Promise<void> {
   };
   const parsed = reviewTargetInputSchema.safeParse(raw);
   if (!parsed.success) throw new Error("Invalid code-review Action inputs.");
-  const { owner, repo } = repositoryParts(parsed.data.repository);
+  const { owner, repo } = repositorySchema.parse(parsed.data.repository);
   const client = github.getOctokit(token);
   const adapter = new GitHubReviewAdapter({
     getPullRequest: async (number) => (await client.rest.pulls.get({ owner, repo, pull_number: number })).data,
@@ -155,9 +180,34 @@ export async function run(): Promise<void> {
         current.head?.repo?.full_name === repository && current.head?.sha === expectedHeadRevision
         ? "live" : "stale";
     },
-    publishReport: async ({ pullRequestNumber, existingReportId, publication }) => {
-      if (existingReportId === undefined) await adapter.createReport(pullRequestNumber, publication.body);
-      else await adapter.updateReport(existingReportId, publication.body);
+    publishReport: async ({ repository, pullRequestNumber, expectedHeadRevision, workflowRunId, githubRunId, attempt, existingReportId, publication }) => {
+      const current = (await client.rest.pulls.get({ owner, repo, pull_number: pullRequestNumber })).data;
+      if (current.state !== "open" || current.draft === true ||
+          current.head?.repo?.full_name !== repository || current.head?.sha !== expectedHeadRevision) {
+        return "stale" as const;
+      }
+      if (existingReportId === undefined) {
+        await adapter.createReport(pullRequestNumber, publication.body);
+        return "published" as const;
+      }
+      const existing = await adapter.readIssueComment(existingReportId);
+      const markerMatch = existing.body.match(
+        /<!-- seqlane-review-in-progress-run: ([^\r\n]+) -->/,
+      );
+      if (markerMatch !== null && markerMatch[1] !== workflowRunId) {
+        return "stale" as const;
+      }
+      const prior = reportRunMetadata(existing.body);
+      if (prior?.reviewedRevision === expectedHeadRevision) {
+        if (
+          compareRunIds(prior.id, githubRunId) > 0 ||
+          (compareRunIds(prior.id, githubRunId) === 0 && prior.attempt > attempt)
+        ) {
+          return "stale" as const;
+        }
+      }
+      await adapter.updateReport(existingReportId, publication.body);
+      return "published" as const;
     },
   };
   const publicationHandle = startWorkflowRun({
@@ -166,6 +216,8 @@ export async function run(): Promise<void> {
       repository: parsed.data.repository,
       pullRequestNumber: parsed.data.pullRequestNumber,
       expectedHeadRevision: parsed.data.headRevision,
+      githubRunId: snapshot.githubRunId ?? "0",
+      attempt: snapshot.attempt ?? 1,
       snapshot,
       existingReportId: markerId ?? "",
     },
