@@ -24,16 +24,20 @@ import {
   createReviewProgress,
   type ReviewProgressPort,
 } from "./review-progress.js";
+import { githubActionsRunUrl } from "./publication-rendering.js";
 
 const markerStart = "<!-- seqlane-review-in-progress-start -->";
 const markerEnd = "<!-- seqlane-review-in-progress-end -->";
 
-function marker(runId: string): string {
+function marker(runId: string, runUrl: string | undefined): string {
   return [
     markerStart,
     `<!-- seqlane-review-in-progress-run: ${runId} -->`,
     "# ⏳ Another Seqlane review is currently in progress",
     "",
+    ...(runUrl === undefined
+      ? []
+      : [`[View GitHub Actions run](${runUrl})`, ""]),
     "This report is being refreshed for a newer review run and will be updated when it finishes.",
     markerEnd,
   ].join("\n");
@@ -282,7 +286,12 @@ export async function runCodeReview(
     }
     const markerWrite = await adapter.updateReportIfUnchanged(
       markerId,
-      marker(handle.runId) + "\n\n" + removeMarker(versioned.comment.body),
+      marker(
+        handle.runId,
+        githubActionsRunUrl(request.repository, request.githubRunId ?? ""),
+      ) +
+        "\n\n" +
+        removeMarker(versioned.comment.body),
       versioned.version,
     );
     if (markerWrite !== "written") {

@@ -10,6 +10,18 @@ type RenderBodyOptions = {
   readonly includeVerification: boolean;
 };
 
+function githubActionsRunUrl(
+  repository: string,
+  githubRunId: string,
+): string | undefined {
+  if (
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) ||
+    !/^[1-9]\d*$/.test(githubRunId)
+  )
+    return undefined;
+  return `https://github.com/${repository}/actions/runs/${githubRunId}`;
+}
+
 function safeText(value: string): string {
   return value
     .replace(/\b(?:https?|ftp):\/\/[^\s<>"'`]+/gi, "[external URL omitted]")
@@ -152,6 +164,7 @@ function renderPublicationHeader(
   mark: string,
   blockers: number,
   advisories: number,
+  runUrl: string | undefined,
 ): string[] {
   return [
     "<!-- seqlane-code-review -->",
@@ -170,6 +183,9 @@ function renderPublicationHeader(
           "**") +
       (advisories === 0 ? "" : " · **" + advisories + " advisories**"),
     "Static review of " + mark + report.headRevision.slice(0, 8) + mark,
+    ...(runUrl === undefined
+      ? []
+      : ["[View GitHub Actions run](" + runUrl + ")"]),
     "",
     safeText(shortenUtf8(report.summary, 2_000)),
     "",
@@ -237,8 +253,16 @@ function renderPublicationBody(
     (finding) =>
       active(finding.status) && finding.effectiveSeverity === "optional",
   ).length;
+  const runUrl = githubActionsRunUrl(report.repository, githubRunId);
   return [
-    ...renderPublicationHeader(report, metadata, mark, blockers, advisories),
+    ...renderPublicationHeader(
+      report,
+      metadata,
+      mark,
+      blockers,
+      advisories,
+      runUrl,
+    ),
     ...renderFindingsSection(report, findings, options, mark),
     ...renderMetricsSection(ledger, fence),
     ...renderVerificationSection(report, options),
@@ -247,4 +271,4 @@ function renderPublicationBody(
   ].join("\n");
 }
 
-export { renderPublicationBody };
+export { githubActionsRunUrl, renderPublicationBody };

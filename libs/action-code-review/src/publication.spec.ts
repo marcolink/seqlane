@@ -257,6 +257,87 @@ describe("model-free publication", () => {
     expect(result.publication.body).toContain("metrics ledger was bounded");
   });
 
+  it("links the visible report header to the GitHub Actions run", () => {
+    const result = derivePublication({
+      report: {
+        repository: "owner/repository",
+        baseBranch: "main",
+        baseRevision: "a".repeat(40),
+        overallRating: 5,
+        verdict: "approve",
+        summary: "ok",
+        ratings: [
+          "correctness",
+          "readability",
+          "architecture",
+          "security",
+          "performance",
+        ].map((axis) => ({
+          axis: axis as "correctness",
+          rating: 5,
+          rationale: "ok",
+        })),
+        findings: [],
+        verification: [],
+        headRevision: "a".repeat(40),
+        pullRequestNumber: 1,
+        nextFindingIndex: 1,
+        limitations: [],
+        stateTruncated: false,
+        runMetricsLedger: { schemaVersion: 1, runs: [] },
+      },
+      runId: "run-1",
+      githubRunId: "123",
+      events: [],
+    });
+    expect(result.publication.body).toContain(
+      "[View GitHub Actions run](https://github.com/owner/repository/actions/runs/123)",
+    );
+  });
+
+  it("omits a report run link for malformed repository or run id", () => {
+    const baseReport = {
+      repository: "owner/repository",
+      baseBranch: "main",
+      baseRevision: "a".repeat(40),
+      overallRating: 5,
+      verdict: "approve" as const,
+      summary: "ok",
+      ratings: [
+        "correctness",
+        "readability",
+        "architecture",
+        "security",
+        "performance",
+      ].map((axis) => ({
+        axis: axis as "correctness",
+        rating: 5,
+        rationale: "ok",
+      })),
+      findings: [],
+      verification: [],
+      headRevision: "a".repeat(40),
+      pullRequestNumber: 1,
+      nextFindingIndex: 1,
+      limitations: [],
+      stateTruncated: false,
+      runMetricsLedger: { schemaVersion: 1 as const, runs: [] },
+    };
+    for (const snapshot of [
+      { report: baseReport, runId: "run-1", githubRunId: "0", events: [] },
+      {
+        report: { ...baseReport, repository: "owner/evil repo" },
+        runId: "run-1",
+        githubRunId: "123",
+        events: [],
+      },
+    ]) {
+      expect(derivePublication(snapshot).publication.body).not.toContain(
+        "https://github.com/",
+      );
+    }
+  });
+
   it("rejects malformed or unbounded publication snapshots", () => {
     const base = {
       report: {

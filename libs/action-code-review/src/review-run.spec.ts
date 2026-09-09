@@ -172,7 +172,50 @@ describe("runCodeReview", () => {
     const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
     const github = createGithubPort(true, { id: "report-1", body: marker });
     const started: string[] = [];
-    const result = await runCodeReview(request, {
+    const result = await runCodeReview(
+      { ...request, githubRunId: "123" },
+      {
+        github,
+        runWorkflow: createRunner([
+          { status: "succeeded", result: {} },
+          {
+            status: "succeeded",
+            result: {
+              status: "published",
+              publication: {
+                verdict: "approve",
+                reviewedRevision: headRevision,
+                body: "published report",
+              },
+            },
+          },
+        ]),
+        onRunStarted: ({ runId }) => {
+          started.push(runId);
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "published",
+      runId: "review-run",
+      verdict: "approve",
+    });
+    expect(started).toEqual(["review-run"]);
+    expect(github.updates).toHaveLength(2);
+    expect(github.updates[0]).toContain(
+      "<!-- seqlane-review-in-progress-run: review-run -->",
+    );
+    expect(github.updates[0]).toContain(
+      "[View GitHub Actions run](https://github.com/owner/repository/actions/runs/123)",
+    );
+    expect(github.updates[1]).toBe(`\n${marker}`);
+  });
+
+  it("omits the run link when the GitHub run id is absent or unsafe", async () => {
+    const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
+    const github = createGithubPort(true, { id: "report-1", body: marker });
+    await runCodeReview(request, {
       github,
       runWorkflow: createRunner([
         { status: "succeeded", result: {} },
@@ -188,22 +231,34 @@ describe("runCodeReview", () => {
           },
         },
       ]),
-      onRunStarted: ({ runId }) => {
-        started.push(runId);
-      },
     });
+    expect(github.updates[0]).not.toContain("https://github.com/");
 
-    expect(result).toMatchObject({
-      status: "published",
-      runId: "review-run",
-      verdict: "approve",
+    const unsafeGithub = createGithubPort(true, {
+      id: "report-1",
+      body: marker,
     });
-    expect(started).toEqual(["review-run"]);
-    expect(github.updates).toHaveLength(2);
-    expect(github.updates[0]).toContain(
-      "<!-- seqlane-review-in-progress-run: review-run -->",
+    await runCodeReview(
+      { ...request, githubRunId: "123\n[evil](https://evil.example)" },
+      {
+        github: unsafeGithub,
+        runWorkflow: createRunner([
+          { status: "succeeded", result: {} },
+          {
+            status: "succeeded",
+            result: {
+              status: "published",
+              publication: {
+                verdict: "approve",
+                reviewedRevision: headRevision,
+                body: "published report",
+              },
+            },
+          },
+        ]),
+      },
     );
-    expect(github.updates[1]).toBe(`\n${marker}`);
+    expect(unsafeGithub.updates[0]).not.toContain("https://github.com/");
   });
 
   it("forwards safe review lifecycle progress from runtime events", async () => {
