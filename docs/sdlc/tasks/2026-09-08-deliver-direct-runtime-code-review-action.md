@@ -168,6 +168,16 @@ also blocked by existing strict-fixture errors in untouched portions of the
 code-review and merge-conflict test suites. The migration-local type errors
 found during that run were corrected before this record was updated.
 
+Follow-up review hardening is committed in `83efda7`
+(`refactor(runtime): share direct-run internals`) and `345ed06`
+(`fix(actions): harden review publication`). The runtime now owns the shared
+agent-work and runtime-profile helpers. The Action validates repository input
+with a schema, rejects malformed GitHub metadata, bounds disposition history,
+validates frozen publication data, preserves newer same-head reports, and
+keeps rendered reports within the publication limit. Focused test mapping,
+runtime tests, Action-library tests, Action typecheck, bundle smoke and drift,
+and SDLC validation passed after those commits.
+
 ## Traceability
 
 - [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-code-review-action.md)
