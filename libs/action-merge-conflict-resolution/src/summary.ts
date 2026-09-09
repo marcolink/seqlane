@@ -50,9 +50,7 @@ export function compactBoundedText(
   maximumLength = MAX_SUMMARY_TEXT,
 ): string {
   return truncateText(
-    sanitizeControlCharacters(redactText(value))
-      .replace(/\s+/g, " ")
-      .trim(),
+    sanitizeControlCharacters(redactText(value)).replace(/\s+/g, " ").trim(),
     maximumLength,
   );
 }
