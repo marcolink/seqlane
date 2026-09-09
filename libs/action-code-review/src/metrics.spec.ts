@@ -19,7 +19,7 @@ describe("review metrics", () => {
       { type: "run.started", workId: "w", runId: "r" },
       { type: "invocation.created", workId: "w", runId: "r", invocationId: "i", planNodeId: "p", subject: { type: "task", taskId: "t" }, kind: "task", label: "Review", siblingOrder: 0, dependencyIds: [], taskId: "t" },
       { type: "invocation.output", workId: "w", runId: "r", invocationId: "i", policy: "persistent", channel: "task", content: "", metrics: { durationMs: 300, modelSelection: { model: { provider: "openai", model: "gpt-5.6-luna" } } } },
-      { type: "invocation.succeeded", workId: "w", runId: "r", invocationId: "i", taskId: "t", subject: { type: "task", taskId: "t" } },
+      { type: "invocation.succeeded", workId: "w", runId: "r", invocationId: "i" },
       { type: "run.succeeded", workId: "w", runId: "r", output: null },
     ], "r");
     expect(metrics.tasks).toHaveLength(1);

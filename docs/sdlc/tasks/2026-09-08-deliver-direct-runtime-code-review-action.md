@@ -1,11 +1,11 @@
 ---
 id: task.deliver-direct-runtime-code-review-action
 title: Deliver the Direct-Runtime Code-Review Action
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - spec.direct-runtime-code-review-action
   - spec.versioned-pull-request-review-comments
@@ -146,7 +146,27 @@ the current review behavior and active review-comment contract.
 
 ## Outcome
 
-Not started. This task is planned for implementation.
+Implemented and committed the local migration in three reviewable slices:
+
+- `28da36c` documents the accepted ADR, active specification, and delivery
+  task.
+- `130a75b` adds the direct `startWorkflowRun` runtime service and makes the
+  runner adapter delegate shared execution to it.
+- `4cfab69` adds the bundled Node 24 code-review Action, the private review
+  and publication workflows, trusted GitHub ports, Action post cleanup, and
+  workflow migration.
+
+The direct Action path, runner compatibility tests, Action bundle smoke and
+drift checks, and focused test mapping checks passed locally. The required
+GitHub-hosted manual workflow proof remains pending because this branch has
+not been pushed or dispatched.
+
+The full repository test run reached and passed the new runtime and Action
+projects, but stopped on the pre-existing
+`actions/resolve-merge-conflicts` bundle-drift check. The full typecheck is
+also blocked by existing strict-fixture errors in untouched portions of the
+code-review and merge-conflict test suites. The migration-local type errors
+found during that run were corrected before this record was updated.
 
 ## Traceability
 

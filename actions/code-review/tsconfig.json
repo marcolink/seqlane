@@ -2,5 +2,15 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "outDir": "dist", "rootDir": "src", "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo", "types": ["node"], "emitDeclarationOnly": false },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../../libs/action-code-review" }, { "path": "../../libs/seqlane-runtime" }]
+  "references": [
+    {
+      "path": "../../libs/seqlane-runtime"
+    },
+    {
+      "path": "../../libs/seqlane-core"
+    },
+    {
+      "path": "../../libs/action-code-review"
+    }
+  ]
 }

@@ -112,6 +112,8 @@ describe("seqlane runner entry point", () => {
       cancellationRequested: false,
       abortController: controller,
       activeRun: {
+        workId: "work-id",
+        runId: "run-id",
         outcome: Promise.resolve({ status: "cancelled" }),
         cancel: async () => {
           cancellations += 1;

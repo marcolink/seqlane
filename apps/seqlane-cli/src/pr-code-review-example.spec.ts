@@ -2,7 +2,7 @@
 
 import { gzipSync } from "node:zlib";
 import { readFile } from "node:fs/promises";
-import { buildWorkflow } from "@seqlane/core";
+import { buildWorkflow, type SeqlaneEvent } from "@seqlane/core";
 import { deriveRunMetrics } from "@seqlane/action-code-review";
 import { describe, expect, it } from "vitest";
 
@@ -273,36 +273,41 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("does not attribute paid mixed-identity metrics to the selected model", async () => {
-    const workflow = await readFile(
-      new URL(
-        "../../../.github/workflows/seqlane-code-review.yml",
-        import.meta.url,
-      ),
-      "utf8",
-    );
     const events = [
       {
         type: "run.started",
+        workId: "work-1",
         runId: "run-1",
-        metadata: { occurredAt: "2026-09-07T10:00:00Z" },
       },
       {
         type: "invocation.created",
+        workId: "work-1",
+        runId: "run-1",
         invocationId: "task-1",
+        planNodeId: "task-node-1",
+        subject: { type: "task", taskId: "review" },
         taskId: "review",
         kind: "task",
         label: "Review",
-        metadata: { occurredAt: "2026-09-07T10:00:01Z" },
+        siblingOrder: 0,
+        dependencyIds: [],
       },
       {
         type: "invocation.started",
+        workId: "work-1",
+        runId: "run-1",
         invocationId: "task-1",
-        metadata: { occurredAt: "2026-09-07T10:00:01Z" },
+        subject: { type: "task", taskId: "review" },
+        taskId: "review",
       },
       {
         type: "invocation.output",
+        workId: "work-1",
+        runId: "run-1",
         invocationId: "task-1",
+        policy: "persistent",
         channel: "task",
+        content: "",
         metrics: {
           durationMs: 300,
           cost: 0.01,
@@ -318,19 +323,20 @@ describe("pull-request code review example workflow", () => {
             model: { provider: "openai", model: "gpt-5.6-luna" },
           },
         },
-        metadata: { occurredAt: "2026-09-07T10:00:02Z" },
       },
       {
         type: "invocation.succeeded",
+        workId: "work-1",
+        runId: "run-1",
         invocationId: "task-1",
-        metadata: { occurredAt: "2026-09-07T10:00:02Z" },
       },
       {
         type: "run.succeeded",
+        workId: "work-1",
         runId: "run-1",
-        metadata: { occurredAt: "2026-09-07T10:00:03Z" },
+        output: null,
       },
-    ];
+    ] satisfies SeqlaneEvent[];
     const metrics = deriveRunMetrics(events, "run-1");
 
     expect(metrics.tasks).toHaveLength(1);
@@ -340,50 +346,53 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("does not attribute duration-only metrics to the selected model", async () => {
-    const workflow = await readFile(
-      new URL(
-        "../../../.github/workflows/seqlane-code-review.yml",
-        import.meta.url,
-      ),
-      "utf8",
-    );
     const events = [
       {
         type: "run.started",
+        workId: "work-1",
         runId: "run-1",
-        metadata: { occurredAt: "2026-09-07T10:00:00Z" },
       },
       {
         type: "invocation.created",
+        workId: "work-1",
+        runId: "run-1",
         invocationId: "task-1",
+        planNodeId: "task-node-1",
+        subject: { type: "task", taskId: "review" },
         taskId: "review",
         kind: "task",
         label: "Review",
-        metadata: { occurredAt: "2026-09-07T10:00:01Z" },
+        siblingOrder: 0,
+        dependencyIds: [],
       },
       {
         type: "invocation.output",
+        workId: "work-1",
+        runId: "run-1",
         invocationId: "task-1",
+        policy: "persistent",
         channel: "task",
+        content: "",
         metrics: {
           durationMs: 300,
           modelSelection: {
             model: { provider: "openai", model: "gpt-5.6-luna" },
           },
         },
-        metadata: { occurredAt: "2026-09-07T10:00:02Z" },
       },
       {
         type: "invocation.succeeded",
+        workId: "work-1",
+        runId: "run-1",
         invocationId: "task-1",
-        metadata: { occurredAt: "2026-09-07T10:00:02Z" },
       },
       {
         type: "run.succeeded",
+        workId: "work-1",
         runId: "run-1",
-        metadata: { occurredAt: "2026-09-07T10:00:03Z" },
+        output: null,
       },
-    ];
+    ] satisfies SeqlaneEvent[];
     const metrics = deriveRunMetrics(events, "run-1");
 
     expect(metrics.tasks).toHaveLength(1);
@@ -393,13 +402,6 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("treats a missing progress comment as cleared without weakening safeguards", async () => {
-    const workflow = await readFile(
-      new URL(
-        "../../../.github/workflows/seqlane-code-review.yml",
-        import.meta.url,
-      ),
-      "utf8",
-    );
     const post = await readFile(
       new URL("../../../actions/code-review/src/post.ts", import.meta.url),
       "utf8",
