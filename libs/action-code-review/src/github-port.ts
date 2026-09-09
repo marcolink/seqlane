@@ -16,43 +16,11 @@ export interface GitHubReviewPort {
   readLivePullRequest(number: number): Promise<LivePullRequest>;
   readComments(number: number): Promise<ReviewHistory>;
   readAuthoritativeReport(number: number): Promise<ReviewComment | undefined>;
-  /** Reads a comment together with the server version used for compare-and-write. */
-  readIssueCommentVersioned(
-    commentId: string,
-  ): Promise<VersionedReviewComment | undefined>;
-  readAuthoritativeReportVersioned(
-    number: number,
-  ): Promise<AuthoritativeReportVersion | undefined>;
   readIssueComment(commentId: string): Promise<ReviewComment>;
   createReport(number: number, body: string): Promise<void>;
-  createReportIfAbsent(
-    number: number,
-    body: string,
-  ): Promise<ConditionalWriteResult>;
   updateReport(commentId: string, body: string): Promise<void>;
-  updateReportIfUnchanged(
-    commentId: string,
-    body: string,
-    version: string,
-  ): Promise<ConditionalWriteResult>;
   deleteComment(commentId: string): Promise<void>;
 }
-
-export type ConditionalWriteResult = "written" | "stale";
-
-export interface VersionedReviewComment {
-  readonly comment: ReviewComment;
-  /** A strong GitHub ETag, suitable for an If-Match request. */
-  readonly version: string;
-}
-
-export interface UnversionedReviewComment {
-  readonly comment: ReviewComment;
-  readonly versionUnavailable: true;
-}
-
-export type AuthoritativeReportVersion =
-  VersionedReviewComment | UnversionedReviewComment;
 
 const TRUSTED_REPORT_AUTHORS = new Set([
   "github-actions",
@@ -179,23 +147,8 @@ export interface GitHubReviewClient {
   listIssueComments(number: number, page?: number): Promise<unknown>;
   listReviewComments(number: number, page?: number): Promise<unknown>;
   getIssueComment(commentId: string): Promise<unknown>;
-  /** Returns the comment data and an optional strong ETag. */
-  getIssueCommentWithVersion?: (
-    commentId: string,
-  ) => Promise<{ readonly data: unknown; readonly etag?: string }>;
   createIssueComment(number: number, body: string): Promise<unknown>;
-  /** Sends If-None-Match: * (or an equivalent server-side conditional request). */
-  createIssueCommentIfAbsent?: (
-    number: number,
-    body: string,
-  ) => Promise<unknown>;
   updateIssueComment(commentId: string, body: string): Promise<unknown>;
-  /** Sends If-Match with the ETag returned by getIssueCommentWithVersion. */
-  updateIssueCommentIfUnchanged?: (
-    commentId: string,
-    body: string,
-    version: string,
-  ) => Promise<unknown>;
   deleteIssueComment(commentId: string): Promise<unknown>;
 }
 
@@ -293,12 +246,6 @@ function githubError(
   cause?: unknown,
 ): CodeReviewError {
   return new CodeReviewError("github", code, message, { cause });
-}
-
-function isPreconditionFailure(cause: unknown): boolean {
-  if (typeof cause !== "object" || cause === null) return false;
-  const status = (cause as { readonly status?: unknown }).status;
-  return status === 409 || status === 412;
 }
 
 export class GitHubReviewAdapter implements GitHubReviewPort {
@@ -442,61 +389,6 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
     return findAuthoritativeReport(await this.readComments(number));
   }
 
-  async readIssueCommentVersioned(
-    commentId: string,
-  ): Promise<VersionedReviewComment | undefined> {
-    if (this.client.getIssueCommentWithVersion === undefined) return undefined;
-    try {
-      const response = await this.client.getIssueCommentWithVersion(commentId);
-      if (typeof response !== "object" || response === null) {
-        throw githubError(
-          "MALFORMED_COMMENT",
-          "GitHub returned a malformed comment.",
-        );
-      }
-      if (typeof response.data !== "object" || response.data === null) {
-        throw githubError(
-          "MALFORMED_COMMENT",
-          "GitHub returned a malformed comment.",
-        );
-      }
-      const comment = normalizeComment(response.data, "issue");
-      if (
-        typeof response.etag !== "string" ||
-        response.etag.length === 0 ||
-        response.etag.startsWith("W/")
-      )
-        return undefined;
-      return {
-        comment,
-        version: response.etag,
-      };
-    } catch (cause) {
-      if (cause instanceof CodeReviewError) throw cause;
-      throw githubError(
-        "COMMENT_VERSION_READ_FAILED",
-        "Could not read the review comment version.",
-        cause,
-      );
-    }
-  }
-
-  async readAuthoritativeReportVersioned(
-    number: number,
-  ): Promise<AuthoritativeReportVersion | undefined> {
-    const report = await this.readAuthoritativeReport(number);
-    if (report === undefined) return undefined;
-    // Re-read the selected comment so the version belongs to the exact body
-    // that will be checked by the publication guard.
-    const versioned = await this.readIssueCommentVersioned(report.id);
-    return (
-      versioned ?? {
-        comment: report,
-        versionUnavailable: true,
-      }
-    );
-  }
-
   async readIssueComment(commentId: string): Promise<ReviewComment> {
     try {
       const value = await this.client.getIssueComment(commentId);
@@ -529,47 +421,10 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
     }
   }
 
-  async createReportIfAbsent(
-    number: number,
-    body: string,
-  ): Promise<ConditionalWriteResult> {
-    if (this.client.createIssueCommentIfAbsent === undefined) return "stale";
-    try {
-      await this.client.createIssueCommentIfAbsent(number, body);
-      return "written";
-    } catch (cause) {
-      if (isPreconditionFailure(cause)) return "stale";
-      throw githubError(
-        "REPORT_CREATE_FAILED",
-        "Could not publish the review report.",
-        cause,
-      );
-    }
-  }
-
   async updateReport(commentId: string, body: string): Promise<void> {
     try {
       await this.client.updateIssueComment(commentId, body);
     } catch (cause) {
-      throw githubError(
-        "REPORT_UPDATE_FAILED",
-        "Could not update the review report.",
-        cause,
-      );
-    }
-  }
-
-  async updateReportIfUnchanged(
-    commentId: string,
-    body: string,
-    version: string,
-  ): Promise<ConditionalWriteResult> {
-    if (this.client.updateIssueCommentIfUnchanged === undefined) return "stale";
-    try {
-      await this.client.updateIssueCommentIfUnchanged(commentId, body, version);
-      return "written";
-    } catch (cause) {
-      if (isPreconditionFailure(cause)) return "stale";
       throw githubError(
         "REPORT_UPDATE_FAILED",
         "Could not update the review report.",

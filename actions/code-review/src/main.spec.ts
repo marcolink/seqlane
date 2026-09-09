@@ -2,14 +2,11 @@
 import { describe, expect, it } from "vitest";
 import { createIssueCommentMethods, type GitHubClient } from "./main.js";
 
-function createClient(
-  calls: {
-    readonly get: unknown[];
-    readonly create: unknown[];
-    readonly update: unknown[];
-  },
-  etag = '"v1"',
-): GitHubClient {
+function createClient(calls: {
+  readonly get: unknown[];
+  readonly create: unknown[];
+  readonly update: unknown[];
+}): GitHubClient {
   return {
     rest: {
       issues: {
@@ -17,7 +14,6 @@ function createClient(
           calls.get.push(request);
           return {
             data: { id: 1, body: "report" },
-            headers: { etag },
           };
         },
         createComment: async (request: unknown) => {
@@ -35,7 +31,7 @@ function createClient(
 }
 
 describe("code-review GitHub adapter", () => {
-  it("retains ETags and sends conditional comment mutations", async () => {
+  it("uses ordinary comment mutations behind workflow serialization", async () => {
     const calls: { get: unknown[]; create: unknown[]; update: unknown[] } = {
       get: [],
       create: [],
@@ -47,12 +43,9 @@ describe("code-review GitHub adapter", () => {
       "repo",
     );
 
-    await expect(methods.getIssueCommentWithVersion("1")).resolves.toEqual({
-      data: { id: 1, body: "report" },
-      etag: '"v1"',
-    });
-    await methods.createIssueCommentIfAbsent(83, "new report");
-    await methods.updateIssueCommentIfUnchanged("1", "updated", '"v1"');
+    await methods.getIssueComment("1");
+    await methods.createIssueComment(83, "new report");
+    await methods.updateIssueComment("1", "updated");
 
     expect(calls.create).toEqual([
       {
@@ -60,7 +53,6 @@ describe("code-review GitHub adapter", () => {
         repo: "repo",
         issue_number: 83,
         body: "new report",
-        headers: { "If-None-Match": "*" },
       },
     ]);
     expect(calls.update).toEqual([
@@ -69,21 +61,19 @@ describe("code-review GitHub adapter", () => {
         repo: "repo",
         comment_id: 1,
         body: "updated",
-        headers: { "If-Match": '"v1"' },
       },
     ]);
   });
 
-  it("reports a versioned read without a strong ETag as unavailable", async () => {
-    const client = createClient(
-      { get: [], create: [], update: [] },
-      'W/"weak"',
+  it("does not expose ETag-dependent comment operations", () => {
+    const methods = createIssueCommentMethods(
+      createClient({ get: [], create: [], update: [] }),
+      "owner",
+      "repo",
     );
-    const methods = createIssueCommentMethods(client, "owner", "repo");
 
-    await expect(methods.getIssueCommentWithVersion("1")).resolves.toEqual({
-      data: { id: 1, body: "report" },
-      etag: undefined,
-    });
+    expect(methods).not.toHaveProperty("getIssueCommentWithVersion");
+    expect(methods).not.toHaveProperty("createIssueCommentIfAbsent");
+    expect(methods).not.toHaveProperty("updateIssueCommentIfUnchanged");
   });
 });

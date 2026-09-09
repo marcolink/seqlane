@@ -49,36 +49,6 @@ function issueCommentRequest(
   return request().then((response) => response.data);
 }
 
-interface ConditionalGitHubReviewClient {
-  readonly getIssueCommentWithVersion: (
-    commentId: string,
-  ) => Promise<{ readonly data: unknown; readonly etag?: string }>;
-  readonly createIssueCommentIfAbsent: (
-    number: number,
-    body: string,
-  ) => Promise<unknown>;
-  readonly updateIssueCommentIfUnchanged: (
-    commentId: string,
-    body: string,
-    version: string,
-  ) => Promise<unknown>;
-}
-
-async function versionedIssueCommentRequest(
-  request: () => Promise<{
-    readonly data: unknown;
-    readonly headers?: { readonly etag?: string };
-  }>,
-): Promise<{ readonly data: unknown; readonly etag?: string }> {
-  const response = await request();
-  const etag = response.headers?.etag;
-  const strongEtag =
-    typeof etag === "string" && etag.length > 0 && !etag.startsWith("W/")
-      ? etag
-      : undefined;
-  return { data: response.data, etag: strongEtag };
-}
-
 export function createIssueCommentMethods(
   client: GitHubClient,
   owner: string,
@@ -89,19 +59,10 @@ export function createIssueCommentMethods(
   | "createIssueComment"
   | "updateIssueComment"
   | "deleteIssueComment"
-> &
-  ConditionalGitHubReviewClient {
+> {
   return {
     getIssueComment: (commentId) =>
       issueCommentRequest(() =>
-        client.rest.issues.getComment({
-          owner,
-          repo,
-          comment_id: Number(commentId),
-        }),
-      ),
-    getIssueCommentWithVersion: (commentId) =>
-      versionedIssueCommentRequest(() =>
         client.rest.issues.getComment({
           owner,
           repo,
@@ -117,16 +78,6 @@ export function createIssueCommentMethods(
           body,
         }),
       ),
-    createIssueCommentIfAbsent: (number, body) =>
-      issueCommentRequest(() =>
-        client.rest.issues.createComment({
-          owner,
-          repo,
-          issue_number: number,
-          body,
-          headers: { "If-None-Match": "*" },
-        }),
-      ),
     updateIssueComment: (commentId, body) =>
       issueCommentRequest(() =>
         client.rest.issues.updateComment({
@@ -134,16 +85,6 @@ export function createIssueCommentMethods(
           repo,
           comment_id: Number(commentId),
           body,
-        }),
-      ),
-    updateIssueCommentIfUnchanged: (commentId, body, version) =>
-      issueCommentRequest(() =>
-        client.rest.issues.updateComment({
-          owner,
-          repo,
-          comment_id: Number(commentId),
-          body,
-          headers: { "If-Match": version },
         }),
       ),
     deleteIssueComment: (commentId) =>

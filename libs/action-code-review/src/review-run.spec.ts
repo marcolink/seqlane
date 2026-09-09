@@ -28,7 +28,6 @@ const request: CodeReviewRunRequest = {
 function createGithubPort(
   live: boolean,
   initialReport?: { readonly id: string; readonly body: string },
-  versionUnavailable = false,
 ): GitHubReviewPort & { readonly updates: string[] } {
   let report =
     initialReport === undefined
@@ -37,7 +36,6 @@ function createGithubPort(
           id: initialReport.id,
           body: initialReport.body,
         };
-  let version = 1;
   const updates: string[] = [];
   return {
     updates,
@@ -73,21 +71,16 @@ function createGithubPort(
             ],
       truncated: false,
     }),
-    readAuthoritativeReport: async () => undefined,
-    readAuthoritativeReportVersioned: async () => undefined,
-    readIssueCommentVersioned: async () =>
-      versionUnavailable
+    readAuthoritativeReport: async () =>
+      report === undefined
         ? undefined
         : {
-            comment: {
-              id: report!.id,
-              kind: "issue" as const,
-              author: "github-actions[bot]",
-              authorAssociation: "OWNER",
-              body: report!.body,
-              createdAt: "2026-09-09T00:00:00.000Z",
-            },
-            version: `"etag-${version}"`,
+            id: report.id,
+            kind: "issue" as const,
+            author: "github-actions[bot]",
+            authorAssociation: "OWNER",
+            body: report.body,
+            createdAt: "2026-09-09T00:00:00.000Z",
           },
     readIssueComment: async () => ({
       id: report!.id,
@@ -100,20 +93,9 @@ function createGithubPort(
     createReport: async (_number, body) => {
       updates.push(body);
     },
-    createReportIfAbsent: async (_number, body) => {
-      updates.push(body);
-      return "written" as const;
-    },
     updateReport: async (_id, body) => {
       updates.push(body);
       if (report !== undefined) report = { ...report, body };
-    },
-    updateReportIfUnchanged: async (_id, body, expectedVersion) => {
-      if (expectedVersion !== `"etag-${version}"`) return "stale" as const;
-      updates.push(body);
-      version += 1;
-      if (report !== undefined) report = { ...report, body };
-      return "written" as const;
     },
     deleteComment: async () => undefined,
   };
@@ -182,32 +164,9 @@ describe("runCodeReview", () => {
     expect(result).toEqual({ status: "stale" });
   });
 
-  it("does not overwrite a marker when a competing write wins the version check", async () => {
+  it("updates an existing report without an ETag", async () => {
     const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
     const github = createGithubPort(true, { id: "report-1", body: marker });
-    let conditionalWrites = 0;
-    github.updateReportIfUnchanged = async () => {
-      conditionalWrites += 1;
-      return "stale";
-    };
-
-    const result = await runCodeReview(request, {
-      github,
-      runWorkflow: createRunner([{ status: "succeeded", result: {} }]),
-    });
-
-    expect(result).toEqual({ status: "stale", runId: "review-run" });
-    expect(conditionalWrites).toBe(1);
-    expect(github.updates).toHaveLength(0);
-  });
-
-  it("continues safely without marker writes when the report has no strong ETag", async () => {
-    const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
-    const github = createGithubPort(
-      true,
-      { id: "report-1", body: marker },
-      true,
-    );
 
     const result = await runCodeReview(request, {
       github,
@@ -231,7 +190,7 @@ describe("runCodeReview", () => {
       status: "published",
       runId: "review-run",
     });
-    expect(github.updates).toEqual([]);
+    expect(github.updates).toHaveLength(2);
   });
 
   it("clears only the trusted run marker after publication", async () => {
