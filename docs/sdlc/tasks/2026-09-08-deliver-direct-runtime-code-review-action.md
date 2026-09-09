@@ -148,11 +148,11 @@ the current review behavior and active review-comment contract.
 
 Implemented and committed the local migration in three reviewable slices:
 
-- `28da36c` documents the accepted ADR, active specification, and delivery
+- `8d7075a` documents the accepted ADR, active specification, and delivery
   task.
-- `130a75b` adds the direct `startWorkflowRun` runtime service and makes the
+- `cdc9194` adds the direct `startWorkflowRun` runtime service and makes the
   runner adapter delegate shared execution to it.
-- `4cfab69` adds the bundled Node 24 code-review Action, the private review
+- `b833297` adds the bundled Node 24 code-review Action, the private review
   and publication workflows, trusted GitHub ports, Action post cleanup, and
   workflow migration.
 
