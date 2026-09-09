@@ -45,7 +45,8 @@ authoring, Plan IR, and consumer-agnostic event specifications.
   persistence, or generic conditional nodes.
 - Adding a new concurrency feature or changing the active admission policy.
 - Deleting Studio, recording, or replay.
-- Redefining active session, model, local-task, admission, or runner policy.
+- Changing active session, model, admission, or runner semantics beyond making
+  workspace and session explicit invocation policy.
 - Creating a generic replacement event bus or a new public protocol package.
 
 ## Terminology
@@ -72,13 +73,13 @@ authoring, Plan IR, and consumer-agnostic event specifications.
 output fields must be Zod schemas. The public type must infer input and output
 types from those schemas.
 
-`defineAgentTask` and `defineShellTask` must return the same task contract.
-Each specialized factory must provide its own `execute` implementation. A
-caller must not pass `execute` to a specialized factory.
+`defineAgentTask` and `defineShellTask` are convenience factories that return
+that same task contract. Each factory provides its own `execute`
+implementation. A caller must not pass `execute` to a specialized factory.
 
-Specialized factories must express Seqlane capabilities. They must not expose
-Mastra, OpenCode, provider, client, connection, or other executor product
-types.
+Specialized factories must be executor-neutral convenience constructors. They
+must not expose Mastra, OpenCode, provider, client, connection, or other
+executor product types.
 
 The foundational execution shape is:
 
@@ -87,6 +88,7 @@ type TaskExecute<InputSchema extends z.ZodType, OutputSchema extends z.ZodType> 
   (request: {
     readonly input: z.output<InputSchema>;
     readonly signal: AbortSignal;
+    readonly context: TaskContext;
   }) => Promise<z.input<OutputSchema>>;
 ```
 
@@ -94,8 +96,16 @@ The runtime parses input before `execute`. It parses the returned value with
 the output schema. The successful task result has type
 `z.output<OutputSchema>`.
 
-A specialized return type can carry Seqlane capability metadata for policy
-validation. This metadata must not select or configure an executor product.
+`TaskContext` is runtime-owned and executor-neutral. It provides a direct
+executable-plus-argv process operation and an agent operation without exposing
+Mastra, OpenCode, provider, client, or connection types. A task can call either
+operation. The context is bound to the invocation's admitted workspace and,
+when declared, its session policy.
+
+The factories do not create separate task types or execution discriminators.
+They close over their authoring input and produce ordinary `TaskDefinition`
+values. A caller can use `defineTask` directly to combine deterministic code
+with the same runtime context operations.
 
 ### REQ-TASK-002: Use one workflow authoring API
 
@@ -139,8 +149,10 @@ Admission wait after dependencies become ready must be observable. Session
 reuse, branching, ordering, and workspace identity must follow the active
 policy and session specifications.
 
-All runnable invocations can declare workspace policy. Only a session-capable
-task invocation can declare session policy. A nested workflow retains its
+All runnable invocations can declare workspace policy. A task invocation can
+declare session policy. The runtime resolves that policy before execution and
+binds `TaskContext.runAgent()` to the resulting session. A task that does not
+call `runAgent()` does not use the session. A nested workflow retains its
 internal policies and does not receive a synthetic session.
 
 ### REQ-RUNTIME-001: Compile behind a private boundary
@@ -339,10 +351,15 @@ const agentTask = defineAgentTask({
   goal: ({ prompt }) => `Inspect: ${prompt}`,
 });
 
+const shellTaskResultSchema = z.object({
+  exitCode: z.number().int(),
+  stdout: z.string(),
+  stderr: z.string(),
+});
+
 const shellTask = defineShellTask({
   id: "format-change",
   input: z.object({ file: z.string() }),
-  output: z.object({ code: z.number() }),
   executable: "format",
   argv: ({ input }) => ["--file", input.file],
 });
@@ -350,7 +367,7 @@ const shellTask = defineShellTask({
 const review = createFlow({
   id: "review",
   input: z.object({ prompt: z.string() }),
-  output: z.object({ code: z.number() }),
+  output: shellTaskResultSchema,
 })
   .task("inspect", agentTask, ({ input }) => ({ prompt: input.prompt }), {
     session: { type: "isolated" },
@@ -365,7 +382,7 @@ const review = createFlow({
 const parent = createFlow({
   id: "parent",
   input: z.object({ prompt: z.string() }),
-  output: z.object({ code: z.number() }),
+  output: shellTaskResultSchema,
 })
   .task("child", review, ({ input }) => ({ prompt: input.prompt }))
   .output(({ tasks }) => tasks.child.output)
@@ -406,7 +423,11 @@ attempt, session, workspace, admission, outcome, and error data.
 ### Shell task boundary
 
 `defineShellTask` accepts an executable and a function that returns an ordered
-argv array. The runtime passes both values directly to the process API with
+argv array. It owns the canonical `shellTaskResultSchema` output contract:
+`{ exitCode, stdout, stderr }`. A process that starts, terminates, and produces
+that result is a successful task execution regardless of its exit code. A
+later task or validation gate can apply workflow-specific exit-code policy.
+The runtime passes the executable and argv directly to the process API with
 `shell: false`. It never joins argv values into a command string or parses a
 workflow value as shell syntax.
 
@@ -416,8 +437,8 @@ runtime also owns a finite timeout and bounded stdout and stderr limits. On
 timeout or cancellation, it terminates the process group and confirms
 termination before it releases the workspace lease. Spawn, timeout, output,
 cancellation, and termination failures use typed errors with a preserved
-cause. A non-zero exit stays in the validated shell task result. The task or
-its output schema decides whether that result is acceptable.
+cause. A non-zero exit stays in the validated shell task result. A later task
+or validation gate decides whether that result is acceptable.
 
 The shell contract requires tests for hostile values in each argv element,
 argument-boundary preservation, shell metacharacters, output limits,

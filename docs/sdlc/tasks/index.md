@@ -207,16 +207,16 @@
 | [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |
 | [task.harden-seqlane-action-push-and-cleanup](./2026-09-07-harden-seqlane-action-push-and-cleanup.md) | Harden Seqlane Action Push and Cleanup | completed | 2026-09-07 | core |
 | [task.seqlane-action-resolution-summaries](./2026-09-07-seqlane-action-resolution-summaries.md) | Publish Human-Readable Merge Resolution Summaries | completed | 2026-09-07 | core |
-| [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
-| [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
-| [task.propagate-mastra-observability-context](./2026-09-08-propagate-mastra-observability-context.md) | Propagate Per-Invocation Mastra Observability Context | completed | 2026-09-08 | core |
-| [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | completed | 2026-09-09 | core |
 | [task.add-mastra-observability](./2026-09-08-add-mastra-observability.md) | Add Mastra Observability | in-progress | 2026-09-08 | core |
 | [task.add-mastra-plan-compiler](./2026-09-08-add-mastra-plan-compiler.md) | Add the Mastra Plan Compiler | completed | 2026-09-08 | core |
 | [task.compose-workflows-as-runnables](./2026-09-08-compose-workflows-as-runnables.md) | Compose Workflows as Runnables | planned | 2026-09-08 | core |
 | [task.cut-over-to-mastra-runtime](./2026-09-08-cut-over-to-mastra-runtime.md) | Cut Over to the Mastra Runtime | completed | 2026-09-08 | core |
 | [task.migrate-execution-event-consumers](./2026-09-08-migrate-execution-event-consumers.md) | Migrate Execution Event Consumers | planned | 2026-09-08 | core |
+| [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
+| [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
+| [task.propagate-mastra-observability-context](./2026-09-08-propagate-mastra-observability-context.md) | Propagate Per-Invocation Mastra Observability Context | completed | 2026-09-08 | core |
 | [task.remove-seqlane-events](./2026-09-08-remove-seqlane-events.md) | Remove Seqlane Events | planned | 2026-09-08 | core |
 | [task.remove-effect-subprocess-runtime](./2026-09-08-remove-effect-subprocess-runtime.md) | Remove the Effect Subprocess Runtime | completed | 2026-09-08 | core |
 | [task.unify-flow-authoring-and-minimal-plan](./2026-09-08-unify-flow-authoring-and-minimal-plan.md) | Unify Flow Authoring and the Minimal Plan | planned | 2026-09-08 | core |
 | [task.unify-executable-task-contract](./2026-09-08-unify-executable-task-contract.md) | Unify the Executable Task Contract | planned | 2026-09-08 | core |
+| [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | completed | 2026-09-09 | core |

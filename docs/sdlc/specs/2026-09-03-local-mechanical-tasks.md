@@ -31,7 +31,9 @@ types use `LocalTaskDefinition`; that name does not imply a shell process.
 
 ## Normative terms
 
-- **Agent task:** A task from `defineAgentTask` that uses an agent capability.
+- **Agent factory:** `defineAgentTask` is a convenience factory that produces
+  an ordinary executable task whose implementation calls
+  `TaskContext.runAgent()`.
 - **In-process task:** A `defineTask` callback that executes in the Seqlane
   process. It can compute directly and can use `TaskContext.exec()` when it
   needs a process.
@@ -45,11 +47,12 @@ types use `LocalTaskDefinition`; that name does not imply a shell process.
 
 - Every completed task definition has the foundational `execute` contract.
 - Specialized factories supply `execute` and reject caller-supplied `execute`.
-- `createFlow().task()` composes agent, in-process, and shell tasks.
-- In-process task handles expose `output` and no `session` checkpoint.
-- An in-process task Plan node is JSON-safe and never serializes the callback.
-- In-process task execution does not resolve an agent executor, model, or session.
-- An in-process task uses the canonical runtime workspace as its current directory.
+- `createFlow().task()` composes all executable tasks through one task contract.
+- Session and workspace policy belong to the workflow invocation, not the task
+  definition.
+- A task Plan node is JSON-safe and never serializes the callback.
+- A task uses the invocation's admitted canonical runtime workspace as its
+  current directory.
 - A shell task runs one executable with direct argv and never parses a shell
   string.
 - A shell process must terminate before its task releases the workspace lease.
@@ -90,22 +93,17 @@ engine types.
 const gitStatus = defineShellTask({
   id: "git-status",
   input: z.object({}),
-  output: z.object({
-    exitCode: z.number(),
-    stdout: z.string(),
-    stderr: z.string(),
-  }),
-  workspace: "shared",
   executable: "git",
   argv: () => ["status", "--porcelain=v1"],
 });
 ```
 
-`defineShellTask` infers input and output types from the Zod schemas. Its input
-omits `execute`, `cwd`, environment values, and shell options. The factory
-supplies the foundational `execute` implementation and shell capability
-metadata. In-process and shell task handles expose output without a session
-checkpoint. Their invocation options omit `session`.
+`defineShellTask` infers its input type from its Zod input schema and returns
+the canonical `shellTaskResultSchema` output type: `{ exitCode, stdout,
+stderr }`. Its input omits `execute`, `cwd`, environment values, output
+transforms, and shell options. The factory supplies the foundational `execute`
+implementation. A non-zero exit code remains output data; a later task or
+validation gate decides what it means for the workflow.
 
 ## Plan and validation contracts
 
@@ -113,27 +111,24 @@ Task nodes keep `type: "task"`. The Plan stores `taskId`, `nodeId`, workspace
 policy, input, session policy when supported, and `dependsOn`. It does not store
 an execution discriminator, task definition, callback, or executable request.
 
-The in-memory registry keeps the executable definition and Seqlane capability
-metadata. Runtime validation rejects session policy for in-process and shell tasks.
-It also rejects nodes without a matching definition.
+The in-memory registry keeps executable definitions. Runtime validation applies
+declared workspace and session policy before calling `execute`; it also rejects
+nodes without a matching definition. The task's use of `TaskContext.exec()` or
+`TaskContext.runAgent()` does not create a separate Plan node kind.
 
 Repeat body contracts and Plan snapshots include in-process task nodes from the first
 delivery.
 
 ## Runtime contracts
 
-The in-process-task runtime path reuses existing binding resolution, schema parsing,
+The task runtime path reuses existing binding resolution, schema parsing,
 workspace admission, generic events, result retention, and typed invocation
-failure.
-
-The path does not call executor lookup, model preflight, session preflight, or
-checkpoint publication.
-
-The runtime provides `TaskContext.exec()` only during one in-process invocation. Its
-Mastra `LocalSandbox` implementation has one child process per call. The
-process uses the canonical workspace as `cwd`, the invocation signal for
-interruption, and bounded stream collection. A non-zero exit is returned to the
-in-process task. The task decides if that exit is an expected result or an error.
+failure. The runtime provides `TaskContext` only during one invocation. Its
+process operation has one child process per call and uses the canonical
+workspace as `cwd`, the invocation signal for interruption, and bounded stream
+collection. An agent operation uses the invocation's resolved session when one
+was declared. A non-zero exit is returned to the task. The task decides if that
+exit is an expected result or an error.
 
 The Mastra Plan compiler does not yet dispatch in-process task definitions through
 this path. In-process-task dispatch from Mastra-compiled Plans is tracked by
@@ -145,8 +140,9 @@ background-process API requires a separate decision.
 
 ## Notifications and errors
 
-In-process tasks use the core-owned runner protocol and the bounded observability
-projection. In-process task results contain no token or model metrics.
+Tasks use the core-owned runner protocol and the bounded observability
+projection. A task that does not call `TaskContext.runAgent()` produces no
+token or model metrics.
 
 Spawn, timeout, interruption, output-limit, uncertain-termination, and invalid
 output errors become typed invocation errors. Domain errors retain the cause.
