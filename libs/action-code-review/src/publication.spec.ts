@@ -1,6 +1,5 @@
 // @test-scope ./publication.ts
 import { describe, expect, it } from "vitest";
-import { ExecutorError, ValidationFailedError } from "@seqlane/core";
 import { derivePublication, publicationSnapshotSchema } from "./publication.js";
 
 describe("model-free publication", () => {
@@ -388,121 +387,25 @@ describe("model-free publication", () => {
     ).toBe(false);
   });
 
-  it("accepts every canonical in-memory Seqlane event variant", () => {
+  it("accepts the Action-private metric event projection", () => {
     const common = { workId: "work-1", runId: "run-1" };
-    const subject = { type: "task" as const, taskId: "task-1" };
-    const displayValue = { state: "present" as const, value: { ok: true } };
     const events = [
-      { ...common, type: "run.started" as const },
       {
         ...common,
         type: "invocation.created" as const,
         invocationId: "i-1",
-        planNodeId: "p-1",
-        subject,
         taskId: "task-1",
-        kind: "task" as const,
         label: "Task",
-        siblingOrder: 0,
-        dependencyIds: [],
-      },
-      {
-        ...common,
-        type: "invocation.progress" as const,
-        invocationId: "i-1",
-        state: "active" as const,
-        phase: "execute",
       },
       {
         ...common,
         type: "invocation.output" as const,
         invocationId: "i-1",
-        policy: "persistent" as const,
-        channel: "task" as const,
-        content: "done",
-        metrics: {
-          tokens: {
-            input: 1,
-            output: 2,
-            reasoning: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-          },
-        },
-      },
-      {
-        ...common,
-        type: "invocation.activity" as const,
-        invocationId: "i-1",
-        activityId: "a-1",
-        kind: "tool" as const,
-        name: "exec",
-        state: "succeeded" as const,
-        input: displayValue,
-      },
-      {
-        ...common,
-        type: "invocation.input" as const,
-        invocationId: "i-1",
-        input: displayValue,
-      },
-      {
-        ...common,
-        type: "invocation.result" as const,
-        invocationId: "i-1",
-        result: displayValue,
-      },
-      {
-        ...common,
-        type: "invocation.retrying" as const,
-        invocationId: "i-1",
-        attempt: 1,
-        lastError: new ExecutorError("task-1", "failed"),
-      },
-      {
-        ...common,
-        type: "invocation.started" as const,
-        invocationId: "i-1",
-        subject,
+        metrics: { durationMs: 10 },
       },
       { ...common, type: "invocation.succeeded" as const, invocationId: "i-1" },
-      {
-        ...common,
-        type: "invocation.failed" as const,
-        invocationId: "i-1",
-        error: new ValidationFailedError(
-          "p-1",
-          "validator-1",
-          [{ code: "invalid", message: "bad", path: "/ok" }],
-          { ok: false },
-        ),
-        disposition: "fail_run" as const,
-      },
-      {
-        ...common,
-        type: "invocation.skipped" as const,
-        invocationId: "i-1",
-        reason: "dependency failed",
-      },
-      {
-        ...common,
-        type: "invocation.cancelled" as const,
-        invocationId: "i-1",
-        reason: "cancelled",
-      },
-      {
-        ...common,
-        type: "run.heartbeat" as const,
-        activeInvocationIds: ["i-1"],
-        elapsedMs: 1,
-      },
-      { ...common, type: "run.succeeded" as const, output: { ok: true } },
-      {
-        ...common,
-        type: "run.failed" as const,
-        error: new ExecutorError("task-1", "failed"),
-      },
-      { ...common, type: "run.cancelled" as const },
+      { ...common, type: "run.heartbeat" as const, elapsedMs: 1 },
+      { ...common, type: "run.succeeded" as const },
     ];
     const result = publicationSnapshotSchema.safeParse({
       report: {
@@ -537,5 +440,14 @@ describe("model-free publication", () => {
       completedAt: "2026-09-09T00:00:00.000Z",
     });
     expect(result.success).toBe(true);
+    expect(
+      publicationSnapshotSchema.safeParse({
+        report: result.success ? result.data.report : undefined,
+        events: [
+          { ...common, type: "invocation.activity", invocationId: "i-1" },
+        ],
+        runId: "run-1",
+      }).success,
+    ).toBe(false);
   });
 });

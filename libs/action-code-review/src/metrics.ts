@@ -1,6 +1,111 @@
 import type { SeqlaneEvent } from "@seqlane/core";
 import { z } from "zod";
 
+const eventBaseSchema = z
+  .object({ workId: z.string().min(1), runId: z.string().min(1) })
+  .strict();
+
+const invocationMetricsSchema = z
+  .object({
+    durationMs: z.number().nonnegative().optional(),
+    model: z.string().min(1).optional(),
+    provider: z.string().min(1).optional(),
+    modelSelection: z
+      .object({
+        model: z.object({
+          provider: z.string().min(1),
+          model: z.string().min(1),
+        }),
+        reasoning: z
+          .enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    tokens: z
+      .object({
+        input: z.number().int().nonnegative(),
+        output: z.number().int().nonnegative(),
+        reasoning: z.number().int().nonnegative(),
+        cacheRead: z.number().int().nonnegative(),
+        cacheWrite: z.number().int().nonnegative(),
+        total: z.number().int().nonnegative().optional(),
+      })
+      .strict()
+      .optional(),
+    cost: z.number().nonnegative().optional(),
+  })
+  .strict();
+
+/** The Action-private event projection used by the model-free publication workflow. */
+export const reviewMetricEventSchema = z.discriminatedUnion("type", [
+  eventBaseSchema.extend({
+    type: z.literal("run.heartbeat"),
+    elapsedMs: z.number().nonnegative(),
+  }),
+  eventBaseSchema.extend({ type: z.literal("run.succeeded") }),
+  eventBaseSchema.extend({ type: z.literal("run.failed") }),
+  eventBaseSchema.extend({ type: z.literal("run.cancelled") }),
+  eventBaseSchema.extend({
+    type: z.literal("invocation.created"),
+    invocationId: z.string().min(1),
+    taskId: z.string().min(1).optional(),
+    label: z.string().min(1),
+  }),
+  eventBaseSchema.extend({
+    type: z.literal("invocation.output"),
+    invocationId: z.string().min(1),
+    metrics: invocationMetricsSchema.optional(),
+  }),
+  ...(["succeeded", "failed", "skipped", "cancelled"] as const).map((state) =>
+    eventBaseSchema.extend({
+      type: z.literal(`invocation.${state}` as `invocation.${typeof state}`),
+      invocationId: z.string().min(1),
+    }),
+  ),
+]);
+
+export type ReviewMetricEvent = z.infer<typeof reviewMetricEventSchema>;
+
+/** Drops review inputs, outputs, and activity payloads before publication retention. */
+export function projectReviewMetricEvent(
+  event: SeqlaneEvent,
+): ReviewMetricEvent | undefined {
+  const base = { workId: event.workId, runId: event.runId };
+  switch (event.type) {
+    case "run.heartbeat":
+      return { ...base, type: event.type, elapsedMs: event.elapsedMs };
+    case "run.succeeded":
+    case "run.failed":
+    case "run.cancelled":
+      return { ...base, type: event.type };
+    case "invocation.created":
+      return event.kind === "task"
+        ? {
+            ...base,
+            type: event.type,
+            invocationId: event.invocationId,
+            ...(event.taskId === undefined ? {} : { taskId: event.taskId }),
+            label: event.label,
+          }
+        : undefined;
+    case "invocation.output":
+      return {
+        ...base,
+        type: event.type,
+        invocationId: event.invocationId,
+        ...(event.metrics === undefined ? {} : { metrics: event.metrics }),
+      };
+    case "invocation.succeeded":
+    case "invocation.failed":
+    case "invocation.skipped":
+    case "invocation.cancelled":
+      return { ...base, type: event.type, invocationId: event.invocationId };
+    default:
+      return undefined;
+  }
+}
+
 const tokenMetricsSchema = z
   .object({
     input: z.number().int().nonnegative(),
@@ -52,12 +157,15 @@ export const reviewRunMetricsSchema = z
 export type ReviewRunMetrics = z.infer<typeof reviewRunMetricsSchema>;
 
 export function deriveRunMetrics(
-  events: readonly SeqlaneEvent[],
+  events: readonly ReviewMetricEvent[] | readonly SeqlaneEvent[],
   runId: string,
 ): ReviewRunMetrics {
-  type InvocationOutput = Extract<SeqlaneEvent, { type: "invocation.output" }>;
+  type InvocationOutput = Extract<
+    ReviewMetricEvent,
+    { type: "invocation.output" }
+  >;
   type InvocationResult = Extract<
-    SeqlaneEvent,
+    ReviewMetricEvent,
     {
       type:
         | "invocation.succeeded"
@@ -67,14 +175,14 @@ export function deriveRunMetrics(
     }
   >;
   const createdTasks: Array<
-    Extract<SeqlaneEvent, { type: "invocation.created" }>
+    Extract<ReviewMetricEvent, { type: "invocation.created" }>
   > = [];
   const latestOutputs = new Map<string, InvocationOutput>();
   const latestResults = new Map<string, InvocationResult>();
   let latestHeartbeatElapsedMs = 0;
   let ended:
     | Extract<
-        SeqlaneEvent,
+        ReviewMetricEvent,
         { type: "run.succeeded" | "run.failed" | "run.cancelled" }
       >
     | undefined;
@@ -86,7 +194,15 @@ export function deriveRunMetrics(
     cacheWrite: 0,
   };
   let totalCost = 0;
-  for (const event of events) {
+  const metricEvents = events.flatMap((event) => {
+    const parsed = reviewMetricEventSchema.safeParse(event);
+    return parsed.success
+      ? [parsed.data]
+      : [projectReviewMetricEvent(event as SeqlaneEvent)].filter(
+          (value): value is ReviewMetricEvent => value !== undefined,
+        );
+  });
+  for (const event of metricEvents) {
     if (
       event.type === "run.succeeded" ||
       event.type === "run.failed" ||
@@ -94,7 +210,7 @@ export function deriveRunMetrics(
     ) {
       ended = event;
     }
-    if (event.type === "invocation.created" && event.kind === "task") {
+    if (event.type === "invocation.created") {
       createdTasks.push(event);
     }
     if (event.type === "invocation.output") {

@@ -341,7 +341,7 @@ export async function runCodeReview(
 
   const snapshot = Object.freeze({
     report: jsonValueSchema.parse(outcome.result),
-    events: jsonValueSchema.parse(eventRecorder.serializedEvents),
+    events: eventRecorder.events,
     eventsTruncated: eventRecorder.truncated,
     runId: handle.runId,
     ...(request.githubRunId === undefined

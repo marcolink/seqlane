@@ -1,7 +1,8 @@
-import type { JsonValue, SeqlaneEvent } from "@seqlane/core";
+import type { SeqlaneEvent } from "@seqlane/core";
+import { projectReviewMetricEvent, type ReviewMetricEvent } from "./metrics.js";
 
 type RecordedEvent = {
-  readonly event: SeqlaneEvent;
+  readonly event: ReviewMetricEvent;
   readonly sequence: number;
   readonly priority: number;
   previous?: RecordedEvent;
@@ -13,7 +14,7 @@ type PriorityBucket = {
   tail?: RecordedEvent;
 };
 
-function priority(event: SeqlaneEvent): number {
+function priority(event: ReviewMetricEvent): number {
   if (
     event.type === "run.succeeded" ||
     event.type === "run.failed" ||
@@ -26,66 +27,12 @@ function priority(event: SeqlaneEvent): number {
     event.type === "invocation.failed" ||
     event.type === "invocation.skipped" ||
     event.type === "invocation.cancelled" ||
-    (event.type === "invocation.output" && event.metrics !== undefined)
+    event.type === "invocation.output"
   ) {
     return 2;
   }
   if (event.type === "invocation.created") return 1;
   return 0;
-}
-
-function serializeJsonValue(value: unknown): JsonValue {
-  if (value === null) return null;
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (value instanceof Error) {
-    const error = value as Error & {
-      readonly category?: unknown;
-      readonly taskId?: unknown;
-      readonly nodeId?: unknown;
-      readonly sourceId?: unknown;
-      readonly maximumIterations?: unknown;
-      readonly issues?: unknown;
-      readonly evidence?: unknown;
-    };
-    const serialized: Record<string, JsonValue> = {
-      category:
-        typeof error.category === "string" ? error.category : "RuntimeError",
-      message: error.message,
-      name: error.name,
-    };
-    for (const key of [
-      "taskId",
-      "nodeId",
-      "sourceId",
-      "maximumIterations",
-      "issues",
-      "evidence",
-    ] as const) {
-      const field = error[key];
-      if (field !== undefined) serialized[key] = serializeJsonValue(field);
-    }
-    return serialized;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) =>
-      entry === undefined ? null : serializeJsonValue(entry),
-    );
-  }
-  if (typeof value === "object") {
-    const serialized: Record<string, JsonValue> = {};
-    for (const key of Object.keys(value)) {
-      const field = (value as Record<string, unknown>)[key];
-      if (field !== undefined) serialized[key] = serializeJsonValue(field);
-    }
-    return serialized;
-  }
-  throw new TypeError("Cannot serialize a non-JSON event value.");
 }
 
 /** Bounded, deterministic event retention for Action publication metrics. */
@@ -101,10 +48,12 @@ export class BoundedEventRecorder {
   }
 
   emit(event: SeqlaneEvent): void {
+    const projected = projectReviewMetricEvent(event);
+    if (projected === undefined) return;
     const entry: RecordedEvent = {
-      event,
+      event: projected,
       sequence: this.sequence++,
-      priority: priority(event),
+      priority: priority(projected),
     };
     if (this.retained.size < this.limit) {
       this.retain(entry);
@@ -118,15 +67,10 @@ export class BoundedEventRecorder {
     this.retain(entry);
   }
 
-  get events(): readonly SeqlaneEvent[] {
+  get events(): readonly ReviewMetricEvent[] {
     return [...this.retained]
       .sort((left, right) => left.sequence - right.sequence)
       .map(({ event }) => event);
-  }
-
-  /** Returns retained events as plain JSON values, including serialized errors. */
-  get serializedEvents(): readonly JsonValue[] {
-    return this.events.map((event) => serializeJsonValue(event));
   }
 
   get truncated(): boolean {

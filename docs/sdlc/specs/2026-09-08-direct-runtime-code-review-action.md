@@ -174,8 +174,11 @@ must use typed tasks for:
 - fixed-claim verification.
 
 After the review run reaches a terminal outcome and its event sink flushes, a
-model-free publication workflow must consume the frozen review result and
-canonical event list. It must use typed local tasks for:
+model-free publication workflow must consume the frozen review result and a
+frozen Action-private metric projection derived from canonical events. The
+projection retains only task identity/status, run status, heartbeat duration,
+and invocation metrics; raw inputs, outputs, activity payloads, and transcripts
+must not cross into publication. It must use typed local tasks for:
 
 - metrics derivation;
 - report rendering; and
@@ -340,7 +343,7 @@ Action builds bundled trusted workflow input
         ↓
 Action calls startWorkflowRun directly
         ↓
-Action freezes the review result and canonical events
+Action freezes the review result and an Action-private metric projection of the canonical events
         ↓
 Action runs the model-free publication workflow directly
         ↓

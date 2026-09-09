@@ -1,13 +1,8 @@
 // @test-scope ./event-recorder.ts
 // @test-scope ./publication.ts
 import { describe, expect, it } from "vitest";
-import { ExecutorError } from "@seqlane/core";
-import { jsonValueSchema } from "@seqlane/core";
 import { BoundedEventRecorder } from "./event-recorder.js";
-import {
-  derivePublicationMetrics,
-  publicationSnapshotSchema,
-} from "./publication.js";
+import { deriveRunMetrics } from "./metrics.js";
 
 describe("BoundedEventRecorder", () => {
   it("bounds during emission while retaining terminal and metric events", () => {
@@ -59,91 +54,99 @@ describe("BoundedEventRecorder", () => {
     ).toBe(true);
   });
 
-  it("serializes retained Seqlane errors into JSON-safe events", () => {
+  it("retains metrics while excluding review payloads from publication events", () => {
     const recorder = new BoundedEventRecorder(4);
-    recorder.emit({ type: "run.started", workId: "w", runId: "r" });
     recorder.emit({
-      type: "invocation.retrying",
+      type: "invocation.created",
       workId: "w",
       runId: "r",
       invocationId: "i",
-      attempt: 1,
-      lastError: new ExecutorError("task-1", "retry me"),
+      planNodeId: "p",
+      subject: { type: "task", taskId: "t" },
+      kind: "task",
+      label: "Review",
+      siblingOrder: 0,
+      dependencyIds: [],
+      taskId: "t",
     });
     recorder.emit({
-      type: "invocation.failed",
+      type: "invocation.output",
       workId: "w",
       runId: "r",
       invocationId: "i",
-      error: new ExecutorError("task-1", "failed"),
-      disposition: "fail_run",
-    });
-    recorder.emit({
-      type: "run.failed",
-      workId: "w",
-      runId: "r",
-      error: new ExecutorError("task-1", "failed"),
-    });
-
-    const serialized = recorder.serializedEvents;
-    expect(() => jsonValueSchema.parse(serialized)).not.toThrow();
-    expect(serialized).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "invocation.retrying",
-          lastError: expect.objectContaining({
-            category: "ExecutorError",
-            message: 'Task executor failed for "task-1": retry me',
-            name: "ExecutorError",
-            taskId: "task-1",
-          }),
-        }),
-        expect.objectContaining({
-          type: "invocation.failed",
-          error: expect.objectContaining({
-            category: "ExecutorError",
-            name: "ExecutorError",
-          }),
-        }),
-      ]),
-    );
-
-    const parsedSnapshot = publicationSnapshotSchema.safeParse({
-      report: {
-        repository: "owner/repository",
-        baseBranch: "main",
-        baseRevision: "a".repeat(40),
-        overallRating: 3,
-        verdict: "request-changes",
-        summary: "failed",
-        ratings: [
-          "correctness",
-          "readability",
-          "architecture",
-          "security",
-          "performance",
-        ].map((axis) => ({
-          axis: axis as "correctness",
-          rating: 3,
-          rationale: "failed",
-        })),
-        findings: [],
-        verification: [],
-        headRevision: "b".repeat(40),
-        pullRequestNumber: 1,
-        nextFindingIndex: 1,
-        limitations: [],
-        stateTruncated: false,
-        runMetricsLedger: { schemaVersion: 1, runs: [] },
+      policy: "persistent",
+      channel: "task",
+      content: "review output is not retained",
+      metrics: {
+        durationMs: 300,
+        cost: 1,
+        tokens: {
+          input: 2,
+          output: 3,
+          reasoning: 4,
+          cacheRead: 5,
+          cacheWrite: 6,
+        },
       },
-      events: serialized,
-      runId: "r",
     });
-    expect(parsedSnapshot.success).toBe(true);
-    if (parsedSnapshot.success) {
-      expect(derivePublicationMetrics(parsedSnapshot.data).outcome).toBe(
-        "failed",
-      );
-    }
+    recorder.emit({
+      type: "invocation.activity",
+      workId: "w",
+      runId: "r",
+      invocationId: "i",
+      activityId: "a",
+      kind: "tool",
+      name: "review-tool",
+      state: "succeeded",
+      input: {
+        state: "present",
+        value: { comments: ["review input is not retained"] },
+      },
+    });
+    recorder.emit({
+      type: "invocation.succeeded",
+      workId: "w",
+      runId: "r",
+      invocationId: "i",
+    });
+    recorder.emit({
+      type: "run.succeeded",
+      workId: "w",
+      runId: "r",
+      output: null,
+    });
+
+    expect(recorder.events).toEqual([
+      {
+        type: "invocation.created",
+        workId: "w",
+        runId: "r",
+        invocationId: "i",
+        taskId: "t",
+        label: "Review",
+      },
+      {
+        type: "invocation.output",
+        workId: "w",
+        runId: "r",
+        invocationId: "i",
+        metrics: expect.objectContaining({ durationMs: 300, cost: 1 }),
+      },
+      {
+        type: "invocation.succeeded",
+        workId: "w",
+        runId: "r",
+        invocationId: "i",
+      },
+      { type: "run.succeeded", workId: "w", runId: "r" },
+    ]);
+    expect(JSON.stringify(recorder.events)).not.toContain("review input");
+    expect(JSON.stringify(recorder.events)).not.toContain("review output");
+    expect(deriveRunMetrics(recorder.events, "r")).toMatchObject({
+      outcome: "succeeded",
+      totalCost: 1,
+      totalTokens: { total: 20 },
+      tasks: [{ task: "Review", durationMs: 300 }],
+    });
   });
 });

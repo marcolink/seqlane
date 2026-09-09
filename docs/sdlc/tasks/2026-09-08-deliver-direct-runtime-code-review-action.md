@@ -45,7 +45,7 @@ the current review behavior and active review-comment contract.
   fanout, synthesis, finalization, and fixed verification into the typed review
   workflow.
 - Add a model-free publication workflow that derives metrics from the frozen
-  review event list, renders the report, checks live state, and publishes or
+  Action-private metric event projection, renders the report, checks live state, and publishes or
   records a stale-write skip through typed local tasks.
 - Replace the inline review implementation in
   `.github/workflows/seqlane-code-review.yml` with the local Action.
@@ -81,7 +81,7 @@ the current review behavior and active review-comment contract.
    commit both self-contained bundles. Add bundle-drift, marker-cleanup, and
    direct-invocation tests.
 6. Move workflow application behavior into the Action. Run the review workflow
-   first. Freeze its result and canonical events, then run the model-free
+   first. Freeze its result and the Action-private metric projection, then run the model-free
    publication workflow. Keep marker cleanup at the Action lifecycle boundary.
 7. Keep the GitHub workflow's admission, checkout, service Actions,
    permissions, concurrency, timeout, and closed-event job.
@@ -135,7 +135,7 @@ the current review behavior and active review-comment contract.
 - The workflow contains composition and admission only for review application,
   while service lifecycle remains with its service Actions.
 - The Action library owns typed review tasks and narrow GitHub adapters.
-- The model-free publication workflow consumes a frozen event list and makes
+- The model-free publication workflow consumes a frozen metric event projection and makes
   zero model calls.
 - Existing review behavior remains covered by focused tests and the hosted
   manual proof.
@@ -204,6 +204,11 @@ Metrics derivation now indexes retained invocation events linearly without
 changing the existing output-total semantics. Focused runtime and Action-library
 tests, Action typecheck, test mapping, and the committed-bundle smoke and drift
 check passed locally.
+
+The publication snapshot now retains an Action-private metric projection rather
+than full canonical event payloads. It keeps only task/run lifecycle and
+measured metrics, so review-history bodies, tool payloads, and transcripts do
+not introduce a second publication-size constraint.
 
 ## Traceability
 
