@@ -193,7 +193,7 @@ describe("ACP v1 Mastra observability", () => {
       type: SpanType.TOOL_CALL,
       name: "echo",
       attributes: {
-        toolType: "acp-v1",
+        toolType: "tool",
         toolCallId: "external:call",
       },
       metadata: { "seqlane.attemptIndex": 0 },
@@ -500,7 +500,7 @@ describe("ACP v1 Mastra observability", () => {
     expect(tools.at(-1)?.createOptions).toEqual({
       type: SpanType.TOOL_CALL,
       name: "ACP v1 tool call",
-      attributes: { toolType: "acp-v1", toolCallId: "overflow-id" },
+      attributes: { toolType: "tool", toolCallId: "overflow-id" },
       metadata: { "seqlane.attemptIndex": 1 },
     });
     expect(tools.at(-1)?.createOptions).not.toHaveProperty("entityName");
@@ -530,7 +530,7 @@ describe("ACP v1 Mastra observability", () => {
     });
     expect(tool?.createOptions?.name).toBe("ACP v1 tool call");
     expect(tool?.createOptions?.attributes).toEqual({
-      toolType: "acp-v1",
+      toolType: "tool",
       toolCallId: "raw-external-id",
     });
     expect(tool?.createOptions?.metadata).toEqual({

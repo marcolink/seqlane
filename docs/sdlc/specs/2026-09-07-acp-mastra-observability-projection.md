@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - adr.mastra-native-agent-observability
   - spec.mastra-native-agent-observability
@@ -160,7 +160,9 @@ bridge MUST NOT copy it into a metric tag, metric label, span tag, entity ID,
 or span name. The automatic-metrics configuration MUST retain Mastra's
 high-cardinality protections.
 
-The external tool name MUST be validated to 1-256 characters. Before it is
+The external tool name MUST be at least one and at most 256 UTF-16 code units
+of raw input. A value longer than 256 code units MUST use the constant
+`ACP v1 tool call` without invoking normalization. Otherwise, before it is
 used for native telemetry, the adapter MUST normalize it with Unicode NFKC.
 The result MUST match `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`. A value that does
 not match uses the constant `ACP v1 tool call`. The adapter MUST allow at most
@@ -207,7 +209,7 @@ tool name or its constant fallback. It MAY contain only these typed attributes:
 
 ```ts
 {
-  toolType: "acp-v1",
+  toolType: "tool",
   toolCallId: boundedExternalToolCallId,
   success?: boolean,
 }
@@ -224,6 +226,9 @@ incomplete, and failed outcomes MUST use bounded namespaced metadata and safe
 constant errors. An incomplete tool leaves `success` unset but ends through
 the error path. The original execution error remains the private execution
 cause and MUST NOT enter the span.
+
+`acp-v1` identifies the adapter, not the tool category. The agent span MAY
+record it as `seqlane.adapter` metadata; it MUST NOT occupy `toolType`.
 
 Mastra derives agent/tool duration metrics when these spans end. Those metrics
 are outputs. The adapter MUST NOT submit a second manual native metric row.
@@ -287,6 +292,20 @@ native spans by default because they are sensitive and unbounded. Raw IDs and
 tool names follow the field-specific rules above. They are not subject to a
 blanket ban. A future content-capture feature requires a separate, explicit
 opt-in contract for consent, redaction, bounds, retention, and access.
+
+ACP private metadata is limited to this allowlist:
+
+| Key | Owning span | Source | Bound | Redaction and use |
+| --- | --- | --- | --- | --- |
+| `seqlane.invocationId` | `AGENT_RUN` | Request `invocationId` | 128 UTF-16 code units | Opaque validated ID; omitted when over bound; never a metric label |
+| `seqlane.adapter` | `AGENT_RUN` | Adapter constant | Fixed constant | `acp-v1`; required adapter identity, not `toolType` |
+| `seqlane.attemptIndex` | `TOOL_CALL` | Validated reducer record | Non-negative integer | Bounded control value; no raw ACP payload |
+| `seqlane.acp.outcome` | Closing `TOOL_CALL` or `AGENT_RUN` | Adapter terminal state | Fixed enum | `failed`, `incomplete`, or `cancelled`; never original error text |
+
+No other ACP metadata is permitted. In particular, raw executor, session,
+message, tool name, tool arguments, tool content, tool results, prompts,
+configured model, or unrestricted error metadata MUST NOT be written. External
+tool-call IDs remain only in Mastra's typed `toolCallId` field, not metadata.
 
 A pseudo model identifies the ACP wrapper, not the underlying model. Thus,
 `@mastra/acp` and `acp-agent` MUST NOT populate native provider or model

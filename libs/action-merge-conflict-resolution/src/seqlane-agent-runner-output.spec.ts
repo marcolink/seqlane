@@ -2,17 +2,12 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const {
-  buildWorkflow,
-  createOpenCodeExecutor,
-  createOpenCodeRun,
-  startCompiledWorkflow,
-} = vi.hoisted(() => ({
-  buildWorkflow: vi.fn(),
-  createOpenCodeExecutor: vi.fn(),
-  createOpenCodeRun: vi.fn(),
-  startCompiledWorkflow: vi.fn(),
-}));
+const { buildWorkflow, createOpenCodeAdapter, startCompiledWorkflow } =
+  vi.hoisted(() => ({
+    buildWorkflow: vi.fn(),
+    createOpenCodeAdapter: vi.fn(),
+    startCompiledWorkflow: vi.fn(),
+  }));
 
 vi.mock("@seqlane/core", () => {
   const createFlow = () => {
@@ -32,11 +27,10 @@ vi.mock("@seqlane/core", () => {
 });
 vi.mock("@seqlane/core/models", () => ({ openai: () => ({}) }));
 vi.mock("@seqlane/opencode", () => ({
-  createOpenCodeExecutor,
-  createOpenCodeRun,
+  createOpenCodeAdapter,
 }));
 vi.mock("@seqlane/runtime", () => ({
-  EffectCompiler: class {
+  PlanCompiler: class {
     compileWorkflow() {
       return {};
     }
@@ -62,8 +56,7 @@ function runner(
     plan: {},
     validatorDefinitions: [],
   });
-  createOpenCodeRun.mockResolvedValue({ abort: vi.fn() });
-  createOpenCodeExecutor.mockReturnValue({});
+  createOpenCodeAdapter.mockReturnValue({ execute: vi.fn() });
   startCompiledWorkflow.mockReturnValue({
     outcome: Promise.resolve({ status: "succeeded", result: output }),
   });
@@ -72,7 +65,7 @@ function runner(
     workflow: {} as never,
     openCode: {
       start: async () => ({
-        connection: {},
+        connection: { url: "http://127.0.0.1:4096" },
         stop: async () => undefined,
       }),
     },
@@ -135,6 +128,45 @@ describe("SeqlaneAgentRunner output", () => {
     await agent.resolve(request);
 
     expect(recordings).toBe(2);
+  });
+
+  it("cancels an in-flight resolve when stopped", async () => {
+    let activeSignal: AbortSignal | undefined;
+    startCompiledWorkflow.mockImplementation((_compiled, options) => {
+      activeSignal = options.signal;
+      return {
+        outcome: new Promise((resolve) => {
+          activeSignal?.addEventListener(
+            "abort",
+            () => resolve({ status: "cancelled" }),
+            { once: true },
+          );
+        }),
+      };
+    });
+    const runtimeStop = vi.fn(async () => undefined);
+    const agent = new SeqlaneAgentRunner({
+      workspace: "/tmp/agent",
+      workflow: {} as never,
+      openCode: {
+        start: async () => ({
+          connection: { url: "http://127.0.0.1:4096" },
+          stop: runtimeStop,
+        }),
+      },
+    });
+
+    const resolution = agent.resolve(request);
+    await vi.waitFor(() => expect(activeSignal).toBeInstanceOf(AbortSignal));
+
+    await agent.stop();
+
+    expect(activeSignal?.aborted).toBe(true);
+    await expect(resolution).rejects.toMatchObject({
+      message: "The Seqlane conflict-resolution task failed.",
+      cause: { status: "cancelled" },
+    });
+    expect(runtimeStop).toHaveBeenCalledTimes(1);
   });
 });
 

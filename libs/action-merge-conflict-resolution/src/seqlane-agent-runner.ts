@@ -3,8 +3,12 @@ import {
   type SeqlaneEvent,
   type WorkflowDefinition,
 } from "@seqlane/core";
-import { createOpenCodeExecutor, createOpenCodeRun } from "@seqlane/opencode";
-import { EffectCompiler, startCompiledWorkflow } from "@seqlane/runtime";
+import { createOpenCodeAdapter } from "@seqlane/opencode";
+import {
+  PlanCompiler,
+  startCompiledWorkflow,
+  type CompileWorkflowOptions,
+} from "@seqlane/runtime";
 
 import {
   type AgentRunnerPort,
@@ -33,6 +37,45 @@ export interface SeqlaneWorkflowInput {
 
 export const AGENT_ATTEMPT_TIMEOUT_MS = 5 * 60 * 1000;
 
+type SeqlaneExecutor =
+  Extract<
+    CompileWorkflowOptions["executors"],
+    ReadonlyMap<string, unknown>
+  > extends ReadonlyMap<string, infer Executor>
+    ? Executor
+    : never;
+
+function createOpenCodeExecutor(
+  taskDefinitions: ReturnType<typeof buildWorkflow>["taskDefinitions"],
+  adapter: ReturnType<typeof createOpenCodeAdapter>,
+): SeqlaneExecutor {
+  return {
+    execute: (request) => {
+      const task = taskDefinitions.get(request.taskId);
+      if (task === undefined || typeof task.goal !== "function") {
+        throw new Error(
+          `No agent task definition found for "${request.taskId}"`,
+        );
+      }
+      return adapter.execute({
+        invocationId: request.invocationId,
+        // Forward per-invocation Mastra observability unchanged; the adapter uses
+        // the current span only to parent child agent/tool spans.
+        observability: request.observability,
+        task,
+        input: request.input,
+        signal: request.signal,
+        onMetrics: request.onMetrics,
+        onDiagnostic: (diagnostic) =>
+          request.onDiagnostic?.(diagnostic.message),
+        onActivity: request.onActivity,
+        onUncertainActivity: request.onUncertainActivity,
+        onBackgroundProcess: request.onBackgroundProcess,
+      });
+    },
+  };
+}
+
 export interface SeqlaneAgentRunnerOptions {
   readonly workspace: string;
   readonly workflow: WorkflowDefinition<SeqlaneWorkflowInput, unknown>;
@@ -55,7 +98,8 @@ function agentError(message: string, cause?: unknown): ActionResolutionError {
 export class SeqlaneAgentRunner implements AgentRunnerPort {
   private readonly options: SeqlaneAgentRunnerOptions;
   private runtime: OpenCodeRuntimeHandle | undefined;
-  private run: Awaited<ReturnType<typeof createOpenCodeRun>> | undefined;
+  private adapter: ReturnType<typeof createOpenCodeAdapter> | undefined;
+  private activeAttemptController: AbortController | undefined;
   private lastRecording: BoundedRecording | undefined;
 
   constructor(options: SeqlaneAgentRunnerOptions) {
@@ -63,27 +107,20 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
   }
 
   async start(): Promise<void> {
-    if (this.runtime !== undefined && this.run !== undefined) return;
-    if (this.runtime !== undefined || this.run !== undefined) {
+    if (this.runtime !== undefined && this.adapter !== undefined) return;
+    if (this.runtime !== undefined || this.adapter !== undefined) {
       await this.stop();
     }
     const runtime = await this.options.openCode.start(this.options.workspace);
     this.runtime = runtime;
-    try {
-      const run = await createOpenCodeRun(runtime.connection);
-      this.run = run;
-    } catch (error: unknown) {
-      await this.stop().catch(() => undefined);
-      throw error;
-    }
+    this.adapter = createOpenCodeAdapter(runtime.connection);
   }
 
   async stop(): Promise<void> {
-    const run = this.run;
+    this.activeAttemptController?.abort();
     const runtime = this.runtime;
-    await run?.abort().catch(() => undefined);
     await runtime?.stop();
-    this.run = undefined;
+    this.adapter = undefined;
     this.runtime = undefined;
   }
 
@@ -115,8 +152,8 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
     request: SeqlaneAgentExecutionRequest,
   ): Promise<unknown> {
     try {
-      const run = this.run;
-      if (run === undefined) {
+      const adapter = this.adapter;
+      if (adapter === undefined) {
         throw agentError("The OpenCode runtime is not started.");
       }
       const recording = this.options.recording?.() ?? createBoundedRecording();
@@ -125,8 +162,8 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         emit: (event: SeqlaneEvent) => recording.record(event),
       };
       const built = buildWorkflow(this.options.workflow);
-      const executor = createOpenCodeExecutor(built.taskDefinitions, run);
-      const compiled = new EffectCompiler().compileWorkflow(built.plan, {
+      const executor = createOpenCodeExecutor(built.taskDefinitions, adapter);
+      const compiled = new PlanCompiler().compileWorkflow(built.plan, {
         executors: new Map([["opencode", executor]]),
         taskDefinitions: built.taskDefinitions,
         validatorDefinitions: built.validatorDefinitions,
@@ -143,10 +180,12 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         events,
       });
       const attemptController = new AbortController();
-      const timeout = setTimeout(
-        () => attemptController.abort(),
-        this.options.attemptTimeoutMs ?? AGENT_ATTEMPT_TIMEOUT_MS,
-      );
+      this.activeAttemptController = attemptController;
+      let timedOut = false;
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        attemptController.abort();
+      }, this.options.attemptTimeoutMs ?? AGENT_ATTEMPT_TIMEOUT_MS);
       try {
         const active = startCompiledWorkflow(compiled, {
           signal: attemptController.signal,
@@ -155,10 +194,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         if (outcome.status === "succeeded") {
           return { status: "succeeded", output: outcome.result };
         }
-        if (
-          outcome.status === "cancelled" &&
-          attemptController.signal.aborted
-        ) {
+        if (outcome.status === "cancelled" && timedOut) {
           throw agentError(
             "The conflict-resolution attempt exceeded its deadline.",
           );
@@ -170,6 +206,9 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         );
       } finally {
         clearTimeout(timeout);
+        if (this.activeAttemptController === attemptController) {
+          this.activeAttemptController = undefined;
+        }
       }
     } catch (error: unknown) {
       if (error instanceof ActionResolutionError) throw error;

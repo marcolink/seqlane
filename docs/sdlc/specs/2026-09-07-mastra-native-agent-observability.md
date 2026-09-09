@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - adr.mastra-native-agent-observability
 supersedes: []
@@ -142,6 +142,22 @@ add its bounded value to `AGENT_RUN` metadata. Child spans inherit correlation
 through parentage and add only bounded adapter-owned identities when needed.
 A child span MUST NOT become a new Seqlane invocation or alter event ordering.
 
+The only permitted private metadata keys are:
+
+| Key | Owning span | Source | Bound | Redaction and use |
+| --- | --- | --- | --- | --- |
+| `seqlane.invocationId` | `AGENT_RUN` | Request `invocationId` | 128 UTF-16 code units | Opaque validated ID; omit when over bound; never a metric label |
+| `seqlane.adapter` | `AGENT_RUN` | Adapter constant | Fixed constant | `opencode` or `acp-v1`; not executor payload |
+| `seqlane.attemptIndex` | Adapter-owned attempt/tool span, when exposed | Zero-based reducer state | Non-negative integer | Bounded control value; never raw protocol data |
+| `seqlane.acp.outcome` | ACP span being closed | Adapter terminal state | Fixed enum | `failed`, `incomplete`, or `cancelled`; never original error text |
+
+The table is an allowlist, not a minimum. Adapters MUST NOT add raw executor,
+session, message, tool name, tool arguments, tool results, prompt, transcript,
+configured-model, or unrestricted error metadata. Session, message, and call
+identifiers may be retained only in the typed or explicitly documented trace
+correlation fields of an adapter projection; they MUST NOT be copied into
+metadata, metric labels, entity keys, or unbounded span names.
+
 ### R4. Adapter-local projection ownership
 
 Each concrete adapter MUST own its executor parser, lifecycle reducer,
@@ -169,6 +185,24 @@ the exact typed fields of the workspace-pinned Mastra version. Missing values
 remain absent. Usage values MUST be numeric, non-negative, and tied to one
 observed generation. Cost MUST preserve its source, unit, and precision. An
 adapter MUST NOT invent usage, cost, or a model identity.
+
+For `TOOL_CALL`, an adapter MUST use the pinned Mastra typed attributes only
+for the typed tool contract: `toolType`, `toolCallId`, and terminal `success`.
+Mastra has no typed tool-name attribute. A validated, normalized, bounded tool
+identity therefore belongs in the span `name`, not an untyped duplicate
+attribute or metadata field. Adapter and correlation details belong only in
+bounded namespaced metadata. Each adapter specification MUST define its
+tool-name fallback and cardinality limit before it makes names observable.
+
+Every adapter MUST apply the same tool-name input policy: accept at most 256
+UTF-16 code units of raw untrusted input before normalization; reject longer
+input without invoking normalization; normalize accepted input with Unicode
+NFKC; then require `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`. Each invocation MUST
+admit at most 128 distinct normalized names. Invalid, oversized, or
+normalization-failing values, and names beyond that budget, MUST use the
+adapter's constant fallback. Each adapter MUST emit at most one bounded
+overflow diagnostic per invocation. Adapter specifications MUST name their
+fallback constants and test all policy branches.
 
 ### R6. Native metrics and aggregate metrics
 
@@ -208,6 +242,10 @@ persisted by default. Message content MUST NOT be used as an identity key.
 The same redaction and size policy MUST apply to event and terminal-response
 paths.
 
+The metadata allowlist in R3 is exhaustive for private correlation metadata.
+In particular, legacy executor/session/message/tool metadata MUST be removed
+or rejected; it is not a second channel for payloads or identity dimensions.
+
 ### R9. Storage, export, and outcome isolation
 
 Mastra storage/export configuration MUST support metrics and the configured
@@ -219,6 +257,12 @@ sampling, flushing, and dropped-event behavior. The adapter MUST NOT flush,
 retry, or shut down the export pipeline. Failures at either boundary MUST use
 Seqlane's bounded diagnostic path and MUST NOT block, retry, fail, or change
 the execution outcome.
+
+The runtime MUST verify persisted traces through its configured
+`MastraStorageExporter`; deterministic span sinks alone do not prove storage
+or inspection visibility. A remote platform exporter MUST NOT be configured by
+default unless it is confirmed to satisfy the repository's Community-only
+runtime policy and has an explicit operational owner.
 
 ### R10. Compatibility
 

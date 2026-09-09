@@ -5,6 +5,11 @@ import type {
 } from "@seqlane/core";
 import type { ObservabilityContext } from "@mastra/core/observability";
 
+export {
+  createBoundedNormalizedNameAllocator,
+  type BoundedNormalizedNameAllocator,
+} from "./observability.js";
+
 export type AgentActivityState =
   "started" | "progress" | "succeeded" | "failed";
 

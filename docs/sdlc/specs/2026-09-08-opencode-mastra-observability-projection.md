@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - adr.mastra-native-agent-observability
   - spec.mastra-native-agent-observability
@@ -188,6 +188,19 @@ OpenCode `skill` parts remain `TOOL_CALL` activity. The adapter uses a bounded
 skill load MUST NOT become a `SKILL_RESOLUTION` span. That category is reserved
 for a separately observed dynamic skills-resolver lifecycle.
 
+For an ordinary tool part, `toolType` MUST be `"tool"`; it classifies the
+operation and is not a place for the executor or protocol identity. The
+raw `tool` value MUST be at most 256 UTF-16 code units before normalization.
+Longer input MUST use the constant fallback without invoking normalization.
+Otherwise, the validated `tool` value MUST be normalized with Unicode NFKC and
+must match `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}` before it is used as the
+`TOOL_CALL` span name, subject to an invocation-local limit of 128 distinct
+normalized names. Invalid, oversized, or normalization-failing values, and
+names beyond the cardinality limit, MUST use `OpenCode tool call`; the adapter
+MUST emit at most one bounded overflow diagnostic per invocation.
+It MUST NOT duplicate the raw or normalized tool name in metadata. It MUST not
+persist tool input, output, or tool-part metadata.
+
 ### R6. Terminal-response fallback and deduplication
 
 `parseOpenCodePromptResponse` MUST remain the source of the existing terminal
@@ -206,6 +219,13 @@ The first valid terminal outcome is authoritative. Repeated terminal signals,
 duplicate response handling, and equivalent fallback observations MUST be
 idempotent. If the response is malformed, the existing executor error path
 remains authoritative and no unverifiable native span is created.
+
+OpenCode supplies observed start and end timestamps for tool parts. Mastra
+1.64 child-span creation supports a backdated start time but its public end and
+error APIs do not accept an end timestamp. The adapter MAY retain a bounded
+observed terminal timestamp as namespaced metadata for trace diagnosis, but
+MUST NOT represent it as the Mastra span end time or claim that automatic
+duration metrics use it.
 
 ### R7. Usage and cost mapping
 
@@ -266,6 +286,19 @@ text MUST be omitted or bounded by default.
 Session IDs, message IDs, and call IDs MAY be retained as bounded trace
 correlation attributes. They MUST NOT become metric labels, entity keys, or
 unbounded span names. Message content MUST never be used for correlation.
+
+OpenCode private metadata is limited to this allowlist:
+
+| Key | Owning span | Source | Bound | Redaction and use |
+| --- | --- | --- | --- | --- |
+| `seqlane.invocationId` | `AGENT_RUN` | Request `invocationId` | 128 UTF-16 code units | Opaque validated ID; omitted when over bound; never a metric label |
+| `seqlane.adapter` | `AGENT_RUN` | Adapter constant | Fixed constant | `opencode`; not executor payload |
+
+No other OpenCode metadata is permitted. In particular, raw executor,
+session, message, tool name, tool arguments, tool results, prompts,
+transcripts, configured model, timestamps, or unrestricted errors MUST NOT be
+written as metadata. Session, message, and call IDs remain correlation data
+only where the typed or explicitly documented span field requires them.
 
 Span creation, update, and closure MUST be no-throw from the execution
 perspective. Diagnostics MUST be bounded and execution MUST continue when

@@ -11,6 +11,13 @@
         "command": "tsc --build tsconfig.json"
       },
       "outputs": ["{projectRoot}/dist"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/seqlane-agent-adapter",
+        "command": "vitest run"
+      }
     }
   }
 }
