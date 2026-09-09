@@ -26,8 +26,8 @@ requires an agent or consumes model tokens. Keep one public task vocabulary and
 preserve Seqlane's typed dataflow, runner notification, cancellation, and
 workspace contracts.
 
-This specification uses **in-process task** for `defineTask`. Older source
-types use `LocalTaskDefinition`; that name does not imply a shell process.
+This specification uses **in-process task** for a `defineTask` implementation
+that computes in the Seqlane process. It is not a separate public task type.
 
 ## Normative terms
 
@@ -130,10 +130,9 @@ collection. An agent operation uses the invocation's resolved session when one
 was declared. A non-zero exit is returned to the task. The task decides if that
 exit is an expected result or an error.
 
-The Mastra Plan compiler does not yet dispatch in-process task definitions through
-this path. In-process-task dispatch from Mastra-compiled Plans is tracked by
-`task.mastra-local-task-dispatch`. Repeat support remains outside this
-migration slice.
+The Mastra Plan compiler dispatches every task through the same executable
+task path after invocation policy admission. Repeat support remains outside
+this migration slice.
 
 The initial implementation supports only foreground processes. A future
 background-process API requires a separate decision.

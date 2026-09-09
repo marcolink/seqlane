@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   definePlan,
+  defineAgentTask,
   defineTask,
   defineWorkflow,
   createFlow,
@@ -9,7 +10,6 @@ import {
   buildPlan,
   buildWorkflow,
   type TaskDefinition,
-  type SeqlaneSchema,
   type InputBinding,
   type SessionCheckpointRef,
   type ValueRef,
@@ -19,18 +19,14 @@ import {
   isolated,
   reuse,
 } from "./index.js";
+import { z } from "zod";
 
-const schema = <T>(): SeqlaneSchema<T> => ({
-  parse(value: unknown): T {
-    return value as T;
-  },
-});
+const schema = <T>() => z.custom<T>(() => true);
 
 describe("seqlane core", () => {
-  it("defines an agent task without a work discriminator", () => {
-    const task = defineTask({
+  it("defines an agent task through the unified task contract", () => {
+    const task = defineAgentTask({
       id: "agent-task",
-      workspace: "shared",
       input: schema<{ readonly request: string }>(),
       output: schema<{ readonly answer: string }>(),
       goal: ({ request }) => `Answer ${request}`,
@@ -38,22 +34,23 @@ describe("seqlane core", () => {
       references: ["README.md"],
     });
 
-    expect(task.goal({ request: "question" })).toBe("Answer question");
-    expect(task.instructions).toEqual(["Return a concise answer."]);
-    expect(task.references).toEqual(["README.md"]);
+    expect(typeof task.execute).toBe("function");
   });
 
-  it("defines local tasks with an output-only Flow handle", () => {
+  it("defines tasks with the unified execution contract", () => {
     const local = defineTask({
       id: "local-status",
       input: schema<{ readonly repository: string }>(),
       output: schema<{ readonly clean: boolean }>(),
-      execute: async (_input, { exec }) => {
-        const result = await exec({ command: "git", args: ["status"] });
+      execute: async ({ context }) => {
+        const result = await context.exec({
+          executable: "git",
+          argv: ["status"],
+        });
         return { clean: result.exitCode === 0 };
       },
     });
-    const agent = defineTask({
+    const agent = defineAgentTask({
       id: "agent-report",
       input: schema<{ readonly clean: boolean }>(),
       output: schema<{ readonly report: string }>(),
@@ -66,9 +63,14 @@ describe("seqlane core", () => {
       output: schema<{ readonly report: string }>(),
     })
       .task("status", local, ({ input }) => ({ repository: input.repository }))
-      .task("report", agent, ({ tasks }) => ({
-        clean: tasks.status.output.clean,
-      }))
+      .task(
+        "report",
+        agent,
+        ({ tasks }) => ({ clean: tasks.status.output.clean }),
+        {
+          session: isolated(),
+        },
+      )
       .output(({ tasks }) => {
         const checkpoint: SessionCheckpointRef = tasks.report.session;
         expect(checkpoint).toBeDefined();
@@ -97,7 +99,6 @@ describe("seqlane core", () => {
       output: schema<Record<never, never>>(),
     });
 
-    // @ts-expect-error Local task invocation options do not support sessions.
     flow.task("local", local, () => ({}), { session: isolated() });
 
     defineWorkflow({
@@ -105,7 +106,6 @@ describe("seqlane core", () => {
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       build: ({ input, run }) => {
-        // @ts-expect-error Local task invocation options do not support sessions.
         return run(local, { input, session: isolated() }).output;
       },
     });
@@ -113,17 +113,16 @@ describe("seqlane core", () => {
 
   it("rejects mixed and missing task behavior at type and runtime boundaries", () => {
     expect(() => {
-      // @ts-expect-error A task cannot define both agent and local behavior.
-      defineTask({
+      defineAgentTask({
         id: "mixed-task",
         input: schema<Record<never, never>>(),
         output: schema<Record<never, never>>(),
         goal: () => "work",
         execute: async () => ({}),
-      });
+      } as never);
     }).toThrow();
     expect(() => {
-      // @ts-expect-error A task must define agent or local behavior.
+      // @ts-expect-error A task must define execute.
       defineTask({
         id: "missing-task-behavior",
         input: schema<Record<never, never>>(),
@@ -137,7 +136,7 @@ describe("seqlane core", () => {
       id: "missing-workspace",
       input: schema<{ readonly request: string }>(),
       output: schema<{ readonly answer: string }>(),
-      goal: ({ request }: { readonly request: string }) => request,
+      execute: async () => ({ answer: "" }),
     };
 
     const task: TaskDefinition<
@@ -148,37 +147,15 @@ describe("seqlane core", () => {
     expect(task.id).toBe("missing-workspace");
   });
 
-  it("rejects removed permission and workspace capability fields statically", () => {
-    defineTask({
-      id: "old-workspace-value",
-      // @ts-expect-error Old workspace capabilities are not valid policies
-      workspace: "read",
-      input: schema<Record<never, never>>(),
-      output: schema<Record<never, never>>(),
-      goal: () => "work",
-    });
-    // @ts-expect-error Seqlane no longer exposes per-task permissions
-    defineTask({
-      id: "old-permission-field",
-      workspace: "shared",
-      permissions: { workspace: "read" },
-      input: schema<Record<never, never>>(),
-      output: schema<Record<never, never>>(),
-      goal: () => "work",
-    });
-  });
-
   it("creates typed Flow handles without exposing results", () => {
-    const inspect = defineTask({
+    const inspect = defineAgentTask({
       id: "inspect",
-      workspace: "shared",
       input: schema<{ readonly request: string }>(),
       output: schema<{ readonly summary: string }>(),
       goal: ({ request }) => request,
     });
-    const summarize = defineTask({
+    const summarize = defineAgentTask({
       id: "summarize",
-      workspace: "shared",
       input: schema<{ readonly summary: string }>(),
       output: schema<{ readonly result: string }>(),
       goal: ({ summary }) => summary,
@@ -203,7 +180,7 @@ describe("seqlane core", () => {
   });
 
   it("exposes immutable session checkpoints only on agent task handles", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "session-source",
       input: schema<Record<never, never>>(),
       output: schema<{ readonly value: string }>(),
@@ -214,7 +191,7 @@ describe("seqlane core", () => {
       input: schema<Record<never, never>>(),
       output: schema<{ readonly value: string }>(),
       build: ({ input, run, validate }) => {
-        const source = run(task, { input });
+        const source = run(task, { input, session: isolated() });
         const checkpoint: SessionCheckpointRef = source.session;
         expect(checkpoint).toMatchObject({
           type: "session-checkpoint",
@@ -238,9 +215,8 @@ describe("seqlane core", () => {
   });
 
   it("rejects widened, duplicate, and unknown Flow names statically", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "flow-task",
-      workspace: "shared",
       input: schema<{ readonly value: string }>(),
       output: schema<{ readonly value: string }>(),
       goal: ({ value }) => value,
@@ -313,9 +289,7 @@ describe("seqlane core", () => {
           type: "task",
           taskId: "investigate",
           nodeId: "investigate:1",
-          workspace: "shared",
-          execution: "agent",
-          session: { type: "isolated" },
+          workspace: "exclusive",
           dependsOn: [],
           input: { repository: "seqlane" },
         },
@@ -335,9 +309,8 @@ describe("seqlane core", () => {
       readonly files: string[];
     }
 
-    const task: TaskDefinition<Input, Output> = defineTask({
+    const task: TaskDefinition<Input, Output> = defineAgentTask({
       id: "investigate",
-      workspace: "shared",
       input: schema<Input>(),
       output: schema<Output>(),
       goal: ({ request }) => `Investigate ${request}`,
@@ -406,16 +379,14 @@ describe("seqlane core", () => {
 
   it("builds a deterministic Plan from inferred dataflow", () => {
     let executions = 0;
-    const investigate = defineTask({
+    const investigate = defineAgentTask({
       id: "investigate",
-      workspace: "shared",
       input: schema<{ request: string }>(),
       output: schema<{ files: string[] }>(),
       goal: ({ request }) => request,
     });
-    const planTask = defineTask({
+    const planTask = defineAgentTask({
       id: "plan",
-      workspace: "shared",
       input: schema<{ files: string[] }>(),
       output: schema<{ steps: string[] }>(),
       goal: (input) => `Create a plan for ${input.files.join(", ")}`,
@@ -445,9 +416,7 @@ describe("seqlane core", () => {
           type: "task",
           taskId: "investigate",
           nodeId: "investigate:1",
-          workspace: "shared",
-          execution: "agent",
-          session: { type: "isolated" },
+          workspace: "exclusive",
           input: {
             request: {
               type: "ref",
@@ -461,9 +430,7 @@ describe("seqlane core", () => {
           type: "task",
           taskId: "plan",
           nodeId: "plan:1",
-          workspace: "shared",
-          execution: "agent",
-          session: { type: "isolated" },
+          workspace: "exclusive",
           input: {
             files: {
               type: "ref",
@@ -487,16 +454,14 @@ describe("seqlane core", () => {
   });
 
   it("lowers a Flow through the existing workflow Plan builder", () => {
-    const first = defineTask({
+    const first = defineAgentTask({
       id: "first",
-      workspace: "shared",
       input: schema<{ readonly request: string }>(),
       output: schema<{ readonly value: string }>(),
       goal: ({ request }) => request,
     });
-    const second = defineTask({
+    const second = defineAgentTask({
       id: "second",
-      workspace: "shared",
       input: schema<{ readonly value: string }>(),
       output: schema<{ readonly result: string }>(),
       goal: ({ value }) => value,
@@ -519,9 +484,7 @@ describe("seqlane core", () => {
           type: "task",
           taskId: "first",
           nodeId: "first:1",
-          workspace: "shared",
-          execution: "agent",
-          session: { type: "isolated" },
+          workspace: "exclusive",
           input: {
             request: {
               type: "ref",
@@ -535,9 +498,7 @@ describe("seqlane core", () => {
           type: "task",
           taskId: "second",
           nodeId: "second:1",
-          workspace: "shared",
-          execution: "agent",
-          session: { type: "isolated" },
+          workspace: "exclusive",
           input: {
             value: {
               type: "ref",
@@ -557,23 +518,20 @@ describe("seqlane core", () => {
   });
 
   it("retains all task-only Flow connection forms", () => {
-    const repository = defineTask({
+    const repository = defineAgentTask({
       id: "repository",
-      workspace: "shared",
       input: schema<{ readonly repository: string }>(),
       output: schema<{ readonly baseBranch: string }>(),
       goal: ({ repository }) => repository,
     });
-    const analysis = defineTask({
+    const analysis = defineAgentTask({
       id: "analysis",
-      workspace: "shared",
       input: schema<{ readonly baseBranch: string }>(),
       output: schema<{ readonly analysis: string }>(),
       goal: ({ baseBranch }) => baseBranch,
     });
-    const suite = defineTask({
+    const suite = defineAgentTask({
       id: "suite",
-      workspace: "shared",
       input: schema<{
         readonly repository: string;
         readonly baseBranch: string;
@@ -582,16 +540,14 @@ describe("seqlane core", () => {
       output: schema<{ readonly passed: boolean }>(),
       goal: ({ suite: suiteName }) => suiteName,
     });
-    const policy = defineTask({
+    const policy = defineAgentTask({
       id: "policy",
-      workspace: "shared",
       input: schema<{ readonly version: string }>(),
       output: schema<{ readonly policy: string }>(),
       goal: ({ version }) => version,
     });
-    const report = defineTask({
+    const report = defineAgentTask({
       id: "report",
-      workspace: "shared",
       input: schema<{
         readonly analysis: string;
         readonly unitPassed: boolean;
@@ -660,9 +616,8 @@ describe("seqlane core", () => {
   });
 
   it("builds a bounded Repeat Plan node with deterministic body addresses", () => {
-    const repair = defineTask({
+    const repair = defineAgentTask({
       id: "repair",
-      workspace: "shared",
       input: schema<{ readonly passed: boolean }>(),
       output: schema<{ readonly passed: boolean }>(),
       goal: () => "repair",
@@ -702,9 +657,8 @@ describe("seqlane core", () => {
   });
 
   it("keeps independent and repeated invocations distinct", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "work",
-      workspace: "shared",
       input: schema<{ value: string }>(),
       output: schema<{ value: string }>(),
       goal: ({ value }) => value,

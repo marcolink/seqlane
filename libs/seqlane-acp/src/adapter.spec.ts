@@ -8,7 +8,7 @@
 
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
 import { SpanType } from "@mastra/core/observability";
-import type { AgentTaskDefinition } from "@seqlane/core";
+import type { AgentTaskRequest, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createAcpAdapter } from "./adapter.js";
@@ -32,16 +32,20 @@ import {
 
 const outputSchema = z.object({ value: z.string() });
 
-function task(): AgentTaskDefinition {
+function task(): TaskDefinition {
   return {
     id: "agent-task",
     input: z.string(),
     output: outputSchema,
-    goal: (input) => `Complete ${input}`,
-    instructions: ["Keep the change small"],
-    references: ["AGENTS.md"],
+    execute: async () => ({ value: "done" }),
   };
 }
+
+const agent: AgentTaskRequest = {
+  goal: "Complete the input",
+  instructions: ["Keep the change small"],
+  references: ["AGENTS.md"],
+};
 
 function configuration(
   overrides: Partial<ReturnType<typeof parseAcpLaunchConfiguration>> = {},
@@ -95,6 +99,7 @@ function request(overrides: Partial<AgentAdapterRequest> = {}) {
     invocationId: "invocation-1",
     task: task(),
     input: "the input",
+    agent,
     signal: new AbortController().signal,
     ...overrides,
     observability: overrides.observability ?? {},

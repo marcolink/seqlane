@@ -57,9 +57,7 @@ describe("all-features workflow example", () => {
     });
     expect(joined?.dependsOn).toContain("all-features.policy:1");
 
-    expect(built.plan.nodes.some((node) => node.type === "repeat")).toBe(
-      false,
-    );
+    expect(built.plan.nodes.some((node) => node.type === "repeat")).toBe(false);
     expect(polish).toMatchObject({
       workspace: "shared",
       taskId: "all-features.polish",

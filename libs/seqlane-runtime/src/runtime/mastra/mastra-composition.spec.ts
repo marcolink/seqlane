@@ -5,18 +5,20 @@ import { MastraStorageExporter } from "@mastra/observability";
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
 import { createAcpAdapter, parseAcpLaunchConfiguration } from "@seqlane/acp";
 import { createOpenCodeAdapterForRun } from "@seqlane/opencode/testing";
-import type { AgentTaskDefinition } from "@seqlane/core";
+import type { AgentTaskRequest, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createMastraComposition } from "./mastra-composition.js";
 
-const task: AgentTaskDefinition = {
+const task: TaskDefinition = {
   id: "storage-observability-task",
   input: z.object({ value: z.string() }),
   output: z.object({ value: z.string() }),
-  goal: ({ value }) => `Process ${value}`,
+  execute: async () => ({ value: "done" }),
+};
+const agent: AgentTaskRequest = {
+  goal: "Process demo",
   instructions: ["Keep the change small"],
-  references: [],
 };
 
 function request(
@@ -26,6 +28,7 @@ function request(
     invocationId: "storage-invocation",
     observability,
     task,
+    agent,
     input: { value: "demo" },
     signal: new AbortController().signal,
   };

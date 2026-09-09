@@ -16,7 +16,7 @@ import {
 import { createRuntimeAdapterRegistry } from "./runtime-adapter.js";
 import type { ExecutorRequest } from "../../runtime/execution/executor.js";
 
-const schema: SeqlaneSchema = { parse: (value) => value };
+const schema: SeqlaneSchema = z.unknown();
 const checkpointBindingSchema = z.object({
   configurationBinding: z.string(),
 });
@@ -106,10 +106,10 @@ async function startOpenCodeServer(): Promise<{
 function task(id: string, workspace: "shared" | "exclusive"): TaskDefinition {
   return {
     id,
-    workspace,
     input: schema,
     output: schema,
-    goal: () => "complete the task",
+    execute: async ({ context }) =>
+      context.runAgent({ goal: "complete the task" }),
   };
 }
 

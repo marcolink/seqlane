@@ -7,8 +7,6 @@ import type {
   FlowHandle,
   SessionPolicy,
   FlowValidationHandle,
-  AgentTaskDefinition,
-  LocalTaskDefinition,
   TaskDefinition,
   ValidatedRepeatCondition,
   Validator,
@@ -23,6 +21,7 @@ import type {
   SessionCheckpointRef,
   ValueRef,
 } from "./bindings.js";
+import { z } from "zod";
 
 export function defineValidator<Input>(
   definition: ValidatorDefinition<Input>,
@@ -31,14 +30,69 @@ export function defineValidator<Input>(
 }
 
 export function defineTask<Input, Output>(
-  definition: AgentTaskDefinition<Input, Output>,
-): AgentTaskDefinition<Input, Output>;
-export function defineTask<Input, Output>(
-  definition: LocalTaskDefinition<Input, Output>,
-): LocalTaskDefinition<Input, Output>;
-export function defineTask(definition: TaskDefinition): TaskDefinition {
+  definition: TaskDefinition<Input, Output>,
+): TaskDefinition<Input, Output> {
   taskDefinitionSchema.parse(definition);
   return definition;
+}
+
+interface AgentTaskFactoryInput<Input, Output> extends Omit<
+  TaskDefinition<Input, Output>,
+  "execute" | "goal"
+> {
+  readonly goal: (input: Input) => string;
+  readonly instructions?: readonly string[];
+  readonly references?: readonly string[];
+}
+
+export function defineAgentTask<Input, Output>(
+  definition: AgentTaskFactoryInput<Input, Output>,
+): TaskDefinition<Input, Output> {
+  if (Object.hasOwn(definition, "execute")) {
+    throw new TypeError("defineAgentTask does not accept execute");
+  }
+  const { goal, instructions, references, ...base } = definition;
+  const task: TaskDefinition<Input, Output> = {
+    ...base,
+    execute: async ({ input, context }) =>
+      context.runAgent({
+        goal: goal(input),
+        ...(instructions === undefined ? {} : { instructions }),
+        ...(references === undefined ? {} : { references }),
+      }) as Promise<Output>,
+  };
+  return defineTask(task);
+}
+
+export const shellTaskResultSchema = z.object({
+  exitCode: z.number().int(),
+  stdout: z.string(),
+  stderr: z.string(),
+});
+
+export type ShellTaskResult = z.infer<typeof shellTaskResultSchema>;
+
+interface ShellTaskFactoryInput<Input> extends Omit<
+  TaskDefinition<Input, ShellTaskResult>,
+  "execute" | "goal"
+> {
+  readonly executable: string;
+  readonly argv: (input: Input) => readonly string[];
+}
+
+export function defineShellTask<Input>(
+  definition: ShellTaskFactoryInput<Input>,
+): TaskDefinition<Input, ShellTaskResult> {
+  if (Object.hasOwn(definition, "execute")) {
+    throw new TypeError("defineShellTask does not accept execute");
+  }
+  const { executable, argv, ...base } = definition;
+  return defineTask({
+    ...base,
+    output: shellTaskResultSchema,
+    execute: async ({ input, context }) =>
+      context.exec({ executable, argv: argv(input) }),
+  });
 }
 
 export function defineWorkflow<Input, Output>(
@@ -191,21 +245,18 @@ export function createFlow<Input, Output>(
               : { validateOutput: taskOptions.validateOutput }),
             ...(dependsOn === undefined ? {} : { dependsOn }),
           };
-          if ("goal" in definition && typeof definition.goal === "function") {
-            const sessionOption =
-              taskOptions !== undefined && "session" in taskOptions
-                ? taskOptions.session
-                : undefined;
-            const session =
-              typeof sessionOption === "function"
-                ? sessionOption(authoringContext)
-                : sessionOption;
-            return context.run(definition, {
-              ...runOptions,
-              ...(session === undefined ? {} : { session }),
-            });
-          }
-          return context.run(definition, runOptions);
+          const sessionOption = taskOptions?.session;
+          const session =
+            typeof sessionOption === "function"
+              ? sessionOption(authoringContext)
+              : sessionOption;
+          return context.run(definition, {
+            ...runOptions,
+            ...(session === undefined ? {} : { session }),
+            ...(taskOptions?.workspace === undefined
+              ? {}
+              : { workspace: taskOptions.workspace }),
+          });
         },
       });
       return builder as never;
@@ -226,6 +277,7 @@ export function createFlow<Input, Output>(
             input: resolvedBinding as InputBinding<never>,
           });
           return {
+            nodeId: validation.nodeId,
             output: validation.output,
             validation: validation.result,
           };

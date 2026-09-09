@@ -1,6 +1,7 @@
 import type {
   ModelRef,
   ModelSelection,
+  AgentTaskRequest,
   TaskNode,
   TaskDefinition,
   SeqlaneInvocationMetrics,
@@ -72,6 +73,7 @@ export interface ExecutorRequest {
   readonly taskId: string;
   readonly executor: string;
   readonly input: unknown;
+  readonly agent?: AgentTaskRequest;
   readonly signal: AbortSignal;
   readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
   /** Report bounded executor diagnostics for the invocation output. */

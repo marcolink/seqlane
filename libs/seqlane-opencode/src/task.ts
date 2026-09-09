@@ -1,29 +1,14 @@
-import type {
-  AgentTaskDefinition as CoreAgentTaskDefinition,
-  TaskDefinition,
-  TaskDefinitionRegistry,
-} from "@seqlane/core";
+import type { TaskDefinition, TaskDefinitionRegistry } from "@seqlane/core";
 
 export type JsonSchema = { readonly [key: string]: unknown };
-
-export type AgentTaskDefinition<
-  Input = unknown,
-  Output = unknown,
-> = CoreAgentTaskDefinition<Input, Output>;
-
-export function isAgentTaskDefinition(
-  value: TaskDefinition,
-): value is AgentTaskDefinition {
-  return typeof value.goal === "function";
-}
 
 export function getOpenCodeTask(
   tasks: TaskDefinitionRegistry,
   taskId: string,
-): AgentTaskDefinition {
+): TaskDefinition {
   const task = tasks.get(taskId);
-  if (!task || !isAgentTaskDefinition(task)) {
-    throw new Error(`No agent task definition found for "${taskId}"`);
+  if (!task) {
+    throw new Error(`No task definition found for "${taskId}"`);
   }
   return task;
 }

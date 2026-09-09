@@ -1,7 +1,7 @@
 ---
 id: task.unify-executable-task-contract
 title: Unify the Executable Task Contract
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
@@ -125,7 +125,14 @@ Then run:
 
 ## Outcome
 
-Not started.
+Completed on `mastra-01-unify-executable-task-contract`.
+
+The public DSL now has one Zod-backed `TaskDefinition` with an `execute`
+callback and runtime-owned `TaskContext`. Agent and shell factories construct
+that same definition. Workspace and session policy are invocation properties;
+Plans no longer serialize task execution kinds. Shell tasks return the
+canonical exit-code, stdout, and stderr result without treating a nonzero exit
+as an invocation failure.
 
 ## Traceability
 

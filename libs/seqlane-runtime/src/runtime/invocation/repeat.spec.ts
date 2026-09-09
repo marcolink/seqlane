@@ -12,6 +12,7 @@ import type {
 } from "@seqlane/core";
 import type { ObservabilityContext } from "@mastra/core/observability";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   ExecutorError,
   LoopLimitExceededError,
@@ -28,7 +29,7 @@ function task(
   dependsOn: readonly string[],
   input: ValueBinding,
   session?: Extract<PlanNode, { type: "task" }>["session"],
-): PlanNode {
+): Extract<PlanNode, { type: "task" }> {
   return {
     type: "task",
     taskId: nodeId,
@@ -38,7 +39,7 @@ function task(
     ...(session === undefined ? {} : { session }),
     input,
     dependsOn,
-  } as PlanNode;
+  } as Extract<PlanNode, { type: "task" }>;
 }
 
 function repeatPlan(
@@ -185,10 +186,26 @@ function compile(
   events?: { emit(event: SeqlaneEvent): void },
   taskDefinitions?: ReadonlyMap<string, TaskDefinition>,
 ) {
+  const definitions = new Map(taskDefinitions);
+  const visit = (node: PlanNode): void => {
+    if (node.type === "task" && !definitions.has(node.taskId)) {
+      const schema = z.unknown();
+      definitions.set(node.taskId, {
+        id: node.taskId,
+        input: schema,
+        output: schema,
+        execute: async ({ context }) => context.runAgent({ goal: node.taskId }),
+      });
+    }
+    if (node.type === "repeat") {
+      for (const bodyNode of node.body.nodes) visit(bodyNode);
+    }
+  };
+  for (const node of source.nodes) visit(node);
   return new PlanCompiler().compileWorkflow(source, {
     createInvocationId: (nodeId) => nodeId,
     executors: new Map([["test-executor", { execute: executor }]]),
-    taskDefinitions,
+    taskDefinitions: definitions,
     events,
   });
 }
@@ -214,9 +231,10 @@ describe("conditioned repeat execution", () => {
           "repeat-validator",
           {
             id: "repeat-validator",
-            input: { parse: (value: unknown) => value },
-            output: { parse: (value: unknown) => value },
-            goal: () => "validate the repeat body",
+            input: z.unknown(),
+            output: z.unknown(),
+            execute: async ({ context }) =>
+              context.runAgent({ goal: "validate the repeat body" }),
           },
         ],
       ]),
@@ -340,42 +358,45 @@ describe("conditioned repeat execution", () => {
     const resolvedInvocations: string[] = [];
     const bodyTaskId = "repeat:1/body:1";
     let executions = 0;
-    const taskSchema = { parse: (value: unknown) => value };
-    const compiled = new PlanCompiler().compileWorkflow(repeatPlan(2), {
-      createInvocationId: (nodeId) => nodeId,
-      executors: new Map([
-        [
-          "test-executor",
-          { execute: async () => ({ source: "unresolved executor" }) },
-        ],
-      ]),
-      taskDefinitions: new Map([
-        [
-          bodyTaskId,
-          {
-            id: bodyTaskId,
-            workspace: "shared",
-            input: taskSchema,
-            output: taskSchema,
-            goal: () => "complete the repeat body",
-          },
-        ],
-      ]),
-      sessionResolver: {
-        resolve: async ({ invocationId }) => {
-          resolvedInvocations.push(invocationId);
-          return {
-            key: Symbol(invocationId),
-            executor: {
-              execute: async () => {
-                executions += 1;
-                return { passed: executions === 2 };
-              },
+    const taskSchema = z.unknown();
+    const compiled = new PlanCompiler().compileWorkflow(
+      repeatPlan(2, { type: "isolated" }),
+      {
+        createInvocationId: (nodeId) => nodeId,
+        executors: new Map([
+          [
+            "test-executor",
+            { execute: async () => ({ source: "unresolved executor" }) },
+          ],
+        ]),
+        taskDefinitions: new Map([
+          [
+            bodyTaskId,
+            {
+              id: bodyTaskId,
+              input: taskSchema,
+              output: taskSchema,
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "complete the repeat body" }),
             },
-          };
+          ],
+        ]),
+        sessionResolver: {
+          resolve: async ({ invocationId }) => {
+            resolvedInvocations.push(invocationId);
+            return {
+              key: Symbol(invocationId),
+              executor: {
+                execute: async () => {
+                  executions += 1;
+                  return { passed: executions === 2 };
+                },
+              },
+            };
+          },
         },
       },
-    });
+    );
 
     await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
       status: "succeeded",
@@ -395,7 +416,7 @@ describe("conditioned repeat execution", () => {
     const events: SeqlaneEvent[] = [];
     const resolvedSelections: Array<ModelSelection | undefined> = [];
     const bodyTaskId = "repeat:1/body:1";
-    const taskSchema = { parse: (value: unknown) => value };
+    const taskSchema = z.unknown();
     const compiled = new PlanCompiler().compileWorkflow(
       repeatPlan(1, { type: "isolated", model: selectedModel }),
       {
@@ -408,10 +429,10 @@ describe("conditioned repeat execution", () => {
             bodyTaskId,
             {
               id: bodyTaskId,
-              workspace: "shared",
               input: taskSchema,
               output: taskSchema,
-              goal: () => "complete the repeat body",
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "complete the repeat body" }),
             },
           ],
         ]),

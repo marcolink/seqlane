@@ -36,7 +36,9 @@ function agentTaskNodes(compiled: PreparedPlanExecution): readonly TaskNode[] {
   const nodes: TaskNode[] = [];
   const visit = (node: PlanNode): void => {
     if (node.type === "task") {
-      if (node.execution !== "local") nodes.push(node);
+      if (node.session !== undefined) {
+        nodes.push(node);
+      }
       return;
     }
     if (node.type === "repeat") {
@@ -114,7 +116,7 @@ export async function resolveCompiledWorkflowSessions(
   }> = [];
   for (const node of compiled.orderedNodes) {
     const invocationId = invocationIdForNode(context, node);
-    if (node.type === "task" && node.execution !== "local") {
+    if (node.type === "task" && node.session !== undefined) {
       const policy = node.session ?? { type: "isolated" as const };
       if (policy.type !== "isolated") {
         const task = context.taskDefinitions?.get(node.taskId);

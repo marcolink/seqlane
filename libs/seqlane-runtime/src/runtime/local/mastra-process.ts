@@ -2,6 +2,19 @@ import { LocalSandbox } from "@mastra/core/workspace";
 import type { InvocationId, TaskExecResult, TaskId } from "@seqlane/core";
 import { z } from "zod";
 
+interface MastraProcessResult extends TaskExecResult {
+  readonly taskId: TaskId;
+  readonly invocationId: InvocationId;
+  readonly startedAt: number;
+  readonly endedAt: number;
+  readonly durationMs: number;
+  readonly outcome: "completed" | "timed_out" | "cancelled";
+  readonly timedOut: boolean;
+  readonly cancelled: boolean;
+  readonly stdoutTruncated: boolean;
+  readonly stderrTruncated: boolean;
+}
+
 const mastraCommandResultSchema = z.object({
   exitCode: z.number().int(),
   stdout: z.string(),
@@ -64,7 +77,7 @@ export function normalizeMastraProcessResult(
   request: Pick<MastraProcessRequest, "taskId" | "invocationId" | "signal">,
   startedAt: number,
   endedAt: number,
-): TaskExecResult {
+): MastraProcessResult {
   const parsed = mastraCommandResultSchema.safeParse(value);
   if (!parsed.success) throw new MastraProcessResultError(parsed.error);
 
@@ -90,7 +103,7 @@ export function normalizeMastraProcessResult(
 /** Execute one argv-based foreground process with Mastra's local sandbox. */
 export async function runMastraProcess(
   request: MastraProcessRequest,
-): Promise<TaskExecResult> {
+): Promise<MastraProcessResult> {
   validateOutputLimitBytes(request.outputLimitBytes);
   validateTimeoutMs(request.timeoutMs);
   if (request.signal?.aborted) {

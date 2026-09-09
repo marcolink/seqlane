@@ -9,7 +9,7 @@ export {
 } from "./bindings.js";
 export type {
   InputBinding,
-  AgentTaskRef,
+  TaskInvocationWithSession,
   MechanicalTaskRef,
   SessionCheckpointRef,
   TaskInvocation,

@@ -3,7 +3,7 @@ import {
   buildPlan,
   buildWorkflow,
   createFlow,
-  defineTask,
+  defineAgentTask,
   defineValidator,
 } from "@seqlane/core";
 import { z } from "zod";
@@ -56,9 +56,8 @@ const verificationSchema = z.object({
   summary: z.string(),
 });
 
-const investigateTask = defineTask({
+const investigateTask = defineAgentTask({
   id: RENOVATE_INVOCATIONS.investigate.taskId,
-  workspace: "shared",
   input: renovateInputSchema,
   output: investigationSchema,
   goal: ({ dependency, fromVersion, toVersion, failure }) =>
@@ -69,9 +68,8 @@ const investigateTask = defineTask({
   references: ["package.json", "pnpm-lock.yaml"],
 });
 
-const planTask = defineTask({
+const planTask = defineAgentTask({
   id: RENOVATE_INVOCATIONS.plan.taskId,
-  workspace: "shared",
   input: z.object({ investigation: investigationSchema }),
   output: planSchema,
   goal: ({ investigation }) =>
@@ -79,18 +77,16 @@ const planTask = defineTask({
   instructions: ["Return ordered steps that can be applied and verified."],
 });
 
-const fixTask = defineTask({
+const fixTask = defineAgentTask({
   id: RENOVATE_INVOCATIONS.fix.taskId,
-  workspace: "exclusive",
   input: z.object({ plan: planSchema }),
   output: changeSchema,
   goal: ({ plan }) => `Apply the Renovate remediation plan: ${plan.summary}.`,
   instructions: ["List every changed file and summarize the applied fix."],
 });
 
-const verifyTask = defineTask({
+const verifyTask = defineAgentTask({
   id: RENOVATE_INVOCATIONS.verify.taskId,
-  workspace: "shared",
   input: z.object({ change: changeSchema }),
   output: verificationSchema,
   goal: ({ change }) =>

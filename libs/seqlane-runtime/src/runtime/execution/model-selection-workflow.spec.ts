@@ -12,6 +12,7 @@ import type {
 import { buildWorkflow } from "@seqlane/core";
 import { modelSelectionWorkflow } from "@seqlane/fixtures/model-selection-workflow";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import { preflightCompiledWorkflowModels } from "./model-preflight.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
@@ -147,9 +148,10 @@ describe("model-selection fixture integration", () => {
     const events: SeqlaneEvent[] = [];
     const task: TaskDefinition = {
       id: "legacy-task",
-      input: { parse: (value) => value },
-      output: { parse: (value) => value },
-      goal: () => "run a legacy task",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async ({ context }) =>
+        context.runAgent({ goal: "run a legacy task" }),
     };
     const executor: SeqlaneExecutor = {
       execute: async () => ({ label: "legacy" }),
@@ -163,6 +165,7 @@ describe("model-selection fixture integration", () => {
             taskId: task.id,
             nodeId: "legacy-task:1",
             workspace: "shared",
+            session: { type: "isolated" },
             input: {},
             dependsOn: [],
           },

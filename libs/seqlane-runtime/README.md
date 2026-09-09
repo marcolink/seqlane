@@ -31,22 +31,28 @@ releases dispatcher capacity even if workflow code ignores cancellation.
 Server and discovery helpers receive the caller's `RequestContext` and
 `AbortSignal`; they do not synthesize a separate request context.
 
-### Local task execution
+### Task execution and invocation policy
 
-A task with `execute` runs through the local invocation path. The runtime parses
-its typed input, admits the canonical workspace, and provides a scoped
-`TaskContext.exec` capability. Each call uses a Mastra `LocalSandbox` process
-with an executable and direct argv, never a shell, and captures bounded stdout
-and stderr. Results include Seqlane task and invocation identity, timing,
-truncation, timeout, and cancellation metadata. The workspace lease remains
-held until the process terminates.
+Every task definition exposes one `execute({ input, signal, context })` contract.
+The runtime parses its typed input, admits the invocation's workspace policy,
+and provides a scoped `TaskContext`. `context.exec` runs an executable with
+direct argv through a Mastra `LocalSandbox` (never through a shell), with
+bounded stdout and stderr. A nonzero process exit code is task output; spawn,
+timeout, cancellation, and output-limit failures reject the invocation. The
+canonical process result is `{ exitCode, stdout, stderr }`; richer process
+metadata remains private runtime detail. `context.runAgent` uses the executor
+selected by the invocation's session policy.
 
-Local tasks do not resolve an agent executor, model, session, or checkpoint, and
-their generic invocation results contain no model or token metrics. V1 is
-non-interactive and requires `execute` to await `exec`; there is no Git helper,
-Git mutation API, shell support, background-process API, or command policy.
+Workspace and session policies belong to task invocations and Plan nodes, not
+task definitions. A task without a declared session uses a registered executor
+as an isolated one-shot adapter execution; it does not resolve or allocate a
+session from inside `execute`. A declared session is resolved and admitted
+before task execution, and only those invocations can publish or consume a
+session checkpoint. V1 is non-interactive and requires `execute` to await
+`exec`; there is no Git helper, Git mutation API, shell support,
+background-process API, or command policy.
 
-Workspace policy is scheduling-only. A task with `workspace: "shared"` may run
+Workspace policy is scheduling-only. An invocation with `workspace: "shared"` may run
 with other shared tasks. An `exclusive` task waits for all workspace work; any
 task waits while an exclusive task is active. Omitted policy resolves to
 `exclusive`. Workspace policy neither grants nor restricts filesystem, shell,

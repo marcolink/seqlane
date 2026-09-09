@@ -8,9 +8,10 @@
 // @test-scope ../invocation/repeat-execution.ts
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { z } from "zod";
 import { join } from "node:path";
 import type {
-  LocalTaskDefinition,
+  TaskDefinition,
   Plan,
   SeqlaneEvent,
   SeqlaneSchema,
@@ -29,7 +30,7 @@ import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 
-const identitySchema: SeqlaneSchema = { parse: (value) => value };
+const identitySchema: SeqlaneSchema = z.unknown();
 
 function localTaskNode(
   taskId: string,
@@ -41,7 +42,6 @@ function localTaskNode(
     taskId,
     nodeId,
     workspace,
-    execution: "local",
     input: { type: "ref", nodeId: "__seqlane_input", path: [] },
     dependsOn: [],
   };
@@ -60,7 +60,7 @@ function localPlan(
 
 function compileLocal(
   plan: Plan,
-  definition: LocalTaskDefinition<unknown, unknown>,
+  definition: TaskDefinition<unknown, unknown>,
   options: {
     readonly workspace?: string;
     readonly events?: { emit(event: SeqlaneEvent): void };
@@ -117,30 +117,26 @@ describe("local task execution", () => {
     try {
       const literalArgument = "$(not-a-shell); literal argument";
       const canonicalWorkspace = await realpath(workspace);
-      const inputSchema: SeqlaneSchema<{ readonly value: string }> = {
-        parse: (value) => {
-          expect(value).toEqual({ value: "input" });
-          return { value: "parsed-input" };
-        },
-      };
-      const outputSchema: SeqlaneSchema = {
-        parse: (value) => {
-          expect(value).toMatchObject({
-            exitCode: 0,
-            stdout: `${canonicalWorkspace}\n${literalArgument}`,
-            stderr: "stderr",
-          });
-          return { ...(value as object), parsed: true };
-        },
-      };
-      const definition: LocalTaskDefinition = {
+      const inputSchema = z.any().transform((value) => {
+        expect(value).toEqual({ value: "input" });
+        return { value: "parsed-input" };
+      });
+      const outputSchema = z.any().transform((value) => {
+        expect(value).toMatchObject({
+          exitCode: 0,
+          stdout: `${canonicalWorkspace}\n${literalArgument}`,
+          stderr: "stderr",
+        });
+        return { ...(value as object), parsed: true };
+      });
+      const definition: TaskDefinition = {
         id: "local-output",
         input: inputSchema,
         output: outputSchema,
-        execute: async (input, context) => {
+        execute: async ({ input, context }) => {
           const result = await context.exec({
-            command: process.execPath,
-            args: [
+            executable: process.execPath,
+            argv: [
               "-e",
               "process.stdout.write(`${process.cwd()}\\n${process.argv[1]}`); process.stderr.write('stderr')",
               literalArgument,
@@ -167,14 +163,6 @@ describe("local task execution", () => {
           parsed: true,
         },
       });
-      expect(outcome).toMatchObject({
-        status: "succeeded",
-        result: {
-          taskId: definition.id,
-          invocationId: "local-output:1",
-          outcome: "completed",
-        },
-      });
       expect(events.map(({ type }) => type)).toEqual([
         "run.started",
         "invocation.created",
@@ -199,14 +187,14 @@ describe("local task execution", () => {
 
   it("collects more than 512 KiB with the default output limit", async () => {
     const outputSize = 512_001;
-    const definition: LocalTaskDefinition = {
+    const definition: TaskDefinition = {
       id: "local-large-output",
       input: identitySchema,
       output: identitySchema,
-      execute: async (_input, context) =>
+      execute: async ({ context }) =>
         context.exec({
-          command: process.execPath,
-          args: ["-e", `process.stdout.write('x'.repeat(${outputSize}))`],
+          executable: process.execPath,
+          argv: ["-e", `process.stdout.write('x'.repeat(${outputSize}))`],
         }),
     };
     const compiled = compileLocal(
@@ -223,14 +211,14 @@ describe("local task execution", () => {
   it.each([0, 23])(
     "returns a %i process exit code as task output",
     async (exitCode) => {
-      const definition: LocalTaskDefinition = {
+      const definition: TaskDefinition = {
         id: `local-exit-${exitCode}`,
         input: identitySchema,
         output: identitySchema,
-        execute: async (_input, context) =>
+        execute: async ({ context }) =>
           context.exec({
-            command: process.execPath,
-            args: [
+            executable: process.execPath,
+            argv: [
               "-e",
               `process.stderr.write('exit-${exitCode}'); process.exit(${exitCode})`,
             ],
@@ -243,21 +231,19 @@ describe("local task execution", () => {
 
       await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
         status: "succeeded",
-        result: { exitCode, stderr: `exit-${exitCode}` },
+        result: { exitCode, stdout: "", stderr: `exit-${exitCode}` },
       });
     },
   );
 
   it("maps invalid local output to OutputValidationError and does not retain it", async () => {
     const cause = new Error("invalid output");
-    const definition: LocalTaskDefinition = {
+    const definition: TaskDefinition = {
       id: "local-invalid-output",
       input: identitySchema,
-      output: {
-        parse: () => {
-          throw cause;
-        },
-      },
+      output: z.any().transform(() => {
+        throw cause;
+      }),
       execute: async () => ({ value: "output" }),
     };
     const compiled = compileLocal(
@@ -282,14 +268,14 @@ describe("local task execution", () => {
     const workspace = await mkdtemp(join(tmpdir(), "seqlane-local-"));
     try {
       const pidPath = join(workspace, "pid");
-      const definition: LocalTaskDefinition = {
+      const definition: TaskDefinition = {
         id: "local-cancel",
         input: identitySchema,
         output: identitySchema,
-        execute: async (_input, context) => {
+        execute: async ({ context }) => {
           await context.exec({
-            command: process.execPath,
-            args: [
+            executable: process.execPath,
+            argv: [
               "-e",
               "require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => undefined, 1000)",
               pidPath,
@@ -324,26 +310,26 @@ describe("local task execution", () => {
     const workspace = await mkdtemp(join(tmpdir(), "seqlane-local-"));
     try {
       const markerPath = join(workspace, "second-started");
-      const first: LocalTaskDefinition = {
+      const first: TaskDefinition = {
         id: "local-first",
         input: identitySchema,
         output: identitySchema,
-        execute: async (_input, context) => {
+        execute: async ({ context }) => {
           await context.exec({
-            command: process.execPath,
-            args: ["-e", "setTimeout(() => undefined, 100)"],
+            executable: process.execPath,
+            argv: ["-e", "setTimeout(() => undefined, 100)"],
           });
           return {};
         },
       };
-      const second: LocalTaskDefinition = {
+      const second: TaskDefinition = {
         id: "local-second",
         input: identitySchema,
         output: identitySchema,
-        execute: async (_input, context) => {
+        execute: async ({ context }) => {
           await context.exec({
-            command: process.execPath,
-            args: [
+            executable: process.execPath,
+            argv: [
               "-e",
               "require('node:fs').writeFileSync(process.argv[1], 'started')",
               markerPath,
@@ -386,7 +372,7 @@ describe("local task execution", () => {
   });
 
   it("executes local tasks in a repeat body without session resolution", async () => {
-    const definition: LocalTaskDefinition = {
+    const definition: TaskDefinition = {
       id: "local-repeat",
       input: identitySchema,
       output: identitySchema,
@@ -451,7 +437,7 @@ describe("local task execution", () => {
     let agentCalls = 0;
     let modelCalls = 0;
     let sessionCalls = 0;
-    const definition: LocalTaskDefinition = {
+    const definition: TaskDefinition = {
       id: "local-without-agent",
       input: identitySchema,
       output: identitySchema,

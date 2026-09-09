@@ -1,4 +1,4 @@
-import { createFlow, defineTask, defineValidator } from "@seqlane/core";
+import { createFlow, defineAgentTask, defineValidator } from "@seqlane/core";
 import { z } from "zod";
 
 const taskOutputInputSchema = z.object({
@@ -29,17 +29,15 @@ const taskOutputValidator = defineValidator({
         },
 });
 
-const produceTask = defineTask({
+const produceTask = defineAgentTask({
   id: "validation.fixture.produce",
-  workspace: "shared",
   input: taskOutputInputSchema,
   output: candidateOutputSchema,
   goal: ({ candidate }) => `Produce a candidate for ${candidate}.`,
 });
 
-const dependentTask = defineTask({
+const dependentTask = defineAgentTask({
   id: "validation.fixture.dependent",
-  workspace: "shared",
   input: z.object({ candidate: z.string() }),
   output: z.object({ candidate: z.string(), completed: z.literal(true) }),
   goal: ({ candidate }) => `Complete work for ${candidate}.`,
@@ -51,10 +49,16 @@ export const taskOutputValidationWorkflow = createFlow({
   output: z.object({ candidate: z.string(), completed: z.literal(true) }),
 })
   .task("candidate", produceTask, ({ input }) => input, {
+    workspace: "shared",
     validateOutput: taskOutputValidator,
   })
-  .task("dependent", dependentTask, ({ tasks }) => ({
-    candidate: tasks.candidate.output.candidate,
-  }))
+  .task(
+    "dependent",
+    dependentTask,
+    ({ tasks }) => ({
+      candidate: tasks.candidate.output.candidate,
+    }),
+    { workspace: "shared" },
+  )
   .output(({ tasks }) => tasks.dependent.output)
   .define();

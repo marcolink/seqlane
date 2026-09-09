@@ -49,7 +49,10 @@ function definitions(...ids: string[]): ReadonlyMap<string, TaskDefinition> {
         id,
         input: id === "source" ? z.object({}) : taskInput,
         output: taskOutput,
-        goal: ({ value }: { value: number }) => `process ${value}`,
+        execute: async ({ input, context }) =>
+          context.runAgent({
+            goal: `process ${(input as { value: number }).value}`,
+          }),
       },
     ]),
   );
@@ -389,7 +392,8 @@ describe("Mastra Plan compiler", () => {
             id: "source",
             input: taskInput,
             output: taskOutput,
-            goal: () => "source",
+            execute: async ({ context }) =>
+              context.runAgent({ goal: "source" }),
           },
         ],
       ]),

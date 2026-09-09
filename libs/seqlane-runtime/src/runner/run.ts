@@ -3,12 +3,7 @@ import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
 } from "@seqlane/events";
-import {
-  RuntimeError,
-  type Plan,
-  type PlanNode,
-  type RunRequest,
-} from "@seqlane/core";
+import { RuntimeError, type RunRequest } from "@seqlane/core";
 import type { MastraActiveRun } from "../runtime/mastra/mastra-runtime.js";
 import {
   createMastraPlanExecution,
@@ -53,17 +48,6 @@ export type RuntimeExecutionResolver = (
   onSessionUiAvailable?: RuntimeSessionUiNotifier,
   options?: RuntimeProfileResolutionOptions,
 ) => RuntimeExecution | Promise<RuntimeExecution>;
-
-function nodeContainsAgentWork(node: PlanNode): boolean {
-  if (node.type === "task") return node.execution !== "local";
-  if (node.type === "validation.check") return node.source.type === "task";
-  if (node.type === "validation.gate") return false;
-  return node.body.nodes.some(nodeContainsAgentWork);
-}
-
-export function planContainsAgentWork(plan: Plan): boolean {
-  return plan.nodes.some(nodeContainsAgentWork);
-}
 
 export function requestRunnerCancellation(control: RunnerRunControl): void {
   if (control.cancellationRequested) return;
@@ -146,15 +130,6 @@ export async function startRun(
       await events.flush();
       host.exit(0);
       return;
-    }
-
-    if (
-      request.runtime.id === "local" &&
-      planContainsAgentWork(loadedWorkflow.plan)
-    ) {
-      throw new Error(
-        'Runtime profile "local" is not configured for agent workflows',
-      );
     }
 
     const execution = await resolveExecution(

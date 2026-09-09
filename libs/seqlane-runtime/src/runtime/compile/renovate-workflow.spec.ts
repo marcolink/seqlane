@@ -3,6 +3,7 @@ import type { Plan } from "@seqlane/core";
 import {
   createRenovatePlan,
   RENOVATE_INVOCATIONS,
+  renovateTaskDefinitions,
   renovateTaskSchemas,
   renovateValidatorDefinitions,
 } from "@seqlane/fixtures/renovate-workflow";
@@ -115,6 +116,7 @@ function compileRenovateWorkflow(
       [RENOVATE_INVOCATIONS.verify.taskId, { key: "/checkout" }],
     ]),
     taskSchemas: renovateTaskSchemas,
+    taskDefinitions: renovateTaskDefinitions,
     validatorDefinitions: renovateValidatorDefinitions,
     events: { emit: (event) => events.push(event) },
   });

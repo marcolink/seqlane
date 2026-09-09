@@ -1,6 +1,6 @@
 import type {
   InvocationId,
-  LocalTaskDefinition,
+  TaskDefinition,
   TaskId,
   TaskContext,
 } from "@seqlane/core";
@@ -12,13 +12,14 @@ import {
 export const DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 
 export interface LocalTaskExecutionRequest {
-  readonly definition: LocalTaskDefinition<unknown, unknown>;
+  readonly definition: TaskDefinition<unknown, unknown>;
   readonly input: unknown;
   readonly cwd: string;
   readonly taskId: TaskId;
   readonly invocationId: InvocationId;
   readonly signal: AbortSignal;
   readonly outputLimitBytes?: number;
+  readonly runAgent: TaskContext["runAgent"];
 }
 
 function taskContext(
@@ -27,12 +28,13 @@ function taskContext(
   invocationId: InvocationId,
   signal: AbortSignal,
   outputLimitBytes: number,
+  runAgent: TaskContext["runAgent"],
 ): TaskContext {
   return {
     exec: async (request) =>
       runMastraProcess({
-        command: request.command,
-        args: request.args ?? [],
+        command: request.executable,
+        args: request.argv ?? [],
         cwd,
         taskId,
         invocationId,
@@ -40,6 +42,7 @@ function taskContext(
         signal,
         timeoutMs: request.timeoutMs,
       }),
+    runAgent,
   };
 }
 
@@ -52,8 +55,13 @@ export async function executeLocalTask(
     request.invocationId,
     request.signal,
     request.outputLimitBytes ?? DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES,
+    request.runAgent,
   );
-  const output = await request.definition.execute(request.input, context);
+  const output = await request.definition.execute({
+    input: request.input,
+    signal: request.signal,
+    context,
+  });
   if (request.signal.aborted) {
     throw new MastraProcessCancelledError(request.signal.reason);
   }

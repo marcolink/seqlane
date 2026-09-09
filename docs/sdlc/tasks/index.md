@@ -218,5 +218,5 @@
 | [task.remove-seqlane-events](./2026-09-08-remove-seqlane-events.md) | Remove Seqlane Events | planned | 2026-09-08 | core |
 | [task.remove-effect-subprocess-runtime](./2026-09-08-remove-effect-subprocess-runtime.md) | Remove the Effect Subprocess Runtime | completed | 2026-09-08 | core |
 | [task.unify-flow-authoring-and-minimal-plan](./2026-09-08-unify-flow-authoring-and-minimal-plan.md) | Unify Flow Authoring and the Minimal Plan | planned | 2026-09-08 | core |
-| [task.unify-executable-task-contract](./2026-09-08-unify-executable-task-contract.md) | Unify the Executable Task Contract | planned | 2026-09-08 | core |
+| [task.unify-executable-task-contract](./2026-09-08-unify-executable-task-contract.md) | Unify the Executable Task Contract | completed | 2026-09-08 | core |
 | [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | completed | 2026-09-09 | core |

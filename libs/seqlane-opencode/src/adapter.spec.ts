@@ -2,7 +2,8 @@
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
 import {
   InteractionRequiredError,
-  type AgentTaskDefinition,
+  type AgentTaskRequest,
+  type TaskDefinition,
   type SeqlaneInvocationMetrics,
 } from "@seqlane/core";
 import { describe, expect, it, vi } from "vitest";
@@ -18,11 +19,14 @@ vi.mock("./session.js", () => ({
   createOpenCodeRun: vi.fn(),
 }));
 
-const task: AgentTaskDefinition = {
+const task: TaskDefinition = {
   id: "agent-task",
   input: z.object({ value: z.string() }),
   output: z.object({ result: z.string() }),
-  goal: ({ value }) => `Process ${value}`,
+  execute: async () => ({ result: "done" }),
+};
+const agent: AgentTaskRequest = {
+  goal: "Process demo",
   instructions: ["Keep the change small"],
   references: ["AGENTS.md"],
 };
@@ -34,6 +38,7 @@ function request(
     invocationId: "invocation-1",
     task,
     input: { value: "demo" },
+    agent,
     signal: new AbortController().signal,
     ...overrides,
     observability: overrides.observability ?? {},

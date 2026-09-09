@@ -1,14 +1,15 @@
-import type { AgentTaskDefinition } from "@seqlane/core";
+import type { AgentTaskRequest, TaskDefinition } from "@seqlane/core";
 import type { JsonSchema } from "./task.js";
 
 const responseFormatInstruction =
   "Response format: Return only the requested structured output.";
 
 export function buildAgentPrompt(
-  task: AgentTaskDefinition,
+  task: TaskDefinition,
   input: unknown,
+  agent?: AgentTaskRequest,
 ): string {
-  const objective = task.goal(input);
+  const objective = agent?.goal;
   if (typeof objective !== "string" || objective.trim().length === 0) {
     throw new Error(`Agent task "${task.id}" returned an empty objective`);
   }
@@ -16,10 +17,10 @@ export function buildAgentPrompt(
   return [
     objective,
     responseFormatInstruction,
-    ...(task.instructions ?? []).map(
+    ...(agent?.instructions ?? []).map(
       (instruction) => `Task instruction: ${instruction}`,
     ),
-    ...(task.references ?? []).map(
+    ...(agent?.references ?? []).map(
       (reference) => `Task reference: ${reference}`,
     ),
   ].join("\n");

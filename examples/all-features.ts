@@ -1,7 +1,7 @@
 import {
   branch,
   createFlow,
-  defineTask,
+  defineAgentTask,
   defineValidator,
   isolated,
   reuse,
@@ -118,9 +118,8 @@ const polishValidator = defineValidator({
         },
 });
 
-const contextTask = defineTask({
+const contextTask = defineAgentTask({
   id: "all-features.context",
-  workspace: "shared",
   input: inputSchema,
   output: contextSchema,
   goal: ({ topic, focus }) =>
@@ -140,9 +139,8 @@ const contextTask = defineTask({
   },
 });
 
-const laneTask = defineTask({
+const laneTask = defineAgentTask({
   id: "all-features.lane",
-  workspace: "shared",
   input: contextSchema,
   output: laneSchema,
   goal: ({ hint, keywords }) =>
@@ -150,18 +148,16 @@ const laneTask = defineTask({
   instructions: ["Return one label and one concise note."],
 });
 
-const policyTask = defineTask({
+const policyTask = defineAgentTask({
   id: "all-features.policy",
-  workspace: "shared",
   input: z.object({ version: z.literal("v1") }),
   output: policySchema,
   goal: () => "Return the static v1 policy used by this example.",
   instructions: ["Return the policy version and one short rule."],
 });
 
-const joinedTask = defineTask({
+const joinedTask = defineAgentTask({
   id: "all-features.joined",
-  workspace: "exclusive",
   input: z.object({
     context: contextSchema,
     left: laneSchema,
@@ -175,9 +171,8 @@ const joinedTask = defineTask({
   ],
 });
 
-const polishTask = defineTask({
+const polishTask = defineAgentTask({
   id: "all-features.polish",
-  workspace: "shared",
   input: polishStateSchema,
   output: polishStateSchema,
   goal: ({ summary, passes }) =>
@@ -193,10 +188,12 @@ export default createFlow({
   output: outputSchema,
 })
   .task("context", contextTask, ({ input }) => input, {
+    workspace: "shared",
     session: isolated(),
     validateOutput: contextValidator,
   })
   .task("left", laneTask, ({ tasks }) => tasks.context.output, {
+    workspace: "shared",
     session: ({ tasks }) => branch(tasks.context.session),
   })
   .task(
@@ -208,9 +205,12 @@ export default createFlow({
       keywords: tasks.context.output.keywords,
       hint: "right-lane",
     }),
-    { session: ({ tasks }) => branch(tasks.context.session) },
+    {
+      workspace: "shared",
+      session: ({ tasks }) => branch(tasks.context.session),
+    },
   )
-  .task("policy", policyTask, { version: "v1" })
+  .task("policy", policyTask, { version: "v1" }, { workspace: "shared" })
   .task(
     "joined",
     joinedTask,
@@ -220,6 +220,7 @@ export default createFlow({
       right: tasks.right.output,
     }),
     {
+      workspace: "exclusive",
       dependsOn: ["policy"],
       session: ({ tasks }) => reuse(tasks.left.session),
     },
@@ -234,6 +235,7 @@ export default createFlow({
       passes: 0,
     }),
     {
+      workspace: "shared",
       validateOutput: polishValidator,
     },
   )

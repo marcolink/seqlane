@@ -34,9 +34,12 @@ const publicEntryPoint = fileURLToPath(
   new URL("../../index.ts", import.meta.url),
 );
 
-const passthroughSchema: SeqlaneSchema = {
-  parse: (value) => value,
-};
+const passthroughSchema: SeqlaneSchema = z.unknown();
+
+const throwingSchema = (message: string): SeqlaneSchema =>
+  z.custom<unknown>(() => {
+    throw new Error(message);
+  });
 
 function taskPlan(id: string): Plan {
   return {
@@ -108,11 +111,14 @@ function fixtureTaskDefinitions(
   input: SeqlaneSchema = passthroughSchema,
   output: SeqlaneSchema = passthroughSchema,
 ): TaskDefinitionRegistry {
+  const runtimeSchema = (schema: SeqlaneSchema): SeqlaneSchema =>
+    z.any().transform((value) => schema.parse(value));
   const task: TaskDefinition = {
     id: "fixture-task",
-    input,
-    output,
-    goal: () => "Run the fixture task",
+    input: runtimeSchema(input),
+    output: runtimeSchema(output),
+    execute: async ({ context }) =>
+      context.runAgent({ goal: "Run the fixture task" }),
   };
   return new Map([[task.id, task]]);
 }
@@ -271,6 +277,7 @@ describe("private Mastra runtime spine", () => {
       runId: "fixture-run",
       createInvocationId: (nodeId) => nodeId ?? "fixture-invocation",
       executors: { agent: () => ({ execute: async () => undefined }) },
+      taskDefinitions: fixtureTaskDefinitions(),
       sessionResolver: {
         resolve: async () => ({
           key: Symbol("fixture-session"),
@@ -1002,16 +1009,8 @@ describe("private Mastra runtime spine", () => {
   });
 
   it("preserves typed Seqlane failures through the Mastra runner", async () => {
-    const inputFailure: SeqlaneSchema = {
-      parse: () => {
-        throw new Error("invalid fixture input");
-      },
-    };
-    const outputFailure: SeqlaneSchema = {
-      parse: () => {
-        throw new Error("invalid fixture output");
-      },
-    };
+    const inputFailure = throwingSchema("invalid fixture input");
+    const outputFailure = throwingSchema("invalid fixture output");
     const cases = [
       {
         name: "input validation",
@@ -1110,11 +1109,9 @@ describe("private Mastra runtime spine", () => {
     const events: SeqlaneEvent[] = [];
     const outcome = await runMastraPlan({
       plan: taskPlan("fixture-input-lifecycle"),
-      taskDefinitions: fixtureTaskDefinitions({
-        parse: () => {
-          throw new Error("invalid fixture input");
-        },
-      }),
+      taskDefinitions: fixtureTaskDefinitions(
+        throwingSchema("invalid fixture input"),
+      ),
       events,
     });
 

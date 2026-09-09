@@ -11,7 +11,21 @@ import {
 import { once } from "node:events";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import type { AgentTaskRequest, TaskDefinition } from "@seqlane/core";
 import { createOpenCodeAdapter } from "./adapter.js";
+
+function adapterTask(id: string): TaskDefinition {
+  return {
+    id,
+    input: z.string(),
+    output: z.object({ result: z.string() }),
+    execute: async () => ({ result: "done" }),
+  };
+}
+
+const adapterAgent: AgentTaskRequest = {
+  goal: "Complete the controlled input",
+};
 
 interface RequestRecord {
   readonly method: string;
@@ -288,13 +302,8 @@ describe("OpenCode SDK adapter boundary", () => {
       const result = await adapter.execute({
         invocationId: "controlled-opencode-invocation",
         observability: {},
-        task: {
-          id: "controlled-opencode-task",
-          workspace: "shared",
-          input: z.string(),
-          output: z.object({ result: z.string() }),
-          goal: (input) => String(input),
-        },
+        task: adapterTask("controlled-opencode-task"),
+        agent: adapterAgent,
         input: "Return the controlled result",
         modelSelection: {
           model: { provider: "controlled-provider", model: "controlled-model" },
@@ -366,12 +375,8 @@ describe("OpenCode SDK adapter boundary", () => {
       const request = {
         invocationId: "reuse-invocation",
         observability: {},
-        task: {
-          id: "reuse-task",
-          input: z.string(),
-          output: z.object({ result: z.string() }),
-          goal: (input: unknown) => String(input),
-        },
+        task: adapterTask("reuse-task"),
+        agent: adapterAgent,
         input: "reuse",
         signal: new AbortController().signal,
       };
@@ -419,12 +424,8 @@ describe("OpenCode SDK adapter boundary", () => {
       const execution = adapter.execute({
         invocationId: "cancel-invocation",
         observability: {},
-        task: {
-          id: "cancel-task",
-          input: z.string(),
-          output: z.object({ result: z.string() }),
-          goal: (input) => String(input),
-        },
+        task: adapterTask("cancel-task"),
+        agent: adapterAgent,
         input: "cancel",
         signal: controller.signal,
       });
@@ -449,12 +450,8 @@ describe("OpenCode SDK adapter boundary", () => {
         adapter.execute({
           invocationId: "permission-invocation",
           observability: {},
-          task: {
-            id: "permission-task",
-            input: z.string(),
-            output: z.object({ result: z.string() }),
-            goal: (input) => String(input),
-          },
+          task: adapterTask("permission-task"),
+          agent: adapterAgent,
           input: "permission",
           signal: new AbortController().signal,
         }),

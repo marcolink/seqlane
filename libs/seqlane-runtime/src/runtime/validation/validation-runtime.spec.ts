@@ -12,6 +12,7 @@ import type {
   ValueBinding,
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   ExecutorError,
   LoopLimitExceededError,
@@ -24,9 +25,7 @@ import {
 import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 
-const schema = <T>(): SeqlaneSchema<T> => ({
-  parse: (value) => value as T,
-});
+const schema = <T>(): SeqlaneSchema<T> => z.any() as SeqlaneSchema<T>;
 
 function task(
   nodeId: string,
@@ -98,6 +97,25 @@ function compile(
     };
   } = {},
 ) {
+  const taskDefinitions = new Map(options.taskDefinitions);
+  const nodes: PlanNode[] = [];
+  const collect = (node: PlanNode): void => {
+    nodes.push(node);
+    if (node.type === "repeat") {
+      for (const bodyNode of node.body.nodes) collect(bodyNode);
+    }
+  };
+  for (const node of plan.nodes) collect(node);
+  for (const node of nodes) {
+    if (node.type !== "task" || taskDefinitions.has(node.taskId)) continue;
+    const taskSchema = z.unknown();
+    taskDefinitions.set(node.taskId, {
+      id: node.taskId,
+      input: taskSchema,
+      output: taskSchema,
+      execute: async ({ context }) => context.runAgent({ goal: node.taskId }),
+    });
+  }
   return new PlanCompiler().compileWorkflow(plan, {
     workflowInput: { value: "candidate" },
     createInvocationId: (nodeId) => nodeId,
@@ -108,7 +126,7 @@ function compile(
       ],
     ]),
     validatorDefinitions: options.validators,
-    taskDefinitions: options.taskDefinitions,
+    taskDefinitions,
     events: options.events,
   });
 }
@@ -313,10 +331,9 @@ describe("runtime validation execution", () => {
   it("executes evaluator validators through the task lifecycle", async () => {
     const evaluator: TaskDefinition = {
       id: "evaluator",
-      workspace: "shared",
       input: schema<{ readonly value: string }>(),
       output: schema<ValidationResult>(),
-      goal: () => "evaluate",
+      execute: async ({ context }) => context.runAgent({ goal: "evaluate" }),
     };
     const compiled = compile(validationPlan("task", "evaluator"), {
       taskDefinitions: new Map([[evaluator.id, evaluator]]),
@@ -338,10 +355,9 @@ describe("runtime validation execution", () => {
     let attempts = 0;
     const evaluator: TaskDefinition = {
       id: "malformed-evaluator",
-      workspace: "shared",
       input: schema(),
       output: schema<ValidationResult>(),
-      goal: () => "evaluate",
+      execute: async ({ context }) => context.runAgent({ goal: "evaluate" }),
     };
     const compiled = compile(
       validationPlan("task", "malformed-evaluator", false),
@@ -366,10 +382,9 @@ describe("runtime validation execution", () => {
   it("propagates evaluator executor errors", async () => {
     const evaluator: TaskDefinition = {
       id: "failing-evaluator",
-      workspace: "shared",
       input: schema(),
       output: schema<ValidationResult>(),
-      goal: () => "evaluate",
+      execute: async ({ context }) => context.runAgent({ goal: "evaluate" }),
     };
     const compiled = compile(validationPlan("task", evaluator.id, false), {
       taskDefinitions: new Map([[evaluator.id, evaluator]]),
@@ -398,10 +413,9 @@ describe("runtime validation execution", () => {
     });
     const evaluator: TaskDefinition = {
       id: "blocking-evaluator",
-      workspace: "shared",
       input: schema(),
       output: schema<ValidationResult>(),
-      goal: () => "evaluate",
+      execute: async ({ context }) => context.runAgent({ goal: "evaluate" }),
     };
     const compiled = compile(validationPlan("task", evaluator.id, false), {
       taskDefinitions: new Map([[evaluator.id, evaluator]]),

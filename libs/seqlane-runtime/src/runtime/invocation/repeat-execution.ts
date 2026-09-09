@@ -132,7 +132,7 @@ export async function executeRepeatNode(
           const effectiveSelection = context.effectiveModelSelectionsByNode.get(
             bodyNode.nodeId,
           );
-          if (bodyNode.type === "task" && bodyNode.execution !== "local") {
+          if (bodyNode.type === "task" && bodyNode.session !== undefined) {
             await resolveTaskSession(
               context.resolvedSessions,
               context.sessionResolver,

@@ -2,7 +2,6 @@ import {
   acyclicValueSchema,
   isPlainRecord,
   modelSelectionSchema,
-  taskExecutionSchema,
 } from "@seqlane/core";
 import type {
   JsonValue,
@@ -205,7 +204,6 @@ const planNodeShapeSchema = strictRecord({
   type: z.enum(["task", "validation.check", "validation.gate", "repeat"]),
   label: boundedString(512),
   taskId: boundedString(256).optional(),
-  execution: taskExecutionSchema.optional(),
   session: planSessionSchema.optional(),
   dependsOn: arrayOf(nonEmptyStringSchema, { maximum: 10_000 }),
   parentPlanNodeId: boundedString(256).optional(),
@@ -220,8 +218,7 @@ const planNodeSchema = planNodeShapeSchema.pipe(
       (result.data.type === "repeat" ||
         result.data.maximumIterations === undefined) &&
       (result.data.type === "task" || result.data.session === undefined) &&
-      (result.data.type === "task" || result.data.execution === undefined) &&
-      (result.data.execution !== "local" || result.data.session === undefined)
+      (result.data.type === "task" || result.data.session === undefined)
     );
   }),
 );

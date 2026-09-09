@@ -1,4 +1,4 @@
-import { createFlow, defineTask } from "@seqlane/core";
+import { createFlow, defineAgentTask, defineShellTask } from "@seqlane/core";
 import { z } from "zod";
 
 const inputSchema = z.object({});
@@ -13,18 +13,16 @@ const summaryOutputSchema = z.object({
   summary: z.string(),
 });
 
-export const localGitStatusTask = defineTask({
+export const localGitStatusTask = defineShellTask({
   id: "fixture.local-git-status",
-  workspace: "shared",
   input: inputSchema,
+  executable: "git",
   output: gitStatusOutputSchema,
-  execute: async (_input, { exec }) =>
-    exec({ command: "git", args: ["status", "--porcelain=v1"] }),
+  argv: () => ["status", "--porcelain=v1"],
 });
 
-export const summarizeGitStatusTask = defineTask({
+export const summarizeGitStatusTask = defineAgentTask({
   id: "fixture.summarize-git-status",
-  workspace: "shared",
   input: gitStatusOutputSchema,
   output: summaryOutputSchema,
   goal: ({ exitCode, stdout, stderr }) =>
@@ -36,7 +34,11 @@ export const localGitStatusWorkflow = createFlow({
   input: inputSchema,
   output: summaryOutputSchema,
 })
-  .task("status", localGitStatusTask, ({ input }) => input)
-  .task("summary", summarizeGitStatusTask, ({ tasks }) => tasks.status.output)
+  .task("status", localGitStatusTask, ({ input }) => input, {
+    workspace: "shared",
+  })
+  .task("summary", summarizeGitStatusTask, ({ tasks }) => tasks.status.output, {
+    workspace: "shared",
+  })
   .output(({ tasks }) => tasks.summary.output)
   .define();

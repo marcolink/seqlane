@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createAcpAdapter } from "./adapter.js";
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
-import type { AgentTaskDefinition } from "@seqlane/core";
+import type { AgentTaskRequest, TaskDefinition } from "@seqlane/core";
 
 const fixture = fileURLToPath(
   new URL("./controlled-acp-agent.mjs", import.meta.url),
@@ -21,12 +21,19 @@ const resultSchema = z.object({
   argument: z.string(),
   promptCount: z.number(),
 });
-const task: AgentTaskDefinition = {
+const task: TaskDefinition = {
   id: "controlled-acp-task",
   input: z.string(),
   output: resultSchema,
-  goal: (input) => String(input),
+  execute: async () => ({
+    value: "done",
+    cwd: "",
+    model: "",
+    argument: "",
+    promptCount: 0,
+  }),
 };
+const agent: AgentTaskRequest = { goal: "Complete the controlled input" };
 
 function configuration(
   cwd: string,
@@ -91,6 +98,7 @@ function request(
     invocationId: "controlled-acp-invocation",
     task,
     input: "controlled input",
+    agent,
     signal,
     ...overrides,
     observability: overrides.observability ?? {},

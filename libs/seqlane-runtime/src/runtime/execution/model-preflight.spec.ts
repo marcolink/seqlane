@@ -12,6 +12,7 @@ import type {
   TaskDefinition,
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import {
@@ -30,6 +31,7 @@ function task(
     taskId: nodeId,
     nodeId,
     workspace: "shared",
+    session: { type: "isolated" },
     ...(session === undefined ? {} : { session }),
     input: {},
     dependsOn,
@@ -45,8 +47,13 @@ function plan(nodes: readonly PlanNode[]): Plan {
 }
 
 function taskDefinition(id: string): TaskDefinition {
-  const schema = { parse: (value: unknown) => value };
-  return { id, input: schema, output: schema, goal: () => "" };
+  const schema = z.unknown();
+  return {
+    id,
+    input: schema,
+    output: schema,
+    execute: async ({ context }) => context.runAgent({ goal: "" }),
+  };
 }
 
 function model(reference: string): ModelRef {

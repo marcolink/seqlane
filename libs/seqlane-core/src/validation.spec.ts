@@ -6,20 +6,16 @@ import { describe, expect, it } from "vitest";
 import {
   buildWorkflow,
   createFlow,
-  defineTask,
+  defineAgentTask,
   defineValidator,
   defineWorkflow,
   validatedBy,
   ValidationFailedError,
-  type SeqlaneSchema,
   type ValidationResult,
 } from "./index.js";
+import { z } from "zod";
 
-const schema = <T>(): SeqlaneSchema<T> => ({
-  parse(value: unknown): T {
-    return value as T;
-  },
-});
+const schema = <T>() => z.custom<T>(() => true);
 
 describe("semantic validation core contracts", () => {
   it("keeps validation results JSON-safe and uses success as the verdict", () => {
@@ -93,9 +89,8 @@ describe("semantic validation core contracts", () => {
   });
 
   it("accepts an evaluator task directly without putting its definition in the Plan", () => {
-    const evaluator = defineTask({
+    const evaluator = defineAgentTask({
       id: "title-evaluator",
-      workspace: "shared",
       input: schema<{ readonly title: string }>(),
       output: schema<ValidationResult>(),
       goal: () => "Evaluate title",
@@ -117,16 +112,14 @@ describe("semantic validation core contracts", () => {
       source: {
         type: "task",
         taskId: "title-evaluator",
-        workspace: "shared",
       },
     });
     expect(JSON.stringify(built.plan)).not.toContain("Evaluate title");
   });
 
   it("lowers task output validation and exposes the gated candidate", () => {
-    const draftTask = defineTask({
+    const draftTask = defineAgentTask({
       id: "draft",
-      workspace: "shared",
       input: schema<{ readonly title: string }>(),
       output: schema<{ readonly title: string }>(),
       goal: ({ title }) => title,
@@ -142,9 +135,8 @@ describe("semantic validation core contracts", () => {
               issues: [{ code: "empty", message: "Title is required" }],
             },
     });
-    const publishTask = defineTask({
+    const publishTask = defineAgentTask({
       id: "publish",
-      workspace: "shared",
       input: schema<{ readonly title: string }>(),
       output: schema<{ readonly published: boolean }>(),
       goal: ({ title }) => title,
@@ -171,9 +163,7 @@ describe("semantic validation core contracts", () => {
           type: "task",
           taskId: "draft",
           nodeId: "draft:1",
-          workspace: "shared",
-          execution: "agent",
-          session: { type: "isolated" },
+          workspace: "exclusive",
           input: {
             type: "ref",
             nodeId: "__seqlane_input",
@@ -208,9 +198,7 @@ describe("semantic validation core contracts", () => {
           type: "task",
           taskId: "publish",
           nodeId: "publish:1",
-          workspace: "shared",
-          execution: "agent",
-          session: { type: "isolated" },
+          workspace: "exclusive",
           input: {
             title: {
               type: "ref",
@@ -230,9 +218,8 @@ describe("semantic validation core contracts", () => {
   });
 
   it("lowers Flow validation with typed candidate and verdict handles", () => {
-    const draftTask = defineTask({
+    const draftTask = defineAgentTask({
       id: "flow-draft",
-      workspace: "shared",
       input: schema<{ readonly title: string }>(),
       output: schema<{ readonly title: string }>(),
       goal: ({ title }) => title,
@@ -242,16 +229,14 @@ describe("semantic validation core contracts", () => {
       input: schema<{ readonly title: string }>(),
       validate: () => ({ success: true }),
     });
-    const evaluator = defineTask({
+    const evaluator = defineAgentTask({
       id: "flow-title-evaluator",
-      workspace: "shared",
       input: schema<{ readonly title: string }>(),
       output: schema<ValidationResult>(),
       goal: () => "Evaluate title",
     });
-    const publishTask = defineTask({
+    const publishTask = defineAgentTask({
       id: "flow-publish",
-      workspace: "shared",
       input: schema<{
         readonly title: string;
         readonly validation: ValidationResult;
@@ -293,7 +278,6 @@ describe("semantic validation core contracts", () => {
       source: {
         type: "task",
         taskId: "flow-title-evaluator",
-        workspace: "shared",
       },
     });
     expect(built.plan.nodes[5]).toMatchObject({
@@ -357,9 +341,8 @@ describe("semantic validation core contracts", () => {
   });
 
   it("lowers a validated repeat postcondition to a final body gate", () => {
-    const repair = defineTask({
+    const repair = defineAgentTask({
       id: "repair-state",
-      workspace: "shared",
       input: schema<{ readonly passed: boolean }>(),
       output: schema<{ readonly passed: boolean }>(),
       goal: () => "Repair state",
@@ -410,9 +393,7 @@ describe("semantic validation core contracts", () => {
               type: "task",
               taskId: "repair-state",
               nodeId: "repeat:1/repair-state:1",
-              workspace: "shared",
-              execution: "agent",
-              session: { type: "isolated" },
+              workspace: "exclusive",
               input: {
                 type: "ref",
                 nodeId: "repeat:1:input",
