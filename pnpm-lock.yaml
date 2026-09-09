@@ -167,12 +167,6 @@ importers:
       '@seqlane/action-code-review':
         specifier: workspace:*
         version: link:../../libs/action-code-review
-      '@seqlane/core':
-        specifier: workspace:*
-        version: link:../../libs/seqlane-core
-      '@seqlane/runtime':
-        specifier: workspace:*
-        version: link:../../libs/seqlane-runtime
 
   actions/opencode-server:
     dependencies:
