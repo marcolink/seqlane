@@ -56,6 +56,42 @@ function active(status: string): boolean {
   );
 }
 
+function severityLabel(severity: string): string {
+  return severity === "critical"
+    ? "🔴 Critical"
+    : severity === "required"
+      ? "🟠 Required"
+      : severity === "optional"
+        ? "🟡 Advisory"
+        : "🔵 Informational";
+}
+
+function statusLabel(status: string): string {
+  return status === "new"
+    ? "🆕 New"
+    : status === "open"
+      ? "⏳ Open"
+      : status === "addressed"
+        ? "🛠️ Addressed"
+        : status === "resolved"
+          ? "✅ Resolved"
+          : status === "reopened"
+            ? "🔁 Reopened"
+            : "➖ Dismissed";
+}
+
+function areaLabel(axis: string): string {
+  return axis === "correctness"
+    ? "🎯 Correctness"
+    : axis === "readability"
+      ? "📖 Readability"
+      : axis === "architecture"
+        ? "🏗️ Architecture"
+        : axis === "security"
+          ? "🔐 Security"
+          : "⚡ Performance";
+}
+
 function sortFindings(
   findings: PublicationReport["findings"],
 ): PublicationReport["findings"] {
@@ -85,17 +121,40 @@ function renderFindingRows(
         safeText(finding.id) +
         mark +
         " | " +
-        safeText(finding.effectiveSeverity) +
+        (finding.severity === finding.effectiveSeverity
+          ? severityLabel(finding.effectiveSeverity)
+          : severityLabel(finding.severity) +
+            " → " +
+            severityLabel(finding.effectiveSeverity)) +
         " | " +
-        safeText(finding.status) +
+        statusLabel(finding.status) +
         " | " +
-        safeText(finding.axis) +
+        areaLabel(finding.axis) +
         " | " +
         safeText(shortenUtf8(finding.summary, 1_200)) +
         " — " +
         safeText(shortenUtf8(finding.recommendation, 1_200)) +
         " |",
     ),
+  ];
+}
+
+function renderReviewDelta(
+  report: PublicationReport,
+  findings: PublicationReport["findings"],
+): string[] {
+  if (report.previousReviewedRevision === undefined) return [];
+  const count = (status: string) =>
+    findings.filter((finding) => finding.status === status).length;
+  return [
+    "> **Review delta:** " +
+      `🆕 ${count("new")} new · ` +
+      `⏳ ${count("open")} open · ` +
+      `🛠️ ${count("addressed")} addressed · ` +
+      `✅ ${count("resolved")} resolved · ` +
+      `🔁 ${count("reopened")} reopened · ` +
+      `➖ ${count("dismissed")} dismissed`,
+    "",
   ];
 }
 
@@ -263,6 +322,7 @@ function renderPublicationBody(
       advisories,
       runUrl,
     ),
+    ...renderReviewDelta(report, findings),
     ...renderFindingsSection(report, findings, options, mark),
     ...renderMetricsSection(ledger, fence),
     ...renderVerificationSection(report, options),

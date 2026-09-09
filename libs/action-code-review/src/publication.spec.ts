@@ -80,6 +80,7 @@ describe("model-free publication", () => {
         })),
         verification: [],
         headRevision: "a".repeat(40),
+        previousReviewedRevision: "b".repeat(40),
         pullRequestNumber: 1,
         nextFindingIndex: 41,
         limitations: [],
@@ -91,6 +92,12 @@ describe("model-free publication", () => {
     });
     expect(result.publication.body.length).toBeLessThanOrEqual(60_000);
     expect(result.publication.body).toContain("summary &#124; with a pipe");
+    expect(result.publication.body).toContain("🟠 Required");
+    expect(result.publication.body).toContain("⏳ Open");
+    expect(result.publication.body).toContain("🔐 Security");
+    expect(result.publication.body).toContain(
+      "> **Review delta:** 🆕 0 new · ⏳ 40 open",
+    );
   });
 
   it("neutralizes model-controlled Markdown links, images, and external URLs", () => {
