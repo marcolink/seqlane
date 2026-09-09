@@ -1,11 +1,11 @@
 ---
 id: spec.seqlane-plan-ir-typed-dataflow
 title: Seqlane Plan IR and Typed Dataflow
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - adr.seqlane-plan-ir-and-typed-dataflow
 supersedes: []
@@ -112,3 +112,4 @@ Runtime tests prove Plan serialization, deterministic Plan-node IDs, dependency 
 ## Traceability
 
 - [adr.seqlane-plan-ir-and-typed-dataflow](../adrs/2026-09-02-seqlane-plan-ir-and-typed-dataflow.md)
+- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)

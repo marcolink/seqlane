@@ -1,11 +1,11 @@
 ---
 id: spec.executor-neutral-workflow-authoring
 title: Executor-Neutral Workflow Authoring
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - adr.executor-neutral-workflow-authoring
 supersedes: []
@@ -227,3 +227,4 @@ spec.executor-neutral-workflow-authoring does not implement:
 ## Traceability
 
 - [adr.executor-neutral-workflow-authoring](../adrs/2026-09-02-executor-neutral-workflow-authoring.md)
+- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)

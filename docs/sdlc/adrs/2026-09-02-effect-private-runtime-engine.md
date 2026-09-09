@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes:
@@ -155,3 +155,4 @@ workflow engine boundary.
 
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - Replaced by [rfc.mastra-runtime-and-operational-foundation: Mastra as Seqlane's Runtime and Operational Foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md).
+- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](./2026-09-08-mastra-backed-seqlane-workflows.md)

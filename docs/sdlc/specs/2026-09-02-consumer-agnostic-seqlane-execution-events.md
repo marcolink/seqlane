@@ -1,11 +1,11 @@
 ---
 id: spec.consumer-agnostic-seqlane-execution-events
 title: Consumer-Agnostic Seqlane Execution Events
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - adr.consumer-agnostic-seqlane-execution-events
 supersedes: []
@@ -442,3 +442,4 @@ spec.consumer-agnostic-seqlane-execution-events is complete when:
 ## Traceability
 
 - [adr.consumer-agnostic-seqlane-execution-events](../adrs/2026-09-02-consumer-agnostic-seqlane-execution-events.md)
+- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)
