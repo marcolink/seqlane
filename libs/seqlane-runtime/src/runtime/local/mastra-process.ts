@@ -72,6 +72,57 @@ function validateTimeoutMs(value: number | undefined): void {
   }
 }
 
+function waitForNextTurn(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 1));
+}
+
+async function waitForProcessGroupsToExit(
+  processIds: readonly string[],
+): Promise<void> {
+  if (process.platform === "win32") return;
+
+  const groupIds = processIds
+    .map(Number)
+    .filter((processId) => Number.isInteger(processId) && processId > 0);
+  while (
+    groupIds.some((groupId) => {
+      try {
+        process.kill(-groupId, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+  ) {
+    await waitForNextTurn();
+  }
+}
+
+function createCancellationBarrier(
+  sandbox: LocalSandbox,
+  signal: AbortSignal | undefined,
+): { readonly wait: () => Promise<void>; readonly dispose: () => void } {
+  let termination: Promise<void> | undefined;
+
+  const beginTermination = (): void => {
+    termination ??= (async () => {
+      const processes = await sandbox.processes.list();
+      const processIds = processes.map(({ pid }) => pid);
+      await Promise.all(processIds.map((pid) => sandbox.processes.kill(pid)));
+      await waitForProcessGroupsToExit(processIds);
+    })();
+  };
+
+  signal?.addEventListener("abort", beginTermination, { once: true });
+  return {
+    wait: async () => {
+      if (signal?.aborted) beginTermination();
+      await termination;
+    },
+    dispose: () => signal?.removeEventListener("abort", beginTermination),
+  };
+}
+
 export function normalizeMastraProcessResult(
   value: unknown,
   request: Pick<MastraProcessRequest, "taskId" | "invocationId" | "signal">,
@@ -115,6 +166,10 @@ export async function runMastraProcess(
     workingDirectory: request.cwd,
     env: process.env,
   });
+  const cancellationBarrier = createCancellationBarrier(
+    sandbox,
+    request.signal,
+  );
   try {
     const executeCommand = sandbox.executeCommand;
     if (executeCommand === undefined) {
@@ -149,6 +204,11 @@ export async function runMastraProcess(
 
     return normalizeMastraProcessResult(result, request, startedAt, Date.now());
   } finally {
-    await sandbox.destroy();
+    cancellationBarrier.dispose();
+    try {
+      await cancellationBarrier.wait();
+    } finally {
+      await sandbox.destroy();
+    }
   }
 }
