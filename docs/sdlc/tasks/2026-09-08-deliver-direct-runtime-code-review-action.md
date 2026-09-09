@@ -187,6 +187,14 @@ publication. Focused Action-library tests, Action typecheck, bundle smoke and
 drift, and test mapping passed locally. The GitHub-hosted manual workflow
 proof remains pending.
 
+Follow-up review hardening is committed in `e10044c`
+(`fix(actions): harden review feedback`). The Action now serializes retained
+Seqlane errors before its frozen publication snapshot, evicts bounded events in
+constant time by priority, reuses the initial bounded history to find the prior
+report, and neutralizes model-controlled URLs and Markdown link or image
+syntax. Focused Action-library tests, Action typecheck, test mapping, and the
+committed-bundle smoke and drift check passed locally.
+
 ## Traceability
 
 - [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-code-review-action.md)
