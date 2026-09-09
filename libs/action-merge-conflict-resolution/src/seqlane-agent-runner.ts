@@ -59,6 +59,8 @@ function createOpenCodeExecutor(
       }
       return adapter.execute({
         invocationId: request.invocationId,
+        // Forward per-invocation Mastra observability unchanged; the adapter uses
+        // the current span only to parent child agent/tool spans.
         observability: request.observability,
         task,
         input: request.input,
