@@ -143,6 +143,35 @@ function createRunner(
 }
 
 describe("runCodeReview", () => {
+  it("uses the GitHub repository identity in the review report", async () => {
+    let reviewInput: unknown;
+    const result = await runCodeReview(request, {
+      github: createGithubPort(true),
+      runWorkflow: createRunner(
+        [
+          { status: "succeeded", result: {} },
+          {
+            status: "succeeded",
+            result: {
+              status: "published",
+              publication: {
+                verdict: "approve",
+                reviewedRevision: headRevision,
+                body: "published report",
+              },
+            },
+          },
+        ],
+        (workflow, index) => {
+          if (index === 1) reviewInput = workflow.input;
+        },
+      ),
+    });
+
+    expect(result).toMatchObject({ status: "published" });
+    expect(reviewInput).toMatchObject({ repository: request.repository });
+  });
+
   it("returns stale before starting a workflow when the PR is no longer live", async () => {
     const runner = createRunner([]);
     const result = await runCodeReview(request, {

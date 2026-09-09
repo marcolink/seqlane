@@ -246,7 +246,7 @@ export async function runCodeReview(
   const handle = runWorkflow({
     workflow: buildWorkflow(trustedCodeReviewWorkflow),
     input: {
-      repository: request.reviewTarget,
+      repository: request.repository,
       baseBranch: request.baseBranch,
       baseRevision: request.baseRevision,
       headRevision: request.headRevision,
