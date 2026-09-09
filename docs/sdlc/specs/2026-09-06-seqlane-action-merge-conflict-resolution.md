@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-08
+updated: 2026-09-09
 upstream:
   - adr.seqlane-action-library-boundary
   - adr.executor-neutral-workflow-authoring
@@ -567,6 +567,15 @@ The job summary must enforce an independent total character budget. It must
 cap retained/rendered attempts and decisions and append a bounded,
 human-readable truncation digest when caps or the total budget omit content.
 The final rendered summary must never exceed the declared total limit.
+
+The active Action job log must publish bounded progress events. For a rebase,
+it must distinguish the commits planned for replay, conflict stops reached,
+and total resolution passes; a resolution pass can repeat a conflict stop.
+For a merge, it must not claim a rebase commit count. A rebase event may name
+the current rebase commit only through the same secret-redaction and
+single-line bounding boundary as the final summary. Live progress must not
+include file paths, model summaries, raw executor events, command arguments,
+or unbounded diagnostics.
 
 The runtime workflow output schema is the canonical validator for agent
 summaries and decisions. The runner must return validated output and reject

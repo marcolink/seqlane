@@ -162,6 +162,40 @@ describe("resolution summary", () => {
     expect(formatted).toContain("\\[REDACTED\\]");
   });
 
+  it("sanitizes Unicode control characters in the final summary", () => {
+    const formatted = formatResolutionSummary(resolved, undefined, undefined, {
+      strategy: "rebase",
+      attempts: [
+        {
+          attempt: 1,
+          summary: "summary before\u009bafter",
+          decisions: [],
+          diagnostics: { eventCount: 0, truncated: false },
+        },
+      ],
+    });
+
+    expect(formatted).toContain("Model summary: summary before after");
+    expect(formatted).not.toContain("\u009b");
+  });
+
+  it("replaces Unicode line and paragraph separators in the final summary", () => {
+    const formatted = formatResolutionSummary(resolved, undefined, undefined, {
+      strategy: "rebase",
+      attempts: [
+        {
+          attempt: 1,
+          summary: "summary before\u2028between\u2029after",
+          decisions: [],
+          diagnostics: { eventCount: 0, truncated: false },
+        },
+      ],
+    });
+
+    expect(formatted).toMatch(/Model summary: summary before between after\n/);
+    expect(formatted).not.toMatch(/[\u2028\u2029]/u);
+  });
+
   it("keeps the complete summary within the declared total budget", async () => {
     const report: ResolutionSummaryReport = {
       strategy: "rebase",

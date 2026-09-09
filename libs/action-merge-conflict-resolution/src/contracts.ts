@@ -296,6 +296,7 @@ export interface PullRequestMetadataPort {
 export interface GitPort {
   readonly cwd: string;
   readonly run: (args: readonly string[]) => Promise<GitCommandResult>;
+  readonly countRebaseCommits: (baseRevision: GitRevision) => Promise<number>;
   readonly readRebaseConflictCommit?: () => Promise<
     RebaseConflictCommit | undefined
   >;
@@ -370,6 +371,52 @@ export interface ResolutionSummaryReport {
   readonly attempts: readonly ResolutionAttemptReport[];
 }
 
+export type ResolutionProgressEvent =
+  | {
+      readonly kind: "started";
+      readonly strategy: "rebase";
+      readonly maxAttempts: number;
+      readonly commitsToReplay: number;
+    }
+  | {
+      readonly kind: "started";
+      readonly strategy: "merge";
+      readonly maxAttempts: number;
+    }
+  | {
+      readonly kind: "conflict-stop";
+      readonly strategy: ResolutionStrategy;
+      readonly conflictStops: number;
+    }
+  | {
+      readonly kind: "attempt-started";
+      readonly strategy: ResolutionStrategy;
+      readonly attempt: number;
+      readonly maxAttempts: number;
+      readonly conflictStops: number;
+      readonly commit?: RebaseConflictCommit;
+    }
+  | { readonly kind: "push-started" }
+  | { readonly kind: "push-completed" }
+  | {
+      readonly kind: "completed";
+      readonly result: "no-change" | "updated";
+      readonly attempts: number;
+      readonly conflictStops: number;
+      readonly pushed: boolean;
+    }
+  | {
+      readonly kind: "failed";
+      readonly category: string;
+      readonly code: string;
+      readonly attempts: number;
+      readonly conflictStops: number;
+    };
+
+export interface ProgressPort {
+  readonly write: (event: ResolutionProgressEvent) => void;
+}
+
 export interface SummaryPort {
   readonly write: (
     result: ResolveMergeConflictsResult,
@@ -396,5 +443,6 @@ export interface ResolveMergeConflictsPorts {
   readonly generatedFiles: GeneratedFileHandlerPort;
   readonly agent: AgentRunnerPort;
   readonly summary: SummaryPort;
+  readonly progress?: ProgressPort;
   readonly commitAndPush: CommitAndPushPort;
 }

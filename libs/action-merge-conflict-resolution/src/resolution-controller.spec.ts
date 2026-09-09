@@ -2,6 +2,7 @@
 // @test-scope ./conflict-resolution-attempt.ts
 // @test-scope ./policy.ts
 // @test-scope ./marker-validation.ts
+// @test-scope ./resolution-flow.ts
 
 import { describe, expect, it } from "vitest";
 
@@ -75,7 +76,7 @@ function ports(
   const baselines: unknown[] = [];
   const commits: unknown[] = [];
   const pushes: unknown[] = [];
-  const events: string[] = [];
+  const events: unknown[] = [];
   let reads = 0;
   let stateReads = 0;
   const git = {
@@ -94,6 +95,7 @@ function ports(
         rebaseInProgress: false,
         worktreeClean: true,
       },
+    countRebaseCommits: async () => 2,
     integrate: async () => {
       onIntegrate?.();
       return integration;
@@ -137,11 +139,7 @@ function ports(
       },
       validateTarget: async () => undefined,
     },
-    lockfile: {
-      regenerate: async () => {
-        lockfiles.push(true);
-      },
-    },
+    lockfile: { regenerate: async () => lockfiles.push(true) },
     generatedFiles: {
       run: generatedHandlerRecorder(generated),
     },
@@ -166,10 +164,9 @@ function ports(
       getAttemptDiagnostics: () => ({ eventCount: 4, truncated: true }),
     },
     summary: {
-      write: async (value, report) => {
-        summary.push({ result: value, report });
-      },
+      write: async (value, report) => summary.push({ result: value, report }),
     },
+    progress: { write: (event: unknown) => events.push(event) },
     commitAndPush: {
       commit: async () => {
         commits.push(true);
@@ -459,6 +456,47 @@ describe("resolveMergeConflicts", () => {
       (fake.summary[0] as { report: { attempts: Array<{ commit?: unknown }> } })
         .report.attempts[0]?.commit,
     ).not.toHaveProperty("rewrittenSha");
+    expect(fake.events.filter((event) => typeof event === "object")).toEqual([
+      {
+        kind: "started",
+        strategy: "rebase",
+        maxAttempts: 2,
+        commitsToReplay: 2,
+      },
+      {
+        kind: "conflict-stop",
+        strategy: "rebase",
+        conflictStops: 1,
+      },
+      {
+        kind: "attempt-started",
+        strategy: "rebase",
+        attempt: 1,
+        maxAttempts: 2,
+        conflictStops: 1,
+        commit: { sha: revision("d"), subject: "Empty commit" },
+      },
+      {
+        kind: "conflict-stop",
+        strategy: "rebase",
+        conflictStops: 2,
+      },
+      {
+        kind: "attempt-started",
+        strategy: "rebase",
+        attempt: 2,
+        maxAttempts: 2,
+        conflictStops: 2,
+        commit: { sha: revision("e"), subject: "Second commit" },
+      },
+      {
+        kind: "completed",
+        result: "updated",
+        attempts: 2,
+        conflictStops: 2,
+        pushed: false,
+      },
+    ]);
   });
 
   it("does not report the final rebase head as the rewritten conflict commit", async () => {
@@ -553,5 +591,25 @@ describe("resolveMergeConflicts", () => {
     expect(fake.events.indexOf("agent-stop")).toBeLessThan(
       fake.events.indexOf("before-push"),
     );
+    expect(fake.events.filter((event) => typeof event === "object")).toEqual([
+      { kind: "started", strategy: "merge", maxAttempts: 2 },
+      { kind: "conflict-stop", strategy: "merge", conflictStops: 1 },
+      {
+        kind: "attempt-started",
+        strategy: "merge",
+        attempt: 1,
+        maxAttempts: 2,
+        conflictStops: 1,
+      },
+      { kind: "push-started" },
+      { kind: "push-completed" },
+      {
+        kind: "completed",
+        result: "updated",
+        attempts: 1,
+        conflictStops: 1,
+        pushed: true,
+      },
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 // @test-scope ./git-cli.ts
 // @test-scope ./git-port.ts
+// @test-scope ./git-count.ts
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -13,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { NodeGitCli } from "./git-cli.js";
 
@@ -55,7 +56,57 @@ function createConflictRepository(
   return { root, baseRevision };
 }
 
+function createRebasePlanRepository(): {
+  readonly root: string;
+  readonly baseRevision: string;
+} {
+  const root = createRepository();
+  writeFileSync(join(root, "base.txt"), "base\n");
+  commit(root, "base");
+  git(root, ["checkout", "-qb", "feature"]);
+  writeFileSync(join(root, "shared.txt"), "shared\n");
+  commit(root, "shared change on feature");
+  writeFileSync(join(root, "feature.txt"), "feature\n");
+  commit(root, "feature change");
+  git(root, ["checkout", "-q", "main"]);
+  writeFileSync(join(root, "shared.txt"), "shared\n");
+  const baseRevision = commit(root, "equivalent shared change on base");
+  git(root, ["checkout", "-q", "feature"]);
+  git(root, ["checkout", "-qb", "side"]);
+  writeFileSync(join(root, "side.txt"), "side\n");
+  commit(root, "side change");
+  git(root, ["checkout", "-q", "feature"]);
+  git(root, ["merge", "--no-ff", "side", "-qm", "merge side branch"]);
+  return { root, baseRevision };
+}
+
 describe("NodeGitCli", () => {
+  it("counts commits that a rebase will replay", async () => {
+    const { root, baseRevision } = createConflictRepository(
+      "base\n",
+      "feature\n",
+      "main\n",
+    );
+    try {
+      await expect(
+        new NodeGitCli(root).countRebaseCommits(baseRevision),
+      ).resolves.toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("counts plain-rebase commits excluding merges and equivalent patches", async () => {
+    const { root, baseRevision } = createRebasePlanRepository();
+    try {
+      await expect(
+        new NodeGitCli(root).countRebaseCommits(baseRevision),
+      ).resolves.toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("reports a clean merge and aborts its temporary no-commit merge", async () => {
     const { root, baseRevision } = createConflictRepository(
       "base line\nsecond line\nthird line\nfourth line\n",
