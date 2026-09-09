@@ -107,7 +107,9 @@ export async function loadWorkflow(
           input: passthroughSchema,
           output: passthroughSchema,
           build: () => {
-            throw new Error("Legacy Plans cannot be rebuilt as workflow definitions");
+            throw new Error(
+              "Legacy Plans cannot be rebuilt as workflow definitions",
+            );
           },
         },
         plan,
@@ -129,7 +131,9 @@ export async function loadWorkflow(
           input: passthroughSchema,
           output: passthroughSchema,
           build: () => {
-            throw new Error("Legacy Plans cannot be rebuilt as workflow definitions");
+            throw new Error(
+              "Legacy Plans cannot be rebuilt as workflow definitions",
+            );
           },
         },
         plan,

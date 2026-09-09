@@ -12,10 +12,20 @@ const headRevision = "b".repeat(40);
 describe("publicationWorkflow", () => {
   it("runs the frozen review result through local tasks without a model", async () => {
     const published: string[] = [];
-    const requests: Array<{ repository: string; expectedHeadRevision: string }> = [];
+    const requests: Array<{
+      repository: string;
+      expectedHeadRevision: string;
+    }> = [];
     const port: PublicationPort = {
       checkLiveState: async () => "live",
-      publishReport: async ({ repository, expectedHeadRevision, workflowRunId, githubRunId, attempt, publication }) => {
+      publishReport: async ({
+        repository,
+        expectedHeadRevision,
+        workflowRunId,
+        githubRunId,
+        attempt,
+        publication,
+      }) => {
         requests.push({ repository, expectedHeadRevision });
         expect(workflowRunId).toBe("review-run");
         expect(githubRunId).toBe("0");
@@ -73,7 +83,9 @@ describe("publicationWorkflow", () => {
       result: { status: "published", publication: { verdict: "approve" } },
     });
     expect(published).toHaveLength(1);
-    expect(requests).toEqual([{ repository: "owner/repository", expectedHeadRevision: headRevision }]);
+    expect(requests).toEqual([
+      { repository: "owner/repository", expectedHeadRevision: headRevision },
+    ]);
   });
 
   it("surfaces a head change detected at the publication boundary", async () => {
@@ -90,13 +102,28 @@ describe("publicationWorkflow", () => {
         githubRunId: "0",
         attempt: 1,
         existingReportId: "",
-        snapshot: { report: { repository: "owner/repository", baseBranch: "main", verdict: "approve", summary: "No blocking findings.", findings: [], headRevision }, events: [], runId: "review-run", completedAt: "2026-09-09T00:00:00.000Z" },
+        snapshot: {
+          report: {
+            repository: "owner/repository",
+            baseBranch: "main",
+            verdict: "approve",
+            summary: "No blocking findings.",
+            findings: [],
+            headRevision,
+          },
+          events: [],
+          runId: "review-run",
+          completedAt: "2026-09-09T00:00:00.000Z",
+        },
       },
       runtime: { id: "local", workspace: "/tmp" },
       events: { emit: () => undefined },
     });
     const outcome = await handle.outcome;
     if (outcome.status === "failed") throw outcome.error;
-    expect(outcome).toMatchObject({ status: "succeeded", result: { status: "stale" } });
+    expect(outcome).toMatchObject({
+      status: "succeeded",
+      result: { status: "stale" },
+    });
   });
 });

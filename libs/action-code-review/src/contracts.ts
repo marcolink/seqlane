@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-export const gitRevisionSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i);
+export const gitRevisionSchema = z
+  .string()
+  .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i);
 const repositoryTextSchema = z.string().regex(/^[^/\s]+\/[^/\s]+$/);
 export const repositorySchema = z
   .string()
@@ -40,12 +42,23 @@ export const reviewCommentSchema = z.strictObject({
   body: z.string().max(65_536),
   bodyTruncated: z.boolean().optional(),
   omittedDispositionCommandsTruncated: z.boolean().optional(),
-  omittedDispositionCommands: z.array(z.strictObject({
-    findingId: z.string().regex(/^(?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-[0-9]{3,})$/i),
-    action: z.enum(["fixed", "wont-fix", "downgrade"]),
-    authorized: z.boolean(),
-    effectiveSeverity: z.enum(["critical", "required", "optional", "nit"]).optional(),
-  })).max(200).optional(),
+  omittedDispositionCommands: z
+    .array(
+      z.strictObject({
+        findingId: z
+          .string()
+          .regex(
+            /^(?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-[0-9]{3,})$/i,
+          ),
+        action: z.enum(["fixed", "wont-fix", "downgrade"]),
+        authorized: z.boolean(),
+        effectiveSeverity: z
+          .enum(["critical", "required", "optional", "nit"])
+          .optional(),
+      }),
+    )
+    .max(200)
+    .optional(),
   createdAt: z.string().min(1).max(64),
   updatedAt: z.string().max(64).optional(),
   path: z.string().min(1).max(512).optional(),

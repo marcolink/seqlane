@@ -1,8 +1,5 @@
 export type CodeReviewErrorCategory =
-  | "input-validation"
-  | "github"
-  | "runtime"
-  | "publication";
+  "input-validation" | "github" | "runtime" | "publication";
 
 export class CodeReviewError extends Error {
   constructor(

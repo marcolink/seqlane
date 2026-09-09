@@ -882,7 +882,9 @@ const reviewContextTask = defineTask({
       truncated:
         normalizedReviewHistory.truncated ||
         comments.some((comment) => comment.bodyTruncated === true) ||
-        comments.some((comment) => comment.omittedDispositionCommandsTruncated === true) ||
+        comments.some(
+          (comment) => comment.omittedDispositionCommandsTruncated === true,
+        ) ||
         dispositionsTruncated,
       dispositionsTruncated,
       ...(previousReport === undefined

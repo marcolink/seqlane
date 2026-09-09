@@ -17,17 +17,33 @@ import {
   type PublicationPort,
 } from "@seqlane/action-code-review";
 
-function input(name: string): string { return core.getInput(name, { required: true }); }
+function input(name: string): string {
+  return core.getInput(name, { required: true });
+}
 const markerStart = "<!-- seqlane-review-in-progress-start -->";
 const markerEnd = "<!-- seqlane-review-in-progress-end -->";
 function marker(runId: string): string {
-  return [markerStart, "<!-- seqlane-review-in-progress-run: " + runId + " -->", "# ⏳ Another Seqlane review is currently in progress", "", "This report is being refreshed for a newer review run and will be updated when it finishes.", markerEnd].join("\n");
+  return [
+    markerStart,
+    "<!-- seqlane-review-in-progress-run: " + runId + " -->",
+    "# ⏳ Another Seqlane review is currently in progress",
+    "",
+    "This report is being refreshed for a newer review run and will be updated when it finishes.",
+    markerEnd,
+  ].join("\n");
 }
 function removeMarker(body: string): string {
-  return body.replace(/<!-- seqlane-review-in-progress-start -->[\s\S]*?<!-- seqlane-review-in-progress-end -->\n?/g, "");
+  return body.replace(
+    /<!-- seqlane-review-in-progress-start -->[\s\S]*?<!-- seqlane-review-in-progress-end -->\n?/g,
+    "",
+  );
 }
 function reportRunMetadata(body: string):
-  | { readonly id: string; readonly attempt: number; readonly reviewedRevision: string }
+  | {
+      readonly id: string;
+      readonly attempt: number;
+      readonly reviewedRevision: string;
+    }
   | undefined {
   const matches = [
     ...body.matchAll(/<!-- seqlane-code-review-meta-v3: ([^\r\n]+) -->/g),
@@ -62,7 +78,8 @@ async function clearOwnedMarker(
   if (markerId === undefined) return;
   const report = await adapter.readIssueComment(markerId);
   const ownedByBot =
-    report.author === "github-actions" || report.author === "github-actions[bot]";
+    report.author === "github-actions" ||
+    report.author === "github-actions[bot]";
   const ownedMarker = `<!-- seqlane-review-in-progress-run: ${runId} -->`;
   if (
     !ownedByBot ||
@@ -92,27 +109,81 @@ export async function run(): Promise<void> {
   const { owner, repo } = repositorySchema.parse(parsed.data.repository);
   const client = github.getOctokit(token);
   const adapter = new GitHubReviewAdapter({
-    getPullRequest: async (number) => (await client.rest.pulls.get({ owner, repo, pull_number: number })).data,
-    listIssueComments: async (number) => client.paginate(client.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 }),
-    listReviewComments: async (number) => client.paginate(client.rest.pulls.listReviewComments, { owner, repo, pull_number: number, per_page: 100 }),
-    getIssueComment: async (commentId) => (await client.rest.issues.getComment({ owner, repo, comment_id: Number(commentId) })).data,
-    createIssueComment: async (number, body) => (await client.rest.issues.createComment({ owner, repo, issue_number: number, body })).data,
-    updateIssueComment: async (commentId, body) => (await client.rest.issues.updateComment({ owner, repo, comment_id: Number(commentId), body })).data,
-    deleteIssueComment: async (commentId) => (await client.rest.issues.deleteComment({ owner, repo, comment_id: Number(commentId) })).data,
+    getPullRequest: async (number) =>
+      (await client.rest.pulls.get({ owner, repo, pull_number: number })).data,
+    listIssueComments: async (number) =>
+      client.paginate(client.rest.issues.listComments, {
+        owner,
+        repo,
+        issue_number: number,
+        per_page: 100,
+      }),
+    listReviewComments: async (number) =>
+      client.paginate(client.rest.pulls.listReviewComments, {
+        owner,
+        repo,
+        pull_number: number,
+        per_page: 100,
+      }),
+    getIssueComment: async (commentId) =>
+      (
+        await client.rest.issues.getComment({
+          owner,
+          repo,
+          comment_id: Number(commentId),
+        })
+      ).data,
+    createIssueComment: async (number, body) =>
+      (
+        await client.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: number,
+          body,
+        })
+      ).data,
+    updateIssueComment: async (commentId, body) =>
+      (
+        await client.rest.issues.updateComment({
+          owner,
+          repo,
+          comment_id: Number(commentId),
+          body,
+        })
+      ).data,
+    deleteIssueComment: async (commentId) =>
+      (
+        await client.rest.issues.deleteComment({
+          owner,
+          repo,
+          comment_id: Number(commentId),
+        })
+      ).data,
   });
   const pr = await adapter.readPullRequest(parsed.data.pullRequestNumber);
   const reviewHistory = await adapter.readComments(
     parsed.data.pullRequestNumber,
   );
-  const existingReport = await adapter.readAuthoritativeReport(parsed.data.pullRequestNumber);
+  const existingReport = await adapter.readAuthoritativeReport(
+    parsed.data.pullRequestNumber,
+  );
   // The admission job and this Action run are separated by an arbitrary
   // queueing delay. Re-check the immutable review identity immediately before
   // writing the in-progress marker so a newer push cannot be claimed by this
   // run.
-  const liveBeforeRun = (await client.rest.pulls.get({ owner, repo, pull_number: parsed.data.pullRequestNumber })).data;
-  if (liveBeforeRun.state !== "open" || liveBeforeRun.draft === true ||
-      liveBeforeRun.head?.repo?.full_name !== parsed.data.repository ||
-      liveBeforeRun.head?.sha !== parsed.data.headRevision) {
+  const liveBeforeRun = (
+    await client.rest.pulls.get({
+      owner,
+      repo,
+      pull_number: parsed.data.pullRequestNumber,
+    })
+  ).data;
+  if (
+    liveBeforeRun.state !== "open" ||
+    liveBeforeRun.draft === true ||
+    liveBeforeRun.head?.repo?.full_name !== parsed.data.repository ||
+    liveBeforeRun.head?.sha !== parsed.data.headRevision
+  ) {
     core.setOutput("publication-status", "stale");
     core.setOutput("verdict", "stale");
     return;
@@ -142,20 +213,35 @@ export async function run(): Promise<void> {
   core.saveState("review-run-id", handle.runId);
   if (markerId !== undefined) {
     core.saveState("review-marker-id", markerId);
-    await adapter.updateReport(markerId, marker(handle.runId) + "\n\n" + removeMarker(existingReport!.body));
+    await adapter.updateReport(
+      markerId,
+      marker(handle.runId) + "\n\n" + removeMarker(existingReport!.body),
+    );
   }
   const outcome = await handle.outcome;
   if (outcome.status !== "succeeded") {
     await clearOwnedMarker(adapter, markerId, handle.runId);
     core.saveState("review-marker-id", "");
-    core.setOutput("verdict", outcome.status === "cancelled" ? "cancelled" : "error");
+    core.setOutput(
+      "verdict",
+      outcome.status === "cancelled" ? "cancelled" : "error",
+    );
     if (outcome.status === "failed") core.setFailed(outcome.error.category);
     return;
   }
-  const live = (await client.rest.pulls.get({ owner, repo, pull_number: parsed.data.pullRequestNumber })).data;
-  if (live.state !== "open" || live.draft === true ||
-      live.head?.repo?.full_name !== parsed.data.repository ||
-      live.head?.sha !== parsed.data.headRevision) {
+  const live = (
+    await client.rest.pulls.get({
+      owner,
+      repo,
+      pull_number: parsed.data.pullRequestNumber,
+    })
+  ).data;
+  if (
+    live.state !== "open" ||
+    live.draft === true ||
+    live.head?.repo?.full_name !== parsed.data.repository ||
+    live.head?.sha !== parsed.data.headRevision
+  ) {
     await clearOwnedMarker(adapter, markerId, handle.runId);
     core.saveState("review-marker-id", "");
     core.setOutput("publication-status", "stale");
@@ -169,21 +255,55 @@ export async function run(): Promise<void> {
     report: jsonValueSchema.parse(outcome.result),
     events: jsonValueSchema.parse(events),
     runId: handle.runId,
-    ...(process.env.GITHUB_RUN_ID === undefined ? {} : { githubRunId: process.env.GITHUB_RUN_ID }),
+    ...(process.env.GITHUB_RUN_ID === undefined
+      ? {}
+      : { githubRunId: process.env.GITHUB_RUN_ID }),
     attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? "1"),
     completedAt: new Date().toISOString(),
   });
   const publicationPort: PublicationPort = {
-    checkLiveState: async ({ repository, pullRequestNumber, expectedHeadRevision }) => {
-      const current = (await client.rest.pulls.get({ owner, repo, pull_number: pullRequestNumber })).data;
-      return current.state === "open" && current.draft !== true &&
-        current.head?.repo?.full_name === repository && current.head?.sha === expectedHeadRevision
-        ? "live" : "stale";
+    checkLiveState: async ({
+      repository,
+      pullRequestNumber,
+      expectedHeadRevision,
+    }) => {
+      const current = (
+        await client.rest.pulls.get({
+          owner,
+          repo,
+          pull_number: pullRequestNumber,
+        })
+      ).data;
+      return current.state === "open" &&
+        current.draft !== true &&
+        current.head?.repo?.full_name === repository &&
+        current.head?.sha === expectedHeadRevision
+        ? "live"
+        : "stale";
     },
-    publishReport: async ({ repository, pullRequestNumber, expectedHeadRevision, workflowRunId, githubRunId, attempt, existingReportId, publication }) => {
-      const current = (await client.rest.pulls.get({ owner, repo, pull_number: pullRequestNumber })).data;
-      if (current.state !== "open" || current.draft === true ||
-          current.head?.repo?.full_name !== repository || current.head?.sha !== expectedHeadRevision) {
+    publishReport: async ({
+      repository,
+      pullRequestNumber,
+      expectedHeadRevision,
+      workflowRunId,
+      githubRunId,
+      attempt,
+      existingReportId,
+      publication,
+    }) => {
+      const current = (
+        await client.rest.pulls.get({
+          owner,
+          repo,
+          pull_number: pullRequestNumber,
+        })
+      ).data;
+      if (
+        current.state !== "open" ||
+        current.draft === true ||
+        current.head?.repo?.full_name !== repository ||
+        current.head?.sha !== expectedHeadRevision
+      ) {
         return "stale" as const;
       }
       if (existingReportId === undefined) {
@@ -201,7 +321,8 @@ export async function run(): Promise<void> {
       if (prior?.reviewedRevision === expectedHeadRevision) {
         if (
           compareRunIds(prior.id, githubRunId) > 0 ||
-          (compareRunIds(prior.id, githubRunId) === 0 && prior.attempt > attempt)
+          (compareRunIds(prior.id, githubRunId) === 0 &&
+            prior.attempt > attempt)
         ) {
           return "stale" as const;
         }
@@ -228,9 +349,13 @@ export async function run(): Promise<void> {
   if (publicationOutcome.status !== "succeeded") {
     await clearOwnedMarker(adapter, markerId, handle.runId);
     core.saveState("review-marker-id", "");
-    core.setOutput("verdict", publicationOutcome.status === "cancelled" ? "cancelled" : "error");
+    core.setOutput(
+      "verdict",
+      publicationOutcome.status === "cancelled" ? "cancelled" : "error",
+    );
     core.setOutput("publication-status", "not-published");
-    if (publicationOutcome.status === "failed") core.setFailed(publicationOutcome.error.category);
+    if (publicationOutcome.status === "failed")
+      core.setFailed(publicationOutcome.error.category);
     return;
   }
   const publicationResult = publicationResultSchema.parse(
@@ -242,4 +367,9 @@ export async function run(): Promise<void> {
   core.saveState("review-marker-id", "");
 }
 
-if (process.env.NODE_ENV !== "test") run().catch((error: unknown) => core.setFailed(error instanceof Error ? error.message : "Code review failed."));
+if (process.env.NODE_ENV !== "test")
+  run().catch((error: unknown) =>
+    core.setFailed(
+      error instanceof Error ? error.message : "Code review failed.",
+    ),
+  );

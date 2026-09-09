@@ -7,11 +7,12 @@ import {
   renderPublication,
   type PublicationSnapshotInput,
 } from "./publication.js";
+import { reviewRunMetricsSchema, type ReviewRunMetrics } from "./metrics.js";
 import {
-  reviewRunMetricsSchema,
-  type ReviewRunMetrics,
-} from "./metrics.js";
-import { gitRevisionSchema, reviewPublicationSchema, type ReviewPublication } from "./contracts.js";
+  gitRevisionSchema,
+  reviewPublicationSchema,
+  type ReviewPublication,
+} from "./contracts.js";
 
 export interface PublicationLiveStateRequest {
   readonly repository: string;
@@ -62,7 +63,10 @@ const renderTask = defineTask({
     metrics: metricsTask.output,
   }),
   output: reviewPublicationSchema,
-  execute: async ({ snapshot, metrics }: {
+  execute: async ({
+    snapshot,
+    metrics,
+  }: {
     readonly snapshot: PublicationSnapshotInput;
     readonly metrics: ReviewRunMetrics;
   }) => renderPublication(snapshot, metrics),
@@ -86,7 +90,7 @@ const decisionTask = defineTask({
   }),
   output: decisionSchema,
   execute: async ({ liveState, publication }) => ({
-    status: liveState === "live" ? "publish" as const : "stale" as const,
+    status: liveState === "live" ? ("publish" as const) : ("stale" as const),
     publication,
   }),
 });
@@ -96,79 +100,91 @@ const decisionTask = defineTask({
  * serialized into the Plan or task input, and the publication workflow has no
  * GitHub SDK or platform types in its contract.
  */
-export const publicationWorkflow = (port: PublicationPort) => createFlow({
-  id: "pull-request-code-review-publication",
-  input: publicationInputSchema,
-  output: publicationResultSchema,
-})
-  .task("metrics", metricsTask, ({ input }) => input.snapshot)
-  .task("report", renderTask, ({ input, tasks }) => ({
-    snapshot: input.snapshot,
-    metrics: tasks.metrics.output,
-  }))
-  .task("liveState", defineTask({
-    id: "pr-code-review.publication.live-state",
-    workspace: "shared",
-    input: z.object({
-      repository: z.string().min(1),
-      pullRequestNumber: z.number().int().positive(),
-      expectedHeadRevision: gitRevisionSchema,
-    }),
-    output: z.enum(["live", "stale"]),
-    execute: (input) => port.checkLiveState(input),
-  }), ({ input }) => ({
-    repository: input.repository,
-    pullRequestNumber: input.pullRequestNumber,
-    expectedHeadRevision: input.expectedHeadRevision,
-  }))
-  .task("decision", decisionTask, ({ tasks }) => ({
-    liveState: tasks.liveState.output,
-    publication: tasks.report.output,
-  }))
-  .task("publish", defineTask({
-    id: "pr-code-review.publication.publish",
-    workspace: "shared",
-    input: z.object({
-      repository: z.string().min(1),
-      pullRequestNumber: z.number().int().positive(),
-      expectedHeadRevision: gitRevisionSchema,
-      workflowRunId: z.string().min(1).max(128),
-      githubRunId: z.string().regex(/^\d+$/).max(128),
-      attempt: z.number().int().positive(),
-      existingReportId: z.string().max(128),
-      decision: decisionSchema,
-    }),
-  output: publicationResultSchema,
-  execute: async (input) => {
-      if (input.decision.status === "stale") {
-        return { status: "stale" as const, publication: input.decision.publication };
-      }
-      const status = await port.publishReport({
+export const publicationWorkflow = (port: PublicationPort) =>
+  createFlow({
+    id: "pull-request-code-review-publication",
+    input: publicationInputSchema,
+    output: publicationResultSchema,
+  })
+    .task("metrics", metricsTask, ({ input }) => input.snapshot)
+    .task("report", renderTask, ({ input, tasks }) => ({
+      snapshot: input.snapshot,
+      metrics: tasks.metrics.output,
+    }))
+    .task(
+      "liveState",
+      defineTask({
+        id: "pr-code-review.publication.live-state",
+        workspace: "shared",
+        input: z.object({
+          repository: z.string().min(1),
+          pullRequestNumber: z.number().int().positive(),
+          expectedHeadRevision: gitRevisionSchema,
+        }),
+        output: z.enum(["live", "stale"]),
+        execute: (input) => port.checkLiveState(input),
+      }),
+      ({ input }) => ({
         repository: input.repository,
         pullRequestNumber: input.pullRequestNumber,
         expectedHeadRevision: input.expectedHeadRevision,
-        workflowRunId: input.workflowRunId,
+      }),
+    )
+    .task("decision", decisionTask, ({ tasks }) => ({
+      liveState: tasks.liveState.output,
+      publication: tasks.report.output,
+    }))
+    .task(
+      "publish",
+      defineTask({
+        id: "pr-code-review.publication.publish",
+        workspace: "shared",
+        input: z.object({
+          repository: z.string().min(1),
+          pullRequestNumber: z.number().int().positive(),
+          expectedHeadRevision: gitRevisionSchema,
+          workflowRunId: z.string().min(1).max(128),
+          githubRunId: z.string().regex(/^\d+$/).max(128),
+          attempt: z.number().int().positive(),
+          existingReportId: z.string().max(128),
+          decision: decisionSchema,
+        }),
+        output: publicationResultSchema,
+        execute: async (input) => {
+          if (input.decision.status === "stale") {
+            return {
+              status: "stale" as const,
+              publication: input.decision.publication,
+            };
+          }
+          const status = await port.publishReport({
+            repository: input.repository,
+            pullRequestNumber: input.pullRequestNumber,
+            expectedHeadRevision: input.expectedHeadRevision,
+            workflowRunId: input.workflowRunId,
+            githubRunId: input.githubRunId,
+            attempt: input.attempt,
+            ...(input.existingReportId.length === 0
+              ? {}
+              : { existingReportId: input.existingReportId }),
+            publication: input.decision.publication,
+          });
+          return { status, publication: input.decision.publication };
+        },
+      }),
+      ({ input, tasks }) => ({
+        repository: input.repository,
+        pullRequestNumber: input.pullRequestNumber,
+        expectedHeadRevision: input.expectedHeadRevision,
+        workflowRunId: input.snapshot.runId,
         githubRunId: input.githubRunId,
         attempt: input.attempt,
-        ...(input.existingReportId.length === 0
-          ? {}
-          : { existingReportId: input.existingReportId }),
-        publication: input.decision.publication,
-      });
-      return { status, publication: input.decision.publication };
-    },
-  }), ({ input, tasks }) => ({
-    repository: input.repository,
-    pullRequestNumber: input.pullRequestNumber,
-    expectedHeadRevision: input.expectedHeadRevision,
-    workflowRunId: input.snapshot.runId,
-    githubRunId: input.githubRunId,
-    attempt: input.attempt,
-    existingReportId: input.existingReportId,
-    decision: tasks.decision.output,
-  }))
-  .output(({ tasks }) => tasks.publish.output)
-  .define();
+        existingReportId: input.existingReportId,
+        decision: tasks.decision.output,
+      }),
+    )
+    .output(({ tasks }) => tasks.publish.output)
+    .define();
 
 export type PublicationWorkflow = ReturnType<typeof publicationWorkflow>;
 

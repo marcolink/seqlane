@@ -4,7 +4,18 @@
   "projectType": "library",
   "sourceRoot": "libs/action-code-review/src",
   "targets": {
-    "build": { "executor": "nx:run-commands", "options": { "cwd": "libs/action-code-review", "command": "tsc --build tsconfig.json" }, "outputs": ["{projectRoot}/dist"] },
-    "test": { "executor": "nx:run-commands", "dependsOn": ["^build"], "options": { "cwd": "libs/action-code-review", "command": "vitest run" } }
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/action-code-review",
+        "command": "tsc --build tsconfig.json"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["^build"],
+      "options": { "cwd": "libs/action-code-review", "command": "vitest run" }
+    }
   }
 }

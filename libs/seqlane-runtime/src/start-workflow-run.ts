@@ -123,7 +123,9 @@ export function startWorkflowRunInternal<Input, Output>(
       if (cancellationRequested) return emitCancelled();
       // Parsing is deliberately the first workflow operation. In particular,
       // malformed input cannot resolve a runtime profile or execute a task.
-      const workflowInput = request.workflow.workflow.input.parse(request.input);
+      const workflowInput = request.workflow.workflow.input.parse(
+        request.input,
+      );
       if (cancellationRequested) return emitCancelled();
       if (
         request.runtime.id === "local" &&
@@ -133,7 +135,9 @@ export function startWorkflowRunInternal<Input, Output>(
           'Runtime profile "local" is not configured for agent workflows',
         );
       }
-      const execution = await (options.resolveExecution ?? resolveRuntimeProfile)(
+      const execution = await (
+        options.resolveExecution ?? resolveRuntimeProfile
+      )(
         request.runtime,
         request.workflow.taskDefinitions,
         abortController.signal,
@@ -141,18 +145,21 @@ export function startWorkflowRunInternal<Input, Output>(
         request.onRuntimeSessionUi,
       );
       if (cancellationRequested) return emitCancelled();
-      const compiled = new EffectCompiler().compileWorkflow(request.workflow.plan, {
-        workId,
-        runId,
-        createInvocationId: options.createInvocationId,
-        workflowInput,
-        executors: execution.executors,
-        sessionResolver: execution.sessionResolver,
-        workspaceResources: execution.workspaceResources,
-        taskDefinitions: execution.taskDefinitions,
-        validatorDefinitions: request.workflow.validatorDefinitions,
-        events: request.events,
-      });
+      const compiled = new EffectCompiler().compileWorkflow(
+        request.workflow.plan,
+        {
+          workId,
+          runId,
+          createInvocationId: options.createInvocationId,
+          workflowInput,
+          executors: execution.executors,
+          sessionResolver: execution.sessionResolver,
+          workspaceResources: execution.workspaceResources,
+          taskDefinitions: execution.taskDefinitions,
+          validatorDefinitions: request.workflow.validatorDefinitions,
+          events: request.events,
+        },
+      );
       await preflightCompiledWorkflowModels(compiled);
       await resolveCompiledWorkflowSessions(compiled);
       options.emitPlan?.(compiled.plan);
