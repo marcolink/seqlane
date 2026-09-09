@@ -3,15 +3,16 @@ import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
 } from "@seqlane/events";
-import { RuntimeError, type Plan, type PlanNode, type RunRequest } from "@seqlane/core";
+import { RuntimeError, type RunRequest } from "@seqlane/core";
 import { createExecutionEventBridge } from "./event-bridge.js";
 import { loadWorkflow, type LoadedWorkflow } from "./workflow/load-workflow.js";
 import { createSeqlanePlanSnapshot } from "./workflow/plan-snapshot.js";
+export { planContainsAgentWork } from "../runtime/plan/agent-work.js";
 import {
   resolveRuntimeProfile,
   type RuntimeExecution,
   type RuntimeSessionUiNotifier,
-} from "./profile/runtime-profile.js";
+} from "../runtime/profile/runtime-profile.js";
 import {
   startWorkflowRunInternal,
   type WorkflowRunHandle,
@@ -40,17 +41,6 @@ export type RuntimeExecutionResolver = (
   input: RunRequest["input"],
   onSessionUiAvailable?: RuntimeSessionUiNotifier,
 ) => RuntimeExecution | Promise<RuntimeExecution>;
-
-function nodeContainsAgentWork(node: PlanNode): boolean {
-  if (node.type === "task") return node.execution !== "local";
-  if (node.type === "validation.check") return node.source.type === "task";
-  if (node.type === "validation.gate") return false;
-  return node.body.nodes.some(nodeContainsAgentWork);
-}
-
-export function planContainsAgentWork(plan: Plan): boolean {
-  return plan.nodes.some(nodeContainsAgentWork);
-}
 
 export function requestRunnerCancellation(control: RunnerRunControl): void {
   if (control.cancellationRequested) return;

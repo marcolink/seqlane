@@ -1,15 +1,16 @@
 // @test-scope ./run.ts
 // @test-scope ./main.ts
+// @test-scope ../runtime/plan/agent-work.ts
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { decodeSeqlaneExecutionEvent } from "@seqlane/events";
 import {
-  planContainsAgentWork,
   requestRunnerCancellation,
   startRun,
   type RunnerHost,
   type RunnerRunControl,
 } from "./run.js";
+import { planContainsAgentWork } from "../runtime/plan/agent-work.js";
 import { bindRunnerCancellationSignals, startRunnerProcess } from "./main.js";
 import type { Plan, RunRequest, TaskDefinitionRegistry } from "@seqlane/core";
 import type {

@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type {
   BuiltWorkflow,
   JsonValue,
-  PlanNode,
   RuntimeProfileReference,
   SeqlaneEventSink,
   SeqlaneRunOutcome,
@@ -17,13 +16,14 @@ import {
   startCompiledWorkflow,
   type ActiveWorkflowRun,
 } from "./runtime/execution/workflow-run.js";
-import { resolveCompiledWorkflowSessions } from "./runtime/session/session-preflight.js";
+import { planContainsAgentWork } from "./runtime/plan/agent-work.js";
 import {
   resolveRuntimeProfile,
   type RuntimeExecution,
   type RuntimeSessionUiNotifier,
-} from "./runner/profile/runtime-profile.js";
-import type { RuntimeSessionUiAvailable } from "./runner/runtime-session-ui.js";
+} from "./runtime/profile/runtime-profile.js";
+import { resolveCompiledWorkflowSessions } from "./runtime/session/session-preflight.js";
+import type { RuntimeSessionUiAvailable } from "./runtime/session/runtime-session-ui.js";
 
 export interface StartWorkflowRunRequest<Input = unknown, Output = unknown> {
   readonly workflow: BuiltWorkflow<Input, Output>;
@@ -60,17 +60,6 @@ interface InternalOptions {
   readonly createInvocationId?: (nodeId: string) => string;
   readonly emitRunStarted?: boolean;
   readonly emitPlan?: (plan: BuiltWorkflow["plan"]) => void;
-}
-
-function containsAgentWork(node: PlanNode): boolean {
-  if (node.type === "task") return node.execution !== "local";
-  if (node.type === "validation.check") return node.source.type === "task";
-  if (node.type === "validation.gate") return false;
-  return node.body.nodes.some(containsAgentWork);
-}
-
-function planContainsAgentWork(plan: BuiltWorkflow["plan"]): boolean {
-  return plan.nodes.some(containsAgentWork);
 }
 
 function freshIdentity<Input, Output>(
