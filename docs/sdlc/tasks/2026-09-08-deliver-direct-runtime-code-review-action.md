@@ -178,6 +178,15 @@ keeps rendered reports within the publication limit. Focused test mapping,
 runtime tests, Action-library tests, Action typecheck, bundle smoke and drift,
 and SDLC validation passed after those commits.
 
+[PR #83](https://github.com/marcolink/seqlane/pull/83) further hardens the
+Action before merge. It bounds newest-first GitHub comment retrieval and event
+retention, requires complete frozen publication identity, retains the latest
+40 metrics-ledger runs, preserves required report markers within the UTF-8
+publication limit, and re-reads the authoritative report immediately before
+publication. Focused Action-library tests, Action typecheck, bundle smoke and
+drift, and test mapping passed locally. The GitHub-hosted manual workflow
+proof remains pending.
+
 ## Traceability
 
 - [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-code-review-action.md)
