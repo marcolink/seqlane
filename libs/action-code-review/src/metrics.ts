@@ -71,17 +71,13 @@ export function deriveRunMetrics(
   > = [];
   const latestOutputs = new Map<string, InvocationOutput>();
   const latestResults = new Map<string, InvocationResult>();
+  let latestHeartbeatElapsedMs = 0;
   let ended:
     | Extract<
         SeqlaneEvent,
         { type: "run.succeeded" | "run.failed" | "run.cancelled" }
       >
     | undefined;
-  // The public event contract intentionally does not expose wall-clock
-  // metadata. Runtime-provided task durations remain authoritative; the
-  // direct Action records zero when no duration is available instead of
-  // pretending that the largest task duration is the run duration.
-  const durationMs = 0;
   const totals = {
     input: 0,
     output: 0,
@@ -104,6 +100,12 @@ export function deriveRunMetrics(
     if (event.type === "invocation.output") {
       latestOutputs.set(event.invocationId, event);
     }
+    if (event.type === "run.heartbeat") {
+      latestHeartbeatElapsedMs = Math.max(
+        latestHeartbeatElapsedMs,
+        event.elapsedMs,
+      );
+    }
     if (
       event.type === "invocation.succeeded" ||
       event.type === "invocation.failed" ||
@@ -112,9 +114,12 @@ export function deriveRunMetrics(
     ) {
       latestResults.set(event.invocationId, event);
     }
-    if (event.type !== "invocation.output" || event.metrics === undefined)
-      continue;
-    const tokens = event.metrics.tokens;
+  }
+
+  for (const output of latestOutputs.values()) {
+    const metrics = output.metrics;
+    if (metrics === undefined) continue;
+    const tokens = metrics.tokens;
     if (tokens !== undefined) {
       totals.input += tokens.input;
       totals.output += tokens.output;
@@ -122,7 +127,7 @@ export function deriveRunMetrics(
       totals.cacheRead += tokens.cacheRead;
       totals.cacheWrite += tokens.cacheWrite;
     }
-    totalCost += event.metrics.cost ?? 0;
+    totalCost += metrics.cost ?? 0;
   }
 
   const outcome =
@@ -185,6 +190,10 @@ export function deriveRunMetrics(
       };
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
+  const durationMs = Math.max(
+    latestHeartbeatElapsedMs,
+    ...taskEntries.map((entry) => entry.durationMs),
+  );
   return {
     schemaVersion: 1,
     runId,

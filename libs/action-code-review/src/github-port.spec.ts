@@ -146,4 +146,48 @@ describe("GitHubReviewAdapter", () => {
     expect(comment.omittedDispositionCommands?.at(-1)?.findingId).toBe("F-250");
     expect(comment.omittedDispositionCommandsTruncated).toBe(true);
   });
+
+  it("uses a strong ETag for conditional report writes and treats a lost race as stale", async () => {
+    const updates: Array<{ id: string; body: string; version: string }> = [];
+    const adapter = new GitHubReviewAdapter({
+      getPullRequest: async () => ({}),
+      listIssueComments: async () => [],
+      listReviewComments: async () => [],
+      getIssueComment: async () => ({
+        id: 1,
+        user: { login: "github-actions[bot]" },
+        body: "<!-- seqlane-code-review --> report",
+        author_association: "NONE",
+        created_at: "2026-09-09T00:00:00Z",
+      }),
+      getIssueCommentWithVersion: async () => ({
+        data: {
+          id: 1,
+          user: { login: "github-actions[bot]" },
+          body: "<!-- seqlane-code-review --> report",
+          author_association: "NONE",
+          created_at: "2026-09-09T00:00:00Z",
+        },
+        etag: '"v1"',
+      }),
+      createIssueComment: async () => ({}),
+      updateIssueComment: async () => ({}),
+      updateIssueCommentIfUnchanged: async (id, body, version) => {
+        updates.push({ id, body, version });
+        const error = new Error("precondition failed") as Error & {
+          status: number;
+        };
+        error.status = 412;
+        throw error;
+      },
+      deleteIssueComment: async () => ({}),
+    });
+
+    const current = await adapter.readIssueCommentVersioned("1");
+    expect(current.version).toBe('"v1"');
+    expect(
+      await adapter.updateReportIfUnchanged("1", "new report", current.version),
+    ).toBe("stale");
+    expect(updates).toEqual([{ id: "1", body: "new report", version: '"v1"' }]);
+  });
 });

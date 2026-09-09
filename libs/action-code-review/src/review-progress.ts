@@ -8,6 +8,8 @@ export type ReviewTaskStatus = "succeeded" | "failed" | "skipped" | "cancelled";
 export interface ReviewTaskMetrics {
   readonly durationMs?: number;
   readonly cost?: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
   readonly totalTokens?: number;
 }
 
@@ -56,21 +58,32 @@ function safeMetric(value: number | undefined): number | undefined {
     : undefined;
 }
 
-function formatSeconds(milliseconds: number): string {
-  const seconds = Math.max(0, milliseconds) / 1_000;
-  return `${seconds.toFixed(1)}s`;
-}
-
-function formatElapsed(milliseconds: number): string {
+function formatDuration(milliseconds: number): string {
   const safeMilliseconds = safeMetric(milliseconds) ?? 0;
-  const totalSeconds = Math.floor(safeMilliseconds / 1_000);
-  const seconds = totalSeconds % 60;
-  const minutes = Math.floor(totalSeconds / 60);
-  if (minutes === 0) return formatSeconds(safeMilliseconds);
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  if (hours > 0) return `${hours}h ${remainingMinutes}m ${seconds}s`;
-  return `${minutes}m ${seconds}s`;
+  type DurationUnit = "millisecond" | "second" | "minute";
+  const units: ReadonlyArray<{
+    readonly limit: number;
+    readonly divisor: number;
+    readonly unit: DurationUnit;
+  }> = [
+    { limit: 1_000, divisor: 1, unit: "millisecond" },
+    { limit: 60_000, divisor: 1_000, unit: "second" },
+    { limit: Number.POSITIVE_INFINITY, divisor: 60_000, unit: "minute" },
+  ];
+  const fallbackUnit: (typeof units)[number] = {
+    limit: Number.POSITIVE_INFINITY,
+    divisor: 60_000,
+    unit: "minute",
+  };
+  const { divisor, unit } =
+    units.find(({ limit }) => safeMilliseconds < limit) ??
+    fallbackUnit;
+  return new Intl.NumberFormat("en", {
+    style: "unit",
+    unit,
+    unitDisplay: "narrow",
+    maximumFractionDigits: 1,
+  }).format(safeMilliseconds / divisor);
 }
 
 function formatTaskIdentity(label: string, taskId: string | undefined): string {
@@ -99,10 +112,20 @@ export function formatReviewProgressEvent(event: ReviewProgressEvent): string {
       const details = [`status=${event.status}`];
       const durationMs = safeMetric(event.metrics?.durationMs);
       const cost = safeMetric(event.metrics?.cost);
+      const inputTokens = safeMetric(event.metrics?.inputTokens);
+      const outputTokens = safeMetric(event.metrics?.outputTokens);
       const totalTokens = safeMetric(event.metrics?.totalTokens);
       if (durationMs !== undefined)
-        details.push(`duration=${formatSeconds(durationMs)}`);
+        details.push(`duration=${formatDuration(durationMs)}`);
       if (cost !== undefined) details.push(`cost=$${cost.toFixed(4)}`);
+      if (inputTokens !== undefined)
+        details.push(
+          `inputTokens=${Math.floor(inputTokens).toLocaleString("en-US")}`,
+        );
+      if (outputTokens !== undefined)
+        details.push(
+          `outputTokens=${Math.floor(outputTokens).toLocaleString("en-US")}`,
+        );
       if (totalTokens !== undefined)
         details.push(
           `tokens=${Math.floor(totalTokens).toLocaleString("en-US")}`,
@@ -113,7 +136,7 @@ export function formatReviewProgressEvent(event: ReviewProgressEvent): string {
     }
     case "review-completed":
       return boundedLine(
-        `Seqlane review completed: status=${event.status} — ${formatElapsed(event.elapsedMs)} elapsed.`,
+        `Seqlane review completed: status=${event.status} — ${formatDuration(event.elapsedMs)} elapsed.`,
       );
   }
 }
@@ -191,7 +214,11 @@ export function createReviewProgress(
               ...(metrics.cost === undefined ? {} : { cost: metrics.cost }),
               ...(metrics.tokens === undefined
                 ? {}
-                : { totalTokens: totalTokens(metrics.tokens) }),
+                : {
+                    inputTokens: safeMetric(metrics.tokens.input),
+                    outputTokens: safeMetric(metrics.tokens.output),
+                    totalTokens: totalTokens(metrics.tokens),
+                  }),
             },
           }),
     });

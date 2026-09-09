@@ -83,7 +83,7 @@ describe("review metrics", () => {
     expect(metrics.tasks[0]).not.toHaveProperty("provider");
   });
 
-  it("indexes invocation events while retaining every output in totals", () => {
+  it("uses only the latest output for task and run totals", () => {
     const metrics = deriveRunMetrics(
       [
         {
@@ -150,7 +150,69 @@ describe("review metrics", () => {
       "r",
     );
     expect(metrics.tasks).toMatchObject([{ durationMs: 20, cost: 2 }]);
-    expect(metrics.totalCost).toBe(3);
-    expect(metrics.totalTokens.total).toBe(6);
+    expect(metrics.totalCost).toBe(2);
+    expect(metrics.totalTokens.total).toBe(4);
+  });
+
+  it("derives run duration from the latest heartbeat", () => {
+    const metrics = deriveRunMetrics(
+      [
+        {
+          type: "run.heartbeat",
+          workId: "w",
+          runId: "r",
+          activeInvocationIds: ["i"],
+          elapsedMs: 1250,
+        },
+        {
+          type: "run.heartbeat",
+          workId: "w",
+          runId: "r",
+          activeInvocationIds: [],
+          elapsedMs: 2500,
+        },
+        { type: "run.succeeded", workId: "w", runId: "r", output: null },
+      ],
+      "r",
+    );
+    expect(metrics.durationMs).toBe(2500);
+  });
+
+  it("falls back to the latest task duration without heartbeats", () => {
+    const metrics = deriveRunMetrics(
+      [
+        {
+          type: "invocation.created",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+          planNodeId: "p",
+          subject: { type: "task", taskId: "t" },
+          kind: "task",
+          label: "Review",
+          siblingOrder: 0,
+          dependencyIds: [],
+        },
+        {
+          type: "invocation.output",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+          policy: "persistent",
+          channel: "task",
+          content: "done",
+          metrics: { durationMs: 700 },
+        },
+        {
+          type: "invocation.succeeded",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+        },
+        { type: "run.succeeded", workId: "w", runId: "r", output: null },
+      ],
+      "r",
+    );
+    expect(metrics.durationMs).toBe(700);
   });
 });

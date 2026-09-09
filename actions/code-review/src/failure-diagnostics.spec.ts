@@ -33,7 +33,9 @@ describe("code review failure diagnostics", () => {
 
     expect(message).toContain("category=RuntimeError");
     expect(message).toContain("code=TIMEOUT");
-    expect(message).toContain("last-task=correctness (review-correctness) status=failed");
+    expect(message).toContain(
+      "last-task=correctness (review-correctness) status=failed",
+    );
     expect(message).toContain("elapsed=185.0s");
     expect(message).not.toContain("must not be logged");
     expect(message).not.toContain("ghp_0123456789abcdef");

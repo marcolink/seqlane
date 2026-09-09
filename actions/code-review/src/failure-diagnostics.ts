@@ -37,8 +37,14 @@ function sanitizeMessage(value: unknown): string {
     })
     .join("")
     .replace(/\s+/g, " ")
-    .replace(/((?:ghp_|gho_|github_pat_|sk-|Bearer\s+)[A-Za-z0-9._-]+)/gi, "[REDACTED]")
-    .replace(/((?:token|api[-_]?key|password|secret)\s*[=:]\s*)[^\s,;]+/gi, "$1[REDACTED]")
+    .replace(
+      /((?:ghp_|gho_|github_pat_|sk-|Bearer\s+)[A-Za-z0-9._-]+)/gi,
+      "[REDACTED]",
+    )
+    .replace(
+      /((?:token|api[-_]?key|password|secret)\s*[=:]\s*)[^\s,;]+/gi,
+      "$1[REDACTED]",
+    )
     .trim();
   if (message.length <= MAX_FAILURE_MESSAGE_LENGTH) return message;
   return `${message.slice(0, MAX_FAILURE_MESSAGE_LENGTH - 3)}...`;

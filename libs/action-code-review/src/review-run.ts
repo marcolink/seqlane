@@ -11,7 +11,10 @@ import {
   buildPublicationWorkflow,
   type PublicationPort,
 } from "./publication-workflow.js";
-import { guardPublicationTarget } from "./publication-guard.js";
+import {
+  guardPublicationTarget,
+  type PublicationGuardInput,
+} from "./publication-guard.js";
 import { publicationResultSchema } from "./publication-workflow.js";
 import { type LivePullRequest, type ReviewTargetInput } from "./contracts.js";
 import { findAuthoritativeReport } from "./github-port.js";
@@ -46,22 +49,30 @@ function removeMarker(body: string): string {
 async function clearOwnedMarker(
   adapter: GitHubReviewPort,
   markerId: string | undefined,
-  runId: string,
+  input: PublicationGuardInput & {
+    readonly repository: string;
+  },
 ): Promise<void> {
   if (markerId === undefined) return;
-  const report = await adapter.readIssueComment(markerId);
-  const ownedByBot =
-    report.author === "github-actions" ||
-    report.author === "github-actions[bot]";
-  const ownedMarker = `<!-- seqlane-review-in-progress-run: ${runId} -->`;
+  const live = await adapter.readLivePullRequest(input.pullRequestNumber);
+  if (!isLivePullRequest(live, input.repository, input.expectedHeadRevision))
+    return;
+  const versioned = await adapter.readIssueCommentVersioned(markerId);
+  const report = versioned.comment;
+  const target = guardPublicationTarget(report, input);
+  const ownedMarker = `<!-- seqlane-review-in-progress-run: ${input.workflowRunId} -->`;
   if (
-    !ownedByBot ||
+    target.status !== "eligible" ||
     !report.body.includes(markerStart) ||
     !report.body.includes(markerEnd) ||
     !report.body.includes(ownedMarker)
   )
     return;
-  await adapter.updateReport(markerId, removeMarker(report.body));
+  await adapter.updateReportIfUnchanged(
+    markerId,
+    removeMarker(report.body),
+    versioned.version,
+  );
 }
 
 function isLivePullRequest(
@@ -75,6 +86,20 @@ function isLivePullRequest(
     pullRequest.head?.repo?.full_name === repository &&
     pullRequest.head?.sha === expectedHeadRevision
   );
+}
+
+function publicationGuardInput(
+  request: CodeReviewRunRequest,
+  workflowRunId: string,
+): PublicationGuardInput & { readonly repository: string } {
+  return {
+    repository: request.repository,
+    pullRequestNumber: request.pullRequestNumber,
+    expectedHeadRevision: request.headRevision,
+    workflowRunId,
+    githubRunId: request.githubRunId ?? "0",
+    attempt: request.attempt ?? 1,
+  };
 }
 
 function createPublicationPort(adapter: GitHubReviewPort): PublicationPort {
@@ -104,12 +129,12 @@ function createPublicationPort(adapter: GitHubReviewPort): PublicationPort {
       const current = await adapter.readLivePullRequest(pullRequestNumber);
       if (!isLivePullRequest(current, repository, expectedHeadRevision))
         return "stale" as const;
-      // Reconcile immediately before writing. This closes the create-vs-create
-      // race and prevents an untrusted replacement from being updated merely
+      // Reconcile immediately before the conditional write. This prevents an
+      // untrusted replacement or newer same-head run from being updated merely
       // because its comment ID was observed earlier.
       const authoritative =
-        await adapter.readAuthoritativeReport(pullRequestNumber);
-      const target = guardPublicationTarget(authoritative, {
+        await adapter.readAuthoritativeReportVersioned(pullRequestNumber);
+      const target = guardPublicationTarget(authoritative?.comment, {
         pullRequestNumber,
         expectedHeadRevision,
         workflowRunId,
@@ -119,11 +144,20 @@ function createPublicationPort(adapter: GitHubReviewPort): PublicationPort {
       if (target.status === "stale") return "stale" as const;
       if (target.status === "create") {
         if (existingReportId !== undefined) return "stale" as const;
-        await adapter.createReport(pullRequestNumber, publication.body);
-        return "published" as const;
+        return (await adapter.createReportIfAbsent(
+          pullRequestNumber,
+          publication.body,
+        )) === "written"
+          ? ("published" as const)
+          : ("stale" as const);
       }
-      await adapter.updateReport(target.report.id, publication.body);
-      return "published" as const;
+      return (await adapter.updateReportIfUnchanged(
+        target.report.id,
+        publication.body,
+        authoritative!.version,
+      )) === "written"
+        ? ("published" as const)
+        : ("stale" as const);
     },
   };
 }
@@ -226,16 +260,45 @@ export async function runCodeReview(
     ...(markerId === undefined ? {} : { markerId }),
   });
   if (markerId !== undefined) {
-    await adapter.updateReport(
-      markerId,
-      marker(handle.runId) + "\n\n" + removeMarker(existingReport!.body),
+    const guardInput = publicationGuardInput(request, handle.runId);
+    const liveForMarker = await adapter.readLivePullRequest(
+      request.pullRequestNumber,
     );
+    if (
+      !isLivePullRequest(
+        liveForMarker,
+        request.repository,
+        request.headRevision,
+      )
+    ) {
+      await handle.cancel();
+      return { status: "stale", runId: handle.runId };
+    }
+    const versioned = await adapter.readIssueCommentVersioned(markerId);
+    const target = guardPublicationTarget(versioned.comment, guardInput);
+    if (target.status !== "eligible") {
+      await handle.cancel();
+      return { status: "stale", runId: handle.runId };
+    }
+    const markerWrite = await adapter.updateReportIfUnchanged(
+      markerId,
+      marker(handle.runId) + "\n\n" + removeMarker(versioned.comment.body),
+      versioned.version,
+    );
+    if (markerWrite !== "written") {
+      await handle.cancel();
+      return { status: "stale", runId: handle.runId };
+    }
   }
 
   const outcome = await handle.outcome;
   reviewProgress.complete(outcome.status);
   if (outcome.status !== "succeeded") {
-    await clearOwnedMarker(adapter, markerId, handle.runId);
+    await clearOwnedMarker(
+      adapter,
+      markerId,
+      publicationGuardInput(request, handle.runId),
+    );
     return outcome.status === "cancelled"
       ? {
           status: "cancelled",
@@ -254,7 +317,11 @@ export async function runCodeReview(
 
   const live = await adapter.readLivePullRequest(request.pullRequestNumber);
   if (!isLivePullRequest(live, request.repository, request.headRevision)) {
-    await clearOwnedMarker(adapter, markerId, handle.runId);
+    await clearOwnedMarker(
+      adapter,
+      markerId,
+      publicationGuardInput(request, handle.runId),
+    );
     return { status: "stale", runId: handle.runId };
   }
 
@@ -285,7 +352,11 @@ export async function runCodeReview(
   });
   const publicationOutcome = await publicationHandle.outcome;
   if (publicationOutcome.status !== "succeeded") {
-    await clearOwnedMarker(adapter, markerId, handle.runId);
+    await clearOwnedMarker(
+      adapter,
+      markerId,
+      publicationGuardInput(request, handle.runId),
+    );
     return publicationOutcome.status === "cancelled"
       ? {
           status: "cancelled",
@@ -304,7 +375,11 @@ export async function runCodeReview(
   const publicationResult = publicationResultSchema.parse(
     publicationOutcome.result,
   );
-  await clearOwnedMarker(adapter, markerId, handle.runId);
+  await clearOwnedMarker(
+    adapter,
+    markerId,
+    publicationGuardInput(request, handle.runId),
+  );
   if (publicationResult.status === "stale")
     return { status: "stale", runId: handle.runId };
   return {

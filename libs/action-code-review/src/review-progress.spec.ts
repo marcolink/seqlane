@@ -28,10 +28,16 @@ describe("code review progress", () => {
         label: "correctness",
         taskId: "review-correctness",
         status: "succeeded",
-        metrics: { durationMs: 37_000, cost: 0.0084, totalTokens: 170_277 },
+        metrics: {
+          durationMs: 37_000,
+          cost: 0.0084,
+          inputTokens: 120_000,
+          outputTokens: 50_277,
+          totalTokens: 170_277,
+        },
       }),
     ).toBe(
-      "Task completed: correctness (review-correctness) — status=succeeded; duration=37.0s; cost=$0.0084; tokens=170,277.",
+      "Task completed: correctness (review-correctness) — status=succeeded; duration=37s; cost=$0.0084; inputTokens=120,000; outputTokens=50,277; tokens=170,277.",
     );
     expect(
       formatReviewProgressEvent({
@@ -39,7 +45,15 @@ describe("code review progress", () => {
         status: "succeeded",
         elapsedMs: 139_000,
       }),
-    ).toBe("Seqlane review completed: status=succeeded — 2m 19s elapsed.");
+    ).toBe("Seqlane review completed: status=succeeded — 2.3m elapsed.");
+    expect(
+      formatReviewProgressEvent({
+        kind: "task-completed",
+        label: "fast-task",
+        status: "succeeded",
+        metrics: { durationMs: 250 },
+      }),
+    ).toContain("duration=250ms");
   });
 
   it("sanitizes untrusted identifiers and never includes raw event text", () => {
@@ -56,10 +70,12 @@ describe("code review progress", () => {
     };
 
     const line = formatReviewProgressEvent(event);
-    expect([...line].some((character) => {
-      const code = character.charCodeAt(0);
-      return code <= 0x1f || code === 0x7f;
-    })).toBe(false);
+    expect(
+      [...line].some((character) => {
+        const code = character.charCodeAt(0);
+        return code <= 0x1f || code === 0x7f;
+      }),
+    ).toBe(false);
     expect(line).not.toContain("secret-content");
     expect(line).toContain("status=failed");
     expect(line.length).toBeLessThanOrEqual(240);
@@ -138,7 +154,13 @@ describe("code review progress", () => {
         label: "correctness",
         taskId: "task",
         status: "succeeded",
-        metrics: { durationMs: 2_000, cost: 0.01, totalTokens: 15 },
+        metrics: {
+          durationMs: 2_000,
+          cost: 0.01,
+          inputTokens: 1,
+          outputTokens: 2,
+          totalTokens: 15,
+        },
       },
       { kind: "review-completed", status: "succeeded", elapsedMs: 3_000 },
     ]);

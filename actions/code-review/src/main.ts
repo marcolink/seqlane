@@ -19,7 +19,7 @@ function input(name: string): string {
   return core.getInput(name, { required: true });
 }
 
-type GitHubClient = ReturnType<typeof github.getOctokit>;
+export type GitHubClient = ReturnType<typeof github.getOctokit>;
 
 async function fetchCommentPage(
   request: () => Promise<{
@@ -49,7 +49,36 @@ function issueCommentRequest(
   return request().then((response) => response.data);
 }
 
-function createIssueCommentMethods(
+interface ConditionalGitHubReviewClient {
+  readonly getIssueCommentWithVersion: (
+    commentId: string,
+  ) => Promise<{ readonly data: unknown; readonly etag: string }>;
+  readonly createIssueCommentIfAbsent: (
+    number: number,
+    body: string,
+  ) => Promise<unknown>;
+  readonly updateIssueCommentIfUnchanged: (
+    commentId: string,
+    body: string,
+    version: string,
+  ) => Promise<unknown>;
+}
+
+async function versionedIssueCommentRequest(
+  request: () => Promise<{
+    readonly data: unknown;
+    readonly headers: { readonly etag?: string };
+  }>,
+): Promise<{ readonly data: unknown; readonly etag: string }> {
+  const response = await request();
+  const etag = response.headers.etag;
+  if (etag === undefined || etag.length === 0 || etag.startsWith("W/")) {
+    throw new Error("GitHub did not return a strong issue-comment ETag.");
+  }
+  return { data: response.data, etag };
+}
+
+export function createIssueCommentMethods(
   client: GitHubClient,
   owner: string,
   repo: string,
@@ -59,10 +88,19 @@ function createIssueCommentMethods(
   | "createIssueComment"
   | "updateIssueComment"
   | "deleteIssueComment"
-> {
+> &
+  ConditionalGitHubReviewClient {
   return {
     getIssueComment: (commentId) =>
       issueCommentRequest(() =>
+        client.rest.issues.getComment({
+          owner,
+          repo,
+          comment_id: Number(commentId),
+        }),
+      ),
+    getIssueCommentWithVersion: (commentId) =>
+      versionedIssueCommentRequest(() =>
         client.rest.issues.getComment({
           owner,
           repo,
@@ -78,6 +116,16 @@ function createIssueCommentMethods(
           body,
         }),
       ),
+    createIssueCommentIfAbsent: (number, body) =>
+      issueCommentRequest(() =>
+        client.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: number,
+          body,
+          headers: { "If-None-Match": "*" },
+        }),
+      ),
     updateIssueComment: (commentId, body) =>
       issueCommentRequest(() =>
         client.rest.issues.updateComment({
@@ -85,6 +133,16 @@ function createIssueCommentMethods(
           repo,
           comment_id: Number(commentId),
           body,
+        }),
+      ),
+    updateIssueCommentIfUnchanged: (commentId, body, version) =>
+      issueCommentRequest(() =>
+        client.rest.issues.updateComment({
+          owner,
+          repo,
+          comment_id: Number(commentId),
+          body,
+          headers: { "If-Match": version },
         }),
       ),
     deleteIssueComment: (commentId) =>
