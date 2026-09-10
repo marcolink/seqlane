@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   definePlan,
   defineAgentTask,
+  defineShellTask,
   defineTask,
   defineWorkflow,
   createFlow,
@@ -84,6 +85,18 @@ describe("seqlane core", () => {
 
     expect(workflow.id).toBe("local-handle-contract");
     expect(built.taskDefinitions.get(local.id)).toBe(local);
+  });
+
+  it("rejects ignored output configuration for shell tasks", () => {
+    expect(() => {
+      defineShellTask({
+        id: "shell-output",
+        input: schema<Record<never, never>>(),
+        output: schema<Record<never, never>>(),
+        executable: "true",
+        argv: () => [],
+      } as never);
+    }).toThrow("defineShellTask does not accept output");
   });
 
   it("rejects local task session options statically", () => {

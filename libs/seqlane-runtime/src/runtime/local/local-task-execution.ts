@@ -6,10 +6,16 @@ import type {
 } from "@seqlane/core";
 import {
   MastraProcessCancelledError,
+  MastraProcessTerminationError,
   runMastraProcess,
 } from "./mastra-process.js";
+import type { SeqlaneUncertainActivity } from "../execution/executor.js";
 
 export const DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+export {
+  DEFAULT_MASTRA_PROCESS_TIMEOUT_MS as DEFAULT_LOCAL_TASK_TIMEOUT_MS,
+  MAX_MASTRA_PROCESS_TIMEOUT_MS as MAX_LOCAL_TASK_TIMEOUT_MS,
+} from "./mastra-process.js";
 
 export interface LocalTaskExecutionRequest {
   readonly definition: TaskDefinition<unknown, unknown>;
@@ -20,6 +26,7 @@ export interface LocalTaskExecutionRequest {
   readonly signal: AbortSignal;
   readonly outputLimitBytes?: number;
   readonly runAgent: TaskContext["runAgent"];
+  readonly onUncertainActivity?: (activity: SeqlaneUncertainActivity) => void;
 }
 
 function taskContext(
@@ -29,19 +36,28 @@ function taskContext(
   signal: AbortSignal,
   outputLimitBytes: number,
   runAgent: TaskContext["runAgent"],
+  onUncertainActivity: LocalTaskExecutionRequest["onUncertainActivity"],
 ): TaskContext {
   return {
-    exec: async (request) =>
-      runMastraProcess({
-        command: request.executable,
-        args: request.argv ?? [],
-        cwd,
-        taskId,
-        invocationId,
-        outputLimitBytes,
-        signal,
-        timeoutMs: request.timeoutMs,
-      }),
+    exec: async (request) => {
+      try {
+        return await runMastraProcess({
+          command: request.executable,
+          args: request.argv ?? [],
+          cwd,
+          taskId,
+          invocationId,
+          outputLimitBytes,
+          signal,
+          timeoutMs: request.timeoutMs,
+        });
+      } catch (cause) {
+        if (cause instanceof MastraProcessTerminationError) {
+          onUncertainActivity?.({ reason: "timeout" });
+        }
+        throw cause;
+      }
+    },
     runAgent,
   };
 }
@@ -56,6 +72,7 @@ export async function executeLocalTask(
     request.signal,
     request.outputLimitBytes ?? DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES,
     request.runAgent,
+    request.onUncertainActivity,
   );
   const output = await request.definition.execute({
     input: request.input,

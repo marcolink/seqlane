@@ -74,7 +74,7 @@ export type ShellTaskResult = z.infer<typeof shellTaskResultSchema>;
 
 interface ShellTaskFactoryInput<Input> extends Omit<
   TaskDefinition<Input, ShellTaskResult>,
-  "execute" | "goal"
+  "execute" | "goal" | "output"
 > {
   readonly executable: string;
   readonly argv: (input: Input) => readonly string[];
@@ -85,6 +85,9 @@ export function defineShellTask<Input>(
 ): TaskDefinition<Input, ShellTaskResult> {
   if (Object.hasOwn(definition, "execute")) {
     throw new TypeError("defineShellTask does not accept execute");
+  }
+  if (Object.hasOwn(definition, "output")) {
+    throw new TypeError("defineShellTask does not accept output");
   }
   const { executable, argv, ...base } = definition;
   return defineTask({
@@ -261,7 +264,7 @@ export function createFlow<Input, Output>(
       });
       return builder as never;
     },
-    validate: (name, validator, binding) => {
+    validate: (name, validator, binding, validationOptions) => {
       declarations.push({
         name,
         declare: (context, authoringContext) => {
@@ -275,6 +278,7 @@ export function createFlow<Input, Output>(
               : binding;
           const validation = context.validate(validator, {
             input: resolvedBinding as InputBinding<never>,
+            ...(validationOptions === undefined ? {} : validationOptions),
           });
           return {
             nodeId: validation.nodeId,

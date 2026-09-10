@@ -43,6 +43,11 @@ canonical process result is `{ exitCode, stdout, stderr }`; richer process
 metadata remains private runtime detail. `context.runAgent` uses the executor
 selected by the invocation's session policy.
 
+Every `context.exec` call has a 30-second default timeout and a five-minute
+maximum timeout. On cancellation, the runtime waits for a bounded cleanup
+period, escalates process-group termination when needed, and quarantines the
+invocation when it cannot confirm termination.
+
 Workspace and session policies belong to task invocations and Plan nodes, not
 task definitions. A task without a declared session uses a registered executor
 as an isolated one-shot adapter execution; it does not resolve or allocate a

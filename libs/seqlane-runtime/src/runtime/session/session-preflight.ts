@@ -45,16 +45,6 @@ function agentTaskNodes(compiled: PreparedPlanExecution): readonly TaskNode[] {
       for (const bodyNode of node.body.nodes) visit(bodyNode);
       return;
     }
-    if (node.type === "validation.check" && node.source.type === "task") {
-      nodes.push({
-        type: "task",
-        taskId: node.source.taskId,
-        nodeId: node.nodeId,
-        workspace: node.source.workspace,
-        input: node.input,
-        dependsOn: node.dependsOn,
-      });
-    }
   };
   for (const node of compiled.plan.nodes) visit(node);
   return nodes;
@@ -137,14 +127,6 @@ export async function resolveCompiledWorkflowSessions(
         continue;
       }
       isolatedSessions.push({ invocationId, taskId: node.taskId });
-    } else if (
-      node.type === "validation.check" &&
-      node.source.type === "task"
-    ) {
-      isolatedSessions.push({
-        invocationId,
-        taskId: node.source.taskId,
-      });
     }
   }
   for (const session of isolatedSessions) {

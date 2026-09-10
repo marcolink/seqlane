@@ -5,6 +5,7 @@ import type {
   TaskId,
   Validator,
   ValidatorDefinition,
+  ValidationInvocationOptions,
   WorkflowDefinition,
   RepeatBodyContext,
   RepeatBuildOptions,
@@ -16,7 +17,6 @@ import {
   createWorkflowInputRef,
   sessionCheckpointNodeId,
   serializeBinding,
-  type InputBinding,
   type MechanicalTaskRef,
   type TaskInvocation,
   type ValidationInvocation,
@@ -129,7 +129,7 @@ export function buildWorkflow<Input, Output>(
 
   const validate = <Candidate>(
     validator: Validator<Candidate>,
-    options: { readonly input: InputBinding<Candidate> },
+    options: ValidationInvocationOptions<Candidate>,
     targetNodes: PlanNode[] = nodes,
     policy: ValidationGatePolicy = "fail",
     nodePrefix = "validation",
@@ -156,7 +156,7 @@ export function buildWorkflow<Input, Output>(
       source = {
         type: "task",
         taskId: validator.id,
-        workspace: "exclusive",
+        workspace: options.workspace ?? "exclusive",
       };
     }
 
@@ -243,7 +243,7 @@ export function buildWorkflow<Input, Output>(
     }
     const bodyValidate = <Candidate>(
       validator: Validator<Candidate>,
-      validationOptions: { readonly input: InputBinding<Candidate> },
+      validationOptions: ValidationInvocationOptions<Candidate>,
       policy: ValidationGatePolicy = "fail",
     ): ValidationInvocation<Candidate> =>
       validate(

@@ -17,7 +17,6 @@ export const localGitStatusTask = defineShellTask({
   id: "fixture.local-git-status",
   input: inputSchema,
   executable: "git",
-  output: gitStatusOutputSchema,
   argv: () => ["status", "--porcelain=v1"],
 });
 

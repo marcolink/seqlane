@@ -366,6 +366,7 @@ export async function executeTaskNode(
               : resource.key,
           signal: abortSignal,
           runAgent,
+          onUncertainActivity: reportUncertainActivity,
         });
       } catch (cause) {
         executorFailure = { cause };

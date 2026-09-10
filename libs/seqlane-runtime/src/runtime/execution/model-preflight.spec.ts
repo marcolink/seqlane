@@ -249,7 +249,7 @@ describe("executor model preflight", () => {
     );
   });
 
-  it("preflights task-backed validation sessions and records their default", async () => {
+  it("does not preflight a sessionless task-backed validation source", async () => {
     const defaultSelection = {
       model: model("anthropic/claude-sonnet-4"),
       reasoning: "high" as const,
@@ -277,9 +277,7 @@ describe("executor model preflight", () => {
 
     await preflightCompiledWorkflowModels(compiled);
 
-    expect(compiled.context.effectiveModelSelections).toEqual(
-      new Map([["check", defaultSelection]]),
-    );
+    expect(compiled.context.effectiveModelSelections).toEqual(new Map());
   });
 
   it("validates repeat-body models without recording static invocation keys", async () => {

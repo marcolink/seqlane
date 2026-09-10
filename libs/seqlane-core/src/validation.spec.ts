@@ -100,7 +100,7 @@ describe("semantic validation core contracts", () => {
       input: schema<{ readonly title: string }>(),
       output: schema<{ readonly title: string }>(),
       build: ({ input, validate }) => ({
-        title: validate(evaluator, { input }).output.title,
+        title: validate(evaluator, { input, workspace: "shared" }).output.title,
       }),
     });
 
@@ -112,6 +112,7 @@ describe("semantic validation core contracts", () => {
       source: {
         type: "task",
         taskId: "title-evaluator",
+        workspace: "shared",
       },
     });
     expect(JSON.stringify(built.plan)).not.toContain("Evaluate title");

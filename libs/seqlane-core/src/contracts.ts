@@ -124,6 +124,11 @@ export interface TaskInvocationOptions<Input, Output> {
   readonly workspace?: WorkspacePolicy;
 }
 
+export interface ValidationInvocationOptions<Input> {
+  readonly input: InputBinding<Input>;
+  readonly workspace?: WorkspacePolicy;
+}
+
 export interface ValidationIssue {
   readonly code: string;
   readonly message: string;
@@ -184,7 +189,7 @@ export interface WorkflowBuildContext<Input = unknown> {
   };
   readonly validate: <Candidate>(
     validator: Validator<Candidate>,
-    options: { readonly input: InputBinding<Candidate> },
+    options: ValidationInvocationOptions<Candidate>,
   ) => ValidationInvocation<Candidate>;
   readonly repeat: <State>(
     options: RepeatBuildOptions<State>,
@@ -263,6 +268,7 @@ export interface FlowBuilder<Input, Output, Handles> {
     name: LiteralUnusedFlowName<Name, Handles>,
     validator: Validator<Candidate>,
     binding: FlowBinding<Input, Handles, Candidate>,
+    options?: Omit<ValidationInvocationOptions<Candidate>, "input">,
   ): FlowBuilder<
     Input,
     Output,
@@ -301,7 +307,7 @@ export interface RepeatBodyContext<State> {
   };
   readonly validate: <Candidate>(
     validator: Validator<Candidate>,
-    options: { readonly input: InputBinding<Candidate> },
+    options: ValidationInvocationOptions<Candidate>,
   ) => ValidationInvocation<Candidate>;
 }
 

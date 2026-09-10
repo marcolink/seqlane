@@ -83,14 +83,6 @@ function modelPreflightNodes(
         dynamic,
       };
     }
-    if (node.type === "validation.check" && node.source.type === "task") {
-      return {
-        node,
-        nodeId: node.nodeId,
-        taskId: node.source.taskId,
-        dynamic,
-      };
-    }
     return undefined;
   };
 

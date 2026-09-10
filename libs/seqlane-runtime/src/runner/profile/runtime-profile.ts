@@ -418,7 +418,10 @@ export async function resolveRuntimeProfile(
       return {
         execute: (request: ExecutorRequest) =>
           executeAgentAdapterRequest(
-            oneShotBinding.createAdapter(),
+            redactRuntimeAdapter(
+              oneShotBinding.createAdapter(),
+              selected.configuration,
+            ),
             taskDefinitions,
             undefined,
             request,
