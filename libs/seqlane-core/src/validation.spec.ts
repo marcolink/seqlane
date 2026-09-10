@@ -8,7 +8,6 @@ import {
   createFlow,
   defineAgentTask,
   defineValidator,
-  defineWorkflow,
   validatedBy,
   ValidationFailedError,
   type ValidationResult,
@@ -46,15 +45,14 @@ describe("semantic validation core contracts", () => {
               issues: [{ code: "empty", message: "Title must not be empty" }],
             },
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "validation-plan",
       input: schema<{ readonly title: string }>(),
       output: schema<{ readonly title: string }>(),
-      build: ({ input, validate }) => {
-        const invocation = validate(validator, { input });
-        return { title: invocation.output.title };
-      },
-    });
+    })
+      .validate("title", validator, ({ input }) => input)
+      .output(({ tasks }) => ({ title: tasks.title.output.title }))
+      .define();
 
     const built = buildWorkflow(workflow);
 
@@ -95,14 +93,16 @@ describe("semantic validation core contracts", () => {
       output: schema<ValidationResult>(),
       goal: () => "Evaluate title",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "evaluator-plan",
       input: schema<{ readonly title: string }>(),
       output: schema<{ readonly title: string }>(),
-      build: ({ input, validate }) => ({
-        title: validate(evaluator, { input, workspace: "shared" }).output.title,
-      }),
-    });
+    })
+      .validate("title", evaluator, ({ input }) => input, {
+        workspace: "shared",
+      })
+      .output(({ tasks }) => ({ title: tasks.title.output.title }))
+      .define();
 
     const built = buildWorkflow(workflow);
 
@@ -142,20 +142,19 @@ describe("semantic validation core contracts", () => {
       output: schema<{ readonly published: boolean }>(),
       goal: ({ title }) => title,
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "validated-task-output",
       input: schema<{ readonly title: string }>(),
       output: schema<{ readonly published: boolean }>(),
-      build: ({ input, run }) => {
-        const draft = run(draftTask, {
-          input,
-          validateOutput: titleValidator,
-        });
-        return run(publishTask, {
-          input: { title: draft.output.title },
-        }).output;
-      },
-    });
+    })
+      .task("draft", draftTask, ({ input }) => input, {
+        validateOutput: titleValidator,
+      })
+      .task("publish", publishTask, ({ tasks }) => ({
+        title: tasks.draft.output.title,
+      }))
+      .output(({ tasks }) => tasks.publish.output)
+      .define();
 
     expect(buildWorkflow(workflow).plan).toEqual({
       workflow: { id: "validated-task-output" },
@@ -309,15 +308,15 @@ describe("semantic validation core contracts", () => {
       input: schema<string>(),
       validate: () => ({ success: true }),
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "duplicate-validator",
       input: schema<string>(),
       output: schema<string>(),
-      build: ({ input, validate }) => {
-        validate(first, { input });
-        return validate(second, { input }).output;
-      },
-    });
+    })
+      .validate("first", first, ({ input }) => input)
+      .validate("second", second, ({ input }) => input)
+      .output(({ tasks }) => tasks.second.output)
+      .define();
 
     expect(() => buildWorkflow(workflow)).toThrow(
       'Duplicate validator definition "duplicate"',

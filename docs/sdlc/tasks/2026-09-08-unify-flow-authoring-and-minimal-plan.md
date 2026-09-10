@@ -1,11 +1,11 @@
 ---
 id: task.unify-flow-authoring-and-minimal-plan
 title: Unify Flow Authoring and the Minimal Plan
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-10
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -87,7 +87,20 @@ Then run:
 
 ## Outcome
 
-Not started.
+Delivered in [PR #93](https://github.com/marcolink/seqlane/pull/93) from
+`feat/unify-flow-authoring-minimal-plan`.
+
+`createFlow(...).task(...).output(...).define()` is now the sole public
+workflow authoring path. The legacy `defineWorkflow({ build })` API and public
+Plan-construction helpers were removed, and authored workflow definitions,
+examples, and direct tests now use the Flow builder.
+
+Core now validates generated Plans, bindings, and definition registries with
+canonical Zod schemas. Repeat limits are constrained to finite integers from 1
+through 1,000, and a run rejects its 1,001st repeat-body execution with a typed
+error. Focused core and repeat tests pass. The full runtime suite retains an
+unchanged baseline failure in the non-cooperative MCP dispatcher-capacity test:
+it rejects with `MCP workflow invocation deadline exceeded`.
 
 ## Traceability
 

@@ -7,6 +7,7 @@ import type {
 } from "@seqlane/core";
 import type { ObservabilityContext } from "@mastra/core/observability";
 import { LoopLimitExceededError } from "@seqlane/core";
+import { RunRepeatLimitExceededError } from "@seqlane/core";
 import { resolveBinding } from "../plan/binding-resolution.js";
 import {
   invocationIdForNode,
@@ -110,6 +111,13 @@ export async function executeRepeatNode(
       iteration += 1
     ) {
       if (abortSignal.aborted) throw new Error("Repeat execution cancelled");
+      context.repeatBodyExecutions += 1;
+      if (context.repeatBodyExecutions > 1_000) {
+        throw new RunRepeatLimitExceededError(
+          1_000,
+          context.repeatBodyExecutions,
+        );
+      }
       const bodyResults = new Map<string, unknown>([
         [node.body.inputNodeId, currentState],
       ]);

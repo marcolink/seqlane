@@ -113,3 +113,16 @@ export class LoopLimitExceededError extends SeqlaneError {
     );
   }
 }
+
+/** Raised when all repeat bodies in one run exceed the global safety budget. */
+export class RunRepeatLimitExceededError extends SeqlaneError {
+  constructor(
+    readonly maximumExecutions = 1_000,
+    readonly attemptedExecution = maximumExecutions + 1,
+  ) {
+    super(
+      "RuntimeError",
+      `Run exceeded the repeat-body execution budget of ${maximumExecutions}`,
+    );
+  }
+}

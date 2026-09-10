@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkflow, defineTask, defineWorkflow } from "@seqlane/core";
+import { buildWorkflow, createFlow, defineTask } from "@seqlane/core";
 import { z } from "zod";
 import { getOpenCodeTask } from "./task.js";
 
@@ -11,12 +11,14 @@ describe("private OpenCode task binding", () => {
       output: z.object({ files: z.array(z.string()) }),
       execute: async () => ({ files: [] }),
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "typed-agent",
       input: z.object({ dependency: z.string() }),
       output: z.object({ files: z.array(z.string()) }),
-      build: ({ input, run }) => run(investigate, { input }).output,
-    });
+    })
+      .task("investigate", investigate, ({ input }) => input)
+      .output(({ tasks }) => tasks.investigate.output)
+      .define();
 
     const built = buildWorkflow(workflow);
     const task = getOpenCodeTask(built.taskDefinitions, "investigate");
@@ -33,16 +35,18 @@ describe("private OpenCode task binding", () => {
       output: z.object({ value: z.string() }),
       execute: async ({ input }) => input,
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "repeat-agent",
       input: z.object({ value: z.string() }),
       output: z.object({ first: z.string(), second: z.string() }),
-      build: ({ input, run }) => {
-        const first = run(task, { input });
-        const second = run(task, { input });
-        return { first: first.output.value, second: second.output.value };
-      },
-    });
+    })
+      .task("first", task, ({ input }) => input)
+      .task("second", task, ({ input }) => input)
+      .output(({ tasks }) => ({
+        first: tasks.first.output.value,
+        second: tasks.second.output.value,
+      }))
+      .define();
 
     const built = buildWorkflow(workflow);
     expect(built.plan.nodes).toHaveLength(2);

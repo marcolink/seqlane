@@ -5,6 +5,7 @@ export {
   createValueRef,
   createWorkflowInputRef,
   sessionCheckpointNodeId,
+  valueBindingSchema,
   valueRefSchema,
 } from "./bindings.js";
 export type {

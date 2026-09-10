@@ -175,6 +175,35 @@ export type TaskDefinitionRegistry = ReadonlyMap<
   TaskDefinition<unknown, unknown>
 >;
 
+/** Canonical runtime schemas for definition registries crossing boundaries. */
+export const taskDefinitionRegistrySchema = z
+  .map(z.string().min(1), taskDefinitionSchema)
+  .pipe(
+    z.custom<Map<string, z.output<typeof taskDefinitionSchema>>>(
+      (value): value is Map<string, z.output<typeof taskDefinitionSchema>> =>
+        value instanceof Map &&
+        [...value.entries()].every(([id, definition]) => id === definition.id),
+      "Registry keys must match task definition IDs",
+    ),
+  );
+export const validatorDefinitionSchema = z.looseObject({
+  id: z.string().min(1),
+  input: z.custom<z.ZodType>((value) => value instanceof z.ZodType),
+  validate: z.custom((value) => typeof value === "function"),
+});
+export const validatorDefinitionRegistrySchema = z
+  .map(z.string().min(1), validatorDefinitionSchema)
+  .pipe(
+    z.custom<Map<string, z.output<typeof validatorDefinitionSchema>>>(
+      (
+        value,
+      ): value is Map<string, z.output<typeof validatorDefinitionSchema>> =>
+        value instanceof Map &&
+        [...value.entries()].every(([id, definition]) => id === definition.id),
+      "Registry keys must match validator definition IDs",
+    ),
+  );
+
 export interface WorkflowBuildContext<Input = unknown> {
   readonly input: ValueRef<Input>;
   readonly run: {
@@ -204,7 +233,6 @@ export interface WorkflowDefinition<Input = unknown, Output = unknown> {
   readonly id: string;
   readonly input: SeqlaneSchema<Input>;
   readonly output: SeqlaneSchema<Output>;
-  readonly build: WorkflowBuilder<Input, Output>;
 }
 
 export type FlowHandle<

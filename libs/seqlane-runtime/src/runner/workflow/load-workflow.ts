@@ -36,9 +36,6 @@ const workflowDefinitionShapeSchema = z.looseObject({
   id: z.string(),
   input: seqlaneSchemaShapeSchema,
   output: seqlaneSchemaShapeSchema,
-  build: z.custom<WorkflowDefinition["build"]>(
-    (value) => typeof value === "function",
-  ),
 });
 
 const workflowDefinitionSchema = z.custom<WorkflowDefinition>(
@@ -108,11 +105,6 @@ export async function loadWorkflow(
           id: reference.id,
           input: passthroughSchema,
           output: passthroughSchema,
-          build: () => {
-            throw new Error(
-              "Legacy Plans cannot be rebuilt as workflow definitions",
-            );
-          },
         },
         plan,
         taskDefinitions: new Map(),
@@ -132,11 +124,6 @@ export async function loadWorkflow(
           id: reference.id,
           input: passthroughSchema,
           output: passthroughSchema,
-          build: () => {
-            throw new Error(
-              "Legacy Plans cannot be rebuilt as workflow definitions",
-            );
-          },
         },
         plan,
         taskDefinitions: new Map(),

@@ -16,7 +16,6 @@ const workflow: WorkflowDefinition<SeqlaneWorkflowInput, unknown> = {
   id: "runner-stop-regression",
   input: schema<SeqlaneWorkflowInput>(),
   output: schema<unknown>(),
-  build: () => ({}),
 };
 
 describe("Seqlane agent runner", () => {

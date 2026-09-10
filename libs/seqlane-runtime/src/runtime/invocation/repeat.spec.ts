@@ -16,6 +16,7 @@ import { z } from "zod";
 import {
   ExecutorError,
   LoopLimitExceededError,
+  RunRepeatLimitExceededError,
   runCompiledWorkflow,
   startCompiledWorkflow,
 } from "../../index.js";
@@ -608,6 +609,23 @@ describe("conditioned repeat execution", () => {
       (outcome as Extract<typeof outcome, { status: "failed" }>).error,
     ).toBeInstanceOf(LoopLimitExceededError);
     expect(executions).toBe(2);
+  });
+
+  it("rejects the 1,001st repeat-body execution across one run", async () => {
+    const compiled = compile(repeatPlan(1), async () => ({ passed: true }));
+    const repeat = compiled.plan.nodes[0];
+    if (repeat?.type !== "repeat") throw new Error("repeat fixture missing");
+    compiled.context.repeatBodyExecutions = 1_000;
+
+    await expect(
+      executeRepeatNode(compiled.context, repeat, new AbortController().signal),
+    ).rejects.toMatchObject({
+      maximumExecutions: 1_000,
+      attemptedExecution: 1_001,
+    });
+    await expect(
+      executeRepeatNode(compiled.context, repeat, new AbortController().signal),
+    ).rejects.toBeInstanceOf(RunRepeatLimitExceededError);
   });
 
   it("propagates body task failures without starting another iteration", async () => {

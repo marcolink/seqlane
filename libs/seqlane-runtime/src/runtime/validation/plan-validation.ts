@@ -556,12 +556,13 @@ function validateRepeat(
   if (
     !Number.isFinite(node.maximumIterations) ||
     !Number.isInteger(node.maximumIterations) ||
-    node.maximumIterations <= 0
+    node.maximumIterations < 1 ||
+    node.maximumIterations > 1_000
   ) {
     addIssue(
       issues,
       "invalid-repeat-limit",
-      `Repeat "${node.nodeId}" must have a positive integer maximumIterations`,
+      `Repeat "${node.nodeId}" must have a positive integer maximumIterations from 1 through 1000`,
       node.nodeId,
     );
   }

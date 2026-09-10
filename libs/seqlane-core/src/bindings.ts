@@ -8,7 +8,7 @@ import { z } from "zod";
 
 export const valueRefSchema = z.looseObject({
   type: z.literal("ref"),
-  nodeId: z.string(),
+  nodeId: z.string().min(1),
   path: z.array(z.string()),
 });
 
@@ -87,6 +87,18 @@ export interface ValidationInvocation<Output = unknown> {
   /** The structured verdict and evidence. */
   readonly result: ValueRef<ValidationResult>;
 }
+
+export const valueBindingSchema = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    valueRefSchema,
+    z.array(valueBindingSchema),
+    z.record(z.string(), valueBindingSchema),
+  ]),
+) as z.ZodType<ValueBinding>;
 
 export type ValueBinding =
   | JsonPrimitive

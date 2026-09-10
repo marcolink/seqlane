@@ -1,6 +1,5 @@
 import type { Plan, TaskSchemaRegistry } from "@seqlane/core";
 import {
-  buildPlan,
   buildWorkflow,
   createFlow,
   defineAgentTask,
@@ -152,5 +151,5 @@ export const renovateValidatorDefinitions =
   builtRenovateWorkflow.validatorDefinitions;
 
 export function createRenovatePlan(): Plan {
-  return buildPlan(renovateWorkflow);
+  return builtRenovateWorkflow.plan;
 }
