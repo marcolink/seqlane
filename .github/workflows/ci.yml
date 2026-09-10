@@ -29,23 +29,19 @@ jobs:
 
   build:
     name: Build
+    needs: actionlint
     uses: ./.github/workflows/build.yml
+    with:
+      bundle_relevant: ${{ needs.actionlint.outputs.bundle_relevant }}
 
   actionlint:
     name: Actionlint
     uses: ./.github/workflows/actionlint.yml
 
-  bundle-drift:
-    name: Action bundle drift
-    needs: actionlint
-    uses: ./.github/workflows/bundle-drift.yml
-    with:
-      bundle_relevant: ${{ needs.actionlint.outputs.bundle_relevant }}
-
   merge-gate:
     name: Merge gate
     if: ${{ always() }}
-    needs: [lint, unit-tests, build, actionlint, bundle-drift]
+    needs: [lint, unit-tests, build, actionlint]
     runs-on: ubuntu-latest
     steps:
       - name: Require all CI gates to pass
@@ -54,7 +50,6 @@ jobs:
             needs.lint.result != 'success' ||
             needs.unit-tests.result != 'success' ||
             needs.build.result != 'success' ||
-            needs.actionlint.result != 'success' ||
-            needs.bundle-drift.result != 'success'
+            needs.actionlint.result != 'success'
           }}
         run: exit 1

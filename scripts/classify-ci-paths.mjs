@@ -13,7 +13,7 @@ const rootRelevantPaths = new Set([
 
 const bundleWorkflowPaths = new Set([
   ".github/workflows/actionlint.yml",
-  ".github/workflows/bundle-drift.yml",
+  ".github/workflows/build.yml",
   ".github/workflows/ci.yml",
 ]);
 

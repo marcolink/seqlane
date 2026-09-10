@@ -61,7 +61,7 @@ test("only relevant workflow changes trigger expensive checks", () => {
     bundle_relevant: "false",
     ripwire_relevant: "false",
   });
-  assert.deepEqual(classifyPaths([".github/workflows/bundle-drift.yml"]), {
+  assert.deepEqual(classifyPaths([".github/workflows/build.yml"]), {
     bundle_relevant: "true",
     ripwire_relevant: "false",
   });
