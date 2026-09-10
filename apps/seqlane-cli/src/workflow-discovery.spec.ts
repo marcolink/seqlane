@@ -207,7 +207,8 @@ describe("workflow discovery", () => {
       writeFileSync(
         modulePath,
         `
-          const schema = { parse: (value) => value };
+          import { z } from "zod";
+          const schema = z.unknown();
           const task = { id: "unsafe-task", input: schema, output: schema, execute: async () => ({}) };
           export default { id: "unsafe-plan", input: schema, output: schema, build: ({ input, run }) => run(task, { input }).output };
         `,
@@ -268,7 +269,8 @@ describe("workflow discovery", () => {
       writeFileSync(
         modulePath,
         `
-          const schema = { parse: (value) => value };
+          import { z } from "zod";
+          const schema = z.unknown();
           const task = { id: "never-executed", input: schema, output: schema, execute: async () => { throw new Error("task executed"); } };
           export default { id: "plan-only", input: schema, output: schema, build: ({ input, run }) => run(task, { input }).output };
         `,
@@ -279,8 +281,9 @@ describe("workflow discovery", () => {
 
       expect(result.plan.workflow.id).toBe("plan-only");
       expect(result.plan.nodes).toMatchObject([
-        { taskId: "never-executed", execution: "local" },
+        { taskId: "never-executed" },
       ]);
+      expect(result.plan.nodes[0]).not.toHaveProperty("execution");
       expect(renderPlanHuman(result)).toContain("never-executed");
       expect(planCommandResultSchema.parse(result)).toEqual(result);
     } finally {

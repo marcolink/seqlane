@@ -1,6 +1,7 @@
 // @test-scope ../../../examples/all-features.ts
 // @test-scope ../../../libs/seqlane-runtime/src/runtime/mastra/operational-host.ts
 
+import type { AgentTaskRequest } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
 import { createOperationalWorkflow } from "@seqlane/runtime/operational-host";
 import { describe, expect, it } from "vitest";
@@ -68,13 +69,34 @@ describe("all-features workflow example", () => {
     });
   });
 
-  it("keeps the example tasks short and observable", () => {
+  it("keeps the example tasks short and observable", async () => {
     const definitions = buildWorkflow(allFeaturesWorkflow).taskDefinitions;
     const context = definitions.get("all-features.context");
 
+    expect(context).toBeDefined();
+    if (context === undefined) return;
+
+    const requests: AgentTaskRequest[] = [];
+    await context.execute({
+      input: { topic: "workflow design", focus: "authoring" },
+      signal: new AbortController().signal,
+      context: {
+        exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+        runAgent: async (request) => {
+          requests.push(request);
+          return {};
+        },
+      },
+    });
+
+    expect(requests).toEqual([
+      {
+        goal: "Extract two keywords and a short focus hint for workflow design (authoring).",
+        instructions: ["Return only two keywords and a short focus hint."],
+        references: ["examples/minimal-workflow.ts"],
+      },
+    ]);
     expect(context).toMatchObject({
-      instructions: ["Return only two keywords and a short focus hint."],
-      references: ["examples/minimal-workflow.ts"],
       observability: {
         studio: {
           input: { includePaths: ["/topic", "/focus"] },

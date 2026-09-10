@@ -390,15 +390,15 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(gitEvidence).toMatchObject({
-      execution: "local",
       workspace: "shared",
       dependsOn: [reviewContext?.nodeId],
     });
+    expect(gitEvidence).not.toHaveProperty("execution");
     expect(reviewContext).toMatchObject({
-      execution: "local",
       workspace: "shared",
       dependsOn: [],
     });
+    expect(reviewContext).not.toHaveProperty("execution");
     expect(applyDispositions?.dependsOn).toEqual(
       expect.arrayContaining([
         gitEvidence?.nodeId,
