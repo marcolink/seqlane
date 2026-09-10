@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ReviewPublication } from "./contracts.js";
 import {
   reviewMetricEventSchema,
+  reviewRunSkillUsageSchema,
   reviewRunMetricsSchema,
   type ReviewMetricEvent,
   type ReviewRunMetrics,
@@ -144,6 +145,7 @@ export const ledgerEntrySchema = z
                 })
                 .optional(),
               cost: z.number().nonnegative().optional(),
+              skills: reviewRunSkillUsageSchema.optional(),
             }),
           )
           .max(40),

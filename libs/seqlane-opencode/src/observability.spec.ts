@@ -323,6 +323,62 @@ describe("OpenCode Mastra observability projection", () => {
     expect(JSON.stringify(factory.spans)).not.toContain("secret-");
   });
 
+  it("uses the individual skill name as the tool span name", () => {
+    const factory = spanFactory();
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: factory.root } },
+      "invocation-1",
+    );
+
+    projector.observe(
+      tool({
+        tool: "skill",
+        input: { name: "web-perf" },
+        metadata: { name: "web-perf", dir: "/repo/.agents/skills/web-perf" },
+        status: "completed",
+      }),
+    );
+
+    const skillSpan = factory.spans.find(
+      (span) => span.type === SpanType.TOOL_CALL,
+    );
+    expect(skillSpan?.name).toBe("web-perf");
+    expect(skillSpan?.attributes).toEqual({
+      toolType: "skill",
+      toolCallId: "call-1",
+    });
+    expect(skillSpan?.updates).toContainEqual({
+      attributes: { toolType: "skill", success: true },
+    });
+    expect(JSON.stringify(factory.spans)).not.toContain(".agents/skills");
+    projector.finish();
+  });
+
+  it("uses the constant tool name for oversized skill identities", () => {
+    const factory = spanFactory();
+    const diagnostics: string[] = [];
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: factory.root } },
+      "invocation-1",
+      (message) => diagnostics.push(message),
+    );
+
+    projector.observe(
+      tool({
+        tool: "skill",
+        input: { name: "x".repeat(257) },
+        status: "completed",
+      }),
+    );
+
+    const skillSpan = factory.spans.find(
+      (span) => span.type === SpanType.TOOL_CALL,
+    );
+    expect(skillSpan?.name).toBe("OpenCode tool call");
+    expect(diagnostics).toEqual([]);
+    projector.finish();
+  });
+
   it("omits oversized invocation IDs instead of persisting a shared-prefix truncation", () => {
     const factory = spanFactory();
     const sharedPrefix = "x".repeat(128);

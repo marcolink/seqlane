@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reviewRunSkillUsageSchema } from "../metrics.js";
 
 // Review rubric: https://github.com/addyosmani/agent-skills/blob/main/skills/code-review-and-quality/SKILL.md
 export const reviewAxisSchema = z.enum([
@@ -199,6 +200,7 @@ export const reviewRunTaskMetricsSchema = z
     provider: z.string().min(1).max(256).optional(),
     tokens: reviewRunTokensSchema.optional(),
     cost: z.number().nonnegative().optional(),
+    skills: reviewRunSkillUsageSchema.optional(),
   })
   .strict();
 

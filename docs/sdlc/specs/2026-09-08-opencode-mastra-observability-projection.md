@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-10
 upstream:
   - adr.mastra-native-agent-observability
   - spec.mastra-native-agent-observability
@@ -184,9 +184,14 @@ Tool status maps to span lifecycle as follows:
 | attempt ends while open | End as incomplete, failed, or cancelled according to the terminal outcome |
 
 OpenCode `skill` parts remain `TOOL_CALL` activity. The adapter uses a bounded
-`toolType: "skill"` attribute when the typed Mastra contract supports it. A
-skill load MUST NOT become a `SKILL_RESOLUTION` span. That category is reserved
-for a separately observed dynamic skills-resolver lifecycle.
+`toolType: "skill"` attribute when the typed Mastra contract supports it. When
+the tool input or metadata exposes a non-empty skill `name`, the adapter uses
+that validated identity as the `TOOL_CALL` span name. It falls back to the
+constant tool name when the identity is missing, oversized, invalid, or beyond
+the invocation-local name budget. The skill identity MUST NOT be duplicated in
+an untyped attribute or metadata. A skill load MUST NOT become a
+`SKILL_RESOLUTION` span. That category is reserved for a separately observed
+dynamic skills-resolver lifecycle.
 
 For an ordinary tool part, `toolType` MUST be `"tool"`; it classifies the
 operation and is not a place for the executor or protocol identity. The
