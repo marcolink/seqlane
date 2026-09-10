@@ -2,6 +2,7 @@ import { Mastra } from "@mastra/core/mastra";
 import { InMemoryStore, type MastraCompositeStore } from "@mastra/core/storage";
 import type { AnyWorkflow } from "@mastra/core/workflows";
 import {
+  MastraPlatformExporter,
   MastraStorageExporter,
   Observability,
   SensitiveDataFilter,
@@ -50,7 +51,7 @@ export function createMastraComposition(
     configs: {
       default: {
         serviceName: "seqlane-runtime",
-        exporters: [new MastraStorageExporter()],
+        exporters: [new MastraStorageExporter(), new MastraPlatformExporter()],
         spanOutputProcessors: [new SensitiveDataFilter()],
         requestContextKeys: [WORK_ID_CONTEXT_KEY, RUN_ID_CONTEXT_KEY],
       },

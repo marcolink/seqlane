@@ -1,7 +1,10 @@
 // @test-scope ./mastra-composition.ts
 
 import { SpanType } from "@mastra/core/observability";
-import { MastraStorageExporter } from "@mastra/observability";
+import {
+  MastraPlatformExporter,
+  MastraStorageExporter,
+} from "@mastra/observability";
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
 import { createAcpAdapter, parseAcpLaunchConfiguration } from "@seqlane/acp";
 import { createOpenCodeAdapterForRun } from "@seqlane/opencode/testing";
@@ -41,8 +44,9 @@ describe("Mastra composition observability", () => {
       const instance = composition.observability.getDefaultInstance();
       expect(instance).toBeDefined();
       const exporters = instance?.getExporters() ?? [];
-      expect(exporters).toHaveLength(1);
+      expect(exporters).toHaveLength(2);
       expect(exporters[0]).toBeInstanceOf(MastraStorageExporter);
+      expect(exporters[1]).toBeInstanceOf(MastraPlatformExporter);
 
       const openCodeRoot = instance?.startSpan({
         type: SpanType.WORKFLOW_STEP,

@@ -193,6 +193,21 @@ describe("pull-request code review example workflow", () => {
     expect(workflow).toContain(
       '{"adapter":"opencode","url":"${{ steps.opencode.outputs.url }}"}',
     );
+    const mastraSecretMappings =
+      workflow.match(
+        /^\s+MASTRA_[A-Z_]+: \$\{\{ secrets\.MASTRA_[A-Z_]+ \}\}$/gm,
+      ) ?? [];
+    expect(mastraSecretMappings).toHaveLength(3);
+    expect(mastraSecretMappings).toEqual(
+      expect.arrayContaining([
+        "          MASTRA_PLATFORM_ACCESS_TOKEN: ${{ secrets.MASTRA_PLATFORM_ACCESS_TOKEN }}",
+        "          MASTRA_PLATFORM_OBSERVABILITY_ENDPOINT: ${{ secrets.MASTRA_PLATFORM_OBSERVABILITY_ENDPOINT }}",
+        "          MASTRA_PROJECT_ID: ${{ secrets.MASTRA_PROJECT_ID }}",
+      ]),
+    );
+    expect(workflow).toContain(
+      "SEQLANE_REDACT_VALUES: |-\n            ${{ secrets.OPENAI_API_KEY }}\n            ${{ steps.ripwire.outputs.mcp-token }}\n            ${{ secrets.MASTRA_PLATFORM_ACCESS_TOKEN }}",
+    );
     expect(workflow).not.toContain(
       './apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts"',
     );

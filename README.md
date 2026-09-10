@@ -75,6 +75,15 @@ variable. Set one validated adapter configuration before you run the CLI:
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
 ```
 
+To export runtime telemetry to Mastra Platform, also set the platform access
+token, project ID, and observability endpoint:
+
+```sh
+export MASTRA_PLATFORM_ACCESS_TOKEN='...'
+export MASTRA_PROJECT_ID='...'
+export MASTRA_PLATFORM_OBSERVABILITY_ENDPOINT='https://observability.mastra.ai'
+```
+
 The `--runtime` value remains an opaque profile identifier. The CLI does not
 infer the adapter from the value. An existing operational server must have its
 own adapter configuration.
