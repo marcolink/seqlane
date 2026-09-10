@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
+  actionBundleBuildCommands,
   actionBundleInputsChanged,
-  actionBundlePostBuildArgs,
+  bundleVerificationIssues,
+  discoverActionBundles,
+} from "./action-bundle-verifier.mjs";
+
+import {
   assertCleanWorktree,
   cacheDirectories,
   cleanGitEnvironment,
@@ -132,14 +140,100 @@ test("detects Action entrypoint and compiler configuration bundle inputs", () =>
   assert.equal(actionBundleInputsChanged(["README.md"]), false);
 });
 
-test("builds the explicit Action post-entrypoint command", () => {
-  assert.deepEqual(actionBundlePostBuildArgs(), [
-    "exec",
-    "nx",
-    "run",
-    "action-code-review:build-post",
-    "--output-style=static",
-  ]);
+test("discovers Action build targets and bundle outputs from project metadata", () => {
+  const root = mkdtempSync(join(tmpdir(), "seqlane-bundle-test-"));
+  try {
+    mkdirSync(join(root, "actions/example"), { recursive: true });
+    writeFileSync(
+      join(root, "actions/example/project.json"),
+      JSON.stringify({
+        name: "action-example",
+        targets: {
+          build: {
+            options: {
+              outputPath: "actions/example/dist",
+              outputFileName: "main.js",
+            },
+            outputs: ["{projectRoot}/dist"],
+          },
+          "build-post": {
+            options: {
+              outputPath: "actions/example/dist",
+              outputFileName: "post.js",
+            },
+            outputs: ["{projectRoot}/dist"],
+          },
+        },
+      }),
+    );
+
+    assert.deepEqual(discoverActionBundles(root), [
+      {
+        name: "action-example",
+        projectRoot: "actions/example",
+        targets: {
+          build: {
+            outputPaths: ["actions/example/dist/main.js"],
+          },
+          "build-post": {
+            outputPaths: ["actions/example/dist/post.js"],
+          },
+        },
+      },
+    ]);
+    assert.deepEqual(actionBundleBuildCommands(root), [
+      [
+        "exec",
+        "nx",
+        "run-many",
+        "-t",
+        "build",
+        "--projects=action-example",
+        "--output-style=static",
+      ],
+      [
+        "exec",
+        "nx",
+        "run-many",
+        "-t",
+        "build-post",
+        "--projects=action-example",
+        "--output-style=static",
+      ],
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reports missing, untracked, extra, and changed bundle files", () => {
+  assert.deepEqual(
+    bundleVerificationIssues({
+      expectedPaths: ["actions/example/dist/main.js"],
+      existingPaths: [
+        "actions/example/dist/extra.js",
+        "actions/example/dist/main.js",
+      ],
+      trackedPaths: ["actions/example/dist/main.js"],
+      changedPaths: ["actions/example/dist/main.js"],
+    }),
+    {
+      missing: [],
+      untracked: ["actions/example/dist/extra.js"],
+      extra: ["actions/example/dist/extra.js"],
+      changed: ["actions/example/dist/main.js"],
+    },
+  );
+
+  assert.deepEqual(
+    bundleVerificationIssues({
+      expectedPaths: ["actions/example/dist/main.js"],
+      existingPaths: [],
+      trackedPaths: ["actions/example/dist/main.js"],
+      changedPaths: [],
+    }).missing,
+    ["actions/example/dist/main.js"],
+  );
 });
 
 test("removes Git hook environment variables from child-check environments", () => {

@@ -5,17 +5,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { actionBundleInputsChanged } from "./action-bundle-verifier.mjs";
+
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const zeroSha = /^0+$/;
-const actionBundleRootInputs = new Set([
-  "package.json",
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "nx.json",
-  "tsconfig.json",
-  "tsconfig.base.json",
-  "tsconfig.spec.json",
-]);
+
+export { actionBundleInputsChanged };
 
 export function parsePrePushInput(input) {
   return input
@@ -79,25 +74,6 @@ export function cacheDirectories(worktreeRoot, temporaryRoot = tmpdir()) {
   };
 }
 
-export function actionBundleInputsChanged(paths) {
-  return paths.some(
-    (path) =>
-      path.startsWith("actions/") ||
-      path.startsWith("libs/") ||
-      actionBundleRootInputs.has(path),
-  );
-}
-
-export function actionBundlePostBuildArgs() {
-  return [
-    "exec",
-    "nx",
-    "run",
-    "action-code-review:build-post",
-    "--output-style=static",
-  ];
-}
-
 export function assertCleanWorktree(statusOutput) {
   if (statusOutput) {
     throw new Error(
@@ -154,6 +130,20 @@ function runPnpm(args, env) {
   return result.status === 0;
 }
 
+function runBundleVerifier(args, env) {
+  console.log(`\n> node scripts/action-bundle-verifier.mjs ${args.join(" ")}`);
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/action-bundle-verifier.mjs", ...args],
+    {
+      cwd: repositoryRoot,
+      env,
+      stdio: "inherit",
+    },
+  );
+  return !result.error && result.status === 0;
+}
+
 function readHookInput() {
   if (process.stdin.isTTY) return Promise.resolve("");
 
@@ -169,13 +159,6 @@ function readHookInput() {
 function changedPaths(base, revision) {
   const output = captureGit(["diff", "--name-only", `${base}..${revision}`]);
   return output ? output.split(/\r?\n/).filter(Boolean) : [];
-}
-
-function generatedActionChanges() {
-  const output = captureGit(["diff", "--name-only", "--", "actions"]);
-  return output
-    .split(/\r?\n/)
-    .filter((path) => path.startsWith("actions/") && path.includes("/dist/"));
 }
 
 async function main() {
@@ -196,12 +179,6 @@ async function main() {
     return 0;
   }
 
-  if (!existsSync(resolve(repositoryRoot, "node_modules"))) {
-    throw new Error(
-      "Dependencies are not installed in this worktree; run pnpm install --frozen-lockfile.",
-    );
-  }
-
   const base =
     process.env.SEQLANE_VERIFY_BASE ??
     captureGit(["merge-base", "origin/main", selection.revision]);
@@ -219,6 +196,13 @@ async function main() {
     process.env.NX_WORKSPACE_DATA_DIRECTORY ?? directories.workspaceData;
   env.NX_CACHE_DIRECTORY = process.env.NX_CACHE_DIRECTORY ?? directories.cache;
   const changed = changedPaths(base, selection.revision);
+
+  if (!existsSync(resolve(repositoryRoot, "node_modules"))) {
+    throw new Error(
+      "Dependencies are not installed in this worktree; run pnpm install --frozen-lockfile.",
+    );
+  }
+
   const checks = [
     [
       "formatting",
@@ -250,16 +234,10 @@ async function main() {
 
   if (actionBundleInputsChanged(changed)) {
     console.log("\n=== Action bundle drift ===");
-    if (!runPnpm(actionBundlePostBuildArgs(), env)) return 1;
-    const generated = generatedActionChanges();
-    if (generated.length > 0) {
-      console.error(
-        "Generated Action bundles changed during verification; commit the regenerated files:",
-      );
-      for (const path of generated) console.error(`- ${path}`);
-      return 1;
-    }
+    if (!runBundleVerifier(["--build"], env)) return 1;
   }
+
+  if (!runBundleVerifier(["--verify"], env)) return 1;
 
   console.log("\nPre-push verification passed.");
   return 0;
