@@ -5,13 +5,13 @@ import {
   derivePublicationMetrics,
   publicationSnapshotSchema,
   renderPublication,
-} from "./publication.js";
-import { reviewRunMetricsSchema } from "./metrics.js";
+} from "../publication.js";
+import { reviewRunMetricsSchema } from "../metrics.js";
 import {
   gitRevisionSchema,
   reviewPublicationSchema,
   type ReviewPublication,
-} from "./contracts.js";
+} from "../contracts.js";
 
 export interface PublicationLiveStateRequest {
   readonly repository: string;

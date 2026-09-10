@@ -14,14 +14,14 @@ import {
 import {
   buildPublicationWorkflow,
   type PublicationPort,
-} from "./publication-workflow.js";
+} from "./workflows/publication-workflow.js";
 import {
   guardPublicationTarget,
   type PublicationGuardInput,
 } from "./publication-guard.js";
-import { publicationResultSchema } from "./publication-workflow.js";
+import { publicationResultSchema } from "./workflows/publication-workflow.js";
 import { type LivePullRequest, type ReviewTargetInput } from "./contracts.js";
-import { trustedCodeReviewWorkflow } from "./trusted-workflow.js";
+import { trustedCodeReviewWorkflow } from "./workflows/trusted-workflow.js";
 import { BoundedEventRecorder } from "./event-recorder.js";
 import {
   createReviewProgress,
