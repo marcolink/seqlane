@@ -140,4 +140,55 @@ describe("OpenCode observation validation", () => {
       status: "completed",
     });
   });
+
+  it("retains assistant message identity for legacy tool events", () => {
+    const withAssistantMessage = parseOpenCodeEvent(
+      {
+        type: "session.next.tool.called",
+        properties: {
+          sessionID: "session-1",
+          assistantMessageID: "assistant-1",
+          callID: "call-1",
+          tool: "ripwire_grep",
+        },
+      },
+      "session-1",
+    );
+    const withoutAssistantMessage = parseOpenCodeEvent(
+      {
+        type: "session.next.tool.success",
+        properties: {
+          sessionID: "session-1",
+          callID: "call-1",
+        },
+      },
+      "session-1",
+    );
+
+    expect(withAssistantMessage?.legacyTool).toMatchObject({
+      messageID: "assistant-1",
+    });
+    expect(withoutAssistantMessage?.legacyTool?.messageID).toBeUndefined();
+  });
+
+  it("rejects oversized legacy tool identifiers", () => {
+    const parsed = parseOpenCodeEvent(
+      {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "session-1",
+          part: {
+            type: "tool",
+            callID: "c".repeat(257),
+            tool: "ripwire_grep",
+            state: { status: "running" },
+          },
+        },
+      },
+      "session-1",
+    );
+
+    expect(parsed?.validity).toBe("malformed");
+    expect(parsed?.legacyTool).toBeUndefined();
+  });
 });

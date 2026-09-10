@@ -69,8 +69,9 @@ const toolPartSchema = z.object({
 
 const legacyToolPartSchema = z.looseObject({
   type: z.literal("tool"),
-  callID: z.string().min(1),
-  tool: z.string().min(1),
+  callID: boundedId,
+  tool: boundedId,
+  messageID: boundedId.optional(),
   state: z.looseObject({
     status: z.enum(["pending", "running", "completed", "error"]),
     input: z.record(z.string(), z.unknown()).optional(),
@@ -87,6 +88,7 @@ const legacyToolPartSchema = z.looseObject({
 
 const legacyNextToolSchema = z.looseObject({
   sessionID: boundedId,
+  assistantMessageID: boundedId.optional(),
   callID: boundedId,
   tool: boundedId.optional(),
   name: boundedId.optional(),
@@ -145,6 +147,7 @@ export interface OpenCodeToolObservation {
 
 export interface OpenCodeLegacyToolObservation {
   readonly sessionID: string;
+  readonly messageID?: string;
   readonly callID: string;
   readonly tool?: string;
   readonly status:
@@ -275,6 +278,9 @@ function legacyToolObservation(
     if (sessionID === undefined) return undefined;
     return {
       sessionID,
+      ...(parsed.data.messageID === undefined
+        ? {}
+        : { messageID: parsed.data.messageID }),
       callID: parsed.data.callID,
       tool: parsed.data.tool,
       status: state.status,
@@ -312,6 +318,9 @@ function legacyToolObservation(
     parsed.data.result ?? parsed.data.structured ?? parsed.data.content;
   return {
     sessionID: parsed.data.sessionID,
+    ...(parsed.data.assistantMessageID === undefined
+      ? {}
+      : { messageID: parsed.data.assistantMessageID }),
     callID: parsed.data.callID,
     ...(parsed.data.tool === undefined && parsed.data.name === undefined
       ? {}

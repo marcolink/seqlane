@@ -16,7 +16,8 @@ OpenCode permission configuration.
 
 When the private adapter request contains a current Mastra workflow-step span,
 the adapter adds one agent span, one model span per assistant message, and one
-tool span per tool call. One validated event reducer feeds both the existing
+tool span per tool call. One validated event reducer, including legacy tool
+lifecycle events, feeds both the existing
 activity callbacks and native spans. The terminal response only reconciles
 missing model coverage. Missing tracing, conflicting parent aliases, and span
 failures do not change execution. Span metadata is bounded and excludes raw
