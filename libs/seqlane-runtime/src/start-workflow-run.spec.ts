@@ -106,6 +106,17 @@ describe("startWorkflowRun", () => {
     if (outcome.status !== "failed") return;
     expect(outcome.error.category).toBe("RuntimeError");
     expect(outcome.error.cause).toBeInstanceOf(Error);
-    expect((outcome.error.cause as Error).message).toBe("value is required");
+    expect(outcome.error.cause).toBeInstanceOf(z.ZodError);
+    expect((outcome.error.cause as z.ZodError).issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "invalid_type",
+          path: [],
+        }),
+      ]),
+    );
+    expect((outcome.error.cause as Error).message).not.toContain(
+      "event sink unavailable",
+    );
   });
 });

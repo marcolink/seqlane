@@ -188,70 +188,12 @@ describe("pull-request code review example workflow", () => {
       "ref: ${{ steps.pull-request.outputs.head_revision }}",
     );
     expect(workflow).toContain("working-directory: seqlane-source");
-    expect(workflow).toContain(
+    expect(workflow).toContain("uses: ./seqlane-source/actions/code-review");
+    expect(workflow).not.toContain(
       './apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts"',
     );
     expect(workflow).not.toContain("## Available commands");
     expect(workflow).not.toContain("- `/seqlane review`");
-    expect(workflow).toContain(
-      "<!-- seqlane-code-review-run-metrics-v1-start -->",
-    );
-    expect(workflow).toContain(
-      "<!-- seqlane-code-review-run-metrics-v1-end -->",
-    );
-    expect(workflow).toContain(
-      ".githubRunId == $current.githubRunId and .attempt == $current.attempt",
-    );
-    expect(workflow).toContain('--arg prRunCount "$PR_RUN_COUNT"');
-    expect(workflow).toContain(
-      "RUN_METRICS_LEDGER=$(jq --null-input --compact-output",
-    );
-    expect(workflow).toContain(".runs[-1].metrics.totalCost");
-    expect(workflow).not.toContain("seqlane-run-audit-payload.json");
-    expect(workflow).not.toContain("RUN_AUDIT_MARKER_PREFIX");
-    expect(workflow).not.toContain("runSummary:");
-    expect(workflow).not.toContain(".runHistory");
-  });
-
-  it("treats a missing progress comment as cleared without weakening safeguards", async () => {
-    const workflow = await readFile(
-      new URL(
-        "../../../.github/workflows/seqlane-code-review.yml",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    const markerStepStart = workflow.indexOf(
-      "      - name: Clear review in-progress marker",
-    );
-    const nextStep = workflow.indexOf("\n      - name:", markerStepStart + 1);
-    const markerStep = workflow.slice(
-      markerStepStart,
-      nextStep === -1 ? workflow.length : nextStep,
-    );
-
-    expect(markerStep).toContain(
-      '2> "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"',
-    );
-    expect(markerStep).toContain('grep -Fq "HTTP 404" \\');
-    expect(markerStep).toContain(
-      '"$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt"',
-    );
-    expect(markerStep).toMatch(
-      /elif grep -Fq "HTTP 404"[\s\S]*?exit 0\n {10}else\n {12}cat .* >&2\n {12}exit 1/,
-    );
-    expect(markerStep).toContain(
-      "The review-progress comment was already deleted; treating the marker as cleared.",
-    );
-    expect(markerStep).toContain(
-      'cat "$RUNNER_TEMP/seqlane-progress-comment-fetch-error.txt" >&2',
-    );
-    expect(markerStep).toContain("exit 1");
-    expect(markerStep).toContain(
-      'if [ "$COMMENT_AUTHOR" != "github-actions" ] && [ "$COMMENT_AUTHOR" != "github-actions[bot]" ]; then',
-    );
-    expect(markerStep).toContain('grep -Fq "$MARKER_START"; then');
-    expect(markerStep).toContain('grep -Fq "$MARKER_RUN"; then');
   });
 
   it("admits only real review requests before per-pull-request concurrency", async () => {
