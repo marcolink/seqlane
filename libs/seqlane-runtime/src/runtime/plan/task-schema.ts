@@ -3,6 +3,7 @@ import type {
   SeqlaneSchema,
   TaskId,
 } from "@seqlane/core";
+import { z } from "zod";
 
 export {
   ExecutorError,
@@ -18,11 +19,7 @@ export interface TaskSchema<Input = unknown, Output = unknown> {
 
 export type TaskSchemaRegistry = ReadonlyMap<TaskId, TaskSchema>;
 
-const unknownSchema: SeqlaneSchema = {
-  parse(value: unknown): unknown {
-    return value;
-  },
-};
+const unknownSchema: SeqlaneSchema = z.unknown();
 
 export function getTaskSchema(
   schemas: TaskSchemaRegistry | undefined,

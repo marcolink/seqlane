@@ -26,7 +26,6 @@ import { PlanCompiler } from "../compile/compile-plan.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import { resolveRuntimeProfile } from "../../runner/profile/runtime-profile.js";
 import type { RuntimeSessionUiAvailable } from "../../runner/runtime-session-ui.js";
-import { planContainsAgentWork } from "../../runner/run.js";
 import { createSeqlanePlanSnapshot } from "../../runner/workflow/plan-snapshot.js";
 import {
   preflightCompiledWorkflowSessionCapabilities,
@@ -237,11 +236,6 @@ function createOperationalInvocationHandler(
           source.eventSink?.({ workId, runId: context.runId }) ??
           noExecutionEvents;
         const profile = runtimeProfileFromContext(context.requestContext);
-        if (profile.id === "local" && planContainsAgentWork(source.plan)) {
-          throw new Error(
-            'Runtime profile "local" is not configured for agent workflows',
-          );
-        }
         const execution = await resolveRuntimeProfile(
           profile,
           source.taskDefinitions,

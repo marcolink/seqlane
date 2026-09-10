@@ -1,5 +1,10 @@
 import { gunzipSync } from "node:zlib";
-import { createFlow, defineTask, isolated } from "@seqlane/core";
+import {
+  createFlow,
+  defineAgentTask,
+  defineTask,
+  isolated,
+} from "@seqlane/core";
 import { openai } from "@seqlane/core/models";
 import { z } from "zod";
 
@@ -679,7 +684,12 @@ function parseReviewDispositionCommands(
       const downgrade = remainder?.match(
         /^(?:to\s+)?(critical|required|optional|nit)(?:\s+(?:reason\s*[:=]\s*)?(.*))?$/i,
       );
-      if (downgrade === null) continue;
+      if (
+        downgrade === undefined ||
+        downgrade === null ||
+        downgrade[1] === undefined
+      )
+        continue;
       effectiveSeverity = downgrade[1]!.toLowerCase() as z.infer<
         typeof reviewSeveritySchema
       >;
@@ -746,15 +756,20 @@ function collectReviewDispositions(
 
 const reviewContextInputSchema = z.object({
   pullRequestNumber: z.number().int().positive(),
-  reviewHistory: reviewHistoryInputSchema,
+  reviewHistory: reviewHistoryInputSchema.optional(),
 });
 
 const reviewContextTask = defineTask({
   id: "pr-code-review.review-context",
-  workspace: "shared",
   input: reviewContextInputSchema,
   output: reviewHistoryOutputSchema,
-  execute: ({ pullRequestNumber, reviewHistory }) => {
+  execute: async ({
+    input: { pullRequestNumber, reviewHistory: rawReviewHistory },
+  }) => {
+    const reviewHistory =
+      rawReviewHistory === undefined
+        ? { comments: [], truncated: false }
+        : rawReviewHistory;
     const comments = [...reviewHistory.comments].sort(
       (left, right) =>
         effectiveCommentTime(left).localeCompare(effectiveCommentTime(right)) ||
@@ -809,8 +824,8 @@ const reviewContextTask = defineTask({
     const retainedDispositions = retainedFindings.flatMap((finding) => {
       const identities = new Set([
         findingIdentityKey(finding.id),
-        ...("aliases" in finding
-          ? finding.aliases.map(findingIdentityKey)
+        ...("aliases" in finding && Array.isArray(finding.aliases)
+          ? finding.aliases.map((alias) => findingIdentityKey(alias))
           : []),
       ]);
       const latest = allLatestDispositions
@@ -895,13 +910,12 @@ const gitReviewEvidenceInputSchema = codeReviewInputSchema.extend({
 
 const gitReviewEvidenceTask = defineTask({
   id: "pr-code-review.git-evidence",
-  workspace: "shared",
   input: gitReviewEvidenceInputSchema,
   output: gitReviewEvidenceOutputSchema,
-  execute: async (
-    { baseRevision, headRevision, normalizedReviewHistory },
-    { exec },
-  ) => {
+  execute: async ({
+    input: { baseRevision, headRevision, normalizedReviewHistory },
+    context: { exec },
+  }) => {
     const previousReviewedRevision =
       normalizedReviewHistory?.previousReviewedRevision;
     const range = `${baseRevision}...${headRevision}`;
@@ -933,26 +947,26 @@ const gitReviewEvidenceTask = defineTask({
       'exit "$gitStatus"',
     ].join("; ");
     const [head, base, changed, stat, patch, check] = await Promise.all([
-      exec({ command: "git", args: ["rev-parse", "--verify", "HEAD"] }),
+      exec({ executable: "git", argv: ["rev-parse", "--verify", "HEAD"] }),
       exec({
-        command: "git",
-        args: ["cat-file", "-e", `${baseRevision}^{commit}`],
+        executable: "git",
+        argv: ["cat-file", "-e", `${baseRevision}^{commit}`],
       }),
       exec({
-        command: "bash",
-        args: ["-c", boundedChangedFilesCommand],
+        executable: "bash",
+        argv: ["-c", boundedChangedFilesCommand],
       }),
       exec({
-        command: "bash",
-        args: ["-c", boundedStatCommand],
+        executable: "bash",
+        argv: ["-c", boundedStatCommand],
       }),
       exec({
-        command: "bash",
-        args: ["-c", boundedPatchCommand],
+        executable: "bash",
+        argv: ["-c", boundedPatchCommand],
       }),
       exec({
-        command: "bash",
-        args: ["-c", boundedCheckCommand],
+        executable: "bash",
+        argv: ["-c", boundedCheckCommand],
       }),
     ]);
 
@@ -990,8 +1004,8 @@ const gitReviewEvidenceTask = defineTask({
         ? false
         : (
             await exec({
-              command: "git",
-              args: [
+              executable: "git",
+              argv: [
                 "merge-base",
                 "--is-ancestor",
                 previousReviewedRevision,
@@ -1047,9 +1061,8 @@ const sharedReviewTaskInstructions = [
   "A previous report snapshot is trusted only when it was authored by the configured Seqlane bot identity and passed schema validation. If review history or a previous snapshot is truncated, report that limitation and do not imply that the history is complete.",
 ];
 
-const reviewHistoryVerificationTask = defineTask({
+const reviewHistoryVerificationTask = defineAgentTask({
   id: "pr-code-review.verify-history",
-  workspace: "shared",
   input: z.object({ review: reviewEvidenceContextSchema }),
   output: reviewHistoryVerificationOutputSchema,
   goal: ({ review }) =>
@@ -1094,9 +1107,8 @@ function createReviewLane(options: {
   readonly axes: readonly z.infer<typeof reviewAxisSchema>[];
   readonly focus: readonly string[];
 }) {
-  return defineTask({
+  return defineAgentTask({
     id: options.id,
-    workspace: "shared",
     input: reviewLaneInputSchema,
     output: reviewLaneResultSchema,
     goal: ({ review }) =>
@@ -1162,9 +1174,8 @@ const synthesizeReviewInputSchema = z.object({
   risk: reviewLaneResultSchema,
 });
 
-const synthesizeReviewTask = defineTask({
+const synthesizeReviewTask = defineAgentTask({
   id: "pr-code-review.summarize",
-  workspace: "shared",
   input: synthesizeReviewInputSchema,
   output: synthesizedReviewReportSchema,
   goal: ({ review, correctness, maintainability, risk }) =>
@@ -1292,10 +1303,9 @@ function legacyFindingStatus(
 
 const applyReviewDispositionTask = defineTask({
   id: "pr-code-review.apply-dispositions",
-  workspace: "shared",
   input: applyReviewDispositionInputSchema,
   output: codeReviewReportSchema,
-  execute: ({ review, report }) => {
+  execute: async ({ input: { review, report } }) => {
     const latestAuthorized = new Map<
       string,
       z.infer<typeof reviewDispositionSchema>
@@ -1669,19 +1679,29 @@ export default createFlow({
   input: codeReviewInputSchema,
   output: codeReviewReportSchema,
 })
-  .task("reviewContext", reviewContextTask, ({ input }) => ({
-    pullRequestNumber: input.pullRequest.number,
-    reviewHistory: input.reviewHistory ?? { comments: [], truncated: false },
-  }))
-  .task("gitEvidence", gitReviewEvidenceTask, ({ input, tasks }) => ({
-    repository: input.repository,
-    baseBranch: input.baseBranch,
-    baseRevision: input.baseRevision,
-    headRevision: input.headRevision,
-    pullRequest: input.pullRequest,
-    reviewHistory: input.reviewHistory,
-    normalizedReviewHistory: tasks.reviewContext.output,
-  }))
+  .task(
+    "reviewContext",
+    reviewContextTask,
+    ({ input }) => ({
+      pullRequestNumber: input.pullRequest.number,
+      reviewHistory: input.reviewHistory ?? { comments: [], truncated: false },
+    }),
+    { workspace: "shared" },
+  )
+  .task(
+    "gitEvidence",
+    gitReviewEvidenceTask,
+    ({ input, tasks }) => ({
+      repository: input.repository,
+      baseBranch: input.baseBranch,
+      baseRevision: input.baseRevision,
+      headRevision: input.headRevision,
+      pullRequest: input.pullRequest,
+      reviewHistory: input.reviewHistory,
+      normalizedReviewHistory: tasks.reviewContext.output,
+    }),
+    { workspace: "shared" },
+  )
   .task(
     "historyVerification",
     reviewHistoryVerificationTask,
@@ -1697,6 +1717,7 @@ export default createFlow({
       },
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -1719,6 +1740,7 @@ export default createFlow({
       },
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -1741,6 +1763,7 @@ export default createFlow({
       },
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -1763,6 +1786,7 @@ export default createFlow({
       },
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -1788,6 +1812,7 @@ export default createFlow({
       risk: tasks.risk.output,
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -1810,6 +1835,7 @@ export default createFlow({
       },
       report: tasks.summarize.output,
     }),
+    { workspace: "shared" },
   )
   .output(({ tasks }) => tasks.applyDispositions.output)
   .define();

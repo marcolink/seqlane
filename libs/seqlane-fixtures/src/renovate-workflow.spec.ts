@@ -44,6 +44,7 @@ describe("generic Renovate workflow fixture", () => {
     expect(plan.nodes.every((node) => !Object.hasOwn(node, "executor"))).toBe(
       true,
     );
+    expect(JSON.stringify(plan)).not.toContain("execute");
     expect(plan.output).toMatchObject({
       change: { nodeId: RENOVATE_INVOCATIONS.fix.nodeId },
       verification: {
@@ -58,7 +59,7 @@ describe("generic Renovate workflow fixture", () => {
     expect(renovateValidatorDefinitions.size).toBe(1);
     expect(
       [...renovateTaskDefinitions.values()].every(
-        (task) => typeof task.goal === "function",
+        (task) => typeof task.execute === "function",
       ),
     ).toBe(true);
   });
@@ -66,10 +67,10 @@ describe("generic Renovate workflow fixture", () => {
   it("builds a mixed agent and operation workflow", () => {
     const built = buildWorkflow(mixedWorkflow);
 
-    expect(typeof built.taskDefinitions.get(mixedAgentTask.id)?.goal).toBe(
+    expect(typeof built.taskDefinitions.get(mixedAgentTask.id)?.execute).toBe(
       "function",
     );
-    expect(typeof built.taskDefinitions.get(mixedStatusTask.id)?.goal).toBe(
+    expect(typeof built.taskDefinitions.get(mixedStatusTask.id)?.execute).toBe(
       "function",
     );
     expect(

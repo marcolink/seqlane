@@ -1,18 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { buildWorkflow, defineTask, defineWorkflow } from "@seqlane/core";
 import { z } from "zod";
-import { getOpenCodeTask, isAgentTaskDefinition } from "./task.js";
+import { getOpenCodeTask } from "./task.js";
 
 describe("private OpenCode task binding", () => {
   it("reads generic agent work without an adapter authoring contract", () => {
     const investigate = defineTask({
       id: "investigate",
-      workspace: "shared",
       input: z.object({ dependency: z.string() }),
       output: z.object({ files: z.array(z.string()) }),
-      goal: (input) => `Investigate ${input.dependency}`,
-      instructions: ["Return evidence."],
-      references: ["package.json"],
+      execute: async () => ({ files: [] }),
     });
     const workflow = defineWorkflow({
       id: "typed-agent",
@@ -24,10 +21,7 @@ describe("private OpenCode task binding", () => {
     const built = buildWorkflow(workflow);
     const task = getOpenCodeTask(built.taskDefinitions, "investigate");
 
-    expect(isAgentTaskDefinition(task)).toBe(true);
-    expect(task.goal({ dependency: "renovate" })).toBe("Investigate renovate");
-    expect(task.instructions).toEqual(["Return evidence."]);
-    expect(task.references).toEqual(["package.json"]);
+    expect(task).toBe(investigate);
     expect(JSON.stringify(built.plan)).not.toContain("Investigate");
     expect(JSON.stringify(built.plan)).not.toContain("package.json");
   });
@@ -35,10 +29,9 @@ describe("private OpenCode task binding", () => {
   it("keeps repeated generic agent invocations resolvable from one definition", () => {
     const task = defineTask({
       id: "repeat",
-      workspace: "shared",
       input: z.object({ value: z.string() }),
       output: z.object({ value: z.string() }),
-      goal: ({ value }) => value,
+      execute: async ({ input }) => input,
     });
     const workflow = defineWorkflow({
       id: "repeat-agent",

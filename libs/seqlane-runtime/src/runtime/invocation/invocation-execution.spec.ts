@@ -1,5 +1,11 @@
-import type { Plan, PlanNode, SeqlaneEvent } from "@seqlane/core";
+import type {
+  Plan,
+  PlanNode,
+  SeqlaneEvent,
+  TaskDefinition,
+} from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { runCompiledWorkflow } from "../../index.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";
@@ -21,11 +27,23 @@ function compile(
   executor: (request: ExecutorRequest) => Promise<unknown>,
   events: SeqlaneEvent[],
 ) {
+  const taskDefinitions = new Map<string, TaskDefinition>();
+  for (const node of source.nodes) {
+    if (node.type !== "task") continue;
+    const schema = z.unknown();
+    taskDefinitions.set(node.taskId, {
+      id: node.taskId,
+      input: schema,
+      output: schema,
+      execute: async ({ context }) => context.runAgent({ goal: node.taskId }),
+    });
+  }
   return new PlanCompiler().compileWorkflow(source, {
     workId: "test-work",
     runId: "run-1",
     createInvocationId: (nodeId) => nodeId,
     executors: new Map([["test-executor", { execute: executor }]]),
+    taskDefinitions,
     events: { emit: (event) => events.push(event) },
   });
 }

@@ -36,14 +36,16 @@ describe("loadWorkflow", () => {
   });
 
   it("builds an authored workflow and retains its task schemas", async () => {
+    const zodSpecifier = import.meta.resolve("zod");
     const source = `
-      const schema = { parse: (value) => value };
+      import { z } from ${JSON.stringify(zodSpecifier)};
+      const schema = z.unknown();
       const task = {
         id: "authored-task",
-        workspace: "shared",
+        workspace: "exclusive",
         input: schema,
         output: schema,
-        goal: () => "demo",
+        execute: async ({ context }) => context.runAgent({ goal: "demo" }),
       };
       export const authored = {
         id: "authored",
@@ -67,7 +69,7 @@ describe("loadWorkflow", () => {
       {
         taskId: "authored-task",
         nodeId: "authored-task:1",
-        workspace: "shared",
+        workspace: "exclusive",
         dependsOn: [],
       },
     ]);

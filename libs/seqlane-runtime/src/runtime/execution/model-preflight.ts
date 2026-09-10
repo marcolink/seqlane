@@ -74,19 +74,11 @@ function modelPreflightNodes(
     dynamic: boolean,
   ): ModelPreflightNode | undefined => {
     if (node.type === "task") {
-      if (node.execution === "local") return undefined;
+      if (node.session === undefined) return undefined;
       return {
         node,
         nodeId: node.nodeId,
         taskId: node.taskId,
-        dynamic,
-      };
-    }
-    if (node.type === "validation.check" && node.source.type === "task") {
-      return {
-        node,
-        nodeId: node.nodeId,
-        taskId: node.source.taskId,
         dynamic,
       };
     }

@@ -1,5 +1,6 @@
 import type {
-  AgentTaskDefinition,
+  TaskDefinition,
+  AgentTaskRequest,
   ModelSelection,
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
@@ -60,8 +61,9 @@ export interface AgentAdapterCapabilities {
 export interface AgentAdapterRequest {
   readonly invocationId: string;
   readonly observability: Partial<ObservabilityContext>;
-  readonly task: AgentTaskDefinition;
+  readonly task: TaskDefinition;
   readonly input: unknown;
+  readonly agent?: AgentTaskRequest;
   readonly modelSelection?: ModelSelection;
   readonly signal: AbortSignal;
   readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;

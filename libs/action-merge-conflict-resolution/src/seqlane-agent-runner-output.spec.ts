@@ -22,6 +22,7 @@ vi.mock("@seqlane/core", () => {
     buildWorkflow,
     createFlow,
     defineTask: (definition: unknown) => definition,
+    defineAgentTask: (definition: unknown) => definition,
     isolated: () => ({}),
   };
 });

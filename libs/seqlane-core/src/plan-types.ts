@@ -8,7 +8,6 @@ import type {
 } from "./contracts.js";
 import type { ValueBinding, ValueRef } from "./bindings.js";
 import type { ModelSelection } from "./models/model-ref.js";
-import { z } from "zod";
 
 export interface WorkflowIdentity {
   readonly id: string;
@@ -24,18 +23,11 @@ export type PlanSessionPolicy =
       readonly model?: ModelSelection;
     };
 
-export const taskExecutionSchema = z.enum(["agent", "local"]);
-
-export type TaskExecution = z.infer<typeof taskExecutionSchema>;
-
 export interface TaskNode {
   readonly type: "task";
   readonly taskId: TaskId;
   readonly nodeId: PlanNodeId;
   readonly workspace: WorkspacePolicy;
-  /** Omitted legacy Plan nodes resolve to agent execution. */
-  readonly execution?: TaskExecution;
-  /** Omitted legacy Plan nodes resolve to isolated at the runtime boundary. */
   readonly session?: PlanSessionPolicy;
   readonly input: ValueBinding;
   readonly dependsOn: readonly PlanNodeId[];

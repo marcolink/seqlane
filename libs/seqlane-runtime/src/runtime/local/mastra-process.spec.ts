@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   MastraProcessCancelledError,
+  MastraProcessOutputLimitError,
   MastraProcessResultError,
+  MastraProcessTimeoutError,
   normalizeMastraProcessResult,
   runMastraProcess,
 } from "./mastra-process.js";
@@ -66,40 +68,84 @@ describe("Mastra deterministic process integration", () => {
   });
 
   it("preserves non-zero exit status and independently bounds output", async () => {
-    const result = await runMastraProcess(
-      request({
-        args: [
-          "-e",
-          "process.stdout.write('1234'); process.stderr.write('5678'); process.exit(23)",
-        ],
-        outputLimitBytes: 3,
-      }),
-    );
-
-    expect(result).toMatchObject({
-      exitCode: 23,
-      stdout: "234",
-      stderr: "678",
-      outcome: "completed",
-      stdoutTruncated: true,
-      stderrTruncated: true,
+    await expect(
+      runMastraProcess(
+        request({
+          args: [
+            "-e",
+            "process.stdout.write('1234'); process.stderr.write('5678'); process.exit(23)",
+          ],
+          outputLimitBytes: 3,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: MastraProcessOutputLimitError.name,
+      result: {
+        exitCode: 23,
+        stdout: "234",
+        stderr: "678",
+        outcome: "completed",
+        stdoutTruncated: true,
+        stderrTruncated: true,
+      },
     });
   });
 
   it("normalizes Mastra timeout without treating it as cancellation", async () => {
-    const result = await runMastraProcess(
-      request({
-        args: ["-e", "setTimeout(() => undefined, 1000)"],
-        timeoutMs: 20,
-      }),
-    );
-
-    expect(result).toMatchObject({
-      exitCode: 124,
-      outcome: "timed_out",
-      timedOut: true,
-      cancelled: false,
+    await expect(
+      runMastraProcess(
+        request({
+          args: ["-e", "setTimeout(() => undefined, 1000)"],
+          timeoutMs: 20,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: MastraProcessTimeoutError.name,
+      result: {
+        exitCode: 124,
+        outcome: "timed_out",
+        timedOut: true,
+        cancelled: false,
+      },
     });
+  });
+
+  it("terminates the timed-out process before releasing its sandbox", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "seqlane-mastra-process-"));
+    let pid: number | undefined;
+    try {
+      const pidPath = join(workspace, "pid");
+      const result = runMastraProcess(
+        request({
+          cwd: workspace,
+          timeoutMs: 1_000,
+          args: [
+            "-e",
+            "require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => undefined, 1000)",
+            pidPath,
+          ],
+        }),
+      );
+      const settled = result.then(
+        () => undefined,
+        (cause) => cause,
+      );
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        try {
+          pid = Number(await readFile(pidPath, "utf8"));
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+      }
+
+      expect(await settled).toBeInstanceOf(MastraProcessTimeoutError);
+      expect(pid).toEqual(expect.any(Number));
+      expect(() => process.kill(pid!, 0)).toThrow();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
   });
 
   it("cancels and terminates the Mastra process before returning", async () => {

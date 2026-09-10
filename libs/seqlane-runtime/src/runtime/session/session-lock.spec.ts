@@ -1,5 +1,6 @@
 import type { TaskDefinition, TaskNode } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { createExecutionContext } from "../execution/context.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 import { executeTaskNode } from "../invocation/invocation-execution.js";
@@ -51,13 +52,12 @@ function task(nodeId: string): TaskNode {
 }
 
 function taskDefinition(taskId: string): TaskDefinition {
-  const schema = { parse: (value: unknown) => value };
+  const schema = z.unknown();
   return {
     id: taskId,
-    workspace: "shared",
     input: schema,
     output: schema,
-    goal: () => taskId,
+    execute: async ({ context }) => context.runAgent({ goal: taskId }),
   };
 }
 

@@ -57,9 +57,8 @@ export interface SeqlaneTaskObservability {
   };
 }
 
-export interface SeqlaneSchema<T = unknown> {
-  parse(value: unknown): T;
-}
+/** Runtime schema used by public authoring contracts. */
+export type SeqlaneSchema<T = unknown> = z.ZodType<T>;
 
 export interface TaskSchema<Input = unknown, Output = unknown> {
   readonly input: SeqlaneSchema<Input>;
@@ -70,24 +69,11 @@ interface TaskDefinitionBase<Input = unknown, Output = unknown> {
   readonly id: TaskId;
   readonly input: SeqlaneSchema<Input>;
   readonly output: SeqlaneSchema<Output>;
-  readonly workspace?: WorkspacePolicy;
   readonly observability?: SeqlaneTaskObservability;
 }
 
-type TaskGoal<Input> = {
-  bivarianceHack(input: Input): string;
-}["bivarianceHack"];
-
-type TaskExecutor<Input, Output> = {
-  bivarianceHack(input: Input, context: TaskContext): Promise<Output>;
-}["bivarianceHack"];
-
-export interface AgentTaskDefinition<
-  Input = unknown,
-  Output = unknown,
-> extends TaskDefinitionBase<Input, Output> {
-  readonly goal: TaskGoal<Input>;
-  readonly execute?: never;
+export interface AgentTaskRequest {
+  readonly goal: string;
   readonly instructions?: readonly string[];
   readonly references?: readonly string[];
 }
@@ -96,90 +82,52 @@ export interface TaskExecResult {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
-  /** Stable Seqlane identity for the task that requested the process. */
-  readonly taskId?: TaskId;
-  /** Stable Seqlane identity for the invocation that requested the process. */
-  readonly invocationId?: InvocationId;
-  /** Wall-clock time when process execution started, in milliseconds since epoch. */
-  readonly startedAt?: number;
-  /** Wall-clock time when process execution ended, in milliseconds since epoch. */
-  readonly endedAt?: number;
-  /** Wall-clock process duration in milliseconds. */
-  readonly durationMs?: number;
-  /** Normalized process outcome, including timeout and cancellation. */
-  readonly outcome?: "completed" | "timed_out" | "cancelled";
-  readonly timedOut?: boolean;
-  readonly cancelled?: boolean;
-  /** Whether the bounded capture dropped older output for this stream. */
-  readonly stdoutTruncated?: boolean;
-  readonly stderrTruncated?: boolean;
 }
 
 export interface TaskContext {
   exec(request: {
-    readonly command: string;
-    readonly args?: readonly string[];
+    readonly executable: string;
+    readonly argv?: readonly string[];
     /** Optional foreground process timeout in milliseconds. */
     readonly timeoutMs?: number;
   }): Promise<TaskExecResult>;
+  runAgent(request: AgentTaskRequest): Promise<unknown>;
 }
 
-export interface LocalTaskDefinition<
+export interface TaskDefinition<
   Input = unknown,
   Output = unknown,
 > extends TaskDefinitionBase<Input, Output> {
-  readonly goal?: never;
-  readonly execute: TaskExecutor<Input, Output>;
+  execute(request: {
+    readonly input: Input;
+    readonly signal: AbortSignal;
+    readonly context: TaskContext;
+  }): Promise<Output>;
 }
-
-export type TaskDefinition<Input = unknown, Output = unknown> =
-  AgentTaskDefinition<Input, Output> | LocalTaskDefinition<Input, Output>;
 
 const taskDefinitionBaseSchema = {
   id: z.string(),
-  input: z.looseObject({
-    parse: z.custom((value) => typeof value === "function"),
-  }),
-  output: z.looseObject({
-    parse: z.custom((value) => typeof value === "function"),
-  }),
+  input: z.custom<z.ZodType>((value) => value instanceof z.ZodType),
+  output: z.custom<z.ZodType>((value) => value instanceof z.ZodType),
 };
 
-export const agentTaskDefinitionSchema = z.looseObject({
+export const taskDefinitionSchema = z.looseObject({
   ...taskDefinitionBaseSchema,
-  goal: z.custom((value) => typeof value === "function"),
-  execute: z.never().optional(),
-});
-
-export const localTaskDefinitionSchema = z.looseObject({
-  ...taskDefinitionBaseSchema,
-  goal: z.never().optional(),
   execute: z.custom((value) => typeof value === "function"),
 });
 
-export const taskDefinitionSchema = z.union([
-  agentTaskDefinitionSchema,
-  localTaskDefinitionSchema,
-]);
-
-export interface AgentTaskInvocationOptions<Input, Output> {
+export interface TaskInvocationOptions<Input, Output> {
   readonly input: InputBinding<Input>;
   readonly validateOutput?: Validator<Output>;
   readonly dependsOn?: readonly TaskDependency[];
   readonly session?: SessionPolicy;
+  readonly workspace?: WorkspacePolicy;
 }
 
-export interface LocalTaskInvocationOptions<Input, Output> {
+export interface ValidationInvocationOptions<Input> {
   readonly input: InputBinding<Input>;
-  readonly validateOutput?: Validator<Output>;
-  readonly dependsOn?: readonly TaskDependency[];
+  readonly workspace?: WorkspacePolicy;
 }
-
-/** @deprecated Use AgentTaskInvocationOptions or LocalTaskInvocationOptions. */
-export type TaskInvocationOptions<Input, Output> = AgentTaskInvocationOptions<
-  Input,
-  Output
->;
 
 export interface ValidationIssue {
   readonly code: string;
@@ -208,13 +156,13 @@ export interface ValidatorDefinition<Input = unknown> {
   }["bivarianceHack"];
 }
 
-export type ValidationTaskDefinition<Input = unknown> = AgentTaskDefinition<
+export type ValidationTaskDefinition<Input = unknown> = TaskDefinition<
   Input,
   ValidationResult
 >;
 
 export type Validator<Input = unknown> =
-  ValidatorDefinition<Input> | ValidationTaskDefinition<Input>;
+  ValidatorDefinition<Input> | TaskDefinition<Input, ValidationResult>;
 
 export type ValidatorDefinitionRegistry = ReadonlyMap<
   string,
@@ -230,18 +178,18 @@ export type TaskDefinitionRegistry = ReadonlyMap<
 export interface WorkflowBuildContext<Input = unknown> {
   readonly input: ValueRef<Input>;
   readonly run: {
-    <TaskInput, TaskOutput>(
-      task: AgentTaskDefinition<TaskInput, TaskOutput>,
-      options: AgentTaskInvocationOptions<TaskInput, TaskOutput>,
-    ): TaskInvocation<TaskOutput>;
-    <TaskInput, TaskOutput>(
-      task: LocalTaskDefinition<TaskInput, TaskOutput>,
-      options: LocalTaskInvocationOptions<TaskInput, TaskOutput>,
-    ): MechanicalTaskRef<TaskOutput>;
+    <
+      TaskInput,
+      TaskOutput,
+      Options extends TaskInvocationOptions<TaskInput, TaskOutput>,
+    >(
+      task: TaskDefinition<TaskInput, TaskOutput>,
+      options: Options,
+    ): TaskInvocation<TaskOutput, Options["session"]>;
   };
   readonly validate: <Candidate>(
     validator: Validator<Candidate>,
-    options: { readonly input: InputBinding<Candidate> },
+    options: ValidationInvocationOptions<Candidate>,
   ) => ValidationInvocation<Candidate>;
   readonly repeat: <State>(
     options: RepeatBuildOptions<State>,
@@ -259,13 +207,15 @@ export interface WorkflowDefinition<Input = unknown, Output = unknown> {
   readonly build: WorkflowBuilder<Input, Output>;
 }
 
-export interface FlowHandle<Output = unknown> {
-  readonly output: ValueRef<Output>;
-}
-
-export interface AgentFlowHandle<Output = unknown> extends FlowHandle<Output> {
-  readonly session: SessionCheckpointRef;
-}
+export type FlowHandle<
+  Output = unknown,
+  Session = undefined,
+> = Session extends undefined
+  ? MechanicalTaskRef<Output>
+  : TaskInvocation<
+      Output,
+      Session extends SessionPolicy ? Session : SessionPolicy
+    >;
 
 export interface FlowAuthoringContext<Input, Handles> {
   readonly input: ValueRef<Input>;
@@ -276,29 +226,14 @@ export type FlowBinding<Input, Handles, Target> =
   | InputBinding<Target>
   | ((context: FlowAuthoringContext<Input, Handles>) => InputBinding<Target>);
 
-export interface AgentFlowTaskOptions<
-  Output,
-  Input = unknown,
-  Handles = unknown,
-> {
+export interface FlowTaskOptions<Output, Input = unknown, Handles = unknown> {
   readonly validateOutput?: Validator<Output>;
   readonly dependsOn?: readonly (keyof Handles & string)[];
   readonly session?:
     | SessionPolicy
     | ((context: FlowAuthoringContext<Input, Handles>) => SessionPolicy);
+  readonly workspace?: WorkspacePolicy;
 }
-
-export interface LocalFlowTaskOptions<Output, Handles = unknown> {
-  readonly validateOutput?: Validator<Output>;
-  readonly dependsOn?: readonly (keyof Handles & string)[];
-}
-
-/** @deprecated Use AgentFlowTaskOptions or LocalFlowTaskOptions. */
-export type FlowTaskOptions<
-  Output,
-  Input = unknown,
-  Handles = unknown,
-> = AgentFlowTaskOptions<Output, Input, Handles>;
 
 export interface FlowValidationHandle<
   Output = unknown,
@@ -313,26 +248,27 @@ type LiteralUnusedFlowName<Name extends string, Handles> = string extends Name
     : Name;
 
 export interface FlowBuilder<Input, Output, Handles> {
-  task<Name extends string, TaskInput, TaskOutput>(
+  task<
+    Name extends string,
+    TaskInput,
+    TaskOutput,
+    Options extends FlowTaskOptions<TaskOutput, Input, Handles> =
+      FlowTaskOptions<TaskOutput, Input, Handles>,
+  >(
     name: LiteralUnusedFlowName<Name, Handles>,
-    definition: AgentTaskDefinition<TaskInput, TaskOutput>,
+    definition: TaskDefinition<TaskInput, TaskOutput>,
     binding: FlowBinding<Input, Handles, TaskInput>,
-    options?: AgentFlowTaskOptions<TaskOutput, Input, Handles>,
+    options?: Options,
   ): FlowBuilder<
     Input,
     Output,
-    Handles & Record<Name, AgentFlowHandle<TaskOutput>>
+    Handles & Record<Name, FlowHandle<TaskOutput, Options["session"]>>
   >;
-  task<Name extends string, TaskInput, TaskOutput>(
-    name: LiteralUnusedFlowName<Name, Handles>,
-    definition: LocalTaskDefinition<TaskInput, TaskOutput>,
-    binding: FlowBinding<Input, Handles, TaskInput>,
-    options?: LocalFlowTaskOptions<TaskOutput, Handles>,
-  ): FlowBuilder<Input, Output, Handles & Record<Name, FlowHandle<TaskOutput>>>;
   validate<Name extends string, Candidate>(
     name: LiteralUnusedFlowName<Name, Handles>,
     validator: Validator<Candidate>,
     binding: FlowBinding<Input, Handles, Candidate>,
+    options?: Omit<ValidationInvocationOptions<Candidate>, "input">,
   ): FlowBuilder<
     Input,
     Output,
@@ -360,24 +296,18 @@ export interface CreateFlowOptions<Input, Output> {
 export interface RepeatBodyContext<State> {
   readonly input: ValueRef<State>;
   readonly task: {
-    <TaskInput, TaskOutput>(
-      definition: AgentTaskDefinition<TaskInput, TaskOutput>,
-      options: Omit<
-        AgentTaskInvocationOptions<TaskInput, TaskOutput>,
-        "validateOutput"
-      >,
-    ): TaskInvocation<TaskOutput>;
-    <TaskInput, TaskOutput>(
-      definition: LocalTaskDefinition<TaskInput, TaskOutput>,
-      options: Omit<
-        LocalTaskInvocationOptions<TaskInput, TaskOutput>,
-        "validateOutput"
-      >,
-    ): MechanicalTaskRef<TaskOutput>;
+    <
+      TaskInput,
+      TaskOutput,
+      Options extends TaskInvocationOptions<TaskInput, TaskOutput>,
+    >(
+      definition: TaskDefinition<TaskInput, TaskOutput>,
+      options: Omit<Options, "validateOutput">,
+    ): TaskInvocation<TaskOutput, Options["session"]>;
   };
   readonly validate: <Candidate>(
     validator: Validator<Candidate>,
-    options: { readonly input: InputBinding<Candidate> },
+    options: ValidationInvocationOptions<Candidate>,
   ) => ValidationInvocation<Candidate>;
 }
 

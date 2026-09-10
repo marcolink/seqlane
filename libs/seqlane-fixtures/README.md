@@ -2,11 +2,11 @@
 
 Private workflows and task definitions for tests and local development.
 
-The package includes workflows for Renovate-shaped execution, mixed agent and
-operation work, model-selected sessions, fake execution paths, and semantic
-validation coverage. The `local-git-status` fixture demonstrates a local Git
-inspection task followed by a typed agent task. It is not a production workflow
-catalog.
+The package includes workflows for Renovate-shaped execution, mixed task work,
+model-selected sessions, fake execution paths, and semantic validation
+coverage. The `local-git-status` fixture demonstrates a task that uses direct
+argv process execution followed by a task that calls `context.runAgent`. It is
+not a production workflow catalog.
 
 ## Use a fixture
 
@@ -41,8 +41,7 @@ Use only the exported subpaths in `package.json`. Do not import fixture source
 files or `dist` files through relative paths.
 
 The local Git task uses `execute` with direct argv for
-`git status --porcelain=v1` in the canonical workflow workspace. It has no
-session or model metrics. The command is foreground and non-interactive, and
-the fixture does not add Git helpers, Git mutation APIs, shell support,
-background processes, or command policy. The local task itself does not need
-OpenCode; the later agent task does.
+`git status --porcelain=v1` in the canonical workflow workspace. Workspace and
+session policy are supplied at invocation sites. The command is foreground and
+non-interactive, and the fixture does not add Git helpers, Git mutation APIs,
+shell support, background processes, or command policy.

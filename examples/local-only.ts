@@ -8,7 +8,7 @@ const localTask = defineTask({
   id: "example.local-only",
   input: inputSchema,
   output: outputSchema,
-  execute: async ({ value }) => ({ value }),
+  execute: async ({ input: { value } }) => ({ value }),
 });
 
 export default createFlow({

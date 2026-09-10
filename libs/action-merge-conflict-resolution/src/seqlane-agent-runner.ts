@@ -1,6 +1,7 @@
 import {
   buildWorkflow,
   type SeqlaneEvent,
+  type TaskContext,
   type WorkflowDefinition,
 } from "@seqlane/core";
 import { createOpenCodeAdapter } from "@seqlane/opencode";
@@ -50,27 +51,39 @@ function createOpenCodeExecutor(
   adapter: ReturnType<typeof createOpenCodeAdapter>,
 ): SeqlaneExecutor {
   return {
-    execute: (request) => {
+    execute: async (request) => {
       const task = taskDefinitions.get(request.taskId);
-      if (task === undefined || typeof task.goal !== "function") {
-        throw new Error(
-          `No agent task definition found for "${request.taskId}"`,
-        );
+      if (task === undefined) {
+        throw new Error(`No task definition found for "${request.taskId}"`);
       }
-      return adapter.execute({
-        invocationId: request.invocationId,
-        // Forward per-invocation Mastra observability unchanged; the adapter uses
-        // the current span only to parent child agent/tool spans.
-        observability: request.observability,
-        task,
+      const context: TaskContext = {
+        exec: async () => {
+          throw new Error(
+            "The merge-conflict resolution executor does not support shell tasks.",
+          );
+        },
+        runAgent: (agent) =>
+          adapter.execute({
+            invocationId: request.invocationId,
+            // Forward per-invocation Mastra observability unchanged; the adapter uses
+            // the current span only to parent child agent/tool spans.
+            observability: request.observability,
+            task,
+            input: request.input,
+            agent,
+            signal: request.signal,
+            onMetrics: request.onMetrics,
+            onDiagnostic: (diagnostic) =>
+              request.onDiagnostic?.(diagnostic.message),
+            onActivity: request.onActivity,
+            onUncertainActivity: request.onUncertainActivity,
+            onBackgroundProcess: request.onBackgroundProcess,
+          }),
+      };
+      return task.execute({
         input: request.input,
         signal: request.signal,
-        onMetrics: request.onMetrics,
-        onDiagnostic: (diagnostic) =>
-          request.onDiagnostic?.(diagnostic.message),
-        onActivity: request.onActivity,
-        onUncertainActivity: request.onUncertainActivity,
-        onBackgroundProcess: request.onBackgroundProcess,
+        context,
       });
     },
   };

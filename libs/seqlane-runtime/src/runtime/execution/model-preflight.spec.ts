@@ -12,6 +12,7 @@ import type {
   TaskDefinition,
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import {
@@ -30,6 +31,7 @@ function task(
     taskId: nodeId,
     nodeId,
     workspace: "shared",
+    session: { type: "isolated" },
     ...(session === undefined ? {} : { session }),
     input: {},
     dependsOn,
@@ -45,8 +47,13 @@ function plan(nodes: readonly PlanNode[]): Plan {
 }
 
 function taskDefinition(id: string): TaskDefinition {
-  const schema = { parse: (value: unknown) => value };
-  return { id, input: schema, output: schema, goal: () => "" };
+  const schema = z.unknown();
+  return {
+    id,
+    input: schema,
+    output: schema,
+    execute: async ({ context }) => context.runAgent({ goal: "" }),
+  };
 }
 
 function model(reference: string): ModelRef {
@@ -242,7 +249,7 @@ describe("executor model preflight", () => {
     );
   });
 
-  it("preflights task-backed validation sessions and records their default", async () => {
+  it("does not preflight a sessionless task-backed validation source", async () => {
     const defaultSelection = {
       model: model("anthropic/claude-sonnet-4"),
       reasoning: "high" as const,
@@ -270,9 +277,7 @@ describe("executor model preflight", () => {
 
     await preflightCompiledWorkflowModels(compiled);
 
-    expect(compiled.context.effectiveModelSelections).toEqual(
-      new Map([["check", defaultSelection]]),
-    );
+    expect(compiled.context.effectiveModelSelections).toEqual(new Map());
   });
 
   it("validates repeat-body models without recording static invocation keys", async () => {

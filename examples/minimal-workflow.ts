@@ -1,6 +1,6 @@
 import {
   createFlow,
-  defineTask,
+  defineAgentTask,
   defineValidator,
   isolated,
 } from "@seqlane/core";
@@ -28,18 +28,16 @@ const draftValidator = defineValidator({
         },
 });
 
-const prepareTask = defineTask({
+const prepareTask = defineAgentTask({
   id: "example.prepare",
-  workspace: "shared",
   input: inputSchema,
   output: draftSchema,
   goal: ({ topic }) => `Write a short draft about ${topic}.`,
   instructions: ["Return one concise paragraph."],
 });
 
-const finishTask = defineTask({
+const finishTask = defineAgentTask({
   id: "example.finish",
-  workspace: "shared",
   input: draftSchema,
   output: answerSchema,
   goal: ({ draft }) => `Polish this draft into a clear final answer: ${draft}`,
@@ -52,6 +50,7 @@ export default createFlow({
   output: answerSchema,
 })
   .task("prepare", prepareTask, ({ input }) => input, {
+    workspace: "shared",
     session: isolated({
       model: openai("gpt-5.6-luna"),
       reasoning: "high",
@@ -59,6 +58,7 @@ export default createFlow({
     validateOutput: draftValidator,
   })
   .task("finish", finishTask, ({ tasks }) => tasks.prepare.output, {
+    workspace: "shared",
     session: isolated({
       model: openai("gpt-5.6-terra"),
     }),

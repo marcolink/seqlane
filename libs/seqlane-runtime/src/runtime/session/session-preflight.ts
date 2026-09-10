@@ -36,22 +36,14 @@ function agentTaskNodes(compiled: PreparedPlanExecution): readonly TaskNode[] {
   const nodes: TaskNode[] = [];
   const visit = (node: PlanNode): void => {
     if (node.type === "task") {
-      if (node.execution !== "local") nodes.push(node);
+      if (node.session !== undefined) {
+        nodes.push(node);
+      }
       return;
     }
     if (node.type === "repeat") {
       for (const bodyNode of node.body.nodes) visit(bodyNode);
       return;
-    }
-    if (node.type === "validation.check" && node.source.type === "task") {
-      nodes.push({
-        type: "task",
-        taskId: node.source.taskId,
-        nodeId: node.nodeId,
-        workspace: node.source.workspace,
-        input: node.input,
-        dependsOn: node.dependsOn,
-      });
     }
   };
   for (const node of compiled.plan.nodes) visit(node);
@@ -114,7 +106,7 @@ export async function resolveCompiledWorkflowSessions(
   }> = [];
   for (const node of compiled.orderedNodes) {
     const invocationId = invocationIdForNode(context, node);
-    if (node.type === "task" && node.execution !== "local") {
+    if (node.type === "task" && node.session !== undefined) {
       const policy = node.session ?? { type: "isolated" as const };
       if (policy.type !== "isolated") {
         const task = context.taskDefinitions?.get(node.taskId);
@@ -135,14 +127,6 @@ export async function resolveCompiledWorkflowSessions(
         continue;
       }
       isolatedSessions.push({ invocationId, taskId: node.taskId });
-    } else if (
-      node.type === "validation.check" &&
-      node.source.type === "task"
-    ) {
-      isolatedSessions.push({
-        invocationId,
-        taskId: node.source.taskId,
-      });
     }
   }
   for (const session of isolatedSessions) {

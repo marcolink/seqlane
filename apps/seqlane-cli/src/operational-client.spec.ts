@@ -25,7 +25,6 @@ describe("OperationalClient", () => {
       nodeId: "fixture.task:1",
       input: {},
       dependsOn: [],
-      execution: "local",
       workspace: "exclusive",
     };
     const plan: Plan = {

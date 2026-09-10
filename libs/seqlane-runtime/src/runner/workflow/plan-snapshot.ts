@@ -85,8 +85,9 @@ function nodeSession(
   node: PlanNode,
   serializedIds: ReadonlyMap<string, string>,
 ) {
-  if (node.type !== "task" || node.execution === "local") return undefined;
-  const session = node.session ?? { type: "isolated" as const };
+  if (node.type !== "task") return undefined;
+  const session = node.session;
+  if (session === undefined) return undefined;
   if (session.type === "isolated") return session;
   const from = serializedIds.get(session.from);
   if (from === undefined) return undefined;
@@ -146,9 +147,6 @@ export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
         siblingOrder,
         ...(taskId === undefined ? {} : { taskId }),
         ...(session === undefined ? {} : { session }),
-        ...(node.type === "task"
-          ? { execution: node.execution ?? "agent" }
-          : {}),
         ...(serializedParent === undefined
           ? {}
           : { parentPlanNodeId: serializedParent }),

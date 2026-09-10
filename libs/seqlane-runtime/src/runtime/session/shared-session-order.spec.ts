@@ -4,6 +4,7 @@
 // @test-scope ./shared-session-order.ts
 import type { ModelSelection, PlanNode, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import {
@@ -28,6 +29,7 @@ function task(
     taskId: nodeId,
     nodeId,
     workspace,
+    session: { type: "isolated" },
     input: {},
     dependsOn,
   };
@@ -37,13 +39,12 @@ function taskDefinition(
   taskId: string,
   workspace: "shared" | "exclusive" = "shared",
 ): TaskDefinition {
-  const schema = { parse: (value: unknown) => value };
+  const schema = z.unknown();
   return {
     id: taskId,
-    workspace,
     input: schema,
     output: schema,
-    goal: () => taskId,
+    execute: async ({ context }) => context.runAgent({ goal: taskId }),
   };
 }
 

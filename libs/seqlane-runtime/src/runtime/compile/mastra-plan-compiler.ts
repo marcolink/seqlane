@@ -123,26 +123,12 @@ export interface CompiledMastraPlan {
 
 function schemaForMastra(schema: SeqlaneSchema | undefined): z.ZodType {
   if (schema !== undefined) {
-    // Zod 4 and other Standard Schema implementations already satisfy the
-    // Mastra schema contract. Preserve those schemas instead of reducing them
-    // to an opaque predicate. The cast is isolated at this integration edge.
-    if (
-      typeof schema === "object" &&
-      schema !== null &&
-      "~standard" in schema
-    ) {
-      return schema as unknown as z.ZodType;
-    }
+    // Zod 4 schemas are accepted directly by Mastra. Keep this cast at the
+    // private integration edge in case Mastra widens its schema type.
+    return schema as unknown as z.ZodType;
   }
 
-  return z.custom((value) => {
-    try {
-      schema?.parse(value);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  return z.unknown();
 }
 
 function schemaForNodeInput(

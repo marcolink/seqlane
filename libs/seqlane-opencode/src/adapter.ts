@@ -133,7 +133,11 @@ function createAdapterForRun({
           });
         }
 
-        const basePrompt = buildOpenCodePrompt(request.task, request.input);
+        const basePrompt = buildOpenCodePrompt(
+          request.task,
+          request.input,
+          request.agent,
+        );
         let promptText =
           strategy === "prompt"
             ? buildStructuredOutputPrompt(basePrompt, schema)

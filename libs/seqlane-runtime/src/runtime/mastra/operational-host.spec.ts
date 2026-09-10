@@ -46,7 +46,7 @@ function registration() {
           id: "fixture.task",
           input: z.unknown(),
           output: z.unknown(),
-          goal: () => "fixture",
+          execute: async () => ({}),
         },
       ],
     ]),
@@ -67,7 +67,6 @@ function localRegistration(adapterConfiguration?: unknown) {
       nodes: [
         {
           ...node,
-          execution: "local",
           input: { type: "ref", nodeId: "__seqlane_input", path: [] },
         },
       ],
@@ -89,17 +88,18 @@ function localRegistration(adapterConfiguration?: unknown) {
   });
 }
 
-function runtimeProfileRegistration(options: {
-  readonly adapterConfiguration?: unknown;
-  readonly adapterRegistry?: RuntimeAdapterRegistry;
-} = {}) {
+function runtimeProfileRegistration(
+  options: {
+    readonly adapterConfiguration?: unknown;
+    readonly adapterRegistry?: RuntimeAdapterRegistry;
+  } = {},
+) {
   const taskId = "investigate-renovate-failure";
   const node: PlanNode = {
     type: "task",
     taskId,
     nodeId: `${taskId}:1`,
     workspace: "shared",
-    execution: "agent",
     input: { type: "ref", nodeId: "__seqlane_input", path: [] },
     dependsOn: [],
   };
@@ -123,7 +123,7 @@ function runtimeProfileRegistration(options: {
           id: taskId,
           input,
           output,
-          goal: () => "Investigate the fixture failure",
+          execute: async () => ({ files: [], rootCause: "fixture" }),
         },
       ],
     ]),
@@ -138,9 +138,7 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 
 async function mcpJson(response: Response): Promise<Record<string, unknown>> {
   const body = await response.text();
-  const dataLine = body
-    .split("\n")
-    .find((line) => line.startsWith("data: "));
+  const dataLine = body.split("\n").find((line) => line.startsWith("data: "));
   return JSON.parse(dataLine?.slice("data: ".length) ?? body) as Record<
     string,
     unknown
@@ -297,26 +295,23 @@ describe("Mastra operational host", () => {
       });
 
       const mcpUrl = `${address}/api/mcp/seqlane-workflows/mcp`;
-      const initialize = await fetch(
-        mcpUrl,
-        {
-          method: "POST",
-          headers: {
-            accept: "application/json, text/event-stream",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: {
-              protocolVersion: "2025-06-18",
-              capabilities: {},
-              clientInfo: { name: "seqlane-test", version: "0.0.0" },
-            },
-          }),
+      const initialize = await fetch(mcpUrl, {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "seqlane-test", version: "0.0.0" },
+          },
+        }),
+      });
       if (initialize.status !== 200) {
         throw new Error(await initialize.clone().text());
       }
@@ -330,22 +325,19 @@ describe("Mastra operational host", () => {
       const sessionId = initialize.headers.get("mcp-session-id");
       expect(sessionId).toEqual(expect.any(String));
 
-      const listedTools = await fetch(
-        mcpUrl,
-        {
-          method: "POST",
-          headers: {
-            accept: "application/json, text/event-stream",
-            "content-type": "application/json",
-            "mcp-session-id": sessionId ?? "",
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 2,
-            method: "tools/list",
-          }),
+      const listedTools = await fetch(mcpUrl, {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-session-id": sessionId ?? "",
         },
-      );
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/list",
+        }),
+      });
       expect(listedTools.status).toBe(200);
       expect(await mcpJson(listedTools)).toMatchObject({
         jsonrpc: "2.0",
@@ -380,7 +372,7 @@ describe("Mastra operational host", () => {
           content: [
             {
               type: "text",
-              text: expect.stringContaining("runtime=opencode"),
+              text: expect.stringContaining('"rootCause":"fixture"'),
             },
           ],
         },
@@ -414,7 +406,7 @@ describe("Mastra operational host", () => {
           content: [
             {
               type: "text",
-              text: expect.stringContaining("Renovate"),
+              text: expect.stringContaining('"rootCause":"fixture"'),
             },
           ],
         },

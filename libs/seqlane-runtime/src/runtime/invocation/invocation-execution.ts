@@ -1,5 +1,5 @@
 import type {
-  LocalTaskDefinition,
+  AgentTaskRequest,
   SeqlaneInvocationMetrics,
   ModelSelection,
   TaskNode,
@@ -48,7 +48,7 @@ import {
   type ValidationEnvelope,
   type ValidationExecutionOptions,
 } from "./invocation-support.js";
-import { executeLocalTask } from "../local/local-task-execution.js";
+import { executeTask } from "../local/task-execution.js";
 
 function effectiveModelSelection(
   context: ExecutionContext,
@@ -121,14 +121,10 @@ export async function executeTaskNode(
   };
 
   try {
-    const isLocalTask = node.execution === "local";
     const resource = context.workspaceResources.get(node.taskId) ?? {
       key: "seqlane:runtime-workspace",
     };
-    const session =
-      isLocalTask || context.sessionResolver === undefined
-        ? undefined
-        : sessionForInvocation(context.resolvedSessions, invocationId);
+    const session = context.resolvedSessions.get(invocationId);
     if (options.workspaceAdmission === "graph") {
       if (abortSignal.aborted) {
         throw abortSignal.reason ?? new Error("Task execution cancelled");
@@ -316,39 +312,26 @@ export async function executeTaskNode(
       };
       let executorFailure: { readonly cause: unknown } | undefined;
       try {
-        if (isLocalTask) {
-          const definition = context.taskDefinitions?.get(node.taskId);
-          if (definition === undefined || !("execute" in definition)) {
-            throw new Error(
-              `No local task definition registered for "${node.taskId}"`,
-            );
-          }
-          rawOutput = await executeLocalTask({
-            definition: definition as LocalTaskDefinition<unknown, unknown>,
-            input,
-            taskId: node.taskId,
-            invocationId,
-            cwd:
-              resource.key === "seqlane:runtime-workspace"
-                ? process.cwd()
-                : resource.key,
-            signal: abortSignal,
-          });
-        } else {
+        const definition = context.taskDefinitions?.get(node.taskId);
+        if (definition === undefined) {
+          throw new Error(`No task definition registered for "${node.taskId}"`);
+        }
+        const runAgent = async (
+          agentRequest: AgentTaskRequest,
+        ): Promise<unknown> => {
+          // A task without an invocation session uses the registered executor as
+          // an isolated one-shot adapter execution. Session resolution is an
+          // admission concern and must never happen from inside execute.
           const executor =
-            session === undefined
-              ? getExecutor(
-                  context.executors,
-                  node,
-                  context.taskDefinitions?.get(node.taskId),
-                )
-              : session.executor;
-          rawOutput = await executor.execute({
+            session?.executor ??
+            getExecutor(context.executors, node, definition);
+          return executor.execute({
             invocationId,
             observability: options.observability,
             taskId: node.taskId,
             executor: (node as LegacyTaskNode).executor ?? node.taskId,
             input,
+            agent: agentRequest,
             signal: abortSignal,
             onMetrics: (value) => {
               metrics = value;
@@ -371,7 +354,20 @@ export async function executeTaskNode(
             onChildSession: reportChildSession,
             onBackgroundProcess: reportBackgroundProcess,
           });
-        }
+        };
+        rawOutput = await executeTask({
+          definition,
+          input,
+          taskId: node.taskId,
+          invocationId,
+          cwd:
+            resource.key === "seqlane:runtime-workspace"
+              ? process.cwd()
+              : resource.key,
+          signal: abortSignal,
+          runAgent,
+          onUncertainActivity: reportUncertainActivity,
+        });
       } catch (cause) {
         executorFailure = { cause };
       }
@@ -407,10 +403,8 @@ export async function executeTaskNode(
       }
 
       const observableMetrics = metricsWithModelSelection(
-        isLocalTask ? undefined : metrics,
-        isLocalTask
-          ? undefined
-          : effectiveModelSelection(context, invocationId, session),
+        metrics,
+        effectiveModelSelection(context, invocationId, session),
       );
 
       context.events.emit({
@@ -426,7 +420,7 @@ export async function executeTaskNode(
         ...optionalIteration(options.iteration),
       });
       results.set(node.nodeId, output);
-      if (!isLocalTask && session !== undefined) {
+      if (session !== undefined) {
         await publishSessionCheckpoint({
           sourceNodeId: node.nodeId,
           sourceSession: session,

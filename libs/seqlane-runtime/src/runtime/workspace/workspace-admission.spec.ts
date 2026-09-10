@@ -13,6 +13,7 @@ import {
   type TaskNode,
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { createExecutionContext } from "../execution/context.js";
 import {
   type ExecutorRequest,
@@ -22,7 +23,7 @@ import { executeTaskNode } from "../invocation/invocation-execution.js";
 import { resolveTaskSession } from "../session/session-resolution.js";
 import type { WorkspaceResource } from "./workspace-resource.js";
 
-const schema = { parse: (value: unknown) => value };
+const schema = z.unknown();
 const workspace: WorkspaceResource = { key: "/checkout" };
 
 function deferred<T>() {
@@ -56,21 +57,19 @@ function writeTask(taskId: string): TaskNode {
 function writeTaskDefinition(taskId: string): TaskDefinition {
   return {
     id: taskId,
-    workspace: "exclusive",
     input: schema,
     output: schema,
-    goal: () => taskId,
+    execute: async ({ context }) => context.runAgent({ goal: taskId }),
   };
 }
 
 function localWriteTask(taskId: string): TaskNode {
-  return { ...writeTask(taskId), execution: "local" };
+  return writeTask(taskId);
 }
 
 function localWriteTaskDefinition(taskId: string): TaskDefinition {
   return {
     id: taskId,
-    workspace: "exclusive",
     input: schema,
     output: schema,
     execute: async () => ({}),
@@ -91,10 +90,9 @@ function readTask(taskId: string): TaskNode {
 function readTaskDefinition(taskId: string): TaskDefinition {
   return {
     id: taskId,
-    workspace: "shared",
     input: schema,
     output: schema,
-    goal: () => taskId,
+    execute: async ({ context }) => context.runAgent({ goal: taskId }),
   };
 }
 

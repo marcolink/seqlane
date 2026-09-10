@@ -1,4 +1,4 @@
-import { createFlow, defineTask, validatedBy } from "@seqlane/core";
+import { createFlow, defineAgentTask, validatedBy } from "@seqlane/core";
 import { z } from "zod";
 
 const repeatInputSchema = z.object({ seed: z.string() });
@@ -25,17 +25,15 @@ const validationResultSchema = z.discriminatedUnion("success", [
   }),
 ]);
 
-const repairTask = defineTask({
+const repairTask = defineAgentTask({
   id: "validation.fixture.repair",
-  workspace: "shared",
   input: repeatStateSchema,
   output: repeatStateSchema,
   goal: ({ value }) => `Repair ${value}.`,
 });
 
-const evaluatorTask = defineTask({
+const evaluatorTask = defineAgentTask({
   id: "validation.fixture.evaluator",
-  workspace: "shared",
   input: repeatStateSchema,
   output: validationResultSchema,
   goal: ({ value }) => `Evaluate whether ${value} is ready.`,
@@ -48,7 +46,8 @@ export const evaluatorRepeatWorkflow = createFlow({
 })
   .repeat("repair", {
     initial: ({ input }) => ({ value: input.seed, attempt: 0 }),
-    body: ({ input, task }) => task(repairTask, { input }).output,
+    body: ({ input, task }) =>
+      task(repairTask, { input, workspace: "shared" }).output,
     until: validatedBy(evaluatorTask),
     maximumIterations: 3,
   })

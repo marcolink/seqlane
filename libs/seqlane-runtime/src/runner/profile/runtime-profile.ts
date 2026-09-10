@@ -1,5 +1,4 @@
 import type {
-  AgentTaskDefinition,
   JsonValue,
   ModelSelection,
   RunId,
@@ -138,15 +137,15 @@ export function executeAgentAdapterRequest(
   request: ExecutorRequest,
 ): Promise<unknown> {
   const task = taskDefinitions.get(request.taskId);
-  if (task === undefined || typeof task.goal !== "function") {
-    throw new Error(`No agent task definition found for "${request.taskId}"`);
+  if (task === undefined) {
+    throw new Error(`No task definition found for "${request.taskId}"`);
   }
-  const agentTask = task as AgentTaskDefinition;
   return adapter.execute({
     invocationId: request.invocationId,
     observability: request.observability,
-    task: agentTask,
+    task,
     input: request.input,
+    ...(request.agent === undefined ? {} : { agent: request.agent }),
     ...(effectiveSelection === undefined || !adapter.capabilities.modelSelection
       ? {}
       : { modelSelection: effectiveSelection }),
@@ -407,7 +406,27 @@ export async function resolveRuntimeProfile(
 
   const executors: ExecutorResolvers = {
     agent: () => {
-      throw new Error("Task execution requires a resolved executor session");
+      // A task without a declared session gets a fresh adapter for this
+      // one-shot request. It does not create a Seqlane session or checkpoint.
+      const oneShotBinding = selected.create({
+        signal,
+        ...preparation,
+        ...(options.requestContext === undefined
+          ? {}
+          : { requestContext: options.requestContext }),
+      });
+      return {
+        execute: (request: ExecutorRequest) =>
+          executeAgentAdapterRequest(
+            redactRuntimeAdapter(
+              oneShotBinding.createAdapter(),
+              selected.configuration,
+            ),
+            taskDefinitions,
+            undefined,
+            request,
+          ),
+      };
     },
   };
   return {

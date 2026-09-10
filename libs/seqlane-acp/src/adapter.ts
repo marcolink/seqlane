@@ -291,7 +291,11 @@ export function createAcpAdapter(
               "dynamic model selection is not supported by ACP",
             );
           }
-          const taskPrompt = buildAgentPrompt(request.task, request.input);
+          const taskPrompt = buildAgentPrompt(
+            request.task,
+            request.input,
+            request.agent,
+          );
           const schema = toJsonSchema(request.task);
           let prompt = buildStructuredOutputPrompt(taskPrompt, schema);
           let attempts = 0;

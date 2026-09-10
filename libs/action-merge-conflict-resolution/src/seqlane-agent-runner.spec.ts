@@ -1,6 +1,7 @@
 // @test-scope ./seqlane-agent-runner.ts
 
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import type { WorkflowDefinition, SeqlaneSchema } from "@seqlane/core";
 
@@ -9,11 +10,7 @@ import {
   type SeqlaneWorkflowInput,
 } from "./seqlane-agent-runner.js";
 
-const schema = <T>(): SeqlaneSchema<T> => ({
-  parse(value: unknown): T {
-    return value as T;
-  },
-});
+const schema = <T>(): SeqlaneSchema<T> => z.custom<T>(() => true);
 
 const workflow: WorkflowDefinition<SeqlaneWorkflowInput, unknown> = {
   id: "runner-stop-regression",

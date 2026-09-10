@@ -9,9 +9,7 @@ import type {
 } from "@seqlane/core";
 import {
   modelSelectionSchema,
-  agentTaskDefinitionSchema,
-  localTaskDefinitionSchema,
-  taskExecutionSchema,
+  taskDefinitionSchema,
   workspacePolicySchema,
   type ModelSelection,
 } from "@seqlane/core";
@@ -79,11 +77,8 @@ export type PlanValidationIssueCode =
   | "invalid-session-source"
   | "missing-session-dependency"
   | "forbidden-permission-configuration"
-  | "invalid-task-execution"
-  | "local-task-session"
   | "missing-task-definition"
-  | "invalid-task-definition"
-  | "task-definition-kind-mismatch";
+  | "invalid-task-definition";
 
 export interface PlanValidationIssue {
   readonly code: PlanValidationIssueCode;
@@ -143,64 +138,24 @@ function validateTaskDefinition(
   issues: PlanValidationIssue[],
   validateDefinitions: boolean,
 ): void {
-  const executionResult = taskExecutionSchema.safeParse(node.execution);
-  if (node.execution !== undefined && !executionResult.success) {
-    addIssue(
-      issues,
-      "invalid-task-execution",
-      `Task "${node.nodeId}" must declare agent or local execution`,
-      node.nodeId,
-    );
-  }
-  const execution = executionResult.success
-    ? executionResult.data
-    : node.execution === undefined
-      ? "agent"
-      : undefined;
-
-  if (execution === "local" && node.session !== undefined) {
-    addIssue(
-      issues,
-      "local-task-session",
-      `Local task "${node.nodeId}" must not declare a session`,
-      node.nodeId,
-    );
-  }
-
   if (!validateDefinitions) return;
 
   const definition = taskDefinitions?.get(node.taskId);
   if (definition === undefined) {
-    if (execution === "local") {
-      addIssue(
-        issues,
-        "missing-task-definition",
-        `Task "${node.nodeId}" has no registered definition for "${node.taskId}"`,
-        node.nodeId,
-      );
-    }
+    addIssue(
+      issues,
+      "missing-task-definition",
+      `Task "${node.nodeId}" has no registered definition for "${node.taskId}"`,
+      node.nodeId,
+    );
     return;
   }
 
-  const localDefinition = localTaskDefinitionSchema.safeParse(definition);
-  const agentDefinition = agentTaskDefinitionSchema.safeParse(definition);
-  const definitionExecution = localDefinition.success
-    ? "local"
-    : agentDefinition.success
-      ? "agent"
-      : undefined;
-  if (definitionExecution === undefined) {
+  if (!taskDefinitionSchema.safeParse(definition).success) {
     addIssue(
       issues,
       "invalid-task-definition",
       `Task definition "${node.taskId}" is malformed`,
-      node.nodeId,
-    );
-  } else if (execution !== undefined && definitionExecution !== execution) {
-    addIssue(
-      issues,
-      "task-definition-kind-mismatch",
-      `Task "${node.nodeId}" declares ${execution} execution but its definition is ${definitionExecution}`,
       node.nodeId,
     );
   }
@@ -447,12 +402,12 @@ function validateValidationNode(
       const definition = taskDefinitions.get(node.source.taskId);
       if (
         definition !== undefined &&
-        !agentTaskDefinitionSchema.safeParse(definition).success
+        !taskDefinitionSchema.safeParse(definition).success
       ) {
         addIssue(
           issues,
-          "task-definition-kind-mismatch",
-          `Validation check "${node.nodeId}" must use an agent task definition for "${node.source.taskId}"`,
+          "invalid-task-definition",
+          `Validation check "${node.nodeId}" has a malformed task definition for "${node.source.taskId}"`,
           node.nodeId,
         );
       }
@@ -840,7 +795,7 @@ function validateRepeat(
 export function validatePlan(
   plan: Plan,
   taskDefinitions?: TaskDefinitionRegistry,
-  validateDefinitions = true,
+  validateDefinitions = taskDefinitions !== undefined,
 ): void {
   const issues: PlanValidationIssue[] = [];
   const nodesById = new Map<string, PlanNode>();

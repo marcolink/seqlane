@@ -1,6 +1,7 @@
 // @test-scope ./session-resolution.ts
 import type { ModelSelection, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   publishSessionCheckpoint,
   resolveTaskSession,
@@ -10,10 +11,9 @@ import {
 
 const taskDefinition: TaskDefinition = {
   id: "task",
-  workspace: "shared",
-  input: { parse: (value: unknown) => value },
-  output: { parse: (value: unknown) => value },
-  goal: () => "task",
+  input: z.unknown(),
+  output: z.unknown(),
+  execute: async ({ context }) => context.runAgent({ goal: "task" }),
 };
 
 const requestedSelection: ModelSelection = {

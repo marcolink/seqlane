@@ -120,7 +120,13 @@ export class PlanCompiler {
   compile(plan: Plan, taskDefinitions?: TaskDefinitionRegistry): PreparedPlan {
     return {
       plan,
-      orderedNodes: orderPlanNodes(plan, true, taskDefinitions),
+      // Standalone Plan ordering is useful before definitions are loaded.
+      // Workflow compilation performs the full definition validation above.
+      orderedNodes: orderPlanNodes(
+        plan,
+        taskDefinitions !== undefined,
+        taskDefinitions,
+      ),
     };
   }
 
