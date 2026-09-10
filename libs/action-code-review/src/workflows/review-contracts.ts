@@ -200,6 +200,7 @@ export const reviewRunTaskMetricsSchema = z
     provider: z.string().min(1).max(256).optional(),
     tokens: reviewRunTokensSchema.optional(),
     cost: z.number().nonnegative().optional(),
+    /** Bounded per-task usage telemetry; this field does not authorize skills. */
     skills: reviewRunSkillUsageSchema.optional(),
   })
   .strict();

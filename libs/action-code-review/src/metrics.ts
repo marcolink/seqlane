@@ -48,6 +48,8 @@ export const reviewRunSkillUsageSchema = z
   )
   .max(128);
 
+export type ReviewRunSkillUsage = z.infer<typeof reviewRunSkillUsageSchema>;
+
 /** The Action-private event projection used by the model-free publication workflow. */
 export const reviewMetricEventSchema = z.discriminatedUnion("type", [
   eventBaseSchema.extend({
@@ -75,6 +77,11 @@ export const reviewMetricEventSchema = z.discriminatedUnion("type", [
     kind: z.literal("skill"),
     name: z.string().min(1).max(256),
     state: z.enum(["started", "progress", "succeeded", "failed"]),
+  }),
+  eventBaseSchema.extend({
+    type: z.literal("invocation.skill-summary"),
+    invocationId: z.string().min(1),
+    skills: reviewRunSkillUsageSchema,
   }),
   ...(["succeeded", "failed", "skipped", "cancelled"] as const).map((state) =>
     eventBaseSchema.extend({
@@ -212,6 +219,7 @@ export function deriveRunMetrics(
   const latestOutputs = new Map<string, InvocationOutput>();
   const latestResults = new Map<string, InvocationResult>();
   const skillActivities = new Map<string, Map<string, string>>();
+  const skillSummaries = new Map<string, ReviewRunSkillUsage>();
   let latestHeartbeatElapsedMs = 0;
   let ended:
     | Extract<
@@ -255,6 +263,9 @@ export function deriveRunMetrics(
       if (!activities.has(event.activityId) && activities.size < 128)
         activities.set(event.activityId, event.name);
       skillActivities.set(event.invocationId, activities);
+    }
+    if (event.type === "invocation.skill-summary") {
+      skillSummaries.set(event.invocationId, event.skills);
     }
     if (event.type === "run.heartbeat") {
       latestHeartbeatElapsedMs = Math.max(
@@ -312,7 +323,8 @@ export function deriveRunMetrics(
         output?.type === "invocation.output" ? output.metrics : undefined;
       const activities = skillActivities.get(created.invocationId);
       const skills =
-        activities === undefined
+        skillSummaries.get(created.invocationId) ??
+        (activities === undefined
           ? undefined
           : [...new Set(activities.values())]
               .map((name) => ({
@@ -321,7 +333,7 @@ export function deriveRunMetrics(
                   (activityName) => activityName === name,
                 ).length,
               }))
-              .sort((left, right) => left.name.localeCompare(right.name));
+              .sort((left, right) => left.name.localeCompare(right.name)));
       const modelSelection = taskMetrics?.modelSelection;
       const hasMeasuredUsage =
         taskMetrics?.durationMs !== undefined ||

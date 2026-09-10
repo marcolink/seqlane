@@ -2,8 +2,18 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
+/**
+ * Stages base-revision copies of repository skills for the privileged review.
+ * The code-review workflow calls this before OpenCode starts; only skills that
+ * are unchanged from the pull request base are made visible to that process.
+ */
 const skillRoots = [".agents/skills", ".claude/skills", ".opencode/skills"];
 const revisionPattern = /^[0-9a-f]{40,64}$/i;
+const MAX_DISCOVERED_SKILLS = 128;
+const MAX_CHANGED_PATHS = 4096;
+const MAX_PATH_LENGTH = 512;
+const MAX_PATH_VOLUME = 256 * 1024;
+const MAX_DIAGNOSTIC_SAMPLES = 16;
 
 function revision(value, name) {
   if (value === undefined || !revisionPattern.test(value)) {
@@ -29,18 +39,6 @@ function assertRevision(target, value, name) {
   if (resolved.length === 0) throw new Error(`${name} is not a commit`);
 }
 
-function isUnchanged(target, baseRevision, headRevision, path) {
-  try {
-    git(target, ["diff", "--quiet", baseRevision, headRevision, "--", path], {
-      stdio: "ignore",
-    });
-    return true;
-  } catch (error) {
-    if (error?.status === 1) return false;
-    throw error;
-  }
-}
-
 function stageFromBase(target, baseRevision, stagingDirectory, path) {
   const archive = execFileSync("git", [
     "-C",
@@ -57,7 +55,7 @@ function stageFromBase(target, baseRevision, stagingDirectory, path) {
 }
 
 function discover(target, headRevision) {
-  return git(target, [
+  const paths = git(target, [
     "ls-tree",
     "-r",
     "-z",
@@ -67,10 +65,69 @@ function discover(target, headRevision) {
     ...skillRoots,
   ])
     .split("\0")
-    .filter((path) => path.endsWith("/SKILL.md"))
-    .map((path) => ({
-      relativePath: path.slice(0, -"/SKILL.md".length),
-    }));
+    .filter((path) => path.length > 0 && path.endsWith("/SKILL.md"));
+  assertPathBounds(paths, "discovered skill paths");
+  if (paths.length > MAX_DISCOVERED_SKILLS) {
+    throw new Error(
+      `discovered skill count exceeds limit of ${MAX_DISCOVERED_SKILLS}`,
+    );
+  }
+  return paths.map((path) => ({
+    relativePath: path.slice(0, -"/SKILL.md".length),
+  }));
+}
+
+function changedPaths(target, baseRevision, headRevision) {
+  const paths = git(target, [
+    "diff",
+    "--name-only",
+    "-z",
+    baseRevision,
+    headRevision,
+    "--",
+    ...skillRoots,
+  ])
+    .split("\0")
+    .filter((path) => path.length > 0);
+  assertPathBounds(paths, "changed skill paths");
+  if (paths.length > MAX_CHANGED_PATHS) {
+    throw new Error(
+      `changed skill path count exceeds limit of ${MAX_CHANGED_PATHS}`,
+    );
+  }
+  return paths;
+}
+
+function assertPathBounds(paths, label) {
+  let volume = 0;
+  for (const path of paths) {
+    if (path.length > MAX_PATH_LENGTH) {
+      throw new Error(
+        `${label} contain a path longer than ${MAX_PATH_LENGTH} characters`,
+      );
+    }
+    volume += Buffer.byteLength(path) + 1;
+    if (volume > MAX_PATH_VOLUME) {
+      throw new Error(
+        `${label} exceed the ${MAX_PATH_VOLUME}-byte volume limit`,
+      );
+    }
+  }
+}
+
+function isChanged(changed, skillPath) {
+  return changed.some(
+    (path) => path === skillPath || path.startsWith(`${skillPath}/`),
+  );
+}
+
+export function formatDeniedSkillDiagnostics(denied) {
+  return `[skill-policy] excluded ${JSON.stringify({
+    count: denied.length,
+    samplePaths: denied
+      .slice(0, MAX_DIAGNOSTIC_SAMPLES)
+      .map(({ relativePath }) => relativePath),
+  })}: changed from base revision`;
 }
 
 export function resolveCodeReviewSkills({
@@ -94,10 +151,11 @@ export function resolveCodeReviewSkills({
   for (const root of skillRoots)
     mkdirSync(resolve(staging, root), { recursive: true });
 
+  const changed = changedPaths(target, baseRevision, headRevision);
   const allowed = [];
   const denied = [];
   for (const skill of discover(target, headRevision)) {
-    if (isUnchanged(target, baseRevision, headRevision, skill.relativePath)) {
+    if (!isChanged(changed, skill.relativePath)) {
       stageFromBase(target, baseRevision, staging, skill.relativePath);
       allowed.push(skill);
     } else {
@@ -120,11 +178,8 @@ function main() {
   });
   console.log(`allowed_count=${result.allowed.length}`);
   console.log(`denied_count=${result.denied.length}`);
-  for (const skill of result.denied) {
-    console.error(
-      `[skill-policy] excluded ${JSON.stringify(skill.relativePath)}: changed from base revision`,
-    );
-  }
+  if (result.denied.length > 0)
+    console.error(formatDeniedSkillDiagnostics(result.denied));
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname) main();
