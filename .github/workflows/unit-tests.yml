@@ -2,6 +2,12 @@ name: Unit tests
 
 on:
   workflow_call:
+    inputs:
+      ripwire_relevant:
+        description: Whether the Ripwire smoke test is relevant.
+        required: false
+        default: "true"
+        type: string
   workflow_dispatch:
 
 permissions:
@@ -37,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      - name: Test local verification tooling
+        run: pnpm test:tooling
+
       - name: Check test mappings
         run: pnpm test:mapping
 
@@ -48,6 +57,7 @@ jobs:
 
   ripwire-smoke:
     name: Ripwire server smoke test
+    if: inputs.ripwire_relevant != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
