@@ -807,9 +807,11 @@ function validateRepeat(
 }
 
 function isLegacyExecutorMetadataIssue(issue: z.ZodIssue): boolean {
-  return issue.code === "unrecognized_keys" &&
+  return (
+    issue.code === "unrecognized_keys" &&
     issue.keys.length > 0 &&
-    issue.keys.every((key) => key === "executor");
+    issue.keys.every((key) => key === "executor")
+  );
 }
 
 function stripLegacyExecutorCallbacks(value: unknown): unknown {
@@ -820,7 +822,9 @@ function stripLegacyExecutorCallbacks(value: unknown): unknown {
 
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([key, entry]) => !(key === "execute" && typeof entry === "function"))
+      .filter(
+        ([key, entry]) => !(key === "execute" && typeof entry === "function"),
+      )
       .map(([key, entry]) => [key, stripLegacyExecutorCallbacks(entry)]),
   );
 }
@@ -973,11 +977,7 @@ export function validateParsedPlan(
   taskDefinitions?: TaskDefinitionRegistry,
   validateDefinitions = taskDefinitions !== undefined,
 ): void {
-  validatePlanWithCanonicalIssues(
-    plan,
-    taskDefinitions,
-    validateDefinitions,
-  );
+  validatePlanWithCanonicalIssues(plan, taskDefinitions, validateDefinitions);
 }
 
 export function validatePlan(

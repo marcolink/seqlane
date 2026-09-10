@@ -57,10 +57,7 @@ function parsePlan(value: unknown): Plan | undefined {
   return parsed.success ? (parsed.data as Plan) : undefined;
 }
 
-function requirePlan(
-  value: unknown,
-  reference: WorkflowReference,
-): Plan {
+function requirePlan(value: unknown, reference: WorkflowReference): Plan {
   const parsed = parsePlan(value);
   if (parsed === undefined) {
     throw new Error(
@@ -93,7 +90,10 @@ export async function loadWorkflow(
   let built: BuiltWorkflow;
 
   const workflowDefinition = workflowDefinitionSchema.safeParse(exported);
-  if (workflowDefinition.success && isAuthoredWorkflow(workflowDefinition.data)) {
+  if (
+    workflowDefinition.success &&
+    isAuthoredWorkflow(workflowDefinition.data)
+  ) {
     const workflowBuilt = buildWorkflow(
       workflowDefinition.data as AuthoredWorkflow,
     );

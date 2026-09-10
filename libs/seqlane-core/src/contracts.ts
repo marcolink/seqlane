@@ -238,8 +238,10 @@ export interface WorkflowDefinition<Input = unknown, Output = unknown> {
 declare const authoredWorkflowBrand: unique symbol;
 
 /** Workflow definition produced by the fluent authoring API. */
-export interface AuthoredWorkflow<Input = unknown, Output = unknown>
-  extends WorkflowDefinition<Input, Output> {
+export interface AuthoredWorkflow<
+  Input = unknown,
+  Output = unknown,
+> extends WorkflowDefinition<Input, Output> {
   readonly [authoredWorkflowBrand]: true;
 }
 
