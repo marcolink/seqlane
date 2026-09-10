@@ -1,7 +1,9 @@
 // @test-scope ./observability.ts
 // @test-scope ./observations.ts
+// @test-scope ./attempt-transitions.ts
 import { describe, expect, it, vi } from "vitest";
 import { SpanType } from "@mastra/core/observability";
+import { createAttemptTransitionDispatcher } from "./attempt-transitions.js";
 import { createOpenCodeObservability } from "./observability.js";
 import type {
   OpenCodeAssistantObservation,
@@ -131,6 +133,83 @@ function spanFactory(idPrefix = "") {
 }
 
 describe("OpenCode Mastra observability projection", () => {
+  it("projects legacy MCP tool lifecycle events into a closed tool span", () => {
+    const factory = spanFactory();
+    const activities: unknown[] = [];
+    const observations: unknown[] = [];
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: factory.root } },
+      "invocation-1",
+    );
+    const dispatcher = createAttemptTransitionDispatcher({
+      onActivity: (activity) => activities.push(activity),
+      onObservation: (observation) => {
+        observations.push(observation);
+        projector.observe(observation);
+      },
+    });
+
+    projector.observe(
+      assistant({ messageID: "assistant-1", completed: undefined }),
+    );
+    dispatcher.legacyTool({
+      sessionID: "session-1",
+      messageID: "assistant-1",
+      callID: "mcp-call-1",
+      tool: "ripwire_grep",
+      status: "called",
+      input: { query: "secret-input" },
+      metadata: { transcript: "secret-metadata" },
+    });
+    dispatcher.legacyTool({
+      sessionID: "session-1",
+      messageID: "assistant-1",
+      callID: "mcp-call-1",
+      status: "success",
+      output: "secret-output",
+    });
+
+    const toolSpan = factory.spans.find(
+      (span) => span.type === SpanType.TOOL_CALL,
+    );
+    const modelSpan = factory.spans.find(
+      (span) => span.type === SpanType.MODEL_GENERATION,
+    );
+    expect(observations).toEqual([
+      expect.objectContaining({
+        kind: "tool",
+        callID: "mcp-call-1",
+        messageID: "assistant-1",
+        tool: "ripwire_grep",
+        status: "running",
+      }),
+      expect.objectContaining({
+        kind: "tool",
+        callID: "mcp-call-1",
+        messageID: "assistant-1",
+        tool: "ripwire_grep",
+        status: "completed",
+      }),
+    ]);
+    expect(toolSpan?.name).toBe("ripwire_grep");
+    expect((toolSpan?.parent as { id?: string }).id).toBe(modelSpan?.id);
+    expect(toolSpan?.ended).toBe(true);
+    expect(activities).toEqual([
+      expect.objectContaining({
+        activityId: "mcp-call-1",
+        name: "ripwire_grep",
+        state: "started",
+      }),
+      expect.objectContaining({
+        activityId: "mcp-call-1",
+        name: "ripwire_grep",
+        state: "succeeded",
+      }),
+    ]);
+    expect(JSON.stringify(factory.spans)).not.toContain("secret-");
+    projector.finish();
+  });
+
   it("uses a normalized bounded tool name and namespaced agent metadata", () => {
     const factory = spanFactory();
     const projector = createOpenCodeObservability(

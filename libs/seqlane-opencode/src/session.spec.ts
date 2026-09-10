@@ -3,6 +3,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { createOpenCodeRun, type OpenCodeActivity } from "./session.js";
+import type { OpenCodeEventObservation } from "./observations.js";
 
 interface RequestLog {
   readonly method: string;
@@ -310,6 +311,7 @@ async function startServer(
             type: "session.next.tool.called",
             properties: {
               sessionID: "session-1",
+              assistantMessageID: "assistant-session-1",
               callID: "call-next-1",
               tool: "filesystem.read",
               input: { path: "/repo/package.json" },
@@ -320,6 +322,7 @@ async function startServer(
             type: "session.next.tool.progress",
             properties: {
               sessionID: "session-1",
+              assistantMessageID: "assistant-session-1",
               callID: "call-next-1",
               structured: { bytes: 12 },
               content: [],
@@ -330,6 +333,7 @@ async function startServer(
             type: "session.next.tool.success",
             properties: {
               sessionID: "session-1",
+              assistantMessageID: "assistant-session-1",
               callID: "call-next-1",
               structured: { bytes: 12 },
               content: [],
@@ -868,12 +872,14 @@ describe("OpenCode run session", () => {
     try {
       const run = await createOpenCodeRun({ url: fake.url });
       const activities: OpenCodeActivity[] = [];
+      const observations: OpenCodeEventObservation[] = [];
 
       await expect(
         run.prompt({
           text: "inspect the repository",
           schema: { type: "object" },
           onActivity: (activity) => activities.push(activity),
+          onObservation: (observation) => observations.push(observation),
         }),
       ).resolves.toMatchObject({ structured: { session: "session-1" } });
 
@@ -891,6 +897,24 @@ describe("OpenCode run session", () => {
           name: "filesystem.read",
           state: "succeeded",
           output: "12 bytes",
+        },
+      ]);
+      expect(observations).toEqual([
+        {
+          kind: "tool",
+          sessionID: "session-1",
+          messageID: "call-1",
+          callID: "call-1",
+          tool: "filesystem.read",
+          status: "running",
+        },
+        {
+          kind: "tool",
+          sessionID: "session-1",
+          messageID: "call-1",
+          callID: "call-1",
+          tool: "filesystem.read",
+          status: "completed",
         },
       ]);
     } finally {
@@ -972,11 +996,13 @@ describe("OpenCode run session", () => {
     try {
       const run = await createOpenCodeRun({ url: fake.url });
       const activities: OpenCodeActivity[] = [];
+      const observations: OpenCodeEventObservation[] = [];
 
       await run.prompt({
         text: "inspect the repository",
         schema: { type: "object" },
         onActivity: (activity) => activities.push(activity),
+        onObservation: (observation) => observations.push(observation),
       });
 
       expect(activities).toEqual([
@@ -997,6 +1023,23 @@ describe("OpenCode run session", () => {
           name: "filesystem.read",
           state: "succeeded",
           output: { bytes: 12 },
+        }),
+      ]);
+      expect(observations).toEqual([
+        expect.objectContaining({
+          messageID: "assistant-session-1",
+          callID: "call-next-1",
+          status: "running",
+        }),
+        expect.objectContaining({
+          messageID: "assistant-session-1",
+          callID: "call-next-1",
+          status: "running",
+        }),
+        expect.objectContaining({
+          messageID: "assistant-session-1",
+          callID: "call-next-1",
+          status: "completed",
         }),
       ]);
     } finally {

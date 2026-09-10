@@ -64,6 +64,37 @@ function activityState(
   return activityStates.get(status) ?? "failed";
 }
 
+function nativeToolObservation(
+  observation: OpenCodeLegacyToolObservation,
+  tool: string | undefined,
+): OpenCodeToolObservation | undefined {
+  if (tool === undefined) return undefined;
+  const status =
+    observation.status === "success" || observation.status === "completed"
+      ? "completed"
+      : observation.status === "failed" || observation.status === "error"
+        ? "error"
+        : observation.status === "pending"
+          ? "pending"
+          : "running";
+  return {
+    kind: "tool",
+    sessionID: observation.sessionID,
+    // Legacy events may identify their assistant message. Keep the call
+    // identity as a fallback for older event payloads.
+    messageID: observation.messageID ?? observation.callID,
+    callID: observation.callID,
+    tool,
+    status,
+    ...(observation.startedAt === undefined
+      ? {}
+      : { startedAt: observation.startedAt }),
+    ...(observation.endedAt === undefined
+      ? {}
+      : { endedAt: observation.endedAt }),
+  };
+}
+
 function activityFromToolObservation(
   observation: OpenCodeToolObservation | OpenCodeLegacyToolObservation,
   activityIdentities: Map<string, ActivityIdentity>,
@@ -123,6 +154,7 @@ export function createAttemptTransitionDispatcher({
   onObservation,
 }: AttemptTransitionCallbacks): AttemptTransitionDispatcher {
   const activityIdentities = new Map<string, ActivityIdentity>();
+  const toolNames = new Map<string, string>();
   const terminalObservations = new Set<string>();
 
   const dispatchObservation = (observation: OpenCodeEventObservation): void => {
@@ -149,6 +181,11 @@ export function createAttemptTransitionDispatcher({
       observation.status === "success" ||
       observation.status === "failed";
     if (terminal) terminalObservations.add(identity);
+    if (observation.tool !== undefined)
+      toolNames.set(observation.callID, observation.tool);
+    const tool = toolNames.get(observation.callID);
+    const nativeObservation = nativeToolObservation(observation, tool);
+    if (nativeObservation !== undefined) onObservation?.(nativeObservation);
     const activity = activityFromToolObservation(
       observation,
       activityIdentities,
