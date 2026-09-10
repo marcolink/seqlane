@@ -10,7 +10,7 @@ import type {
   WorkflowReference,
 } from "@seqlane/core";
 import { buildWorkflow, isAuthoredWorkflow, planSchema } from "@seqlane/core";
-import { validatePlan } from "../../runtime/validation/plan-validation.js";
+import { validateParsedPlan } from "../../runtime/validation/plan-validation.js";
 import { z } from "zod";
 
 const seqlaneSchemaShapeSchema = z.looseObject({
@@ -52,14 +52,22 @@ function describeReference(reference: WorkflowReference): string {
   return `${reference.moduleSpecifier}#${reference.exportName}`;
 }
 
-function parsePlan(value: unknown, reference: WorkflowReference): Plan {
+function parsePlan(value: unknown): Plan | undefined {
   const parsed = planSchema.safeParse(value);
-  if (!parsed.success) {
+  return parsed.success ? (parsed.data as Plan) : undefined;
+}
+
+function requirePlan(
+  value: unknown,
+  reference: WorkflowReference,
+): Plan {
+  const parsed = parsePlan(value);
+  if (parsed === undefined) {
     throw new Error(
-      `Workflow export "${describeReference(reference)}" must be a valid Plan or Plan factory result: ${parsed.error.message}`,
+      `Workflow export "${describeReference(reference)}" must be a valid Plan or Plan factory result`,
     );
   }
-  return parsed.data as Plan;
+  return parsed;
 }
 
 export async function loadWorkflow(
@@ -98,7 +106,7 @@ export async function loadWorkflow(
     const workflowFactory = workflowPlanFactorySchema.safeParse(exported);
     if (workflowFactory.success) {
       workflow = workflowFactory.data;
-      plan = parsePlan(workflowFactory.data(input), reference);
+      plan = requirePlan(workflowFactory.data(input), reference);
       built = {
         workflow: {
           id: reference.id,
@@ -110,14 +118,14 @@ export async function loadWorkflow(
         validatorDefinitions: new Map(),
       };
     } else {
-      const exportedPlan = planSchema.safeParse(exported);
-      if (!exportedPlan.success) {
+      const exportedPlan = parsePlan(exported);
+      if (exportedPlan === undefined) {
         throw new Error(
           `Workflow export "${describeReference(reference)}" must be a Plan or a Plan factory`,
         );
       }
-      workflow = exportedPlan.data;
-      plan = exportedPlan.data as Plan;
+      workflow = exportedPlan;
+      plan = exportedPlan;
       built = {
         workflow: {
           id: reference.id,
@@ -131,9 +139,7 @@ export async function loadWorkflow(
     }
   }
 
-  plan = parsePlan(plan, reference);
-
-  validatePlan(plan, taskDefinitions);
+  validateParsedPlan(plan, taskDefinitions);
 
   return {
     reference,

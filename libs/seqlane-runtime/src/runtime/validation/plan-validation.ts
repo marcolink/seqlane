@@ -9,32 +9,24 @@ import type {
 } from "@seqlane/core";
 import {
   modelSelectionSchema,
+  planSchema,
+  planSessionPolicySchema,
+  valueRefSchema,
+  validationSourceSchema,
   taskDefinitionSchema,
   workspacePolicySchema,
+  MAX_REPEAT_BODY_EXECUTIONS,
   type ModelSelection,
 } from "@seqlane/core";
 import { z } from "zod";
 import { WORKFLOW_INPUT_NODE_ID } from "../plan/binding-resolution.js";
 
-const valueRefSchema = z.looseObject({
-  type: z.literal("ref"),
-});
 const valueRefNodeIdSchema = z.string();
 const valueRefPathSchema = z.array(z.string());
 
-const validationSourceSchema = z.union([
-  z.looseObject({
-    type: z.literal("mechanical"),
-    validatorId: z.string().min(1),
-  }),
-  z.looseObject({
-    type: z.literal("task"),
-    taskId: z.string().min(1),
-    workspace: workspacePolicySchema,
-  }),
-]);
-
-const sessionPolicySchema = z.union([
+// This projection preserves targeted semantic diagnostics for malformed
+// in-memory fixtures after the canonical session schema rejects them.
+const sessionPolicyDiagnosticSchema = z.union([
   z.looseObject({
     type: z.literal("isolated"),
     model: z.unknown().optional(),
@@ -48,6 +40,7 @@ const sessionPolicySchema = z.union([
 ]);
 
 export type PlanValidationIssueCode =
+  | "invalid-plan-schema"
   | "empty-node-id"
   | "duplicate-node-id"
   | "unknown-dependency"
@@ -161,7 +154,7 @@ function validateTaskDefinition(
   }
 }
 
-type ParsedSessionPolicy = z.output<typeof sessionPolicySchema>;
+type ParsedSessionPolicy = z.output<typeof sessionPolicyDiagnosticSchema>;
 
 function describeModelSelection(selection: ModelSelection | undefined): string {
   if (selection === undefined) return "an unspecified executor default";
@@ -215,7 +208,10 @@ function resolveSessionSelections(
       return undefined;
     }
 
-    const policy = sessionPolicySchema.safeParse(node.session);
+    const canonicalPolicy = planSessionPolicySchema.safeParse(node.session);
+    const policy = canonicalPolicy.success
+      ? canonicalPolicy
+      : sessionPolicyDiagnosticSchema.safeParse(node.session);
     if (!policy.success) {
       addIssue(
         issues,
@@ -343,6 +339,23 @@ function validateReferences(
         owner?.nodeId,
       );
     }
+    return;
+  }
+
+  // Keep the canonical schema as the syntax authority, but retain the
+  // targeted semantic diagnostic for malformed in-memory ValueRef fixtures.
+  // The loader rejects these values before execution; this branch only makes
+  // direct runtime validation report the established issue code.
+  const taggedValueRef = z
+    .looseObject({ type: z.literal("ref") })
+    .safeParse(binding);
+  if (taggedValueRef.success) {
+    addIssue(
+      issues,
+      "invalid-value-ref-path",
+      `ValueRef in${owner ? ` "${owner.nodeId}"` : " the Plan output"} must have a string path`,
+      owner?.nodeId,
+    );
     return;
   }
 
@@ -557,12 +570,12 @@ function validateRepeat(
     !Number.isFinite(node.maximumIterations) ||
     !Number.isInteger(node.maximumIterations) ||
     node.maximumIterations < 1 ||
-    node.maximumIterations > 1_000
+    node.maximumIterations > MAX_REPEAT_BODY_EXECUTIONS
   ) {
     addIssue(
       issues,
       "invalid-repeat-limit",
-      `Repeat "${node.nodeId}" must have a positive integer maximumIterations from 1 through 1000`,
+      `Repeat "${node.nodeId}" must have a positive integer maximumIterations from 1 through ${MAX_REPEAT_BODY_EXECUTIONS}`,
       node.nodeId,
     );
   }
@@ -793,10 +806,47 @@ function validateRepeat(
   }
 }
 
-export function validatePlan(
+function isLegacyExecutorMetadataIssue(issue: z.ZodIssue): boolean {
+  return issue.code === "unrecognized_keys" &&
+    issue.keys.length > 0 &&
+    issue.keys.every((key) => key === "executor");
+}
+
+function stripLegacyExecutorCallbacks(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripLegacyExecutorCallbacks);
+  }
+  if (typeof value !== "object" || value === null) return value;
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key, entry]) => !(key === "execute" && typeof entry === "function"))
+      .map(([key, entry]) => [key, stripLegacyExecutorCallbacks(entry)]),
+  );
+}
+
+function validateCanonicalPlanShape(plan: Plan): readonly z.ZodIssue[] {
+  // Runtime-only local execution fixtures may carry callback values in their
+  // bindings. Project those callbacks out for syntax checking; the loader's
+  // boundary parse remains strict and rejects them before execution.
+  const canonicalInput = stripLegacyExecutorCallbacks(plan);
+  const parsed = planSchema.safeParse(canonicalInput);
+  if (parsed.success) return [];
+
+  // Older private runtime fixtures carried an executor callback on task
+  // nodes. It is not part of the Plan contract, but semantic validation still
+  // accepts those in-memory fixtures while loader/IPC boundaries remain strict.
+  const structuralIssues = parsed.error.issues.filter(
+    (issue) => !isLegacyExecutorMetadataIssue(issue),
+  );
+  return structuralIssues;
+}
+
+function validatePlanWithCanonicalIssues(
   plan: Plan,
   taskDefinitions?: TaskDefinitionRegistry,
   validateDefinitions = taskDefinitions !== undefined,
+  canonicalIssues: readonly z.ZodIssue[] = [],
 ): void {
   const issues: PlanValidationIssue[] = [];
   const nodesById = new Map<string, PlanNode>();
@@ -898,7 +948,47 @@ export function validatePlan(
     );
   }
 
+  if (issues.length === 0) {
+    for (const issue of canonicalIssues) {
+      const nodeIndex = issue.path[1];
+      addIssue(
+        issues,
+        "invalid-plan-schema",
+        `Plan schema validation failed: ${issue.message}`,
+        typeof nodeIndex === "number" && plan.nodes[nodeIndex]
+          ? plan.nodes[nodeIndex].nodeId
+          : undefined,
+      );
+    }
+  }
+
   if (issues.length > 0) {
     throw new PlanValidationError(issues);
   }
+}
+
+/** Validate a Plan that has already passed the canonical core schema. */
+export function validateParsedPlan(
+  plan: Plan,
+  taskDefinitions?: TaskDefinitionRegistry,
+  validateDefinitions = taskDefinitions !== undefined,
+): void {
+  validatePlanWithCanonicalIssues(
+    plan,
+    taskDefinitions,
+    validateDefinitions,
+  );
+}
+
+export function validatePlan(
+  plan: Plan,
+  taskDefinitions?: TaskDefinitionRegistry,
+  validateDefinitions = taskDefinitions !== undefined,
+): void {
+  validatePlanWithCanonicalIssues(
+    plan,
+    taskDefinitions,
+    validateDefinitions,
+    validateCanonicalPlanShape(plan),
+  );
 }

@@ -96,6 +96,16 @@ describe("canonical Plan schemas", () => {
     ).toBe(false);
   });
 
+  it("rejects malformed ValueRef bindings instead of treating them as records", () => {
+    expect(
+      planSchema.safeParse({
+        workflow: { id: "malformed-ref" },
+        nodes: [],
+        output: { type: "ref", nodeId: "missing", path: "not-an-array" },
+      }).success,
+    ).toBe(false);
+  });
+
   it("snapshots declarations and output when define is called", () => {
     const task = defineTask({
       id: "snapshot-task",

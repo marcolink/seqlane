@@ -5,6 +5,7 @@ import type {
   TaskId,
   ValidationIssue,
 } from "./contracts.js";
+import { MAX_REPEAT_BODY_EXECUTIONS } from "./plan-types.js";
 
 export type SeqlaneErrorCategory =
   | "InputValidationError"
@@ -117,7 +118,7 @@ export class LoopLimitExceededError extends SeqlaneError {
 /** Raised when all repeat bodies in one run exceed the global safety budget. */
 export class RunRepeatLimitExceededError extends SeqlaneError {
   constructor(
-    readonly maximumExecutions = 1_000,
+    readonly maximumExecutions = MAX_REPEAT_BODY_EXECUTIONS,
     readonly attemptedExecution = maximumExecutions + 1,
   ) {
     super(

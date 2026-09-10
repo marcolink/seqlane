@@ -96,7 +96,12 @@ export const valueBindingSchema = z.lazy(() =>
     z.null(),
     valueRefSchema,
     z.array(valueBindingSchema),
-    z.record(z.string(), valueBindingSchema),
+    z
+      .record(z.string(), valueBindingSchema)
+      .refine(
+        (value) => value.type !== "ref",
+        "Objects tagged as ValueRefs must satisfy the canonical ValueRef schema",
+      ),
   ]),
 ) as z.ZodType<ValueBinding>;
 

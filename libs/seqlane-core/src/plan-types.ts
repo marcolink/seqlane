@@ -17,6 +17,9 @@ export interface WorkflowIdentity {
   readonly version?: string;
 }
 
+/** Maximum number of repeat-body executions admitted in one run. */
+export const MAX_REPEAT_BODY_EXECUTIONS = 1_000;
+
 export type PlanSessionPolicy =
   | { readonly type: "isolated"; readonly model?: ModelSelection }
   | { readonly type: "reuse"; readonly from: PlanNodeId }
@@ -102,10 +105,10 @@ export interface Plan {
   readonly output: ValueBinding;
 }
 
-const planNodeIdSchema = z.string().min(1);
+export const planNodeIdSchema = z.string().min(1);
 const dependencySchema = z.array(planNodeIdSchema);
 
-const taskNodeSchema = z.strictObject({
+export const taskNodeSchema = z.strictObject({
   type: z.literal("task"),
   taskId: z.string().min(1),
   nodeId: planNodeIdSchema,
@@ -115,7 +118,7 @@ const taskNodeSchema = z.strictObject({
   dependsOn: dependencySchema,
 });
 
-const validationSourceSchema = z.discriminatedUnion("type", [
+export const validationSourceSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("mechanical"),
     validatorId: z.string().min(1),
@@ -127,7 +130,7 @@ const validationSourceSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-const validationCheckNodeSchema = z.strictObject({
+export const validationCheckNodeSchema = z.strictObject({
   type: z.literal("validation.check"),
   nodeId: planNodeIdSchema,
   source: validationSourceSchema,
@@ -135,7 +138,7 @@ const validationCheckNodeSchema = z.strictObject({
   dependsOn: dependencySchema,
 });
 
-const validationGateNodeSchema = z.strictObject({
+export const validationGateNodeSchema = z.strictObject({
   type: z.literal("validation.gate"),
   nodeId: planNodeIdSchema,
   input: valueBindingSchema,
@@ -160,7 +163,12 @@ export const repeatNodeSchema = z.strictObject({
   nodeId: planNodeIdSchema,
   input: valueBindingSchema,
   dependsOn: dependencySchema,
-  maximumIterations: z.number().int().finite().min(1).max(1_000),
+  maximumIterations: z
+    .number()
+    .int()
+    .finite()
+    .min(1)
+    .max(MAX_REPEAT_BODY_EXECUTIONS),
   body: z.strictObject({
     inputNodeId: planNodeIdSchema,
     nodes: z.array(repeatBodyNodeSchema),
