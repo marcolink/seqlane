@@ -1,28 +1,37 @@
 import { Args, Command, Flags } from "@oclif/core";
 import {
   isJsonValue,
+  RuntimeError,
   type JsonValue,
   type RunRequest,
-  type WorkflowReference,
 } from "@seqlane/core";
 import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
-import { dirname, extname, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import { closeSync, openSync, readSync } from "node:fs";
-import { createRequire } from "node:module";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { launchRunner } from "../runner-client.js";
 import { createEventDispatcher } from "../event-dispatcher.js";
-import { createStudioPublisher } from "../studio-publisher.js";
+import { createExecutionEventBridge } from "@seqlane/runtime";
+import {
+  OperationalClient,
+  OperationalClientError,
+} from "../operational-client.js";
+import { loadRuntimeAdapterConfiguration } from "@seqlane/runtime/operational-host";
+import { startOwnedOperationalHost } from "../operational-command-host.js";
 import { createRecordingConsumer } from "../recording.js";
-import { defaultStudioPort, startStudioSession } from "@seqlane/studio";
 import {
   connectTerminalResize,
   createCliRenderer,
   createOutputCapabilities,
 } from "../output.js";
 import { parseOutputMode } from "../output-mode.js";
+import { workflowRootsFromFlags } from "../workflow-roots.js";
+import {
+  discoverWorkflowDescriptors,
+  resolveWorkflowSelection,
+  type WorkflowRoots,
+} from "../workflow-discovery.js";
+import { isExplicitWorkflowReference } from "../workflow-reference.js";
 
-const packageRequire = createRequire(import.meta.url);
 const localRuntimeId = "local";
 const MAX_INPUT_FILE_BYTES = 1_048_576;
 
@@ -30,58 +39,42 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function parseWorkflowReference(value: string): WorkflowReference {
-  const separator = value.lastIndexOf("#");
-  if (separator === -1) {
-    return {
-      id: value,
-      moduleSpecifier: resolveWorkflowFile(value),
-      exportName: "default",
-    };
+function remoteError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return new Error(error.message);
   }
-
-  if (separator === 0 || separator === value.length - 1) {
-    throw new Error(
-      "workflow must be a workflow file or <module-specifier>#<export-name>",
-    );
+  try {
+    return new Error(JSON.stringify(error));
+  } catch {
+    return new Error(String(error));
   }
-
-  const moduleSpecifier = value.slice(0, separator);
-  const exportName = value.slice(separator + 1);
-  let resolvedModuleSpecifier = moduleSpecifier;
-
-  if (moduleSpecifier.startsWith(".") || moduleSpecifier.startsWith("/")) {
-    resolvedModuleSpecifier = pathToFileURL(
-      resolve(process.cwd(), moduleSpecifier),
-    ).href;
-  } else if (moduleSpecifier.startsWith("file:")) {
-    resolvedModuleSpecifier = new URL(moduleSpecifier).href;
-  }
-
-  return {
-    id: value,
-    moduleSpecifier: resolvedModuleSpecifier,
-    exportName,
-  };
 }
 
-function resolveWorkflowFile(value: string): string {
-  let path: string;
-  try {
-    path = value.startsWith("file:")
-      ? fileURLToPath(value)
-      : resolve(process.cwd(), value);
-  } catch {
-    throw new Error("workflow file reference must be a valid path or file URL");
+async function cancelOperationalRun(
+  client: OperationalClient,
+  runId: string,
+  workflowId: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    try {
+      await client.cancelRun(runId, workflowId);
+      return;
+    } catch (error) {
+      if (!(error instanceof OperationalClientError) || error.status !== 404) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
   }
-
-  if (!new Set([".ts", ".mts", ".js", ".mjs"]).has(extname(path))) {
-    throw new Error(
-      "workflow file must use a .ts, .mts, .js, or .mjs extension",
-    );
-  }
-
-  return pathToFileURL(path).href;
+  throw new OperationalClientError(
+    `Operational run "${runId}" did not become cancellable before the retry limit`,
+  );
 }
 
 function parseJsonInput(value: string): JsonValue {
@@ -137,16 +130,20 @@ function readJsonInput(
   }
 }
 
-function createRunRequest(
+export function createRunRequest(
   workflow: string,
   input: string,
   runtime: string | undefined,
   workspace: string | undefined,
   dryRun: boolean,
+  roots: WorkflowRoots,
 ): RunRequest {
+  const workflows = isExplicitWorkflowReference(workflow)
+    ? []
+    : discoverWorkflowDescriptors(roots);
   return {
     type: "run.start",
-    workflow: parseWorkflowReference(workflow),
+    workflow: resolveWorkflowSelection(workflow, workflows).reference,
     input: parseJsonInput(input),
     runtime: {
       id: runtime ?? localRuntimeId,
@@ -157,17 +154,17 @@ function createRunRequest(
 }
 
 export default class RunCommand extends Command {
-  static override description =
-    "Run one explicitly selected workflow in a fresh runner";
+  static override description = "Run one selected workflow in a fresh runner";
 
   static override examples = [
     '<%= config.bin %> run ./examples/minimal-workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local',
-    '<%= config.bin %> run ./examples/minimal-workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local --studio',
+    '<%= config.bin %> run repository:review --input \'{"topic":"Seqlane"}\'',
   ];
 
   static override args = {
     workflow: Args.string({
-      description: "workflow file or <module-specifier>#<export-name>",
+      description:
+        "qualified or unique workflow name, or direct file/module reference",
       required: true,
     }),
   };
@@ -191,23 +188,39 @@ export default class RunCommand extends Command {
       options: ["auto", "human", "ci", "json"],
       default: "auto",
     }),
-    studio: Flags.boolean({
-      description: "Use the local Studio",
-    }),
-    studioPort: Flags.integer({
-      description: "Loopback port for the local Studio",
-    }),
     record: Flags.string({
       description: "Write bounded canonical execution events to a new file",
     }),
+    "server-url": Flags.string({
+      description: "Existing operational server URL",
+    }),
+    hostname: Flags.string({
+      description: "Loopback hostname for an owned operational host",
+      default: "127.0.0.1",
+    }),
+    port: Flags.integer({
+      description: "Loopback port for an owned operational host",
+      default: 0,
+    }),
+    "storage-url": Flags.string({
+      description: "Mastra LibSQL storage URL for an owned host",
+      default: "file:./.seqlane/mastra.db",
+    }),
     dry: Flags.boolean({
       description: "Print the calculated Plan without executing workflow tasks",
+    }),
+    "repository-root": Flags.string({
+      description: "Repository workflow descriptor root",
+    }),
+    "user-root": Flags.string({
+      description: "User workflow descriptor root",
     }),
   };
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(RunCommand);
     let request: RunRequest;
+    let adapterConfiguration: unknown;
 
     try {
       request = createRunRequest(
@@ -216,35 +229,20 @@ export default class RunCommand extends Command {
         flags.runtime,
         flags.workspace,
         flags.dry,
+        workflowRootsFromFlags(flags),
       );
+      if (
+        flags["server-url"] === undefined &&
+        request.runtime.id !== localRuntimeId &&
+        request.runtime.id !== "test-fixture"
+      ) {
+        adapterConfiguration = loadRuntimeAdapterConfiguration();
+      }
     } catch (error) {
       this.error(errorMessage(error));
     }
 
-    let studioAddress: string | undefined;
-    let ownedStudio: Awaited<ReturnType<typeof startStudioSession>> | undefined;
-    if (flags.studio) {
-      const port = flags.studioPort ?? defaultStudioPort;
-      studioAddress = `http://127.0.0.1:${port}`;
-      try {
-        const health = await fetch(`${studioAddress}/health`);
-        if (!health.ok)
-          throw new Error(`Studio returned HTTP ${health.status}`);
-      } catch {
-        ownedStudio = await startStudioSession({
-          port,
-          clientRoot: dirname(
-            packageRequire.resolve("@seqlane/studio-app/client/index.html"),
-          ),
-        });
-        studioAddress = ownedStudio.address;
-      }
-    }
-
     const capabilities = createOutputCapabilities();
-    if (studioAddress !== undefined) {
-      capabilities.stderr.write(`Seqlane Studio: ${studioAddress}/\n`);
-    }
     const renderer = flags.dry
       ? undefined
       : createCliRenderer(parseOutputMode(flags.output), capabilities).renderer;
@@ -252,13 +250,6 @@ export default class RunCommand extends Command {
       renderer === undefined
         ? () => undefined
         : connectTerminalResize(renderer, process.stdout);
-    const studioPublisher =
-      studioAddress === undefined
-        ? undefined
-        : createStudioPublisher(studioAddress, request.workflow.id, {
-            onDiagnostic: (message) =>
-              capabilities.stderr.write(message + "\n"),
-          });
     let recordingConsumer: SeqlaneExecutionEventConsumer | undefined;
     if (flags.record !== undefined) {
       try {
@@ -267,7 +258,6 @@ export default class RunCommand extends Command {
           request.workflow.id,
         );
       } catch (error) {
-        await ownedStudio?.stop();
         this.error(`Could not create recording: ${errorMessage(error)}`);
       }
       capabilities.stderr.write(
@@ -298,9 +288,6 @@ export default class RunCommand extends Command {
     const dispatcher = createEventDispatcher(
       [
         { name: "output", consumer: outputConsumer },
-        ...(studioPublisher === undefined
-          ? []
-          : [{ name: "Studio", consumer: studioPublisher }]),
         ...(recordingConsumer === undefined
           ? []
           : [{ name: "recording", consumer: recordingConsumer }]),
@@ -309,6 +296,145 @@ export default class RunCommand extends Command {
         onDiagnostic: (message) => capabilities.stderr.write(message + "\n"),
       },
     );
+
+    if (!flags.dry) {
+      const workId = randomUUID();
+      const runId = randomUUID();
+      const events = createExecutionEventBridge(async (event) => {
+        dispatcher.consume(event);
+      });
+      let client: OperationalClient | undefined;
+      let ownedHost:
+        Awaited<ReturnType<typeof startOwnedOperationalHost>> | undefined;
+      let cancellationRequested = false;
+      let cancellationPromise: Promise<void> | undefined;
+      let cancellationError: unknown;
+      const observationController = new AbortController();
+      const requestCancellation = (): void => {
+        cancellationRequested = true;
+        if (client === undefined || cancellationPromise !== undefined) return;
+        cancellationPromise = cancelOperationalRun(
+          client,
+          runId,
+          request.workflow.id,
+        );
+        void cancellationPromise.catch((error: unknown) => {
+          cancellationError = error;
+          observationController.abort(error);
+        });
+      };
+      let exitStatus = 1;
+      const onSignal = (): void => {
+        requestCancellation();
+      };
+      process.once("SIGINT", onSignal);
+      process.once("SIGTERM", onSignal);
+      try {
+        ownedHost =
+          flags["server-url"] === undefined
+            ? await startOwnedOperationalHost({
+                roots: workflowRootsFromFlags(flags),
+                workflow: request.workflow,
+                workflowInput: request.input,
+                host: flags.hostname,
+                port: flags.port,
+                storageUrl: flags["storage-url"],
+                adapterConfiguration,
+                eventSink: () => events,
+                onSessionUiAvailable: (notification) => {
+                  if (renderer?.handleRuntimeSessionUi !== undefined) {
+                    renderer.handleRuntimeSessionUi(notification);
+                    return;
+                  }
+                  capabilities.stderr.write(
+                    `Seqlane session UI: ${notification.browserUrl}\n`,
+                  );
+                },
+              })
+            : undefined;
+        client = new OperationalClient(
+          flags["server-url"] ?? ownedHost?.address ?? "",
+        );
+        if (cancellationRequested) requestCancellation();
+        events.emit({ type: "run.started", workId, runId });
+        const result = await client.startRun({
+          workflowId: request.workflow.id,
+          runId,
+          workId,
+          input: request.input,
+          runtimeId: request.runtime.id,
+          workspace: request.runtime.workspace,
+          signal: observationController.signal,
+        });
+        await cancellationPromise;
+        if (cancellationError !== undefined) throw cancellationError;
+        if (
+          cancellationRequested ||
+          result.status === "canceled" ||
+          result.status === "cancelled"
+        ) {
+          events.emit({ type: "run.cancelled", workId, runId });
+          exitStatus = 130;
+        } else if (result.status === "success" && isJsonValue(result.result)) {
+          events.emit({
+            type: "run.succeeded",
+            workId,
+            runId,
+            output: result.result,
+          });
+          exitStatus = 0;
+        } else {
+          events.emit({
+            type: "run.failed",
+            workId,
+            runId,
+            error: new RuntimeError(
+              result.error === undefined
+                ? new Error(
+                    `Operational run ended with status "${result.status}"`,
+                  )
+                : remoteError(result.error),
+            ),
+          });
+        }
+      } catch (error) {
+        let failure = error;
+        if (cancellationPromise !== undefined) {
+          try {
+            await cancellationPromise;
+          } catch (cancellationFailure) {
+            failure = cancellationFailure;
+          }
+        }
+        if (cancellationError !== undefined) failure = cancellationError;
+        events.emit({
+          type: "run.failed",
+          workId,
+          runId,
+          error: new RuntimeError(remoteError(failure)),
+        });
+      } finally {
+        process.removeListener("SIGINT", onSignal);
+        process.removeListener("SIGTERM", onSignal);
+        await ownedHost?.close().catch(() => undefined);
+      }
+      await events.flush();
+      await dispatcher.flush();
+      await dispatcher.close();
+      try {
+        await renderer?.finish();
+      } catch (error) {
+        capabilities.stderr.write(
+          "seqlane output error: " + errorMessage(error) + "\n",
+        );
+      } finally {
+        disconnectResize();
+      }
+      process.exitCode = exitStatus;
+      return;
+    }
+
+    const { launchRunner } = await import("../runner-client.js");
     const client = launchRunner(request, {
       onExecutionEvent: (event) => dispatcher.consume(event),
       onRuntimeSessionUiAvailable: (notification) => {
@@ -342,7 +468,6 @@ export default class RunCommand extends Command {
     } finally {
       disconnectResize();
     }
-    await ownedStudio?.stop();
     process.exitCode = result.status;
   }
 }

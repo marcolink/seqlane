@@ -1,10 +1,12 @@
 import type {
   ModelRef,
   ModelSelection,
+  AgentTaskRequest,
   TaskNode,
   TaskDefinition,
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
+import type { ObservabilityContext } from "@mastra/core/observability";
 
 type LegacyTaskNode = TaskNode & { readonly executor?: string };
 
@@ -67,9 +69,11 @@ export class UntrackedMutatingBackgroundProcessError extends Error {
 
 export interface ExecutorRequest {
   readonly invocationId: string;
+  readonly observability: Partial<ObservabilityContext>;
   readonly taskId: string;
   readonly executor: string;
   readonly input: unknown;
+  readonly agent?: AgentTaskRequest;
   readonly signal: AbortSignal;
   readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
   /** Report bounded executor diagnostics for the invocation output. */

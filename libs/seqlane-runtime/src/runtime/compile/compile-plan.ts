@@ -40,16 +40,24 @@ import { executeRepeatNode } from "../invocation/repeat-execution.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import { validatePlan } from "../validation/plan-validation.js";
+import {
+  lowerReuseSessionOrdering,
+  withLoweredPlanNodes,
+} from "../session/session-ordering.js";
+import { lowerWorkspaceOrdering } from "../workspace/workspace-ordering.js";
 
 export interface PreparedPlan {
   readonly plan: Plan;
   readonly orderedNodes: readonly PlanNode[];
 }
 
-export interface CompiledWorkflow {
+export interface PreparedPlanExecution {
   readonly plan: Plan;
   readonly orderedNodes: readonly PlanNode[];
   readonly context: ExecutionContext;
+}
+
+export interface CompiledPlan extends PreparedPlanExecution {
   readonly program: SequentialProgram;
 }
 
@@ -107,12 +115,18 @@ function computeRemainingConsumers(plan: Plan): Map<string, number> {
   return remainingConsumers;
 }
 
-export class EffectCompiler {
+export class PlanCompiler {
   /** Prepare a Plan without constructing a workflow. */
   compile(plan: Plan, taskDefinitions?: TaskDefinitionRegistry): PreparedPlan {
     return {
       plan,
-      orderedNodes: orderPlanNodes(plan, true, taskDefinitions),
+      // Standalone Plan ordering is useful before definitions are loaded.
+      // Workflow compilation performs the full definition validation above.
+      orderedNodes: orderPlanNodes(
+        plan,
+        taskDefinitions !== undefined,
+        taskDefinitions,
+      ),
     };
   }
 
@@ -120,12 +134,17 @@ export class EffectCompiler {
     return this.compile(plan);
   }
 
-  compileWorkflow(
+  prepareWorkflow(
     plan: Plan,
     options: CompileWorkflowOptions,
-  ): CompiledWorkflow {
+  ): PreparedPlanExecution {
     validatePlan(plan, options.taskDefinitions);
     const prepared = this.compile(plan, options.taskDefinitions);
+    const orderedNodes = lowerWorkspaceOrdering(
+      lowerReuseSessionOrdering(prepared.orderedNodes),
+      options.workspaceResources,
+    );
+    const loweredPlan = withLoweredPlanNodes(plan, orderedNodes);
     assertValidationRegistries(
       plan,
       options.taskDefinitions,
@@ -146,11 +165,25 @@ export class EffectCompiler {
       events: options.events,
     });
 
-    for (const node of prepared.orderedNodes) {
+    for (const node of orderedNodes) {
       const invocationId = context.createInvocationId(node.nodeId);
       context.invocationIds.set(node.nodeId, invocationId);
       invocationCreationOrdinal(context, invocationId);
     }
+
+    return {
+      plan: loweredPlan,
+      orderedNodes,
+      context,
+    };
+  }
+
+  compileWorkflow(plan: Plan, options: CompileWorkflowOptions): CompiledPlan {
+    const {
+      plan: loweredPlan,
+      orderedNodes,
+      context,
+    } = this.prepareWorkflow(plan, options);
     const checkNodes = new Map(
       plan.nodes
         .flatMap((node) => {
@@ -165,7 +198,7 @@ export class EffectCompiler {
     );
     const steps: SequentialProgramStep[] = [];
 
-    for (const node of prepared.orderedNodes) {
+    for (const node of orderedNodes) {
       steps.push({
         id: node.nodeId,
         dependsOn: node.dependsOn,
@@ -177,15 +210,19 @@ export class EffectCompiler {
           if (node.type === "task") {
             await executeTaskNode(context, node, abortSignal, {
               invocationId: invocationIdForNode(context, node),
+              observability: {},
               results: context.results,
               remainingConsumers: context.remainingConsumers,
               subject: { type: "task", taskId: node.taskId },
+              workspaceAdmission: "graph",
             });
           } else if (node.type === "validation.check") {
             await executeValidationCheckNode(context, node, abortSignal, {
               invocationId: invocationIdForNode(context, node),
+              observability: {},
               results: context.results,
               remainingConsumers: context.remainingConsumers,
+              workspaceAdmission: "graph",
             });
           } else {
             const checkNode = checkNodes.get(node.checkNodeId);
@@ -201,6 +238,7 @@ export class EffectCompiler {
               abortSignal,
               {
                 invocationId: invocationIdForNode(context, node),
+                observability: {},
                 results: context.results,
                 remainingConsumers: context.remainingConsumers,
               },
@@ -213,7 +251,7 @@ export class EffectCompiler {
 
     steps.push({
       id: "__seqlane_result",
-      dependsOn: prepared.orderedNodes.map((node) => node.nodeId),
+      dependsOn: orderedNodes.map((node) => node.nodeId),
       execute: async () => {
         try {
           context.workflowResult = resolveBinding(
@@ -240,8 +278,8 @@ export class EffectCompiler {
     });
 
     return {
-      plan,
-      orderedNodes: prepared.orderedNodes,
+      plan: loweredPlan,
+      orderedNodes,
       context,
       program: createSequentialProgram({ steps }),
     };
@@ -249,5 +287,5 @@ export class EffectCompiler {
 }
 
 export function compilePlan(plan: Plan): PreparedPlan {
-  return new EffectCompiler().compile(plan);
+  return new PlanCompiler().compile(plan);
 }

@@ -1,11 +1,11 @@
 ---
 id: spec.fluent-seqlane-flow-dsl
 title: Fluent Seqlane Flow DSL and Conditioned Repeat
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - adr.fluent-seqlane-flow-dsl
 supersedes: []
@@ -388,3 +388,4 @@ map.
 ## Traceability
 
 - [adr.fluent-seqlane-flow-dsl](../adrs/2026-09-02-fluent-seqlane-flow-dsl.md)
+- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)

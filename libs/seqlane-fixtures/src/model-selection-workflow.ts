@@ -1,4 +1,10 @@
-import { branch, createFlow, defineTask, isolated, reuse } from "@seqlane/core";
+import {
+  branch,
+  createFlow,
+  defineAgentTask,
+  isolated,
+  reuse,
+} from "@seqlane/core";
 import { anthropic, openai } from "@seqlane/core/models";
 import { z } from "zod";
 
@@ -13,41 +19,36 @@ export const MODEL_SELECTION_INVOCATIONS = {
   child: "model-selection.child",
 } as const;
 
-export const isolatedModelSelectionTask = defineTask({
+export const isolatedModelSelectionTask = defineAgentTask({
   id: MODEL_SELECTION_INVOCATIONS.isolated,
-  workspace: "shared",
   input: inputSchema,
   output: outputSchema,
   goal: ({ label }) => `Complete the isolated fixture task for ${label}.`,
 });
 
-export const sourceModelSelectionTask = defineTask({
+export const sourceModelSelectionTask = defineAgentTask({
   id: MODEL_SELECTION_INVOCATIONS.source,
-  workspace: "shared",
   input: inputSchema,
   output: outputSchema,
   goal: ({ label }) => `Create the source fixture context for ${label}.`,
 });
 
-export const reuseModelSelectionTask = defineTask({
+export const reuseModelSelectionTask = defineAgentTask({
   id: MODEL_SELECTION_INVOCATIONS.reuse,
-  workspace: "shared",
   input: inputSchema,
   output: outputSchema,
   goal: ({ label }) => `Continue the source fixture context for ${label}.`,
 });
 
-export const branchModelSelectionTask = defineTask({
+export const branchModelSelectionTask = defineAgentTask({
   id: MODEL_SELECTION_INVOCATIONS.branch,
-  workspace: "shared",
   input: inputSchema,
   output: outputSchema,
   goal: ({ label }) => `Analyze a branched fixture context for ${label}.`,
 });
 
-export const childModelSelectionTask = defineTask({
+export const childModelSelectionTask = defineAgentTask({
   id: MODEL_SELECTION_INVOCATIONS.child,
-  workspace: "shared",
   input: inputSchema,
   output: outputSchema,
   goal: ({ label }) => `Complete a child fixture context for ${label}.`,
@@ -65,12 +66,14 @@ export const modelSelectionWorkflow = createFlow({
   }),
 })
   .task("isolated", isolatedModelSelectionTask, ({ input }) => input, {
+    workspace: "shared",
     session: isolated({
       model: openai("gpt-5.6-sol"),
       reasoning: "medium",
     }),
   })
   .task("source", sourceModelSelectionTask, ({ input }) => input, {
+    workspace: "shared",
     session: isolated({
       model: openai("gpt-5.6-luna"),
       reasoning: "high",
@@ -80,9 +83,13 @@ export const modelSelectionWorkflow = createFlow({
     "reuse",
     reuseModelSelectionTask,
     ({ tasks }) => ({ label: tasks.source.output.label }),
-    { session: ({ tasks }) => reuse(tasks.source.session) },
+    {
+      workspace: "shared",
+      session: ({ tasks }) => reuse(tasks.source.session),
+    },
   )
   .task("branch", branchModelSelectionTask, ({ input }) => input, {
+    workspace: "shared",
     session: ({ tasks }) =>
       branch(tasks.source.session, {
         model: anthropic("claude-sonnet-4-6"),
@@ -90,6 +97,7 @@ export const modelSelectionWorkflow = createFlow({
       }),
   })
   .task("child", childModelSelectionTask, ({ input }) => input, {
+    workspace: "shared",
     session: ({ tasks }) =>
       branch(tasks.source.session, {
         model: openai("gpt-5.6-sol"),

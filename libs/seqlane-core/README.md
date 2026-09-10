@@ -4,8 +4,30 @@ Public Seqlane contracts and serializable Plan IR.
 
 This package is intentionally independent of Mastra. Runtime integration belongs in `@seqlane/runtime` and must not leak into this public boundary.
 
-`SeqlaneSchema` is the small Mastra-independent schema contract used by the
-runtime to validate external task inputs and outputs.
+### Workflow discovery descriptors
+
+Workflow composition uses ordinary TypeScript imports. Discovery is a separate
+CLI feature for reusable repository and user workflows.
+
+Put repository descriptors in `.seqlane/workflows/*.json`. Put user
+descriptors in `~/.config/seqlane/workflows/*.json`. A descriptor is a strict
+JSON object with this shape:
+
+```json
+{
+  "name": "review",
+  "moduleSpecifier": "./review.ts",
+  "exportName": "default",
+  "description": "Review a change"
+}
+```
+
+The module reference is relative to the descriptor file. The CLI qualifies
+discovered names with `repository:` or `user:`. It rejects an ambiguous
+unqualified name instead of choosing a scope silently.
+
+`SeqlaneSchema` is a Mastra-independent Zod schema used by the runtime to
+validate external workflow and task inputs and outputs.
 
 ### Model catalog
 
@@ -35,31 +57,25 @@ result, and executor-activity values by default. Optional
 JSON Pointer paths for stricter field-level display; it does not add executor
 data to a Plan.
 
-Tasks are agent-oriented and declare a dynamic `goal` plus optional
-`instructions` and `references`. These fields describe requested work without
-selecting an executor or carrying runtime connection data.
+Every task has one `execute({ input, signal, context })` contract. Use
+`defineAgentTask` and `defineShellTask` as ergonomic factories; factory inputs
+do not accept `execute`. A raw `defineTask` may call `context.runAgent` when it
+needs an executor.
 
-Agent task handles also expose an opaque `.session` checkpoint. Omit `session`
-for a fresh session (the same as `isolated()`), use `reuse(source.session)` to
-continue one session, or `branch(source.session)` to create a diverging child.
-Both reuse and branch infer the source dependency; a checkpoint has one reuse
-consumer and any number of branch consumers. Mechanical task handles do not
-expose `.session`.
-
-### Local tasks
-
-Use `defineTask` with `execute` for deterministic work that does not need an
-agent. Use `goal` for an agent task; a definition must use exactly one of these
-fields. A local task returns an output-only handle, so it cannot select a
-session, model, or token-producing executor.
+Task handles expose `.session` only when their invocation declares a session
+policy. Omit `session` for an isolated one-shot invocation, use
+`reuse(source.session)` to continue one session, or use
+`branch(source.session)` to create a diverging child. Both reuse and branch
+infer the source dependency. Workspace and session policy belong to invocation
+options and serialized Plan nodes, not task definitions.
 
 The local context exposes only direct executable and argv invocation:
 
 ```ts
-import { defineTask } from "@seqlane/core";
+import { defineShellTask } from "@seqlane/core";
 import { z } from "zod";
 
-const gitStatus = defineTask({
+const gitStatus = defineShellTask({
   id: "git-status",
   input: z.object({}),
   output: z.object({
@@ -67,29 +83,31 @@ const gitStatus = defineTask({
     stdout: z.string(),
     stderr: z.string(),
   }),
-  execute: async (_input, { exec }) =>
-    exec({ command: "git", args: ["status", "--porcelain=v1"] }),
+  executable: "git",
+  argv: () => ["status", "--porcelain=v1"],
 });
 ```
 
 `exec` uses the canonical workflow workspace and does not invoke a shell. It
-captures bounded stdout and stderr. Local tasks must await foreground,
-non-interactive commands. The V1 API has no Git helper or mutation APIs, shell
-support, background process API, or command policy.
+captures bounded stdout and stderr. A nonzero exit code is normal task output;
+spawn, timeout, cancellation, and output-limit failures reject the task. The
+canonical result is `{ exitCode, stdout, stderr }`. Tasks must await
+foreground, non-interactive commands. The API has no Git helper or mutation
+APIs, shell support, background process API, or command policy.
 
 This fan-out/fan-in workflow shares source context without merging session
 histories. The synthesis task explicitly reuses `context`; branch outputs are
 ordinary typed inputs.
 
 ```ts
-import { branch, reuse } from "@seqlane/core";
+import { branch, isolated, reuse } from "@seqlane/core";
 
 const workflow = defineWorkflow({
   id: "research-and-implement",
   input: inputSchema,
   output: implementationSchema,
   build: ({ input, run }) => {
-    const context = run(gatherContext, { input });
+    const context = run(gatherContext, { input, session: isolated() });
     const api = run(analyzeApi, {
       input,
       session: branch(context.session),
@@ -125,8 +143,8 @@ const review = run(codeReview, {
 });
 ```
 
-Tasks may declare `workspace: "shared" | "exclusive"`; omission defaults to
-`"exclusive"` in the serialized Plan. This is a scheduling declaration only.
+Task invocations may declare `workspace: "shared" | "exclusive"`; omission
+defaults to `"exclusive"` in the serialized Plan. This is a scheduling declaration only.
 It does not select an executor, grant or restrict tool access, or guarantee
 read-only filesystem behavior. Runtime configuration remains authoritative for
 executor permissions.

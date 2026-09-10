@@ -1,4 +1,4 @@
-import { defineTask } from "@seqlane/core";
+import { defineAgentTask } from "@seqlane/core";
 import { z } from "zod";
 import {
   reviewAxisSchema,
@@ -13,9 +13,8 @@ function createReviewLane(options: {
   readonly axes: readonly z.infer<typeof reviewAxisSchema>[];
   readonly focus: readonly string[];
 }) {
-  return defineTask({
+  return defineAgentTask({
     id: options.id,
-    workspace: "shared",
     input: reviewLaneInputSchema,
     output: reviewLaneResultSchema,
     goal: ({ review }) =>

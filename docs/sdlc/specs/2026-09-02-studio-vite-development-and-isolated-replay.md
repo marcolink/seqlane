@@ -1,17 +1,19 @@
 ---
 id: spec.studio-vite-development-and-isolated-replay
 title: Studio Vite Development and Isolated Replay
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-09-04
 upstream:
   - adr.studio-vite-development-and-isolated-replay
 supersedes: []
 ---
 
 # Studio Vite Development and Isolated Replay
+
+> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
 
 > Migrated from legacy technical specification `TS-017`.
 
@@ -275,14 +277,6 @@ resume workflow execution. Document that `debug=1` controls visibility only.
 3. Add Studio startup replay loading and validation.
 4. Add replay state transitions and browser controls.
 5. Verify live/replay isolation and update documentation.
-
-## 12. Delivery state
-
-The five implementation tasks linked to this specification are completed.
-Current code and documentation implement Vite HMR and isolated replay. This
-active specification remains the implementation contract. Delivery claims must
-also use current target-branch source, tests, configuration, and reachable Git
-evidence.
 
 ## Traceability
 

@@ -11,6 +11,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "default": "./dist/testing.js"
     }
   },
   "nx": {
@@ -21,8 +26,10 @@
     ]
   },
   "dependencies": {
-    "@seqlane/core": "workspace:*",
+    "@mastra/core": "1.64.0",
     "@opencode-ai/sdk": "1.18.27",
+    "@seqlane/agent-adapter": "workspace:*",
+    "@seqlane/core": "workspace:*",
     "zod": "4.5.4"
   },
   "files": [

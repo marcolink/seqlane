@@ -1,11 +1,11 @@
 ---
 id: spec.effect-runtime-integration
 title: Effect Runtime Integration
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - adr.effect-private-runtime-engine
 supersedes:
@@ -13,6 +13,8 @@ supersedes:
 ---
 
 # Effect Runtime Integration
+
+> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
 
 > Migrated from legacy technical specification `TS-019`.
 
@@ -247,3 +249,5 @@ Then run the full repository verification gate before delivery.
 ## Traceability
 
 - [adr.effect-private-runtime-engine](../adrs/2026-09-02-effect-private-runtime-engine.md)
+- Replaced by [spec.mastra-runtime-and-operational-integration: Mastra Runtime and Operational Integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
+- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)

@@ -2,7 +2,6 @@ import {
   acyclicValueSchema,
   isPlainRecord,
   modelSelectionSchema,
-  taskExecutionSchema,
 } from "@seqlane/core";
 import type {
   JsonValue,
@@ -205,7 +204,6 @@ const planNodeShapeSchema = strictRecord({
   type: z.enum(["task", "validation.check", "validation.gate", "repeat"]),
   label: boundedString(512),
   taskId: boundedString(256).optional(),
-  execution: taskExecutionSchema.optional(),
   session: planSessionSchema.optional(),
   dependsOn: arrayOf(nonEmptyStringSchema, { maximum: 10_000 }),
   parentPlanNodeId: boundedString(256).optional(),
@@ -220,8 +218,7 @@ const planNodeSchema = planNodeShapeSchema.pipe(
       (result.data.type === "repeat" ||
         result.data.maximumIterations === undefined) &&
       (result.data.type === "task" || result.data.session === undefined) &&
-      (result.data.type === "task" || result.data.execution === undefined) &&
-      (result.data.execution !== "local" || result.data.session === undefined)
+      (result.data.type === "task" || result.data.session === undefined)
     );
   }),
 );
@@ -235,7 +232,7 @@ const planSnapshotShapeSchema = strictRecord({
   workflow: workflowIdentitySchema,
   nodes: arrayOf(planNodeSchema, { maximum: 10_000 }),
 });
-const planSnapshotSchema = planSnapshotShapeSchema.pipe(
+export const seqlanePlanSnapshotSchema = planSnapshotShapeSchema.pipe(
   z.custom<z.output<typeof planSnapshotShapeSchema>>((value) => {
     const result = planSnapshotShapeSchema.safeParse(value);
     if (!result.success) return false;
@@ -298,7 +295,7 @@ const runStartedSchema = eventSchema("run.started", {
 const runPlanSchema = eventSchema("run.plan", {
   workId: nonEmptyStringSchema,
   runId: nonEmptyStringSchema,
-  plan: planSnapshotSchema,
+  plan: seqlanePlanSnapshotSchema,
 });
 
 const runHeartbeatSchema = eventSchema("run.heartbeat", {
@@ -528,7 +525,7 @@ export type SeqlanePlanNodeSnapshot = ReadonlySchemaOutput<
   typeof planNodeSchema
 >;
 export type SeqlanePlanSnapshot = ReadonlySchemaOutput<
-  typeof planSnapshotSchema
+  typeof seqlanePlanSnapshotSchema
 >;
 export type SeqlaneExecutionEvent = ReadonlySchemaOutput<
   typeof seqlaneExecutionEventSchema

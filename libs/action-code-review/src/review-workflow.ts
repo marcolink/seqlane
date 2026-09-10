@@ -22,19 +22,29 @@ export default createFlow({
   input: codeReviewInputSchema,
   output: codeReviewReportSchema,
 })
-  .task("reviewContext", reviewContextTask, ({ input }) => ({
-    pullRequestNumber: input.pullRequest.number,
-    reviewHistory: input.reviewHistory,
-  }))
-  .task("gitEvidence", gitReviewEvidenceTask, ({ input, tasks }) => ({
-    repository: input.repository,
-    baseBranch: input.baseBranch,
-    baseRevision: input.baseRevision,
-    headRevision: input.headRevision,
-    pullRequest: input.pullRequest,
-    reviewHistory: input.reviewHistory,
-    normalizedReviewHistory: tasks.reviewContext.output,
-  }))
+  .task(
+    "reviewContext",
+    reviewContextTask,
+    ({ input }) => ({
+      pullRequestNumber: input.pullRequest.number,
+      reviewHistory: input.reviewHistory,
+    }),
+    { workspace: "shared" },
+  )
+  .task(
+    "gitEvidence",
+    gitReviewEvidenceTask,
+    ({ input, tasks }) => ({
+      repository: input.repository,
+      baseBranch: input.baseBranch,
+      baseRevision: input.baseRevision,
+      headRevision: input.headRevision,
+      pullRequest: input.pullRequest,
+      reviewHistory: input.reviewHistory,
+      normalizedReviewHistory: tasks.reviewContext.output,
+    }),
+    { workspace: "shared" },
+  )
   .task(
     "historyVerification",
     reviewHistoryVerificationTask,
@@ -50,6 +60,7 @@ export default createFlow({
       },
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -72,6 +83,7 @@ export default createFlow({
       },
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -94,6 +106,7 @@ export default createFlow({
       },
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -116,6 +129,7 @@ export default createFlow({
       },
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -141,6 +155,7 @@ export default createFlow({
       risk: tasks.risk.output,
     }),
     {
+      workspace: "shared",
       session: isolated({
         model: openai("gpt-5.6-luna"),
         reasoning: "high",
@@ -163,6 +178,7 @@ export default createFlow({
       },
       report: tasks.summarize.output,
     }),
+    { workspace: "shared" },
   )
   .output(({ tasks }) => tasks.applyDispositions.output)
   .define();

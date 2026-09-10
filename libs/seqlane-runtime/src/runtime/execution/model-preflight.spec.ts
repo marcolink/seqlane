@@ -12,7 +12,8 @@ import type {
   TaskDefinition,
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { z } from "zod";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import {
   preflightCompiledWorkflowModels,
@@ -30,6 +31,7 @@ function task(
     taskId: nodeId,
     nodeId,
     workspace: "shared",
+    session: { type: "isolated" },
     ...(session === undefined ? {} : { session }),
     input: {},
     dependsOn,
@@ -45,8 +47,13 @@ function plan(nodes: readonly PlanNode[]): Plan {
 }
 
 function taskDefinition(id: string): TaskDefinition {
-  const schema = { parse: (value: unknown) => value };
-  return { id, input: schema, output: schema, goal: () => "" };
+  const schema = z.unknown();
+  return {
+    id,
+    input: schema,
+    output: schema,
+    execute: async ({ context }) => context.runAgent({ goal: "" }),
+  };
 }
 
 function model(reference: string): ModelRef {
@@ -97,7 +104,7 @@ describe("executor model preflight", () => {
       capabilities([taskSelection.model], taskSelection, "task-executor"),
       () => undefined,
     );
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([
         task("task-specific", { type: "isolated" }),
         task("resolver-managed"),
@@ -143,7 +150,7 @@ describe("executor model preflight", () => {
         executions += 1;
       },
     );
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([
         task("unavailable", {
           type: "isolated",
@@ -184,7 +191,7 @@ describe("executor model preflight", () => {
       capabilities([defaultSelection.model], defaultSelection),
       () => undefined,
     );
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([task("legacy")]),
       {
         createInvocationId: (nodeId) => nodeId,
@@ -216,7 +223,7 @@ describe("executor model preflight", () => {
       },
       () => undefined,
     );
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([
         task("source"),
         task("reuse", { type: "reuse", from: "source" }, ["source"]),
@@ -242,7 +249,7 @@ describe("executor model preflight", () => {
     );
   });
 
-  it("preflights task-backed validation sessions and records their default", async () => {
+  it("does not preflight a sessionless task-backed validation source", async () => {
     const defaultSelection = {
       model: model("anthropic/claude-sonnet-4"),
       reasoning: "high" as const,
@@ -262,7 +269,7 @@ describe("executor model preflight", () => {
       input: {},
       dependsOn: [],
     };
-    const compiled = new EffectCompiler().compileWorkflow(plan([validation]), {
+    const compiled = new PlanCompiler().compileWorkflow(plan([validation]), {
       createInvocationId: (nodeId) => nodeId,
       executors: new Map([["evaluate", executor]]),
       taskDefinitions: new Map([["evaluate", taskDefinition("evaluate")]]),
@@ -270,9 +277,7 @@ describe("executor model preflight", () => {
 
     await preflightCompiledWorkflowModels(compiled);
 
-    expect(compiled.context.effectiveModelSelections).toEqual(
-      new Map([["check", defaultSelection]]),
-    );
+    expect(compiled.context.effectiveModelSelections).toEqual(new Map());
   });
 
   it("validates repeat-body models without recording static invocation keys", async () => {
@@ -308,7 +313,7 @@ describe("executor model preflight", () => {
         until: { type: "ref", nodeId: bodyNodeId, path: ["passed"] },
       },
     };
-    const compiled = new EffectCompiler().compileWorkflow(plan([repeat]), {
+    const compiled = new PlanCompiler().compileWorkflow(plan([repeat]), {
       createInvocationId: (nodeId) => nodeId,
       executors: new Map([[bodyNodeId, executor]]),
     });
@@ -320,7 +325,7 @@ describe("executor model preflight", () => {
   });
 
   it("accepts a legacy plan when the executor has no model capability", async () => {
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       plan([task("legacy")]),
       {
         createInvocationId: (nodeId) => nodeId,

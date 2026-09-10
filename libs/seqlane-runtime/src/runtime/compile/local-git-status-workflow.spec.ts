@@ -22,7 +22,7 @@ import {
 import { createSeqlanePlanSnapshot } from "../../runner/workflow/plan-snapshot.js";
 import { startCompiledWorkflow } from "../execution/workflow-run.js";
 import type { ExecutorRequest } from "../execution/executor.js";
-import { EffectCompiler } from "./compile-plan.js";
+import { PlanCompiler } from "./compile-plan.js";
 function createEventBridge(
   events: SeqlaneExecutionEvent[],
 ): ExecutionEventBridge {
@@ -43,20 +43,25 @@ function createEventBridge(
 describe("local Git status workflow example", () => {
   it("declares direct Git argv without creating a session", async () => {
     const requests: Array<{
-      readonly command: string;
-      readonly args?: readonly string[];
+      readonly executable: string;
+      readonly argv?: readonly string[];
     }> = [];
     const context: TaskContext = {
       exec: async (request) => {
         requests.push(request);
         return { exitCode: 0, stdout: "", stderr: "" };
       },
+      runAgent: async () => ({}),
     };
 
-    const result = await localGitStatusTask.execute({}, context);
+    const result = await localGitStatusTask.execute({
+      input: {},
+      signal: new AbortController().signal,
+      context,
+    });
 
     expect(requests).toEqual([
-      { command: "git", args: ["status", "--porcelain=v1"] },
+      { executable: "git", argv: ["status", "--porcelain=v1"] },
     ]);
     expect(gitStatusOutputSchema.parse(result)).toEqual({
       exitCode: 0,
@@ -75,16 +80,13 @@ describe("local Git status workflow example", () => {
 
     expect(localNode).toMatchObject({
       taskId: localGitStatusTask.id,
-      execution: "local",
       workspace: "shared",
       dependsOn: [],
     });
     expect(localNode).not.toHaveProperty("session");
     expect(agentNode).toMatchObject({
       taskId: summarizeGitStatusTask.id,
-      execution: "agent",
       dependsOn: [localNode.nodeId],
-      session: { type: "isolated" },
     });
 
     const snapshot = createSeqlanePlanSnapshot(built.plan);
@@ -94,7 +96,6 @@ describe("local Git status workflow example", () => {
         type: "task",
         label: localGitStatusTask.id,
         taskId: localGitStatusTask.id,
-        execution: "local",
         dependsOn: [],
         siblingOrder: 0,
       },
@@ -103,10 +104,8 @@ describe("local Git status workflow example", () => {
         type: "task",
         label: summarizeGitStatusTask.id,
         taskId: summarizeGitStatusTask.id,
-        execution: "agent",
         dependsOn: [localNode.nodeId],
         siblingOrder: 1,
-        session: { type: "isolated" },
       },
     ]);
 
@@ -115,7 +114,7 @@ describe("local Git status workflow example", () => {
     bridge.emit({ type: "run.started", workId: "git-work", runId: "git-run" });
     bridge.emitPlan(snapshot, "git-work", "git-run");
     const agentRequests: ExecutorRequest[] = [];
-    const compiled = new EffectCompiler().compileWorkflow(built.plan, {
+    const compiled = new PlanCompiler().compileWorkflow(built.plan, {
       workId: "git-work",
       runId: "git-run",
       createInvocationId: (nodeId) => nodeId,

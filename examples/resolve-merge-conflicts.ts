@@ -1,4 +1,4 @@
-import { createFlow, defineTask, isolated } from "@seqlane/core";
+import { createFlow, defineAgentTask, isolated } from "@seqlane/core";
 import { openai } from "@seqlane/core/models";
 import { z } from "zod";
 
@@ -29,9 +29,8 @@ const conflictResolutionOutputSchema = z.object({
   decisions: z.array(conflictDecisionSchema).min(1).max(200),
 });
 
-const conflictResolutionTask = defineTask({
+const conflictResolutionTask = defineAgentTask({
   id: "merge-conflicts.resolve",
-  workspace: "exclusive",
   input: conflictResolutionInputSchema,
   output: conflictResolutionOutputSchema,
   goal: (input) =>
@@ -62,6 +61,7 @@ export default createFlow({
   output: conflictResolutionOutputSchema,
 })
   .task("resolve", conflictResolutionTask, ({ input }) => input, {
+    workspace: "exclusive",
     session: isolated({
       model: openai("gpt-5.6-terra"),
       reasoning: "high",

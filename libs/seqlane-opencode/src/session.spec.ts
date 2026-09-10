@@ -1,3 +1,4 @@
+// @test-scope ./attempt-transitions.ts
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { describe, expect, it, vi } from "vitest";
@@ -74,6 +75,8 @@ async function startServer(
     readonly holdSession?: boolean;
     readonly readbackCompatibilityError?: boolean;
     readonly toolEvents?: boolean;
+    readonly duplicateToolTerminal?: boolean;
+    readonly malformedEventCount?: number;
     readonly nextToolEvents?: boolean;
     readonly skillEvents?: boolean;
     readonly backgroundShellEvent?: boolean;
@@ -273,10 +276,29 @@ async function startServer(
                 type: "tool",
                 callID: "call-1",
                 tool: "filesystem.read",
-                state: { status: "completed", output: "12 bytes" },
+                state: {
+                  status: "completed",
+                  output: "12 bytes",
+                },
               },
             },
           },
+          ...(options.duplicateToolTerminal
+            ? [
+                {
+                  type: "message.part.updated",
+                  properties: {
+                    sessionID: "session-1",
+                    part: {
+                      type: "tool",
+                      callID: "call-1",
+                      tool: "filesystem.read",
+                      state: { status: "completed", output: "12 bytes" },
+                    },
+                  },
+                },
+              ]
+            : []),
         ]) {
           response.write(`data: ${JSON.stringify(event)}\n\n`);
         }
@@ -377,6 +399,18 @@ async function startServer(
               callID: "shell-1",
               command: "pnpm format &",
             },
+          })}\n\n`,
+        );
+      }
+      for (
+        let index = 0;
+        index < (options.malformedEventCount ?? 0);
+        index += 1
+      ) {
+        response.write(
+          `data: ${JSON.stringify({
+            type: "message.updated",
+            properties: { info: { role: "assistant" } },
           })}\n\n`,
         );
       }
@@ -481,6 +515,45 @@ async function closeServer(server: Server): Promise<void> {
 }
 
 describe("OpenCode run session", () => {
+  it("keeps terminal observations out of the streamed event callback", async () => {
+    const fake = await startServer();
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const onObservation = vi.fn();
+
+      await run.prompt({
+        text: "task",
+        schema: { type: "object" },
+        onObservation,
+      });
+
+      expect(onObservation).not.toHaveBeenCalled();
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("returns the validated terminal observation for adapter reconciliation", async () => {
+    const fake = await startServer();
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const result = await run.prompt({
+        text: "task",
+        schema: { type: "object" },
+      });
+
+      expect(result.observation).toMatchObject({
+        kind: "assistant",
+        sessionID: "session-1",
+        messageID: "message-session-1",
+        provider: "fake-provider",
+        model: "fake-model",
+      });
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
   it("binds a session to its configured workspace", async () => {
     const fake = await startServer();
     try {
@@ -527,6 +600,10 @@ describe("OpenCode run session", () => {
       expect(results).toEqual([
         {
           structured: { session: "session-1" },
+          observation: expect.objectContaining({
+            sessionID: "session-1",
+            messageID: "message-session-1",
+          }),
           metrics: {
             durationMs: 1,
             model: "fake-model",
@@ -544,6 +621,10 @@ describe("OpenCode run session", () => {
         },
         {
           structured: { session: "session-1" },
+          observation: expect.objectContaining({
+            sessionID: "session-1",
+            messageID: "message-session-1",
+          }),
           metrics: {
             durationMs: 1,
             model: "fake-model",
@@ -817,27 +898,67 @@ describe("OpenCode run session", () => {
     }
   });
 
-  it("reports an untracked background shell command", async () => {
+  it("does not fan out duplicate terminal activity transitions", async () => {
+    const fake = await startServer({
+      toolEvents: true,
+      duplicateToolTerminal: true,
+    });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const activities: OpenCodeActivity[] = [];
+
+      await run.prompt({
+        text: "inspect the repository",
+        schema: { type: "object" },
+        onActivity: (activity) => activities.push(activity),
+      });
+
+      expect(activities).toHaveLength(2);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("bounds malformed and unsupported event diagnostics", async () => {
+    const fake = await startServer({ malformedEventCount: 100 });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const diagnostics: string[] = [];
+
+      await run.prompt({
+        text: "ignore malformed events",
+        schema: { type: "object" },
+        onDiagnostic: (message) => diagnostics.push(message),
+      });
+
+      expect(diagnostics.length).toBeLessThanOrEqual(9);
+      expect(diagnostics.at(-1)).toContain("suppressed");
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("reports uncertain termination for a mutating background shell command", async () => {
     const fake = await startServer({
       backgroundShellEvent: true,
       holdPrompt: true,
     });
     try {
       const run = await createOpenCodeRun({ url: fake.url });
-      let reportBackgroundProcess!: (value: unknown) => void;
-      const backgroundProcess = new Promise<unknown>((resolve) => {
-        reportBackgroundProcess = resolve;
+      let reportUncertainActivity!: (value: unknown) => void;
+      const uncertainActivity = new Promise<unknown>((resolve) => {
+        reportUncertainActivity = resolve;
       });
 
       const prompt = run.prompt({
         text: "format the workspace",
         schema: { type: "object" },
-        onBackgroundProcess: reportBackgroundProcess,
+        onUncertainActivity: reportUncertainActivity,
       });
       await fake.promptStarted;
 
-      await expect(backgroundProcess).resolves.toEqual({
-        mutatesWorkspace: true,
+      await expect(uncertainActivity).resolves.toEqual({
+        reason: "disconnect",
       });
       fake.completeNextPrompt();
       await prompt;
@@ -938,6 +1059,10 @@ describe("OpenCode run session", () => {
         first.prompt({ text: "first", schema: {} }),
       ).resolves.toEqual({
         structured: { session: "session-1" },
+        observation: expect.objectContaining({
+          sessionID: "session-1",
+          messageID: "message-session-1",
+        }),
         metrics: {
           durationMs: 1,
           model: "fake-model",
@@ -957,6 +1082,10 @@ describe("OpenCode run session", () => {
         second.prompt({ text: "second", schema: {} }),
       ).resolves.toEqual({
         structured: { session: "session-2" },
+        observation: expect.objectContaining({
+          sessionID: "session-2",
+          messageID: "message-session-2",
+        }),
         metrics: {
           durationMs: 1,
           model: "fake-model",
@@ -1091,9 +1220,13 @@ describe("OpenCode run session", () => {
     let run: Awaited<ReturnType<typeof createOpenCodeRun>> | undefined;
     try {
       run = await createOpenCodeRun({ url: fake.url });
+      let invalidated = 0;
       const pending = run.prompt({
         text: "needs filesystem access",
         schema: { type: "object" },
+        onRunInvalidated: () => {
+          invalidated += 1;
+        },
       });
       await fake.promptStarted;
       await fake.eventStarted;
@@ -1114,6 +1247,7 @@ describe("OpenCode run session", () => {
         requirement: "user-input",
         message: "Seqlane execution requires human interaction",
       });
+      expect(invalidated).toBe(1);
       expect(fake.requests.some(({ path }) => path === "/event")).toBe(true);
       expect(
         fake.requests.some(({ path }) => /permission.*reply/i.test(path)),
@@ -1129,9 +1263,13 @@ describe("OpenCode run session", () => {
     let run: Awaited<ReturnType<typeof createOpenCodeRun>> | undefined;
     try {
       run = await createOpenCodeRun({ url: fake.url });
+      let invalidated = 0;
       const pending = run.prompt({
         text: "needs filesystem access",
         schema: { type: "object" },
+        onRunInvalidated: () => {
+          invalidated += 1;
+        },
       });
       await fake.promptStarted;
       await fake.eventStarted;
@@ -1143,6 +1281,7 @@ describe("OpenCode run session", () => {
       expect(
         fake.requests.some(({ path }) => path === "/session/session-1/abort"),
       ).toBe(true);
+      expect(invalidated).toBe(1);
     } finally {
       await run?.abort().catch(() => undefined);
       await closeServer(fake.server);

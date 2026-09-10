@@ -11,7 +11,7 @@ const workflowReferenceSchema = plainRecordSchema.pipe(
   }),
 );
 
-const runtimeProfileReferenceSchema = plainRecordSchema.pipe(
+export const runtimeProfileReferenceSchema = plainRecordSchema.pipe(
   z.strictObject({
     id: z.string().min(1),
     workspace: z.string().min(1).optional(),

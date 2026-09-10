@@ -2,10 +2,11 @@
 // @test-scope ./dsl.ts
 
 import { describe, expect, it } from "vitest";
-import type { SeqlaneSchema } from "./contracts.js";
+import { z } from "zod";
 import {
   branch,
   createFlow,
+  defineAgentTask,
   defineTask,
   defineWorkflow,
   isolated,
@@ -14,11 +15,7 @@ import {
 import { buildWorkflow } from "./builder.js";
 import { openai } from "./models/index.js";
 
-const schema = <T>(): SeqlaneSchema<T> => ({
-  parse(value: unknown): T {
-    return value as T;
-  },
-});
+const schema = <T>() => z.custom<T>(() => true);
 
 describe("buildWorkflow", () => {
   it("rejects malformed task behavior when a workflow is built", () => {
@@ -26,15 +23,13 @@ describe("buildWorkflow", () => {
       id: "mixed-task-behavior",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
-      goal: () => "work",
-      execute: async () => ({}),
     };
     const workflow = defineWorkflow({
       id: "mixed-task-behavior-workflow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       build: ({ input, run }) => {
-        // @ts-expect-error A task cannot define both agent and local behavior.
+        // @ts-expect-error A task must define execute.
         return run(malformedTask, { input }).output;
       },
     });
@@ -43,7 +38,7 @@ describe("buildWorkflow", () => {
   });
 
   it("nests model selection under an isolated session", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "selected-model",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
@@ -80,7 +75,7 @@ describe("buildWorkflow", () => {
   });
 
   it("allows a model only on a branched session", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "branched-model",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
@@ -91,7 +86,7 @@ describe("buildWorkflow", () => {
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       build: ({ input, run }) => {
-        const source = run(task, { input });
+        const source = run(task, { input, session: isolated() });
         return run(task, {
           input,
           session: branch(source.session, {
@@ -114,7 +109,7 @@ describe("buildWorkflow", () => {
   });
 
   it("does not allow model configuration on reuse", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "reused-model",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
@@ -125,7 +120,7 @@ describe("buildWorkflow", () => {
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       build: ({ input, run }) => {
-        const source = run(task, { input });
+        const source = run(task, { input, session: isolated() });
         return run(task, {
           input,
           // @ts-expect-error Reuse sessions inherit their source model.
@@ -140,7 +135,7 @@ describe("buildWorkflow", () => {
   });
 
   it("does not allow model configuration directly on a task invocation", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "task-level-model",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
@@ -151,7 +146,6 @@ describe("buildWorkflow", () => {
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       build: ({ input, run }) =>
-        // @ts-expect-error Model selection belongs under session.
         run(task, {
           input,
           model: openai("gpt-5.6-luna"),
@@ -162,7 +156,7 @@ describe("buildWorkflow", () => {
   });
 
   it("carries session model selection into repeat body task nodes", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "repeat-selected-model",
       input: schema<{ readonly complete: boolean }>(),
       output: schema<{ readonly complete: boolean }>(),
@@ -202,7 +196,7 @@ describe("buildWorkflow", () => {
   });
 
   it("defaults omitted workspace policy to exclusive in the Plan", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "default-workspace-policy",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
@@ -217,8 +211,6 @@ describe("buildWorkflow", () => {
 
     expect(buildWorkflow(workflow).plan.nodes[0]).toMatchObject({
       workspace: "exclusive",
-      execution: "agent",
-      session: { type: "isolated" },
     });
   });
 
@@ -244,7 +236,6 @@ describe("buildWorkflow", () => {
         taskId: "local-status",
         nodeId: "local-status:1",
         workspace: "exclusive",
-        execution: "local",
         input: {
           type: "ref",
           nodeId: "__seqlane_input",
@@ -263,7 +254,7 @@ describe("buildWorkflow", () => {
       id: "local-repeat",
       input: schema<{ readonly complete: boolean }>(),
       output: schema<{ readonly complete: boolean }>(),
-      execute: async (input) => input,
+      execute: async ({ input }) => input,
     });
     const workflow = defineWorkflow({
       id: "local-repeat-workflow",
@@ -287,7 +278,6 @@ describe("buildWorkflow", () => {
         nodes: [
           {
             taskId: "local-repeat",
-            execution: "local",
           },
         ],
       },
@@ -299,7 +289,7 @@ describe("buildWorkflow", () => {
   });
 
   it("serializes typed reuse and branch checkpoint selections", () => {
-    const task = defineTask({
+    const task = defineAgentTask({
       id: "checkpointed",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
@@ -310,7 +300,7 @@ describe("buildWorkflow", () => {
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       build: ({ input, run }) => {
-        const source = run(task, { input });
+        const source = run(task, { input, session: isolated() });
         run(task, { input, session: branch(source.session) });
         return run(task, { input, session: reuse(source.session) }).output;
       },
@@ -332,11 +322,10 @@ describe("buildWorkflow", () => {
   });
 
   it("serializes each task workspace capability into the Plan", () => {
-    const inspect = defineTask({
+    const inspect = defineAgentTask({
       id: "workspace-inspect",
       input: schema<{ readonly repository: string }>(),
       output: schema<{ readonly summary: string }>(),
-      workspace: "shared",
       goal: ({ repository }) => repository,
     });
     const workflow = defineWorkflow({
@@ -348,21 +337,18 @@ describe("buildWorkflow", () => {
 
     expect(buildWorkflow(workflow).plan.nodes[0]).toMatchObject({
       taskId: "workspace-inspect",
-      workspace: "shared",
     });
   });
 
   it("adds one explicit dependency for nested data from one producer", () => {
-    const produce = defineTask({
+    const produce = defineAgentTask({
       id: "produce",
-      workspace: "shared",
       input: schema<{ readonly request: string }>(),
       output: schema<{ readonly first: string; readonly second: string }>(),
       goal: ({ request }) => request,
     });
-    const consume = defineTask({
+    const consume = defineAgentTask({
       id: "consume",
-      workspace: "shared",
       input: schema<{ readonly values: readonly string[] }>(),
       output: schema<{ readonly summary: string }>(),
       goal: ({ values }) => values.join(", "),
@@ -390,16 +376,14 @@ describe("buildWorkflow", () => {
   });
 
   it("adds an order-only dependency without passing task data", () => {
-    const prepare = defineTask({
+    const prepare = defineAgentTask({
       id: "prepare",
-      workspace: "shared",
       input: schema<{ readonly value: string }>(),
       output: schema<{ readonly ready: boolean }>(),
       goal: ({ value }) => value,
     });
-    const publish = defineTask({
+    const publish = defineAgentTask({
       id: "publish",
-      workspace: "shared",
       input: schema<{ readonly value: string }>(),
       output: schema<{ readonly published: boolean }>(),
       goal: ({ value }) => value,
@@ -424,16 +408,14 @@ describe("buildWorkflow", () => {
   });
 
   it("adds Flow order-only dependencies from prior handles", () => {
-    const prepare = defineTask({
+    const prepare = defineAgentTask({
       id: "flow-prepare",
-      workspace: "shared",
       input: schema<{ readonly value: string }>(),
       output: schema<{ readonly ready: boolean }>(),
       goal: ({ value }) => value,
     });
-    const publish = defineTask({
+    const publish = defineAgentTask({
       id: "flow-publish",
-      workspace: "shared",
       input: schema<{ readonly value: string }>(),
       output: schema<{ readonly published: boolean }>(),
       goal: ({ value }) => value,
@@ -457,16 +439,14 @@ describe("buildWorkflow", () => {
   });
 
   it("adds an order-only dependency inside a repeat body", () => {
-    const prepare = defineTask({
+    const prepare = defineAgentTask({
       id: "repeat-prepare",
-      workspace: "shared",
       input: schema<{ readonly complete: boolean }>(),
       output: schema<{ readonly complete: boolean }>(),
       goal: () => "prepare",
     });
-    const publish = defineTask({
+    const publish = defineAgentTask({
       id: "repeat-publish",
-      workspace: "shared",
       input: schema<{ readonly complete: boolean }>(),
       output: schema<{ readonly complete: boolean }>(),
       goal: () => "publish",

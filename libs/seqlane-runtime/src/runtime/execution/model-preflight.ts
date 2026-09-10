@@ -5,7 +5,7 @@ import type {
   TaskNode,
   ValidationCheckNode,
 } from "@seqlane/core";
-import type { CompiledWorkflow } from "../compile/compile-plan.js";
+import type { PreparedPlanExecution } from "../compile/compile-plan.js";
 import {
   describeModelSelection,
   getExecutorModelCapabilities,
@@ -67,26 +67,18 @@ interface ModelPreflightNode {
 }
 
 function modelPreflightNodes(
-  plan: CompiledWorkflow["plan"],
+  plan: PreparedPlanExecution["plan"],
 ): readonly ModelPreflightNode[] {
   const nodeForPlanNode = (
     node: PlanNode,
     dynamic: boolean,
   ): ModelPreflightNode | undefined => {
     if (node.type === "task") {
-      if (node.execution === "local") return undefined;
+      if (node.session === undefined) return undefined;
       return {
         node,
         nodeId: node.nodeId,
         taskId: node.taskId,
-        dynamic,
-      };
-    }
-    if (node.type === "validation.check" && node.source.type === "task") {
-      return {
-        node,
-        nodeId: node.nodeId,
-        taskId: node.source.taskId,
         dynamic,
       };
     }
@@ -160,7 +152,7 @@ async function modelSelectionForTaskNode(
 }
 
 function capabilityForNode(
-  compiled: CompiledWorkflow,
+  compiled: PreparedPlanExecution,
   node: TaskNode | ValidationCheckNode,
 ): ResolvedExecutorModelCapabilities | undefined {
   const taskNode =
@@ -215,7 +207,7 @@ function requirementKey(requirement: ModelRequirement): string {
 
 /** Resolves defaults and validates every model needed by a compiled workflow. */
 export async function preflightCompiledWorkflowModels(
-  compiled: CompiledWorkflow,
+  compiled: PreparedPlanExecution,
 ): Promise<void> {
   const nodes = modelPreflightNodes(compiled.plan);
   const taskNodes = nodes

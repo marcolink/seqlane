@@ -3,6 +3,7 @@ import type { Plan } from "@seqlane/core";
 import {
   createRenovatePlan,
   RENOVATE_INVOCATIONS,
+  renovateTaskDefinitions,
   renovateTaskSchemas,
   renovateValidatorDefinitions,
 } from "@seqlane/fixtures/renovate-workflow";
@@ -12,7 +13,7 @@ import {
   startCompiledWorkflow,
   type SeqlaneEvent,
 } from "../../index.js";
-import { EffectCompiler } from "./compile-plan.js";
+import { PlanCompiler } from "./compile-plan.js";
 import type {
   ExecutorRequest,
   SeqlaneExecutor,
@@ -100,7 +101,7 @@ function compileRenovateWorkflow(
   fake: FakeOpenCodeExecutor,
   events: SeqlaneEvent[],
 ) {
-  return new EffectCompiler().compileWorkflow(plan, {
+  return new PlanCompiler().compileWorkflow(plan, {
     runId: "renovate-run-1",
     workflowInput: {
       dependency: "example-package",
@@ -115,13 +116,14 @@ function compileRenovateWorkflow(
       [RENOVATE_INVOCATIONS.verify.taskId, { key: "/checkout" }],
     ]),
     taskSchemas: renovateTaskSchemas,
+    taskDefinitions: renovateTaskDefinitions,
     validatorDefinitions: renovateValidatorDefinitions,
     events: { emit: (event) => events.push(event) },
   });
 }
 
-describe("Renovate-shaped Effect runtime contract", () => {
-  it("executes investigate, plan, fix, and verify through Effect", async () => {
+describe("Renovate-shaped in-process workflow contract", () => {
+  it("executes investigate, plan, fix, and verify through the private runner", async () => {
     const fake = createFakeOpenCodeExecutor();
     const events: SeqlaneEvent[] = [];
     const compiled = compileRenovateWorkflow(

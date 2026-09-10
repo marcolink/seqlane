@@ -34,12 +34,22 @@ describe("model-free publication", () => {
       },
       runId: "run-1",
       events: [
-        { type: "run.started", workId: "work-1", runId: "run-1" },
         {
-          type: "run.succeeded",
+          type: "invocation.output",
           workId: "work-1",
           runId: "run-1",
-          output: null,
+          invocationId: "task-1",
+          metrics: {
+            durationMs: 1,
+            tokens: {
+              input: 1,
+              output: 1,
+              reasoning: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 2,
+            },
+          },
         },
       ],
     });

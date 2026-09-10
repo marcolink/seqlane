@@ -1,4 +1,4 @@
-import type { AgentTaskDefinition } from "./task.js";
+import type { TaskDefinition, AgentTaskRequest } from "@seqlane/core";
 import type { JsonSchema } from "./task.js";
 
 const responseFormatInstruction =
@@ -6,10 +6,11 @@ const responseFormatInstruction =
 
 /** Builds the user-facing request from private task metadata. */
 export function buildOpenCodePrompt(
-  task: AgentTaskDefinition,
+  task: TaskDefinition,
   input: unknown,
+  agent?: AgentTaskRequest,
 ): string {
-  const objective = task.goal(input);
+  const objective = agent?.goal;
   if (typeof objective !== "string" || objective.trim().length === 0) {
     throw new Error(`OpenCode task "${task.id}" returned an empty objective`);
   }
@@ -17,10 +18,10 @@ export function buildOpenCodePrompt(
   return [
     objective,
     responseFormatInstruction,
-    ...(task.instructions ?? []).map(
+    ...(agent?.instructions ?? []).map(
       (instruction) => `Task instruction: ${instruction}`,
     ),
-    ...(task.references ?? []).map(
+    ...(agent?.references ?? []).map(
       (reference) => `Task reference: ${reference}`,
     ),
   ].join("\n");

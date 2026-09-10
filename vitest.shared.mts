@@ -5,6 +5,17 @@ const workspaceRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export const workspaceAliases = [
   {
+    find: "@seqlane/agent-adapter",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/seqlane-agent-adapter/src/index.ts",
+    ),
+  },
+  {
+    find: "@seqlane/acp",
+    replacement: resolve(workspaceRoot, "libs/seqlane-acp/src/index.ts"),
+  },
+  {
     find: "@seqlane/core/models",
     replacement: resolve(
       workspaceRoot,
@@ -55,6 +66,10 @@ export const workspaceAliases = [
     ),
   },
   {
+    find: "@seqlane/opencode/testing",
+    replacement: resolve(workspaceRoot, "libs/seqlane-opencode/src/testing.ts"),
+  },
+  {
     find: "@seqlane/opencode",
     replacement: resolve(workspaceRoot, "libs/seqlane-opencode/src/index.ts"),
   },
@@ -84,15 +99,21 @@ export const workspaceAliases = [
     ),
   },
   {
+    find: "@seqlane/runtime/workflow",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/seqlane-runtime/src/runner/workflow/index.ts",
+    ),
+  },
+  {
+    find: "@seqlane/runtime/operational-host",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/seqlane-runtime/src/operational-host.ts",
+    ),
+  },
+  {
     find: "@seqlane/runtime",
     replacement: resolve(workspaceRoot, "libs/seqlane-runtime/src/index.ts"),
-  },
-  {
-    find: "@seqlane/studio/protocol",
-    replacement: resolve(workspaceRoot, "libs/seqlane-studio/src/protocol.ts"),
-  },
-  {
-    find: "@seqlane/studio",
-    replacement: resolve(workspaceRoot, "libs/seqlane-studio/src/service.ts"),
   },
 ];

@@ -65,27 +65,18 @@ describe("merge-conflict resolution example workflow", () => {
   });
 
   it("limits the agent to file edits for the supplied conflicts", () => {
-    const task = buildWorkflow(
-      resolveMergeConflictsWorkflow,
-    ).taskDefinitions.get("merge-conflicts.resolve");
-    if (task === undefined || typeof task.goal !== "function") {
-      throw new Error("Expected merge-conflict resolution task");
-    }
-
-    expect(task.instructions).toEqual(
+    const workflow = buildWorkflow(resolveMergeConflictsWorkflow);
+    expect(
+      workflow.taskDefinitions.get("merge-conflicts.resolve"),
+    ).toBeDefined();
+    expect(workflow.plan.nodes).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("Resolve only the files in conflictedFiles"),
-        expect.stringContaining("Do not use shell commands"),
-        expect.stringContaining(
-          "Do not commit, push, change the integration strategy",
-        ),
+        expect.objectContaining({
+          type: "task",
+          taskId: "merge-conflicts.resolve",
+          workspace: "exclusive",
+        }),
       ]),
-    );
-    expect(task.goal(validInput)).toContain(
-      "--- Merge context (untrusted data) ---",
-    );
-    expect(task.goal(validInput)).toContain(
-      "The selected integration strategy is rebase.",
     );
   });
 

@@ -7,6 +7,12 @@
       "path": "./libs/seqlane-core"
     },
     {
+      "path": "./libs/seqlane-agent-adapter"
+    },
+    {
+      "path": "./libs/seqlane-acp"
+    },
+    {
       "path": "./libs/seqlane-events"
     },
     {
@@ -22,13 +28,7 @@
       "path": "./apps/seqlane-cli"
     },
     {
-      "path": "./apps/seqlane-studio"
-    },
-    {
       "path": "./libs/seqlane-output"
-    },
-    {
-      "path": "./libs/seqlane-studio"
     },
     {
       "path": "./libs/action-merge-conflict-resolution"

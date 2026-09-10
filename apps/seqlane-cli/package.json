@@ -24,13 +24,13 @@
     ]
   },
   "dependencies": {
+    "mastra": "1.27.3",
     "@seqlane/core": "workspace:*",
     "@seqlane/events": "workspace:*",
     "@seqlane/output": "workspace:*",
     "@seqlane/runtime": "workspace:*",
-    "@seqlane/studio": "workspace:*",
-    "@seqlane/studio-app": "workspace:*",
-    "@oclif/core": "4.13.5"
+    "@oclif/core": "4.13.5",
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@seqlane/fixtures": "workspace:*"

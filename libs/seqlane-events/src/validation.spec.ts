@@ -192,7 +192,6 @@ describe("event validation schemas", () => {
               type: "task",
               label: "local",
               taskId: "local-task",
-              execution: "local",
               dependsOn: [],
               siblingOrder: 0,
             },
@@ -214,7 +213,6 @@ describe("event validation schemas", () => {
               type: "task",
               label: "local",
               taskId: "local-task",
-              execution: "local",
               session: { type: "isolated" },
               dependsOn: [],
               siblingOrder: 0,
@@ -222,7 +220,7 @@ describe("event validation schemas", () => {
           ],
         },
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("validates bounded tool activity events", () => {

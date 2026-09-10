@@ -120,7 +120,6 @@ describe("Seqlane Plan snapshots", () => {
           planNodeId: "prepare:1",
           type: "task",
           label: "prepare-task",
-          execution: "agent",
           taskId: "prepare-task",
           dependsOn: [],
           siblingOrder: 0,
@@ -136,7 +135,6 @@ describe("Seqlane Plan snapshots", () => {
           planNodeId: "fork:1",
           type: "task",
           label: "fork-task",
-          execution: "agent",
           taskId: "fork-task",
           dependsOn: ["prepare:1"],
           siblingOrder: 1,
@@ -160,7 +158,6 @@ describe("Seqlane Plan snapshots", () => {
           planNodeId: "finish:1",
           type: "task",
           label: "finish-task",
-          execution: "agent",
           taskId: "finish-task",
           dependsOn: ["repeat:1", "prepare:1"],
           siblingOrder: 3,
@@ -170,12 +167,10 @@ describe("Seqlane Plan snapshots", () => {
           planNodeId: "repeat:1/body:1",
           type: "task",
           label: longTaskId.slice(0, 512),
-          execution: "agent",
           taskId: longTaskId.slice(0, 256),
           dependsOn: [],
           parentPlanNodeId: "repeat:1",
           siblingOrder: 0,
-          session: { type: "isolated" },
         },
         {
           planNodeId: "repeat:1/check:1",
@@ -208,7 +203,6 @@ describe("Seqlane Plan snapshots", () => {
           nodeId: "local:1",
           taskId: "local-task",
           workspace: "shared",
-          execution: "local",
           input: {
             command: "git",
             args: ["status"],
@@ -224,7 +218,6 @@ describe("Seqlane Plan snapshots", () => {
 
     expect(snapshot.nodes[0]).toMatchObject({
       type: "task",
-      execution: "local",
       taskId: "local-task",
     });
     expect(snapshot.nodes[0]).not.toHaveProperty("session");

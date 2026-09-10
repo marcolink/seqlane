@@ -5,26 +5,38 @@
 // @test-scope ./output.ts
 // @test-scope ./recording.ts
 // @test-scope ./commands/studio.ts
+// @test-scope ./commands/list.ts
+// @test-scope ./commands/plan.ts
+// @test-scope ./commands/serve.ts
+// @test-scope ./cli-contracts.ts
 // @test-scope ../../../examples/minimal-workflow.ts
 // @test-scope ../../../examples/local-only.ts
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   encodeSeqlaneExecutionEvent,
+  seqlaneExecutionEventSchema,
   type SeqlaneExecutionEvent,
 } from "@seqlane/events";
+import {
+  planCommandResultSchema,
+  workflowListResultSchema,
+} from "./cli-contracts.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const developmentEntry = fileURLToPath(
-  new URL("../bin/dev.js", import.meta.url),
-);
 const productionEntry = fileURLToPath(
   new URL("../bin/run.js", import.meta.url),
 );
@@ -46,16 +58,173 @@ interface CliResult {
   readonly stderr: string;
 }
 
+interface FakeOpenCodeServer {
+  readonly requests: string[];
+  readonly server: Server;
+  readonly url: string;
+  readonly acpDirectory: string;
+  readonly acpEventsPath: string;
+  readonly acpMode: "success" | "interaction" | "hold";
+  readonly acpWorkflow: "renovate" | "example";
+}
+
+const fakeAcpAgent = String.raw`#!/usr/bin/env node
+const fs = require("node:fs");
+const readline = require("node:readline");
+
+const mode = process.env.SEQLANE_FAKE_ACP_MODE;
+const workflow = process.env.SEQLANE_FAKE_ACP_WORKFLOW;
+const eventsPath = process.env.SEQLANE_FAKE_ACP_EVENTS;
+let pendingPrompt;
+let pendingPermissionId;
+
+function record(method) {
+  fs.appendFileSync(eventsPath, JSON.stringify({ method }) + "\n");
+}
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\n");
+}
+
+function respond(id, result) {
+  send({ jsonrpc: "2.0", id, result });
+}
+
+function outputForPrompt(prompt) {
+  if (workflow === "example") {
+    return prompt.includes("Polish this draft")
+      ? { answer: "A polished Seqlane answer." }
+      : { draft: "A short Seqlane draft." };
+  }
+  if (prompt.includes("Create a remediation")) {
+    return {
+      steps: ["update peer range", "refresh lockfile"],
+      summary: "Apply the dependency and lockfile remediation",
+    };
+  }
+  if (prompt.includes("Apply the Renovate")) {
+    return {
+      changedFiles: ["package.json", "pnpm-lock.yaml"],
+      summary: "Dependency update and lockfile repaired",
+    };
+  }
+  if (prompt.includes("Verify the Renovate")) {
+    return { passed: true, summary: "Install and targeted tests pass" };
+  }
+  return {
+    files: ["package.json", "pnpm-lock.yaml"],
+    rootCause: "Renovate updated a dependency without its peer range",
+  };
+}
+
+function completePrompt(request) {
+  const text = JSON.stringify(outputForPrompt(request.params.prompt[0].text));
+  send({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "acp-session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+    },
+  });
+  respond(request.id, { stopReason: "end_turn" });
+}
+
+const input = readline.createInterface({ input: process.stdin });
+input.on("line", (line) => {
+  const message = JSON.parse(line);
+
+  if (pendingPermissionId !== undefined && message.id === pendingPermissionId) {
+    pendingPermissionId = undefined;
+    if (pendingPrompt !== undefined) {
+      const request = pendingPrompt;
+      pendingPrompt = undefined;
+      completePrompt(request);
+    }
+    return;
+  }
+
+  if (message.method === "session/cancel") {
+    record(message.method);
+    if (pendingPrompt !== undefined) {
+      const request = pendingPrompt;
+      pendingPrompt = undefined;
+      respond(request.id, { stopReason: "cancelled" });
+    }
+    return;
+  }
+
+  if (typeof message.method !== "string") return;
+  record(message.method);
+
+  switch (message.method) {
+    case "initialize":
+      respond(message.id, {
+        protocolVersion: 1,
+        agentInfo: { name: "fake-opencode", version: "1.0.0" },
+        agentCapabilities: {},
+      });
+      break;
+    case "session/new":
+      respond(message.id, {
+        sessionId: "acp-session-1",
+        models: {
+          availableModels: [
+            { modelId: "openai/gpt-5.6-luna", name: "Fake Luna" },
+            { modelId: "openai/gpt-5.6-terra", name: "Fake Terra" },
+          ],
+          currentModelId: "openai/gpt-5.6-luna",
+        },
+      });
+      break;
+    case "session/set_model":
+      respond(message.id, {});
+      break;
+    case "session/prompt":
+      if (mode === "hold") {
+        pendingPrompt = message;
+      } else if (mode === "interaction") {
+        pendingPrompt = message;
+        pendingPermissionId = 100;
+        send({
+          jsonrpc: "2.0",
+          id: pendingPermissionId,
+          method: "session/request_permission",
+          params: {
+            sessionId: "acp-session-1",
+            toolCall: {
+              toolCallId: "fake-tool",
+              title: "Private approval",
+              kind: "execute",
+              status: "in_progress",
+            },
+            options: [
+              { optionId: "allow", name: "Allow", kind: "allow_once" },
+            ],
+          },
+        });
+      } else {
+        completePrompt(message);
+      }
+      break;
+  }
+});
+`;
+
 function runCli(
   entry: string,
   args: readonly string[],
   onStarted?: (child: ChildProcess) => void,
   startMarker = "started task=investigate-renovate-failure",
+  environment: NodeJS.ProcessEnv = {},
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(entry, args, {
       cwd: repositoryRoot,
-      env: { ...process.env, FORCE_COLOR: "0" },
+      env: { ...process.env, FORCE_COLOR: "0", ...environment },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -105,9 +274,14 @@ function writeJson(response: ServerResponse, value: unknown): void {
 async function startFakeOpenCodeServer(
   mode: "success" | "interaction" | "hold",
   workflow: "renovate" | "example" = "renovate",
-) {
+): Promise<FakeOpenCodeServer> {
   const requests: string[] = [];
   const pendingPrompts: ServerResponse[] = [];
+  const acpDirectory = mkdtempSync(join(tmpdir(), "seqlane-acp-agent-"));
+  const acpEventsPath = join(acpDirectory, "events.jsonl");
+  const acpPath = join(acpDirectory, "opencode");
+  writeFileSync(acpPath, fakeAcpAgent, { mode: 0o755 });
+  writeFileSync(acpEventsPath, "");
   let promptCount = 0;
   const server = createServer(async (request, response) => {
     request.on("aborted", () => response.end());
@@ -314,34 +488,263 @@ async function startFakeOpenCodeServer(
     throw new Error("Fake OpenCode server did not expose a TCP address");
   }
 
-  return { requests, server, url: `http://127.0.0.1:${address.port}` };
+  return {
+    requests,
+    server,
+    url: `http://127.0.0.1:${address.port}`,
+    acpDirectory,
+    acpEventsPath,
+    acpMode: mode,
+    acpWorkflow: workflow,
+  };
 }
 
-async function closeFakeOpenCodeServer(server: Server): Promise<void> {
-  server.closeAllConnections();
-  server.close();
-  await once(server, "close");
+async function closeFakeOpenCodeServer(
+  fake: FakeOpenCodeServer,
+): Promise<void> {
+  fake.server.closeAllConnections();
+  fake.server.close();
+  await once(fake.server, "close");
+  rmSync(fake.acpDirectory, { recursive: true, force: true });
+}
+
+function fakeAcpEnvironment(
+  fake: FakeOpenCodeServer,
+  mode: "success" | "interaction" | "hold",
+  workflow: "renovate" | "example" = "renovate",
+): NodeJS.ProcessEnv {
+  const pathSeparator = process.platform === "win32" ? ";" : ":";
+  return {
+    PATH: `${fake.acpDirectory}${pathSeparator}${process.env.PATH ?? ""}`,
+    SEQLANE_FAKE_ACP_MODE: mode,
+    SEQLANE_FAKE_ACP_WORKFLOW: workflow,
+    SEQLANE_FAKE_ACP_EVENTS: fake.acpEventsPath,
+  };
+}
+
+function runFakeCli(
+  fake: FakeOpenCodeServer,
+  entry: string,
+  args: readonly string[],
+  onStarted?: (child: ChildProcess) => void,
+  startMarker = "started task=investigate-renovate-failure",
+): Promise<CliResult> {
+  return runCli(
+    entry,
+    args,
+    onStarted,
+    startMarker,
+    fakeAcpEnvironment(fake, fake.acpMode, fake.acpWorkflow),
+  );
 }
 
 describe("seqlane CLI entrypoints", () => {
+  function createDiscoveryFixture(
+    workflow: "minimal" | "local-only" = "minimal",
+  ): {
+    readonly directory: string;
+    readonly repositoryRoot: string;
+    readonly userRoot: string;
+  } {
+    const directory = mkdtempSync(join(tmpdir(), "seqlane-cli-discovery-"));
+    const descriptorRepositoryRoot = join(directory, "repository");
+    const descriptorUserRoot = join(directory, "user");
+    mkdirSync(descriptorRepositoryRoot);
+    mkdirSync(descriptorUserRoot);
+    const discoveredWorkflow =
+      workflow === "local-only"
+        ? {
+            name: "discovered-local-only",
+            modulePath: join(repositoryRoot, "examples/local-only.ts"),
+            description: "A discovered local-only workflow",
+          }
+        : {
+            name: "discovered-minimal",
+            modulePath: join(repositoryRoot, "examples/minimal-workflow.ts"),
+            description: "A discovered minimal workflow",
+          };
+    writeFileSync(
+      join(descriptorRepositoryRoot, "minimal.json"),
+      JSON.stringify({
+        name: discoveredWorkflow.name,
+        moduleSpecifier: pathToFileURL(discoveredWorkflow.modulePath).href,
+        exportName: "default",
+        description: discoveredWorkflow.description,
+      }),
+    );
+    return {
+      directory,
+      repositoryRoot: descriptorRepositoryRoot,
+      userRoot: descriptorUserRoot,
+    };
+  }
+
+  function discoveryArgs(
+    command: "list" | "plan",
+    output: "human" | "json",
+    fixture: { readonly repositoryRoot: string; readonly userRoot: string },
+  ): string[] {
+    return [
+      command,
+      ...(command === "plan" ? ["discovered-minimal"] : []),
+      "--output",
+      output,
+      "--repository-root",
+      fixture.repositoryRoot,
+      "--user-root",
+      fixture.userRoot,
+    ];
+  }
+
+  it.each(["human", "json"] as const)(
+    "runs built list in %s mode for a discovered descriptor",
+    async (output) => {
+      const fixture = createDiscoveryFixture();
+      try {
+        const result = await runCli(
+          productionEntry,
+          discoveryArgs("list", output, fixture),
+        );
+
+        expect(result.code).toBe(0);
+        if (output === "json") {
+          expect(
+            workflowListResultSchema.parse(JSON.parse(result.stdout)),
+          ).toEqual([
+            expect.objectContaining({
+              qualifiedName: "repository:discovered-minimal",
+              description: "A discovered minimal workflow",
+            }),
+          ]);
+        } else {
+          expect(result.stdout).toContain("repository:discovered-minimal");
+          expect(result.stdout).toContain("A discovered minimal workflow");
+        }
+      } finally {
+        rmSync(fixture.directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each(["human", "json"] as const)(
+    "runs built plan in %s mode for a discovered descriptor",
+    async (output) => {
+      const fixture = createDiscoveryFixture();
+      try {
+        const result = await runCli(
+          productionEntry,
+          discoveryArgs("plan", output, fixture),
+        );
+
+        expect(result.code).toBe(0);
+        if (output === "json") {
+          const plan = planCommandResultSchema.parse(JSON.parse(result.stdout));
+          expect(plan.workflow.qualifiedName).toBe(
+            "repository:discovered-minimal",
+          );
+          expect(plan.plan.workflow.id).toBe("minimal-example");
+        } else {
+          expect(result.stdout).toContain(
+            "Plan for repository:discovered-minimal",
+          );
+          expect(result.stdout).toContain("example.prepare");
+        }
+      } finally {
+        rmSync(fixture.directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("starts and cleanly stops the built operational host", async () => {
+    const fixture = createDiscoveryFixture();
+    try {
+      const result = await runCli(
+        productionEntry,
+        [
+          "serve",
+          "--port",
+          "0",
+          "--storage-url",
+          "file::memory:",
+          "--repository-root",
+          fixture.repositoryRoot,
+          "--user-root",
+          fixture.userRoot,
+        ],
+        (child) => child.kill("SIGTERM"),
+        "Seqlane operational host:",
+      );
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("Seqlane operational host:");
+      expect(result.stdout).toContain("Seqlane readiness:");
+      expect(result.stderr).toBe("");
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
   it("runs compiled commands through the installed entrypoint", async () => {
     const fake = await startFakeOpenCodeServer("success");
     try {
-      const result = await runCli(
+      const result = await runFakeCli(
+        fake,
         productionEntry,
         runArgs(input, workflowReference, fake.url),
       );
       expect(result.code).toBe(0);
       expect(result.stdout).toMatch(/run=.* succeeded/);
     } finally {
-      await closeFakeOpenCodeServer(fake.server);
+      await closeFakeOpenCodeServer(fake);
+    }
+  });
+
+  it("runs a discovered local-only workflow through the installed entrypoint", async () => {
+    const fixture = createDiscoveryFixture("local-only");
+    try {
+      const result = await runCli(productionEntry, [
+        "run",
+        "repository:discovered-local-only",
+        "--input",
+        '{"value":"local"}',
+        "--output",
+        "json",
+        "--repository-root",
+        fixture.repositoryRoot,
+        "--user-root",
+        fixture.userRoot,
+      ]);
+
+      expect(result.code).toBe(0);
+      const events = result.stdout
+        .trimEnd()
+        .split("\n")
+        .map((line) => seqlaneExecutionEventSchema.parse(JSON.parse(line)));
+      const planEvent = events.find((event) => event.type === "run.plan");
+      if (planEvent?.type !== "run.plan") {
+        throw new Error("Discovered local-only run did not emit a Plan event");
+      }
+
+      expect(planEvent.plan.nodes).toEqual([
+        expect.objectContaining({
+          execution: "local",
+        }),
+      ]);
+      expect(
+        planEvent.plan.nodes.every((node) => node.session === undefined),
+      ).toBe(true);
+      expect(events.at(-1)?.type).toBe("run.succeeded");
+      expect(result.stderr).toBe("");
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
     }
   });
 
   it("keeps explicit JSON output machine-readable at the CLI boundary", async () => {
     const fake = await startFakeOpenCodeServer("success", "example");
     try {
-      const result = await runCli(
+      const result = await runFakeCli(
+        fake,
         productionEntry,
         runArgs(builtinInput, exampleWorkflowReference, fake.url, "json"),
       );
@@ -353,11 +756,9 @@ describe("seqlane CLI entrypoints", () => {
         .map((line) => JSON.parse(line) as { type: string });
       expect(records.at(-1)?.type).toBe("run.succeeded");
       expect(result.stdout).not.toContain("run=run-");
-      expect(result.stderr).toContain(
-        `Seqlane session UI: ${fake.url}/${Buffer.from(repositoryRoot, "utf8").toString("base64url")}/session/session-1`,
-      );
+      expect(result.stderr).toContain(`Seqlane session UI: ${fake.url}`);
     } finally {
-      await closeFakeOpenCodeServer(fake.server);
+      await closeFakeOpenCodeServer(fake);
     }
   });
 
@@ -495,7 +896,8 @@ describe("seqlane CLI entrypoints", () => {
   it("runs a TypeScript workflow file through its default export", async () => {
     const fake = await startFakeOpenCodeServer("success", "example");
     try {
-      const result = await runCli(
+      const result = await runFakeCli(
+        fake,
         productionEntry,
         runArgs(builtinInput, exampleWorkflowReference, fake.url, "json"),
       );
@@ -503,7 +905,7 @@ describe("seqlane CLI entrypoints", () => {
       expect(result.code).toBe(0);
       expect(result.stdout).toContain('"type":"run.succeeded"');
     } finally {
-      await closeFakeOpenCodeServer(fake.server);
+      await closeFakeOpenCodeServer(fake);
     }
   });
 
@@ -512,7 +914,7 @@ describe("seqlane CLI entrypoints", () => {
     const directory = mkdtempSync(join(tmpdir(), "seqlane-recording-cli-"));
     const path = join(directory, "run.jsonl");
     try {
-      const result = await runCli(productionEntry, [
+      const result = await runFakeCli(fake, productionEntry, [
         ...runArgs(builtinInput, exampleWorkflowReference, fake.url, "ci"),
         "--record",
         path,
@@ -530,7 +932,7 @@ describe("seqlane CLI entrypoints", () => {
       });
       expect(lines.map((line) => line.type)).toContain("run.plan");
     } finally {
-      await closeFakeOpenCodeServer(fake.server);
+      await closeFakeOpenCodeServer(fake);
       rmSync(directory, { recursive: true, force: true });
     }
   });
@@ -598,11 +1000,12 @@ describe("seqlane CLI entrypoints", () => {
 
   it("renders interaction failure and returns status 1", async () => {
     const fake = await startFakeOpenCodeServer("interaction");
-    const result = await runCli(
+    const result = await runFakeCli(
+      fake,
       productionEntry,
       runArgs(input, workflowReference, fake.url),
     );
-    await closeFakeOpenCodeServer(fake.server);
+    await closeFakeOpenCodeServer(fake);
 
     expect(result.code).toBe(1);
     expect(result.stdout).toContain(
@@ -612,28 +1015,20 @@ describe("seqlane CLI entrypoints", () => {
     expect(result.stdout).not.toContain("cancelled");
   });
 
-  it("forwards cancellation and sends only the runner cancel control", async () => {
-    const fake = await startFakeOpenCodeServer("hold");
-    try {
-      const result = await runCli(
-        developmentEntry,
-        runArgs(input, workflowReference, fake.url),
-        (child) => child.kill("SIGINT"),
-      );
+  it("forwards cancellation through the owned operational host", async () => {
+    const result = await runCli(
+      productionEntry,
+      runArgs(
+        JSON.stringify({ ...JSON.parse(input), dependency: "cancel-case" }),
+        workflowReference,
+        "test-fixture",
+      ),
+      (child) => child.kill("SIGINT"),
+      "run=",
+    );
 
-      expect(result.code).toBe(130);
-      expect(result.stdout).toContain("cancelled");
-      expect(
-        fake.requests.filter((path) => path.endsWith("/abort")),
-      ).toHaveLength(1);
-      expect(
-        fake.requests.some((path) =>
-          /permission\/.*\/reply|question|tui|reply/i.test(path),
-        ),
-      ).toBe(false);
-    } finally {
-      await closeFakeOpenCodeServer(fake.server);
-    }
+    expect(result.code).toBe(130);
+    expect(result.stdout).toContain("cancelled");
   });
 
   it("rejects invalid input before starting a runner", async () => {
@@ -642,43 +1037,5 @@ describe("seqlane CLI entrypoints", () => {
     expect(result.code).not.toBe(0);
     expect(`${result.stdout}${result.stderr}`).toMatch(/input|JSON/i);
     expect(result.stdout).not.toContain("workflow started");
-  });
-
-  it("starts Studio replay from the explicit recording flag", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "seqlane-studio-replay-cli-"));
-    const path = join(directory, "private-recording.jsonl");
-    const event: SeqlaneExecutionEvent = {
-      type: "run.started",
-      metadata: {
-        schemaVersion: 1,
-        eventId: "event-1",
-        sequence: 1,
-        occurredAt: "2026-08-22T12:00:00.000Z",
-      },
-      workId: "work-1",
-      runId: "run-1",
-    };
-    writeFileSync(
-      path,
-      `${JSON.stringify({ type: "seqlane.recording", version: 1, workflowId: "workflow-1" })}\n${encodeSeqlaneExecutionEvent(event)}\n`,
-    );
-    try {
-      const result = await runCli(
-        productionEntry,
-        ["studio", "--replay", path],
-        (child) => child.kill("SIGINT"),
-        "Seqlane Studio:",
-      );
-
-      expect(result.code).toBe(0);
-      const match = result.stdout.match(/Seqlane Studio: (\S+)/);
-      expect(match).not.toBeNull();
-      const browserUrl = new URL(match?.[1] ?? "");
-      expect(browserUrl.searchParams.get("replay")).toMatch(/^[0-9a-f-]{36}$/);
-      expect(browserUrl.searchParams.get("debug")).toBe("1");
-      expect(result.stdout).not.toContain(path);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
   });
 });

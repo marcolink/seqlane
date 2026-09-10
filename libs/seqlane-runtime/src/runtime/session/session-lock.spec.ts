@@ -1,5 +1,6 @@
 import type { TaskDefinition, TaskNode } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { createExecutionContext } from "../execution/context.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 import { executeTaskNode } from "../invocation/invocation-execution.js";
@@ -51,13 +52,12 @@ function task(nodeId: string): TaskNode {
 }
 
 function taskDefinition(taskId: string): TaskDefinition {
-  const schema = { parse: (value: unknown) => value };
+  const schema = z.unknown();
   return {
     id: taskId,
-    workspace: "shared",
     input: schema,
     output: schema,
-    goal: () => taskId,
+    execute: async ({ context }) => context.runAgent({ goal: taskId }),
   };
 }
 
@@ -113,6 +113,26 @@ describe("exclusive session locks", () => {
     });
   });
 
+  it("removes a cancelled invocation from the session queue", async () => {
+    const locks = new SessionLockRegistry();
+    const active = await locks.acquire(session);
+    const controller = new AbortController();
+    const waiting = locks.acquire(
+      session,
+      undefined,
+      Number.MAX_SAFE_INTEGER,
+      controller.signal,
+    );
+
+    await expectPending(waiting);
+    controller.abort(new Error("cancelled"));
+    await expect(waiting).rejects.toThrow("cancelled");
+
+    active.release();
+    const next = await locks.acquire(session);
+    next.release();
+  });
+
   it("releases a failed shared session before marking a waiting task active", async () => {
     const activeInvocations: string[] = [];
     const firstExecutorStarted = deferred<void>();
@@ -166,6 +186,7 @@ describe("exclusive session locks", () => {
     const abortSignal = new AbortController().signal;
     const first = executeTaskNode(context, task("first"), abortSignal, {
       invocationId: "first",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -174,6 +195,7 @@ describe("exclusive session locks", () => {
 
     const second = executeTaskNode(context, task("second"), abortSignal, {
       invocationId: "second",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "second" },
@@ -238,6 +260,7 @@ describe("exclusive session locks", () => {
     const abortSignal = new AbortController().signal;
     const first = executeTaskNode(context, task("first"), abortSignal, {
       invocationId: "first",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -246,6 +269,7 @@ describe("exclusive session locks", () => {
 
     const second = executeTaskNode(context, task("second"), abortSignal, {
       invocationId: "second",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "second" },
@@ -315,6 +339,7 @@ describe("exclusive session locks", () => {
     const controller = new AbortController();
     const first = executeTaskNode(context, task("first"), controller.signal, {
       invocationId: "first",
+      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -329,6 +354,7 @@ describe("exclusive session locks", () => {
       new AbortController().signal,
       {
         invocationId: "second",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "second" },
@@ -386,6 +412,7 @@ describe("exclusive session locks", () => {
     await expect(
       executeTaskNode(context, task("first"), new AbortController().signal, {
         invocationId: "first",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "first" },
@@ -398,6 +425,7 @@ describe("exclusive session locks", () => {
       new AbortController().signal,
       {
         invocationId: "second",
+        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "second" },

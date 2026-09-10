@@ -1,161 +1,163 @@
 ---
 id: spec.local-mechanical-tasks
-title: Local Mechanical Tasks
+title: In-Process and Shell Mechanical Tasks
 status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-09
 upstream:
-  - adr.local-mechanical-tasks
+  - adr.mastra-local-mechanical-tasks
+  - spec.mastra-backed-seqlane-workflows
   - spec.executor-neutral-workflow-authoring
-  - spec.effect-runtime-integration
+  - spec.mastra-runtime-and-operational-integration
   - spec.seqlane-plan-ir-typed-dataflow
   - spec.invocation-admission-and-workspace-coordination
   - spec.autonomous-non-interactive-execution
 supersedes: []
 ---
 
-# Local Mechanical Tasks
+# In-Process and Shell Mechanical Tasks
 
 ## Summary
 
-Add local task execution for deterministic work that does not require an agent
-or consume model tokens. Keep one public task vocabulary and preserve Seqlane's
-typed dataflow, event, cancellation, and workspace contracts.
+Add deterministic in-process and shell task execution. Neither task kind
+requires an agent or consumes model tokens. Keep one public task vocabulary and
+preserve Seqlane's typed dataflow, runner notification, cancellation, and
+workspace contracts.
+
+This specification uses **in-process task** for a `defineTask` implementation
+that computes in the Seqlane process. It is not a separate public task type.
 
 ## Normative terms
 
-- **Agent task:** A task that defines `goal` and runs through an agent executor.
-- **Local task:** A task that defines `execute` and runs in the Seqlane process.
-- **Task context:** The Seqlane-owned value passed to a local task function.
+- **Agent factory:** `defineAgentTask` is a convenience factory that produces
+  an ordinary executable task whose implementation calls
+  `TaskContext.runAgent()`.
+- **In-process task:** A `defineTask` callback that executes in the Seqlane
+  process. It can compute directly and can use `TaskContext.exec()` when it
+  needs a process.
+- **Shell task:** A `defineShellTask` task that starts exactly one external
+  executable with an argv array. It does not run an arbitrary callback.
 - **Command request:** One executable name and an ordered argv array.
-- **Subprocess gate:** The required subprocess behavior that the private Effect
-  platform support must provide before local tasks can continue.
+- **Subprocess gate:** The required subprocess behavior that Mastra's local
+  workspace or sandbox process support must provide for task process execution.
 
 ## Invariants
 
-- A task defines exactly one of `goal` or `execute`.
-- `createFlow().task()` composes both task types.
-- Local task handles expose `output` and no `session` checkpoint.
-- A local task Plan node is JSON-safe and never serializes the callback.
-- Local task execution does not resolve an agent executor, model, or session.
-- A local task uses the canonical runtime workspace as its current directory.
-- `exec` runs direct argv and never parses a shell string.
-- A local process completes, fails, or terminates before its task releases the
-  workspace lease.
+- Every completed task definition has the foundational `execute` contract.
+- Specialized factories supply `execute` and reject caller-supplied `execute`.
+- `createFlow().task()` composes all executable tasks through one task contract.
+- Session and workspace policy belong to the workflow invocation, not the task
+  definition.
+- A task Plan node is JSON-safe and never serializes the callback.
+- A task uses the invocation's admitted canonical runtime workspace as its
+  current directory.
+- A shell task runs one executable with direct argv and never parses a shell
+  string.
+- A shell process must terminate before its task releases the workspace lease.
+  If termination cannot be confirmed, the runtime quarantines the lease.
 - Standard output and standard error have bounded capture.
-- Local tasks emit generic invocation events and no model metrics.
+- In-process tasks emit bounded runner notifications and observability data without
+  model metrics.
 - V1 supports foreground, non-interactive commands only.
 
-## Subprocess feasibility gate
+## Subprocess contract
 
 Before public contracts or runtime execution code are added, evaluate the
-installed Effect platform with the matching private runtime dependencies.
+pinned Mastra Workspace or Sandbox process API with the matching private
+runtime dependencies.
 
-The evaluation passes only when a small private prototype proves all items:
+The runtime must prove all items:
 
 1. Run an executable with an argv array without a shell.
 2. Set the process current directory from the runtime workspace.
 3. Collect separate standard output and standard error with byte limits.
 4. Return the exit code after both streams close.
 5. Interrupt the process from the invocation `AbortSignal`.
-6. Wait for child termination before the Effect scope and workspace lease close.
+6. Wait for child termination before the runtime scope and workspace lease
+   close.
 7. Map spawn, stream, exit, and interruption errors to typed Seqlane errors.
 
-Run the dependency security preflight before adding private platform packages.
-If any item cannot be met, stop this delivery and make the runtime engine
-support the required behavior before resuming. Do not use a subprocess fallback
-for this delivery.
+Run the dependency security preflight before adding private Mastra packages. If
+any item cannot be met, stop this delivery and make the Mastra runtime support
+the required behavior before resuming. Do not add an Effect or Node subprocess
+fallback for this delivery.
 
 ## Public contracts
 
-`@seqlane/core` owns the authoring types. It does not import Effect or Node.
+`@seqlane/core` owns the authoring types. It does not import Node or runtime
+engine types.
 
 ```ts
-interface TaskExecResult {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-interface TaskContext {
-  exec(request: {
-    readonly command: string;
-    readonly args?: readonly string[];
-  }): Promise<TaskExecResult>;
-}
-
-interface LocalTaskDefinition<Input, Output> {
-  readonly id: TaskId;
-  readonly input: SeqlaneSchema<Input>;
-  readonly output: SeqlaneSchema<Output>;
-  readonly workspace?: WorkspacePolicy;
-  readonly execute: (input: Input, context: TaskContext) => Promise<Output>;
-}
+const gitStatus = defineShellTask({
+  id: "git-status",
+  input: z.object({}),
+  executable: "git",
+  argv: () => ["status", "--porcelain=v1"],
+});
 ```
 
-The final shape may use a discriminated union or overloads. It must reject
-mixed and missing task behavior at compile time and runtime loading. `.task()`
-must return an agent handle for agent definitions and an output-only handle for
-local definitions. Local task options omit `session`.
+`defineShellTask` infers its input type from its Zod input schema and returns
+the canonical `shellTaskResultSchema` output type: `{ exitCode, stdout,
+stderr }`. Its input omits `execute`, `cwd`, environment values, output
+transforms, and shell options. The factory supplies the foundational `execute`
+implementation. A non-zero exit code remains output data; a later task or
+validation gate decides what it means for the workflow.
 
 ## Plan and validation contracts
 
-Task nodes keep `type: "task"` and serialize an execution discriminator:
+Task nodes keep `type: "task"`. The Plan stores `taskId`, `nodeId`, workspace
+policy, input, session policy when supported, and `dependsOn`. It does not store
+an execution discriminator, task definition, callback, or executable request.
 
-```ts
-type TaskExecution = "agent" | "local";
-```
+The in-memory registry keeps executable definitions. Runtime validation applies
+declared workspace and session policy before calling `execute`; it also rejects
+nodes without a matching definition. The task's use of `TaskContext.exec()` or
+`TaskContext.runAgent()` does not create a separate Plan node kind.
 
-The Plan stores `taskId`, `execution`, `nodeId`, `workspace`, `input`, and
-`dependsOn`. It does not store the task definition or executable request.
-
-The built workflow keeps separate agent and local task-definition registries,
-or one discriminated registry. Plan validation checks that each node execution
-kind matches its registered definition. It rejects malformed execution kinds,
-local session declarations, and local nodes without a matching definition.
-
-Repeat body contracts and Plan snapshots include local task nodes from the first
+Repeat body contracts and Plan snapshots include in-process task nodes from the first
 delivery.
 
 ## Runtime contracts
 
-The compiler dispatches local task nodes to a dedicated local-task invocation
-path. This path reuses existing binding resolution, schema parsing, workspace
-admission, generic events, result retention, and typed invocation failure.
+The task runtime path reuses existing binding resolution, schema parsing,
+workspace admission, generic events, result retention, and typed invocation
+failure. The runtime provides `TaskContext` only during one invocation. Its
+process operation has one child process per call and uses the canonical
+workspace as `cwd`, the invocation signal for interruption, and bounded stream
+collection. An agent operation uses the invocation's resolved session when one
+was declared. A non-zero exit is returned to the task. The task decides if that
+exit is an expected result or an error.
 
-The path does not call executor lookup, model preflight, session preflight, or
-checkpoint publication.
+The Mastra Plan compiler dispatches every task through the same executable
+task path after invocation policy admission. Repeat support remains outside
+this migration slice.
 
-The runtime provides `TaskContext.exec()` only during one local invocation. Its
-Effect implementation has one scoped child process per call. The process uses
-the canonical workspace as `cwd`, the invocation signal for interruption, and
-bounded stream collection. A non-zero exit is returned to the local task. The
-task decides if that exit is an expected result or an error.
+The initial implementation supports only foreground processes. A future
+background-process API requires a separate decision.
 
-The initial implementation supports only foreground processes. `execute` must
-await `exec`. A future background-process API requires a separate decision.
+## Notifications and errors
 
-## Events and errors
+Tasks use the core-owned runner protocol and the bounded observability
+projection. A task that does not call `TaskContext.runAgent()` produces no
+token or model metrics.
 
-Local tasks use existing `invocation.started`, `invocation.progress`,
-`invocation.input`, `invocation.result`, `invocation.succeeded`,
-`invocation.failed`, and `invocation.cancelled` events. They use the existing
-task subject shape. Local task results contain no token or model metrics.
-
-Spawn errors, interruption errors, output-limit errors, and invalid outputs
-become typed invocation errors. The error retains the original cause. Event
-output and error diagnostics remain bounded.
+Spawn, timeout, interruption, output-limit, uncertain-termination, and invalid
+output errors become typed invocation errors. Domain errors retain the cause.
+Serialized errors and diagnostics omit the cause and remain bounded.
 
 ## Compatibility and exclusions
 
-Existing `goal` task definitions keep their current behavior. Existing Plans
-without `execution` are legacy agent task nodes.
+Existing `goal` task definitions migrate to `defineAgentTask`. Existing in-process
+definitions stay on `defineTask`. Existing command tasks migrate to
+`defineShellTask`. Workflows rebuild their Plans with no compatibility alias.
 
 This work does not add shell strings, `execa`, command allowlists, Git helper
-APIs, terminal interaction, process trees, environment configuration, network
-policy, sandboxing, background processes, retries, or parallel execution.
+APIs, terminal interaction, network policy, sandboxing, background processes,
+retries, or a general shell or environment API. Independent workflow nodes can
+execute concurrently under the active Mastra eligibility and Seqlane admission
+rules.
 
 ## Verification gate
 
@@ -174,9 +176,10 @@ git diff --check
 
 ## Traceability
 
-- [adr.local-mechanical-tasks](../adrs/2026-09-03-local-mechanical-tasks.md)
+- [adr.mastra-local-mechanical-tasks](../adrs/2026-09-04-mastra-local-mechanical-tasks.md)
 - [spec.executor-neutral-workflow-authoring](2026-09-02-executor-neutral-workflow-authoring.md)
-- [spec.effect-runtime-integration](2026-09-02-effect-runtime-integration.md)
+- [spec.mastra-runtime-and-operational-integration](2026-09-03-mastra-runtime-and-operational-integration.md)
 - [spec.seqlane-plan-ir-typed-dataflow](2026-09-02-seqlane-plan-ir-typed-dataflow.md)
+- [spec.mastra-backed-seqlane-workflows](2026-09-08-mastra-backed-seqlane-workflows.md)
 - [spec.invocation-admission-and-workspace-coordination](2026-09-02-invocation-admission-and-workspace-coordination.md)
 - [spec.autonomous-non-interactive-execution](2026-09-02-autonomous-non-interactive-execution.md)

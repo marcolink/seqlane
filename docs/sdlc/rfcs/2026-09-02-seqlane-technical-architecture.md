@@ -1,7 +1,7 @@
 ---
 id: rfc.seqlane-technical-architecture
 title: Seqlane Technical Architecture
-status: proposed
+status: superseded
 owners:
   - core
 created: 2026-09-02
@@ -12,6 +12,8 @@ supersedes: []
 ---
 
 # Seqlane Technical Architecture
+
+> Superseded by [rfc.mastra-runtime-and-operational-foundation](./2026-09-03-mastra-runtime-and-operational-foundation.md).
 
 ## 1. Purpose
 
@@ -773,3 +775,4 @@ Post-MVP work must additionally resolve branch and repeat typing, resource admis
 ## Traceability
 
 - [prd.seqlane: Seqlane](../prd/2026-09-02-seqlane.md)
+- Replaced by [rfc.mastra-runtime-and-operational-foundation: Mastra as Seqlane's Runtime and Operational Foundation](./2026-09-03-mastra-runtime-and-operational-foundation.md).

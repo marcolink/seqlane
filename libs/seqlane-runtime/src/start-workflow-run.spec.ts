@@ -1,22 +1,16 @@
 // @test-scope ./start-workflow-run.ts
 import { buildWorkflow, createFlow, defineTask } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
 
-const inputSchema = {
-  parse: (value: unknown) => {
-    if (typeof value !== "object" || value === null || !("value" in value))
-      throw new TypeError("value is required");
-    return value as { value: string };
-  },
-};
-const outputSchema = { parse: (value: unknown) => value as { value: string } };
+const inputSchema = z.object({ value: z.string() });
+const outputSchema = z.object({ value: z.string() });
 const localTask = defineTask({
   id: "direct.local",
-  workspace: "shared",
   input: inputSchema,
   output: outputSchema,
-  execute: async ({ value }: { value: string }) => ({ value }),
+  execute: async ({ input: { value } }) => ({ value }),
 });
 const workflow = createFlow({
   id: "direct-runtime-test",
@@ -58,7 +52,7 @@ describe("startWorkflowRun", () => {
         "local",
         defineTask({
           ...localTask,
-          execute: async (value: { value: string }) => {
+          execute: async ({ input: value }) => {
             executed = true;
             return value;
           },
@@ -112,6 +106,17 @@ describe("startWorkflowRun", () => {
     if (outcome.status !== "failed") return;
     expect(outcome.error.category).toBe("RuntimeError");
     expect(outcome.error.cause).toBeInstanceOf(Error);
-    expect((outcome.error.cause as Error).message).toBe("value is required");
+    expect(outcome.error.cause).toBeInstanceOf(z.ZodError);
+    expect((outcome.error.cause as z.ZodError).issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "invalid_type",
+          path: [],
+        }),
+      ]),
+    );
+    expect((outcome.error.cause as Error).message).not.toContain(
+      "event sink unavailable",
+    );
   });
 });

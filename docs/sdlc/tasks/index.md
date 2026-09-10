@@ -146,24 +146,52 @@
 | [task.boundary-verification-and-documentation](./2026-09-02-boundary-verification-and-documentation.md) | Verify Boundaries and Complete the Migration | completed | 2026-09-02 | core |
 | [task.verify-boundaries-and-documentation](./2026-09-02-verify-boundaries-and-documentation.md) | Verify boundaries and document built-in workflows | completed | 2026-09-02 | core |
 | [task.wire-opencode-execution-into-runner](./2026-09-02-wire-opencode-execution-into-runner.md) | Wire OpenCode execution into the runner | completed | 2026-09-02 | core |
+| [task.mastra-community-dependencies](./2026-09-03-mastra-community-dependencies.md) | Add Community Mastra Dependencies and Boundary Guards | completed | 2026-09-03 | core |
 | [task.model-preflight](./2026-09-03-model-preflight.md) | Add Executor Model Capabilities and Runtime Preflight | completed | 2026-09-03 | core |
 | [task.plan-model-selection](./2026-09-03-plan-model-selection.md) | Carry Session Model Selection Through Plan Contracts | completed | 2026-09-03 | core |
+| [task.mastra-plan-compiler](./2026-09-03-mastra-plan-compiler.md) | Compile Seqlane Plans to Mastra Workflows | completed | 2026-09-03 | core |
 | [task.integration-and-documentation](./2026-09-03-integration-and-documentation.md) | Complete Integration Compatibility Coverage and Documentation | completed | 2026-09-03 | core |
 | [task.integration-documentation](./2026-09-03-integration-documentation.md) | Complete Local Task Integration and Documentation | completed | 2026-09-03 | core |
 | [task.create-sdlc-documentation-system](./2026-09-03-create-sdlc-documentation-system.md) | Create SDLC documentation system | completed | 2026-09-03 | core |
+| [task.mastra-runtime-spine](./2026-09-03-mastra-runtime-spine.md) | Create the Mastra Runtime Spine | completed | 2026-09-03 | core |
 | [task.local-task-contracts](./2026-09-03-local-task-contracts.md) | Define Local Task Contracts | completed | 2026-09-03 | core |
 | [task.model-contracts](./2026-09-03-model-contracts.md) | Define Model Refs, Reasoning, and Catalog Helpers | completed | 2026-09-03 | core |
+| [task.mastra-migration-foundation](./2026-09-03-mastra-migration-foundation.md) | Establish the Mastra Migration Foundation | completed | 2026-09-03 | core |
+| [task.mastra-server-mcp](./2026-09-03-mastra-server-mcp.md) | Expose Workflows Through Mastra Server and MCP | completed | 2026-09-03 | core |
 | [task.opencode-model-forks](./2026-09-03-opencode-model-forks.md) | Initialize OpenCode Fork Models Before Prompting | completed | 2026-09-03 | core |
+| [task.mastra-workspace-constraints](./2026-09-03-mastra-workspace-constraints.md) | Lower Workspace Constraints Into the Mastra Graph | completed | 2026-09-03 | core |
+| [task.mastra-session-semantics](./2026-09-03-mastra-session-semantics.md) | Map Seqlane Session Semantics to Mastra | completed | 2026-09-03 | core |
 | [task.session-model-pinning](./2026-09-03-session-model-pinning.md) | Pin Effective Selections Across Runtime Sessions | completed | 2026-09-03 | core |
+| [task.mastra-identity-events](./2026-09-03-mastra-identity-events.md) | Preserve Identity and Normalized Execution Events | completed | 2026-09-03 | core |
 | [task.effect-v3-subprocess-gate](./2026-09-03-effect-v3-subprocess-gate.md) | Prove the Private Effect Subprocess Contract | completed | 2026-09-03 | core |
 | [task.model-observability](./2026-09-03-model-observability.md) | Record Effective Model Selections in Observability | completed | 2026-09-03 | core |
+| [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md) | Remove Superseded Runtime Architecture | completed | 2026-09-03 | core |
+| [task.mastra-community-studio](./2026-09-03-mastra-community-studio.md) | Replace the Dedicated Studio With Mastra Community Studio | completed | 2026-09-03 | core |
+| [task.mastra-agent-acp](./2026-09-03-mastra-agent-acp.md) | Run Agent Tasks Through Mastra ACP | completed | 2026-09-03 | core |
+| [task.mastra-deterministic-shell](./2026-09-03-mastra-deterministic-shell.md) | Run Deterministic Shell Tasks Through Mastra | completed | 2026-09-03 | core |
 | [task.effect-local-task-execution](./2026-09-03-effect-local-task-execution.md) | Run Local Tasks Through the Private Effect Runtime | completed | 2026-09-03 | core |
 | [task.local-task-plan-validation](./2026-09-03-local-task-plan-validation.md) | Serialize and Validate Local Task Nodes | completed | 2026-09-03 | core |
+| [task.mastra-storage-tracing](./2026-09-03-mastra-storage-tracing.md) | Use Mastra Storage and Tracing as the Operational Source | completed | 2026-09-03 | core |
 | [task.session-model-validation](./2026-09-03-session-model-validation.md) | Validate Model Inheritance and Session Conflicts | completed | 2026-09-03 | core |
+| [task.agent-adapter-integration-cleanup](./2026-09-04-agent-adapter-integration-cleanup.md) | Add Adapter Integration Coverage and Complete Migration | completed | 2026-09-04 | core |
 | [task.bounded-pr-code-review-evidence](./2026-09-04-bounded-pr-code-review-evidence.md) | Add Bounded Patch Evidence to Pull Request Reviews | completed | 2026-09-04 | core |
+| [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md) | Add the Durable Mastra Operational Host | completed | 2026-09-04 | core |
+| [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | completed | 2026-09-04 | core |
 | [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
+| [task.explicit-runtime-adapter-selection](./2026-09-04-explicit-runtime-adapter-selection.md) | Define Explicit Runtime Adapter Selection and Configuration | completed | 2026-09-04 | core |
+| [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
+| [task.protocol-agnostic-acp-adapter](./2026-09-04-protocol-agnostic-acp-adapter.md) | Implement a Protocol-Agnostic ACP Adapter | completed | 2026-09-04 | core |
+| [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | completed | 2026-09-04 | core |
+| [task.session-checkpoint-fork-capabilities](./2026-09-04-session-checkpoint-fork-capabilities.md) | Map Session, Checkpoint, and Fork Capabilities | completed | 2026-09-04 | core |
+| [task.mastra-operational-end-to-end](./2026-09-04-mastra-operational-end-to-end.md) | Prove One Run Across All Mastra Operational Surfaces | planned | 2026-09-04 | core |
 | [task.resolve-pull-request-merge-conflicts](./2026-09-04-resolve-pull-request-merge-conflicts.md) | Resolve Pull Request Merge Conflicts | completed | 2026-09-04 | core |
+| [task.opencode-sdk-only-adapter](./2026-09-04-opencode-sdk-only-adapter.md) | Restore the OpenCode SDK-Only Adapter | completed | 2026-09-04 | core |
+| [task.mastra-mcp-transports](./2026-09-04-mastra-mcp-transports.md) | Run Seqlane Workflows Through Mastra MCP Transports | in-progress | 2026-09-04 | core |
+| [task.cli-run-status-and-cancel](./2026-09-04-cli-run-status-and-cancel.md) | Run, Inspect, and Cancel Through the Operational Host | completed | 2026-09-04 | core |
+| [task.operational-data-bounds](./2026-09-05-operational-data-bounds.md) | Bound Operational Data Retention and Queries | planned | 2026-09-05 | core |
+| [task.workflow-discovery-bounds](./2026-09-05-workflow-discovery-bounds.md) | Bound Workflow Discovery | planned | 2026-09-05 | core |
 | [task.github-service-lifecycle-actions](./2026-09-05-github-service-lifecycle-actions.md) | Extract GitHub Actions Service Lifecycles | completed | 2026-09-05 | core |
+| [task.investigate-mastra-mcp-runtime-reuse](./2026-09-05-investigate-mastra-mcp-runtime-reuse.md) | Investigate Mastra Runtime Reuse for MCP Invocations | planned | 2026-09-05 | core |
 | [task.preserve-pull-request-review-run-history](./2026-09-05-preserve-pull-request-review-run-history.md) | Preserve Pull Request Review Run History | completed | 2026-09-05 | core |
 | [task.prevent-comment-triggered-review-cancellation](./2026-09-05-prevent-comment-triggered-review-cancellation.md) | Prevent Irrelevant Comments from Cancelling Pull Request Reviews | completed | 2026-09-05 | core |
 | [task.publish-versioned-pull-request-review-comments](./2026-09-05-publish-versioned-pull-request-review-comments.md) | Publish Versioned Pull Request Review Comments | completed | 2026-09-05 | core |
@@ -175,6 +203,7 @@
 | [task.consolidate-pull-request-review-run-metrics](./2026-09-06-consolidate-pull-request-review-run-metrics.md) | Consolidate Pull Request Review Run Metrics | completed | 2026-09-06 | core |
 | [task.seqlane-action-resolution-contracts](./2026-09-06-seqlane-action-resolution-contracts.md) | Establish Seqlane Action Resolution Contracts | completed | 2026-09-06 | core |
 | [task.seqlane-action-workflow-migration](./2026-09-06-seqlane-action-workflow-migration.md) | Migrate the Merge Conflict Workflow to the Seqlane Action | completed | 2026-09-06 | core |
+| [task.operational-workflow-registration-boundary](./2026-09-06-operational-workflow-registration-boundary.md) | Narrow the Operational Workflow Registration Boundary | planned | 2026-09-06 | core |
 | [task.seqlane-action-integration-verification](./2026-09-06-seqlane-action-integration-verification.md) | Verify the Seqlane Action Merge Conflict Resolver | in-progress | 2026-09-06 | core |
 | [task.seqlane-action-entrypoint-and-bundle](./2026-09-06-seqlane-action-entrypoint-and-bundle.md) | Wire and Bundle the Seqlane Conflict Resolution Action | completed | 2026-09-06 | core |
 | [task.account-opencode-invocation-metrics](./2026-09-07-account-opencode-invocation-metrics.md) | Account for all OpenCode model responses per invocation | completed | 2026-09-07 | core |
@@ -186,12 +215,25 @@
 | [task.harden-zvec-grep-review-execution](./2026-09-07-harden-zvec-grep-review-execution.md) | Harden zvec-grep Review Execution | completed | 2026-09-07 | core |
 | [task.migrate-service-actions-to-workspace-structure](./2026-09-07-migrate-service-actions-to-workspace-structure.md) | Migrate Service Actions to the Workspace Structure | completed | 2026-09-07 | core |
 | [task.seqlane-action-resolution-summaries](./2026-09-07-seqlane-action-resolution-summaries.md) | Publish Human-Readable Merge Resolution Summaries | completed | 2026-09-07 | core |
+| [task.add-mastra-observability](./2026-09-08-add-mastra-observability.md) | Add Mastra Observability | in-progress | 2026-09-08 | core |
+| [task.add-mastra-plan-compiler](./2026-09-08-add-mastra-plan-compiler.md) | Add the Mastra Plan Compiler | completed | 2026-09-08 | core |
 | [task.add-opencode-tool-setup-action](./2026-09-08-add-opencode-tool-setup-action.md) | Add the OpenCode Tool Setup Action | completed | 2026-09-08 | core |
 | [task.add-ripwire-server-action](./2026-09-08-add-ripwire-server-action.md) | Add the Ripwire HTTP MCP GitHub Action | completed | 2026-09-08 | core |
 | [task.adopt-opencode-tool-setup-in-review-workflow](./2026-09-08-adopt-opencode-tool-setup-in-review-workflow.md) | Adopt OpenCode Tool Setup in the Review Workflow | completed | 2026-09-08 | core |
 | [task.adopt-ripwire-in-code-review](./2026-09-08-adopt-ripwire-in-code-review.md) | Adopt Ripwire in Seqlane Code Review | completed | 2026-09-08 | core |
 | [task.audit-sdlc-delivery-state](./2026-09-08-audit-sdlc-delivery-state.md) | Audit SDLC Delivery State | completed | 2026-09-08 | core |
+| [task.compose-workflows-as-runnables](./2026-09-08-compose-workflows-as-runnables.md) | Compose Workflows as Runnables | planned | 2026-09-08 | core |
 | [task.configure-generated-file-conflict-handlers](./2026-09-08-configure-generated-file-conflict-handlers.md) | Configure Generated-File Conflict Handlers | completed | 2026-09-08 | core |
+| [task.cut-over-to-mastra-runtime](./2026-09-08-cut-over-to-mastra-runtime.md) | Cut Over to the Mastra Runtime | completed | 2026-09-08 | core |
 | [task.deliver-direct-runtime-code-review-action](./2026-09-08-deliver-direct-runtime-code-review-action.md) | Deliver the Direct-Runtime Code-Review Action | in-progress | 2026-09-08 | core |
+| [task.migrate-execution-event-consumers](./2026-09-08-migrate-execution-event-consumers.md) | Migrate Execution Event Consumers | planned | 2026-09-08 | core |
+| [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
+| [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
+| [task.propagate-mastra-observability-context](./2026-09-08-propagate-mastra-observability-context.md) | Propagate Per-Invocation Mastra Observability Context | completed | 2026-09-08 | core |
 | [task.publish-live-merge-resolution-progress](./2026-09-08-publish-live-merge-resolution-progress.md) | Publish Live Merge Resolution Progress | completed | 2026-09-08 | core |
+| [task.remove-seqlane-events](./2026-09-08-remove-seqlane-events.md) | Remove Seqlane Events | planned | 2026-09-08 | core |
+| [task.remove-effect-subprocess-runtime](./2026-09-08-remove-effect-subprocess-runtime.md) | Remove the Effect Subprocess Runtime | completed | 2026-09-08 | core |
 | [task.require-explicit-opencode-server-executable](./2026-09-08-require-explicit-opencode-server-executable.md) | Require an Explicit OpenCode Server Executable | completed | 2026-09-08 | core |
+| [task.unify-flow-authoring-and-minimal-plan](./2026-09-08-unify-flow-authoring-and-minimal-plan.md) | Unify Flow Authoring and the Minimal Plan | planned | 2026-09-08 | core |
+| [task.unify-executable-task-contract](./2026-09-08-unify-executable-task-contract.md) | Unify the Executable Task Contract | completed | 2026-09-08 | core |
+| [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | completed | 2026-09-09 | core |

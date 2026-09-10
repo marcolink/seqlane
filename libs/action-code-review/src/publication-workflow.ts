@@ -5,9 +5,8 @@ import {
   derivePublicationMetrics,
   publicationSnapshotSchema,
   renderPublication,
-  type PublicationSnapshotInput,
 } from "./publication.js";
-import { reviewRunMetricsSchema, type ReviewRunMetrics } from "./metrics.js";
+import { reviewRunMetricsSchema } from "./metrics.js";
 import {
   gitRevisionSchema,
   reviewPublicationSchema,
@@ -72,28 +71,20 @@ const publicationInputSchema = z
 
 const metricsTask = defineTask({
   id: "pr-code-review.publication.metrics",
-  workspace: "shared",
   input: publicationSnapshotSchema,
   output: reviewRunMetricsSchema,
-  execute: async (snapshot: PublicationSnapshotInput) =>
-    derivePublicationMetrics(snapshot),
+  execute: async ({ input }) => derivePublicationMetrics(input),
 });
 
 const renderTask = defineTask({
   id: "pr-code-review.publication.report",
-  workspace: "shared",
   input: z.object({
     snapshot: publicationSnapshotSchema,
     metrics: metricsTask.output,
   }),
   output: reviewPublicationSchema,
-  execute: async ({
-    snapshot,
-    metrics,
-  }: {
-    readonly snapshot: PublicationSnapshotInput;
-    readonly metrics: ReviewRunMetrics;
-  }) => renderPublication(snapshot, metrics),
+  execute: async ({ input: { snapshot, metrics } }) =>
+    renderPublication(snapshot, metrics),
 });
 
 const decisionSchema = z.object({
@@ -107,13 +98,12 @@ export const publicationResultSchema = z.object({
 
 const decisionTask = defineTask({
   id: "pr-code-review.publication.decision",
-  workspace: "shared",
   input: z.object({
     liveState: z.enum(["live", "stale"]),
     publication: reviewPublicationSchema,
   }),
   output: decisionSchema,
-  execute: async ({ liveState, publication }) => ({
+  execute: async ({ input: { liveState, publication } }) => ({
     status: liveState === "live" ? ("publish" as const) : ("stale" as const),
     publication,
   }),
@@ -130,39 +120,50 @@ export const publicationWorkflow = (port: PublicationPort) =>
     input: publicationInputSchema,
     output: publicationResultSchema,
   })
-    .task("metrics", metricsTask, ({ input }) => input.snapshot)
-    .task("report", renderTask, ({ input, tasks }) => ({
-      snapshot: input.snapshot,
-      metrics: tasks.metrics.output,
-    }))
+    .task("metrics", metricsTask, ({ input }) => input.snapshot, {
+      workspace: "shared",
+    })
+    .task(
+      "report",
+      renderTask,
+      ({ input, tasks }) => ({
+        snapshot: input.snapshot,
+        metrics: tasks.metrics.output,
+      }),
+      { workspace: "shared" },
+    )
     .task(
       "liveState",
       defineTask({
         id: "pr-code-review.publication.live-state",
-        workspace: "shared",
         input: z.object({
           repository: z.string().min(1),
           pullRequestNumber: z.number().int().positive(),
           expectedHeadRevision: gitRevisionSchema,
         }),
         output: z.enum(["live", "stale"]),
-        execute: (input) => port.checkLiveState(input),
+        execute: ({ input }) => port.checkLiveState(input),
       }),
       ({ input }) => ({
         repository: input.repository,
         pullRequestNumber: input.pullRequestNumber,
         expectedHeadRevision: input.expectedHeadRevision,
       }),
+      { workspace: "shared" },
     )
-    .task("decision", decisionTask, ({ tasks }) => ({
-      liveState: tasks.liveState.output,
-      publication: tasks.report.output,
-    }))
+    .task(
+      "decision",
+      decisionTask,
+      ({ tasks }) => ({
+        liveState: tasks.liveState.output,
+        publication: tasks.report.output,
+      }),
+      { workspace: "shared" },
+    )
     .task(
       "publish",
       defineTask({
         id: "pr-code-review.publication.publish",
-        workspace: "shared",
         input: z.object({
           repository: z.string().min(1),
           pullRequestNumber: z.number().int().positive(),
@@ -174,7 +175,7 @@ export const publicationWorkflow = (port: PublicationPort) =>
           decision: decisionSchema,
         }),
         output: publicationResultSchema,
-        execute: async (input) => {
+        execute: async ({ input }) => {
           if (input.decision.status === "stale") {
             return {
               status: "stale" as const,
@@ -206,6 +207,7 @@ export const publicationWorkflow = (port: PublicationPort) =>
         existingReportId: input.existingReportId,
         decision: tasks.decision.output,
       }),
+      { workspace: "shared" },
     )
     .output(({ tasks }) => tasks.publish.output)
     .define();

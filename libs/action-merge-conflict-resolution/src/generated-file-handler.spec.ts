@@ -89,12 +89,12 @@ describe("generated-file handler", () => {
       expect(dockerCalls[0]).toContain("bridge");
       expect(dockerCalls[1]).toContain("--network");
       expect(dockerCalls[1]).toContain("none");
-      expect(dockerCalls[0].slice(-3)).toEqual([
+      expect(dockerCalls[0]!.slice(-3)).toEqual([
         "pnpm",
         "install",
         "--ignore-scripts",
       ]);
-      expect(dockerCalls[1].slice(-2)).toEqual(["pnpm", "build"]);
+      expect(dockerCalls[1]!.slice(-2)).toEqual(["pnpm", "build"]);
       expect(dockerEnvironments[0]).toEqual({ PATH: "/safe/bin" });
       expect(
         dockerCalls.map((args) =>

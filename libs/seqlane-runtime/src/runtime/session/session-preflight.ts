@@ -1,5 +1,7 @@
-import type { CompiledWorkflow } from "../compile/compile-plan.js";
+import type { PreparedPlanExecution } from "../compile/compile-plan.js";
 import { invocationIdForNode } from "../execution/context.js";
+import type { AgentAdapterCapabilities } from "@seqlane/agent-adapter";
+import type { PlanNode, TaskNode } from "@seqlane/core";
 import {
   resolveTaskSession,
   type SessionConsumer,
@@ -9,14 +11,102 @@ import {
   rejectUnorderedSharedSessionPairs,
 } from "./shared-session-order.js";
 
+export type SessionCapability =
+  | "execute"
+  | "structuredOutput"
+  | "modelSelection"
+  | "sessionReuse"
+  | "checkpoint"
+  | "fork";
+
+export class UnsupportedSessionCapabilityError extends Error {
+  constructor(
+    readonly nodeId: string,
+    readonly capability: SessionCapability,
+    readonly adapterCapabilities: AgentAdapterCapabilities,
+  ) {
+    super(
+      `Agent adapter cannot satisfy "${capability}" for session policy at "${nodeId}"`,
+    );
+    this.name = "UnsupportedSessionCapabilityError";
+  }
+}
+
+function agentTaskNodes(compiled: PreparedPlanExecution): readonly TaskNode[] {
+  const nodes: TaskNode[] = [];
+  const visit = (node: PlanNode): void => {
+    if (node.type === "task") {
+      if (node.session !== undefined) {
+        nodes.push(node);
+      }
+      return;
+    }
+    if (node.type === "repeat") {
+      for (const bodyNode of node.body.nodes) visit(bodyNode);
+      return;
+    }
+  };
+  for (const node of compiled.plan.nodes) visit(node);
+  return nodes;
+}
+
+function requireCapability(
+  nodeId: string,
+  capabilities: AgentAdapterCapabilities,
+  capability: SessionCapability,
+): void {
+  if (!capabilities[capability]) {
+    throw new UnsupportedSessionCapabilityError(
+      nodeId,
+      capability,
+      capabilities,
+    );
+  }
+}
+
+/** Checks static session and model requirements before creating any session. */
+export function preflightCompiledWorkflowSessionCapabilities(
+  compiled: PreparedPlanExecution,
+): void {
+  const capabilities = compiled.context.sessionResolver?.adapterCapabilities;
+  if (capabilities === undefined) return;
+
+  for (const node of agentTaskNodes(compiled)) {
+    requireCapability(node.nodeId, capabilities, "execute");
+    requireCapability(node.nodeId, capabilities, "structuredOutput");
+    const policy = node.session ?? { type: "isolated" as const };
+    const explicitSelection =
+      (policy.type === "isolated" || policy.type === "branch"
+        ? policy.model
+        : undefined) ??
+      compiled.context.effectiveModelSelections.get(
+        compiled.context.invocationIds.get(node.nodeId) ?? node.nodeId,
+      );
+    if (explicitSelection !== undefined) {
+      requireCapability(node.nodeId, capabilities, "modelSelection");
+    }
+    if (policy.type === "reuse") {
+      requireCapability(node.nodeId, capabilities, "sessionReuse");
+    }
+    if (policy.type === "branch") {
+      requireCapability(node.nodeId, capabilities, "checkpoint");
+      requireCapability(node.nodeId, capabilities, "fork");
+    }
+  }
+}
+
 /** Resolves executor sessions and validates session admission before execution. */
 export async function resolveCompiledWorkflowSessions(
-  compiled: CompiledWorkflow,
+  compiled: PreparedPlanExecution,
 ): Promise<void> {
   const { context } = compiled;
+  const isolatedSessions: Array<{
+    readonly invocationId: string;
+    readonly taskId: string;
+  }> = [];
   for (const node of compiled.orderedNodes) {
     const invocationId = invocationIdForNode(context, node);
-    if (node.type === "task" && node.execution !== "local") {
+    if (node.type === "task" && node.session !== undefined) {
       const policy = node.session ?? { type: "isolated" as const };
       if (policy.type !== "isolated") {
         const task = context.taskDefinitions?.get(node.taskId);
@@ -36,27 +126,18 @@ export async function resolveCompiledWorkflowSessions(
         ]);
         continue;
       }
-      await resolveTaskSession(
-        context.resolvedSessions,
-        context.sessionResolver,
-        context.taskDefinitions,
-        invocationId,
-        node.taskId,
-        context.effectiveModelSelections.get(invocationId),
-      );
-    } else if (
-      node.type === "validation.check" &&
-      node.source.type === "task"
-    ) {
-      await resolveTaskSession(
-        context.resolvedSessions,
-        context.sessionResolver,
-        context.taskDefinitions,
-        invocationId,
-        node.source.taskId,
-        context.effectiveModelSelections.get(invocationId),
-      );
+      isolatedSessions.push({ invocationId, taskId: node.taskId });
     }
+  }
+  for (const session of isolatedSessions) {
+    await resolveTaskSession(
+      context.resolvedSessions,
+      context.sessionResolver,
+      context.taskDefinitions,
+      session.invocationId,
+      session.taskId,
+      context.effectiveModelSelections.get(session.invocationId),
+    );
   }
   context.sharedSessionPairs = preflightSharedSessionOrder(compiled);
   rejectUnorderedSharedSessionPairs(context.sharedSessionPairs);

@@ -1,4 +1,4 @@
-import { createFlow, defineTask, defineValidator } from "@seqlane/core";
+import { createFlow, defineAgentTask, defineValidator } from "@seqlane/core";
 import { z } from "zod";
 
 const inputSchema = z.object({ id: z.string() });
@@ -22,17 +22,15 @@ const summaryValidator = defineValidator({
         },
 });
 
-export const mixedAgentTask = defineTask({
+export const mixedAgentTask = defineAgentTask({
   id: "mixed.agent",
-  workspace: "shared",
   input: inputSchema,
   output: agentOutputSchema,
   goal: ({ id }) => `Summarize ${id}`,
 });
 
-export const mixedStatusTask = defineTask({
+export const mixedStatusTask = defineAgentTask({
   id: "mixed.operation",
-  workspace: "shared",
   input: z.object({ summary: z.string() }),
   output: operationOutputSchema,
   goal: ({ summary }) => `Look up the status for ${summary}.`,
@@ -44,10 +42,16 @@ export const mixedWorkflow = createFlow({
   output: operationOutputSchema,
 })
   .task("summary", mixedAgentTask, ({ input }) => input, {
+    workspace: "shared",
     validateOutput: summaryValidator,
   })
-  .task("status", mixedStatusTask, ({ tasks }) => ({
-    summary: tasks.summary.output.summary,
-  }))
+  .task(
+    "status",
+    mixedStatusTask,
+    ({ tasks }) => ({
+      summary: tasks.summary.output.summary,
+    }),
+    { workspace: "shared" },
+  )
   .output(({ tasks }) => tasks.status.output)
   .define();

@@ -93,10 +93,9 @@ function legacyFindingStatus(
 
 const applyReviewDispositionTask = defineTask({
   id: "pr-code-review.apply-dispositions",
-  workspace: "shared",
   input: applyReviewDispositionInputSchema,
   output: codeReviewReportSchema,
-  execute: async ({ review, report }) => {
+  execute: async ({ input: { review, report } }) => {
     const latestAuthorized = new Map<
       string,
       z.infer<typeof reviewDispositionSchema>

@@ -6,6 +6,10 @@ import type {
   ResolvedStructuredOutput,
   StructuredOutputState,
 } from "./structured-output-strategy.js";
+import type {
+  OpenCodeEventObservation,
+  OpenCodeTerminalObservation,
+} from "./observations.js";
 
 export interface OpenCodeConnection {
   readonly url: string;
@@ -30,9 +34,14 @@ export interface OpenCodePrompt {
   /** Cancels this prompt only after OpenCode acknowledges the session abort. */
   readonly signal?: AbortSignal;
   readonly onActivity?: (activity: OpenCodeActivity) => void;
+  /** Receives one validated observation from the single event reducer. */
+  readonly onObservation?: (observation: OpenCodeEventObservation) => void;
+  /** Reports malformed event observations without changing execution. */
+  readonly onDiagnostic?: (message: string) => void;
   /** Reports an external request whose termination cannot be confirmed. */
   readonly onUncertainActivity?: (activity: OpenCodeUncertainActivity) => void;
-  readonly onBackgroundProcess?: (process: OpenCodeBackgroundProcess) => void;
+  /** Invalidates the cached adapter run after an internal abort. */
+  readonly onRunInvalidated?: () => void;
 }
 
 export interface OpenCodeUncertainActivity {
@@ -55,14 +64,12 @@ export interface OpenCodeActivity {
   readonly message?: string;
 }
 
-export interface OpenCodeBackgroundProcess {
-  readonly mutatesWorkspace: true;
-}
-
 export interface OpenCodePromptResult {
   readonly structured: unknown;
   readonly text?: string;
   readonly metrics?: SeqlaneInvocationMetrics;
+  /** Adapter-private validated terminal observation for reconciliation. */
+  readonly observation?: OpenCodeTerminalObservation;
 }
 
 export interface OpenCodeSessionCheckpoint {

@@ -5,25 +5,23 @@ import type {
   RuntimeProfileReference,
   SeqlaneEventSink,
   SeqlaneRunOutcome,
-  TaskDefinitionRegistry,
   WorkId,
   RunId,
 } from "@seqlane/core";
 import { RuntimeError } from "@seqlane/core";
-import { EffectCompiler } from "./runtime/compile/compile-plan.js";
+import type { MastraActiveRun } from "./runtime/mastra/mastra-runtime.js";
+import {
+  createMastraPlanExecution,
+  emitMastraInvocationTopology,
+} from "./runtime/mastra/mastra-execution.js";
 import { preflightCompiledWorkflowModels } from "./runtime/execution/model-preflight.js";
 import {
-  startCompiledWorkflow,
-  type ActiveWorkflowRun,
-} from "./runtime/execution/workflow-run.js";
-import { planContainsAgentWork } from "./runtime/plan/agent-work.js";
-import {
-  resolveRuntimeProfile,
-  type RuntimeExecution,
-  type RuntimeSessionUiNotifier,
-} from "./runtime/profile/runtime-profile.js";
-import { resolveCompiledWorkflowSessions } from "./runtime/session/session-preflight.js";
-import type { RuntimeSessionUiAvailable } from "./runtime/session/runtime-session-ui.js";
+  preflightCompiledWorkflowSessionCapabilities,
+  resolveCompiledWorkflowSessions,
+} from "./runtime/session/session-preflight.js";
+import { resolveRuntimeProfile } from "./runner/profile/runtime-profile.js";
+import type { RuntimeSessionUiNotifier } from "./runner/profile/runtime-profile.js";
+import type { RuntimeSessionUiAvailable } from "./runner/runtime-session-ui.js";
 
 export interface StartWorkflowRunRequest<Input = unknown, Output = unknown> {
   readonly workflow: BuiltWorkflow<Input, Output>;
@@ -31,10 +29,7 @@ export interface StartWorkflowRunRequest<Input = unknown, Output = unknown> {
   readonly runtime: RuntimeProfileReference;
   readonly events: SeqlaneEventSink;
   readonly signal?: AbortSignal;
-  readonly identity?: {
-    readonly workId: WorkId;
-    readonly runId: RunId;
-  };
+  readonly identity?: { readonly workId: WorkId; readonly runId: RunId };
   readonly onRuntimeSessionUi?: (
     notification: RuntimeSessionUiAvailable,
   ) => void | Promise<void>;
@@ -47,27 +42,9 @@ export interface WorkflowRunHandle {
   cancel(): Promise<void>;
 }
 
-type RuntimeExecutionResolver = (
-  profile: RuntimeProfileReference,
-  taskDefinitions: TaskDefinitionRegistry,
-  signal: AbortSignal,
-  input: JsonValue,
-  onSessionUiAvailable?: RuntimeSessionUiNotifier,
-) => RuntimeExecution | Promise<RuntimeExecution>;
-
-interface InternalOptions {
-  readonly resolveExecution?: RuntimeExecutionResolver;
-  readonly createInvocationId?: (nodeId: string) => string;
-  readonly emitRunStarted?: boolean;
-  readonly emitPlan?: (plan: BuiltWorkflow["plan"]) => void;
-}
-
-function freshIdentity<Input, Output>(
+function identityFor<Input, Output>(
   request: StartWorkflowRunRequest<Input, Output>,
-): {
-  readonly workId: WorkId;
-  readonly runId: RunId;
-} {
+): { readonly workId: WorkId; readonly runId: RunId } {
   if (request.identity === undefined) {
     return { workId: randomUUID(), runId: randomUUID() };
   }
@@ -80,101 +57,97 @@ function freshIdentity<Input, Output>(
   return request.identity;
 }
 
-/** Runs a trusted built workflow without runner IPC, CLI state, or process exit. */
+/** Runs a trusted built workflow directly through the private Mastra runtime. */
 export function startWorkflowRun<Input, Output>(
   request: StartWorkflowRunRequest<Input, Output>,
 ): WorkflowRunHandle {
-  return startWorkflowRunInternal(request, {});
-}
-
-/** Internal runner adapter hook; intentionally omitted from the package index. */
-export function startWorkflowRunInternal<Input, Output>(
-  request: StartWorkflowRunRequest<Input, Output>,
-  options: InternalOptions,
-): WorkflowRunHandle {
-  const { workId, runId } = freshIdentity(request);
+  const { workId, runId } = identityFor(request);
   const abortController = new AbortController();
-  let activeRun: ActiveWorkflowRun | undefined;
+  let activeRun: MastraActiveRun | undefined;
   let cancellationRequested = false;
-  let cancellationPromise: Promise<void> | undefined;
-
+  let cancellation: Promise<void> | undefined;
   const cancel = (): Promise<void> => {
-    if (cancellationRequested) return cancellationPromise ?? Promise.resolve();
+    if (cancellationRequested) return cancellation ?? Promise.resolve();
     cancellationRequested = true;
     abortController.abort();
-    cancellationPromise = activeRun?.cancel() ?? Promise.resolve();
-    return cancellationPromise;
+    cancellation = activeRun?.cancel() ?? Promise.resolve();
+    return cancellation;
   };
-  const onAbort = (): void => {
-    void cancel().catch(() => undefined);
-  };
+  const onAbort = (): void => void cancel().catch(() => undefined);
   if (request.signal?.aborted) onAbort();
   else request.signal?.addEventListener("abort", onAbort, { once: true });
 
   const outcome = (async (): Promise<SeqlaneRunOutcome> => {
     const emitCancelled = (): SeqlaneRunOutcome => {
-      try {
-        request.events.emit({ type: "run.cancelled", workId, runId });
-      } catch {
-        // Terminal event delivery is best effort. It must not replace the
-        // typed cancellation outcome or change cancellation semantics.
-      }
+      request.events.emit({ type: "run.cancelled", workId, runId });
       return { status: "cancelled" };
     };
     try {
-      if (options.emitRunStarted ?? true) {
-        request.events.emit({ type: "run.started", workId, runId });
-      }
+      request.events.emit({ type: "run.started", workId, runId });
       if (cancellationRequested) return emitCancelled();
-      // Parsing is deliberately the first workflow operation. In particular,
-      // malformed input cannot resolve a runtime profile or execute a task.
       const workflowInput = request.workflow.workflow.input.parse(
         request.input,
       );
-      if (cancellationRequested) return emitCancelled();
-      if (
-        request.runtime.id === "local" &&
-        planContainsAgentWork(request.workflow.plan)
-      ) {
-        throw new Error(
-          'Runtime profile "local" is not configured for agent workflows',
-        );
-      }
-      const execution = await (
-        options.resolveExecution ?? resolveRuntimeProfile
-      )(
+      const notifier: RuntimeSessionUiNotifier | undefined =
+        request.onRuntimeSessionUi;
+      const execution = await resolveRuntimeProfile(
         request.runtime,
         request.workflow.taskDefinitions,
         abortController.signal,
         request.input,
-        request.onRuntimeSessionUi,
+        notifier,
+        { environment: process.env, runId },
       );
       if (cancellationRequested) return emitCancelled();
-      const compiled = new EffectCompiler().compileWorkflow(
-        request.workflow.plan,
-        {
-          workId,
-          runId,
-          createInvocationId: options.createInvocationId,
-          workflowInput,
-          executors: execution.executors,
-          sessionResolver: execution.sessionResolver,
-          workspaceResources: execution.workspaceResources,
-          taskDefinitions: execution.taskDefinitions,
-          validatorDefinitions: request.workflow.validatorDefinitions,
-          events: request.events,
-        },
+      const mastraExecution = createMastraPlanExecution({
+        plan: request.workflow.plan,
+        workId,
+        runId,
+        workflowInput,
+        executors: execution.executors,
+        sessionResolver: execution.sessionResolver,
+        workspaceResources: execution.workspaceResources,
+        taskDefinitions: execution.taskDefinitions,
+        validatorDefinitions: request.workflow.validatorDefinitions,
+        workflow: request.workflow.workflow,
+        events: request.events,
+        createInvocationId: () => randomUUID(),
+      });
+      preflightCompiledWorkflowSessionCapabilities(mastraExecution.prepared);
+      await preflightCompiledWorkflowModels(mastraExecution.prepared);
+      await resolveCompiledWorkflowSessions(mastraExecution.prepared);
+      emitMastraInvocationTopology(
+        mastraExecution.compiled,
+        mastraExecution.prepared,
+        request.events,
       );
-      await preflightCompiledWorkflowModels(compiled);
-      await resolveCompiledWorkflowSessions(compiled);
-      options.emitPlan?.(compiled.plan);
       if (cancellationRequested) return emitCancelled();
-      activeRun = startCompiledWorkflow(compiled, {
-        emitRunStarted: false,
-        signal: abortController.signal,
+      activeRun = mastraExecution.runtime.start({
+        workflowKey: mastraExecution.compiled.key,
+        input: request.input,
+        workId,
+        runId,
       });
       if (cancellationRequested) await activeRun.cancel();
-      return await activeRun.outcome;
+      const result = await activeRun.outcome;
+      if (result.status === "succeeded") {
+        request.events.emit({
+          type: "run.succeeded",
+          workId,
+          runId,
+          output: result.result,
+        });
+      } else if (result.status === "cancelled") {
+        request.events.emit({ type: "run.cancelled", workId, runId });
+      } else {
+        request.events.emit({
+          type: "run.failed",
+          workId,
+          runId,
+          error: result.error,
+        });
+      }
+      return result;
     } catch (cause) {
       if (cancellationRequested) return emitCancelled();
       const error = new RuntimeError(cause);
@@ -189,7 +162,6 @@ export function startWorkflowRunInternal<Input, Output>(
       request.signal?.removeEventListener("abort", onAbort);
     }
   })();
-
   return { workId, runId, outcome, cancel };
 }
 

@@ -8,24 +8,28 @@ import type {
   RepeatNode,
   SeqlaneEvent,
   ValueBinding,
+  TaskDefinition,
 } from "@seqlane/core";
+import type { ObservabilityContext } from "@mastra/core/observability";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   ExecutorError,
   LoopLimitExceededError,
   runCompiledWorkflow,
   startCompiledWorkflow,
 } from "../../index.js";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
+import { executeRepeatNode } from "./repeat-execution.js";
 
 function task(
   nodeId: string,
   dependsOn: readonly string[],
   input: ValueBinding,
   session?: Extract<PlanNode, { type: "task" }>["session"],
-): PlanNode {
+): Extract<PlanNode, { type: "task" }> {
   return {
     type: "task",
     taskId: nodeId,
@@ -35,7 +39,7 @@ function task(
     ...(session === undefined ? {} : { session }),
     input,
     dependsOn,
-  } as PlanNode;
+  } as Extract<PlanNode, { type: "task" }>;
 }
 
 function repeatPlan(
@@ -116,19 +120,208 @@ function sequentialRepeatPlan(): Plan {
   };
 }
 
+function repeatValidationPlan(): Plan {
+  const repeatNodeId = "repeat:1";
+  const inputNodeId = `${repeatNodeId}:input`;
+  const taskNodeId = `${repeatNodeId}/task:1`;
+  const checkNodeId = `${repeatNodeId}/validation.check:1`;
+  const gateNodeId = `${repeatNodeId}/validation.gate:1`;
+  return {
+    workflow: { id: "repeat-validation-workflow" },
+    nodes: [
+      {
+        type: "repeat",
+        nodeId: repeatNodeId,
+        input: { passed: false },
+        dependsOn: [],
+        maximumIterations: 1,
+        body: {
+          inputNodeId,
+          nodes: [
+            task(taskNodeId, [inputNodeId], {
+              state: { type: "ref", nodeId: inputNodeId, path: [] },
+            }),
+            {
+              type: "validation.check",
+              nodeId: checkNodeId,
+              source: {
+                type: "task",
+                taskId: "repeat-validator",
+                workspace: "shared",
+              },
+              input: {
+                candidate: {
+                  type: "ref",
+                  nodeId: taskNodeId,
+                  path: ["output"],
+                },
+              },
+              dependsOn: [taskNodeId],
+            },
+            {
+              type: "validation.gate",
+              nodeId: gateNodeId,
+              input: { type: "ref", nodeId: taskNodeId, path: ["output"] },
+              checkNodeId,
+              policy: "repeat-postcondition",
+              dependsOn: [taskNodeId, checkNodeId],
+            },
+          ],
+          output: { type: "ref", nodeId: gateNodeId, path: ["value"] },
+          until: {
+            type: "ref",
+            nodeId: gateNodeId,
+            path: ["validation", "success"],
+          },
+        },
+      },
+    ],
+    output: { type: "ref", nodeId: repeatNodeId, path: ["output"] },
+  };
+}
+
 function compile(
   source: Plan,
   executor: (request: ExecutorRequest) => Promise<unknown>,
   events?: { emit(event: SeqlaneEvent): void },
+  taskDefinitions?: ReadonlyMap<string, TaskDefinition>,
 ) {
-  return new EffectCompiler().compileWorkflow(source, {
+  const definitions = new Map(taskDefinitions);
+  const visit = (node: PlanNode): void => {
+    if (node.type === "task" && !definitions.has(node.taskId)) {
+      const schema = z.unknown();
+      definitions.set(node.taskId, {
+        id: node.taskId,
+        input: schema,
+        output: schema,
+        execute: async ({ context }) => context.runAgent({ goal: node.taskId }),
+      });
+    }
+    if (node.type === "repeat") {
+      for (const bodyNode of node.body.nodes) visit(bodyNode);
+    }
+  };
+  for (const node of source.nodes) visit(node);
+  return new PlanCompiler().compileWorkflow(source, {
     createInvocationId: (nodeId) => nodeId,
     executors: new Map([["test-executor", { execute: executor }]]),
+    taskDefinitions: definitions,
     events,
   });
 }
 
 describe("conditioned repeat execution", () => {
+  it("forwards observability through task, validation check, and gate executions", async () => {
+    const observed: Array<{ taskId: string; observability: unknown }> = [];
+    const events: SeqlaneEvent[] = [];
+    const compiled = compile(
+      repeatValidationPlan(),
+      async (request) => {
+        observed.push({
+          taskId: request.taskId,
+          observability: request.observability,
+        });
+        return request.taskId === "repeat-validator"
+          ? { success: true }
+          : { passed: true };
+      },
+      { emit: (event) => events.push(event) },
+      new Map([
+        [
+          "repeat-validator",
+          {
+            id: "repeat-validator",
+            input: z.unknown(),
+            output: z.unknown(),
+            execute: async ({ context }) =>
+              context.runAgent({ goal: "validate the repeat body" }),
+          },
+        ],
+      ]),
+    );
+    const repeat = compiled.plan.nodes[0];
+    if (repeat?.type !== "repeat") throw new Error("repeat fixture missing");
+    const observability = {
+      tracingContext: { currentSpan: {} },
+    } as unknown as Partial<ObservabilityContext>;
+
+    await expect(
+      executeRepeatNode(
+        compiled.context,
+        repeat,
+        new AbortController().signal,
+        observability,
+      ),
+    ).resolves.toEqual({ passed: true });
+
+    expect(observed).toEqual([
+      { taskId: "repeat:1/task:1", observability },
+      { taskId: "repeat-validator", observability },
+    ]);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "invocation.created" &&
+          event.parentInvocationId === "repeat:1" &&
+          event.iteration === 1,
+      ),
+    ).toMatchObject([
+      { planNodeId: "repeat:1/task:1", kind: "task" },
+      { planNodeId: "repeat:1/validation.check:1", kind: "validation" },
+      {
+        planNodeId: "repeat:1/validation.gate:1",
+        kind: "validation",
+        subject: {
+          type: "validation-gate",
+          planNodeId: "repeat:1/validation.gate:1",
+        },
+      },
+    ]);
+  });
+
+  it("forwards one observability context to every repeat-body invocation", async () => {
+    const observed: unknown[] = [];
+    const compiled = compile(repeatPlan(1), async (request) => {
+      observed.push(request.observability);
+      return { passed: true };
+    });
+    const repeat = compiled.plan.nodes[0];
+    if (repeat?.type !== "repeat") throw new Error("repeat fixture missing");
+    const observability = {
+      tracingContext: { currentSpan: {} },
+    } as unknown as Partial<ObservabilityContext>;
+
+    await executeRepeatNode(
+      compiled.context,
+      repeat,
+      new AbortController().signal,
+      observability,
+    );
+
+    expect(observed).toEqual([observability]);
+  });
+
+  it("keeps repeat-body tasks behind dynamic workspace admission", async () => {
+    let executed = false;
+    const compiled = compile(repeatPlan(1), async () => {
+      executed = true;
+      return { passed: true };
+    });
+    const externalLease = await compiled.context.workspaceLocks.acquire(
+      { key: "seqlane:runtime-workspace" },
+      "exclusive",
+    );
+
+    const execution = runCompiledWorkflow(compiled);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const executedBeforeRelease = executed;
+
+    externalLease.release();
+    await expect(execution).resolves.toMatchObject({ status: "succeeded" });
+    expect(executedBeforeRelease).toBe(false);
+    expect(executed).toBe(true);
+  });
+
   it("returns after the first successful iteration", async () => {
     let executions = 0;
     const compiled = compile(repeatPlan(3), async () => {
@@ -165,42 +358,45 @@ describe("conditioned repeat execution", () => {
     const resolvedInvocations: string[] = [];
     const bodyTaskId = "repeat:1/body:1";
     let executions = 0;
-    const taskSchema = { parse: (value: unknown) => value };
-    const compiled = new EffectCompiler().compileWorkflow(repeatPlan(2), {
-      createInvocationId: (nodeId) => nodeId,
-      executors: new Map([
-        [
-          "test-executor",
-          { execute: async () => ({ source: "unresolved executor" }) },
-        ],
-      ]),
-      taskDefinitions: new Map([
-        [
-          bodyTaskId,
-          {
-            id: bodyTaskId,
-            workspace: "shared",
-            input: taskSchema,
-            output: taskSchema,
-            goal: () => "complete the repeat body",
-          },
-        ],
-      ]),
-      sessionResolver: {
-        resolve: async ({ invocationId }) => {
-          resolvedInvocations.push(invocationId);
-          return {
-            key: Symbol(invocationId),
-            executor: {
-              execute: async () => {
-                executions += 1;
-                return { passed: executions === 2 };
-              },
+    const taskSchema = z.unknown();
+    const compiled = new PlanCompiler().compileWorkflow(
+      repeatPlan(2, { type: "isolated" }),
+      {
+        createInvocationId: (nodeId) => nodeId,
+        executors: new Map([
+          [
+            "test-executor",
+            { execute: async () => ({ source: "unresolved executor" }) },
+          ],
+        ]),
+        taskDefinitions: new Map([
+          [
+            bodyTaskId,
+            {
+              id: bodyTaskId,
+              input: taskSchema,
+              output: taskSchema,
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "complete the repeat body" }),
             },
-          };
+          ],
+        ]),
+        sessionResolver: {
+          resolve: async ({ invocationId }) => {
+            resolvedInvocations.push(invocationId);
+            return {
+              key: Symbol(invocationId),
+              executor: {
+                execute: async () => {
+                  executions += 1;
+                  return { passed: executions === 2 };
+                },
+              },
+            };
+          },
         },
       },
-    });
+    );
 
     await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
       status: "succeeded",
@@ -220,8 +416,8 @@ describe("conditioned repeat execution", () => {
     const events: SeqlaneEvent[] = [];
     const resolvedSelections: Array<ModelSelection | undefined> = [];
     const bodyTaskId = "repeat:1/body:1";
-    const taskSchema = { parse: (value: unknown) => value };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const taskSchema = z.unknown();
+    const compiled = new PlanCompiler().compileWorkflow(
       repeatPlan(1, { type: "isolated", model: selectedModel }),
       {
         createInvocationId: (nodeId) => nodeId,
@@ -233,10 +429,10 @@ describe("conditioned repeat execution", () => {
             bodyTaskId,
             {
               id: bodyTaskId,
-              workspace: "shared",
               input: taskSchema,
               output: taskSchema,
-              goal: () => "complete the repeat body",
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "complete the repeat body" }),
             },
           ],
         ]),

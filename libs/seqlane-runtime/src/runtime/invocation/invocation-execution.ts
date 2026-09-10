@@ -1,5 +1,5 @@
 import type {
-  LocalTaskDefinition,
+  AgentTaskRequest,
   SeqlaneInvocationMetrics,
   ModelSelection,
   TaskNode,
@@ -48,7 +48,7 @@ import {
   type ValidationEnvelope,
   type ValidationExecutionOptions,
 } from "./invocation-support.js";
-import { executeLocalTask } from "../local/local-task-execution.js";
+import { executeTask } from "../local/task-execution.js";
 
 function effectiveModelSelection(
   context: ExecutionContext,
@@ -72,97 +72,6 @@ function metricsWithModelSelection(
   };
 }
 
-interface InvocationMetricsAccumulator {
-  add(metrics: SeqlaneInvocationMetrics): void;
-  snapshot(): SeqlaneInvocationMetrics | undefined;
-}
-
-function createInvocationMetricsAccumulator(): InvocationMetricsAccumulator {
-  let count = 0;
-  let hasDuration = false;
-  let durationMs = 0;
-  let hasModel = false;
-  let model: string | undefined;
-  let modelIsConsistent = true;
-  let hasProvider = false;
-  let provider: string | undefined;
-  let providerIsConsistent = true;
-  let hasCost = false;
-  let cost = 0;
-  let tokenCount = 0;
-  let tokensHaveTotals = true;
-  let totalTokens = 0;
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let reasoningTokens = 0;
-  let cacheReadTokens = 0;
-  let cacheWriteTokens = 0;
-
-  return {
-    add(metrics) {
-      count += 1;
-      if (metrics.durationMs !== undefined) {
-        hasDuration = true;
-        durationMs += metrics.durationMs;
-      }
-      if (metrics.model === undefined) {
-        modelIsConsistent = false;
-      } else if (!hasModel) {
-        hasModel = true;
-        model = metrics.model;
-      } else if (model !== metrics.model) {
-        modelIsConsistent = false;
-      }
-      if (metrics.provider === undefined) {
-        providerIsConsistent = false;
-      } else if (!hasProvider) {
-        hasProvider = true;
-        provider = metrics.provider;
-      } else if (provider !== metrics.provider) {
-        providerIsConsistent = false;
-      }
-      if (metrics.cost !== undefined) {
-        hasCost = true;
-        cost += metrics.cost;
-      }
-      if (metrics.tokens !== undefined) {
-        tokenCount += 1;
-        if (metrics.tokens.total === undefined) {
-          tokensHaveTotals = false;
-        } else {
-          totalTokens += metrics.tokens.total;
-        }
-        inputTokens += metrics.tokens.input;
-        outputTokens += metrics.tokens.output;
-        reasoningTokens += metrics.tokens.reasoning;
-        cacheReadTokens += metrics.tokens.cacheRead;
-        cacheWriteTokens += metrics.tokens.cacheWrite;
-      }
-    },
-    snapshot() {
-      if (count === 0) return undefined;
-      return {
-        ...(hasDuration ? { durationMs } : {}),
-        ...(modelIsConsistent && hasModel ? { model } : {}),
-        ...(providerIsConsistent && hasProvider ? { provider } : {}),
-        ...(hasCost ? { cost } : {}),
-        ...(tokenCount === 0
-          ? {}
-          : {
-              tokens: {
-                ...(tokensHaveTotals ? { total: totalTokens } : {}),
-                input: inputTokens,
-                output: outputTokens,
-                reasoning: reasoningTokens,
-                cacheRead: cacheReadTokens,
-                cacheWrite: cacheWriteTokens,
-              },
-            }),
-      };
-    },
-  };
-}
-
 export async function executeTaskNode(
   context: ExecutionContext,
   node: TaskNode,
@@ -175,6 +84,7 @@ export async function executeTaskNode(
   let workspaceLease: WorkspaceLockLease | undefined;
   let unconfirmedActivity: SeqlaneUncertainActivity | undefined;
   let unconfirmedTermination: UnconfirmedInvocationTerminationError | undefined;
+  let workspaceAdmitted = false;
   let workspaceWaitingReported = false;
   let sessionWaitingReported = false;
   const reportWorkspaceWaiting = (
@@ -211,26 +121,38 @@ export async function executeTaskNode(
   };
 
   try {
-    const isLocalTask = node.execution === "local";
     const resource = context.workspaceResources.get(node.taskId) ?? {
       key: "seqlane:runtime-workspace",
     };
-    const session =
-      isLocalTask || context.sessionResolver === undefined
-        ? undefined
-        : sessionForInvocation(context.resolvedSessions, invocationId);
-    const admission = await context.jointAdmissions.acquire({
-      signal: abortSignal,
-      session,
-      workspace: resource,
-      workspacePolicy: node.workspace,
-      invocationId,
-      creationOrdinal,
-      onWorkspaceWaiting: reportWorkspaceWaiting,
-      onSessionWaiting: reportSessionWaiting,
-    });
-    workspaceLease = admission.workspaceLease;
-    sessionLease = admission.sessionLease;
+    const session = context.resolvedSessions.get(invocationId);
+    if (options.workspaceAdmission === "graph") {
+      if (abortSignal.aborted) {
+        throw abortSignal.reason ?? new Error("Task execution cancelled");
+      }
+      sessionLease =
+        session === undefined
+          ? undefined
+          : await context.sessionLocks.acquire(
+              session,
+              reportSessionWaiting,
+              creationOrdinal,
+              abortSignal,
+            );
+    } else {
+      const admission = await context.jointAdmissions.acquire({
+        signal: abortSignal,
+        session,
+        workspace: resource,
+        workspacePolicy: node.workspace,
+        invocationId,
+        creationOrdinal,
+        onWorkspaceWaiting: reportWorkspaceWaiting,
+        onSessionWaiting: reportSessionWaiting,
+      });
+      workspaceLease = admission.workspaceLease;
+      sessionLease = admission.sessionLease;
+    }
+    workspaceAdmitted = true;
     context.events.emit({
       type: "invocation.progress",
       workId: context.workId,
@@ -271,33 +193,6 @@ export async function executeTaskNode(
       ...optionalIteration(options.iteration),
     });
 
-    const reportedMetrics = createInvocationMetricsAccumulator();
-    let metricsEmitted = false;
-    const emitMetrics = (): void => {
-      if (metricsEmitted) return;
-      const aggregateMetrics = reportedMetrics.snapshot();
-      if (aggregateMetrics === undefined) return;
-      const observableMetrics = metricsWithModelSelection(
-        aggregateMetrics,
-        isLocalTask
-          ? undefined
-          : effectiveModelSelection(context, invocationId, session),
-      );
-      if (observableMetrics === undefined) return;
-      context.events.emit({
-        type: "invocation.output",
-        workId: context.workId,
-        runId: context.runId,
-        invocationId,
-        policy: "persistent",
-        channel: "task",
-        content: "Task metrics",
-        metrics: observableMetrics,
-        ...optionalIteration(options.iteration),
-      });
-      metricsEmitted = true;
-    };
-
     try {
       const taskSchema = getTaskSchema(
         context.taskSchemas,
@@ -330,6 +225,7 @@ export async function executeTaskNode(
       });
 
       let rawOutput: unknown;
+      let metrics: SeqlaneInvocationMetrics | undefined;
       const effects = new InvocationEffects();
       const reportUncertainActivity = (
         activity: SeqlaneUncertainActivity,
@@ -416,39 +312,29 @@ export async function executeTaskNode(
       };
       let executorFailure: { readonly cause: unknown } | undefined;
       try {
-        if (isLocalTask) {
-          const definition = context.taskDefinitions?.get(node.taskId);
-          if (definition === undefined || !("execute" in definition)) {
-            throw new Error(
-              `No local task definition registered for "${node.taskId}"`,
-            );
-          }
-          rawOutput = await executeLocalTask({
-            definition: definition as LocalTaskDefinition<unknown, unknown>,
-            input,
-            cwd:
-              resource.key === "seqlane:runtime-workspace"
-                ? process.cwd()
-                : resource.key,
-            signal: abortSignal,
-          });
-        } else {
+        const definition = context.taskDefinitions?.get(node.taskId);
+        if (definition === undefined) {
+          throw new Error(`No task definition registered for "${node.taskId}"`);
+        }
+        const runAgent = async (
+          agentRequest: AgentTaskRequest,
+        ): Promise<unknown> => {
+          // A task without an invocation session uses the registered executor as
+          // an isolated one-shot adapter execution. Session resolution is an
+          // admission concern and must never happen from inside execute.
           const executor =
-            session === undefined
-              ? getExecutor(
-                  context.executors,
-                  node,
-                  context.taskDefinitions?.get(node.taskId),
-                )
-              : session.executor;
-          rawOutput = await executor.execute({
+            session?.executor ??
+            getExecutor(context.executors, node, definition);
+          return executor.execute({
             invocationId,
+            observability: options.observability,
             taskId: node.taskId,
             executor: (node as LegacyTaskNode).executor ?? node.taskId,
             input,
+            agent: agentRequest,
             signal: abortSignal,
             onMetrics: (value) => {
-              reportedMetrics.add(value);
+              metrics = value;
             },
             onDiagnostic: (message) => {
               context.events.emit({
@@ -468,7 +354,20 @@ export async function executeTaskNode(
             onChildSession: reportChildSession,
             onBackgroundProcess: reportBackgroundProcess,
           });
-        }
+        };
+        rawOutput = await executeTask({
+          definition,
+          input,
+          taskId: node.taskId,
+          invocationId,
+          cwd:
+            resource.key === "seqlane:runtime-workspace"
+              ? process.cwd()
+              : resource.key,
+          signal: abortSignal,
+          runAgent,
+          onUncertainActivity: reportUncertainActivity,
+        });
       } catch (cause) {
         executorFailure = { cause };
       }
@@ -487,7 +386,6 @@ export async function executeTaskNode(
         };
       }
       if (executorFailure !== undefined) {
-        emitMetrics();
         throwTaskPhaseError(
           executorFailure.cause,
           "executor",
@@ -505,11 +403,10 @@ export async function executeTaskNode(
       }
 
       const observableMetrics = metricsWithModelSelection(
-        reportedMetrics.snapshot(),
-        isLocalTask
-          ? undefined
-          : effectiveModelSelection(context, invocationId, session),
+        metrics,
+        effectiveModelSelection(context, invocationId, session),
       );
+
       context.events.emit({
         type: "invocation.result",
         workId: context.workId,
@@ -523,7 +420,7 @@ export async function executeTaskNode(
         ...optionalIteration(options.iteration),
       });
       results.set(node.nodeId, output);
-      if (!isLocalTask && session !== undefined) {
+      if (session !== undefined) {
         await publishSessionCheckpoint({
           sourceNodeId: node.nodeId,
           sourceSession: session,
@@ -552,12 +449,10 @@ export async function executeTaskNode(
         summary: summarizeSeqlaneOutput(output),
         ...optionalIteration(options.iteration),
       });
-      if (observableMetrics !== undefined) metricsEmitted = true;
       releaseIfUnused(results, remainingConsumers, node.nodeId);
 
       return output;
     } catch (cause) {
-      emitMetrics();
       return throwInvocationFailure(cause, {
         context,
         abortSignal,
@@ -570,7 +465,7 @@ export async function executeTaskNode(
     if (unconfirmedActivity === undefined) {
       sessionLease?.release();
       workspaceLease?.release();
-      if (workspaceLease !== undefined) {
+      if (workspaceAdmitted) {
         context.events.emit({
           type: "invocation.progress",
           workId: context.workId,

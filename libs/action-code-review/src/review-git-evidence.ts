@@ -89,13 +89,12 @@ const gitReviewEvidenceInputSchema = codeReviewInputSchema.extend({
 
 export const gitReviewEvidenceTask = defineTask({
   id: "pr-code-review.git-evidence",
-  workspace: "shared",
   input: gitReviewEvidenceInputSchema,
   output: gitReviewEvidenceOutputSchema,
-  execute: async (
-    { baseRevision, headRevision, normalizedReviewHistory },
-    { exec },
-  ) => {
+  execute: async ({
+    input: { baseRevision, headRevision, normalizedReviewHistory },
+    context: { exec },
+  }) => {
     const previousReviewedRevision =
       normalizedReviewHistory?.previousReviewedRevision;
     const range = `${baseRevision}...${headRevision}`;
@@ -127,26 +126,26 @@ export const gitReviewEvidenceTask = defineTask({
       'exit "$gitStatus"',
     ].join("; ");
     const [head, base, changed, stat, patch, check] = await Promise.all([
-      exec({ command: "git", args: ["rev-parse", "--verify", "HEAD"] }),
+      exec({ executable: "git", argv: ["rev-parse", "--verify", "HEAD"] }),
       exec({
-        command: "git",
-        args: ["cat-file", "-e", `${baseRevision}^{commit}`],
+        executable: "git",
+        argv: ["cat-file", "-e", `${baseRevision}^{commit}`],
       }),
       exec({
-        command: "bash",
-        args: ["-c", boundedChangedFilesCommand],
+        executable: "bash",
+        argv: ["-c", boundedChangedFilesCommand],
       }),
       exec({
-        command: "bash",
-        args: ["-c", boundedStatCommand],
+        executable: "bash",
+        argv: ["-c", boundedStatCommand],
       }),
       exec({
-        command: "bash",
-        args: ["-c", boundedPatchCommand],
+        executable: "bash",
+        argv: ["-c", boundedPatchCommand],
       }),
       exec({
-        command: "bash",
-        args: ["-c", boundedCheckCommand],
+        executable: "bash",
+        argv: ["-c", boundedCheckCommand],
       }),
     ]);
 
@@ -184,8 +183,8 @@ export const gitReviewEvidenceTask = defineTask({
         ? false
         : (
             await exec({
-              command: "git",
-              args: [
+              executable: "git",
+              argv: [
                 "merge-base",
                 "--is-ancestor",
                 previousReviewedRevision,

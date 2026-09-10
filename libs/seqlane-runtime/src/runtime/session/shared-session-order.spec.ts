@@ -4,9 +4,14 @@
 // @test-scope ./shared-session-order.ts
 import type { ModelSelection, PlanNode, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { z } from "zod";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
-import { resolveCompiledWorkflowSessions } from "./session-preflight.js";
+import {
+  preflightCompiledWorkflowSessionCapabilities,
+  resolveCompiledWorkflowSessions,
+  UnsupportedSessionCapabilityError,
+} from "./session-preflight.js";
 import type {
   ResolvedExecutorSession,
   SessionResolver,
@@ -24,6 +29,7 @@ function task(
     taskId: nodeId,
     nodeId,
     workspace,
+    session: { type: "isolated" },
     input: {},
     dependsOn,
   };
@@ -33,13 +39,12 @@ function taskDefinition(
   taskId: string,
   workspace: "shared" | "exclusive" = "shared",
 ): TaskDefinition {
-  const schema = { parse: (value: unknown) => value };
+  const schema = z.unknown();
   return {
     id: taskId,
-    workspace,
     input: schema,
     output: schema,
-    goal: () => taskId,
+    execute: async ({ context }) => context.runAgent({ goal: taskId }),
   };
 }
 
@@ -51,9 +56,113 @@ function sharedSessionResolver(
 }
 
 describe("shared-session order preflight", () => {
+  it("rejects capability requirements before model preflight work", async () => {
+    let modelWork = 0;
+    const source = task("source");
+    const branch = {
+      ...task("branch", ["source"]),
+      session: { type: "branch" as const, from: "source" },
+    };
+    const compiled = new PlanCompiler().compileWorkflow(
+      {
+        workflow: { id: "capability-first" },
+        nodes: [source, branch],
+        output: { type: "ref", nodeId: "branch", path: [] },
+      },
+      {
+        createInvocationId: (nodeId) => `inv:${nodeId}`,
+        executors: new Map([["test", { execute: async () => ({}) }]]),
+        sessionResolver: {
+          adapterCapabilities: {
+            execute: true,
+            modelSelection: true,
+            structuredOutput: true,
+            sessionReuse: true,
+            checkpoint: false,
+            fork: false,
+            activity: false,
+            sessionUi: false,
+          },
+          modelCapabilities: {
+            executor: "test",
+            listModels: async () => {
+              modelWork += 1;
+              return [{ provider: "test", model: "default" }];
+            },
+            resolveDefaultModel: async () => {
+              modelWork += 1;
+              return { model: { provider: "test", model: "default" } };
+            },
+          },
+          resolve: async () => ({
+            key: Symbol("unreachable"),
+            executor: { execute: async () => ({}) },
+          }),
+        },
+        taskDefinitions: new Map([
+          [source.taskId, taskDefinition(source.taskId)],
+          [branch.taskId, taskDefinition(branch.taskId)],
+        ]),
+      },
+    );
+
+    expect(() => {
+      preflightCompiledWorkflowSessionCapabilities(compiled);
+    }).toThrow(UnsupportedSessionCapabilityError);
+    expect(modelWork).toBe(0);
+  });
+
+  it("rejects an unsupported branch before resolving an adapter session", async () => {
+    let resolved = 0;
+    const source = task("source");
+    const branch = {
+      ...task("branch", ["source"]),
+      session: { type: "branch" as const, from: "source" },
+    };
+    const compiled = new PlanCompiler().compileWorkflow(
+      {
+        workflow: { id: "unsupported-branch" },
+        nodes: [source, branch],
+        output: { type: "ref", nodeId: "branch", path: [] },
+      },
+      {
+        createInvocationId: (nodeId) => `inv:${nodeId}`,
+        executors: new Map([["test", { execute: async () => ({}) }]]),
+        sessionResolver: {
+          adapterCapabilities: {
+            execute: true,
+            modelSelection: false,
+            structuredOutput: true,
+            sessionReuse: true,
+            checkpoint: false,
+            fork: false,
+            activity: false,
+            sessionUi: false,
+          },
+          resolve: async () => {
+            resolved += 1;
+            return {
+              key: Symbol("unreachable"),
+              executor: { execute: async () => ({}) },
+            };
+          },
+        },
+        taskDefinitions: new Map([
+          [source.taskId, taskDefinition(source.taskId)],
+          [branch.taskId, taskDefinition(branch.taskId)],
+        ]),
+      },
+    );
+
+    expect(() => {
+      preflightCompiledWorkflowSessionCapabilities(compiled);
+    }).toThrow(UnsupportedSessionCapabilityError);
+    expect(resolved).toBe(0);
+  });
+
   it("accepts a shared-session pair with a transitive DAG dependency", async () => {
     const executor = { execute: async () => ({}) };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "shared-session-order" },
         nodes: [
@@ -103,7 +212,7 @@ describe("shared-session order preflight", () => {
         return {};
       },
     };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "unordered-shared-session" },
         nodes: [task("first"), task("second")],
@@ -161,7 +270,7 @@ describe("shared-session order preflight", () => {
         return { key: Symbol("branch"), executor: childExecutor };
       },
     };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "checkpoint-fanout" },
         nodes: [
@@ -219,7 +328,7 @@ describe("shared-session order preflight", () => {
       key: Symbol("parent"),
       executor: { execute: async () => ({}) },
     };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "session-selection-reuse" },
         nodes: [
@@ -292,7 +401,7 @@ describe("shared-session order preflight", () => {
         };
       },
     };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "session-selection-branch" },
         nodes: [
@@ -360,7 +469,7 @@ describe("shared-session order preflight", () => {
 
   it("fails a branch workflow when the source session cannot fork natively", async () => {
     const executor = { execute: async () => ({}) };
-    const compiled = new EffectCompiler().compileWorkflow(
+    const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "unsupported-session-branch" },
         nodes: [

@@ -1,4 +1,4 @@
-import { defineTask } from "@seqlane/core";
+import { defineAgentTask } from "@seqlane/core";
 import { z } from "zod";
 import {
   reviewContextSchema,
@@ -15,9 +15,8 @@ const synthesizeReviewInputSchema = z.object({
   risk: reviewLaneResultSchema,
 });
 
-const synthesizeReviewTask = defineTask({
+const synthesizeReviewTask = defineAgentTask({
   id: "pr-code-review.summarize",
-  workspace: "shared",
   input: synthesizeReviewInputSchema,
   output: synthesizedReviewReportSchema,
   goal: ({ review, correctness, maintainability, risk }) =>

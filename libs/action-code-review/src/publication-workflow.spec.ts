@@ -37,11 +37,9 @@ describe("publicationWorkflow", () => {
     const workflow = buildPublicationWorkflow(port);
 
     expect(workflow.plan.nodes).toHaveLength(5);
-    expect(
-      workflow.plan.nodes.every(
-        (node) => node.type === "task" && node.execution === "local",
-      ),
-    ).toBe(true);
+    expect(workflow.plan.nodes.every((node) => node.type === "task")).toBe(
+      true,
+    );
 
     const handle = startWorkflowRun({
       workflow,

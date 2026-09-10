@@ -3,34 +3,74 @@
 Private runtime boundary for compiling and executing Seqlane Plans. Effect is
 private infrastructure; its types do not cross this package boundary.
 
-The runtime validates task inputs and outputs, resolves bindings, emits bounded
-consumer events, and retains results until their final consumer completes.
+### Community Mastra dependency boundary
 
-### Local task execution
+The runtime pins `@mastra/core@1.64.0`. The installed Community package exposes
+the workflow API from `@mastra/core/workflows`, including `createStep` and
+`createWorkflow`, which the private integration uses to register and run
+workflows. The package declares Apache-2.0 licensing. Mastra paths under `ee/`
+are enterprise-only and are rejected by the runtime boundary tests.
 
-A task with `execute` runs through the local invocation path. The runtime parses
-its typed input, admits the canonical workspace, and provides a scoped
-`TaskContext.exec` capability. Each call starts one foreground process with an
-executable and direct argv, never a shell, and captures bounded stdout and
-stderr. The workspace lease remains held until the process terminates.
+The Enterprise boundary guard scans production source and package manifests in
+`apps/` and `libs/`. It rejects static and side-effect imports, export-from
+declarations, `require` calls, and dynamic imports of `ee/` paths. The runtime
+validates task inputs and outputs, resolves bindings, emits bounded consumer
+events, and retains results until their final consumer completes.
 
-Local tasks do not resolve an agent executor, model, session, or checkpoint, and
-their generic invocation results contain no model or token metrics. V1 is
-non-interactive and requires `execute` to await `exec`; there is no Git helper,
-Git mutation API, shell support, background-process API, or command policy.
+The Mastra compiler currently rejects repeat nodes until a dedicated
+Mastra-native repeat lowering is added.
 
-Workspace policy is scheduling-only. A task with `workspace: "shared"` may run
+Each private Mastra runtime accepts one workflow run. Reusable workflow
+registrations expose MCP through fresh per-invocation runtimes. A compiled
+one-shot Plan runtime does not expose its run-bound workflow through MCP. Its
+dispatcher applies bounded concurrency and a per-invocation deadline. Its
+in-memory storage remains available for inspection while the execution owns
+that runtime. Cancelled queued MCP invocations are removed immediately so
+they do not consume queue capacity. A deadline settles the caller and
+releases dispatcher capacity even if workflow code ignores cancellation.
+Server and discovery helpers receive the caller's `RequestContext` and
+`AbortSignal`; they do not synthesize a separate request context.
+
+### Task execution and invocation policy
+
+Every task definition exposes one `execute({ input, signal, context })` contract.
+The runtime parses its typed input, admits the invocation's workspace policy,
+and provides a scoped `TaskContext`. `context.exec` runs an executable with
+direct argv through a Mastra `LocalSandbox` (never through a shell), with
+bounded stdout and stderr. A nonzero process exit code is task output; spawn,
+timeout, cancellation, and output-limit failures reject the invocation. The
+canonical process result is `{ exitCode, stdout, stderr }`; richer process
+metadata remains private runtime detail. `context.runAgent` uses the executor
+selected by the invocation's session policy.
+
+Every `context.exec` call has a 30-second default timeout and a five-minute
+maximum timeout. On cancellation, the runtime waits for a bounded cleanup
+period, escalates process-group termination when needed, and quarantines the
+invocation when it cannot confirm termination.
+
+Workspace and session policies belong to task invocations and Plan nodes, not
+task definitions. A task without a declared session uses a registered executor
+as an isolated one-shot adapter execution; it does not resolve or allocate a
+session from inside `execute`. A declared session is resolved and admitted
+before task execution, and only those invocations can publish or consume a
+session checkpoint. V1 is non-interactive and requires `execute` to await
+`exec`; there is no Git helper, Git mutation API, shell support,
+background-process API, or command policy.
+
+Workspace policy is scheduling-only. An invocation with `workspace: "shared"` may run
 with other shared tasks. An `exclusive` task waits for all workspace work; any
 task waits while an exclusive task is active. Omitted policy resolves to
 `exclusive`. Workspace policy neither grants nor restricts filesystem, shell,
 network, MCP, skill, or custom-tool access.
 
-Admission requires completed dependencies, an available executor session, a
-compatible workspace policy, and global capacity. Session and workspace leases
-are admitted atomically: a waiting invocation retains neither resource.
-Seqlane holds both leases through executor requests, retries, tracked children,
-processes, cancellation, and cleanup. Queue order uses invocation creation
-order. Events report workspace waiting, admission, and release.
+Top-level Plan tasks rely on graph dependencies for statically known workspace
+constraints and do not acquire a redundant runtime workspace lease. Dynamically
+created work, including repeat-body tasks and direct invocation calls, still
+uses atomic session and workspace admission. A waiting dynamic invocation
+retains neither resource. Seqlane holds its leases through executor requests,
+tracked children, processes, cancellation, and cleanup. Queue order uses
+invocation creation order. Events report workspace waiting, admission, and
+release.
 
 After a successful agent turn and all tracked activity, the runtime publishes
 its private checkpoint. `reuse()` keeps the source session; `branch()` eagerly

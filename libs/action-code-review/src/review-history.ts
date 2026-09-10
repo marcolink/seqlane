@@ -1,5 +1,5 @@
 import { gunzipSync } from "node:zlib";
-import { defineTask } from "@seqlane/core";
+import { defineAgentTask, defineTask } from "@seqlane/core";
 import { z } from "zod";
 import {
   EMPTY_RUN_METRICS_LEDGER,
@@ -260,10 +260,9 @@ const reviewContextInputSchema = z.object({
 
 export const reviewContextTask = defineTask({
   id: "pr-code-review.review-context",
-  workspace: "shared",
   input: reviewContextInputSchema,
   output: reviewHistoryOutputSchema,
-  execute: async ({ pullRequestNumber, reviewHistory }) => {
+  execute: async ({ input: { pullRequestNumber, reviewHistory } }) => {
     const normalizedReviewHistory = reviewHistory ?? {
       comments: [],
       truncated: false,
@@ -409,9 +408,8 @@ export const reviewContextTask = defineTask({
   },
 });
 
-export const reviewHistoryVerificationTask = defineTask({
+export const reviewHistoryVerificationTask = defineAgentTask({
   id: "pr-code-review.verify-history",
-  workspace: "shared",
   input: z.object({ review: reviewEvidenceContextSchema }),
   output: reviewHistoryVerificationOutputSchema,
   goal: ({ review }) =>

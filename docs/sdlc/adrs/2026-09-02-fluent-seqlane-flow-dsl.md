@@ -1,11 +1,11 @@
 ---
 id: adr.fluent-seqlane-flow-dsl
 title: Provide a Fluent Seqlane Flow DSL
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-08
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -312,3 +312,4 @@ requires a different Plan model.
 ## Traceability
 
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
+- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](./2026-09-08-mastra-backed-seqlane-workflows.md)

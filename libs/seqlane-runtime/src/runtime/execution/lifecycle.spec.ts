@@ -4,6 +4,7 @@
 import type {
   Plan,
   PlanNode,
+  SeqlaneSchema,
   TaskDefinition,
   ValueBinding,
 } from "@seqlane/core";
@@ -20,9 +21,15 @@ import {
   type SeqlaneRunOutcome,
 } from "../../index.js";
 import { createSequentialProgram } from "./program.js";
-import { EffectCompiler } from "../compile/compile-plan.js";
+import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "./executor.js";
 import type { TaskSchema } from "../plan/task-schema.js";
+import { z } from "zod";
+
+const throwingSchema = (message: string): SeqlaneSchema =>
+  z.custom<unknown>(() => {
+    throw new Error(message);
+  });
 
 function task(
   nodeId: string,
@@ -61,14 +68,25 @@ function compile(
     taskDefinitions?: ReadonlyMap<string, TaskDefinition>;
   } = {},
 ) {
-  return new EffectCompiler().compileWorkflow(source, {
+  const taskDefinitions = new Map(options.taskDefinitions);
+  for (const node of source.nodes) {
+    if (node.type !== "task" || taskDefinitions.has(node.taskId)) continue;
+    const schema = z.unknown();
+    taskDefinitions.set(node.taskId, {
+      id: node.taskId,
+      input: schema,
+      output: schema,
+      execute: async ({ context }) => context.runAgent({ goal: node.taskId }),
+    });
+  }
+  return new PlanCompiler().compileWorkflow(source, {
     workId: "test-work",
     runId: "run-1",
     workflowInput: { value: "input" },
     createInvocationId: (nodeId) => nodeId,
     events: options.events,
     taskSchemas: options.taskSchemas,
-    taskDefinitions: options.taskDefinitions,
+    taskDefinitions,
     executors: new Map([
       [
         "test-executor",
@@ -362,10 +380,9 @@ describe("Seqlane lifecycle events and outcomes", () => {
     const events: SeqlaneEvent[] = [];
     const taskDefinition: TaskDefinition = {
       id: "a",
-      workspace: "shared",
-      input: { parse: (value) => value },
-      output: { parse: (value) => value },
-      goal: () => "test",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async ({ context }) => context.runAgent({ goal: "test" }),
       observability: {
         studio: {
           activity: {
@@ -421,10 +438,9 @@ describe("Seqlane lifecycle events and outcomes", () => {
     const events: SeqlaneEvent[] = [];
     const taskDefinition: TaskDefinition = {
       id: "a",
-      workspace: "shared",
-      input: { parse: (value) => value },
-      output: { parse: (value) => value },
-      goal: () => "test",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async ({ context }) => context.runAgent({ goal: "test" }),
     };
     const compiled = compile(plan([task("a")]), {
       events: { emit: (event) => events.push(event) },
@@ -465,10 +481,9 @@ describe("Seqlane lifecycle events and outcomes", () => {
     const events: SeqlaneEvent[] = [];
     const taskDefinition: TaskDefinition = {
       id: "a",
-      workspace: "shared",
-      input: { parse: (value) => value },
-      output: { parse: (value) => value },
-      goal: () => "test",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async ({ context }) => context.runAgent({ goal: "test" }),
     };
     const compiled = compile(plan([task("a")]), {
       events: { emit: (event) => events.push(event) },
@@ -516,10 +531,9 @@ describe("Seqlane lifecycle events and outcomes", () => {
     const events: SeqlaneEvent[] = [];
     const taskDefinition: TaskDefinition = {
       id: "a",
-      workspace: "shared",
-      input: { parse: (value) => value },
-      output: { parse: (value) => value },
-      goal: () => "test",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async ({ context }) => context.runAgent({ goal: "test" }),
       observability: {
         studio: {
           input: { includePaths: ["/value"] },
@@ -590,21 +604,13 @@ describe("Seqlane lifecycle events and outcomes", () => {
 
       if (expectedError instanceof InputValidationError) {
         taskSchemas.set("a", {
-          input: {
-            parse: () => {
-              throw new Error("bad input");
-            },
-          },
-          output: { parse: (value) => value },
+          input: throwingSchema("bad input"),
+          output: z.unknown(),
         });
       } else if (expectedError instanceof OutputValidationError) {
         taskSchemas.set("a", {
-          input: { parse: (value) => value },
-          output: {
-            parse: () => {
-              throw new Error("bad output");
-            },
-          },
+          input: z.unknown(),
+          output: throwingSchema("bad output"),
         });
       } else {
         executor = async () => {
@@ -808,7 +814,7 @@ describe("Seqlane lifecycle events and outcomes", () => {
     ]);
   });
 
-  it("latches cancellation before the Effect run starts", async () => {
+  it("latches cancellation before the in-process run starts", async () => {
     let started = false;
     const compiled = compile(plan([task("a")]), {
       executor: async () => {
@@ -823,14 +829,14 @@ describe("Seqlane lifecycle events and outcomes", () => {
     expect(started).toBe(false);
   });
 
-  it("maps an unexpected Effect program failure to RuntimeError", async () => {
+  it("maps an unexpected in-process program failure to RuntimeError", async () => {
     const compiled = compile(plan([task("a")]));
     const failedProgram = createSequentialProgram({
       steps: [
         {
           id: "failed-step",
           execute: async () => {
-            throw new Error("unexpected Effect failure");
+            throw new Error("unexpected program failure");
           },
         },
       ],

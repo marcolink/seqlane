@@ -139,7 +139,11 @@ function ports(
       },
       validateTarget: async () => undefined,
     },
-    lockfile: { regenerate: async () => lockfiles.push(true) },
+    lockfile: {
+      regenerate: async () => {
+        lockfiles.push(true);
+      },
+    },
     generatedFiles: {
       run: generatedHandlerRecorder(generated),
     },
@@ -164,7 +168,9 @@ function ports(
       getAttemptDiagnostics: () => ({ eventCount: 4, truncated: true }),
     },
     summary: {
-      write: async (value, report) => summary.push({ result: value, report }),
+      write: async (value, report) => {
+        summary.push({ result: value, report });
+      },
     },
     progress: { write: (event: unknown) => events.push(event) },
     commitAndPush: {
@@ -421,7 +427,9 @@ describe("resolveMergeConflicts", () => {
     fake.value.agent.stop = async () => {
       stops += 1;
     };
-    fake.value.git.readRebaseConflictCommit = async () => {
+    (
+      fake.value.git as { readRebaseConflictCommit?: () => Promise<unknown> }
+    ).readRebaseConflictCommit = async () => {
       commitReads += 1;
       return {
         sha: revision(commitReads === 1 ? "d" : "e"),
@@ -511,7 +519,9 @@ describe("resolveMergeConflicts", () => {
       },
       [conflict, []],
     );
-    fake.value.git.readRebaseConflictCommit = async () => ({
+    (
+      fake.value.git as { readRebaseConflictCommit?: () => Promise<unknown> }
+    ).readRebaseConflictCommit = async () => ({
       sha: revision("d"),
       subject: "Resolve parser conflict",
     });

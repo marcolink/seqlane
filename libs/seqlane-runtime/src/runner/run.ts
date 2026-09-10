@@ -4,19 +4,25 @@ import {
   type SeqlaneExecutionEvent,
 } from "@seqlane/events";
 import { RuntimeError, type RunRequest } from "@seqlane/core";
+import type { MastraActiveRun } from "../runtime/mastra/mastra-runtime.js";
+import {
+  createMastraPlanExecution,
+  emitMastraInvocationTopology,
+} from "../runtime/mastra/mastra-execution.js";
+import { preflightCompiledWorkflowModels } from "../runtime/execution/model-preflight.js";
+import {
+  preflightCompiledWorkflowSessionCapabilities,
+  resolveCompiledWorkflowSessions,
+} from "../runtime/session/session-preflight.js";
 import { createExecutionEventBridge } from "./event-bridge.js";
 import { loadWorkflow, type LoadedWorkflow } from "./workflow/load-workflow.js";
 import { createSeqlanePlanSnapshot } from "./workflow/plan-snapshot.js";
-export { planContainsAgentWork } from "../runtime/plan/agent-work.js";
 import {
   resolveRuntimeProfile,
   type RuntimeExecution,
+  type RuntimeProfileResolutionOptions,
   type RuntimeSessionUiNotifier,
-} from "../runtime/profile/runtime-profile.js";
-import {
-  startWorkflowRunInternal,
-  type WorkflowRunHandle,
-} from "../start-workflow-run.js";
+} from "./profile/runtime-profile.js";
 import {
   encodeRuntimeSessionUiAvailable,
   type RuntimeSessionUiAvailable,
@@ -31,7 +37,7 @@ export interface RunnerHost {
 export interface RunnerRunControl {
   cancellationRequested: boolean;
   abortController?: AbortController;
-  activeRun?: WorkflowRunHandle;
+  activeRun?: MastraActiveRun;
 }
 
 export type RuntimeExecutionResolver = (
@@ -40,6 +46,7 @@ export type RuntimeExecutionResolver = (
   signal: AbortSignal,
   input: RunRequest["input"],
   onSessionUiAvailable?: RuntimeSessionUiNotifier,
+  options?: RuntimeProfileResolutionOptions,
 ) => RuntimeExecution | Promise<RuntimeExecution>;
 
 export function requestRunnerCancellation(control: RunnerRunControl): void {
@@ -125,28 +132,78 @@ export async function startRun(
       return;
     }
 
-    const activeRun = startWorkflowRunInternal(
-      {
-        workflow: loadedWorkflow.built,
-        input: request.input,
-        runtime: request.runtime,
-        events,
-        signal: abortController.signal,
-        identity: { workId, runId },
-        onRuntimeSessionUi: (notification) =>
-          sendRuntimeSessionUi(host, notification),
-      },
-      {
-        resolveExecution,
-        createInvocationId,
-        emitRunStarted: false,
-        emitPlan: (plan) =>
-          events.emitPlan(createSeqlanePlanSnapshot(plan), workId, runId),
-      },
+    const execution = await resolveExecution(
+      request.runtime,
+      loadedWorkflow.taskDefinitions,
+      abortController.signal,
+      request.input,
+      (notification) => sendRuntimeSessionUi(host, notification),
+      { environment: process.env, runId },
     );
+    const workflowDefinition =
+      typeof loadedWorkflow.workflow === "object" &&
+      loadedWorkflow.workflow !== null &&
+      "input" in loadedWorkflow.workflow &&
+      "output" in loadedWorkflow.workflow
+        ? loadedWorkflow.workflow
+        : undefined;
+    const mastraExecution = createMastraPlanExecution({
+      plan: loadedWorkflow.plan,
+      workId,
+      runId,
+      workflowInput: request.input,
+      executors: execution.executors,
+      sessionResolver: execution.sessionResolver,
+      workspaceResources: execution.workspaceResources,
+      taskDefinitions: execution.taskDefinitions,
+      validatorDefinitions: loadedWorkflow.validatorDefinitions,
+      workflow: workflowDefinition,
+      events,
+      createInvocationId,
+    });
+    preflightCompiledWorkflowSessionCapabilities(mastraExecution.prepared);
+    await preflightCompiledWorkflowModels(mastraExecution.prepared);
+    await resolveCompiledWorkflowSessions(mastraExecution.prepared);
+
+    events.emitPlan(
+      createSeqlanePlanSnapshot(mastraExecution.compiled.plan),
+      workId,
+      runId,
+    );
+    emitMastraInvocationTopology(
+      mastraExecution.compiled,
+      mastraExecution.prepared,
+      events,
+    );
+
+    if (control.cancellationRequested) {
+      events.emit({ type: "run.cancelled", workId, runId });
+      await events.flush();
+      host.exit(0);
+      return;
+    }
+
+    const activeRun = mastraExecution.runtime.start({
+      workflowKey: mastraExecution.compiled.key,
+      input: request.input,
+      workId,
+      runId,
+    });
     control.activeRun = activeRun;
     if (control.cancellationRequested) await activeRun.cancel();
-    await activeRun.outcome;
+    const outcome = await activeRun.outcome;
+    if (outcome.status === "succeeded") {
+      events.emit({
+        type: "run.succeeded",
+        workId,
+        runId,
+        output: outcome.result,
+      });
+    } else if (outcome.status === "cancelled") {
+      events.emit({ type: "run.cancelled", workId, runId });
+    } else {
+      events.emit({ type: "run.failed", workId, runId, error: outcome.error });
+    }
     await events.flush();
     control.activeRun = undefined;
     host.exit(0);

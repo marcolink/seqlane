@@ -3,6 +3,7 @@
 // @test-scope ../runtime/plan/agent-work.ts
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { decodeSeqlaneExecutionEvent } from "@seqlane/events";
 import {
   requestRunnerCancellation,
@@ -10,9 +11,8 @@ import {
   type RunnerHost,
   type RunnerRunControl,
 } from "./run.js";
-import { planContainsAgentWork } from "../runtime/plan/agent-work.js";
 import { bindRunnerCancellationSignals, startRunnerProcess } from "./main.js";
-import type { Plan, RunRequest, TaskDefinitionRegistry } from "@seqlane/core";
+import type { RunRequest, TaskDefinitionRegistry } from "@seqlane/core";
 import type {
   ResolvedExecutorSession,
   SessionResolver,
@@ -56,51 +56,6 @@ class FakeRunnerSignalSource extends EventEmitter {
 }
 
 describe("seqlane runner entry point", () => {
-  it("detects agent work inside repeat bodies", () => {
-    const task = (execution: "agent" | "local") => ({
-      type: "task" as const,
-      taskId: execution,
-      nodeId: execution,
-      workspace: "shared" as const,
-      execution,
-      input: {},
-      dependsOn: [],
-    });
-    const repeat = {
-      type: "repeat" as const,
-      nodeId: "repeat:1",
-      input: {},
-      dependsOn: [],
-      maximumIterations: 1,
-      body: {
-        inputNodeId: "repeat:1:input",
-        nodes: [task("agent")],
-        output: {},
-        until: { type: "ref" as const, nodeId: "repeat:1:input", path: [] },
-      },
-    };
-
-    expect(
-      planContainsAgentWork({
-        workflow: { id: "local" },
-        nodes: [
-          {
-            ...repeat,
-            body: { ...repeat.body, nodes: [task("local")] },
-          },
-        ],
-        output: {},
-      } as Plan),
-    ).toBe(false);
-    expect(
-      planContainsAgentWork({
-        workflow: { id: "agent" },
-        nodes: [repeat],
-        output: {},
-      } as Plan),
-    ).toBe(true);
-  });
-
   it("is safe to call outside a child process with IPC", () => {
     expect(() => startRunnerProcess()).not.toThrow();
   });
@@ -113,8 +68,6 @@ describe("seqlane runner entry point", () => {
       cancellationRequested: false,
       abortController: controller,
       activeRun: {
-        workId: "work-id",
-        runId: "run-id",
         outcome: Promise.resolve({ status: "cancelled" }),
         cancel: async () => {
           cancellations += 1;
@@ -206,6 +159,51 @@ describe("seqlane runner entry point", () => {
     });
   });
 
+  it("passes the workflow run identity into runtime profile resolution", async () => {
+    const moduleSource = `
+      export const workflow = {
+        workflow: { id: "run-identity" },
+        nodes: [],
+        output: null,
+      };
+    `;
+    const request: RunRequest = {
+      type: "run.start",
+      workflow: {
+        id: "run-identity",
+        moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+        exportName: "workflow",
+      },
+      input: null,
+      runtime: { id: "test" },
+    };
+    const host = new FakeRunnerHost();
+    const control: RunnerRunControl = { cancellationRequested: false };
+    let resolvedRunId: string | undefined;
+
+    await startRun(
+      host,
+      request,
+      () => "work-identity",
+      () => "run-identity",
+      () => undefined,
+      control,
+      async (_profile, taskDefinitions, _signal, _input, _notify, options) => {
+        resolvedRunId = options?.runId;
+        const executor = { execute: async () => null };
+        return {
+          executors: { agent: () => executor },
+          sessionResolver: sharedSessionResolver(executor),
+          taskDefinitions: taskDefinitions!,
+          workspaceIdentities: new Map(),
+          workspaceResources: new Map(),
+        };
+      },
+    );
+
+    expect(resolvedRunId).toBe("run-identity");
+  });
+
   it("emits one Plan event before invocation topology", async () => {
     const moduleSource = `
       export const workflow = {
@@ -238,10 +236,10 @@ describe("seqlane runner entry point", () => {
         "task",
         {
           id: "task",
-          workspace: "shared",
-          input: { parse: (value) => value },
-          output: { parse: (value) => value },
-          goal: () => "complete the task",
+          input: z.unknown(),
+          output: z.unknown(),
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "complete the task" }),
         },
       ],
     ]);
@@ -341,6 +339,7 @@ describe("seqlane runner entry point", () => {
           nodeId: "task:1",
           taskId: "task",
           workspace: "shared",
+          session: { type: "isolated" },
           input: {},
           dependsOn: []
         }],
@@ -424,10 +423,10 @@ describe("seqlane runner entry point", () => {
         "task",
         {
           id: "task",
-          workspace: "exclusive",
-          input: { parse: (value) => value },
-          output: { parse: (value) => value },
-          goal: () => "modify the workspace",
+          input: z.unknown(),
+          output: z.unknown(),
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "modify the workspace" }),
         },
       ],
     ]);
@@ -472,6 +471,7 @@ describe("seqlane runner entry point", () => {
           nodeId: "task:1",
           taskId: "task",
           workspace: "shared",
+          session: { type: "isolated" },
           input: {},
           dependsOn: []
         }],
@@ -483,10 +483,10 @@ describe("seqlane runner entry point", () => {
         "task",
         {
           id: "task",
-          workspace: "shared",
-          input: { parse: (value) => value },
-          output: { parse: (value) => value },
-          goal: () => "inspect the workspace",
+          input: z.unknown(),
+          output: z.unknown(),
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "inspect the workspace" }),
         },
       ],
     ]);
@@ -537,6 +537,7 @@ describe("seqlane runner entry point", () => {
           nodeId: "task:1",
           taskId: "task",
           workspace: "shared",
+          session: { type: "isolated" },
           input: {},
           dependsOn: []
         }],
@@ -548,10 +549,10 @@ describe("seqlane runner entry point", () => {
         "task",
         {
           id: "task",
-          workspace: "shared",
-          input: { parse: (value) => value },
-          output: { parse: (value) => value },
-          goal: () => "complete the task",
+          input: z.unknown(),
+          output: z.unknown(),
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "complete the task" }),
         },
       ],
     ]);

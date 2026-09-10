@@ -1,6 +1,7 @@
 import type {
   JsonPrimitive,
   PlanNodeId,
+  SessionPolicy,
   ValidationResult,
 } from "./contracts.js";
 import { z } from "zod";
@@ -58,17 +59,22 @@ export type InputBinding<T> =
         ? { readonly [Key in keyof T]: InputBinding<T[Key]> }
         : T);
 
-/** Typed handle returned by a task that runs against an agent session. */
-export interface AgentTaskRef<Output = unknown> {
+/** Typed handle returned by a task invocation with a declared session policy. */
+export interface TaskInvocationWithSession<Output = unknown> {
   readonly nodeId: PlanNodeId;
   readonly output: ValueRef<Output>;
   readonly session: SessionCheckpointRef;
 }
 
-/** @deprecated Use AgentTaskRef for clarity. */
-export type TaskInvocation<Output = unknown> = AgentTaskRef<Output>;
+/** Typed handle returned by a task invocation. */
+export type TaskInvocation<
+  Output = unknown,
+  Session extends SessionPolicy | undefined = undefined,
+> = Session extends undefined
+  ? MechanicalTaskRef<Output>
+  : TaskInvocationWithSession<Output>;
 
-/** Typed handle returned by orchestration, without an agent session checkpoint. */
+/** Typed handle returned by a task invocation without a declared session policy. */
 export interface MechanicalTaskRef<Output = unknown> {
   readonly nodeId: PlanNodeId;
   readonly output: ValueRef<Output>;
