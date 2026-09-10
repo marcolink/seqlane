@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  actionBundleInputsChanged,
+  actionBundlePostBuildArgs,
+  assertCleanWorktree,
   cacheDirectories,
   cleanGitEnvironment,
   nxAffectedArgs,
@@ -74,6 +77,28 @@ test("skips ref deletions and rejects multiple updates", () => {
       ),
     /one branch update/,
   );
+  assert.throws(
+    () =>
+      selectOutgoingRevision(
+        parsePrePushInput(
+          `refs/heads/feature ${sha} refs/heads/feature ${otherSha}\nrefs/heads/old ${"0".repeat(40)} refs/heads/old ${otherSha}\n`,
+        ),
+        sha,
+      ),
+    /one branch update/,
+  );
+});
+
+test("applies the dirty-worktree guard to deletion pushes", () => {
+  const selection = selectOutgoingRevision(
+    parsePrePushInput(
+      `refs/heads/feature ${"0".repeat(40)} refs/heads/feature ${otherSha}\n`,
+    ),
+    sha,
+  );
+
+  assert.equal(selection.kind, "skip");
+  assert.throws(() => assertCleanWorktree(" M README.md"), /clean worktree/);
 });
 
 test("builds explicit Nx affected arguments", () => {
@@ -96,6 +121,25 @@ test("derives stable, separate cache paths for each worktree", () => {
   assert.notEqual(first.workspaceData, second.workspaceData);
   assert.notEqual(first.cache, second.cache);
   assert.match(first.workspaceData, /seqlane-nx-/);
+});
+
+test("detects Action entrypoint and compiler configuration bundle inputs", () => {
+  assert.equal(
+    actionBundleInputsChanged(["actions/code-review/src/post.ts"]),
+    true,
+  );
+  assert.equal(actionBundleInputsChanged(["tsconfig.base.json"]), true);
+  assert.equal(actionBundleInputsChanged(["README.md"]), false);
+});
+
+test("builds the explicit Action post-entrypoint command", () => {
+  assert.deepEqual(actionBundlePostBuildArgs(), [
+    "exec",
+    "nx",
+    "run",
+    "action-code-review:build-post",
+    "--output-style=static",
+  ]);
 });
 
 test("removes Git hook environment variables from child-check environments", () => {

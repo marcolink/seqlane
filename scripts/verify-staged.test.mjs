@@ -3,7 +3,10 @@ import test from "node:test";
 
 import {
   eslintPaths,
+  eslintArgs,
   isPrettierPath,
+  overlappingPaths,
+  prettierArgs,
   stagedPathsFromGitOutput,
 } from "./verify-staged.mjs";
 
@@ -31,4 +34,27 @@ test("selects only JavaScript and TypeScript paths for ESLint", () => {
     ]),
     ["src/main.ts", "scripts/check.mjs"],
   );
+});
+
+test("detects files with both staged and unstaged changes", () => {
+  assert.deepEqual(
+    overlappingPaths(["src/one.ts", "docs/README.md"], ["docs/README.md"]),
+    ["docs/README.md"],
+  );
+});
+
+test("terminates formatter arguments before staged paths", () => {
+  assert.deepEqual(prettierArgs(["-config.js"]), [
+    "exec",
+    "prettier",
+    "--check",
+    "--",
+    "-config.js",
+  ]);
+  assert.deepEqual(eslintArgs(["-config.js"]), [
+    "exec",
+    "eslint",
+    "--",
+    "-config.js",
+  ]);
 });

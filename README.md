@@ -42,7 +42,8 @@ pnpm hooks:install
 ```
 
 `pnpm hooks:install` enables the versioned native Git hooks for the current
-worktree. The pre-commit hook runs staged formatting and lint checks. The
+worktree. The pre-commit hook runs staged formatting and lint checks and
+rejects files with additional unstaged edits. The
 pre-push hook requires a clean worktree and runs the affected repository checks
 against the merge-base with `origin/main`. Install dependencies separately in
 each worktree; do not share `node_modules` between worktrees. It validates one

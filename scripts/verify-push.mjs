@@ -7,6 +7,15 @@ import { pathToFileURL } from "node:url";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const zeroSha = /^0+$/;
+const actionBundleRootInputs = new Set([
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "nx.json",
+  "tsconfig.json",
+  "tsconfig.base.json",
+  "tsconfig.spec.json",
+]);
 
 export function parsePrePushInput(input) {
   return input
@@ -26,16 +35,16 @@ export function selectOutgoingRevision(refs, headRevision) {
     return { kind: "verify", revision: headRevision };
   }
 
-  const updates = refs.filter(({ localSha }) => !zeroSha.test(localSha));
-
-  if (updates.length === 0) return { kind: "skip" };
-  if (updates.length > 1) {
+  if (refs.length > 1) {
     throw new Error(
       "Pre-push verification supports one branch update at a time.",
     );
   }
 
-  const revision = updates[0].localSha;
+  const [update] = refs;
+  if (zeroSha.test(update.localSha)) return { kind: "skip" };
+
+  const revision = update.localSha;
   if (headRevision && revision !== headRevision) {
     throw new Error(
       `Outgoing revision ${revision} does not match current HEAD ${headRevision}.`,
@@ -68,6 +77,33 @@ export function cacheDirectories(worktreeRoot, temporaryRoot = tmpdir()) {
     workspaceData: join(root, "workspace-data"),
     cache: join(root, "cache"),
   };
+}
+
+export function actionBundleInputsChanged(paths) {
+  return paths.some(
+    (path) =>
+      path.startsWith("actions/") ||
+      path.startsWith("libs/") ||
+      actionBundleRootInputs.has(path),
+  );
+}
+
+export function actionBundlePostBuildArgs() {
+  return [
+    "exec",
+    "nx",
+    "run",
+    "action-code-review:build-post",
+    "--output-style=static",
+  ];
+}
+
+export function assertCleanWorktree(statusOutput) {
+  if (statusOutput) {
+    throw new Error(
+      "Pre-push verification requires a clean worktree; commit or stash local changes first.",
+    );
+  }
 }
 
 export function cleanGitEnvironment(environment, gitEnvironmentVariables) {
@@ -146,11 +182,6 @@ async function main() {
   const headRevision = captureGit(["rev-parse", "HEAD"]);
   const refs = parsePrePushInput(await readHookInput());
   const selection = selectOutgoingRevision(refs, headRevision);
-  if (selection.kind === "skip") {
-    console.log("Skipping verification for ref deletion.");
-    return 0;
-  }
-
   const worktreeRoot = captureGit(["rev-parse", "--show-toplevel"]);
   if (resolve(worktreeRoot) !== repositoryRoot) {
     throw new Error(
@@ -158,10 +189,11 @@ async function main() {
     );
   }
 
-  if (captureGit(["status", "--porcelain=v1"])) {
-    throw new Error(
-      "Pre-push verification requires a clean worktree; commit or stash local changes first.",
-    );
+  assertCleanWorktree(captureGit(["status", "--porcelain=v1"]));
+
+  if (selection.kind === "skip") {
+    console.log("Skipping verification for ref deletion.");
+    return 0;
   }
 
   if (!existsSync(resolve(repositoryRoot, "node_modules"))) {
@@ -216,20 +248,9 @@ async function main() {
     if (!runPnpm(args, env)) return 1;
   }
 
-  const bundleInputsChanged = changed.some(
-    (path) =>
-      path.startsWith("actions/") ||
-      path.startsWith("libs/") ||
-      [
-        "package.json",
-        "pnpm-lock.yaml",
-        "nx.json",
-        "tsconfig.json",
-        "tsconfig.spec.json",
-      ].includes(path),
-  );
-  if (bundleInputsChanged) {
+  if (actionBundleInputsChanged(changed)) {
     console.log("\n=== Action bundle drift ===");
+    if (!runPnpm(actionBundlePostBuildArgs(), env)) return 1;
     const generated = generatedActionChanges();
     if (generated.length > 0) {
       console.error(

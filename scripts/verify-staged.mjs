@@ -20,6 +20,19 @@ export function eslintPaths(paths) {
   return paths.filter((path) => eslintExtensions.test(path));
 }
 
+export function overlappingPaths(firstPaths, secondPaths) {
+  const secondPathSet = new Set(secondPaths);
+  return firstPaths.filter((path) => secondPathSet.has(path));
+}
+
+export function prettierArgs(paths) {
+  return ["exec", "prettier", "--check", "--", ...paths];
+}
+
+export function eslintArgs(paths) {
+  return ["exec", "eslint", "--", ...paths];
+}
+
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: repositoryRoot,
@@ -65,6 +78,18 @@ export function main() {
       "--diff-filter=ACMR",
     ]),
   );
+  const unstagedPaths = stagedPathsFromGitOutput(
+    capture("git", ["diff", "--name-only", "-z", "--diff-filter=ACMR"]),
+  );
+  const mixedPaths = overlappingPaths(paths, unstagedPaths);
+  if (mixedPaths.length > 0) {
+    console.error(
+      "Staged checks require staged files to have no additional unstaged changes:",
+    );
+    for (const path of mixedPaths) console.error(`- ${path}`);
+    return 1;
+  }
+
   const prettierPaths = paths.filter(isPrettierPath);
   const javascriptPaths = eslintPaths(paths);
 
@@ -80,17 +105,11 @@ export function main() {
     return 1;
   }
 
-  if (
-    prettierPaths.length > 0 &&
-    !run("pnpm", ["exec", "prettier", "--check", ...prettierPaths])
-  ) {
+  if (prettierPaths.length > 0 && !run("pnpm", prettierArgs(prettierPaths))) {
     return 1;
   }
 
-  if (
-    javascriptPaths.length > 0 &&
-    !run("pnpm", ["exec", "eslint", ...javascriptPaths])
-  ) {
+  if (javascriptPaths.length > 0 && !run("pnpm", eslintArgs(javascriptPaths))) {
     return 1;
   }
 

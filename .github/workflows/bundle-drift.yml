@@ -39,7 +39,7 @@ jobs:
 
       - name: Check whether Action inputs changed
         run: |
-          if git diff --quiet "$NX_BASE" "$NX_HEAD" -- actions libs package.json pnpm-lock.yaml nx.json tsconfig.json tsconfig.spec.json; then
+          if git diff --quiet "$NX_BASE" "$NX_HEAD" -- actions libs package.json pnpm-lock.yaml pnpm-workspace.yaml nx.json tsconfig.json tsconfig.base.json tsconfig.spec.json; then
             echo "No generated Action bundle inputs changed; bundle-drift check passed."
             exit 0
           fi
@@ -49,6 +49,9 @@ jobs:
           pnpm exec nx run-many -t build
           --projects=action-code-review,action-opencode-server,action-resolve-merge-conflicts,action-ripwire-server,action-setup-opencode,action-zvec-grep-server
           --output-style=static
+
+      - name: Rebuild code review post bundle
+        run: pnpm exec nx run action-code-review:build-post --output-style=static
 
       - name: Verify committed Action bundles
         run: |
