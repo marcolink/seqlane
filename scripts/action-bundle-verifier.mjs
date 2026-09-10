@@ -4,16 +4,6 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
-const actionBundleRootInputs = new Set([
-  "package.json",
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "nx.json",
-  "tsconfig.json",
-  "tsconfig.base.json",
-  "tsconfig.spec.json",
-]);
-
 function normalizedPath(path) {
   return path.replaceAll("\\", "/");
 }
@@ -99,34 +89,18 @@ export function discoverActionBundles(root = repositoryRoot) {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-export function actionBundleBuildCommands(root = repositoryRoot) {
-  const bundles = discoverActionBundles(root);
-  return ["build", "build-post"]
-    .map((target) => ({
-      target,
-      projects: bundles
-        .filter((bundle) => bundle.targets[target])
-        .map((bundle) => bundle.name),
-    }))
-    .filter(({ projects }) => projects.length > 0)
-    .map(({ target, projects }) => [
-      "exec",
-      "nx",
-      "run-many",
-      "-t",
-      target,
-      `--projects=${projects.join(",")}`,
-      "--output-style=static",
-    ]);
-}
-
-export function actionBundleInputsChanged(paths) {
-  return paths.some(
-    (path) =>
-      path.startsWith("actions/") ||
-      path.startsWith("libs/") ||
-      actionBundleRootInputs.has(path),
-  );
+export function actionBundleDriftArgs(base, head) {
+  return [
+    "exec",
+    "nx",
+    "affected",
+    "-t",
+    "bundle-drift",
+    "--output-style=static",
+    "--skip-nx-cache",
+    `--base=${base}`,
+    `--head=${head}`,
+  ];
 }
 
 export function bundleVerificationIssues({
@@ -230,14 +204,6 @@ function runPnpm(args) {
   return !result.error && result.status === 0;
 }
 
-function changedPaths(base, head) {
-  const output = captureGit(
-    ["diff", "--name-only", `${base}..${head}`],
-    repositoryRoot,
-  );
-  return output ? output.split(/\r?\n/).filter(Boolean) : [];
-}
-
 function argumentValue(args, name) {
   const index = args.indexOf(name);
   if (index === -1 || !args[index + 1]) {
@@ -259,25 +225,19 @@ function verify() {
   return 0;
 }
 
-function build() {
-  for (const command of actionBundleBuildCommands()) {
-    if (!runPnpm(command)) return 1;
-  }
-  return 0;
-}
-
 function main(args) {
-  if (args.includes("--inputs-changed")) {
-    const paths = changedPaths(
-      argumentValue(args, "--base"),
-      argumentValue(args, "--head"),
-    );
-    console.log(actionBundleInputsChanged(paths) ? "true" : "false");
-    return 0;
+  if (args.includes("--drift")) {
+    return runPnpm(
+      actionBundleDriftArgs(
+        argumentValue(args, "--base"),
+        argumentValue(args, "--head"),
+      ),
+    )
+      ? 0
+      : 1;
   }
   if (args.includes("--verify")) return verify();
-  if (args.includes("--build")) return build();
-  throw new Error("Expected one of --inputs-changed, --verify, or --build.");
+  throw new Error("Expected one of --drift or --verify.");
 }
 
 if (

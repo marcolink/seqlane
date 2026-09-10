@@ -20,7 +20,14 @@
     ],
     "sharedGlobals": [
       "{workspaceRoot}/.github/workflows/*.yml",
-      "{workspaceRoot}/scripts/scoped-github-summary.ts"
+      "{workspaceRoot}/scripts/scoped-github-summary.ts",
+      "{workspaceRoot}/package.json",
+      "{workspaceRoot}/pnpm-lock.yaml",
+      "{workspaceRoot}/pnpm-workspace.yaml",
+      "{workspaceRoot}/nx.json",
+      "{workspaceRoot}/tsconfig.json",
+      "{workspaceRoot}/tsconfig.base.json",
+      "{workspaceRoot}/tsconfig.spec.json"
     ]
   },
   "plugins": [

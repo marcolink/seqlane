@@ -5,12 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { actionBundleInputsChanged } from "./action-bundle-verifier.mjs";
-
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const zeroSha = /^0+$/;
-
-export { actionBundleInputsChanged };
 
 export function parsePrePushInput(input) {
   return input
@@ -90,6 +86,14 @@ export function cleanGitEnvironment(environment, gitEnvironmentVariables) {
   return cleanEnvironment;
 }
 
+export function useWorktreeNxDirectories(environment, directories) {
+  return {
+    ...environment,
+    NX_WORKSPACE_DATA_DIRECTORY: directories.workspaceData,
+    NX_CACHE_DIRECTORY: directories.cache,
+  };
+}
+
 function captureGit(args) {
   const result = spawnSync("git", args, {
     cwd: repositoryRoot,
@@ -156,11 +160,6 @@ function readHookInput() {
   });
 }
 
-function changedPaths(base, revision) {
-  const output = captureGit(["diff", "--name-only", `${base}..${revision}`]);
-  return output ? output.split(/\r?\n/).filter(Boolean) : [];
-}
-
 async function main() {
   const headRevision = captureGit(["rev-parse", "HEAD"]);
   const refs = parsePrePushInput(await readHookInput());
@@ -191,12 +190,10 @@ async function main() {
   const gitEnvironmentVariables = captureGit(["rev-parse", "--local-env-vars"])
     .split(/\r?\n/)
     .filter(Boolean);
-  const env = cleanGitEnvironment(process.env, gitEnvironmentVariables);
-  env.NX_WORKSPACE_DATA_DIRECTORY =
-    process.env.NX_WORKSPACE_DATA_DIRECTORY ?? directories.workspaceData;
-  env.NX_CACHE_DIRECTORY = process.env.NX_CACHE_DIRECTORY ?? directories.cache;
-  const changed = changedPaths(base, selection.revision);
-
+  const env = useWorktreeNxDirectories(
+    cleanGitEnvironment(process.env, gitEnvironmentVariables),
+    directories,
+  );
   if (!existsSync(resolve(repositoryRoot, "node_modules"))) {
     throw new Error(
       "Dependencies are not installed in this worktree; run pnpm install --frozen-lockfile.",
@@ -232,11 +229,15 @@ async function main() {
     if (!runPnpm(args, env)) return 1;
   }
 
-  if (actionBundleInputsChanged(changed)) {
-    console.log("\n=== Action bundle drift ===");
-    if (!runBundleVerifier(["--build"], env)) return 1;
+  console.log("\n=== Action bundle drift ===");
+  if (
+    !runBundleVerifier(
+      ["--drift", "--base", base, "--head", selection.revision],
+      env,
+    )
+  ) {
+    return 1;
   }
-
   if (!runBundleVerifier(["--verify"], env)) return 1;
 
   console.log("\nPre-push verification passed.");

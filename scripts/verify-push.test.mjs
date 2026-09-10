@@ -5,8 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  actionBundleBuildCommands,
-  actionBundleInputsChanged,
+  actionBundleDriftArgs,
   bundleVerificationIssues,
   discoverActionBundles,
 } from "./action-bundle-verifier.mjs";
@@ -18,6 +17,7 @@ import {
   nxAffectedArgs,
   parsePrePushInput,
   selectOutgoingRevision,
+  useWorktreeNxDirectories,
 } from "./verify-push.mjs";
 
 const sha = "a".repeat(40);
@@ -131,13 +131,18 @@ test("derives stable, separate cache paths for each worktree", () => {
   assert.match(first.workspaceData, /seqlane-nx-/);
 });
 
-test("detects Action entrypoint and compiler configuration bundle inputs", () => {
-  assert.equal(
-    actionBundleInputsChanged(["actions/code-review/src/post.ts"]),
-    true,
-  );
-  assert.equal(actionBundleInputsChanged(["tsconfig.base.json"]), true);
-  assert.equal(actionBundleInputsChanged(["README.md"]), false);
+test("always invokes the uncached Nx bundle-drift target", () => {
+  assert.deepEqual(actionBundleDriftArgs("base", "head"), [
+    "exec",
+    "nx",
+    "affected",
+    "-t",
+    "bundle-drift",
+    "--output-style=static",
+    "--skip-nx-cache",
+    "--base=base",
+    "--head=head",
+  ]);
 });
 
 test("discovers Action build targets and bundle outputs from project metadata", () => {
@@ -180,26 +185,6 @@ test("discovers Action build targets and bundle outputs from project metadata", 
           },
         },
       },
-    ]);
-    assert.deepEqual(actionBundleBuildCommands(root), [
-      [
-        "exec",
-        "nx",
-        "run-many",
-        "-t",
-        "build",
-        "--projects=action-example",
-        "--output-style=static",
-      ],
-      [
-        "exec",
-        "nx",
-        "run-many",
-        "-t",
-        "build-post",
-        "--projects=action-example",
-        "--output-style=static",
-      ],
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -247,5 +232,26 @@ test("removes Git hook environment variables from child-check environments", () 
       ["GIT_DIR", "GIT_WORK_TREE"],
     ),
     { PATH: "/usr/bin" },
+  );
+});
+
+test("forces Nx to use cache paths owned by the current worktree", () => {
+  assert.deepEqual(
+    useWorktreeNxDirectories(
+      {
+        NX_WORKSPACE_DATA_DIRECTORY: "/main-checkout/.nx/workspace-data",
+        NX_CACHE_DIRECTORY: "/main-checkout/.nx/cache",
+        PATH: "/usr/bin",
+      },
+      {
+        workspaceData: "/tmp/seqlane-nx/workspace-data",
+        cache: "/tmp/seqlane-nx/cache",
+      },
+    ),
+    {
+      NX_WORKSPACE_DATA_DIRECTORY: "/tmp/seqlane-nx/workspace-data",
+      NX_CACHE_DIRECTORY: "/tmp/seqlane-nx/cache",
+      PATH: "/usr/bin",
+    },
   );
 });

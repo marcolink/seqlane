@@ -24,21 +24,13 @@ jobs:
       - name: Determine affected range
         uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
 
-      - name: Check whether Action inputs changed
-        id: bundle-inputs
-        run: |
-          changed="$(node scripts/action-bundle-verifier.mjs --inputs-changed --base "$NX_BASE" --head "$NX_HEAD")"
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-
       - name: Verify committed Action bundles
         run: node scripts/action-bundle-verifier.mjs --verify
 
       - name: Set up pnpm
-        if: steps.bundle-inputs.outputs.changed == 'true'
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       - name: Set up Node.js
-        if: steps.bundle-inputs.outputs.changed == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -46,13 +38,10 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        if: steps.bundle-inputs.outputs.changed == 'true'
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Rebuild all Action bundles
-        if: steps.bundle-inputs.outputs.changed == 'true'
-        run: node scripts/action-bundle-verifier.mjs --build
+      - name: Compare affected Action bundles with fresh Nx builds
+        run: node scripts/action-bundle-verifier.mjs --drift --base "$NX_BASE" --head "$NX_HEAD"
 
-      - name: Verify rebuilt Action bundles
-        if: steps.bundle-inputs.outputs.changed == 'true'
+      - name: Verify all committed Action bundles
         run: node scripts/action-bundle-verifier.mjs --verify
