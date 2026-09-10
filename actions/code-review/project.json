@@ -62,7 +62,7 @@
       "dependsOn": ["build", "build-post"],
       "options": {
         "cwd": ".",
-        "command": "node actions/code-review/tests/entrypoint-smoke.mjs && pnpm exec vitest run actions/code-review/src/failure-diagnostics.spec.ts actions/code-review/src/main.spec.ts && git diff --exit-code -- actions/code-review/dist/"
+        "command": "node actions/code-review/tests/entrypoint-smoke.mjs && pnpm exec vitest run actions/code-review/src/failure-diagnostics.spec.ts actions/code-review/src/main.spec.ts"
       }
     },
     "bundle-drift": {

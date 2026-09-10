@@ -39,7 +39,7 @@
       "dependsOn": ["build"],
       "options": {
         "cwd": ".",
-        "command": "pnpm exec vitest run actions/resolve-merge-conflicts/src/lazy-agent-port.spec.ts && node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs && git diff --exit-code -- actions/resolve-merge-conflicts/dist/"
+        "command": "pnpm exec vitest run actions/resolve-merge-conflicts/src/lazy-agent-port.spec.ts && node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs"
       }
     },
     "bundle-drift": {

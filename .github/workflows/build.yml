@@ -39,3 +39,6 @@ jobs:
 
       - name: Build affected projects
         run: pnpm exec nx affected -t build --output-style=static
+
+      - name: Verify generated artifacts
+        run: git diff --exit-code -- ':(glob)actions/**/dist/*.js'
