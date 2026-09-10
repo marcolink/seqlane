@@ -46,7 +46,7 @@ worktree. The pre-commit hook runs staged formatting and lint checks and
 rejects files with additional unstaged edits. The
 pre-push hook requires a clean worktree and runs the affected repository checks
 against the merge-base with `origin/main`. It also runs an uncached Nx Action
-bundle drift comparison for affected Actions and checks every committed bundle
+bundle drift comparison for every Action and checks every committed bundle
 for presence, tracking, and cleanliness. Install dependencies separately in
 each worktree; do not share `node_modules` between worktrees. It validates one
 branch update at a time; tag-only or multi-ref pushes can use `--no-verify`.

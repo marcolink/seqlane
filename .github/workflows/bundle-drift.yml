@@ -21,9 +21,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Determine affected range
-        uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
-
       - name: Verify committed Action bundles
         run: node scripts/action-bundle-verifier.mjs --verify
 
@@ -40,8 +37,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Compare affected Action bundles with fresh Nx builds
-        run: node scripts/action-bundle-verifier.mjs --drift --base "$NX_BASE" --head "$NX_HEAD"
+      - name: Compare all Action bundles with fresh Nx builds
+        run: node scripts/action-bundle-verifier.mjs --drift
 
       - name: Verify all committed Action bundles
         run: node scripts/action-bundle-verifier.mjs --verify

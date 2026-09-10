@@ -70,6 +70,11 @@ export function discoverActionBundles(root = repositoryRoot) {
       if (!existsSync(projectFile)) return null;
 
       const project = JSON.parse(readFileSync(projectFile, "utf8"));
+      if (project.targets?.build && !project.targets["bundle-drift"]) {
+        throw new Error(
+          `Action project ${projectRoot} has a build target but no bundle-drift target.`,
+        );
+      }
       const targets = {};
       for (const targetName of ["build", "build-post"]) {
         const target = project.targets?.[targetName];
@@ -89,17 +94,21 @@ export function discoverActionBundles(root = repositoryRoot) {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-export function actionBundleDriftArgs(base, head) {
+export function actionBundleDriftArgs(root = repositoryRoot) {
+  const projects = discoverActionBundles(root).map((bundle) => bundle.name);
+  if (projects.length === 0) {
+    throw new Error("No Action projects with build targets were discovered.");
+  }
+
   return [
     "exec",
     "nx",
-    "affected",
+    "run-many",
     "-t",
     "bundle-drift",
+    `--projects=${projects.join(",")}`,
     "--output-style=static",
     "--skip-nx-cache",
-    `--base=${base}`,
-    `--head=${head}`,
   ];
 }
 
@@ -204,14 +213,6 @@ function runPnpm(args) {
   return !result.error && result.status === 0;
 }
 
-function argumentValue(args, name) {
-  const index = args.indexOf(name);
-  if (index === -1 || !args[index + 1]) {
-    throw new Error(`Missing ${name} value.`);
-  }
-  return args[index + 1];
-}
-
 function verify() {
   const inspection = inspectActionBundles();
   const issues = { ...inspection };
@@ -227,14 +228,7 @@ function verify() {
 
 function main(args) {
   if (args.includes("--drift")) {
-    return runPnpm(
-      actionBundleDriftArgs(
-        argumentValue(args, "--base"),
-        argumentValue(args, "--head"),
-      ),
-    )
-      ? 0
-      : 1;
+    return runPnpm(actionBundleDriftArgs()) ? 0 : 1;
   }
   if (args.includes("--verify")) return verify();
   throw new Error("Expected one of --drift or --verify.");

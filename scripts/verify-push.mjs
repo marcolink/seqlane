@@ -230,12 +230,7 @@ async function main() {
   }
 
   console.log("\n=== Action bundle drift ===");
-  if (
-    !runBundleVerifier(
-      ["--drift", "--base", base, "--head", selection.revision],
-      env,
-    )
-  ) {
+  if (!runBundleVerifier(["--drift"], env)) {
     return 1;
   }
   if (!runBundleVerifier(["--verify"], env)) return 1;

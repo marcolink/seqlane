@@ -131,18 +131,57 @@ test("derives stable, separate cache paths for each worktree", () => {
   assert.match(first.workspaceData, /seqlane-nx-/);
 });
 
-test("always invokes the uncached Nx bundle-drift target", () => {
-  assert.deepEqual(actionBundleDriftArgs("base", "head"), [
-    "exec",
-    "nx",
-    "affected",
-    "-t",
-    "bundle-drift",
-    "--output-style=static",
-    "--skip-nx-cache",
-    "--base=base",
-    "--head=head",
-  ]);
+test("runs the uncached bundle-drift target for every discovered Action", () => {
+  const root = mkdtempSync(join(tmpdir(), "seqlane-bundle-test-"));
+  try {
+    mkdirSync(join(root, "actions/example"), { recursive: true });
+    mkdirSync(join(root, "actions/another"), { recursive: true });
+    writeFileSync(
+      join(root, "actions/example/project.json"),
+      JSON.stringify({
+        name: "action-example",
+        targets: {
+          build: {
+            options: {
+              outputPath: "actions/example/dist",
+              outputFileName: "main.js",
+            },
+            outputs: ["{projectRoot}/dist"],
+          },
+          "bundle-drift": {},
+        },
+      }),
+    );
+    writeFileSync(
+      join(root, "actions/another/project.json"),
+      JSON.stringify({
+        name: "action-another",
+        targets: {
+          build: {
+            options: {
+              outputPath: "actions/another/dist",
+              outputFileName: "main.js",
+            },
+            outputs: ["{projectRoot}/dist"],
+          },
+          "bundle-drift": {},
+        },
+      }),
+    );
+
+    assert.deepEqual(actionBundleDriftArgs(root), [
+      "exec",
+      "nx",
+      "run-many",
+      "-t",
+      "bundle-drift",
+      "--projects=action-another,action-example",
+      "--output-style=static",
+      "--skip-nx-cache",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("discovers Action build targets and bundle outputs from project metadata", () => {
@@ -161,6 +200,7 @@ test("discovers Action build targets and bundle outputs from project metadata", 
             },
             outputs: ["{projectRoot}/dist"],
           },
+          "bundle-drift": {},
           "build-post": {
             options: {
               outputPath: "actions/example/dist",
@@ -186,6 +226,35 @@ test("discovers Action build targets and bundle outputs from project metadata", 
         },
       },
     ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects Action projects without a bundle-drift target", () => {
+  const root = mkdtempSync(join(tmpdir(), "seqlane-bundle-test-"));
+  try {
+    mkdirSync(join(root, "actions/example"), { recursive: true });
+    writeFileSync(
+      join(root, "actions/example/project.json"),
+      JSON.stringify({
+        name: "action-example",
+        targets: {
+          build: {
+            options: {
+              outputPath: "actions/example/dist",
+              outputFileName: "main.js",
+            },
+            outputs: ["{projectRoot}/dist"],
+          },
+        },
+      }),
+    );
+
+    assert.throws(
+      () => discoverActionBundles(root),
+      /Action project actions\/example has a build target but no bundle-drift target/,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
