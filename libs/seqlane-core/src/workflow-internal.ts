@@ -1,9 +1,6 @@
 import type { InputBinding } from "./bindings.js";
-import type {
-  AuthoredWorkflow,
-  WorkflowBuildContext,
-  WorkflowDefinition,
-} from "./contracts.js";
+import type { AuthoredWorkflow, WorkflowDefinition } from "./contracts.js";
+import type { WorkflowBuildContext } from "./workflow-authoring-internal.js";
 
 export type WorkflowPlanBuilder<Input, Output> = (
   context: WorkflowBuildContext<Input>,

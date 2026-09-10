@@ -11,9 +11,9 @@ import type {
   ValidatedRepeatCondition,
   Validator,
   ValidatorDefinition,
-  WorkflowBuildContext,
   WorkflowDefinition,
 } from "./contracts.js";
+import type { WorkflowBuildContext } from "./workflow-authoring-internal.js";
 import { taskDefinitionSchema } from "./contracts.js";
 import type { ModelSelection } from "./models/model-ref.js";
 import type {

@@ -19,6 +19,18 @@ import {
 } from "./index.js";
 import { z } from "zod";
 
+// @ts-expect-error Legacy callback authoring context is internal.
+type PublicWorkflowBuildContext = import("./index.js").WorkflowBuildContext;
+// @ts-expect-error Legacy callback authoring builder is internal.
+type PublicWorkflowBuilder = import("./index.js").WorkflowBuilder;
+
+function useType<T>(): T | undefined {
+  return undefined;
+}
+
+useType<PublicWorkflowBuildContext>();
+useType<PublicWorkflowBuilder>();
+
 const schema = <T>() => z.custom<T>(() => true);
 
 describe("seqlane core", () => {
