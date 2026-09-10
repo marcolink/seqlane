@@ -307,6 +307,8 @@ jobs:
           SEQLANE_REDACT_VALUES: |-
             ${{ secrets.OPENAI_API_KEY }}
             ${{ steps.ripwire.outputs.mcp-token }}
+          SEQLANE_RUNTIME_ADAPTER_CONFIG: >-
+            {"adapter":"opencode","url":"${{ steps.opencode.outputs.url }}"}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
