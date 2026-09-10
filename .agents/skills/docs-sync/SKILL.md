@@ -53,7 +53,7 @@ Check nearby docs in this order:
 4. local `docs/` content for the changed area
 5. root `README.md` only when the change affects workspace-level setup, navigation, or shared developer workflow
 
-When the task needs more concrete mapping cues, read [references/doc-sync-heuristics.md](references/doc-sync-heuristics.md).
+When the task needs more concrete mapping cues, read [references/heuristics.md](references/heuristics.md).
 
 ## Decision Records Are Historical
 

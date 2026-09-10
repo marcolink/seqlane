@@ -29,22 +29,15 @@
 - Across package boundaries, use declared dependencies and package exports; never use relative source or `dist` paths.
 - Keep `seqlane-core` free of Mastra dependencies and types.
 
-## Mastra migration
+## Runtime integration
 
-- Prefer deletion over adaptation when Mastra replaces an existing capability.
-- For each migration slice, identify the behavior and callers, implement the smallest Mastra-backed path, switch callers and tests, and remove the superseded implementation and support material.
-- Do not leave permanent dual runtimes, fallbacks, dual writes, or compatibility shims. A temporary bridge must have named callers and an objective removal condition.
 - Use the repository-pinned Mastra version. Verify APIs from the manifest and lockfile, installed declarations or source, applicable official documentation, and a focused typecheck or test.
 - Prefer native Mastra workflow, step, graph, schema, context, storage, workspace, sandbox, process, agent, ACP, tracing, server, MCP, and Community Studio capabilities.
 - Translate static session and workspace constraints into the Mastra graph before execution. Do not recreate a generic scheduler or canonical run store in Seqlane.
 - Use Mastra storage and tracing as the operational source of truth. Keep only the stable Seqlane event and result contracts needed by consumers.
 - `shell()` must use a Mastra Workspace or Sandbox process without constructing an agent or invoking a model.
 - Prefer Mastra-supported ACP or coding-agent primitives for OpenCode. Keep native OpenCode escape hatches inside the executor adapter and document the capability gap.
-- Remove Effect-based workflow orchestration, lifecycle, scheduling, retry, and service infrastructure when Mastra replaces it. Effect may remain only inside a low-level adapter with clear local value.
-- Replace the dedicated Seqlane Studio with a `seqlane studio` launcher for upstream Mastra Community Studio. Use Mastra server and MCP facilities through thin Seqlane registration.
 - Use Community and open-source Mastra components only. Do not import, copy, or depend on code under an `/ee/` path, Mastra Cloud, or enterprise-only features.
-- Use `$seqlane-mastra-stacked-delivery` for the migration branch and pull request workflow, `$mastra` for Mastra-facing changes, `$seqlane-migration` for each migration slice, and `$architectural-cleanup` after callers switch.
-- Implement each migration task with a fresh `gpt-5.6-luna` subagent at `high` reasoning. The primary agent reviews, validates, commits, pushes, and manages the GitHub stack.
 
 ## Git and pull requests
 
@@ -72,6 +65,6 @@
 - Every test must map to implementation files for fast scoped runs: colocate `module.spec.ts(x)` or `module.test.ts(x)` with `module.ts(x)`; cross-module tests must declare one or more valid `@test-scope` implementation paths.
 - Keep test-to-implementation mapping machine-checkable. Run the repository test-mapping check before the test suite; unmapped or stale targets are errors.
 - Protocol and serialization changes require compatibility tests and malformed-input tests.
-- Mastra migration changes require focused integration tests, public-boundary checks for leaked Mastra types, and a check for forbidden `/ee/` imports.
+- Mastra integration changes require focused integration tests, public-boundary checks for leaked Mastra types, and a check for forbidden `/ee/` imports.
 - Prove that deterministic tasks make zero model calls.
 - Optimize measured bottlenecks. Do not add speculative caching, complexity, or abstractions without evidence.
