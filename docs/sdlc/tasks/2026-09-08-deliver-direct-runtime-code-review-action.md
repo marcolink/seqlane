@@ -1,11 +1,11 @@
 ---
 id: task.deliver-direct-runtime-code-review-action
 title: Deliver the Direct-Runtime Code-Review Action
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-10
 upstream:
   - spec.direct-runtime-code-review-action
   - spec.versioned-pull-request-review-comments
@@ -158,8 +158,10 @@ Implemented and committed the local migration in three reviewable slices:
 
 The direct Action path, runner compatibility tests, Action bundle smoke and
 drift checks, and focused test mapping checks passed locally. The required
-GitHub-hosted manual workflow proof remains pending because this branch has
-not been pushed or dispatched.
+GitHub-hosted manual workflow proof passed in [run
+34406526570](https://github.com/marcolink/seqlane/actions/runs/34406526570).
+PR #83 merged as `804aeae`, and that merge commit is reachable from the
+current `main` target.
 
 The full repository test run reached and passed the new runtime and Action
 projects, but stopped on the pre-existing

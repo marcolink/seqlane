@@ -179,14 +179,14 @@
 | [task.workflow-discovery-and-plan-cli](./2026-09-04-workflow-discovery-and-plan-cli.md) | Add Workflow Discovery and Plan Commands | completed | 2026-09-04 | core |
 | [task.cancel-closed-pr-code-review](./2026-09-04-cancel-closed-pr-code-review.md) | Cancel Active Reviews When Pull Requests Close | completed | 2026-09-04 | core |
 | [task.explicit-runtime-adapter-selection](./2026-09-04-explicit-runtime-adapter-selection.md) | Define Explicit Runtime Adapter Selection and Configuration | completed | 2026-09-04 | core |
-| [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | planned | 2026-09-04 | core |
+| [task.mastra-local-task-dispatch](./2026-09-04-mastra-local-task-dispatch.md) | Dispatch Local Task Nodes Through the Mastra Compiler | completed | 2026-09-04 | core |
 | [task.protocol-agnostic-acp-adapter](./2026-09-04-protocol-agnostic-acp-adapter.md) | Implement a Protocol-Agnostic ACP Adapter | completed | 2026-09-04 | core |
 | [task.mastra-studio-run-inspection](./2026-09-04-mastra-studio-run-inspection.md) | Inspect Seqlane Runs in Mastra Community Studio | completed | 2026-09-04 | core |
 | [task.session-checkpoint-fork-capabilities](./2026-09-04-session-checkpoint-fork-capabilities.md) | Map Session, Checkpoint, and Fork Capabilities | completed | 2026-09-04 | core |
 | [task.mastra-operational-end-to-end](./2026-09-04-mastra-operational-end-to-end.md) | Prove One Run Across All Mastra Operational Surfaces | planned | 2026-09-04 | core |
 | [task.resolve-pull-request-merge-conflicts](./2026-09-04-resolve-pull-request-merge-conflicts.md) | Resolve Pull Request Merge Conflicts | completed | 2026-09-04 | core |
 | [task.opencode-sdk-only-adapter](./2026-09-04-opencode-sdk-only-adapter.md) | Restore the OpenCode SDK-Only Adapter | completed | 2026-09-04 | core |
-| [task.mastra-mcp-transports](./2026-09-04-mastra-mcp-transports.md) | Run Seqlane Workflows Through Mastra MCP Transports | in-progress | 2026-09-04 | core |
+| [task.mastra-mcp-transports](./2026-09-04-mastra-mcp-transports.md) | Run Seqlane Workflows Through Mastra MCP Transports | completed | 2026-09-04 | core |
 | [task.cli-run-status-and-cancel](./2026-09-04-cli-run-status-and-cancel.md) | Run, Inspect, and Cancel Through the Operational Host | completed | 2026-09-04 | core |
 | [task.operational-data-bounds](./2026-09-05-operational-data-bounds.md) | Bound Operational Data Retention and Queries | planned | 2026-09-05 | core |
 | [task.workflow-discovery-bounds](./2026-09-05-workflow-discovery-bounds.md) | Bound Workflow Discovery | planned | 2026-09-05 | core |
@@ -225,7 +225,7 @@
 | [task.compose-workflows-as-runnables](./2026-09-08-compose-workflows-as-runnables.md) | Compose Workflows as Runnables | planned | 2026-09-08 | core |
 | [task.configure-generated-file-conflict-handlers](./2026-09-08-configure-generated-file-conflict-handlers.md) | Configure Generated-File Conflict Handlers | completed | 2026-09-08 | core |
 | [task.cut-over-to-mastra-runtime](./2026-09-08-cut-over-to-mastra-runtime.md) | Cut Over to the Mastra Runtime | completed | 2026-09-08 | core |
-| [task.deliver-direct-runtime-code-review-action](./2026-09-08-deliver-direct-runtime-code-review-action.md) | Deliver the Direct-Runtime Code-Review Action | in-progress | 2026-09-08 | core |
+| [task.deliver-direct-runtime-code-review-action](./2026-09-08-deliver-direct-runtime-code-review-action.md) | Deliver the Direct-Runtime Code-Review Action | completed | 2026-09-08 | core |
 | [task.migrate-execution-event-consumers](./2026-09-08-migrate-execution-event-consumers.md) | Migrate Execution Event Consumers | planned | 2026-09-08 | core |
 | [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
 | [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
