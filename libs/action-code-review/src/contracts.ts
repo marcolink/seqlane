@@ -65,6 +65,7 @@ export const reviewCommentSchema = z.strictObject({
           ),
         action: z.enum(["fixed", "wont-fix", "downgrade"]),
         authorized: z.boolean(),
+        reason: z.string().max(2_000).optional(),
         effectiveSeverity: z
           .enum(["critical", "required", "optional", "nit"])
           .optional(),

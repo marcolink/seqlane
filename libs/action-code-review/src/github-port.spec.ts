@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   findAuthoritativeReport,
   GitHubReviewAdapter,
+  readNewestComments,
   selectNewestDispositionCommands,
+  type CommentSource,
   type DispositionCommandCandidate,
   type GitHubReviewClient,
 } from "./github-port.js";
@@ -35,37 +37,55 @@ describe("GitHubReviewAdapter", () => {
     expect(findAuthoritativeReport(history)?.id).toBe("2");
   });
 
-  it("retrieves newest-first pages only until the bounded history budget", async () => {
-    const requests: Array<{ kind: string; page: number }> = [];
-    const page = (kind: string) => async (requested: number) => {
-      requests.push({ kind, page: requested });
-      return {
-        items: Array.from({ length: 100 }, (_, index) => ({
-          id: `${kind}-${requested}-${index}`,
-          user: { login: "octo" },
-          body: "context",
-          author_association: "NONE",
-          created_at: `2026-09-${String(30 - requested).padStart(2, "0")}T00:${String(index).padStart(2, "0")}:00Z`,
-        })),
-        hasNextPage: true,
-      };
-    };
-    const history = await new GitHubReviewAdapter({
-      getPullRequest: async () => ({}),
-      listIssueComments: page("issue"),
-      listReviewComments: page("review"),
-      getIssueComment: async () => ({}),
-      createIssueComment: async () => ({}),
-      updateIssueComment: async () => ({}),
-      deleteIssueComment: async () => ({}),
-    }).readComments(1);
+  it("continues a stream when its next page can outrank the merged boundary", async () => {
+    const requests: string[] = [];
+    const source = (
+      kind: "issue" | "review",
+      pages: Record<number, { items: unknown[]; hasNextPage: boolean }>,
+    ): CommentSource => ({
+      kind,
+      fetchPage: async (page) => {
+        requests.push(`${kind}:${page}`);
+        return pages[page] ?? { items: [], hasNextPage: false };
+      },
+      values: new Map(),
+      page: 1,
+      hasNextPage: true,
+    });
 
-    expect(requests).toEqual([
-      { kind: "issue", page: 1 },
-      { kind: "review", page: 1 },
-    ]);
-    expect(history.comments).toHaveLength(200);
-    expect(history.truncated).toBe(true);
+    const history = await readNewestComments(
+      [
+        source("issue", {
+          1: {
+            items: [
+              { id: "i-10", created_at: "2026-09-10T00:10:00Z" },
+              { id: "i-09", created_at: "2026-09-10T00:09:00Z" },
+            ],
+            hasNextPage: true,
+          },
+          2: {
+            items: [{ id: "i-08", created_at: "2026-09-10T00:08:30Z" }],
+            hasNextPage: false,
+          },
+        }),
+        source("review", {
+          1: {
+            items: [
+              { id: "r-08", created_at: "2026-09-10T00:08:00Z" },
+              { id: "r-07", created_at: "2026-09-10T00:07:00Z" },
+            ],
+            hasNextPage: true,
+          },
+          2: { items: [], hasNextPage: false },
+        }),
+      ],
+      3,
+    );
+
+    expect(requests).toEqual(["issue:1", "review:1", "issue:2"]);
+    expect(
+      history.values.map(([value]) => (value as { id: string }).id),
+    ).toEqual(["i-10", "i-09", "i-08"]);
   });
 
   it("keeps only valid non-null line and commit metadata", async () => {
@@ -116,6 +136,37 @@ describe("GitHubReviewAdapter", () => {
       line: 12,
       commitId: "a".repeat(40),
     });
+  });
+
+  it("preserves disposition reasons in omitted commands", async () => {
+    const client: GitHubReviewClient = {
+      getPullRequest: async () => ({}),
+      listIssueComments: async () => [
+        {
+          id: 1,
+          user: { login: "octo" },
+          body: "/seqlane fixed F-1 reason: already covered by the new guard",
+          author_association: "OWNER",
+          created_at: "2026-09-09T00:00:00Z",
+        },
+      ],
+      listReviewComments: async () => [],
+      getIssueComment: async () => ({}),
+      createIssueComment: async () => ({}),
+      updateIssueComment: async () => ({}),
+      deleteIssueComment: async () => ({}),
+    };
+
+    const history = await new GitHubReviewAdapter(client).readComments(1);
+
+    expect(history.comments[0]?.omittedDispositionCommands).toEqual([
+      {
+        findingId: "F-1",
+        action: "fixed",
+        authorized: true,
+        reason: "already covered by the new guard",
+      },
+    ]);
   });
 
   it("returns the created marker comment ID", async () => {

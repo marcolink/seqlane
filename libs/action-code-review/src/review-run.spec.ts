@@ -28,7 +28,13 @@ const request: CodeReviewRunRequest = {
 function createGithubPort(
   live: boolean,
   initialReport?: { readonly id: string; readonly body: string },
-): GitHubReviewPort & { readonly updates: string[] } {
+  options: {
+    readonly liveRevisions?: readonly (string | undefined)[];
+  } = {},
+): GitHubReviewPort & {
+  readonly updates: string[];
+  readonly reads: { authoritative: number; live: number };
+} {
   let report =
     initialReport === undefined
       ? undefined
@@ -37,24 +43,37 @@ function createGithubPort(
           body: initialReport.body,
         };
   const updates: string[] = [];
+  const reads = { authoritative: 0, live: 0 };
+  let liveReadIndex = 0;
   return {
     updates,
+    reads,
     readPullRequest: async () => ({
       number: 1,
       title: "Review",
       description: "Description",
     }),
-    readLivePullRequest: async () =>
-      live
-        ? {
+    readLivePullRequest: async () => {
+      reads.live += 1;
+      const revision =
+        options.liveRevisions === undefined
+          ? live
+            ? headRevision
+            : undefined
+          : options.liveRevisions[
+              Math.min(liveReadIndex++, options.liveRevisions.length - 1)
+            ];
+      return revision === undefined
+        ? { state: "closed" }
+        : {
             state: "open",
             draft: false,
             head: {
               repo: { full_name: request.repository },
-              sha: headRevision,
+              sha: revision,
             },
-          }
-        : { state: "closed" },
+          };
+    },
     readComments: async () => ({
       comments:
         report === undefined
@@ -71,8 +90,9 @@ function createGithubPort(
             ],
       truncated: false,
     }),
-    readAuthoritativeReport: async () =>
-      report === undefined
+    readAuthoritativeReport: async () => {
+      reads.authoritative += 1;
+      return report === undefined
         ? undefined
         : {
             id: report.id,
@@ -81,7 +101,8 @@ function createGithubPort(
             authorAssociation: "OWNER",
             body: report.body,
             createdAt: "2026-09-09T00:00:00.000Z",
-          },
+          };
+    },
     readIssueComment: async () => ({
       id: report!.id,
       kind: "issue" as const,
@@ -200,6 +221,25 @@ describe("runCodeReview", () => {
       status: "published",
     });
     expect(github.updates).toHaveLength(2);
+    expect(github.reads.authoritative).toBe(0);
+  });
+
+  it("cleans its marker after the pull-request head changes", async () => {
+    const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
+    const github = createGithubPort(
+      true,
+      { id: "report-1", body: marker },
+      { liveRevisions: [headRevision, headRevision, "c".repeat(40)] },
+    );
+
+    const result = await runCodeReview(request, {
+      github,
+      runWorkflow: createRunner([{ status: "succeeded", result: {} }]),
+    });
+
+    expect(result.status).toBe("stale");
+    expect(github.updates).toHaveLength(2);
+    expect(github.updates[1]).toBe(`\n${marker}`);
   });
 
   it("clears only the trusted run marker after publication", async () => {
@@ -323,6 +363,7 @@ describe("runCodeReview", () => {
     expect(publicationInput).toMatchObject({
       existingReportId: "created-marker",
     });
+    expect(github.reads.authoritative).toBe(0);
   });
 
   it("omits the run link when the GitHub run id is absent or unsafe", async () => {

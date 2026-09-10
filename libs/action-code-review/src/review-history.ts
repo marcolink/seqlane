@@ -227,6 +227,7 @@ function parseOmittedReviewDispositionCommands(
     const parsed = reviewDispositionSchema.safeParse({
       findingId: command.findingId,
       action: command.action,
+      ...(command.reason === undefined ? {} : { reason: command.reason }),
       ...(command.effectiveSeverity === undefined
         ? {}
         : { effectiveSeverity: command.effectiveSeverity }),

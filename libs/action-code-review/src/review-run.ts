@@ -7,7 +7,10 @@ import {
   type StartWorkflowRunRequest,
   type WorkflowRunHandle,
 } from "@seqlane/runtime";
-import type { GitHubReviewPort } from "./github-port.js";
+import {
+  findAuthoritativeReport,
+  type GitHubReviewPort,
+} from "./github-port.js";
 import {
   buildPublicationWorkflow,
   type PublicationPort,
@@ -79,19 +82,24 @@ async function clearOwnedMarker(
   },
 ): Promise<void> {
   if (markerId === undefined) return;
-  const live = await adapter.readLivePullRequest(input.pullRequestNumber);
-  if (!isLivePullRequest(live, input.repository, input.expectedHeadRevision))
-    return;
   const report = await adapter.readIssueComment(markerId);
-  const target = guardPublicationTarget(report, input);
   const ownedMarker = `<!-- seqlane-review-in-progress-run: ${input.workflowRunId} -->`;
+  const hasMarkerBoundary =
+    report.body.includes(markerStart) || report.body.includes(markerEnd);
+  // A report without a marker is already clean. Once a marker is present,
+  // cleanup must prove both trusted ownership and the exact run identity. Do
+  // not use the reviewed head here: a head change is precisely when cleanup
+  // must still reclaim this run's marker.
+  if (!hasMarkerBoundary) return;
   if (
-    target.status !== "eligible" ||
+    (report.author !== "github-actions" &&
+      report.author !== "github-actions[bot]") ||
     !report.body.includes(markerStart) ||
     !report.body.includes(markerEnd) ||
     !report.body.includes(ownedMarker)
-  )
-    return;
+  ) {
+    throw new Error("Could not prove ownership of the review marker.");
+  }
   if (deleteMarker) await adapter.deleteComment(markerId);
   else await adapter.updateReport(markerId, removeMarker(report.body));
 }
@@ -247,9 +255,13 @@ export async function runCodeReview(
   // own the same identity that is passed to startWorkflowRun, so another run
   // cannot replace it between admission and execution.
   const reservedIdentity = { workId: randomUUID(), runId: randomUUID() };
-  const existingReport = await adapter.readAuthoritativeReport(
-    request.pullRequestNumber,
-  );
+  // The normalized history already fetched for the review is sufficient for
+  // report discovery unless its bounded result was truncated. Keep the
+  // authoritative reread in the publication path, immediately before its
+  // mutation, where the latest state is required.
+  const existingReport = reviewHistory.truncated
+    ? await adapter.readAuthoritativeReport(request.pullRequestNumber)
+    : findAuthoritativeReport(reviewHistory);
   let markerId = existingReport?.id;
   const markerCreated = markerId === undefined;
   const guardInput = publicationGuardInput(request, reservedIdentity.runId);
@@ -289,8 +301,8 @@ export async function runCodeReview(
     );
   } else {
     // A missing report still needs an owned comment before expensive review
-    // work starts. Re-read the authoritative report immediately before the
-    // create so a report that appeared during admission wins the race.
+    // work starts. Workflow serialization makes the initial report discovery
+    // the admission boundary for this create.
     const liveForMarker = await adapter.readLivePullRequest(
       request.pullRequestNumber,
     );
@@ -301,11 +313,6 @@ export async function runCodeReview(
         request.headRevision,
       )
     )
-      return { status: "stale", runId: reservedIdentity.runId };
-    const reportBeforeCreate = await adapter.readAuthoritativeReport(
-      request.pullRequestNumber,
-    );
-    if (reportBeforeCreate !== undefined)
       return { status: "stale", runId: reservedIdentity.runId };
     markerId = await adapter.createMarker(
       request.pullRequestNumber,

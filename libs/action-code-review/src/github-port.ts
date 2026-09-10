@@ -50,8 +50,22 @@ export interface DispositionCommandCandidate extends ParsedDispositionCommand {
 }
 
 interface DispositionCommandSelection {
-  readonly all: readonly ParsedDispositionCommand[];
+  readonly total: number;
   readonly retained: readonly ParsedDispositionCommand[];
+}
+
+function retainNewestDispositionCommands(
+  commands: Iterable<ParsedDispositionCommand>,
+  limit = MAX_DISPOSITION_COMMANDS,
+): DispositionCommandSelection {
+  const retained: ParsedDispositionCommand[] = [];
+  let total = 0;
+  for (const command of commands) {
+    total += 1;
+    if (retained.length === limit) retained.shift();
+    if (limit > 0) retained.push(command);
+  }
+  return { total, retained };
 }
 
 export function findAuthoritativeReport(
@@ -67,42 +81,62 @@ export function findAuthoritativeReport(
     );
 }
 
-function parseDispositionCommands(
+function parseDispositionCommand(
+  line: string,
+  lineIndex: number,
+  authorAssociation: string,
+): ParsedDispositionCommand | undefined {
+  const match = line.match(COMMAND_PATTERN);
+  if (match === null) return undefined;
+  const actionValue = match[1];
+  const findingId = match[2];
+  if (actionValue === undefined || findingId === undefined) return undefined;
+  const action = actionValue.toLowerCase() as
+    "fixed" | "wont-fix" | "downgrade";
+  const remainder = match[3]?.trim();
+  let reason = remainder;
+  let effectiveSeverity:
+    "critical" | "required" | "optional" | "nit" | undefined;
+  if (action === "downgrade") {
+    const downgrade = remainder?.match(
+      /^(?:to\s+)?(critical|required|optional|nit)(?:\s+(?:reason\s*[:=]\s*)?(.*))?$/i,
+    );
+    if (downgrade === undefined || downgrade === null) return undefined;
+    effectiveSeverity = downgrade[1]!.toLowerCase() as typeof effectiveSeverity;
+    reason = downgrade[2]?.trim();
+  } else if (reason?.toLowerCase().startsWith("reason:")) {
+    reason = reason.slice("reason:".length).trim();
+  } else if (reason?.toLowerCase().startsWith("reason=")) {
+    reason = reason.slice("reason=".length).trim();
+  }
+  return {
+    line: lineIndex,
+    command: {
+      findingId,
+      action,
+      authorized: AUTHORIZED_ASSOCIATIONS.has(authorAssociation),
+      ...(reason === undefined || reason.length === 0 ? {} : { reason }),
+      ...(effectiveSeverity === undefined ? {} : { effectiveSeverity }),
+    },
+  };
+}
+
+function* parseDispositionCommands(
   body: string,
   authorAssociation: string,
-): ParsedDispositionCommand[] {
-  return body.split(/\r?\n/).flatMap((line, lineIndex) => {
-    const match = line.match(COMMAND_PATTERN);
-    if (match === null) return [];
-    const actionValue = match[1];
-    const findingId = match[2];
-    if (actionValue === undefined || findingId === undefined) return [];
-    const action = actionValue.toLowerCase() as
-      "fixed" | "wont-fix" | "downgrade";
-    let effectiveSeverity:
-      "critical" | "required" | "optional" | "nit" | undefined;
-    if (action === "downgrade") {
-      const downgradeSeverity = match[3]
-        ?.trim()
-        .match(
-          /^(?:to\s+)?(critical|required|optional|nit)(?:\s+(?:reason\s*[:=]\s*)?(.*))?$/i,
-        )?.[1];
-      if (downgradeSeverity === undefined) return [];
-      effectiveSeverity =
-        downgradeSeverity.toLowerCase() as typeof effectiveSeverity;
-    }
-    return [
-      {
-        line: lineIndex,
-        command: {
-          findingId,
-          action,
-          authorized: AUTHORIZED_ASSOCIATIONS.has(authorAssociation),
-          ...(effectiveSeverity === undefined ? {} : { effectiveSeverity }),
-        },
-      },
-    ];
-  });
+): Generator<ParsedDispositionCommand> {
+  let lineStart = 0;
+  let lineIndex = 0;
+  while (lineStart <= body.length) {
+    const lineEnd = body.indexOf("\n", lineStart);
+    const end = lineEnd === -1 ? body.length : lineEnd;
+    const line = body.slice(lineStart, end).replace(/\r$/, "");
+    const parsed = parseDispositionCommand(line, lineIndex, authorAssociation);
+    if (parsed !== undefined) yield parsed;
+    if (lineEnd === -1) return;
+    lineStart = lineEnd + 1;
+    lineIndex += 1;
+  }
 }
 
 function compareDispositionCommands(
@@ -117,16 +151,52 @@ function compareDispositionCommands(
 }
 
 export function selectNewestDispositionCommands(
-  candidates: readonly DispositionCommandCandidate[],
+  candidates: Iterable<DispositionCommandCandidate>,
   limit = MAX_DISPOSITION_COMMANDS,
 ): ReadonlySet<string> {
-  const retained = [...candidates]
-    .sort(compareDispositionCommands)
-    .slice(-limit);
+  if (limit <= 0) return new Set();
+  const heap: DispositionCommandCandidate[] = [];
+  const siftUp = (index: number): void => {
+    let child = index;
+    while (child > 0) {
+      const parent = Math.floor((child - 1) / 2);
+      if (compareDispositionCommands(heap[parent]!, heap[child]!) <= 0) break;
+      [heap[parent], heap[child]] = [heap[child]!, heap[parent]!];
+      child = parent;
+    }
+  };
+  const siftDown = (index: number): void => {
+    let parent = index;
+    while (true) {
+      const left = parent * 2 + 1;
+      const right = left + 1;
+      let smallest = parent;
+      if (
+        left < heap.length &&
+        compareDispositionCommands(heap[left]!, heap[smallest]!) < 0
+      )
+        smallest = left;
+      if (
+        right < heap.length &&
+        compareDispositionCommands(heap[right]!, heap[smallest]!) < 0
+      )
+        smallest = right;
+      if (smallest === parent) break;
+      [heap[parent], heap[smallest]] = [heap[smallest]!, heap[parent]!];
+      parent = smallest;
+    }
+  };
+  for (const candidate of candidates) {
+    if (heap.length < limit) {
+      heap.push(candidate);
+      siftUp(heap.length - 1);
+    } else if (compareDispositionCommands(candidate, heap[0]!) > 0) {
+      heap[0] = candidate;
+      siftDown(0);
+    }
+  }
   return new Set(
-    retained.map(
-      (candidate) => `${candidate.commentIdentity}:${candidate.line}`,
-    ),
+    heap.map((candidate) => `${candidate.commentIdentity}:${candidate.line}`),
   );
 }
 
@@ -148,15 +218,16 @@ function normalizeComment(
   const limit = trusted ? MAX_COMMENT_BODY : MAX_CONTEXT_BODY;
   const bodyTruncated = originalBody.length > limit;
   const lines = originalBody.slice(0, MAX_COMMENT_BODY).split(/\r?\n/);
-  const allCommands =
-    selection?.all ??
-    parseDispositionCommands(
-      originalBody.slice(0, MAX_COMMENT_BODY),
-      String(source.author_association ?? "NONE"),
+  const commandSelection =
+    selection ??
+    retainNewestDispositionCommands(
+      parseDispositionCommands(
+        originalBody.slice(0, MAX_COMMENT_BODY),
+        String(source.author_association ?? "NONE"),
+      ),
     );
-  const commands =
-    selection?.retained ?? allCommands.slice(-MAX_DISPOSITION_COMMANDS);
-  const dispositionCommandsTruncated = commands.length < allCommands.length;
+  const commands = commandSelection.retained;
+  const dispositionCommandsTruncated = commands.length < commandSelection.total;
   const body = trusted
     ? originalBody.slice(0, MAX_COMMENT_BODY)
     : lines
@@ -165,7 +236,7 @@ function normalizeComment(
         .slice(0, MAX_CONTEXT_BODY) +
       (commands.length === 0
         ? ""
-        : `${lines.some((line) => line.match(COMMAND_PATTERN) !== null) ? "\n" : ""}${commands.map(({ command }) => `/seqlane ${command.action} ${command.findingId}${command.effectiveSeverity === undefined ? "" : ` ${command.effectiveSeverity}`}`).join("\n")}`);
+        : `${lines.some((line) => line.match(COMMAND_PATTERN) !== null) ? "\n" : ""}${commands.map(({ command }) => `/seqlane ${command.action} ${command.findingId}${command.effectiveSeverity === undefined ? "" : ` ${command.effectiveSeverity}`}${command.reason === undefined ? "" : ` reason: ${command.reason}`}`).join("\n")}`);
   const line =
     source.line === null || source.line === undefined
       ? undefined
@@ -253,61 +324,90 @@ function commentIdentity(value: unknown, kind: "issue" | "review"): string {
   return `${kind}:${typeof id === "string" || typeof id === "number" ? id : ""}`;
 }
 
-interface CommentSource {
+export interface CommentSource {
   readonly kind: "issue" | "review";
   readonly fetchPage: (page: number) => Promise<unknown>;
   readonly values: Map<string, unknown>;
   page: number;
   hasNextPage: boolean;
+  lastFetched?: unknown;
 }
 
-async function readNewestComments(sources: readonly CommentSource[]): Promise<{
+function compareComments(
+  left: readonly [unknown, "issue" | "review"],
+  right: readonly [unknown, "issue" | "review"],
+): number {
+  return (
+    commentTime(left[0]).localeCompare(commentTime(right[0])) ||
+    commentIdentity(left[0], left[1]).localeCompare(
+      commentIdentity(right[0], right[1]),
+    )
+  );
+}
+
+function orderedComments(
+  sources: readonly CommentSource[],
+): Array<readonly [unknown, "issue" | "review"]> {
+  const values = new Map<string, readonly [unknown, "issue" | "review"]>();
+  for (const source of sources)
+    for (const [identity, value] of source.values)
+      values.set(identity, [value, source.kind]);
+  return [...values.values()].sort((left, right) =>
+    compareComments(right, left),
+  );
+}
+
+export async function readNewestComments(
+  sources: readonly CommentSource[],
+  limit = MAX_COMMENTS,
+): Promise<{
   readonly values: ReadonlyArray<readonly [unknown, "issue" | "review"]>;
   readonly truncated: boolean;
 }> {
   const readPage = async (source: CommentSource): Promise<void> => {
     const result = parseCommentPage(await source.fetchPage(source.page));
+    const validItems = result.items.filter(
+      (value): value is object => typeof value === "object" && value !== null,
+    );
     for (const value of result.items) {
       if (typeof value === "object" && value !== null)
         source.values.set(commentIdentity(value, source.kind), value);
     }
+    source.lastFetched = validItems.at(-1);
     source.hasNextPage = result.hasNextPage;
     source.page += 1;
   };
   await Promise.all(sources.map((source) => readPage(source)));
-  while (
-    sources.some((source) => source.hasNextPage) &&
-    sources.reduce((total, source) => total + source.values.size, 0) <
-      MAX_COMMENTS
-  ) {
+  while (sources.some((source) => source.hasNextPage)) {
+    const ordered = orderedComments(sources);
+    const boundary = ordered.length < limit ? undefined : ordered[limit - 1];
     const source = [...sources]
-      .filter((candidate) => candidate.hasNextPage)
+      .filter(
+        (candidate) =>
+          candidate.hasNextPage &&
+          (boundary === undefined ||
+            candidate.lastFetched === undefined ||
+            compareComments(
+              [candidate.lastFetched, candidate.kind],
+              boundary,
+            ) >= 0),
+      )
       .sort((left, right) => {
-        const leftValues = [...left.values.values()];
-        const rightValues = [...right.values.values()];
-        return commentTime(rightValues.at(-1)).localeCompare(
-          commentTime(leftValues.at(-1)),
+        if (left.lastFetched === undefined) return -1;
+        if (right.lastFetched === undefined) return 1;
+        return compareComments(
+          [right.lastFetched, right.kind],
+          [left.lastFetched, left.kind],
         );
       })[0];
     if (source === undefined) break;
     await readPage(source);
   }
-  const values = new Map<string, readonly [unknown, "issue" | "review"]>();
-  for (const source of sources)
-    for (const [identity, value] of source.values)
-      values.set(identity, [value, source.kind]);
-  const ordered = [...values.values()].sort(
-    (left, right) =>
-      commentTime(right[0]).localeCompare(commentTime(left[0])) ||
-      commentIdentity(right[0], right[1]).localeCompare(
-        commentIdentity(left[0], left[1]),
-      ),
-  );
+  const ordered = orderedComments(sources);
   return {
-    values: ordered.slice(0, MAX_COMMENTS),
+    values: ordered.slice(0, limit),
     truncated:
-      sources.some((source) => source.hasNextPage) ||
-      ordered.length > MAX_COMMENTS,
+      sources.some((source) => source.hasNextPage) || ordered.length > limit,
   };
 }
 
@@ -424,35 +524,55 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
         const body = typeof source.body === "string" ? source.body : "";
         const authorAssociation = String(source.author_association ?? "NONE");
         const identity = commentIdentity(value, kind);
-        const commands = parseDispositionCommands(
-          body.slice(0, MAX_COMMENT_BODY),
-          authorAssociation,
-        );
         return {
           value,
           kind,
           identity,
           time: commentTime(value),
-          commands,
+          body,
+          authorAssociation,
         };
       });
-      const commandCandidates = parsedValues.flatMap(
-        ({ identity, time, commands }) =>
-          commands.map((parsed) => ({
-            ...parsed,
-            commentIdentity: identity,
-            commentTime: time,
-          })),
-      );
+      let commandCount = 0;
+      function* commandCandidates(): Generator<DispositionCommandCandidate> {
+        for (const {
+          identity,
+          time,
+          body,
+          authorAssociation,
+        } of parsedValues) {
+          for (const parsed of parseDispositionCommands(
+            body.slice(0, MAX_COMMENT_BODY),
+            authorAssociation,
+          )) {
+            commandCount += 1;
+            yield {
+              ...parsed,
+              commentIdentity: identity,
+              commentTime: time,
+            };
+          }
+        }
+      }
       const retainedCommandKeys =
-        selectNewestDispositionCommands(commandCandidates);
-      const values = parsedValues.map(({ value, kind, identity, commands }) =>
-        normalizeComment(value, kind, {
-          all: commands,
-          retained: commands.filter((command) =>
-            retainedCommandKeys.has(`${identity}:${command.line}`),
-          ),
-        }),
+        selectNewestDispositionCommands(commandCandidates());
+      const values = parsedValues.map(
+        ({ value, kind, identity, body, authorAssociation }) => {
+          let total = 0;
+          const retained: ParsedDispositionCommand[] = [];
+          for (const command of parseDispositionCommands(
+            body.slice(0, MAX_COMMENT_BODY),
+            authorAssociation,
+          )) {
+            total += 1;
+            if (retainedCommandKeys.has(`${identity}:${command.line}`))
+              retained.push(command);
+          }
+          return normalizeComment(value, kind, {
+            total,
+            retained,
+          });
+        },
       );
       const latestByIdentity = new Map<string, ReviewComment>();
       for (const comment of values) {
@@ -477,7 +597,7 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
           history.truncated ||
           ordered.length > MAX_COMMENTS ||
           comments.some((comment) => comment.bodyTruncated === true) ||
-          commandCandidates.length > MAX_DISPOSITION_COMMANDS ||
+          commandCount > MAX_DISPOSITION_COMMANDS ||
           comments.some(
             (comment) => comment.omittedDispositionCommandsTruncated === true,
           ),

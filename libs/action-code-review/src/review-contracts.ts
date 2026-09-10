@@ -27,6 +27,7 @@ export const omittedDispositionCommandSchema = z
     findingId: reviewFindingIdSchema,
     action: reviewDispositionActionSchema,
     authorized: z.boolean(),
+    reason: z.string().max(2_000).optional(),
     effectiveSeverity: reviewSeveritySchema.optional(),
   })
   .strict();
