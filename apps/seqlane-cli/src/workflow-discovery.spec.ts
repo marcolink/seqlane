@@ -204,13 +204,18 @@ describe("workflow discovery", () => {
       expect(renderWorkflowListHuman(records)).not.toContain("\u001b");
 
       const modulePath = join(roots.repository, "workflow.mjs");
+      const coreSpecifier = import.meta.resolve("@seqlane/core");
       writeFileSync(
         modulePath,
         `
           import { z } from "zod";
+          import { createFlow, defineTask } from ${JSON.stringify(coreSpecifier)};
           const schema = z.unknown();
-          const task = { id: "unsafe-task", input: schema, output: schema, execute: async () => ({}) };
-          export default { id: "unsafe-plan", input: schema, output: schema, build: ({ input, run }) => run(task, { input }).output };
+          const task = defineTask({ id: "unsafe-task", input: schema, output: schema, execute: async () => ({}) });
+          export default createFlow({ id: "unsafe-plan", input: schema, output: schema })
+            .task("task", task, ({ input }) => input)
+            .output(({ tasks }) => tasks.task.output)
+            .define();
         `,
       );
       writeDescriptor(roots.repository, "plan.json", descriptor("plan"));
@@ -266,13 +271,18 @@ describe("workflow discovery", () => {
     const { roots, directory } = createRoots();
     try {
       const modulePath = join(roots.repository, "workflow.mjs");
+      const coreSpecifier = import.meta.resolve("@seqlane/core");
       writeFileSync(
         modulePath,
         `
           import { z } from "zod";
+          import { createFlow, defineTask } from ${JSON.stringify(coreSpecifier)};
           const schema = z.unknown();
-          const task = { id: "never-executed", input: schema, output: schema, execute: async () => { throw new Error("task executed"); } };
-          export default { id: "plan-only", input: schema, output: schema, build: ({ input, run }) => run(task, { input }).output };
+          const task = defineTask({ id: "never-executed", input: schema, output: schema, execute: async () => { throw new Error("task executed"); } });
+          export default createFlow({ id: "plan-only", input: schema, output: schema })
+            .task("task", task, ({ input }) => input)
+            .output(({ tasks }) => tasks.task.output)
+            .define();
         `,
       );
       writeDescriptor(roots.repository, "plan.json", descriptor("plan"));
