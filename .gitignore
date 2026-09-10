@@ -6,6 +6,8 @@ dist/
 actions/**/dist/*.d.ts
 actions/**/dist/*.d.ts.map
 .nx/
+.seqlane/
+.zvec-grep/
 out-tsc/
 *.tsbuildinfo
 .idea/
