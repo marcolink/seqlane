@@ -37,7 +37,6 @@ function task(
     taskId: nodeId,
     nodeId,
     workspace: "shared",
-    executor: "test-executor",
     input,
     dependsOn,
   } as TaskNode;

@@ -806,46 +806,6 @@ function validateRepeat(
   }
 }
 
-function isLegacyExecutorMetadataIssue(issue: z.ZodIssue): boolean {
-  return (
-    issue.code === "unrecognized_keys" &&
-    issue.keys.length > 0 &&
-    issue.keys.every((key) => key === "executor")
-  );
-}
-
-function stripLegacyExecutorCallbacks(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stripLegacyExecutorCallbacks);
-  }
-  if (typeof value !== "object" || value === null) return value;
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(
-        ([key, entry]) => !(key === "execute" && typeof entry === "function"),
-      )
-      .map(([key, entry]) => [key, stripLegacyExecutorCallbacks(entry)]),
-  );
-}
-
-function validateCanonicalPlanShape(plan: Plan): readonly z.ZodIssue[] {
-  // Runtime-only local execution fixtures may carry callback values in their
-  // bindings. Project those callbacks out for syntax checking; the loader's
-  // boundary parse remains strict and rejects them before execution.
-  const canonicalInput = stripLegacyExecutorCallbacks(plan);
-  const parsed = planSchema.safeParse(canonicalInput);
-  if (parsed.success) return [];
-
-  // Older private runtime fixtures carried an executor callback on task
-  // nodes. It is not part of the Plan contract, but semantic validation still
-  // accepts those in-memory fixtures while loader/IPC boundaries remain strict.
-  const structuralIssues = parsed.error.issues.filter(
-    (issue) => !isLegacyExecutorMetadataIssue(issue),
-  );
-  return structuralIssues;
-}
-
 function validatePlanWithCanonicalIssues(
   plan: Plan,
   taskDefinitions?: TaskDefinitionRegistry,
@@ -985,10 +945,11 @@ export function validatePlan(
   taskDefinitions?: TaskDefinitionRegistry,
   validateDefinitions = taskDefinitions !== undefined,
 ): void {
+  const parsed = planSchema.safeParse(plan);
   validatePlanWithCanonicalIssues(
-    plan,
+    parsed.success ? parsed.data : plan,
     taskDefinitions,
     validateDefinitions,
-    validateCanonicalPlanShape(plan),
+    parsed.success ? [] : parsed.error.issues,
   );
 }

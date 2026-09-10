@@ -25,6 +25,7 @@ import {
 import { getTaskSchema, type TaskSchemaRegistry } from "../plan/task-schema.js";
 import { orderPlanNodes } from "../plan/plan-ordering.js";
 import { validatePlan } from "../validation/plan-validation.js";
+import { assertDefinitionRegistries } from "./compile-plan.js";
 import {
   lowerReuseSessionOrdering,
   withLoweredPlanNodes,
@@ -429,6 +430,10 @@ export function compilePlanToMastra(
   plan: Plan,
   options: MastraPlanCompilerOptions = {},
 ): CompiledMastraPlan {
+  assertDefinitionRegistries(
+    options.taskDefinitions,
+    options.validatorDefinitions,
+  );
   assertMastraSupportedPlan(plan);
   validatePlan(plan, options.taskDefinitions);
   assertValidationRegistries(plan, options);

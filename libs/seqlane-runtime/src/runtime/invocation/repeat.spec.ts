@@ -36,7 +36,6 @@ function task(
     taskId: nodeId,
     nodeId,
     workspace: "shared",
-    executor: "test-executor",
     ...(session === undefined ? {} : { session }),
     input,
     dependsOn,

@@ -12,6 +12,10 @@ import type {
   WorkId,
 } from "@seqlane/core";
 import {
+  taskDefinitionRegistrySchema,
+  validatorDefinitionRegistrySchema,
+} from "@seqlane/core";
+import {
   createExecutionContext,
   invocationIdForNode,
   invocationCreationOrdinal,
@@ -75,6 +79,19 @@ export interface CompileWorkflowOptions {
   readonly events?: SeqlaneEventSink;
 }
 
+/** Validate definition registries before any runtime lookup can use them. */
+export function assertDefinitionRegistries(
+  taskDefinitions: TaskDefinitionRegistry | undefined,
+  validatorDefinitions: ValidatorDefinitionRegistry | undefined,
+): void {
+  if (taskDefinitions !== undefined) {
+    taskDefinitionRegistrySchema.parse(taskDefinitions);
+  }
+  if (validatorDefinitions !== undefined) {
+    validatorDefinitionRegistrySchema.parse(validatorDefinitions);
+  }
+}
+
 function assertValidationRegistries(
   plan: Plan,
   taskDefinitions: TaskDefinitionRegistry | undefined,
@@ -118,6 +135,7 @@ function computeRemainingConsumers(plan: Plan): Map<string, number> {
 export class PlanCompiler {
   /** Prepare a Plan without constructing a workflow. */
   compile(plan: Plan, taskDefinitions?: TaskDefinitionRegistry): PreparedPlan {
+    assertDefinitionRegistries(taskDefinitions, undefined);
     return {
       plan,
       // Standalone Plan ordering is useful before definitions are loaded.
@@ -138,6 +156,10 @@ export class PlanCompiler {
     plan: Plan,
     options: CompileWorkflowOptions,
   ): PreparedPlanExecution {
+    assertDefinitionRegistries(
+      options.taskDefinitions,
+      options.validatorDefinitions,
+    );
     validatePlan(plan, options.taskDefinitions);
     const prepared = this.compile(plan, options.taskDefinitions);
     const orderedNodes = lowerWorkspaceOrdering(

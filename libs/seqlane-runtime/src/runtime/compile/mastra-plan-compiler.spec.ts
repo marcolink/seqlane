@@ -1,4 +1,5 @@
 // @test-scope ./mastra-plan-compiler.ts
+// @test-scope ./compile-plan.ts
 // @test-scope ../validation/plan-validation.ts
 // @test-scope ../plan/plan-ordering.ts
 // @test-scope ../plan/binding-resolution.ts
@@ -284,6 +285,54 @@ describe("Mastra Plan compiler", () => {
     });
 
     expect(() => compilePlanToMastra(cyclic)).toThrow(/cycle/i);
+  });
+
+  it.each([
+    [
+      "legacy executor metadata",
+      plan([{ ...task("source"), executor: "legacy" } as PlanNode], {
+        type: "ref",
+        nodeId: "source",
+        path: ["output"],
+      }),
+    ],
+    [
+      "executable binding fields",
+      plan(
+        [
+          {
+            ...task("source"),
+            input: { execute: async () => undefined } as never,
+          },
+        ],
+        { type: "ref", nodeId: "source", path: ["output"] },
+      ),
+    ],
+  ])(
+    "rejects non-canonical Plan %s before Mastra workflow creation",
+    (_description, source) => {
+      expect(() => compilePlanToMastra(source)).toThrow(/schema/i);
+    },
+  );
+
+  it("rejects a task registry whose key does not match its definition ID", () => {
+    const definition: TaskDefinition = {
+      id: "different-id",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async () => ({}),
+    };
+
+    expect(() =>
+      compilePlanToMastra(
+        plan([task("source")], {
+          type: "ref",
+          nodeId: "source",
+          path: ["output"],
+        }),
+        { taskDefinitions: new Map([["source", definition]]) },
+      ),
+    ).toThrow(/registry keys must match task definition IDs/i);
   });
 
   it.each(["__seqlane_input", "__seqlane_result"])(
