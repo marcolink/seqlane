@@ -1,0 +1,69 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "action-code-review",
+  "projectType": "application",
+  "sourceRoot": "actions/code-review/src",
+  "implicitDependencies": ["action-code-review-library"],
+  "targets": {
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "actions/code-review",
+        "command": "tsc --noEmit --project tsconfig.json"
+      },
+      "dependsOn": ["^build"]
+    },
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "options": {
+        "main": "actions/code-review/src/main.ts",
+        "tsConfig": "actions/code-review/tsconfig.json",
+        "outputPath": "actions/code-review/dist",
+        "outputFileName": "main.js",
+        "deleteOutputPath": false,
+        "bundle": true,
+        "thirdParty": true,
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node24",
+        "outputHashing": "none",
+        "minify": true,
+        "sourcemap": false,
+        "declaration": false,
+        "skipTypeCheck": true
+      },
+      "outputs": ["{projectRoot}/dist"],
+      "dependsOn": ["^build"]
+    },
+    "build-post": {
+      "executor": "@nx/esbuild:esbuild",
+      "options": {
+        "main": "actions/code-review/src/post.ts",
+        "tsConfig": "actions/code-review/tsconfig.json",
+        "outputPath": "actions/code-review/dist",
+        "outputFileName": "post.js",
+        "deleteOutputPath": false,
+        "bundle": true,
+        "thirdParty": true,
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node24",
+        "outputHashing": "none",
+        "minify": true,
+        "sourcemap": false,
+        "declaration": false,
+        "skipTypeCheck": true
+      },
+      "outputs": ["{projectRoot}/dist"],
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build", "build-post"],
+      "options": {
+        "cwd": ".",
+        "command": "node actions/code-review/tests/entrypoint-smoke.mjs && pnpm exec vitest run actions/code-review/src/failure-diagnostics.spec.ts actions/code-review/src/main.spec.ts && git diff --exit-code -- actions/code-review/dist/"
+      }
+    }
+  }
+}

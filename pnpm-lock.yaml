@@ -92,6 +92,9 @@ importers:
       '@nx/workspace':
         specifier: 'catalog:'
         version: 22.7.1(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23))
+      '@seqlane/action-code-review':
+        specifier: workspace:*
+        version: link:libs/action-code-review
       '@seqlane/action-merge-conflict-resolution':
         specifier: workspace:*
         version: link:libs/action-merge-conflict-resolution
@@ -153,6 +156,18 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
 
+  actions/code-review:
+    dependencies:
+      '@actions/core':
+        specifier: 3.0.1
+        version: 3.0.1
+      '@actions/github':
+        specifier: 9.1.1
+        version: 9.1.1
+      '@seqlane/action-code-review':
+        specifier: workspace:*
+        version: link:../../libs/action-code-review
+
   actions/opencode-server:
     dependencies:
       '@actions/core':
@@ -177,6 +192,18 @@ importers:
         specifier: workspace:*
         version: link:../../libs/seqlane-runtime
 
+  actions/ripwire-server:
+    dependencies:
+      '@actions/core':
+        specifier: 3.0.1
+        version: 3.0.1
+      '@seqlane/action-service-lifecycle':
+        specifier: workspace:*
+        version: link:../../libs/action-service-lifecycle
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
   actions/setup-opencode:
     dependencies:
       '@actions/cache':
@@ -188,18 +215,6 @@ importers:
       '@actions/tool-cache':
         specifier: 4.0.0
         version: 4.0.0
-      zod:
-        specifier: 4.5.4
-        version: 4.5.4
-
-  actions/ripwire-server:
-    dependencies:
-      '@actions/core':
-        specifier: 3.0.1
-        version: 3.0.1
-      '@seqlane/action-service-lifecycle':
-        specifier: workspace:*
-        version: link:../../libs/action-service-lifecycle
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -286,6 +301,18 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.2.0)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.8.0))
+
+  libs/action-code-review:
+    dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../seqlane-core
+      '@seqlane/runtime':
+        specifier: workspace:*
+        version: link:../seqlane-runtime
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
 
   libs/action-merge-conflict-resolution:
     dependencies:

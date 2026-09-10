@@ -11,6 +11,9 @@
   "exclude": ["src/**/*.spec.ts"],
   "references": [
     {
+      "path": "../../libs/action-code-review"
+    },
+    {
       "path": "../seqlane-studio"
     },
     {
@@ -23,10 +26,10 @@
       "path": "../../libs/seqlane-output"
     },
     {
-      "path": "../../libs/seqlane-core"
+      "path": "../../libs/seqlane-events"
     },
     {
-      "path": "../../libs/seqlane-events"
+      "path": "../../libs/seqlane-core"
     },
     {
       "path": "../../libs/seqlane-fixtures"

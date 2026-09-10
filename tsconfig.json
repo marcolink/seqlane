@@ -34,7 +34,13 @@
       "path": "./libs/action-merge-conflict-resolution"
     },
     {
+      "path": "./libs/action-code-review"
+    },
+    {
       "path": "./actions/resolve-merge-conflicts"
+    },
+    {
+      "path": "./actions/code-review"
     },
     {
       "path": "./libs/action-service-lifecycle"

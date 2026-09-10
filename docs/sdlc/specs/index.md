@@ -28,5 +28,6 @@
 | [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Mechanical Pull Request Review Dispositions | draft | 2026-09-06 | core |
 | [spec.seqlane-action-merge-conflict-resolution](./2026-09-06-seqlane-action-merge-conflict-resolution.md) | Seqlane Action Merge Conflict Resolution | active | 2026-09-06 | core |
 | [spec.zvec-grep-action-owned-indexing](./2026-09-07-zvec-grep-action-owned-indexing.md) | zvec-grep Action-Owned Package Resolution and Indexing | active | 2026-09-07 | core |
+| [spec.direct-runtime-code-review-action](./2026-09-08-direct-runtime-code-review-action.md) | Direct Runtime Code-Review Action Integration | active | 2026-09-08 | core |
 | [spec.opencode-tool-setup-action](./2026-09-08-opencode-tool-setup-action.md) | OpenCode Tool Setup Action | active | 2026-09-08 | core |
 | [spec.ripwire-server-action](./2026-09-08-ripwire-server-action.md) | Ripwire HTTP MCP GitHub Action | active | 2026-09-08 | core |

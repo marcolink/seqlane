@@ -1,0 +1,43 @@
+name: Seqlane code review
+description: Run the trusted Seqlane pull-request code review.
+inputs:
+  github-token:
+    description: GitHub token used for review metadata and publication.
+    required: true
+  repository:
+    description: owner/name repository identity.
+    required: true
+  pull-request-number:
+    description: Pull request number.
+    required: true
+  review-target:
+    description: Absolute path to the isolated pull-request checkout.
+    required: true
+  base-branch:
+    description: Pull request base branch.
+    required: true
+  base-revision:
+    description: Pull request base revision.
+    required: true
+  head-revision:
+    description: Pull request head revision.
+    required: true
+  runtime:
+    description: OpenCode runtime URL.
+    required: true
+outputs:
+  verdict:
+    description: Review verdict.
+  reviewed-revision:
+    description: Revision reviewed by the action.
+  work-id:
+    description: Seqlane Work identity.
+  run-id:
+    description: Seqlane Run identity.
+  publication-status:
+    description: Publication result.
+runs:
+  using: node24
+  main: dist/main.js
+  post: dist/post.js
+  post-if: always()
