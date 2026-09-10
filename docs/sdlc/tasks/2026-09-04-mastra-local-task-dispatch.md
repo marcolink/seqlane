@@ -1,11 +1,11 @@
 ---
 id: task.mastra-local-task-dispatch
 title: Dispatch Local Task Nodes Through the Mastra Compiler
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-10
 upstream:
   - spec.local-mechanical-tasks
   - spec.mastra-runtime-and-operational-integration
@@ -71,6 +71,20 @@ registry and the Mastra `LocalSandbox` process path.
 
 Mastra-compiled Plans either execute supported local task nodes through
 `LocalSandbox` or reject malformed and unsupported local nodes before a run.
+
+## Outcome
+
+Completed. Mastra-compiled task nodes dispatch through the private invocation
+kernel to `TaskContext.exec()`, which uses the pinned Mastra `LocalSandbox`
+process path. The implementation preserves direct argv execution, bounded
+output, timeout, cancellation, workspace admission, task and invocation
+identity, and repeat-body execution. Local tasks do not resolve agent, model,
+or session infrastructure.
+
+Coverage is mapped in `libs/seqlane-runtime/src/runtime/local/task-execution.spec.ts`,
+`libs/seqlane-runtime/src/runtime/local/mastra-process.spec.ts`,
+`libs/seqlane-runtime/src/runtime/compile/compile-plan.spec.ts`, and the
+local workflow integration tests.
 
 ## Traceability
 
