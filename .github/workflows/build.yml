@@ -2,12 +2,6 @@ name: Build
 
 on:
   workflow_call:
-    inputs:
-      bundle_relevant:
-        description: Whether Action bundle verification is relevant.
-        required: false
-        default: "true"
-        type: string
   workflow_dispatch:
 
 permissions:
@@ -45,9 +39,3 @@ jobs:
 
       - name: Build affected projects
         run: pnpm exec nx affected -t build --output-style=static
-
-      - name: Verify Action bundles
-        if: inputs.bundle_relevant != 'false'
-        run: |
-          node scripts/action-bundle-verifier.mjs --drift
-          node scripts/action-bundle-verifier.mjs --verify

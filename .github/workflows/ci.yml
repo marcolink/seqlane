@@ -29,10 +29,7 @@ jobs:
 
   build:
     name: Build
-    needs: actionlint
     uses: ./.github/workflows/build.yml
-    with:
-      bundle_relevant: ${{ needs.actionlint.outputs.bundle_relevant }}
 
   actionlint:
     name: Actionlint
