@@ -6,7 +6,7 @@ import type {
   Validator,
   ValidatorDefinition,
   ValidationInvocationOptions,
-  WorkflowDefinition,
+  AuthoredWorkflow,
   RepeatBodyContext,
   RepeatBuildOptions,
 } from "./contracts.js";
@@ -70,7 +70,7 @@ function registerTaskDefinition(
 }
 
 export function buildWorkflow<Input, Output>(
-  workflow: WorkflowDefinition<Input, Output>,
+  workflow: AuthoredWorkflow<Input, Output>,
 ): BuiltWorkflow<Input, Output> {
   const workflowBuilder = getWorkflowPlanBuilder(workflow);
   if (workflowBuilder === undefined) {

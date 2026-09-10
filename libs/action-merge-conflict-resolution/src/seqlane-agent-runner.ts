@@ -2,7 +2,7 @@ import {
   buildWorkflow,
   type SeqlaneEvent,
   type TaskContext,
-  type WorkflowDefinition,
+  type AuthoredWorkflow,
 } from "@seqlane/core";
 import { createOpenCodeAdapter } from "@seqlane/opencode";
 import {
@@ -91,7 +91,7 @@ function createOpenCodeExecutor(
 
 export interface SeqlaneAgentRunnerOptions {
   readonly workspace: string;
-  readonly workflow: WorkflowDefinition<SeqlaneWorkflowInput, unknown>;
+  readonly workflow: AuthoredWorkflow<SeqlaneWorkflowInput, unknown>;
   readonly openCode: {
     readonly start: (workspace: string) => Promise<OpenCodeRuntimeHandle>;
   };

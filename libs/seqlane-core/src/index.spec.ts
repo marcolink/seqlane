@@ -96,7 +96,7 @@ describe("seqlane core", () => {
     }).toThrow("defineShellTask does not accept output");
   });
 
-  it("rejects local task session options statically", () => {
+  it("supports session options on local task invocations", () => {
     const local = defineTask({
       id: "local-session-options",
       input: schema<Record<never, never>>(),

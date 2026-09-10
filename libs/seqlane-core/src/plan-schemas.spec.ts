@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   createFlow,
+  buildWorkflow,
   defineTask,
   planNodeSchema,
   planSchema,
@@ -93,5 +94,29 @@ describe("canonical Plan schemas", () => {
       taskDefinitionRegistrySchema.safeParse(new Map([["other", task]]))
         .success,
     ).toBe(false);
+  });
+
+  it("snapshots declarations and output when define is called", () => {
+    const task = defineTask({
+      id: "snapshot-task",
+      input: identity,
+      output: identity,
+      execute: async ({ input }) => input,
+    });
+    const withTask = createFlow({
+      id: "snapshot-flow",
+      input: identity,
+      output: identity,
+    }).task("first", task, ({ input }) => input);
+    const workflow = withTask
+      .output(
+        ({ tasks }: { tasks: { first: { output: unknown } } }) =>
+          tasks.first.output,
+      )
+      .define();
+
+    withTask.task("added-later", task, ({ input }) => input);
+
+    expect(buildWorkflow(workflow).plan.nodes).toHaveLength(1);
   });
 });

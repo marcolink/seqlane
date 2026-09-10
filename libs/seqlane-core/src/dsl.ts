@@ -186,32 +186,33 @@ export function createFlow<Input, Output>(
 
   const completed: CompletedFlow<Input, Output> = {
     define: () => {
+      const declarationsSnapshot = [...declarations];
+      const outputBindingSnapshot = outputBinding;
       const workflow: WorkflowDefinition<Input, Output> = {
         ...options,
       };
-      registerWorkflowPlanBuilder(workflow, (context) => {
+      return registerWorkflowPlanBuilder(workflow, (context) => {
         const authoringContext: RuntimeFlowAuthoringContext<Input> = {
           input: context.input,
           tasks: {},
         };
-        for (const declaration of declarations) {
+        for (const declaration of declarationsSnapshot) {
           authoringContext.tasks[declaration.name] = declaration.declare(
             context,
             authoringContext,
           );
         }
-        if (outputBinding === undefined) {
+        if (outputBindingSnapshot === undefined) {
           throw new Error("Flow output is not defined");
         }
-        return typeof outputBinding === "function"
+        return typeof outputBindingSnapshot === "function"
           ? (
-              outputBinding as (
+              outputBindingSnapshot as (
                 context: FlowAuthoringContext<Input, unknown>,
               ) => InputBinding<Output>
             )(authoringContext)
-          : outputBinding;
+          : outputBindingSnapshot;
       });
-      return workflow;
     },
   };
   const builder: FlowBuilder<Input, Output, Record<never, never>> = {

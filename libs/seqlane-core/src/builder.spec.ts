@@ -121,8 +121,8 @@ describe("buildWorkflow", () => {
     })
       .task("source", task, ({ input }) => input, { session: isolated() })
       .task("reuse", task, ({ input }) => input, {
-        // @ts-expect-error Reuse sessions inherit their source model.
         session: ({ tasks }) =>
+          // @ts-expect-error Reuse sessions inherit their source model.
           reuse(tasks.source.session, { model: openai("gpt-5.6-sol") }),
       })
       .output(({ tasks }) => tasks.reuse.output)

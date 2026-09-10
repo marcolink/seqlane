@@ -85,4 +85,40 @@ describe("loadWorkflow", () => {
     expect(loaded.definition?.input).toBeDefined();
     expect(loaded.definition?.output).toBeDefined();
   });
+
+  it("rejects an unsupported Plan node before validation or compilation", async () => {
+    const source = `export const invalid = ${JSON.stringify({
+      workflow: { id: "invalid" },
+      nodes: [{ type: "branch", nodeId: "branch:1", dependsOn: [] }],
+      output: null,
+    })};`;
+    await expect(
+      loadWorkflow(
+        {
+          ...validReference,
+          moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
+          exportName: "invalid",
+        },
+        null,
+      ),
+    ).rejects.toThrow("Plan");
+  });
+
+  it("rejects malformed Plan bindings before runtime validation", async () => {
+    const source = `export const invalid = ${JSON.stringify({
+      workflow: { id: "invalid" },
+      nodes: [],
+      output: { type: "ref", nodeId: "missing", path: "not-an-array" },
+    })};`;
+    await expect(
+      loadWorkflow(
+        {
+          ...validReference,
+          moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
+          exportName: "invalid",
+        },
+        null,
+      ),
+    ).rejects.toThrow("Plan");
+  });
 });

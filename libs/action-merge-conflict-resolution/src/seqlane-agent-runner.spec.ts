@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import type { WorkflowDefinition, SeqlaneSchema } from "@seqlane/core";
+import { createFlow, type SeqlaneSchema } from "@seqlane/core";
 
 import {
   createSeqlaneAgentRunner,
@@ -12,11 +12,13 @@ import {
 
 const schema = <T>(): SeqlaneSchema<T> => z.custom<T>(() => true);
 
-const workflow: WorkflowDefinition<SeqlaneWorkflowInput, unknown> = {
+const workflow = createFlow<SeqlaneWorkflowInput, unknown>({
   id: "runner-stop-regression",
   input: schema<SeqlaneWorkflowInput>(),
   output: schema<unknown>(),
-};
+})
+  .output({ runner: "test" })
+  .define();
 
 describe("Seqlane agent runner", () => {
   it("retries runtime cleanup when the first stop rejects", async () => {

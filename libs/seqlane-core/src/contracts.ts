@@ -235,6 +235,14 @@ export interface WorkflowDefinition<Input = unknown, Output = unknown> {
   readonly output: SeqlaneSchema<Output>;
 }
 
+declare const authoredWorkflowBrand: unique symbol;
+
+/** Workflow definition produced by the fluent authoring API. */
+export interface AuthoredWorkflow<Input = unknown, Output = unknown>
+  extends WorkflowDefinition<Input, Output> {
+  readonly [authoredWorkflowBrand]: true;
+}
+
 export type FlowHandle<
   Output = unknown,
   Session = undefined,
@@ -312,7 +320,7 @@ export interface FlowBuilder<Input, Output, Handles> {
 }
 
 export interface CompletedFlow<Input, Output> {
-  define(): WorkflowDefinition<Input, Output>;
+  define(): AuthoredWorkflow<Input, Output>;
 }
 
 export interface CreateFlowOptions<Input, Output> {
