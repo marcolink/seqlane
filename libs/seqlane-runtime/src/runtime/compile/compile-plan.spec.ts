@@ -270,6 +270,16 @@ describe("PlanCompiler plan preparation", () => {
     expect(() => validatePlan(source)).toThrow(/schema/i);
   });
 
+  it("rejects structurally malformed Plans with a PlanValidationError", () => {
+    const malformed = {
+      workflow: { id: "malformed-plan" },
+      nodes: [{ type: "task" }],
+      output: null,
+    } as unknown as Plan;
+
+    expect(() => validatePlan(malformed)).toThrow(PlanValidationError);
+  });
+
   it("rejects a task registry whose key does not match its definition ID", () => {
     const source = plan([task("local-task")]);
     const definition: TaskDefinition = {

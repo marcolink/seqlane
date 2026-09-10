@@ -806,6 +806,40 @@ function validateRepeat(
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isSemanticallyTraversableNode(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (
+    typeof value.type !== "string" ||
+    typeof value.nodeId !== "string" ||
+    !Array.isArray(value.dependsOn)
+  ) {
+    return false;
+  }
+
+  if (value.type === "validation.check") {
+    return isRecord(value.source);
+  }
+
+  if (value.type !== "repeat") return true;
+  return (
+    isRecord(value.body) &&
+    Array.isArray(value.body.nodes) &&
+    value.body.nodes.every(isSemanticallyTraversableNode)
+  );
+}
+
+function isSemanticallyTraversablePlan(value: unknown): value is Plan {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.nodes) &&
+    value.nodes.every(isSemanticallyTraversableNode)
+  );
+}
+
 function validatePlanWithCanonicalIssues(
   plan: Plan,
   taskDefinitions?: TaskDefinitionRegistry,
@@ -946,10 +980,28 @@ export function validatePlan(
   validateDefinitions = taskDefinitions !== undefined,
 ): void {
   const parsed = planSchema.safeParse(plan);
+  if (!parsed.success) {
+    if (isSemanticallyTraversablePlan(plan)) {
+      validatePlanWithCanonicalIssues(
+        plan,
+        taskDefinitions,
+        validateDefinitions,
+        parsed.error.issues,
+      );
+      return;
+    }
+
+    throw new PlanValidationError(
+      parsed.error.issues.map(({ message }) => ({
+        code: "invalid-plan-schema" as const,
+        message: `Plan schema validation failed: ${message}`,
+      })),
+    );
+  }
+
   validatePlanWithCanonicalIssues(
-    parsed.success ? parsed.data : plan,
+    parsed.data,
     taskDefinitions,
     validateDefinitions,
-    parsed.success ? [] : parsed.error.issues,
   );
 }

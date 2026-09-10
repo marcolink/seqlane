@@ -6,7 +6,7 @@ import type {
 } from "./contracts.js";
 import { z } from "zod";
 
-export const valueRefSchema = z.looseObject({
+export const valueRefSchema = z.strictObject({
   type: z.literal("ref"),
   nodeId: z.string().min(1),
   path: z.array(z.string()),
