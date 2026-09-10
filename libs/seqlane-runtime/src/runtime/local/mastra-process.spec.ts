@@ -110,6 +110,44 @@ describe("Mastra deterministic process integration", () => {
     });
   });
 
+  it("terminates the timed-out process before releasing its sandbox", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "seqlane-mastra-process-"));
+    let pid: number | undefined;
+    try {
+      const pidPath = join(workspace, "pid");
+      const result = runMastraProcess(
+        request({
+          cwd: workspace,
+          timeoutMs: 1_000,
+          args: [
+            "-e",
+            "require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => undefined, 1000)",
+            pidPath,
+          ],
+        }),
+      );
+      const settled = result.then(
+        () => undefined,
+        (cause) => cause,
+      );
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        try {
+          pid = Number(await readFile(pidPath, "utf8"));
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+      }
+
+      expect(await settled).toBeInstanceOf(MastraProcessTimeoutError);
+      expect(pid).toEqual(expect.any(Number));
+      expect(() => process.kill(pid!, 0)).toThrow();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
   it("cancels and terminates the Mastra process before returning", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "seqlane-mastra-process-"));
     const controller = new AbortController();

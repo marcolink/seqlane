@@ -167,20 +167,26 @@ async function waitForProcessGroupsToExit(
 function createCancellationBarrier(
   sandbox: LocalSandbox,
   signal: AbortSignal | undefined,
-): { readonly wait: () => Promise<void>; readonly dispose: () => void } {
+): {
+  readonly terminate: () => Promise<void>;
+  readonly wait: () => Promise<void>;
+  readonly dispose: () => void;
+} {
   let termination: Promise<void> | undefined;
 
-  const beginTermination = (): void => {
+  const beginTermination = (): Promise<void> => {
     termination ??= (async () => {
       const processes = await sandbox.processes.list();
       const processIds = processes.map(({ pid }) => pid);
       await Promise.all(processIds.map((pid) => sandbox.processes.kill(pid)));
       await waitForProcessGroupsToExit(processIds);
     })();
+    return termination;
   };
 
   signal?.addEventListener("abort", beginTermination, { once: true });
   return {
+    terminate: beginTermination,
     wait: async () => {
       if (signal?.aborted) beginTermination();
       await termination;
@@ -273,6 +279,7 @@ export async function runMastraProcess(
       Date.now(),
     );
     if (normalized.timedOut) {
+      await cancellationBarrier.terminate();
       throw new MastraProcessTimeoutError(normalized);
     }
     if (normalized.stdoutTruncated || normalized.stderrTruncated) {

@@ -17,7 +17,7 @@ export {
   MAX_MASTRA_PROCESS_TIMEOUT_MS as MAX_LOCAL_TASK_TIMEOUT_MS,
 } from "./mastra-process.js";
 
-export interface LocalTaskExecutionRequest {
+export interface TaskExecutionRequest {
   readonly definition: TaskDefinition<unknown, unknown>;
   readonly input: unknown;
   readonly cwd: string;
@@ -36,7 +36,7 @@ function taskContext(
   signal: AbortSignal,
   outputLimitBytes: number,
   runAgent: TaskContext["runAgent"],
-  onUncertainActivity: LocalTaskExecutionRequest["onUncertainActivity"],
+  onUncertainActivity: TaskExecutionRequest["onUncertainActivity"],
 ): TaskContext {
   return {
     exec: async (request) => {
@@ -62,8 +62,8 @@ function taskContext(
   };
 }
 
-export async function executeLocalTask(
-  request: LocalTaskExecutionRequest,
+export async function executeTask(
+  request: TaskExecutionRequest,
 ): Promise<unknown> {
   const context = taskContext(
     request.cwd,

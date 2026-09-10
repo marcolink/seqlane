@@ -68,7 +68,6 @@ interface ModelPreflightNode {
 
 function modelPreflightNodes(
   plan: PreparedPlanExecution["plan"],
-  _taskDefinitions: PreparedPlanExecution["context"]["taskDefinitions"],
 ): readonly ModelPreflightNode[] {
   const nodeForPlanNode = (
     node: PlanNode,
@@ -210,10 +209,7 @@ function requirementKey(requirement: ModelRequirement): string {
 export async function preflightCompiledWorkflowModels(
   compiled: PreparedPlanExecution,
 ): Promise<void> {
-  const nodes = modelPreflightNodes(
-    compiled.plan,
-    compiled.context.taskDefinitions,
-  );
+  const nodes = modelPreflightNodes(compiled.plan);
   const taskNodes = nodes
     .map(({ node }) => node)
     .filter((node): node is TaskNode => node.type === "task");

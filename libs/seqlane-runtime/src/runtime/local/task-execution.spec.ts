@@ -1,4 +1,4 @@
-// @test-scope ./local-task-execution.ts
+// @test-scope ./task-execution.ts
 // @test-scope ./mastra-process.ts
 // @test-scope ../invocation/invocation-execution.ts
 // @test-scope ../compile/compile-plan.ts

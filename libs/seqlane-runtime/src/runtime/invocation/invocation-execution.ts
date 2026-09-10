@@ -48,7 +48,7 @@ import {
   type ValidationEnvelope,
   type ValidationExecutionOptions,
 } from "./invocation-support.js";
-import { executeLocalTask } from "../local/local-task-execution.js";
+import { executeTask } from "../local/task-execution.js";
 
 function effectiveModelSelection(
   context: ExecutionContext,
@@ -355,7 +355,7 @@ export async function executeTaskNode(
             onBackgroundProcess: reportBackgroundProcess,
           });
         };
-        rawOutput = await executeLocalTask({
+        rawOutput = await executeTask({
           definition,
           input,
           taskId: node.taskId,

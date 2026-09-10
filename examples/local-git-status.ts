@@ -16,7 +16,6 @@ const summaryOutputSchema = z.object({
 const localGitStatusTask = defineShellTask({
   id: "example.local-git-status",
   input: inputSchema,
-  output: gitStatusOutputSchema,
   executable: "git",
   argv: () => ["status", "--porcelain=v1"],
 });
