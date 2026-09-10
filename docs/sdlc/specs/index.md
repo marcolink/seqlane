@@ -31,5 +31,9 @@
 | [spec.seqlane-action-merge-conflict-resolution](./2026-09-06-seqlane-action-merge-conflict-resolution.md) | Seqlane Action Merge Conflict Resolution | active | 2026-09-06 | core |
 | [spec.acp-mastra-observability-projection](./2026-09-07-acp-mastra-observability-projection.md) | ACP v1-to-Mastra Observability Projection | active | 2026-09-07 | core |
 | [spec.mastra-native-agent-observability](./2026-09-07-mastra-native-agent-observability.md) | Native Mastra Agent Observability Projection | active | 2026-09-07 | core |
+| [spec.zvec-grep-action-owned-indexing](./2026-09-07-zvec-grep-action-owned-indexing.md) | zvec-grep Action-Owned Package Resolution and Indexing | active | 2026-09-07 | core |
+| [spec.direct-runtime-code-review-action](./2026-09-08-direct-runtime-code-review-action.md) | Direct Runtime Code-Review Action Integration | active | 2026-09-08 | core |
 | [spec.mastra-backed-seqlane-workflows](./2026-09-08-mastra-backed-seqlane-workflows.md) | Mastra-Backed Seqlane Workflow Contracts | active | 2026-09-08 | core |
+| [spec.opencode-tool-setup-action](./2026-09-08-opencode-tool-setup-action.md) | OpenCode Tool Setup Action | active | 2026-09-08 | core |
 | [spec.opencode-mastra-observability-projection](./2026-09-08-opencode-mastra-observability-projection.md) | OpenCode-to-Mastra Observability Projection | active | 2026-09-08 | core |
+| [spec.ripwire-server-action](./2026-09-08-ripwire-server-action.md) | Ripwire HTTP MCP GitHub Action | active | 2026-09-08 | core |

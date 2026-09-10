@@ -10,11 +10,19 @@ import {
   type ConflictSet,
   type PullRequestMetadata,
   type ResolveMergeConflictsRequest,
+  type ConflictHandlersConfig,
 } from "./contracts.js";
 import { ActionResolutionError } from "./errors.js";
+import {
+  assertSingleGeneratedFileRule,
+  matchingGeneratedFileRules,
+  parseConflictHandlers,
+  type GeneratedConflictGroup,
+} from "./generated-file-policy.js";
 
 export interface ClassifiedConflicts {
   readonly agent: ConflictSet;
+  readonly generated: readonly GeneratedConflictGroup[];
   readonly lockfile: ConflictSet;
 }
 
@@ -51,6 +59,7 @@ export function parseActionInputs(
     commit: parsed.data.commit === "true",
     push: parsed.data.push === "true",
     maxAttempts: Number(parsed.data.maxAttempts),
+    conflictHandlers: parseConflictHandlers(parsed.data.conflictHandlers),
   };
 }
 
@@ -121,7 +130,10 @@ export function validatePullRequestPreflight(
   return metadata;
 }
 
-export function classifyConflicts(conflicts: unknown): ClassifiedConflicts {
+export function classifyConflicts(
+  conflicts: unknown,
+  conflictHandlers: ConflictHandlersConfig = { version: 1, rules: [] },
+): ClassifiedConflicts {
   const parsed = conflictSetSchema.safeParse(conflicts);
   if (!parsed.success) {
     throw new ActionResolutionError(
@@ -132,17 +144,42 @@ export function classifyConflicts(conflicts: unknown): ClassifiedConflicts {
     );
   }
 
-  return parsed.data.reduce<ClassifiedConflicts>(
-    (classified, conflict) => {
-      const destination =
-        conflict.path === "pnpm-lock.yaml"
-          ? classified.lockfile
-          : classified.agent;
-      destination.push(conflict);
-      return classified;
-    },
-    { agent: [], lockfile: [] },
-  );
+  const generated = new Map<string, GeneratedConflictGroup>();
+  const agent: ConflictSet = [];
+  const lockfile: ConflictSet = [];
+  for (const conflict of parsed.data) {
+    if (conflict.path === "pnpm-lock.yaml") {
+      if (
+        matchingGeneratedFileRules(conflict.path, conflictHandlers).length > 0
+      ) {
+        throw new ActionResolutionError(
+          "input-validation",
+          "CONFLICT_HANDLERS_INVALID",
+          "The built-in pnpm-lock.yaml handler cannot be overridden by policy.",
+        );
+      }
+      lockfile.push(conflict);
+      continue;
+    }
+    const rule = assertSingleGeneratedFileRule(
+      conflict.path,
+      matchingGeneratedFileRules(conflict.path, conflictHandlers),
+    );
+    if (rule === undefined) {
+      agent.push(conflict);
+      continue;
+    }
+    const existing = generated.get(rule.match);
+    if (existing === undefined) {
+      generated.set(rule.match, { rule, conflicts: [conflict] });
+    } else {
+      generated.set(rule.match, {
+        rule,
+        conflicts: [...existing.conflicts, conflict],
+      });
+    }
+  }
+  return { agent, generated: [...generated.values()], lockfile };
 }
 
 export function isAttemptAllowed(

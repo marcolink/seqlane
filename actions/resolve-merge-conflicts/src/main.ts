@@ -13,12 +13,15 @@ import {
   NodeLockfileRegenerator,
   NodeOpenCodeRuntime,
   NodeWorkspaceBoundary,
+  NodeGeneratedFileHandler,
   createSeqlaneAgentRunner,
   createBoundedRecording,
   createSecretRedactor,
+  createProgressWriter,
   createSummaryWriter,
   parseActionInputs,
   ActionResolutionError,
+  resolutionErrorDetails,
   resolveMergeConflicts,
   workflowDefinitionMetadata,
   type PullRequestMetadata,
@@ -51,7 +54,7 @@ export async function run(): Promise<void> {
   ].filter((value): value is string => value !== undefined && value.length > 0);
   for (const secret of secrets) core.setSecret(secret);
 
-  const request = parseActionInputs({
+  const actionRequest = parseActionInputs({
     pullRequestNumber: core.getInput("pull-request-number", { required: true }),
     resolutionStrategy: core.getInput("resolution-strategy"),
     sourceDirectory: core.getInput("source-directory", { required: true }),
@@ -59,9 +62,10 @@ export async function run(): Promise<void> {
     commit: core.getInput("commit"),
     push: core.getInput("push"),
     maxAttempts: core.getInput("max-attempts"),
+    conflictHandlers: core.getInput("conflict-handlers"),
   });
   const pushToken = core.getInput("push-token");
-  if (request.push && pushToken.length === 0) {
+  if (actionRequest.push && pushToken.length === 0) {
     throw new ActionResolutionError(
       "input-validation",
       "PUSH_TOKEN_REQUIRED",
@@ -74,9 +78,10 @@ export async function run(): Promise<void> {
   }
   const root = requiredWorkspace();
   const { sourceRoot, targetRoot } = await validateSeparateWorkspaceRoots(
-    resolve(root, request.sourceDirectory),
-    resolve(root, request.targetDirectory),
+    resolve(root, actionRequest.sourceDirectory),
+    resolve(root, actionRequest.targetDirectory),
   );
+  const request = actionRequest;
   const agentRoot = await mkdtemp(
     join(process.env.RUNNER_TEMP ?? tmpdir(), "seqlane-agent-"),
   );
@@ -132,8 +137,8 @@ export async function run(): Promise<void> {
       return getBoundary().prepareAgentWorkspace(conflicts);
     },
     copyAgentEdits: async (paths) => getBoundary().copyAgentEdits(paths),
-    validateTarget: async (conflicts) =>
-      getBoundary().validateTarget(conflicts),
+    validateTarget: async (conflicts, generatedPaths) =>
+      getBoundary().validateTarget(conflicts, generatedPaths),
   };
   const runtime = new NodeOpenCodeRuntime();
   const ports = {
@@ -152,6 +157,7 @@ export async function run(): Promise<void> {
       targetRoot,
       trustedSourceRoot: sourceRoot,
     }),
+    generatedFiles: new NodeGeneratedFileHandler({ targetRoot, git }),
     agent: createLazyAgentPort(() => {
       if (metadata === undefined)
         throw new Error("Pull-request metadata is unavailable.");
@@ -174,6 +180,7 @@ export async function run(): Promise<void> {
       workflowRef,
       redactor,
     ),
+    progress: createProgressWriter((line) => core.info(line), redactor),
     commitAndPush: new NodeCommitAndPush(
       git,
       request.push ? pushToken : undefined,
@@ -186,7 +193,7 @@ export async function run(): Promise<void> {
     if (result.kind === "error") {
       core.setFailed(`${result.error.category}/${result.error.code}`);
       if (result.error.diagnostic !== undefined) {
-        core.error(`Git push rejected: ${result.error.diagnostic}`);
+        core.error(`Resolution diagnostic: ${result.error.diagnostic}`);
       }
       return;
     }
@@ -204,6 +211,10 @@ if (process.env.NODE_ENV !== "test") {
   run().catch((error: unknown) => {
     if (error instanceof ActionResolutionError) {
       core.setFailed(`${error.category}/${error.code}`);
+      const diagnostic = resolutionErrorDetails(error).diagnostic;
+      if (diagnostic !== undefined) {
+        core.error(`Resolution diagnostic: ${diagnostic}`);
+      }
       return;
     }
     core.setFailed(error instanceof Error ? error.message : "Action failed.");

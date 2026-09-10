@@ -1,0 +1,34 @@
+name: OpenCode server
+description: Start an OpenCode server and stop it automatically after the job
+
+inputs:
+  working-directory:
+    description: Directory in which OpenCode runs
+    required: true
+  hostname:
+    description: OpenCode bind hostname
+    required: false
+    default: 127.0.0.1
+  port:
+    description: OpenCode server port
+    required: false
+    default: "4096"
+  executable:
+    description: OpenCode executable name or path
+    required: true
+  startup-timeout-seconds:
+    description: Maximum time to wait for the OpenCode health endpoint
+    required: false
+    default: "30"
+
+outputs:
+  url:
+    description: OpenCode server URL
+  log-path:
+    description: OpenCode server log path
+
+runs:
+  using: node24
+  main: dist/main.js
+  post: dist/post.js
+  post-if: always()

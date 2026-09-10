@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-07
+updated: 2026-09-08
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -152,6 +152,12 @@ Verification passed for the updated workflow contract test, `pnpm run
 test:mapping`, `pnpm docs:validate`, `pnpm format:check`, and
 `git diff --check`. Hosted GitHub execution remains required to verify the
 manual dispatch, checkout permissions, credentials, and remote race behavior.
+
+A subsequent successful GitHub-hosted workflow run is available at [run
+34163697786](https://github.com/marcolink/seqlane/actions/runs/34163697786).
+This is additional hosted evidence. It does not replace the manual scenario
+matrix or prove every remote race and permission condition in the completion
+criteria.
 
 ## Traceability
 

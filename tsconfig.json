@@ -34,7 +34,28 @@
       "path": "./libs/action-merge-conflict-resolution"
     },
     {
+      "path": "./libs/action-code-review"
+    },
+    {
       "path": "./actions/resolve-merge-conflicts"
+    },
+    {
+      "path": "./actions/code-review"
+    },
+    {
+      "path": "./libs/action-service-lifecycle"
+    },
+    {
+      "path": "./actions/zvec-grep-server"
+    },
+    {
+      "path": "./actions/opencode-server"
+    },
+    {
+      "path": "./actions/setup-opencode"
+    },
+    {
+      "path": "./actions/ripwire-server"
     }
   ]
 }

@@ -6,7 +6,9 @@ export type { ResolutionErrorDetails } from "./errors.js";
 
 export const DEFAULT_MAX_ATTEMPTS = 10;
 export const MAX_CONFLICT_PATHS = 200;
-export const MAX_AGENT_FILE_BYTES = 512 * 1024;
+// Keep agent inputs bounded while allowing conflict-marked generated bundles
+// that contain two otherwise-valid file versions.
+export const MAX_AGENT_FILE_BYTES = 1024 * 1024;
 export const MAX_AGENT_TOTAL_BYTES = 2 * 1024 * 1024;
 export const MAX_LOCKFILE_INPUT_FILES = 64;
 export const MAX_LOCKFILE_INPUT_FILE_BYTES = 512 * 1024;
@@ -59,6 +61,61 @@ export const conflictPathSchema = z
   );
 export type ConflictPath = z.infer<typeof conflictPathSchema>;
 
+const generatedFileGlobSchema = z
+  .string()
+  .min(1)
+  .max(1_024)
+  .regex(
+    /^(?!\/)(?!.*(?:^|\/)\.{1,2}(?:\/|$))(?!.*\\)(?!.*\0)[^/]+(?:\/[^/]+)*$/,
+  )
+  .refine(
+    (value) => {
+      let bracketDepth = 0;
+      for (const character of value) {
+        if (character === "[") bracketDepth += 1;
+        if (character === "]") {
+          if (bracketDepth === 0) return false;
+          bracketDepth -= 1;
+        }
+      }
+      return bracketDepth === 0;
+    },
+    { message: "Glob character classes must be balanced." },
+  );
+export type GeneratedFileGlob = z.infer<typeof generatedFileGlobSchema>;
+
+const generatedFileCommandArgumentSchema = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine((value) => !value.includes("\0"));
+
+const generatedFileCommandSchema = z
+  .array(generatedFileCommandArgumentSchema)
+  .min(1)
+  .max(64);
+
+export const conflictHandlerSchema = z.strictObject({
+  command: generatedFileCommandSchema,
+  setup: z.array(generatedFileCommandSchema).max(16).optional(),
+});
+export type ConflictHandler = z.infer<typeof conflictHandlerSchema>;
+
+export const conflictHandlerRuleSchema = z.strictObject({
+  match: generatedFileGlobSchema,
+  outputs: z.array(generatedFileGlobSchema).min(1).max(64),
+  handler: conflictHandlerSchema,
+});
+export type ConflictHandlerRule = z.infer<typeof conflictHandlerRuleSchema>;
+
+export const conflictHandlersConfigSchema = z.strictObject({
+  version: z.literal(1),
+  rules: z.array(conflictHandlerRuleSchema).max(64),
+});
+export type ConflictHandlersConfig = z.infer<
+  typeof conflictHandlersConfigSchema
+>;
+
 export const actionInputsSchema = z.strictObject({
   pullRequestNumber: positiveIntegerStringSchema,
   resolutionStrategy: resolutionStrategySchema.default("rebase"),
@@ -69,6 +126,11 @@ export const actionInputsSchema = z.strictObject({
   maxAttempts: positiveIntegerStringSchema.default(
     String(DEFAULT_MAX_ATTEMPTS),
   ),
+  conflictHandlers: z
+    .string()
+    .min(1)
+    .max(256 * 1024)
+    .default('{"version":1,"rules":[]}'),
 });
 export type ActionInputs = z.infer<typeof actionInputsSchema>;
 
@@ -80,6 +142,10 @@ export const resolveMergeConflictsRequestSchema = z.strictObject({
   commit: z.boolean(),
   push: z.boolean(),
   maxAttempts: positiveIntegerSchema,
+  conflictHandlers: conflictHandlersConfigSchema.default({
+    version: 1,
+    rules: [],
+  }),
 });
 export type ResolveMergeConflictsRequest = z.infer<
   typeof resolveMergeConflictsRequestSchema
@@ -230,6 +296,7 @@ export interface PullRequestMetadataPort {
 export interface GitPort {
   readonly cwd: string;
   readonly run: (args: readonly string[]) => Promise<GitCommandResult>;
+  readonly countRebaseCommits: (baseRevision: GitRevision) => Promise<number>;
   readonly readRebaseConflictCommit?: () => Promise<
     RebaseConflictCommit | undefined
   >;
@@ -243,7 +310,10 @@ export interface GitPort {
     baseRevision: GitRevision,
   ) => Promise<IntegrationResult>;
   readonly readConflictSet: () => Promise<ConflictSet>;
-  readonly stageConflictSet: (conflicts: ConflictSet) => Promise<void>;
+  readonly stageConflictSet: (
+    conflicts: ConflictSet,
+    generatedPaths?: readonly ConflictPath[],
+  ) => Promise<void>;
   readonly continueRebase: () => Promise<GitCommandResult>;
   readonly skipRebase: () => Promise<GitCommandResult>;
 }
@@ -254,7 +324,10 @@ export interface WorkspaceFilesPort {
     conflicts: ConflictSet,
   ) => Promise<AgentResolutionRequest>;
   readonly copyAgentEdits: (paths: readonly ConflictPath[]) => Promise<void>;
-  readonly validateTarget: (conflicts: ConflictSet) => Promise<void>;
+  readonly validateTarget: (
+    conflicts: ConflictSet,
+    generatedPaths?: readonly ConflictPath[],
+  ) => Promise<void>;
 }
 
 export interface LockfilePort {
@@ -268,6 +341,13 @@ export interface AgentRunnerPort {
   readonly start?: () => Promise<void>;
   readonly stop?: () => Promise<void>;
   readonly getAttemptDiagnostics?: () => ResolutionAttemptDiagnostics;
+}
+
+export interface GeneratedFileHandlerPort {
+  readonly run: (
+    rule: ConflictHandlerRule,
+    conflicts: ConflictSet,
+  ) => Promise<readonly ConflictPath[]>;
 }
 
 export interface ResolutionAttemptDiagnostics {
@@ -289,6 +369,52 @@ export interface ResolutionAttemptReport {
 export interface ResolutionSummaryReport {
   readonly strategy?: ResolutionStrategy;
   readonly attempts: readonly ResolutionAttemptReport[];
+}
+
+export type ResolutionProgressEvent =
+  | {
+      readonly kind: "started";
+      readonly strategy: "rebase";
+      readonly maxAttempts: number;
+      readonly commitsToReplay: number;
+    }
+  | {
+      readonly kind: "started";
+      readonly strategy: "merge";
+      readonly maxAttempts: number;
+    }
+  | {
+      readonly kind: "conflict-stop";
+      readonly strategy: ResolutionStrategy;
+      readonly conflictStops: number;
+    }
+  | {
+      readonly kind: "attempt-started";
+      readonly strategy: ResolutionStrategy;
+      readonly attempt: number;
+      readonly maxAttempts: number;
+      readonly conflictStops: number;
+      readonly commit?: RebaseConflictCommit;
+    }
+  | { readonly kind: "push-started" }
+  | { readonly kind: "push-completed" }
+  | {
+      readonly kind: "completed";
+      readonly result: "no-change" | "updated";
+      readonly attempts: number;
+      readonly conflictStops: number;
+      readonly pushed: boolean;
+    }
+  | {
+      readonly kind: "failed";
+      readonly category: string;
+      readonly code: string;
+      readonly attempts: number;
+      readonly conflictStops: number;
+    };
+
+export interface ProgressPort {
+  readonly write: (event: ResolutionProgressEvent) => void;
 }
 
 export interface SummaryPort {
@@ -313,8 +439,10 @@ export interface ResolveMergeConflictsPorts {
   readonly github: PullRequestMetadataPort;
   readonly git: GitPort;
   readonly files: WorkspaceFilesPort;
-  readonly lockfile: LockfilePort;
+  readonly lockfile?: LockfilePort;
+  readonly generatedFiles: GeneratedFileHandlerPort;
   readonly agent: AgentRunnerPort;
   readonly summary: SummaryPort;
+  readonly progress?: ProgressPort;
   readonly commitAndPush: CommitAndPushPort;
 }

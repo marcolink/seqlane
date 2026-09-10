@@ -1,0 +1,42 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "action-opencode-server",
+  "projectType": "application",
+  "sourceRoot": "actions/opencode-server/src",
+  "implicitDependencies": ["action-service-lifecycle"],
+  "targets": {
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "actions/opencode-server",
+        "command": "tsc --noEmit --project tsconfig.json"
+      },
+      "dependsOn": ["^build"]
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "actions/opencode-server",
+        "command": "pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=dist/main.js --minify && pnpm exec esbuild src/post.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=dist/post.js --minify"
+      },
+      "outputs": ["{projectRoot}/dist"],
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "actions/opencode-server",
+        "command": "pnpm exec vitest run src/readiness.spec.ts src/bundle-runtime.spec.ts src/main.spec.ts && node --check process-anchor.js"
+      }
+    },
+    "bundle-drift": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "actions/opencode-server",
+        "command": "tmpdir=$(mktemp -d) && trap 'rm -rf \"$tmpdir\"' EXIT && pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=\"$tmpdir/main.js\" --minify && pnpm exec esbuild src/post.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=\"$tmpdir/post.js\" --minify && cmp -s dist/main.js \"$tmpdir/main.js\" && cmp -s dist/post.js \"$tmpdir/post.js\""
+      }
+    }
+  }
+}

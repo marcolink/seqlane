@@ -1,4 +1,5 @@
 // @test-scope ./workspace-boundary.ts
+// @test-scope ./workspace-boundary-filesystem.ts
 // @test-scope ./git-cli.ts
 
 import assert from "node:assert/strict";
@@ -21,8 +22,15 @@ import {
   NodeWorkspaceBoundary,
   createOwnedAgentWorkspace,
   prepareAgentWorkspace,
+  prepareLockfileWorkspace,
   validateResolutionWorkspace,
 } from "./workspace-boundary.js";
+import {
+  MAX_LOCKFILE_INPUT_FILE_BYTES,
+  MAX_LOCKFILE_INPUT_FILES,
+  MAX_LOCKFILE_INPUT_TOTAL_BYTES,
+} from "./contracts.js";
+import type { GitCommandPort } from "./git-port.js";
 
 function fixtureRoot(): string {
   return mkdtempSync(join(tmpdir(), "seqlane-workspace-boundary-"));
@@ -128,7 +136,10 @@ describe("workspace boundary", () => {
           error.code === "UNSUPPORTED_AGENT_FILE",
       );
 
-      writeFileSync(join(source, "large.ts"), Buffer.alloc(512 * 1024 + 1, 65));
+      writeFileSync(
+        join(source, "large.ts"),
+        Buffer.alloc(1024 * 1024 + 1, 65),
+      );
       await assert.rejects(
         () =>
           prepareAgentWorkspace(
@@ -140,7 +151,201 @@ describe("workspace boundary", () => {
         (error: unknown) =>
           error instanceof Error &&
           "code" in error &&
-          error.code === "WORKSPACE_LIMIT_EXCEEDED",
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes("large.ts") &&
+          error.message.includes("observed 1048577 bytes > 1048576 bytes"),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports the current file and observed total when the agent payload is oversized", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      mkdirSync(source);
+      writeFileSync(join(source, "first.ts"), Buffer.alloc(1024 * 1024, 65));
+      writeFileSync(join(source, "second.ts"), Buffer.alloc(1024 * 1024, 66));
+      writeFileSync(join(source, "third.ts"), Buffer.from("c"));
+
+      await assert.rejects(
+        () =>
+          prepareAgentWorkspace(
+            source,
+            createAgentWorkspace(root, "aggregate"),
+            ["first.ts", "second.ts", "third.ts"],
+            "run-aggregate",
+          ),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes("third.ts") &&
+          error.message.includes("offending file 1 bytes") &&
+          error.message.includes("accumulated 2097152 bytes") &&
+          error.message.includes("aggregate limit 2097152 bytes") &&
+          error.message.includes("resulting total 2097153 bytes"),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports observed and configured values for an oversized lockfile input file", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      mkdirSync(source);
+      mkdirSync(target);
+      writeFileSync(
+        join(source, "package.json"),
+        `${" ".repeat(MAX_LOCKFILE_INPUT_FILE_BYTES - 1)}{}`,
+      );
+
+      await assert.rejects(
+        () =>
+          prepareLockfileWorkspace(
+            source,
+            target,
+            listedFilesGit(["package.json"]),
+          ),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes("package.json") &&
+          error.message.includes(
+            `observed ${MAX_LOCKFILE_INPUT_FILE_BYTES + 1} bytes > ${MAX_LOCKFILE_INPUT_FILE_BYTES} bytes`,
+          ),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not copy files when a later lockfile input fails policy validation", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      mkdirSync(source);
+      mkdirSync(target);
+      writeFileSync(join(source, "package.json"), "{}\n");
+      writeFileSync(join(source, "pnpm-workspace.yaml"), "registry: unsafe\n");
+
+      await assert.rejects(
+        () =>
+          prepareLockfileWorkspace(
+            source,
+            target,
+            listedFilesGit(["package.json", "pnpm-workspace.yaml"]),
+          ),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "LOCKFILE_REGENERATION_FAILED",
+      );
+      assert.equal(requireFile(target, "package.json"), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports the current lockfile input and observed total when the aggregate is oversized", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      mkdirSync(source);
+      mkdirSync(target);
+      writeFileSync(join(source, "pnpm-workspace.yaml"), "packages: []\n");
+      const packagePaths = ["one.json", "two.json", "three.json", "four.json"];
+      for (const path of packagePaths) {
+        writeFileSync(
+          join(source, path),
+          `${" ".repeat(MAX_LOCKFILE_INPUT_FILE_BYTES - 5)}{}`,
+        );
+      }
+
+      await assert.rejects(
+        () =>
+          prepareLockfileWorkspace(
+            source,
+            target,
+            listedFilesGit(["pnpm-workspace.yaml", ...packagePaths]),
+          ),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes("four.json") &&
+          error.message.includes("offending file 524285 bytes") &&
+          error.message.includes("accumulated 1572868 bytes") &&
+          error.message.includes(
+            `aggregate limit ${MAX_LOCKFILE_INPUT_TOTAL_BYTES} bytes`,
+          ) &&
+          error.message.includes(
+            `resulting total ${MAX_LOCKFILE_INPUT_TOTAL_BYTES + 1} bytes`,
+          ),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports observed and configured file counts for oversized lockfile inputs", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      mkdirSync(source);
+      mkdirSync(target);
+      const paths = Array.from(
+        { length: MAX_LOCKFILE_INPUT_FILES + 1 },
+        (_, index) => `package-${index}.json`,
+      );
+
+      await assert.rejects(
+        () => prepareLockfileWorkspace(source, target, listedFilesGit(paths)),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "WORKSPACE_LIMIT_EXCEEDED" &&
+          error.message.includes(
+            `observed ${MAX_LOCKFILE_INPUT_FILES + 1} files > ${MAX_LOCKFILE_INPUT_FILES} files`,
+          ),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts conflict-marked generated bundles within the bounded file limit", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const agent = createAgentWorkspace(root, "generated-bundle");
+      mkdirSync(source);
+      const conflictContents = [
+        "<<<<<<< HEAD\n",
+        "a".repeat(432_000),
+        "\n=======\n",
+        "b".repeat(432_000),
+        "\n>>>>>>> incoming\n",
+      ].join("");
+      assert.equal(Buffer.byteLength(conflictContents) > 512 * 1024, true);
+      assert.equal(Buffer.byteLength(conflictContents) < 1024 * 1024, true);
+      mkdirSync(join(source, "dist"));
+      writeFileSync(join(source, "dist", "main.js"), conflictContents);
+
+      await expect(
+        prepareAgentWorkspace(source, agent, ["dist/main.js"], "run-bundle"),
+      ).resolves.toBeUndefined();
+      assert.equal(
+        readFileSync(join(agent, "dist", "main.js"), "utf8"),
+        conflictContents,
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -289,6 +494,40 @@ describe("workspace boundary", () => {
     }
   });
 
+  it("keeps accumulated integration changes allowed at a later rebase conflict", async () => {
+    const root = fixtureRoot();
+    try {
+      const source = join(root, "source");
+      const target = join(root, "target");
+      const agent = join(root, "agent");
+      mkdirSync(source);
+      mkdirSync(agent);
+      mkdirSync(target);
+      initRepository(target);
+      const workspace = new NodeWorkspaceBoundary({
+        sourceRoot: source,
+        targetRoot: target,
+        agentRoot: agent,
+        baseRevision: "a".repeat(40),
+        headRevision: "b".repeat(40),
+      });
+
+      writeFileSync(join(target, "first-integrated.ts"), "first\n");
+      await workspace.captureIntegrationBaseline();
+      git(target, ["add", "--", "first-integrated.ts"]);
+      git(target, ["commit", "-qm", "first integrated change"]);
+      writeFileSync(join(target, "second-integrated.ts"), "second\n");
+      await workspace.captureIntegrationBaseline();
+      writeFileSync(join(target, "first-integrated.ts"), "first updated\n");
+
+      await expect(
+        workspace.validateTarget([{ path: "later-conflict.ts", stage: 1 }]),
+      ).resolves.toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("adds a later lockfile-only conflict to the cumulative allowlist", async () => {
     const root = fixtureRoot();
     try {
@@ -351,4 +590,17 @@ function readFileIfPresent(path: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function listedFilesGit(paths: readonly string[]): GitCommandPort {
+  return {
+    run: async (args) => ({
+      executable: "git",
+      args,
+      cwd: "/tmp",
+      exitCode: 0,
+      stdout: `${paths.join("\0")}\0`,
+      stderr: "",
+    }),
+  };
 }

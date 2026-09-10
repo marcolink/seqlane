@@ -21,6 +21,8 @@
   },
   "devDependencies": {
     "@seqlane/action-merge-conflict-resolution": "workspace:*",
+    "@seqlane/action-code-review": "workspace:*",
+    "@seqlane/action-service-lifecycle": "workspace:*",
     "@seqlane/core": "workspace:*",
     "@seqlane/runtime": "workspace:*",
     "@nx/esbuild": "catalog:",

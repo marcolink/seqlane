@@ -1,0 +1,53 @@
+name: zvec-grep server
+description: Start a zvec-grep MCP server and stop it automatically after the job
+
+inputs:
+  working-directory:
+    description: Project directory to index and serve with zvec-grep
+    required: true
+  version:
+    description: zvec-grep package version
+    required: false
+    default: "0.2.1"
+  listen:
+    description: zvec-grep listen address
+    required: false
+    default: 127.0.0.1:7999
+  package-manager:
+    description: Package manager used to invoke zvec-grep
+    required: false
+    default: pnpm
+  home:
+    description: zvec-grep home directory
+    required: false
+  embedding:
+    description: zvec-grep embedding model used for indexing
+    required: false
+    default: local/potion-code-16m-v2
+  max-filesize:
+    description: Maximum file size passed to zvec-grep indexing
+    required: false
+    default: 1M
+  glob:
+    description: Optional newline-delimited additional zvec-grep include globs
+    required: false
+  model-cache:
+    description: Whether to use the runner-temp zvec-grep model cache
+    required: false
+    default: "true"
+  startup-timeout-seconds:
+    description: Maximum time to wait for zvec-grep readiness
+    required: false
+    default: "30"
+
+outputs:
+  mcp-url:
+    description: zvec-grep MCP endpoint
+  log-path:
+    description: zvec-grep server log path
+
+runs:
+  using: node24
+  main: dist/main.js
+  post: dist/post.js
+  post-if: always()

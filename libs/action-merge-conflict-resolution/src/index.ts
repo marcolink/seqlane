@@ -1,6 +1,8 @@
 export * from "./contracts.js";
 export * from "./errors.js";
 export * from "./policy.js";
+export * from "./generated-file-policy.js";
+export * from "./generated-file-handler.js";
 export * from "./resolution-state.js";
 export * from "./git-port.js";
 export * from "./git-cli.js";
@@ -17,3 +19,4 @@ export * from "./recording.js";
 export * from "./commit-and-push.js";
 export * from "./resolution-controller.js";
 export * from "./summary.js";
+export * from "./progress.js";

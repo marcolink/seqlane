@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-08
 upstream:
   - adr.dedicated-runner-process
   - adr.executor-neutral-workflow-authoring
@@ -39,6 +39,12 @@ The workflow must not execute pull-request source as trusted Seqlane source.
 The resolver must keep Git operations explicit, testable, and safe for remote
 history updates.
 
+Repositories also need a way to declare how conflicts in generated files are
+mechanically regenerated. That repository-specific policy must be supplied as
+formatted multiline JSON through the trusted workflow's `conflict-handlers`
+Action input. The Action must not discover policy in the pull-request checkout
+or let the model select it.
+
 The implementation belongs in `libs/action-merge-conflict-resolution`. The
 directory must not use the `seqlane-` prefix. The library is specific to the
 merge-conflict resolver and is not a general GitHub Action support package.
@@ -58,6 +64,13 @@ merge-conflict resolver and is not a general GitHub Action support package.
 - Bundle all Action runtime dependencies into `dist/main.js`.
 - Keep Seqlane workflow authoring executor-neutral.
 - Make safety rules testable with real temporary Git repositories.
+- Allow trusted workflow revisions to provide repository-relative generated-file
+  rules in a static JSON `conflict-handlers` input, with nested handler recipes
+  and output-glob allowlists.
+- Keep generated-file handlers mechanical and fail-closed when setup,
+  execution, validation, sandboxing, or staging fails.
+- Isolate handler execution from Action secrets, credentials, and the normal
+  workflow process when target checkout code or configuration is executed.
 
 ## Considered options
 
@@ -148,9 +161,21 @@ The workflow must retain these concerns:
 - the bootstrap data needed before `actions/checkout` can receive a target
   revision.
 
+The workflow also retains the formatted multiline JSON `conflict-handlers`
+input. The versioned policy contains repository-relative `match` and non-empty
+`outputs` globs plus a nested static handler recipe. It is configuration for
+the trusted Action, not workflow shell implementation and not data read from
+the target checkout. The built-in `pnpm-lock.yaml` handler needs no policy rule
+and cannot be overridden.
+
 The library and Action must own all remaining resolver behavior. The Action
-must publish typed outputs and a bounded job summary. The Action must not
-require dependency installation in the consuming workflow.
+must publish typed outputs and a bounded job summary. The Action bundle remains
+self-contained for the resolver itself, but the consuming workflow may
+bootstrap the pinned Node/pnpm toolchain and install trusted-source
+dependencies with a frozen lockfile and lifecycle scripts disabled. Target
+dependency installation is handler-specific and must run only inside the
+isolated handler environment; the normal workflow process must not install or
+execute target dependencies.
 
 The generic Seqlane workflow definition remains separate from this Action
 application. It must not import OpenCode, GitHub, or Action types.
@@ -188,6 +213,21 @@ as runtime dependencies of the resolver.
   belongs to a future OpenCode or tool-download Action. It is not required for
   the resolver's pinned Docker lockfile path.
 
+Generated-file handler commands are supplied by the trusted JSON policy as
+nested structured executable and argument data. They are never interpolated
+shell strings. The resolver validates the policy before any target mutation,
+matches conflicts mechanically, and permits each handler to change only its
+declared output globs. A handler failure has no stage-3 or model fallback and
+fails the resolution attempt.
+
+Because a handler may execute package-manager scripts or build configuration
+from the target checkout, the handler runs in a dedicated unprivileged
+environment with no GitHub token, push token, OpenAI key, credential helper,
+SSH key, or other Action secret. The environment uses a temporary workspace,
+bounded resources, and disabled or explicitly allowlisted network access. The
+target checkout cannot provide or replace the trusted Action bundle or resolver
+source.
+
 Only the selected Action dependencies belong in the committed bundle. The
 resolver library must not import Action context, summary, cache, artifact, or
 tool-cache APIs.
@@ -202,6 +242,9 @@ tool-cache APIs.
 - Seqlane application packages remain independent of Action concerns.
 - The Seqlane workflow remains portable and executor-neutral.
 - The bundle provides one reviewed execution artifact for the Action.
+- Repositories can keep generated-file rules in the trusted workflow's static
+  JSON input while the resolver retains one mechanical execution and
+  validation boundary.
 
 ### Negative
 
@@ -211,12 +254,16 @@ tool-cache APIs.
   Seqlane execution.
 - Some bootstrap values remain in the workflow because checkout happens before
   the Action can inspect the target repository.
+- The trusted workflow revision must maintain the generated-file JSON policy and
+  the pinned toolchain bootstrap. Repository-specific handler recipes add
+  review and sandboxing obligations.
 
 ### Security consequences
 
 - The workflow must load the Action artifact from the trusted workflow
-  revision. The target checkout is data and must never provide executable
-  Action or Seqlane source.
+  revision. The target checkout must never provide executable Action or Seqlane
+  resolver source. A generated-file handler may execute target code or
+  configuration only inside the isolated handler environment.
 - Git commands must use argument arrays and explicit working directories.
 - Push behavior must remain opt-in at the application contract boundary.
 - Rebase pushes must use an exact `--force-with-lease` expectation.
@@ -239,6 +286,13 @@ tool-cache APIs.
 - Keep expected Git conflicts and empty commits as modeled outcomes.
 - Keep the old workflow helper only as a temporary migration shim.
 - Update the Action bundle whenever Action source or library dependencies change.
+- Keep generated-file policy in the trusted workflow's `conflict-handlers`
+  input. Do not load it from the target checkout or permit the model to alter
+  it during resolution.
+- Keep handler `match` and `outputs` values repository-relative globs, and
+  fail closed for invalid, ambiguous, or out-of-allowlist changes.
+- Keep the built-in `pnpm-lock.yaml` regeneration path outside generated-file
+  policy overrides.
 
 ## Revisit conditions
 
@@ -253,3 +307,4 @@ when the conflict resolver becomes a public product package.
 - [adr.autonomous-non-interactive-execution](./2026-09-02-autonomous-non-interactive-execution.md)
 - [adr.local-mechanical-tasks](./2026-09-03-local-mechanical-tasks.md)
 - [task.resolve-pull-request-merge-conflicts](../tasks/2026-09-04-resolve-pull-request-merge-conflicts.md)
+- [task.configure-generated-file-conflict-handlers](../tasks/2026-09-08-configure-generated-file-conflict-handlers.md)

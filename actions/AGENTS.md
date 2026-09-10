@@ -18,6 +18,7 @@ These instructions apply to all projects under `actions/`.
 - Do not require dependency installation in the consuming workflow.
 - Commit generated action bundles.
 - A source change is incomplete until the corresponding bundle has been rebuilt and verified.
+- Before you commit an Action source or build change, rebuild its bundle and run its bundle-drift check.
 - Do not edit bundled files manually.
 
 ## Paths

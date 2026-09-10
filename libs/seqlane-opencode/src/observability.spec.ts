@@ -74,9 +74,9 @@ function spanFactory(idPrefix = "") {
     const id = `${idPrefix}${type}-${spans.length}`;
     const record: SpanRecord = {
       id,
-      type,
       parent,
       ...options,
+      type,
       updates: [],
       ended: false,
     };

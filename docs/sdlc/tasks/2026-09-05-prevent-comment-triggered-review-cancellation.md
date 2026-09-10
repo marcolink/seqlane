@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-08
 upstream:
   - spec.versioned-pull-request-review-comments
 supersedes: []

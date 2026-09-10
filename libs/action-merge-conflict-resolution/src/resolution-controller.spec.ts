@@ -1,6 +1,8 @@
 // @test-scope ./resolution-controller.ts
+// @test-scope ./conflict-resolution-attempt.ts
 // @test-scope ./policy.ts
 // @test-scope ./marker-validation.ts
+// @test-scope ./resolution-flow.ts
 
 import { describe, expect, it } from "vitest";
 
@@ -34,6 +36,26 @@ function metadata() {
   };
 }
 
+function prepareAgentRequest(conflicts: ConflictSet, prepared: unknown[]) {
+  const paths = conflicts.map(({ path }) => path);
+  prepared.push(paths);
+  return {
+    paths,
+    baseRevision: revision("c"),
+    headRevision: revision("b"),
+  };
+}
+
+function generatedHandlerRecorder(generated: unknown[]) {
+  return async (
+    rule: Parameters<ResolveMergeConflictsPorts["generatedFiles"]["run"]>[0],
+    conflicts: ConflictSet,
+  ) => {
+    generated.push({ rule, conflicts });
+    return conflicts.map(({ path }) => path);
+  };
+}
+
 function ports(
   integration: Awaited<
     ReturnType<ResolveMergeConflictsPorts["git"]["integrate"]>
@@ -49,10 +71,12 @@ function ports(
   const summary: unknown[] = [];
   const agent: unknown[] = [];
   const lockfiles: unknown[] = [];
+  const generated: unknown[] = [];
+  const prepared: unknown[] = [];
   const baselines: unknown[] = [];
   const commits: unknown[] = [];
   const pushes: unknown[] = [];
-  const events: string[] = [];
+  const events: unknown[] = [];
   let reads = 0;
   let stateReads = 0;
   const git = {
@@ -71,6 +95,7 @@ function ports(
         rebaseInProgress: false,
         worktreeClean: true,
       },
+    countRebaseCommits: async () => 2,
     integrate: async () => {
       onIntegrate?.();
       return integration;
@@ -107,11 +132,8 @@ function ports(
       captureIntegrationBaseline: async () => {
         baselines.push(true);
       },
-      prepareAgentWorkspace: async (value) => ({
-        paths: value.map(({ path }) => path),
-        baseRevision: revision("c"),
-        headRevision: revision("b"),
-      }),
+      prepareAgentWorkspace: async (value) =>
+        prepareAgentRequest(value, prepared),
       copyAgentEdits: async (paths) => {
         agent.push(paths);
       },
@@ -121,6 +143,9 @@ function ports(
       regenerate: async () => {
         lockfiles.push(true);
       },
+    },
+    generatedFiles: {
+      run: generatedHandlerRecorder(generated),
     },
     agent: {
       start: async () => {
@@ -147,6 +172,7 @@ function ports(
         summary.push({ result: value, report });
       },
     },
+    progress: { write: (event: unknown) => events.push(event) },
     commitAndPush: {
       commit: async () => {
         commits.push(true);
@@ -164,6 +190,8 @@ function ports(
     summary,
     agent,
     lockfiles,
+    generated,
+    prepared,
     baselines,
     commits,
     pushes,
@@ -223,6 +251,98 @@ describe("resolveMergeConflicts", () => {
         attempts: [{ diagnostics: { eventCount: 0, truncated: false } }],
       },
     });
+  });
+
+  it("runs generated handlers mechanically and sends only unmatched conflicts to the agent", async () => {
+    const generatedConflict = {
+      path: "actions/example/dist/main.js",
+      stage: 1 as const,
+    };
+    const sourceConflict = { path: "src/file.ts", stage: 1 as const };
+    const fake = ports(
+      {
+        kind: "conflicted",
+        operation: "merge",
+        headBefore: revision("b"),
+        targetRevision: revision("c"),
+        conflicts: [generatedConflict, sourceConflict],
+      },
+      [[generatedConflict, sourceConflict], []],
+    );
+
+    await expect(
+      resolveMergeConflicts(
+        {
+          ...request(),
+          conflictHandlers: {
+            version: 1,
+            rules: [
+              {
+                match: "actions/*/dist/*.js",
+                outputs: ["actions/*/dist/*.js"],
+                handler: { command: ["pnpm", "build"] },
+              },
+            ],
+          },
+        },
+        fake.value,
+      ),
+    ).resolves.toMatchObject({ kind: "resolved", attempts: 1 });
+    expect(fake.generated).toEqual([
+      {
+        rule: expect.objectContaining({ match: "actions/*/dist/*.js" }),
+        conflicts: [generatedConflict],
+      },
+    ]);
+    expect(fake.prepared).toEqual([["src/file.ts"]]);
+    expect(fake.agent[1]).toEqual(["src/file.ts"]);
+  });
+
+  it("does not start the agent when a generated handler fails", async () => {
+    const generatedConflict = {
+      path: "actions/example/dist/main.js",
+      stage: 1 as const,
+    };
+    const sourceConflict = { path: "src/file.ts", stage: 1 as const };
+    const fake = ports(
+      {
+        kind: "conflicted",
+        operation: "merge",
+        headBefore: revision("b"),
+        targetRevision: revision("c"),
+        conflicts: [generatedConflict, sourceConflict],
+      },
+      [[generatedConflict, sourceConflict]],
+    );
+    fake.value.generatedFiles.run = async () => {
+      throw new Error("generated handler failed");
+    };
+
+    await expect(
+      resolveMergeConflicts(
+        {
+          ...request(),
+          conflictHandlers: {
+            version: 1,
+            rules: [
+              {
+                match: "actions/*/dist/*.js",
+                outputs: ["actions/*/dist/*.js"],
+                handler: { command: ["pnpm", "build"] },
+              },
+            ],
+          },
+        },
+        fake.value,
+      ),
+    ).resolves.toMatchObject({
+      kind: "error",
+      error: { category: "operational", code: "OPERATION_FAILED" },
+    });
+    expect(fake.events).not.toContain("agent-start");
+    expect(fake.prepared).toEqual([]);
+    expect(fake.agent).toEqual([]);
+    expect(fake.lockfiles).toEqual([]);
   });
 
   it("returns a typed attempt-limit failure", async () => {
@@ -307,7 +427,9 @@ describe("resolveMergeConflicts", () => {
     fake.value.agent.stop = async () => {
       stops += 1;
     };
-    fake.value.git.readRebaseConflictCommit = async () => {
+    (
+      fake.value.git as { readRebaseConflictCommit?: () => Promise<unknown> }
+    ).readRebaseConflictCommit = async () => {
       commitReads += 1;
       return {
         sha: revision(commitReads === 1 ? "d" : "e"),
@@ -319,6 +441,7 @@ describe("resolveMergeConflicts", () => {
       resolveMergeConflicts(request("rebase"), fake.value),
     ).resolves.toMatchObject({ kind: "resolved", attempts: 2 });
     expect(fake.agent).toHaveLength(4);
+    expect(fake.baselines).toEqual([true, true]);
     expect(starts).toBe(1);
     expect(stops).toBe(1);
     expect(fake.summary[0]).toMatchObject({
@@ -341,6 +464,47 @@ describe("resolveMergeConflicts", () => {
       (fake.summary[0] as { report: { attempts: Array<{ commit?: unknown }> } })
         .report.attempts[0]?.commit,
     ).not.toHaveProperty("rewrittenSha");
+    expect(fake.events.filter((event) => typeof event === "object")).toEqual([
+      {
+        kind: "started",
+        strategy: "rebase",
+        maxAttempts: 2,
+        commitsToReplay: 2,
+      },
+      {
+        kind: "conflict-stop",
+        strategy: "rebase",
+        conflictStops: 1,
+      },
+      {
+        kind: "attempt-started",
+        strategy: "rebase",
+        attempt: 1,
+        maxAttempts: 2,
+        conflictStops: 1,
+        commit: { sha: revision("d"), subject: "Empty commit" },
+      },
+      {
+        kind: "conflict-stop",
+        strategy: "rebase",
+        conflictStops: 2,
+      },
+      {
+        kind: "attempt-started",
+        strategy: "rebase",
+        attempt: 2,
+        maxAttempts: 2,
+        conflictStops: 2,
+        commit: { sha: revision("e"), subject: "Second commit" },
+      },
+      {
+        kind: "completed",
+        result: "updated",
+        attempts: 2,
+        conflictStops: 2,
+        pushed: false,
+      },
+    ]);
   });
 
   it("does not report the final rebase head as the rewritten conflict commit", async () => {
@@ -355,7 +519,9 @@ describe("resolveMergeConflicts", () => {
       },
       [conflict, []],
     );
-    fake.value.git.readRebaseConflictCommit = async () => ({
+    (
+      fake.value.git as { readRebaseConflictCommit?: () => Promise<unknown> }
+    ).readRebaseConflictCommit = async () => ({
       sha: revision("d"),
       subject: "Resolve parser conflict",
     });
@@ -435,5 +601,25 @@ describe("resolveMergeConflicts", () => {
     expect(fake.events.indexOf("agent-stop")).toBeLessThan(
       fake.events.indexOf("before-push"),
     );
+    expect(fake.events.filter((event) => typeof event === "object")).toEqual([
+      { kind: "started", strategy: "merge", maxAttempts: 2 },
+      { kind: "conflict-stop", strategy: "merge", conflictStops: 1 },
+      {
+        kind: "attempt-started",
+        strategy: "merge",
+        attempt: 1,
+        maxAttempts: 2,
+        conflictStops: 1,
+      },
+      { kind: "push-started" },
+      { kind: "push-completed" },
+      {
+        kind: "completed",
+        result: "updated",
+        attempts: 1,
+        conflictStops: 1,
+        pushed: true,
+      },
+    ]);
   });
 });

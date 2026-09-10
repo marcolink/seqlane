@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-08
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []

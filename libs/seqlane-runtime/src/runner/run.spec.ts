@@ -1,5 +1,6 @@
 // @test-scope ./run.ts
 // @test-scope ./main.ts
+// @test-scope ../runtime/plan/agent-work.ts
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";

@@ -34,6 +34,14 @@ type. Use `sdlc-impact` when the change requires a new impact assessment.
   section.
 - Add links to relevant commits or pull requests in the task's Outcome or
   Traceability section when available.
+- Separate document lifecycle state from implementation delivery state. A
+  completed task records the completed document claim and required work. It
+  does not prove delivery on the current target branch.
+- For delivery claims, inspect the current target-branch source, tests, and
+  configuration. Require a reachable commit or a merged pull request whose
+  resulting commit is reachable from that target branch. Treat local branches,
+  disconnected worktrees, index rows, statuses, labels, and unreachable
+  merged-PR reports as supporting context only.
 - Set `updated` to the current date for changed documents. Preserve `created`
   and the filename date.
 - Update type indexes with `pnpm docs:index`.
@@ -44,7 +52,7 @@ type. Use `sdlc-impact` when the change requires a new impact assessment.
 
 Accepted or superseded ADRs are historical records. Do not rewrite them to
 match implementation details. Create a replacement ADR when the decision
-changes.
+changes. Keep ADR lifecycle state separate from implementation delivery state.
 
 ## Verification
 

@@ -1,5 +1,6 @@
 import type {
   JsonValue,
+  BuiltWorkflow,
   Plan,
   SeqlaneSchema,
   TaskDefinitionRegistry,
@@ -58,7 +59,10 @@ export interface LoadedWorkflow {
   readonly plan: Plan;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
+  readonly built: BuiltWorkflow;
 }
+
+const passthroughSchema = z.unknown();
 
 function describeReference(reference: WorkflowReference): string {
   return `${reference.moduleSpecifier}#${reference.exportName}`;
@@ -84,19 +88,36 @@ export async function loadWorkflow(
   let workflow: Plan | WorkflowPlanFactory | WorkflowDefinition;
   let taskDefinitions: TaskDefinitionRegistry | undefined;
   let validatorDefinitions: ValidatorDefinitionRegistry | undefined;
+  let built: BuiltWorkflow;
 
   const workflowDefinition = workflowDefinitionSchema.safeParse(exported);
   if (workflowDefinition.success) {
-    const built = buildWorkflow(workflowDefinition.data);
+    const workflowBuilt = buildWorkflow(workflowDefinition.data);
+    built = workflowBuilt;
     workflow = workflowDefinition.data;
-    plan = built.plan;
-    taskDefinitions = built.taskDefinitions;
-    validatorDefinitions = built.validatorDefinitions;
+    plan = workflowBuilt.plan;
+    taskDefinitions = workflowBuilt.taskDefinitions;
+    validatorDefinitions = workflowBuilt.validatorDefinitions;
   } else {
     const workflowFactory = workflowPlanFactorySchema.safeParse(exported);
     if (workflowFactory.success) {
       workflow = workflowFactory.data;
       plan = workflowFactory.data(input);
+      built = {
+        workflow: {
+          id: reference.id,
+          input: passthroughSchema,
+          output: passthroughSchema,
+          build: () => {
+            throw new Error(
+              "Legacy Plans cannot be rebuilt as workflow definitions",
+            );
+          },
+        },
+        plan,
+        taskDefinitions: new Map(),
+        validatorDefinitions: new Map(),
+      };
     } else {
       const exportedPlan = planSchema.safeParse(exported);
       if (!exportedPlan.success) {
@@ -106,6 +127,21 @@ export async function loadWorkflow(
       }
       workflow = exportedPlan.data;
       plan = exportedPlan.data;
+      built = {
+        workflow: {
+          id: reference.id,
+          input: passthroughSchema,
+          output: passthroughSchema,
+          build: () => {
+            throw new Error(
+              "Legacy Plans cannot be rebuilt as workflow definitions",
+            );
+          },
+        },
+        plan,
+        taskDefinitions: new Map(),
+        validatorDefinitions: new Map(),
+      };
     }
   }
 
@@ -128,5 +164,6 @@ export async function loadWorkflow(
     plan,
     taskDefinitions,
     validatorDefinitions,
+    built,
   };
 }

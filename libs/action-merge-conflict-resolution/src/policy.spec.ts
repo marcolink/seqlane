@@ -47,6 +47,7 @@ describe("action merge-conflict policies", () => {
       commit: true,
       push: false,
       maxAttempts: 3,
+      conflictHandlers: { version: 1, rules: [] },
     });
   });
 
@@ -96,7 +97,11 @@ describe("action merge-conflict policies", () => {
   });
 
   it("classifies lockfile conflicts separately, including an empty set", () => {
-    expect(classifyConflicts([])).toEqual({ agent: [], lockfile: [] });
+    expect(classifyConflicts([])).toEqual({
+      agent: [],
+      generated: [],
+      lockfile: [],
+    });
     expect(
       classifyConflicts([
         { path: "src/index.ts", stage: 2 },
@@ -104,6 +109,7 @@ describe("action merge-conflict policies", () => {
       ]),
     ).toEqual({
       agent: [{ path: "src/index.ts", stage: 2 }],
+      generated: [],
       lockfile: [{ path: "pnpm-lock.yaml", stage: 1 }],
     });
     expect(() =>
@@ -114,6 +120,54 @@ describe("action merge-conflict policies", () => {
         })),
       ),
     ).toThrowError(expect.objectContaining({ code: "CONFLICT_SET_REQUIRED" }));
+  });
+
+  it("classifies policy-matched generated conflicts and excludes them from the agent", () => {
+    const policy = {
+      version: 1 as const,
+      rules: [
+        {
+          match: "actions/*/dist/*.js",
+          outputs: ["actions/*/dist/*.js"],
+          handler: { command: ["pnpm", "build"] },
+        },
+      ],
+    };
+    expect(
+      classifyConflicts(
+        [
+          { path: "actions/example/dist/main.js", stage: 2 },
+          { path: "src/index.ts", stage: 3 },
+        ],
+        policy,
+      ),
+    ).toEqual({
+      agent: [{ path: "src/index.ts", stage: 3 }],
+      generated: [
+        {
+          rule: policy.rules[0],
+          conflicts: [{ path: "actions/example/dist/main.js", stage: 2 }],
+        },
+      ],
+      lockfile: [],
+    });
+  });
+
+  it("rejects policy rules that attempt to replace the built-in lockfile handler", () => {
+    expect(() =>
+      classifyConflicts([{ path: "pnpm-lock.yaml", stage: 1 }], {
+        version: 1,
+        rules: [
+          {
+            match: "pnpm-lock.yaml",
+            outputs: ["pnpm-lock.yaml"],
+            handler: { command: ["pnpm", "install"] },
+          },
+        ],
+      }),
+    ).toThrowError(
+      expect.objectContaining({ code: "CONFLICT_HANDLERS_INVALID" }),
+    );
   });
 
   it("enforces the default attempt limit and reports a stable failure", () => {

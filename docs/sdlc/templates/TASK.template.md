@@ -22,4 +22,5 @@ supersedes: []
 ## Verification
 ## Completion criteria
 ## Outcome
+## Delivery state
 ## Traceability

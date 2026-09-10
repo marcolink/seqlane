@@ -14,6 +14,8 @@
 - Keep Mastra types behind the integration boundary. They must not leak into public DSL types, serialized definitions, executor-independent contracts, or stable CLI results.
 - Read [prd.seqlane-on-mastra](docs/sdlc/prd/2026-09-03-seqlane-on-mastra.md) and [rfc.mastra-runtime-and-operational-foundation](docs/sdlc/rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md) before changing runtime boundaries.
 - For SDLC documents, follow [the SDLC agent instructions](docs/sdlc/AGENTS.md).
+- Treat SDLC lifecycle states as document metadata, not as proof that code is delivered. An accepted ADR records a decision. An active spec defines a contract. A completed task records a historical document claim. None of these states alone proves implementation on the current target branch.
+- For delivery claims, inspect the current target-branch source, tests, and configuration. Require a reachable delivery commit or a merged pull request whose result is reachable from that target branch. Do not use a local branch, disconnected worktree, task or spec status, index row, or pull-request label as sole evidence.
 - Use pnpm and keep `pnpm-lock.yaml` synchronized.
 - Breaking changes are allowed in this phase. Preserve observable behavior unless a behavior change is intentional, documented, and tested.
 

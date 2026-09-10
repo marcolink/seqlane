@@ -48,6 +48,12 @@ product requirements or an active spec.
 - Add stable requirement or decision keys when downstream references are
   expected. Use keys such as `requirement-reusable-tasks` or
   `decision-private-runtime` and link downstream references to their headings.
+- Keep lifecycle status separate from implementation delivery state. Add an
+  Outcome or Delivery state section when the document records implementation
+  work or delivery evidence.
+- Do not claim delivery from document status alone. Inspect current
+  target-branch source, tests, and configuration. Require a reachable commit
+  or a merged pull request whose result is reachable from that branch.
 
 ## Supersession
 
@@ -71,4 +77,4 @@ pnpm docs:validate
 ```
 
 Report the selected type, stable ID, upstream links, supersession decision,
-and validation result.
+delivery evidence or gaps, and validation result.
