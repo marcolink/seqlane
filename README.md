@@ -32,6 +32,32 @@ pnpm add @seqlane/core zod
 pnpm add --save-dev seqlane
 ```
 
+## Repository development
+
+Install dependencies and enable the native hooks in each worktree:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm hooks:install
+```
+
+`pnpm hooks:install` enables the versioned native Git hooks for the current
+worktree. The pre-commit hook runs staged formatting and lint checks. The
+pre-push hook requires a clean worktree and runs the affected repository checks
+against the merge-base with `origin/main`. Install dependencies separately in
+each worktree; do not share `node_modules` between worktrees. It validates one
+branch update at a time; tag-only or multi-ref pushes can use `--no-verify`.
+
+To run the pre-push checks without pushing:
+
+```sh
+pnpm verify:push
+```
+
+Pull requests run the same affected quality gates in GitHub Actions, plus
+affected builds, workflow validation, Action bundle-drift checks, and a single
+`Merge gate` check suitable for branch protection.
+
 ### Author a workflow
 
 Create `workflow.ts`:

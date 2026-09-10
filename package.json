@@ -13,8 +13,12 @@
     "format:check": "pnpm exec nx format:check --all",
     "lint": "pnpm exec nx run-many -t lint",
     "models:update": "node scripts/update-models-catalog.mjs",
-    "test": "pnpm run test:mapping && pnpm run test:workflow-helper && pnpm exec nx run-many -t test",
+    "hooks:install": "node scripts/install-githooks.mjs",
+    "verify:staged": "node scripts/verify-staged.mjs",
+    "verify:push": "node scripts/verify-push.mjs",
+    "test": "pnpm run test:mapping && pnpm run test:tooling && pnpm run test:workflow-helper && pnpm exec nx run-many -t test",
     "test:mapping": "node scripts/check-test-mapping.mjs",
+    "test:tooling": "node --test scripts/verify-staged.test.mjs scripts/verify-push.test.mjs",
     "test:workflow-helper": "pnpm exec tsc --build libs/action-merge-conflict-resolution/tsconfig.json && node --experimental-strip-types --test scripts/resolve-merge-conflicts-workflow.test.ts",
     "typecheck": "pnpm exec tsc --build && pnpm run typecheck:specs",
     "typecheck:specs": "pnpm exec tsc --noEmit --project tsconfig.spec.json"

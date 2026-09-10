@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      - name: Test local verification tooling
+        run: pnpm test:tooling
+
       - name: Check test mappings
         run: pnpm test:mapping
 

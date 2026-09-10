@@ -23,3 +23,32 @@ jobs:
   unit-tests:
     name: Unit tests
     uses: ./.github/workflows/unit-tests.yml
+
+  build:
+    name: Build
+    uses: ./.github/workflows/build.yml
+
+  actionlint:
+    name: Actionlint
+    uses: ./.github/workflows/actionlint.yml
+
+  bundle-drift:
+    name: Action bundle drift
+    uses: ./.github/workflows/bundle-drift.yml
+
+  merge-gate:
+    name: Merge gate
+    if: ${{ always() }}
+    needs: [lint, unit-tests, build, actionlint, bundle-drift]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all CI gates to pass
+        if: >-
+          ${{
+            needs.lint.result != 'success' ||
+            needs.unit-tests.result != 'success' ||
+            needs.build.result != 'success' ||
+            needs.actionlint.result != 'success' ||
+            needs.bundle-drift.result != 'success'
+          }}
+        run: exit 1
