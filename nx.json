@@ -23,11 +23,6 @@
       "{workspaceRoot}/scripts/scoped-github-summary.ts"
     ]
   },
-  "pluginsConfig": {
-    "@nx/js": {
-      "projectsAffectedByDependencyUpdates": "auto"
-    }
-  },
   "plugins": [
     {
       "plugin": "@nx/js/typescript",

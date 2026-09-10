@@ -2,6 +2,12 @@ name: Unit tests
 
 on:
   workflow_call:
+    inputs:
+      ripwire_relevant:
+        description: Whether the Ripwire smoke test is relevant.
+        required: false
+        default: "true"
+        type: string
   workflow_dispatch:
 
 permissions:
@@ -51,6 +57,7 @@ jobs:
 
   ripwire-smoke:
     name: Ripwire server smoke test
+    if: inputs.ripwire_relevant != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

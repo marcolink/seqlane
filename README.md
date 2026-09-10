@@ -58,8 +58,9 @@ pnpm verify:push
 ```
 
 Pull requests run the same affected quality gates in GitHub Actions, plus
-affected builds, workflow validation, Action bundle-drift checks, and a single
-`Merge gate` check suitable for branch protection.
+affected builds, workflow validation, lightweight Action bundle verification,
+and a single `Merge gate` check suitable for branch protection. Full Action
+bundle-drift comparison and the Ripwire smoke test run only for relevant paths.
 
 ### Author a workflow
 
