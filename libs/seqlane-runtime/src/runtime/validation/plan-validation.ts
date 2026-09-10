@@ -978,7 +978,7 @@ export function validatePlan(
   plan: Plan,
   taskDefinitions?: TaskDefinitionRegistry,
   validateDefinitions = taskDefinitions !== undefined,
-): void {
+): Plan {
   const parsed = planSchema.safeParse(plan);
   if (!parsed.success) {
     if (isSemanticallyTraversablePlan(plan)) {
@@ -988,7 +988,7 @@ export function validatePlan(
         validateDefinitions,
         parsed.error.issues,
       );
-      return;
+      return plan;
     }
 
     throw new PlanValidationError(
@@ -1004,4 +1004,5 @@ export function validatePlan(
     taskDefinitions,
     validateDefinitions,
   );
+  return parsed.data;
 }

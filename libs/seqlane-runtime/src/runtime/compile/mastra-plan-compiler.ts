@@ -23,7 +23,7 @@ import {
   WORKFLOW_INPUT_NODE_ID,
 } from "../plan/binding-resolution.js";
 import { getTaskSchema, type TaskSchemaRegistry } from "../plan/task-schema.js";
-import { orderPlanNodes } from "../plan/plan-ordering.js";
+import { orderParsedPlanNodes } from "../plan/plan-ordering.js";
 import { validatePlan } from "../validation/plan-validation.js";
 import { assertDefinitionRegistries } from "./compile-plan.js";
 import {
@@ -434,22 +434,20 @@ export function compilePlanToMastra(
     options.taskDefinitions,
     options.validatorDefinitions,
   );
-  assertMastraSupportedPlan(plan);
-  validatePlan(plan, options.taskDefinitions);
-  assertValidationRegistries(plan, options);
+  const parsedPlan = validatePlan(plan, options.taskDefinitions);
+  assertMastraSupportedPlan(parsedPlan);
+  assertValidationRegistries(parsedPlan, options);
   const orderedNodes = lowerWorkspaceOrdering(
-    lowerReuseSessionOrdering(
-      orderPlanNodes(plan, true, options.taskDefinitions),
-    ),
+    lowerReuseSessionOrdering(orderParsedPlanNodes(parsedPlan)),
     options.workspaceResources,
   );
-  const loweredPlan = withLoweredPlanNodes(plan, orderedNodes);
+  const loweredPlan = withLoweredPlanNodes(parsedPlan, orderedNodes);
   const invocationIds = new Map<PlanNodeId, InvocationId>();
   for (const node of orderedNodes) {
     invocationIds.set(
       node.nodeId,
       options.createInvocationId?.(node.nodeId) ??
-        `${plan.workflow.id}:${node.nodeId}`,
+        `${parsedPlan.workflow.id}:${node.nodeId}`,
     );
   }
   const invocationSteps = orderedNodes.map((node) => {
@@ -471,13 +469,13 @@ export function compilePlanToMastra(
   const workflowInputSchema = schemaForWorkflowMastra(
     options.workflowInputSchema ?? options.workflow?.input,
     "input",
-    plan.workflow.id,
+    parsedPlan.workflow.id,
     options,
   );
   const workflowOutputSchema = schemaForWorkflowMastra(
     options.workflowOutputSchema ?? options.workflow?.output,
     "output",
-    plan.workflow.id,
+    parsedPlan.workflow.id,
     options,
   );
   const resultStep = createStep({
@@ -488,7 +486,7 @@ export function compilePlanToMastra(
     metadata: {
       seqlane: {
         kind: "workflow-output",
-        binding: plan.output,
+        binding: parsedPlan.output,
         dependsOn: [...orderedNodes.map(({ nodeId }) => nodeId)],
       },
     },
@@ -499,7 +497,11 @@ export function compilePlanToMastra(
         for (const node of orderedNodes) {
           results.set(node.nodeId, getStepResult(node.nodeId));
         }
-        const output = resolveBinding(plan.output, workflowInput, results);
+        const output = resolveBinding(
+          parsedPlan.output,
+          workflowInput,
+          results,
+        );
         const parsedOutput =
           options.workflow?.output?.parse(output) ??
           options.workflowOutputSchema?.parse(output) ??
@@ -514,7 +516,12 @@ export function compilePlanToMastra(
         const error =
           cause instanceof SeqlaneError
             ? cause
-            : reportWorkflowFailure(cause, "output", plan.workflow.id, options);
+            : reportWorkflowFailure(
+                cause,
+                "output",
+                parsedPlan.workflow.id,
+                options,
+              );
         options.onWorkflowComplete?.({
           workId: resourceId ?? options.workId ?? "unknown-work",
           runId,
@@ -526,8 +533,8 @@ export function compilePlanToMastra(
   });
 
   let workflow: AnyWorkflow = createWorkflow({
-    id: plan.workflow.id,
-    description: `Runs Seqlane workflow ${plan.workflow.id}.`,
+    id: parsedPlan.workflow.id,
+    description: `Runs Seqlane workflow ${parsedPlan.workflow.id}.`,
     inputSchema: workflowInputSchema,
     outputSchema: workflowOutputSchema,
   }) as AnyWorkflow;
@@ -548,7 +555,7 @@ export function compilePlanToMastra(
   workflow = workflow.then(resultStep);
 
   return {
-    key: plan.workflow.id,
+    key: parsedPlan.workflow.id,
     plan: loweredPlan,
     orderedNodes,
     invocationSteps,

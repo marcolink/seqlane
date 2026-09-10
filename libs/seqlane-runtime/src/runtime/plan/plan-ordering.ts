@@ -67,13 +67,7 @@ export function orderRepeatBodyNodes(
   return orderedNodes;
 }
 
-export function orderPlanNodes(
-  plan: Plan,
-  validateDefinitions = true,
-  taskDefinitions?: TaskDefinitionRegistry,
-): readonly PlanNode[] {
-  validatePlan(plan, taskDefinitions, validateDefinitions);
-
+export function orderParsedPlanNodes(plan: Plan): readonly PlanNode[] {
   const dependents = new Map<string, PlanNode[]>();
   const remainingDependencies = new Map<string, number>();
 
@@ -112,4 +106,14 @@ export function orderPlanNodes(
   }
 
   return orderedNodes;
+}
+
+export function orderPlanNodes(
+  plan: Plan,
+  validateDefinitions = true,
+  taskDefinitions?: TaskDefinitionRegistry,
+): readonly PlanNode[] {
+  return orderParsedPlanNodes(
+    validatePlan(plan, taskDefinitions, validateDefinitions),
+  );
 }
