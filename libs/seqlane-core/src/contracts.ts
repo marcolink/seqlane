@@ -175,36 +175,49 @@ export type TaskDefinitionRegistry = ReadonlyMap<
   TaskDefinition<unknown, unknown>
 >;
 
-export interface WorkflowBuildContext<Input = unknown> {
-  readonly input: ValueRef<Input>;
-  readonly run: {
-    <
-      TaskInput,
-      TaskOutput,
-      Options extends TaskInvocationOptions<TaskInput, TaskOutput>,
-    >(
-      task: TaskDefinition<TaskInput, TaskOutput>,
-      options: Options,
-    ): TaskInvocation<TaskOutput, Options["session"]>;
-  };
-  readonly validate: <Candidate>(
-    validator: Validator<Candidate>,
-    options: ValidationInvocationOptions<Candidate>,
-  ) => ValidationInvocation<Candidate>;
-  readonly repeat: <State>(
-    options: RepeatBuildOptions<State>,
-  ) => MechanicalTaskRef<State>;
-}
-
-export type WorkflowBuilder<Input = unknown, Output = unknown> = (
-  context: WorkflowBuildContext<Input>,
-) => InputBinding<Output>;
+/** Canonical runtime schemas for definition registries crossing boundaries. */
+export const taskDefinitionRegistrySchema = z
+  .map(z.string().min(1), taskDefinitionSchema)
+  .pipe(
+    z.custom<Map<string, z.output<typeof taskDefinitionSchema>>>(
+      (value): value is Map<string, z.output<typeof taskDefinitionSchema>> =>
+        value instanceof Map &&
+        [...value.entries()].every(([id, definition]) => id === definition.id),
+      "Registry keys must match task definition IDs",
+    ),
+  );
+export const validatorDefinitionSchema = z.looseObject({
+  id: z.string().min(1),
+  input: z.custom<z.ZodType>((value) => value instanceof z.ZodType),
+  validate: z.custom((value) => typeof value === "function"),
+});
+export const validatorDefinitionRegistrySchema = z
+  .map(z.string().min(1), validatorDefinitionSchema)
+  .pipe(
+    z.custom<Map<string, z.output<typeof validatorDefinitionSchema>>>(
+      (
+        value,
+      ): value is Map<string, z.output<typeof validatorDefinitionSchema>> =>
+        value instanceof Map &&
+        [...value.entries()].every(([id, definition]) => id === definition.id),
+      "Registry keys must match validator definition IDs",
+    ),
+  );
 
 export interface WorkflowDefinition<Input = unknown, Output = unknown> {
   readonly id: string;
   readonly input: SeqlaneSchema<Input>;
   readonly output: SeqlaneSchema<Output>;
-  readonly build: WorkflowBuilder<Input, Output>;
+}
+
+declare const authoredWorkflowBrand: unique symbol;
+
+/** Workflow definition produced by the fluent authoring API. */
+export interface AuthoredWorkflow<
+  Input = unknown,
+  Output = unknown,
+> extends WorkflowDefinition<Input, Output> {
+  readonly [authoredWorkflowBrand]: true;
 }
 
 export type FlowHandle<
@@ -284,7 +297,7 @@ export interface FlowBuilder<Input, Output, Handles> {
 }
 
 export interface CompletedFlow<Input, Output> {
-  define(): WorkflowDefinition<Input, Output>;
+  define(): AuthoredWorkflow<Input, Output>;
 }
 
 export interface CreateFlowOptions<Input, Output> {

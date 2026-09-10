@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { valueRefSchema } from "./bindings.js";
 
 describe("valueRefSchema", () => {
-  it("accepts references with additional authoring properties", () => {
+  it("rejects references with additional properties", () => {
     expect(
       valueRefSchema.safeParse({
         type: "ref",
@@ -10,7 +10,7 @@ describe("valueRefSchema", () => {
         path: ["output"],
         label: "result",
       }).success,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("rejects malformed reference paths", () => {

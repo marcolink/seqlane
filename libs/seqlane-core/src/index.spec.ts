@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  definePlan,
   defineAgentTask,
   defineShellTask,
   defineTask,
-  defineWorkflow,
   createFlow,
   createValueRef,
   createWorkflowInputRef,
-  buildPlan,
   buildWorkflow,
   type TaskDefinition,
   type InputBinding,
@@ -21,6 +18,18 @@ import {
   reuse,
 } from "./index.js";
 import { z } from "zod";
+
+// @ts-expect-error Legacy callback authoring context is internal.
+type PublicWorkflowBuildContext = import("./index.js").WorkflowBuildContext;
+// @ts-expect-error Legacy callback authoring builder is internal.
+type PublicWorkflowBuilder = import("./index.js").WorkflowBuilder;
+
+function useType<T>(): T | undefined {
+  return undefined;
+}
+
+useType<PublicWorkflowBuildContext>();
+useType<PublicWorkflowBuilder>();
 
 const schema = <T>() => z.custom<T>(() => true);
 
@@ -99,29 +108,22 @@ describe("seqlane core", () => {
     }).toThrow("defineShellTask does not accept output");
   });
 
-  it("rejects local task session options statically", () => {
+  it("supports session options on local task invocations", () => {
     const local = defineTask({
       id: "local-session-options",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       execute: async () => ({}),
     });
-    const flow = createFlow({
+    const workflow = createFlow({
       id: "local-session-options-flow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
-    });
-
-    flow.task("local", local, () => ({}), { session: isolated() });
-
-    defineWorkflow({
-      id: "local-session-options-workflow",
-      input: schema<Record<never, never>>(),
-      output: schema<Record<never, never>>(),
-      build: ({ input, run }) => {
-        return run(local, { input, session: isolated() }).output;
-      },
-    });
+    })
+      .task("local", local, () => ({}), { session: isolated() })
+      .output(({ tasks }) => tasks.local.output)
+      .define();
+    expect(() => buildWorkflow(workflow)).not.toThrow();
   });
 
   it("rejects mixed and missing task behavior at type and runtime boundaries", () => {
@@ -199,30 +201,32 @@ describe("seqlane core", () => {
       output: schema<{ readonly value: string }>(),
       goal: () => "work",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "session-source-workflow",
       input: schema<Record<never, never>>(),
       output: schema<{ readonly value: string }>(),
-      build: ({ input, run, validate }) => {
-        const source = run(task, { input, session: isolated() });
-        const checkpoint: SessionCheckpointRef = source.session;
+    })
+      .task("source", task, ({ input }) => input, { session: isolated() })
+      .validate(
+        "check",
+        {
+          id: "mechanical-validation",
+          input: schema<{ readonly value: string }>(),
+          validate: () => ({ success: true }),
+        },
+        ({ tasks }) => tasks.source.output,
+      )
+      .output(({ tasks }) => {
+        const checkpoint: SessionCheckpointRef = tasks.source.session;
         expect(checkpoint).toMatchObject({
           type: "session-checkpoint",
           nodeId: "session-source:1",
         });
-        const validation = validate(
-          {
-            id: "mechanical-validation",
-            input: schema<{ readonly value: string }>(),
-            validate: () => ({ success: true }),
-          },
-          { input: source.output },
-        );
         // @ts-expect-error Mechanical validation handles do not produce sessions
-        reuse(validation.session);
-        return source.output;
-      },
-    });
+        reuse(tasks.check.session);
+        return tasks.source.output;
+      })
+      .define();
 
     expect(buildWorkflow(workflow).plan.nodes).toHaveLength(3);
   });
@@ -294,26 +298,6 @@ describe("seqlane core", () => {
     },
   );
 
-  it("defines a Mastra-independent static plan", () => {
-    const plan = definePlan({
-      workflow: { id: "example" },
-      nodes: [
-        {
-          type: "task",
-          taskId: "investigate",
-          nodeId: "investigate:1",
-          workspace: "exclusive",
-          dependsOn: [],
-          input: { repository: "seqlane" },
-        },
-      ],
-      output: { type: "ref", nodeId: "investigate:1", path: [] },
-    });
-
-    expect(plan.nodes).toHaveLength(1);
-    expect(plan.nodes[0]?.type).toBe("task");
-  });
-
   it("defines typed tasks and workflows with core-owned contracts", () => {
     interface Input {
       readonly request: string;
@@ -328,15 +312,14 @@ describe("seqlane core", () => {
       output: schema<Output>(),
       goal: ({ request }) => `Investigate ${request}`,
     });
-    const workflow: WorkflowDefinition<Input, Output> = defineWorkflow({
+    const workflow: WorkflowDefinition<Input, Output> = createFlow({
       id: "example",
       input: schema<Input>(),
       output: schema<Output>(),
-      build: ({ input }) => {
-        expect(input.request).toBeDefined();
-        return { files: [] };
-      },
-    });
+    })
+      .task("investigate", task, ({ input }) => input)
+      .output(({ tasks }) => tasks.investigate.output)
+      .define();
 
     expect(task.id).toBe("investigate");
     expect(workflow.id).toBe("example");
@@ -404,20 +387,19 @@ describe("seqlane core", () => {
       output: schema<{ steps: string[] }>(),
       goal: (input) => `Create a plan for ${input.files.join(", ")}`,
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "dataflow",
       input: schema<{ request: string }>(),
       output: schema<{ steps: string[] }>(),
-      build: ({ input, run }) => {
-        const investigation = run(investigate, {
-          input: { request: input.request },
-        });
-        const result = run(planTask, {
-          input: { files: investigation.output.files },
-        });
-        return { steps: result.output.steps };
-      },
-    });
+    })
+      .task("investigate", investigate, ({ input }) => ({
+        request: input.request,
+      }))
+      .task("plan", planTask, ({ tasks }) => ({
+        files: tasks.investigate.output.files,
+      }))
+      .output(({ tasks }) => ({ steps: tasks.plan.output.steps }))
+      .define();
 
     const built = buildWorkflow(workflow);
     executions += built.plan.nodes.length;
@@ -676,18 +658,19 @@ describe("seqlane core", () => {
       output: schema<{ value: string }>(),
       goal: ({ value }) => value,
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "independent",
       input: schema<{ value: string }>(),
       output: schema<{ values: string[] }>(),
-      build: ({ run }) => {
-        const first = run(task, { input: { value: "a" } });
-        const second = run(task, { input: { value: "b" } });
-        return { values: [first.output.value, second.output.value] };
-      },
-    });
+    })
+      .task("first", task, () => ({ value: "a" }))
+      .task("second", task, () => ({ value: "b" }))
+      .output(({ tasks }) => ({
+        values: [tasks.first.output.value, tasks.second.output.value],
+      }))
+      .define();
 
-    expect(buildPlan(workflow).nodes).toMatchObject([
+    expect(buildWorkflow(workflow).plan.nodes).toMatchObject([
       { nodeId: "work:1", dependsOn: [] },
       { nodeId: "work:2", dependsOn: [] },
     ]);

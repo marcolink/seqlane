@@ -6,25 +6,12 @@ import type {
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
   WorkflowDefinition,
+  AuthoredWorkflow,
   WorkflowReference,
 } from "@seqlane/core";
-import { buildWorkflow } from "@seqlane/core";
-import { validatePlan } from "../../runtime/validation/plan-validation.js";
+import { buildWorkflow, isAuthoredWorkflow, planSchema } from "@seqlane/core";
+import { validateParsedPlan } from "../../runtime/validation/plan-validation.js";
 import { z } from "zod";
-
-const planShapeSchema = z.looseObject({
-  workflow: z.looseObject({ id: z.string() }),
-  nodes: z.array(z.unknown()),
-  output: z.unknown(),
-});
-
-const planSchema = z.custom<Plan>(
-  (value) =>
-    planShapeSchema.safeParse(value).success &&
-    typeof value === "object" &&
-    value !== null &&
-    Object.hasOwn(value, "output"),
-);
 
 const seqlaneSchemaShapeSchema = z.looseObject({
   parse: z.custom<SeqlaneSchema["parse"]>(
@@ -36,9 +23,6 @@ const workflowDefinitionShapeSchema = z.looseObject({
   id: z.string(),
   input: seqlaneSchemaShapeSchema,
   output: seqlaneSchemaShapeSchema,
-  build: z.custom<WorkflowDefinition["build"]>(
-    (value) => typeof value === "function",
-  ),
 });
 
 const workflowDefinitionSchema = z.custom<WorkflowDefinition>(
@@ -68,6 +52,21 @@ function describeReference(reference: WorkflowReference): string {
   return `${reference.moduleSpecifier}#${reference.exportName}`;
 }
 
+function parsePlan(value: unknown): Plan | undefined {
+  const parsed = planSchema.safeParse(value);
+  return parsed.success ? (parsed.data as Plan) : undefined;
+}
+
+function requirePlan(value: unknown, reference: WorkflowReference): Plan {
+  const parsed = parsePlan(value);
+  if (parsed === undefined) {
+    throw new Error(
+      `Workflow export "${describeReference(reference)}" must be a valid Plan or Plan factory result`,
+    );
+  }
+  return parsed;
+}
+
 export async function loadWorkflow(
   reference: WorkflowReference,
   input: JsonValue,
@@ -91,8 +90,13 @@ export async function loadWorkflow(
   let built: BuiltWorkflow;
 
   const workflowDefinition = workflowDefinitionSchema.safeParse(exported);
-  if (workflowDefinition.success) {
-    const workflowBuilt = buildWorkflow(workflowDefinition.data);
+  if (
+    workflowDefinition.success &&
+    isAuthoredWorkflow(workflowDefinition.data)
+  ) {
+    const workflowBuilt = buildWorkflow(
+      workflowDefinition.data as AuthoredWorkflow,
+    );
     built = workflowBuilt;
     workflow = workflowDefinition.data;
     plan = workflowBuilt.plan;
@@ -102,41 +106,31 @@ export async function loadWorkflow(
     const workflowFactory = workflowPlanFactorySchema.safeParse(exported);
     if (workflowFactory.success) {
       workflow = workflowFactory.data;
-      plan = workflowFactory.data(input);
+      plan = requirePlan(workflowFactory.data(input), reference);
       built = {
         workflow: {
           id: reference.id,
           input: passthroughSchema,
           output: passthroughSchema,
-          build: () => {
-            throw new Error(
-              "Legacy Plans cannot be rebuilt as workflow definitions",
-            );
-          },
         },
         plan,
         taskDefinitions: new Map(),
         validatorDefinitions: new Map(),
       };
     } else {
-      const exportedPlan = planSchema.safeParse(exported);
-      if (!exportedPlan.success) {
+      const exportedPlan = parsePlan(exported);
+      if (exportedPlan === undefined) {
         throw new Error(
           `Workflow export "${describeReference(reference)}" must be a Plan or a Plan factory`,
         );
       }
-      workflow = exportedPlan.data;
-      plan = exportedPlan.data;
+      workflow = exportedPlan;
+      plan = exportedPlan;
       built = {
         workflow: {
           id: reference.id,
           input: passthroughSchema,
           output: passthroughSchema,
-          build: () => {
-            throw new Error(
-              "Legacy Plans cannot be rebuilt as workflow definitions",
-            );
-          },
         },
         plan,
         taskDefinitions: new Map(),
@@ -145,15 +139,7 @@ export async function loadWorkflow(
     }
   }
 
-  const loadedPlan = planSchema.safeParse(plan);
-  if (!loadedPlan.success) {
-    throw new Error(
-      `Workflow export "${describeReference(reference)}" must be a Plan or a Plan factory`,
-    );
-  }
-  plan = loadedPlan.data;
-
-  validatePlan(plan, taskDefinitions);
+  validateParsedPlan(plan, taskDefinitions);
 
   return {
     reference,

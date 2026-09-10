@@ -6,9 +6,9 @@ import type {
 } from "./contracts.js";
 import { z } from "zod";
 
-export const valueRefSchema = z.looseObject({
+export const valueRefSchema = z.strictObject({
   type: z.literal("ref"),
-  nodeId: z.string(),
+  nodeId: z.string().min(1),
   path: z.array(z.string()),
 });
 
@@ -87,6 +87,23 @@ export interface ValidationInvocation<Output = unknown> {
   /** The structured verdict and evidence. */
   readonly result: ValueRef<ValidationResult>;
 }
+
+export const valueBindingSchema = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    valueRefSchema,
+    z.array(valueBindingSchema),
+    z
+      .record(z.string(), valueBindingSchema)
+      .refine(
+        (value) => value.type !== "ref",
+        "Objects tagged as ValueRefs must satisfy the canonical ValueRef schema",
+      ),
+  ]),
+) as z.ZodType<ValueBinding>;
 
 export type ValueBinding =
   | JsonPrimitive

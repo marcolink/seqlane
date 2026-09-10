@@ -5,6 +5,7 @@ export {
   createValueRef,
   createWorkflowInputRef,
   sessionCheckpointNodeId,
+  valueBindingSchema,
   valueRefSchema,
 } from "./bindings.js";
 export type {
@@ -25,6 +26,7 @@ export * from "./events.js";
 export * from "./json.js";
 export * from "./runner-protocol.js";
 export * from "./workflow-descriptor.js";
+export { isAuthoredWorkflow } from "./workflow-internal.js";
 export { modelSelectionSchema } from "./models/model-ref.js";
 export type {
   ModelRef,

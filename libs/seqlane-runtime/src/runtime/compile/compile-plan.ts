@@ -12,6 +12,10 @@ import type {
   WorkId,
 } from "@seqlane/core";
 import {
+  taskDefinitionRegistrySchema,
+  validatorDefinitionRegistrySchema,
+} from "@seqlane/core";
+import {
   createExecutionContext,
   invocationIdForNode,
   invocationCreationOrdinal,
@@ -19,7 +23,7 @@ import {
 } from "../execution/context.js";
 import { type ExecutorRegistry } from "../execution/executor.js";
 import { resolveBinding } from "../plan/binding-resolution.js";
-import { orderPlanNodes } from "../plan/plan-ordering.js";
+import { orderParsedPlanNodes } from "../plan/plan-ordering.js";
 import { type TaskSchemaRegistry } from "../plan/task-schema.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
 import {
@@ -75,6 +79,19 @@ export interface CompileWorkflowOptions {
   readonly events?: SeqlaneEventSink;
 }
 
+/** Validate definition registries before any runtime lookup can use them. */
+export function assertDefinitionRegistries(
+  taskDefinitions: TaskDefinitionRegistry | undefined,
+  validatorDefinitions: ValidatorDefinitionRegistry | undefined,
+): void {
+  if (taskDefinitions !== undefined) {
+    taskDefinitionRegistrySchema.parse(taskDefinitions);
+  }
+  if (validatorDefinitions !== undefined) {
+    validatorDefinitionRegistrySchema.parse(validatorDefinitions);
+  }
+}
+
 function assertValidationRegistries(
   plan: Plan,
   taskDefinitions: TaskDefinitionRegistry | undefined,
@@ -118,15 +135,13 @@ function computeRemainingConsumers(plan: Plan): Map<string, number> {
 export class PlanCompiler {
   /** Prepare a Plan without constructing a workflow. */
   compile(plan: Plan, taskDefinitions?: TaskDefinitionRegistry): PreparedPlan {
+    assertDefinitionRegistries(taskDefinitions, undefined);
+    const parsedPlan = validatePlan(plan, taskDefinitions);
     return {
-      plan,
+      plan: parsedPlan,
       // Standalone Plan ordering is useful before definitions are loaded.
       // Workflow compilation performs the full definition validation above.
-      orderedNodes: orderPlanNodes(
-        plan,
-        taskDefinitions !== undefined,
-        taskDefinitions,
-      ),
+      orderedNodes: orderParsedPlanNodes(parsedPlan),
     };
   }
 
@@ -138,27 +153,31 @@ export class PlanCompiler {
     plan: Plan,
     options: CompileWorkflowOptions,
   ): PreparedPlanExecution {
-    validatePlan(plan, options.taskDefinitions);
+    assertDefinitionRegistries(
+      options.taskDefinitions,
+      options.validatorDefinitions,
+    );
     const prepared = this.compile(plan, options.taskDefinitions);
+    const parsedPlan = prepared.plan;
     const orderedNodes = lowerWorkspaceOrdering(
       lowerReuseSessionOrdering(prepared.orderedNodes),
       options.workspaceResources,
     );
-    const loweredPlan = withLoweredPlanNodes(plan, orderedNodes);
+    const loweredPlan = withLoweredPlanNodes(parsedPlan, orderedNodes);
     assertValidationRegistries(
-      plan,
+      parsedPlan,
       options.taskDefinitions,
       options.validatorDefinitions,
     );
     const context = createExecutionContext({
-      workId: options.workId ?? `${plan.workflow.id}:work`,
-      runId: options.runId ?? `${plan.workflow.id}:run`,
+      workId: options.workId ?? `${parsedPlan.workflow.id}:work`,
+      runId: options.runId ?? `${parsedPlan.workflow.id}:run`,
       createInvocationId: options.createInvocationId ?? (() => randomUUID()),
       workflowInput: options.workflowInput,
       executors: options.executors,
       sessionResolver: options.sessionResolver,
       workspaceResources: options.workspaceResources,
-      remainingConsumers: computeRemainingConsumers(plan),
+      remainingConsumers: computeRemainingConsumers(parsedPlan),
       taskDefinitions: options.taskDefinitions,
       validatorDefinitions: options.validatorDefinitions,
       taskSchemas: options.taskSchemas,
@@ -185,7 +204,7 @@ export class PlanCompiler {
       context,
     } = this.prepareWorkflow(plan, options);
     const checkNodes = new Map(
-      plan.nodes
+      loweredPlan.nodes
         .flatMap((node) => {
           if (node.type === "repeat") return node.body.nodes;
           return [node];
@@ -255,21 +274,21 @@ export class PlanCompiler {
       execute: async () => {
         try {
           context.workflowResult = resolveBinding(
-            plan.output,
+            loweredPlan.output,
             context.workflowInput,
             context.results,
           );
           consumeBindingReferences(
             context.results,
             context.remainingConsumers,
-            plan.output,
+            loweredPlan.output,
           );
           return { nodeId: "__seqlane_result" };
         } catch (cause) {
           const error = toSeqlaneInvocationError(
             cause,
             "output",
-            plan.workflow.id,
+            loweredPlan.workflow.id,
           );
           context.failure = error;
           throw error;

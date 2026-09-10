@@ -49,8 +49,8 @@ const session = isolated({
 
 Reuse sessions cannot select a model; they inherit the source session model.
 
-Use `defineTask` and `defineWorkflow` to declare typed, core-owned authoring
-definitions. Definitions keep schemas and build callbacks in memory; they are
+Use `defineTask` and `createFlow(...).task(...).output(...).define()` to declare
+typed, core-owned workflows. Workflow authoring callbacks stay private and are
 not part of the serializable Plan IR. Local Studio displays bounded input,
 result, and executor-activity values by default. Optional
 `observability.studio` metadata selects
@@ -102,30 +102,37 @@ ordinary typed inputs.
 ```ts
 import { branch, isolated, reuse } from "@seqlane/core";
 
-const workflow = defineWorkflow({
+const workflow = createFlow({
   id: "research-and-implement",
   input: inputSchema,
   output: implementationSchema,
-  build: ({ input, run }) => {
-    const context = run(gatherContext, { input, session: isolated() });
-    const api = run(analyzeApi, {
-      input,
-      session: branch(context.session),
-    });
-    const ui = run(analyzeUi, {
-      input,
-      session: branch(context.session),
-    });
-    const synthesis = run(synthesize, {
-      input: { api: api.output, ui: ui.output },
-      session: reuse(context.session),
-    });
-    return run(implement, {
-      input: { synthesis: synthesis.output },
-      session: reuse(synthesis.session),
-    }).output;
-  },
-});
+})
+  .task("context", gatherContext, ({ input }) => input, { session: isolated() })
+  .task("api", analyzeApi, ({ input, tasks }) => input, {
+    session: ({ tasks }) => branch(tasks.context.session),
+  })
+  .task("ui", analyzeUi, ({ input, tasks }) => input, {
+    session: ({ tasks }) => branch(tasks.context.session),
+  })
+  .task(
+    "synthesis",
+    synthesize,
+    ({ tasks }) => ({
+      api: tasks.api.output,
+      ui: tasks.ui.output,
+    }),
+    { session: ({ tasks }) => reuse(tasks.context.session) },
+  )
+  .task(
+    "implementation",
+    implement,
+    ({ tasks }) => ({
+      synthesis: tasks.synthesis.output,
+    }),
+    { session: ({ tasks }) => reuse(tasks.synthesis.session) },
+  )
+  .output(({ tasks }) => tasks.implementation.output)
+  .define();
 ```
 
 Seqlane materializes declared branches before the parent session can advance.
@@ -149,10 +156,10 @@ It does not select an executor, grant or restrict tool access, or guarantee
 read-only filesystem behavior. Runtime configuration remains authoritative for
 executor permissions.
 
-Use `buildPlan` to construct a static DAG. Task output and workflow input refs
-infer dependencies and serialize as `{ type, nodeId, path }` data. Use
-`dependsOn` with a prior invocation when a task needs an order but does not use
-its output. `nodeId` is a static Plan address, not an execution identity.
+The flow API lowers to a static DAG. Task output and workflow input refs infer
+dependencies and serialize as `{ type, nodeId, path }` data. Use `dependsOn`
+with a prior invocation when a task needs an order but does not use its output.
+`nodeId` is a static Plan address, not an execution identity.
 
 For fluent authoring, use `createFlow({ id, input, output })`. Add named tasks
 with `.task(name, definition, binding)`, select the final value with

@@ -11,9 +11,9 @@ import type {
   ValidatedRepeatCondition,
   Validator,
   ValidatorDefinition,
-  WorkflowBuildContext,
   WorkflowDefinition,
 } from "./contracts.js";
+import type { WorkflowBuildContext } from "./workflow-authoring-internal.js";
 import { taskDefinitionSchema } from "./contracts.js";
 import type { ModelSelection } from "./models/model-ref.js";
 import type {
@@ -22,6 +22,7 @@ import type {
   ValueRef,
 } from "./bindings.js";
 import { z } from "zod";
+import { registerWorkflowPlanBuilder } from "./workflow-internal.js";
 
 export function defineValidator<Input>(
   definition: ValidatorDefinition<Input>,
@@ -98,12 +99,6 @@ export function defineShellTask<Input>(
   });
 }
 
-export function defineWorkflow<Input, Output>(
-  definition: WorkflowDefinition<Input, Output>,
-): WorkflowDefinition<Input, Output> {
-  return definition;
-}
-
 export function validatedBy<State>(
   validator: Validator<State>,
 ): ValidatedRepeatCondition<State> {
@@ -176,8 +171,8 @@ function resolveFlowDependencies<Input>(
 }
 
 /**
- * Starts a typed Flow definition. Its declarations replay through the normal
- * WorkflowDefinition build callback, so Flow creates no second Plan format.
+ * Starts a typed Flow definition. Its declarations lower directly to the
+ * private Plan builder when define() is called.
  */
 export function createFlow<Input, Output>(
   options: CreateFlowOptions<Input, Output>,
@@ -190,32 +185,35 @@ export function createFlow<Input, Output>(
   let outputBinding: FlowBinding<Input, unknown, Output> | undefined;
 
   const completed: CompletedFlow<Input, Output> = {
-    define: () =>
-      defineWorkflow({
+    define: () => {
+      const declarationsSnapshot = [...declarations];
+      const outputBindingSnapshot = outputBinding;
+      const workflow: WorkflowDefinition<Input, Output> = {
         ...options,
-        build: (context) => {
-          const authoringContext: RuntimeFlowAuthoringContext<Input> = {
-            input: context.input,
-            tasks: {},
-          };
-          for (const declaration of declarations) {
-            authoringContext.tasks[declaration.name] = declaration.declare(
-              context,
-              authoringContext,
-            );
-          }
-          if (outputBinding === undefined) {
-            throw new Error("Flow output is not defined");
-          }
-          return typeof outputBinding === "function"
-            ? (
-                outputBinding as (
-                  context: FlowAuthoringContext<Input, unknown>,
-                ) => InputBinding<Output>
-              )(authoringContext)
-            : outputBinding;
-        },
-      }),
+      };
+      return registerWorkflowPlanBuilder(workflow, (context) => {
+        const authoringContext: RuntimeFlowAuthoringContext<Input> = {
+          input: context.input,
+          tasks: {},
+        };
+        for (const declaration of declarationsSnapshot) {
+          authoringContext.tasks[declaration.name] = declaration.declare(
+            context,
+            authoringContext,
+          );
+        }
+        if (outputBindingSnapshot === undefined) {
+          throw new Error("Flow output is not defined");
+        }
+        return typeof outputBindingSnapshot === "function"
+          ? (
+              outputBindingSnapshot as (
+                context: FlowAuthoringContext<Input, unknown>,
+              ) => InputBinding<Output>
+            )(authoringContext)
+          : outputBindingSnapshot;
+      });
+    },
   };
   const builder: FlowBuilder<Input, Output, Record<never, never>> = {
     task: (name, definition, binding, taskOptions) => {

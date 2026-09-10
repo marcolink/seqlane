@@ -8,7 +8,6 @@ import {
   createFlow,
   defineAgentTask,
   defineTask,
-  defineWorkflow,
   isolated,
   reuse,
 } from "./dsl.js";
@@ -24,15 +23,15 @@ describe("buildWorkflow", () => {
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
     };
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "mixed-task-behavior-workflow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
-      build: ({ input, run }) => {
-        // @ts-expect-error A task must define execute.
-        return run(malformedTask, { input }).output;
-      },
-    });
+    })
+      // @ts-expect-error A task must define execute.
+      .task("malformed", malformedTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.malformed.output)
+      .define();
 
     expect(() => buildWorkflow(workflow)).toThrow();
   });
@@ -44,19 +43,19 @@ describe("buildWorkflow", () => {
       output: schema<Record<never, never>>(),
       goal: () => "Complete work",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "selected-model-workflow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
-      build: ({ input, run }) =>
-        run(task, {
-          input,
-          session: isolated({
-            model: openai("gpt-5.6-luna"),
-            reasoning: "high",
-          }),
-        }).output,
-    });
+    })
+      .task("selected", task, ({ input }) => input, {
+        session: isolated({
+          model: openai("gpt-5.6-luna"),
+          reasoning: "high",
+        }),
+      })
+      .output(({ tasks }) => tasks.selected.output)
+      .define();
 
     const plan = buildWorkflow(workflow).plan;
 
@@ -81,21 +80,21 @@ describe("buildWorkflow", () => {
       output: schema<Record<never, never>>(),
       goal: () => "Complete work",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "branched-model-workflow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
-      build: ({ input, run }) => {
-        const source = run(task, { input, session: isolated() });
-        return run(task, {
-          input,
-          session: branch(source.session, {
+    })
+      .task("source", task, ({ input }) => input, { session: isolated() })
+      .task("branch", task, ({ input }) => input, {
+        session: ({ tasks }) =>
+          branch(tasks.source.session, {
             model: openai("gpt-5.6-sol"),
             reasoning: "low",
           }),
-        }).output;
-      },
-    });
+      })
+      .output(({ tasks }) => tasks.branch.output)
+      .define();
 
     expect(buildWorkflow(workflow).plan.nodes[1]).toMatchObject({
       session: {
@@ -115,19 +114,19 @@ describe("buildWorkflow", () => {
       output: schema<Record<never, never>>(),
       goal: () => "Complete work",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "reused-model-workflow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
-      build: ({ input, run }) => {
-        const source = run(task, { input, session: isolated() });
-        return run(task, {
-          input,
+    })
+      .task("source", task, ({ input }) => input, { session: isolated() })
+      .task("reuse", task, ({ input }) => input, {
+        session: ({ tasks }) =>
           // @ts-expect-error Reuse sessions inherit their source model.
-          session: reuse(source.session, { model: openai("gpt-5.6-sol") }),
-        }).output;
-      },
-    });
+          reuse(tasks.source.session, { model: openai("gpt-5.6-sol") }),
+      })
+      .output(({ tasks }) => tasks.reuse.output)
+      .define();
 
     expect(buildWorkflow(workflow).plan.nodes[1]).toMatchObject({
       session: { type: "reuse", from: "reused-model:1" },
@@ -141,16 +140,14 @@ describe("buildWorkflow", () => {
       output: schema<Record<never, never>>(),
       goal: () => "Complete work",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "task-level-model-workflow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
-      build: ({ input, run }) =>
-        run(task, {
-          input,
-          model: openai("gpt-5.6-luna"),
-        }).output,
-    });
+    })
+      .task("task", task, ({ input }) => input, { session: isolated() })
+      .output(({ tasks }) => tasks.task.output)
+      .define();
 
     expect(buildWorkflow(workflow).plan.nodes[0]).not.toHaveProperty("model");
   });
@@ -162,22 +159,23 @@ describe("buildWorkflow", () => {
       output: schema<{ readonly complete: boolean }>(),
       goal: () => "Complete work",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "repeat-selected-model-workflow",
       input: schema<Record<never, never>>(),
       output: schema<{ readonly complete: boolean }>(),
-      build: ({ repeat }) =>
-        repeat({
-          initial: { complete: false },
-          body: ({ input, task: runTask }) =>
-            runTask(task, {
-              input,
-              session: isolated({ model: openai("gpt-5.6-sol") }),
-            }).output,
-          until: ({ output }) => output.complete,
-          maximumIterations: 1,
-        }).output,
-    });
+    })
+      .repeat("loop", {
+        initial: { complete: false },
+        body: ({ input, task: runTask }) =>
+          runTask(task, {
+            input,
+            session: isolated({ model: openai("gpt-5.6-sol") }),
+          }).output,
+        until: ({ output }) => output.complete,
+        maximumIterations: 1,
+      })
+      .output(({ tasks }) => tasks.loop.output)
+      .define();
 
     expect(buildWorkflow(workflow).plan.nodes[0]).toMatchObject({
       body: {
@@ -202,12 +200,14 @@ describe("buildWorkflow", () => {
       output: schema<Record<never, never>>(),
       goal: () => "Complete work",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "default-workspace-policy-workflow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
-      build: ({ input, run }) => run(task, { input }).output,
-    });
+    })
+      .task("task", task, ({ input }) => input)
+      .output(({ tasks }) => tasks.task.output)
+      .define();
 
     expect(buildWorkflow(workflow).plan.nodes[0]).toMatchObject({
       workspace: "exclusive",
@@ -221,12 +221,14 @@ describe("buildWorkflow", () => {
       output: schema<{ readonly clean: boolean }>(),
       execute: async () => ({ clean: true }),
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "local-status-workflow",
       input: schema<{ readonly repository: string }>(),
       output: schema<{ readonly clean: boolean }>(),
-      build: ({ input, run }) => run(local, { input }).output,
-    });
+    })
+      .task("local", local, ({ input }) => input)
+      .output(({ tasks }) => tasks.local.output)
+      .define();
 
     const built = buildWorkflow(workflow);
 
@@ -256,18 +258,19 @@ describe("buildWorkflow", () => {
       output: schema<{ readonly complete: boolean }>(),
       execute: async ({ input }) => input,
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "local-repeat-workflow",
       input: schema<Record<never, never>>(),
       output: schema<{ readonly complete: boolean }>(),
-      build: ({ repeat }) =>
-        repeat({
-          initial: { complete: false },
-          body: ({ input, task }) => task(local, { input }).output,
-          until: ({ output }) => output.complete,
-          maximumIterations: 1,
-        }).output,
-    });
+    })
+      .repeat("loop", {
+        initial: { complete: false },
+        body: ({ input, task }) => task(local, { input }).output,
+        until: ({ output }) => output.complete,
+        maximumIterations: 1,
+      })
+      .output(({ tasks }) => tasks.loop.output)
+      .define();
 
     const built = buildWorkflow(workflow);
     const repeat = built.plan.nodes[0];
@@ -295,16 +298,20 @@ describe("buildWorkflow", () => {
       output: schema<Record<never, never>>(),
       goal: () => "Complete work",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "checkpointed-workflow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
-      build: ({ input, run }) => {
-        const source = run(task, { input, session: isolated() });
-        run(task, { input, session: branch(source.session) });
-        return run(task, { input, session: reuse(source.session) }).output;
-      },
-    });
+    })
+      .task("source", task, ({ input }) => input, { session: isolated() })
+      .task("branch", task, ({ input }) => input, {
+        session: ({ tasks }) => branch(tasks.source.session),
+      })
+      .task("reuse", task, ({ input }) => input, {
+        session: ({ tasks }) => reuse(tasks.source.session),
+      })
+      .output(({ tasks }) => tasks.reuse.output)
+      .define();
 
     expect(buildWorkflow(workflow).plan.nodes).toMatchObject([
       { nodeId: "checkpointed:1", session: { type: "isolated" } },
@@ -328,12 +335,14 @@ describe("buildWorkflow", () => {
       output: schema<{ readonly summary: string }>(),
       goal: ({ repository }) => repository,
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "workspace-capability",
       input: schema<{ readonly repository: string }>(),
       output: schema<{ readonly summary: string }>(),
-      build: ({ input, run }) => run(inspect, { input }).output,
-    });
+    })
+      .task("inspect", inspect, ({ input }) => input)
+      .output(({ tasks }) => tasks.inspect.output)
+      .define();
 
     expect(buildWorkflow(workflow).plan.nodes[0]).toMatchObject({
       taskId: "workspace-inspect",
@@ -353,19 +362,17 @@ describe("buildWorkflow", () => {
       output: schema<{ readonly summary: string }>(),
       goal: ({ values }) => values.join(", "),
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "nested-dataflow",
       input: schema<{ readonly request: string }>(),
       output: schema<{ readonly summary: string }>(),
-      build: ({ input, run }) => {
-        const produced = run(produce, { input });
-        return run(consume, {
-          input: {
-            values: [produced.output.first, produced.output.second],
-          },
-        }).output;
-      },
-    });
+    })
+      .task("produce", produce, ({ input }) => input)
+      .task("consume", consume, ({ tasks }) => ({
+        values: [tasks.produce.output.first, tasks.produce.output.second],
+      }))
+      .output(({ tasks }) => tasks.consume.output)
+      .define();
 
     const built = buildWorkflow(workflow);
 
@@ -388,18 +395,17 @@ describe("buildWorkflow", () => {
       output: schema<{ readonly published: boolean }>(),
       goal: ({ value }) => value,
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "order-only-dependency",
       input: schema<Record<never, never>>(),
       output: schema<{ readonly published: boolean }>(),
-      build: ({ run }) => {
-        const prepared = run(prepare, { input: { value: "prepare" } });
-        return run(publish, {
-          input: { value: "publish" },
-          dependsOn: [prepared],
-        }).output;
-      },
-    });
+    })
+      .task("prepare", prepare, () => ({ value: "prepare" }))
+      .task("publish", publish, () => ({ value: "publish" }), {
+        dependsOn: ["prepare"],
+      })
+      .output(({ tasks }) => tasks.publish.output)
+      .define();
 
     expect(buildWorkflow(workflow).plan.nodes[1]).toMatchObject({
       taskId: "publish",
@@ -451,24 +457,25 @@ describe("buildWorkflow", () => {
       output: schema<{ readonly complete: boolean }>(),
       goal: () => "publish",
     });
-    const workflow = defineWorkflow({
+    const workflow = createFlow({
       id: "repeat-order-only-dependency",
       input: schema<Record<never, never>>(),
       output: schema<{ readonly complete: boolean }>(),
-      build: ({ repeat }) =>
-        repeat({
-          initial: { complete: false },
-          body: ({ input, task }) => {
-            const prepared = task(prepare, { input });
-            return task(publish, {
-              input: { complete: true },
-              dependsOn: [prepared],
-            }).output;
-          },
-          until: ({ output }) => output.complete,
-          maximumIterations: 1,
-        }).output,
-    });
+    })
+      .repeat("loop", {
+        initial: { complete: false },
+        body: ({ input, task }) => {
+          const prepared = task(prepare, { input });
+          return task(publish, {
+            input: { complete: true },
+            dependsOn: [prepared],
+          }).output;
+        },
+        until: ({ output }) => output.complete,
+        maximumIterations: 1,
+      })
+      .output(({ tasks }) => tasks.loop.output)
+      .define();
 
     const repeat = buildWorkflow(workflow).plan.nodes[0];
 

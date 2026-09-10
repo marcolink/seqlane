@@ -35,27 +35,28 @@ describe("loadWorkflow", () => {
     ).rejects.toThrow("must be a Plan or a Plan factory");
   });
 
-  it("builds an authored workflow and retains its task schemas", async () => {
+  it("builds an authored Flow and retains its task schemas", async () => {
     const zodSpecifier = import.meta.resolve("zod");
+    const coreSpecifier = import.meta.resolve("@seqlane/core");
     const source = `
       import { z } from ${JSON.stringify(zodSpecifier)};
+      import { createFlow, defineTask } from ${JSON.stringify(coreSpecifier)};
       const schema = z.unknown();
-      const task = {
+      const task = defineTask({
         id: "authored-task",
         workspace: "exclusive",
         input: schema,
         output: schema,
-        execute: async ({ context }) => context.runAgent({ goal: "demo" }),
-      };
-      export const authored = {
+        execute: async ({ input }) => input,
+      });
+      export const authored = createFlow({
         id: "authored",
         input: schema,
         output: schema,
-        build: ({ run }) => {
-          const result = run(task, { input: { value: "demo" } });
-          return { value: result.output.value };
-        },
-      };
+      })
+        .task("task", task, ({ input }) => ({ value: input }))
+        .output(({ tasks }) => ({ value: tasks.task.output.value }))
+        .define();
     `;
     const reference: WorkflowReference = {
       id: "authored",
@@ -83,5 +84,41 @@ describe("loadWorkflow", () => {
     expect(loaded.taskDefinitions?.get("authored-task")).toBeDefined();
     expect(loaded.definition?.input).toBeDefined();
     expect(loaded.definition?.output).toBeDefined();
+  });
+
+  it("rejects an unsupported Plan node before validation or compilation", async () => {
+    const source = `export const invalid = ${JSON.stringify({
+      workflow: { id: "invalid" },
+      nodes: [{ type: "branch", nodeId: "branch:1", dependsOn: [] }],
+      output: null,
+    })};`;
+    await expect(
+      loadWorkflow(
+        {
+          ...validReference,
+          moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
+          exportName: "invalid",
+        },
+        null,
+      ),
+    ).rejects.toThrow("Plan");
+  });
+
+  it("rejects malformed Plan bindings before runtime validation", async () => {
+    const source = `export const invalid = ${JSON.stringify({
+      workflow: { id: "invalid" },
+      nodes: [],
+      output: { type: "ref", nodeId: "missing", path: "not-an-array" },
+    })};`;
+    await expect(
+      loadWorkflow(
+        {
+          ...validReference,
+          moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
+          exportName: "invalid",
+        },
+        null,
+      ),
+    ).rejects.toThrow("Plan");
   });
 });

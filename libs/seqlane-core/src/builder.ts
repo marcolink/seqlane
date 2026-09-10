@@ -6,7 +6,7 @@ import type {
   Validator,
   ValidatorDefinition,
   ValidationInvocationOptions,
-  WorkflowDefinition,
+  AuthoredWorkflow,
   RepeatBodyContext,
   RepeatBuildOptions,
 } from "./contracts.js";
@@ -32,6 +32,12 @@ import type {
   ValidationNode,
   ValidationSource,
 } from "./plan-types.js";
+import { planSchema } from "./plan-types.js";
+import {
+  taskDefinitionRegistrySchema,
+  validatorDefinitionRegistrySchema,
+} from "./contracts.js";
+import { getWorkflowPlanBuilder } from "./workflow-internal.js";
 
 function serializeSessionPolicy(
   policy: TaskInvocationOptions<unknown, unknown>["session"],
@@ -64,8 +70,14 @@ function registerTaskDefinition(
 }
 
 export function buildWorkflow<Input, Output>(
-  workflow: WorkflowDefinition<Input, Output>,
+  workflow: AuthoredWorkflow<Input, Output>,
 ): BuiltWorkflow<Input, Output> {
+  const workflowBuilder = getWorkflowPlanBuilder(workflow);
+  if (workflowBuilder === undefined) {
+    throw new TypeError(
+      `Workflow "${workflow.id}" was not created by createFlow(...).output(...).define()`,
+    );
+  }
   const nodes: PlanNode[] = [];
   const invocationCounts = new Map<TaskId, number>();
   const validationCounts = new Map<string, number>();
@@ -290,31 +302,26 @@ export function buildWorkflow<Input, Output>(
     return { nodeId, output: createValueRef<State>(nodeId, ["output"]) };
   };
 
-  const output = workflow.build({
+  const output = workflowBuilder({
     input: createWorkflowInputRef<Input>(),
     run,
     validate,
     repeat,
   });
 
+  const plan: Plan = {
+    workflow: { id: workflow.id },
+    nodes,
+    output: serializeBinding(output),
+  };
+  planSchema.parse(plan);
+  taskDefinitionRegistrySchema.parse(taskDefinitions);
+  validatorDefinitionRegistrySchema.parse(validatorDefinitions);
+
   return {
     workflow,
-    plan: {
-      workflow: { id: workflow.id },
-      nodes,
-      output: serializeBinding(output),
-    },
+    plan,
     taskDefinitions,
     validatorDefinitions,
   };
-}
-
-export function buildPlan<Input, Output>(
-  workflow: WorkflowDefinition<Input, Output>,
-): Plan {
-  return buildWorkflow(workflow).plan;
-}
-
-export function definePlan(plan: Plan): Plan {
-  return plan;
 }

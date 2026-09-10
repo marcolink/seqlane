@@ -34,7 +34,6 @@ function task(
     taskId: nodeId,
     nodeId,
     workspace,
-    executor: "test-executor",
     input,
     dependsOn,
   } as PlanNode;
@@ -251,6 +250,68 @@ describe("PlanCompiler plan preparation", () => {
     expect(() => validatePlan(source, new Map())).toThrow(
       /no registered definition/i,
     );
+  });
+
+  it.each([
+    [
+      "executable binding fields",
+      plan([
+        {
+          ...task("local-task"),
+          input: { execute: async () => undefined } as never,
+        } as PlanNode,
+      ]),
+    ],
+    [
+      "legacy executor metadata",
+      plan([{ ...task("local-task"), executor: "legacy" } as PlanNode]),
+    ],
+  ])("rejects non-canonical Plan %s", (_description, source) => {
+    expect(() => validatePlan(source)).toThrow(/schema/i);
+  });
+
+  it("rejects structurally malformed Plans with a PlanValidationError", () => {
+    const malformed = {
+      workflow: { id: "malformed-plan" },
+      nodes: [{ type: "task" }],
+      output: null,
+    } as unknown as Plan;
+
+    expect(() => validatePlan(malformed)).toThrow(PlanValidationError);
+  });
+
+  it("rejects a task registry whose key does not match its definition ID", () => {
+    const source = plan([task("local-task")]);
+    const definition: TaskDefinition = {
+      id: "different-id",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async () => ({}),
+    };
+
+    expect(() =>
+      compileWorkflow(source, {
+        executors: new Map(),
+        taskDefinitions: new Map([["local-task", definition]]),
+      }),
+    ).toThrow(/registry keys must match task definition IDs/i);
+  });
+
+  it("rejects a validator registry whose key does not match its definition ID", () => {
+    const check = validationCheck("check");
+    const source = plan([check, validationGate("gate", check.nodeId)]);
+    const validator = {
+      id: "different-id",
+      input: z.unknown(),
+      validate: () => ({ success: true as const }),
+    };
+
+    expect(() =>
+      compileWorkflow(source, {
+        executors: new Map(),
+        validatorDefinitions: new Map([["test-validator", validator]]),
+      }),
+    ).toThrow(/registry keys must match validator definition IDs/i);
   });
 
   it("accepts a unified definition used as a validation task source", () => {

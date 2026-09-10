@@ -6,7 +6,11 @@ import type {
   ValidationGateNode,
 } from "@seqlane/core";
 import type { ObservabilityContext } from "@mastra/core/observability";
-import { LoopLimitExceededError } from "@seqlane/core";
+import {
+  LoopLimitExceededError,
+  MAX_REPEAT_BODY_EXECUTIONS,
+  RunRepeatLimitExceededError,
+} from "@seqlane/core";
 import { resolveBinding } from "../plan/binding-resolution.js";
 import {
   invocationIdForNode,
@@ -110,6 +114,13 @@ export async function executeRepeatNode(
       iteration += 1
     ) {
       if (abortSignal.aborted) throw new Error("Repeat execution cancelled");
+      context.repeatBodyExecutions += 1;
+      if (context.repeatBodyExecutions > MAX_REPEAT_BODY_EXECUTIONS) {
+        throw new RunRepeatLimitExceededError(
+          MAX_REPEAT_BODY_EXECUTIONS,
+          context.repeatBodyExecutions,
+        );
+      }
       const bodyResults = new Map<string, unknown>([
         [node.body.inputNodeId, currentState],
       ]);

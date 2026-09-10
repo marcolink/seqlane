@@ -2,6 +2,20 @@ import type { Plan } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { createSeqlanePlanSnapshot } from "./plan-snapshot.js";
 
+function adaptLegacyLocalExecutionFixture(plan: Plan): Plan {
+  const [node] = plan.nodes;
+  if (node?.type !== "task") return plan;
+
+  const { execute: _execute, ...input } = node.input as {
+    execute?: unknown;
+    readonly [key: string]: unknown;
+  };
+  return {
+    ...plan,
+    nodes: [{ ...node, input }],
+  };
+}
+
 describe("Seqlane Plan snapshots", () => {
   it("keeps graph topology while redacting bindings and bounding identities", () => {
     const longTaskId = "task-" + "x".repeat(300);
@@ -214,7 +228,9 @@ describe("Seqlane Plan snapshots", () => {
       output: { type: "ref", nodeId: "local:1", path: ["output"] },
     };
 
-    const snapshot = createSeqlanePlanSnapshot(plan);
+    const snapshot = createSeqlanePlanSnapshot(
+      adaptLegacyLocalExecutionFixture(plan),
+    );
 
     expect(snapshot.nodes[0]).toMatchObject({
       type: "task",

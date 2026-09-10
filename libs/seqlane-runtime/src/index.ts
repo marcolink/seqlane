@@ -40,6 +40,7 @@ export {
   InteractionRequiredError,
   InputValidationError,
   LoopLimitExceededError,
+  RunRepeatLimitExceededError,
   OutputValidationError,
   RuntimeError,
   SeqlaneError,
