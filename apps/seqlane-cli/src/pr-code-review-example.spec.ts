@@ -189,6 +189,10 @@ describe("pull-request code review example workflow", () => {
     );
     expect(workflow).toContain("working-directory: seqlane-source");
     expect(workflow).toContain("uses: ./seqlane-source/actions/code-review");
+    expect(workflow).toContain("SEQLANE_RUNTIME_ADAPTER_CONFIG: >-");
+    expect(workflow).toContain(
+      '{"adapter":"opencode","url":"${{ steps.opencode.outputs.url }}"}',
+    );
     expect(workflow).not.toContain(
       './apps/seqlane-cli/bin/dev.js run "$PWD/examples/pr-code-review.ts"',
     );
