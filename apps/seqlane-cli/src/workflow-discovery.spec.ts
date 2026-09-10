@@ -280,9 +280,7 @@ describe("workflow discovery", () => {
       const result = await createPlanCommandResult("plan", null, roots);
 
       expect(result.plan.workflow.id).toBe("plan-only");
-      expect(result.plan.nodes).toMatchObject([
-        { taskId: "never-executed" },
-      ]);
+      expect(result.plan.nodes).toMatchObject([{ taskId: "never-executed" }]);
       expect(result.plan.nodes[0]).not.toHaveProperty("execution");
       expect(renderPlanHuman(result)).toContain("never-executed");
       expect(planCommandResultSchema.parse(result)).toEqual(result);
