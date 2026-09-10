@@ -170,4 +170,25 @@ describe("OpenCode observation validation", () => {
     });
     expect(withoutAssistantMessage?.legacyTool?.messageID).toBeUndefined();
   });
+
+  it("rejects oversized legacy tool identifiers", () => {
+    const parsed = parseOpenCodeEvent(
+      {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "session-1",
+          part: {
+            type: "tool",
+            callID: "c".repeat(257),
+            tool: "ripwire_grep",
+            state: { status: "running" },
+          },
+        },
+      },
+      "session-1",
+    );
+
+    expect(parsed?.validity).toBe("malformed");
+    expect(parsed?.legacyTool).toBeUndefined();
+  });
 });

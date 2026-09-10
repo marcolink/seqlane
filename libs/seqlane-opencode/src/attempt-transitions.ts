@@ -18,6 +18,8 @@ interface ActivityIdentity {
   readonly name: string;
 }
 
+const MAX_LEGACY_IDENTIFIER_LENGTH = 256;
+
 const activityStates = new Map<string, OpenCodeActivity["state"]>([
   ["pending", "started"],
   ["running", "started"],
@@ -67,6 +69,7 @@ function activityState(
 function nativeToolObservation(
   observation: OpenCodeLegacyToolObservation,
   tool: string | undefined,
+  messageID: string | undefined,
 ): OpenCodeToolObservation | undefined {
   if (tool === undefined) return undefined;
   const status =
@@ -82,7 +85,7 @@ function nativeToolObservation(
     sessionID: observation.sessionID,
     // Legacy events may identify their assistant message. Keep the call
     // identity as a fallback for older event payloads.
-    messageID: observation.messageID ?? observation.callID,
+    messageID: messageID ?? observation.callID,
     callID: observation.callID,
     tool,
     status,
@@ -155,6 +158,7 @@ export function createAttemptTransitionDispatcher({
 }: AttemptTransitionCallbacks): AttemptTransitionDispatcher {
   const activityIdentities = new Map<string, ActivityIdentity>();
   const toolNames = new Map<string, string>();
+  const toolMessageIDs = new Map<string, string>();
   const terminalObservations = new Set<string>();
 
   const dispatchObservation = (observation: OpenCodeEventObservation): void => {
@@ -173,6 +177,17 @@ export function createAttemptTransitionDispatcher({
   const dispatchLegacyTool = (
     observation: OpenCodeLegacyToolObservation,
   ): void => {
+    if (
+      observation.callID.length === 0 ||
+      observation.callID.length > MAX_LEGACY_IDENTIFIER_LENGTH ||
+      (observation.tool !== undefined &&
+        (observation.tool.length === 0 ||
+          observation.tool.length > MAX_LEGACY_IDENTIFIER_LENGTH)) ||
+      (observation.messageID !== undefined &&
+        (observation.messageID.length === 0 ||
+          observation.messageID.length > MAX_LEGACY_IDENTIFIER_LENGTH))
+    )
+      return;
     const identity = JSON.stringify(["legacy-tool", observation.callID]);
     if (terminalObservations.has(identity)) return;
     const terminal =
@@ -184,13 +199,25 @@ export function createAttemptTransitionDispatcher({
     if (observation.tool !== undefined)
       toolNames.set(observation.callID, observation.tool);
     const tool = toolNames.get(observation.callID);
-    const nativeObservation = nativeToolObservation(observation, tool);
+    const canonicalMessageID =
+      toolMessageIDs.get(observation.callID) ?? observation.messageID;
+    if (canonicalMessageID !== undefined)
+      toolMessageIDs.set(observation.callID, canonicalMessageID);
+    const nativeObservation = nativeToolObservation(
+      observation,
+      tool,
+      canonicalMessageID,
+    );
     if (nativeObservation !== undefined) onObservation?.(nativeObservation);
     const activity = activityFromToolObservation(
       observation,
       activityIdentities,
     );
     if (activity !== undefined) onActivity?.(activity);
+    if (terminal) {
+      toolNames.delete(observation.callID);
+      toolMessageIDs.delete(observation.callID);
+    }
   };
 
   return { observation: dispatchObservation, legacyTool: dispatchLegacyTool };

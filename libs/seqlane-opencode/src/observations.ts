@@ -69,8 +69,8 @@ const toolPartSchema = z.object({
 
 const legacyToolPartSchema = z.looseObject({
   type: z.literal("tool"),
-  callID: z.string().min(1),
-  tool: z.string().min(1),
+  callID: boundedId,
+  tool: boundedId,
   messageID: boundedId.optional(),
   state: z.looseObject({
     status: z.enum(["pending", "running", "completed", "error"]),

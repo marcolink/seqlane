@@ -210,6 +210,82 @@ describe("OpenCode Mastra observability projection", () => {
     projector.finish();
   });
 
+  it("keeps the first legacy assistant message identity across nameless events", () => {
+    const factory = spanFactory();
+    const observations: unknown[] = [];
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: factory.root } },
+      "invocation-1",
+    );
+    const dispatcher = createAttemptTransitionDispatcher({
+      onActivity: undefined,
+      onObservation: (observation) => {
+        observations.push(observation);
+        projector.observe(observation);
+      },
+    });
+
+    dispatcher.legacyTool({
+      sessionID: "session-1",
+      messageID: "assistant-1",
+      callID: "mcp-call-1",
+      tool: "ripwire_grep",
+      status: "called",
+    });
+    dispatcher.legacyTool({
+      sessionID: "session-1",
+      callID: "mcp-call-1",
+      status: "progress",
+    });
+    dispatcher.legacyTool({
+      sessionID: "session-1",
+      callID: "mcp-call-1",
+      status: "success",
+    });
+
+    expect(observations).toEqual([
+      expect.objectContaining({ messageID: "assistant-1", status: "running" }),
+      expect.objectContaining({ messageID: "assistant-1", status: "running" }),
+      expect.objectContaining({
+        messageID: "assistant-1",
+        status: "completed",
+      }),
+    ]);
+    expect(
+      factory.spans.filter((span) => span.type === SpanType.TOOL_CALL),
+    ).toHaveLength(1);
+    projector.finish();
+  });
+
+  it("drops oversized legacy identifiers before observation dispatch", () => {
+    const factory = spanFactory();
+    const observations: unknown[] = [];
+    const activities: unknown[] = [];
+    const dispatcher = createAttemptTransitionDispatcher({
+      onActivity: (activity) => activities.push(activity),
+      onObservation: (observation) => observations.push(observation),
+    });
+
+    dispatcher.legacyTool({
+      sessionID: "session-1",
+      callID: "c".repeat(257),
+      tool: "ripwire_grep",
+      status: "called",
+    });
+    dispatcher.legacyTool({
+      sessionID: "session-1",
+      callID: "call-1",
+      tool: "t".repeat(257),
+      status: "called",
+    });
+
+    expect(observations).toEqual([]);
+    expect(activities).toEqual([]);
+    expect(
+      factory.spans.filter((span) => span.type === SpanType.TOOL_CALL),
+    ).toHaveLength(0);
+  });
+
   it("uses a normalized bounded tool name and namespaced agent metadata", () => {
     const factory = spanFactory();
     const projector = createOpenCodeObservability(
