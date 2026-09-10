@@ -70,6 +70,14 @@ export function cacheDirectories(worktreeRoot, temporaryRoot = tmpdir()) {
   };
 }
 
+export function cleanGitEnvironment(environment, gitEnvironmentVariables) {
+  const cleanEnvironment = { ...environment };
+  for (const variable of gitEnvironmentVariables) {
+    delete cleanEnvironment[variable];
+  }
+  return cleanEnvironment;
+}
+
 function captureGit(args) {
   const result = spawnSync("git", args, {
     cwd: repositoryRoot,
@@ -171,12 +179,13 @@ async function main() {
 
   const directories = cacheDirectories(worktreeRoot);
   mkdirSync(dirname(directories.workspaceData), { recursive: true });
-  const env = {
-    ...process.env,
-    NX_WORKSPACE_DATA_DIRECTORY:
-      process.env.NX_WORKSPACE_DATA_DIRECTORY ?? directories.workspaceData,
-    NX_CACHE_DIRECTORY: process.env.NX_CACHE_DIRECTORY ?? directories.cache,
-  };
+  const gitEnvironmentVariables = captureGit(["rev-parse", "--local-env-vars"])
+    .split(/\r?\n/)
+    .filter(Boolean);
+  const env = cleanGitEnvironment(process.env, gitEnvironmentVariables);
+  env.NX_WORKSPACE_DATA_DIRECTORY =
+    process.env.NX_WORKSPACE_DATA_DIRECTORY ?? directories.workspaceData;
+  env.NX_CACHE_DIRECTORY = process.env.NX_CACHE_DIRECTORY ?? directories.cache;
   const changed = changedPaths(base, selection.revision);
   const checks = [
     [

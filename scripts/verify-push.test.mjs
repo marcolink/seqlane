@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   cacheDirectories,
+  cleanGitEnvironment,
   nxAffectedArgs,
   parsePrePushInput,
   selectOutgoingRevision,
@@ -95,4 +96,18 @@ test("derives stable, separate cache paths for each worktree", () => {
   assert.notEqual(first.workspaceData, second.workspaceData);
   assert.notEqual(first.cache, second.cache);
   assert.match(first.workspaceData, /seqlane-nx-/);
+});
+
+test("removes Git hook environment variables from child-check environments", () => {
+  assert.deepEqual(
+    cleanGitEnvironment(
+      {
+        GIT_DIR: ".git",
+        GIT_WORK_TREE: ".",
+        PATH: "/usr/bin",
+      },
+      ["GIT_DIR", "GIT_WORK_TREE"],
+    ),
+    { PATH: "/usr/bin" },
+  );
 });
