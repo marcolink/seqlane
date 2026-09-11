@@ -79,11 +79,27 @@ Implement [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-acti
 
 ## Outcome
 
-In progress.
+The implementation branch removes all ten tracked Action entrypoints and the
+committed-bundle drift workflow and verifier. The code-review, resolver, and
+Ripwire smoke jobs now install trusted dependencies, restore the Nx computation
+cache, and materialize required Actions before local invocation. Six Action and
+four transitive library build tasks declare cache inputs and outputs.
+
+Local verification built every Action from source. A second build restored all
+10 tasks from the local Nx cache. After removal of every generated Action
+`dist` directory, Nx restored all six Action outputs without running esbuild.
+Scoped typechecks and tests passed for 11 projects and 23 tasks. The test set
+included 334 runtime tests, 123 resolver tests, 107 CLI and workflow-contract
+tests, 85 Ripwire tests, and all Action entrypoint-loading tests. Tooling tests,
+test mapping, SDLC validation, SDLC tests, formatting, and diff checks passed.
+
+GitHub code search found no external `uses: marcolink/seqlane` consumer. Hosted
+pull-request checks and branch workflow execution remain pending.
 
 ## Delivery state
 
-Not delivered on `main`. Record pull-request and hosted-run evidence after
+Not delivered on `main`. The implementation exists only in local branch commits
+`51184c9` and `30a8bf2`. Record pull-request and hosted-run evidence after
 verification.
 
 ## Traceability
