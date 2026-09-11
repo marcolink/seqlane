@@ -49,10 +49,13 @@ test("marks Ripwire paths relevant without widening unrelated known paths", () =
 });
 
 test("only relevant workflow changes trigger expensive checks", () => {
-  assert.deepEqual(classifyPaths([".github/workflows/lint.yml"]), {
-    ripwire_relevant: "false",
-  });
-  assert.deepEqual(classifyPaths([".github/workflows/unit-tests.yml"]), {
+  assert.deepEqual(
+    classifyPaths([".github/workflows/seqlane-code-review.yml"]),
+    {
+      ripwire_relevant: "false",
+    },
+  );
+  assert.deepEqual(classifyPaths([".github/workflows/ci.yml"]), {
     ripwire_relevant: "true",
   });
 });

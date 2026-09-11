@@ -22,7 +22,7 @@
       "cache": true,
       "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
       "outputs": ["{projectRoot}/dist/main.js", "{projectRoot}/dist/post.js"],
-      "dependsOn": ["^build"]
+      "dependsOn": ["typecheck", "^build"]
     },
     "test": {
       "executor": "nx:run-commands",

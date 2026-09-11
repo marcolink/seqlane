@@ -250,7 +250,7 @@ GitHub-hosted smoke job.
   `0.0.0.0` and `*` display equivalence; wildcard output does not satisfy a
   specific host.
 - All input and token security combinations are tested.
-- `.github/workflows/unit-tests.yml` runs a read-only hosted smoke job.
+- `.github/workflows/ci.yml` runs a read-only hosted smoke step.
 - The review workflow starts zvec-grep and Ripwire against `review-target`,
   uses Ripwire's generated URL and token, keeps remote edits disabled, and
   adds all Ripwire read-only tools to the OpenCode allowlist while the four

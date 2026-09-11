@@ -202,12 +202,9 @@ async function main() {
     ["test mapping", ["test:mapping"]],
     ["workflow helper", ["test:workflow-helper"]],
     [
-      "affected typecheck",
-      nxAffectedArgs("typecheck", base, selection.revision),
+      "affected lint, build, and tests",
+      nxAffectedArgs("lint,build,test", base, selection.revision),
     ],
-    ["affected lint", nxAffectedArgs("lint", base, selection.revision)],
-    ["affected tests", nxAffectedArgs("test", base, selection.revision)],
-    ["affected build", nxAffectedArgs("build", base, selection.revision)],
   ];
 
   for (const [name, args] of checks) {

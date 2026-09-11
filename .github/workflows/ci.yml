@@ -16,21 +16,155 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint
-    uses: ./.github/workflows/lint.yml
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-  unit-tests:
-    name: Unit tests
-    needs: actionlint
-    uses: ./.github/workflows/unit-tests.yml
-    with:
-      ripwire_relevant: ${{ needs.actionlint.outputs.ripwire_relevant }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-  build:
-    name: Build
-    uses: ./.github/workflows/build.yml
+      - name: Validate workflows
+        uses: raven-actions/actionlint@5ed673bc77a975c2402fdcd464706912c56b103b # v2
+        with:
+          version: 1.7.12
+          cache: false
+          shellcheck: false
+          pyflakes: false
+          # Local Action bundles are materialized before use.
+          flags: -ignore file.*dist/(main|post)[.]js.*does.not.exist
 
-  actionlint:
-    name: Actionlint
-    uses: ./.github/workflows/actionlint.yml
+      - name: Determine affected range
+        uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
+
+      - name: Classify changed paths
+        id: classify
+        run: node scripts/classify-ci-paths.mjs --base "$NX_BASE" --head "$NX_HEAD" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.33.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore Nx cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .nx/cache
+          key: seqlane-ci-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            seqlane-ci-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}-
+            seqlane-ci-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Check formatting
+        run: pnpm exec nx format:check --base="$NX_BASE" --head="$NX_HEAD"
+
+      - name: Validate SDLC documentation
+        run: pnpm docs:validate
+
+      - name: Test SDLC documentation tooling
+        run: pnpm docs:test
+
+      - name: Test local verification tooling
+        run: pnpm test:tooling
+
+      - name: Check test mappings
+        run: pnpm test:mapping
+
+      - name: Test workflow helper
+        run: pnpm test:workflow-helper
+
+      - name: Lint, build, and test affected projects
+        run: pnpm exec nx affected -t lint,build,test --output-style=static
+
+      - name: Materialize Ripwire Action
+        if: steps.classify.outputs.ripwire_relevant != 'false'
+        run: >-
+          pnpm exec nx run action-ripwire-server:build
+          --output-style=static
+
+      - name: Start Ripwire MCP server
+        if: steps.classify.outputs.ripwire_relevant != 'false'
+        id: ripwire
+        uses: ./actions/ripwire-server
+        with:
+          working-directory: ${{ github.workspace }}
+
+      - name: Verify Ripwire outputs and initialize MCP
+        if: steps.classify.outputs.ripwire_relevant != 'false'
+        env:
+          MCP_URL: ${{ steps.ripwire.outputs.mcp-url }}
+          RIPWIRE_TOKEN: ${{ steps.ripwire.outputs.mcp-token }}
+          RIPWIRE_VERSION: ${{ steps.ripwire.outputs.version }}
+          RIPWIRE_BINARY: ${{ steps.ripwire.outputs.binary-path }}
+          RIPWIRE_LOG: ${{ steps.ripwire.outputs.log-path }}
+        run: |
+          test "$RIPWIRE_VERSION" = "0.4.0"
+          test -n "$RIPWIRE_TOKEN"
+          test -x "$RIPWIRE_BINARY"
+          test -f "$RIPWIRE_LOG"
+          case "$MCP_URL" in
+            http://127.0.0.1:*\/mcp) ;;
+            *) echo "Unexpected MCP URL: $MCP_URL" >&2; exit 1 ;;
+          esac
+          node --input-type=module <<'NODE'
+          const url = process.env.MCP_URL;
+          const token = process.env.RIPWIRE_TOKEN;
+          const headers = {
+            Accept: "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          };
+          const response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: { name: "seqlane-ripwire-smoke", version: "1.0.0" },
+              },
+            }),
+          });
+          if (response.status !== 200) throw new Error(`MCP initialize returned HTTP ${response.status}`);
+          const text = await response.text();
+          let payload;
+          try {
+            payload = JSON.parse(text);
+          } catch {
+            const events = text
+              .split(/\r?\n\r?\n/)
+              .map((event) => event
+                .split(/\r?\n/)
+                .filter((line) => line.startsWith("data:"))
+                .map((line) => line.slice(5).trim()))
+              .filter((data) => data.length > 0);
+            if (events.length !== 1) throw new Error("MCP initialize SSE response was not one event");
+            payload = JSON.parse(events[0].join("\n"));
+          }
+          if (
+            payload.jsonrpc !== "2.0" ||
+            payload.id !== 1 ||
+            payload.result?.protocolVersion !== "2025-06-18" ||
+            payload.result?.serverInfo?.name !== "ripwire" ||
+            payload.result?.serverInfo?.version !== "1.0"
+          ) {
+            throw new Error("MCP initialize response was not a valid JSON-RPC result");
+          }
+          NODE

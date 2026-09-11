@@ -1,11 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-const ripwireWorkflowPaths = new Set([
-  ".github/workflows/actionlint.yml",
-  ".github/workflows/ci.yml",
-  ".github/workflows/unit-tests.yml",
-]);
+const ripwireWorkflowPaths = new Set([".github/workflows/ci.yml"]);
 
 function normalizePath(path) {
   return path.replaceAll("\\", "/").replace(/^\.\//, "");

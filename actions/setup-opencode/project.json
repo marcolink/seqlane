@@ -19,7 +19,8 @@
       },
       "cache": true,
       "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
-      "outputs": ["{projectRoot}/dist/main.js"]
+      "outputs": ["{projectRoot}/dist/main.js"],
+      "dependsOn": ["typecheck"]
     },
     "test": {
       "executor": "nx:run-commands",

@@ -94,13 +94,26 @@ tests, 85 Ripwire tests, and all Action entrypoint-loading tests. Tooling tests,
 test mapping, SDLC validation, SDLC tests, formatting, and diff checks passed.
 
 GitHub code search found no external `uses: marcolink/seqlane` consumer. Hosted
-pull-request checks and branch workflow execution remain pending.
+run `34584861924` passed before the CI consolidation; verification of the
+consolidated workflow remains pending.
+
+The follow-up CI audit retained all six Actions because each has an active
+internal consumer and a distinct tested contract. Four reusable quality
+workflows and the custom Vitest summary reporter were removed. Required checks
+now use one checkout, dependency install, and Nx `lint,build,test` graph.
+Action builds own their required typecheck. TypeScript library and application
+builds no longer repeat the same compilation through a global lint dependency.
+The pre-push hook uses the same graph.
+
+Hosted run `34584861924` showed that copying `.nx/cache` between Nx 22 runners
+produces unrecognized artifacts without their local metadata. The cache step
+remains pending a separate decision because the accepted ADR requires a
+persistent cross-run cache; a supported remote Nx cache is still unresolved.
 
 ## Delivery state
 
-Not delivered on `main`. The implementation exists only in local branch commits
-`51184c9` and `30a8bf2`. Record pull-request and hosted-run evidence after
-verification.
+Not delivered on `main`. The implementation is under review in
+[pull request 98](https://github.com/marcolink/seqlane/pull/98).
 
 ## Traceability
 

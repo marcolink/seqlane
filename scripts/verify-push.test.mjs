@@ -100,13 +100,13 @@ test("applies the dirty-worktree guard to deletion pushes", () => {
   assert.throws(() => assertCleanWorktree(" M README.md"), /clean worktree/);
 });
 
-test("builds explicit Nx affected arguments", () => {
-  assert.deepEqual(nxAffectedArgs("test", "base", "head"), [
+test("builds one explicit Nx affected task graph", () => {
+  assert.deepEqual(nxAffectedArgs("lint,build,test", "base", "head"), [
     "exec",
     "nx",
     "affected",
     "-t",
-    "test",
+    "lint,build,test",
     "--output-style=static",
     "--base=base",
     "--head=head",

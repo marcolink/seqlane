@@ -32,10 +32,7 @@
       "{workspaceRoot}/pnpm-workspace.yaml",
       "{workspaceRoot}/tsconfig.base.json"
     ],
-    "sharedGlobals": [
-      "{workspaceRoot}/.github/workflows/*.yml",
-      "{workspaceRoot}/scripts/scoped-github-summary.ts"
-    ]
+    "sharedGlobals": ["{workspaceRoot}/.github/workflows/*.yml"]
   },
   "plugins": [
     {
@@ -53,10 +50,5 @@
       }
     }
   ],
-  "targetDefaults": {
-    "lint": {
-      "dependsOn": ["typecheck"]
-    }
-  },
   "analytics": false
 }

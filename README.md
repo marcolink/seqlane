@@ -57,11 +57,11 @@ To run the pre-push checks without pushing:
 pnpm verify:push
 ```
 
-Pull requests run the same affected quality gates in GitHub Actions, plus
-affected builds and workflow validation. Configure the individual checks as
-required checks in branch protection. Workflows build required local Actions
-from trusted source before invocation. Nx restores unchanged bundle outputs
-from cache. The Ripwire smoke test runs only for relevant paths.
+Pull requests run one `CI / Quality gates` check. It validates workflows and
+documentation, then gives Nx one affected `lint,build,test` graph so shared
+dependencies run once. Configure that check as required in branch protection.
+Workflows build required local Actions from trusted source before invocation.
+The Ripwire smoke test runs only for relevant paths.
 
 ### Author a workflow
 
