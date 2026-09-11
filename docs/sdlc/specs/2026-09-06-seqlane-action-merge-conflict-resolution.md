@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-09
+updated: 2026-09-11
 upstream:
   - adr.seqlane-action-library-boundary
+  - adr.runner-built-action-bundles
   - adr.executor-neutral-workflow-authoring
   - adr.autonomous-non-interactive-execution
   - adr.local-mechanical-tasks
@@ -197,10 +198,10 @@ JSON `conflict-handlers` input from the trusted workflow revision. It must not
 accept policy contents from the target checkout or retain resolver
 implementation or Git mutation loops.
 
-The workflow may bootstrap the pinned Node and pnpm toolchain and install
-trusted-source dependencies with a frozen lockfile and scripts disabled before
-the Action runs. It must not install or execute target dependencies in the
-ordinary workflow process. A handler that needs target dependencies must run
+The workflow must bootstrap the pinned Node and pnpm toolchain, install
+trusted-source dependencies with a frozen lockfile and scripts disabled, and
+build the resolver Action before it runs. It must not install or execute target
+dependencies in the ordinary workflow process. A handler that needs target dependencies must run
 its declared setup and command inside the isolated handler environment defined
 by `requirement-generated-file-handlers`.
 
@@ -700,7 +701,7 @@ Implement the migration in these stages:
    Git, filesystem, lockfile, OpenCode, and Seqlane adapters.
 4. Implement the resolution controller and commit/push guards.
 5. Wire the Action entrypoint and declare its metadata.
-6. Build and verify the committed Action bundle.
+6. Configure and verify the cacheable runner-built Action bundle.
 7. Replace the workflow shell loop with the local Action.
 8. Keep only the required workflow bootstrap and job composition.
 9. Move tests from workflow-text assertions to library and Action tests.
@@ -787,7 +788,8 @@ verification must keep remote push behavior disabled.
 - Refused pushes expose only bounded, sanitized operator diagnostics.
 - Merge commits and force-with-lease pushes remain explicit.
 - Remote base and head races fail without an unsafe push.
-- The Action bundle is current and self-contained.
+- The Action bundle is self-contained and built from the trusted workflow
+  revision before local invocation.
 - Tests cover the required Git scenarios with real temporary repositories.
 - The old workflow helper has no remaining production references.
 - Operator documentation explains the Action inputs, dedicated secret,
@@ -797,6 +799,7 @@ verification must keep remote push behavior disabled.
 ## Traceability
 
 - Decision: [adr.seqlane-action-library-boundary](../adrs/2026-09-06-seqlane-action-library-boundary.md)
+- Packaging: [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-action-bundles.md)
 - Prior behavior: [task.resolve-pull-request-merge-conflicts](../tasks/2026-09-04-resolve-pull-request-merge-conflicts.md)
 - Executor boundary: [spec.executor-neutral-workflow-authoring](./2026-09-02-executor-neutral-workflow-authoring.md)
 - Autonomous execution: [spec.autonomous-non-interactive-execution](./2026-09-02-autonomous-non-interactive-execution.md)

@@ -16,6 +16,11 @@ supersedes: []
 
 # Use an Action-Specific Library for Merge-Conflict Resolution
 
+> Packaging amendment: [adr.runner-built-action-bundles](./2026-09-11-runner-built-action-bundles.md)
+> replaces this document's committed-bundle and no-consumer-installation
+> clauses. All library, workflow, lifecycle, and security boundaries remain in
+> force.
+
 ## Context
 
 The merge-conflict resolver currently places most of its behavior in

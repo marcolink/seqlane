@@ -17,6 +17,11 @@ supersedes: []
 
 # Run Trusted Code-Review Actions Through a Direct Runtime Service
 
+> Packaging amendment: [adr.runner-built-action-bundles](./2026-09-11-runner-built-action-bundles.md)
+> replaces this document's committed-bundle and no-consumer-installation
+> clauses. The direct runtime, Action-library, workflow, lifecycle, and trust
+> decisions remain in force.
+
 ## Context
 
 The trusted code-review workflow currently contains admission, GitHub API

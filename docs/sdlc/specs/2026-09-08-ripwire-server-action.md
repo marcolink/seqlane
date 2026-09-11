@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-11
 upstream:
   - adr.seqlane-action-library-boundary
+  - adr.runner-built-action-bundles
   - task.migrate-service-actions-to-workspace-structure
 supersedes: []
 ---
@@ -239,7 +240,7 @@ GitHub-hosted smoke job.
 
 ## Acceptance criteria
 
-- The Action is a self-contained committed ESM bundle with a separate post
+- The Action is a self-contained runner-built ESM bundle with a separate post
   bundle and process anchor.
 - It installs only a verified Ripwire binary from a direct versioned release
   URL for a supported target.
@@ -256,6 +257,8 @@ GitHub-hosted smoke job.
   write-capable tools remain denied.
 
 ## Traceability
+
+- Packaging: [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-action-bundles.md)
 
 - [adr.seqlane-action-library-boundary](../adrs/2026-09-06-seqlane-action-library-boundary.md)
 - [task.migrate-service-actions-to-workspace-structure](../tasks/2026-09-07-migrate-service-actions-to-workspace-structure.md)
