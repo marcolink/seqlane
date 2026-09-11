@@ -34,19 +34,3 @@ jobs:
   actionlint:
     name: Actionlint
     uses: ./.github/workflows/actionlint.yml
-
-  merge-gate:
-    name: Merge gate
-    if: ${{ always() }}
-    needs: [lint, unit-tests, build, actionlint]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require all CI gates to pass
-        if: >-
-          ${{
-            needs.lint.result != 'success' ||
-            needs.unit-tests.result != 'success' ||
-            needs.build.result != 'success' ||
-            needs.actionlint.result != 'success'
-          }}
-        run: exit 1

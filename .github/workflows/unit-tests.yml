@@ -53,7 +53,7 @@ jobs:
         run: >-
           pnpm exec nx affected -t test --output-style=static --
           --reporter=default
-          --reporter=../../scripts/scoped-github-summary.ts
+          --reporter=${{ github.workspace }}/scripts/scoped-github-summary.ts
 
   ripwire-smoke:
     name: Ripwire server smoke test

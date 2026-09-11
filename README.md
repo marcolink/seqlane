@@ -58,10 +58,10 @@ pnpm verify:push
 ```
 
 Pull requests run the same affected quality gates in GitHub Actions, plus
-affected builds, workflow validation, and a single `Merge gate` check suitable
-for branch protection. Workflows build required local Actions from trusted
-source before invocation. Nx restores unchanged bundle outputs from cache. The
-Ripwire smoke test runs only for relevant paths.
+affected builds and workflow validation. Configure the individual checks as
+required checks in branch protection. Workflows build required local Actions
+from trusted source before invocation. Nx restores unchanged bundle outputs
+from cache. The Ripwire smoke test runs only for relevant paths.
 
 ### Author a workflow
 
