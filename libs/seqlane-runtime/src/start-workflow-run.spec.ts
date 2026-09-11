@@ -1,5 +1,10 @@
 // @test-scope ./start-workflow-run.ts
-import { buildWorkflow, createFlow, defineTask } from "@seqlane/core";
+import {
+  buildWorkflow,
+  createFlow,
+  defineTask,
+  type SeqlaneEvent,
+} from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
@@ -22,8 +27,11 @@ const workflow = createFlow({
   .define();
 
 function createSink() {
-  const events: unknown[] = [];
-  return { events, sink: { emit: (event: unknown) => events.push(event) } };
+  const events: SeqlaneEvent[] = [];
+  return {
+    events,
+    sink: { emit: (event: SeqlaneEvent) => events.push(event) },
+  };
 }
 
 describe("startWorkflowRun", () => {
@@ -85,6 +93,71 @@ describe("startWorkflowRun", () => {
         runId: "run-fixed",
       }),
     ]);
+  });
+
+  it("executes deterministic nested workflows through the public runner", async () => {
+    const childTask = defineTask({
+      id: "direct.child-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+      execute: async ({ input }) => ({ result: input.value + 1 }),
+    });
+    const child = createFlow({
+      id: "direct.child-workflow",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("increment", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.increment.output)
+      .define();
+    const parent = createFlow({
+      id: "direct.parent-workflow",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("child", child, ({ input }) => input)
+      .output(({ tasks }) => tasks.child.output)
+      .define();
+    const { sink: eventSink, events } = createSink();
+
+    const handle = startWorkflowRun({
+      workflow: buildWorkflow(parent),
+      input: { value: 2 },
+      runtime: { id: "local" },
+      events: eventSink,
+      identity: { workId: "direct-work", runId: "direct-run" },
+    });
+
+    await expect(handle.outcome).resolves.toMatchObject({
+      status: "succeeded",
+      result: { result: 3 },
+    });
+
+    const created = events.filter(
+      (event): event is Extract<SeqlaneEvent, { type: "invocation.created" }> =>
+        event.type === "invocation.created",
+    );
+    const parentInvocation = created.find(
+      (event) => event.kind === "workflow" && event.label === child.id,
+    );
+    if (parentInvocation === undefined) {
+      throw new Error("Expected nested workflow invocation event");
+    }
+    expect(created).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          parentInvocationId: parentInvocation.invocationId,
+          kind: "task",
+          label: childTask.id,
+        }),
+      ]),
+    );
+    expect(events.at(-1)).toMatchObject({
+      type: "run.succeeded",
+      workId: "direct-work",
+      runId: "direct-run",
+      output: { result: 3 },
+    });
   });
 
   it("preserves a typed failure when terminal event delivery keeps throwing", async () => {
