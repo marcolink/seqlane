@@ -34,6 +34,8 @@ jobs:
           cache: false
           shellcheck: false
           pyflakes: false
+          # Local Action bundles are materialized by consuming jobs before use.
+          flags: -ignore file.*dist/(main|post)[.]js.*does.not.exist
 
       - name: Determine affected range
         uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
