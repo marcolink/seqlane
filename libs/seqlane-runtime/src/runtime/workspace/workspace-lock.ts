@@ -120,7 +120,7 @@ export class WorkspaceLockRegistry {
   ): boolean {
     const state = this.#locks.get(resource.key);
     const owner = ownerId;
-    if (state?.writerInvocationId === owner) return true;
+    if (owner !== undefined && state?.writerInvocationId === owner) return true;
     return (
       state === undefined ||
       (state.waiting.length === 0 &&
