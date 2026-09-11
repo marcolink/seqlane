@@ -237,5 +237,8 @@
 | [task.unify-flow-authoring-and-minimal-plan](./2026-09-08-unify-flow-authoring-and-minimal-plan.md) | Unify Flow Authoring and the Minimal Plan | completed | 2026-09-08 | core |
 | [task.unify-executable-task-contract](./2026-09-08-unify-executable-task-contract.md) | Unify the Executable Task Contract | completed | 2026-09-08 | core |
 | [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | completed | 2026-09-09 | core |
-| [task.migrate-to-runner-built-action-bundles](./2026-09-11-migrate-to-runner-built-action-bundles.md) | Migrate to Runner-Built Action Bundles | in-progress | 2026-09-11 | core |
 | [task.code-review-skill-policy](./2026-09-10-code-review-skill-policy.md) | Enable Safe Repository Skills in Pull-Request Review | completed | 2026-09-10 | core |
+| [task.nested-workflow-workspace-admission](./2026-09-11-nested-workflow-workspace-admission.md) | Make Nested Workflow Workspace Admission Safe | planned | 2026-09-11 | core |
+| [task.migrate-to-runner-built-action-bundles](./2026-09-11-migrate-to-runner-built-action-bundles.md) | Migrate to Runner-Built Action Bundles | in-progress | 2026-09-11 | core |
+| [task.reject-nested-workflows-in-repeats](./2026-09-11-reject-nested-workflows-in-repeats.md) | Reject Nested Workflows in Repeat Bodies | planned | 2026-09-11 | core |
+| [task.nested-workflow-compilation-lifecycle](./2026-09-11-nested-workflow-compilation-lifecycle.md) | Simplify Nested Workflow Compilation and Lifecycle | planned | 2026-09-11 | core |
