@@ -246,7 +246,7 @@ retain its current observable behavior after it delegates to the service.
 
 Verification must prove the direct service and Action boundaries. It must
 include test mapping before focused suites, focused runtime and Action tests,
-review workflow tests, typecheck, build, lint, bundle drift, YAML validation,
+review workflow tests, typecheck, build, lint, bundle loading, YAML validation,
 Action lint when available, documentation validation, and `git diff --check`.
 
 Verification must include a GitHub-hosted manual workflow run that invokes the
@@ -432,7 +432,7 @@ tests for the new path.
 - Deterministic Seqlane tasks make zero model calls.
 - The direct invocation test and GitHub-hosted manual run prove that the Action
   does not call the CLI wrapper or execute review-target code.
-- Mapping, focused tests, typecheck, build, lint, bundle drift, YAML or
+- Mapping, focused tests, typecheck, build, lint, bundle loading, YAML or
   Action lint, documentation validation, and diff checks pass or record a
   repository limitation.
 

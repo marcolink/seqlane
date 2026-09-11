@@ -13,7 +13,7 @@ Use the repository's established action architecture and obey the nearest
 1. Read the root `AGENTS.md` and the scoped instructions under `actions/` or
    `.github/workflows/`.
 2. Inspect the target `action.yml`, source, tests, package manifest, Nx target,
-   and committed bundle.
+   and runner-built bundle contract.
 3. Determine whether the requested capability should be:
    - a JavaScript Action,
    - a composite action, or
@@ -48,8 +48,9 @@ At minimum:
 1. Typecheck.
 2. Run unit tests.
 3. Run relevant integration tests.
-4. Rebuild the bundle.
-5. Verify no bundle drift remains.
+4. Rebuild the bundle from source.
+5. Verify the generated entrypoints load and remain ignored by Git.
 6. Run the local action integration workflow when applicable.
 
-Report source changes and generated bundle changes separately.
+Report source changes and bundle verification separately. Never commit the
+generated bundle.

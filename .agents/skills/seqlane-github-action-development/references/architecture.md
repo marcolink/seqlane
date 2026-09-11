@@ -8,7 +8,7 @@ An action contains these files:
 - `src/main.ts` adapts GitHub Actions inputs and outputs to application code.
 - `project.json` defines the action targets.
 - `package.json` identifies the workspace package.
-- `dist/main.js` is the committed action bundle.
+- `dist/main.js` is a runner-built action bundle.
 
 Use `node24` in `action.yml` unless a supported compatibility requirement
 requires another runtime.
@@ -24,6 +24,8 @@ Action support package for one Action. Use declared package dependencies and
 exports across package boundaries.
 
 Bundle runtime dependencies into `dist/main.js`. The consuming workflow must
-not install package dependencies. Commit the bundle. Do not edit it by hand.
+install the frozen trusted-source dependency graph and build every required
+local Action before its first `uses:` step. Ignore the generated bundle and do
+not edit or commit it.
 
 Set the action metadata `runs.main` value to `dist/main.js`.

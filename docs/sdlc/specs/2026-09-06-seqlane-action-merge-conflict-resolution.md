@@ -337,10 +337,10 @@ The JSON shape is conceptually:
   "version": 1,
   "rules": [
     {
-      "match": "actions/*/dist/main.js",
-      "outputs": ["actions/*/dist/main.js"],
+      "match": "src/generated/*.ts",
+      "outputs": ["src/generated/*.ts"],
       "handler": {
-        "command": ["pnpm", "build"]
+        "command": ["pnpm", "generate"]
       }
     }
   ]

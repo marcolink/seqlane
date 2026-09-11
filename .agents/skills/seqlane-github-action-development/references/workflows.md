@@ -9,6 +9,10 @@ permissions, runner selection, and CI orchestration.
 Check out the repository before a workflow uses a local action. Reference the
 action with `uses: ./actions/<name>`.
 
+Install the frozen trusted-source dependency graph and build every required
+Action before the first local `uses:` step. Cache the Nx computation output,
+not an unvalidated bundle from another source revision.
+
 Set `fetch-depth: 0` when the action needs history, tags, merge bases, or a
 rebase. Set the checkout ref explicitly when the workflow can commit or push.
 

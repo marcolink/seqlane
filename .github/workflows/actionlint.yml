@@ -3,9 +3,6 @@ name: Actionlint
 on:
   workflow_call:
     outputs:
-      bundle_relevant:
-        description: Whether full Action bundle verification is relevant.
-        value: ${{ jobs.actionlint.outputs.bundle_relevant }}
       ripwire_relevant:
         description: Whether the Ripwire smoke test is relevant.
         value: ${{ jobs.actionlint.outputs.ripwire_relevant }}
@@ -21,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      bundle_relevant: ${{ steps.classify.outputs.bundle_relevant }}
       ripwire_relevant: ${{ steps.classify.outputs.ripwire_relevant }}
 
     steps:

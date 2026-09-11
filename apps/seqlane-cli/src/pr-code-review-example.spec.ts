@@ -188,7 +188,15 @@ describe("pull-request code review example workflow", () => {
       "ref: ${{ steps.pull-request.outputs.head_revision }}",
     );
     expect(workflow).toContain("working-directory: seqlane-source");
+    expect(workflow).toContain("path: seqlane-source/.nx/cache");
+    expect(workflow).toContain(
+      "pnpm install --frozen-lockfile --ignore-scripts",
+    );
+    expect(workflow).toContain("Materialize code-review Actions");
     expect(workflow).toContain("uses: ./seqlane-source/actions/code-review");
+    expect(workflow.indexOf("Materialize code-review Actions")).toBeLessThan(
+      workflow.indexOf("uses: ./seqlane-source/actions/code-review"),
+    );
     expect(workflow).toContain("SEQLANE_RUNTIME_ADAPTER_CONFIG: >-");
     expect(workflow).toContain(
       '{"adapter":"opencode","url":"${{ steps.opencode.outputs.url }}"}',

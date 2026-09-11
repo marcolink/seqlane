@@ -1,10 +1,5 @@
 node_modules/
 dist/
-!actions/**/dist/
-!actions/**/dist/main.js
-!actions/**/dist/post.js
-actions/**/dist/*.d.ts
-actions/**/dist/*.d.ts.map
 .nx/
 .seqlane/
 .zvec-grep/

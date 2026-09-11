@@ -17,7 +17,9 @@
         "cwd": "actions/setup-opencode",
         "command": "pnpm exec esbuild src/entrypoint.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=dist/main.js --minify"
       },
-      "outputs": ["{projectRoot}/dist"]
+      "cache": true,
+      "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
+      "outputs": ["{projectRoot}/dist/main.js"]
     },
     "test": {
       "executor": "nx:run-commands",
@@ -25,14 +27,6 @@
       "options": {
         "cwd": "actions/setup-opencode",
         "command": "pnpm exec vitest run src"
-      }
-    },
-    "bundle-drift": {
-      "executor": "nx:run-commands",
-      "dependsOn": ["^build"],
-      "options": {
-        "cwd": "actions/setup-opencode",
-        "command": "tmpdir=$(mktemp -d) && trap 'rm -rf \"$tmpdir\"' EXIT && pnpm exec esbuild src/entrypoint.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=\"$tmpdir/main.js\" --minify && cmp -s dist/main.js \"$tmpdir/main.js\""
       }
     }
   }
