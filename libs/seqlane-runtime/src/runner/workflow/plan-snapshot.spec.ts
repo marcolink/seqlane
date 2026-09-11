@@ -1,4 +1,4 @@
-import type { Plan } from "@seqlane/core";
+import type { Plan, TaskNode } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { createSeqlanePlanSnapshot } from "./plan-snapshot.js";
 
@@ -12,7 +12,7 @@ function adaptLegacyLocalExecutionFixture(plan: Plan): Plan {
   };
   return {
     ...plan,
-    nodes: [{ ...node, input }],
+    nodes: [{ ...node, input: input as unknown as TaskNode["input"] }],
   };
 }
 

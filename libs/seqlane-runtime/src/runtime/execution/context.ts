@@ -47,6 +47,7 @@ export interface ExecutionContext {
   readonly childSessions: ChildSessionRegistry;
   readonly workspaceResources: WorkspaceResourceRegistry;
   readonly workspaceLocks: WorkspaceLockRegistry;
+  readonly workspaceOwnerId?: string;
   readonly jointAdmissions: JointAdmissionRegistry;
   sharedSessionPairs: readonly SharedSessionTaskPair[];
   readonly sessionResolver?: SessionResolver;
@@ -67,6 +68,8 @@ export interface ExecutionContextOptions {
   readonly executors: ExecutorRegistry;
   readonly sessionResolver?: SessionResolver;
   readonly workspaceResources?: WorkspaceResourceRegistry;
+  readonly workspaceLocks?: WorkspaceLockRegistry;
+  readonly workspaceOwnerId?: string;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
@@ -76,7 +79,7 @@ export interface ExecutionContextOptions {
 export function createExecutionContext(
   options: ExecutionContextOptions,
 ): ExecutionContext {
-  const workspaceLocks = new WorkspaceLockRegistry();
+  const workspaceLocks = options.workspaceLocks ?? new WorkspaceLockRegistry();
   const sessionLocks = new SessionLockRegistry();
   return {
     workId: options.workId,
@@ -98,6 +101,7 @@ export function createExecutionContext(
     childSessions: new ChildSessionRegistry(),
     workspaceResources: options.workspaceResources ?? new Map(),
     workspaceLocks,
+    workspaceOwnerId: options.workspaceOwnerId,
     jointAdmissions: new JointAdmissionRegistry(workspaceLocks, sessionLocks),
     sharedSessionPairs: [],
     sessionResolver: options.sessionResolver,

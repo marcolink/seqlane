@@ -169,6 +169,11 @@ dependencies. Flow `dependsOn` entries name prior task handles. `.repeat()`
 creates a bounded post-condition repeat and retains only typed handles during
 authoring.
 
+Workflows are runnables. Pass a child workflow to `.task()` to create a typed
+nested workflow invocation. Its input and output schemas stay distinct from
+the parent, and its internal session and workspace policies remain inside the
+child workflow.
+
 Executors use `InteractionRequiredError` when work cannot continue without a
 human decision. Its finite requirement kind is local to the executor boundary;
 the message is safe to pass through Seqlane failure handling.

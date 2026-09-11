@@ -116,6 +116,7 @@ export async function loadWorkflow(
         plan,
         taskDefinitions: new Map(),
         validatorDefinitions: new Map(),
+        workflowDefinitions: new Map(),
       };
     } else {
       const exportedPlan = parsePlan(exported);
@@ -135,11 +136,17 @@ export async function loadWorkflow(
         plan,
         taskDefinitions: new Map(),
         validatorDefinitions: new Map(),
+        workflowDefinitions: new Map(),
       };
     }
   }
 
-  validateParsedPlan(plan, taskDefinitions);
+  validateParsedPlan(
+    plan,
+    taskDefinitions,
+    taskDefinitions !== undefined || built.workflowDefinitions.size > 0,
+    built.workflowDefinitions,
+  );
 
   return {
     reference,

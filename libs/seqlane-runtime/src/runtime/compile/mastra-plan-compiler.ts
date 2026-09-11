@@ -15,6 +15,7 @@ import type {
   ValidatorDefinitionRegistry,
   WorkId,
   WorkflowDefinition,
+  WorkflowDefinitionRegistry,
 } from "@seqlane/core";
 import { z } from "zod";
 import {
@@ -83,6 +84,7 @@ export interface MastraPlanCompilerOptions {
   readonly workflowOutputSchema?: SeqlaneSchema;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
+  readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
   /** Resolved runtime workspace identities used for static conflict lowering. */
   readonly workspaceResources?: WorkspaceResourceRegistry;
@@ -95,6 +97,7 @@ export interface MastraPlanCompilerOptions {
    * workspace behavior stays in later private runtime slices.
    */
   readonly executeInvocation?: MastraPlanInvocation;
+  readonly executeWorkflowInvocation?: MastraPlanInvocation;
   /** Captures typed Seqlane failures before Mastra serializes them. */
   readonly onFailure?: (failure: SeqlaneError) => void;
   /** Reports compiler-level input failures that occur before invocation execution. */
@@ -144,6 +147,10 @@ function schemaForNodeInput(
     ).input;
   }
 
+  if (node.type === "workflow") {
+    return options.workflowDefinitions?.get(node.workflowId)?.workflow.input;
+  }
+
   if (node.type === "validation.check") {
     if (node.source.type === "mechanical") {
       return options.validatorDefinitions?.get(node.source.validatorId)?.input;
@@ -170,6 +177,10 @@ function schemaForNodeOutput(
     ).output;
   }
 
+  if (node.type === "workflow") {
+    return options.workflowDefinitions?.get(node.workflowId)?.workflow.output;
+  }
+
   if (node.type === "validation.check" && node.source.type === "task") {
     return getTaskSchema(
       options.taskSchemas,
@@ -181,14 +192,18 @@ function schemaForNodeOutput(
   return undefined;
 }
 
-function invocationKind(node: PlanNode): "task" | "validation" | "loop" {
+function invocationKind(
+  node: PlanNode,
+): "workflow" | "task" | "validation" | "loop" {
   if (node.type === "repeat") return "loop";
+  if (node.type === "workflow") return "workflow";
   if (node.type === "task") return "task";
   return "validation";
 }
 
 function taskIdForNode(node: PlanNode): TaskId {
   if (node.type === "task") return node.taskId;
+  if (node.type === "workflow") return node.workflowId;
   if (node.type === "validation.check" && node.source.type === "task") {
     return node.source.taskId;
   }
@@ -288,7 +303,11 @@ function buildInvocationStep(
         planNodeId: node.nodeId,
         invocationId,
         invocationKind: invocationKind(node),
-        ...(node.type === "task" ? { taskId: node.taskId } : {}),
+        ...(node.type === "task"
+          ? { taskId: node.taskId }
+          : node.type === "workflow"
+            ? { workflowId: node.workflowId }
+            : {}),
         dependsOn: [...node.dependsOn],
         ...(inputSchema === undefined ? {} : { typedInput: true }),
         ...(outputSchema === undefined ? {} : { typedOutput: true }),
@@ -341,15 +360,18 @@ function buildInvocationStep(
         });
         throw error;
       }
-      if (options.executeInvocation === undefined) {
-        throw new Error(
-          `No Mastra invocation handler is configured for Plan node "${node.nodeId}"`,
-        );
-      }
-
       let rawOutput: unknown;
       try {
-        rawOutput = await options.executeInvocation({
+        const execute =
+          node.type === "workflow"
+            ? options.executeWorkflowInvocation
+            : options.executeInvocation;
+        if (execute === undefined) {
+          throw new Error(
+            `No Mastra invocation handler is configured for Plan node "${node.nodeId}"`,
+          );
+        }
+        rawOutput = await execute({
           node,
           input: parsedInput,
           workflowInput,
@@ -434,7 +456,13 @@ export function compilePlanToMastra(
     options.taskDefinitions,
     options.validatorDefinitions,
   );
-  const parsedPlan = validatePlan(plan, options.taskDefinitions);
+  const parsedPlan = validatePlan(
+    plan,
+    options.taskDefinitions,
+    options.taskDefinitions !== undefined ||
+      options.workflowDefinitions !== undefined,
+    options.workflowDefinitions,
+  );
   assertMastraSupportedPlan(parsedPlan);
   assertValidationRegistries(parsedPlan, options);
   const orderedNodes = lowerWorkspaceOrdering(
@@ -571,6 +599,7 @@ export function compileBuiltWorkflowToMastra(
     readonly workflow: Pick<WorkflowDefinition, "input" | "output">;
     readonly taskDefinitions?: TaskDefinitionRegistry;
     readonly validatorDefinitions?: ValidatorDefinitionRegistry;
+    readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   },
   options: Omit<
     MastraPlanCompilerOptions,
@@ -582,5 +611,6 @@ export function compileBuiltWorkflowToMastra(
     workflow: built.workflow,
     taskDefinitions: built.taskDefinitions,
     validatorDefinitions: built.validatorDefinitions,
+    workflowDefinitions: built.workflowDefinitions,
   });
 }

@@ -27,6 +27,7 @@ export async function loadOperationalWorkflows(
         key: descriptor.qualifiedName,
         plan: loaded.plan,
         workflow: loaded.definition,
+        workflowDefinitions: loaded.built.workflowDefinitions,
         taskDefinitions: loaded.taskDefinitions,
         validatorDefinitions: loaded.validatorDefinitions,
         eventSink,

@@ -22,6 +22,29 @@ describe("workspace policy locks", () => {
     lease.release();
   });
 
+  it("allows a nested invocation to re-enter its parent workspace lease", async () => {
+    const locks = new WorkspaceLockRegistry();
+    const parent = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      0,
+      "parent",
+      "parent",
+    );
+    const child = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      1,
+      "parent:child",
+      "parent",
+    );
+
+    child.release();
+    parent.release();
+  });
+
   it("shares shared admission while an exclusive task waits", async () => {
     const locks = new WorkspaceLockRegistry();
     const firstReader = await locks.acquire(workspace, "shared");

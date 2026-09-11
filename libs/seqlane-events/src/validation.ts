@@ -201,7 +201,13 @@ const planSessionSchema = z.union([
 
 const planNodeShapeSchema = strictRecord({
   planNodeId: boundedString(256),
-  type: z.enum(["task", "validation.check", "validation.gate", "repeat"]),
+  type: z.enum([
+    "task",
+    "workflow",
+    "validation.check",
+    "validation.gate",
+    "repeat",
+  ]),
   label: boundedString(512),
   taskId: boundedString(256).optional(),
   session: planSessionSchema.optional(),
@@ -217,7 +223,6 @@ const planNodeSchema = planNodeShapeSchema.pipe(
       result.success &&
       (result.data.type === "repeat" ||
         result.data.maximumIterations === undefined) &&
-      (result.data.type === "task" || result.data.session === undefined) &&
       (result.data.type === "task" || result.data.session === undefined)
     );
   }),

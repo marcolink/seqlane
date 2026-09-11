@@ -7,6 +7,8 @@ import type {
   ValidatorDefinition,
   ValidationInvocationOptions,
   AuthoredWorkflow,
+  RunnableDefinition,
+  FlowWorkflowOptions,
   RepeatBodyContext,
   RepeatBuildOptions,
 } from "./contracts.js";
@@ -37,7 +39,10 @@ import {
   taskDefinitionRegistrySchema,
   validatorDefinitionRegistrySchema,
 } from "./contracts.js";
-import { getWorkflowPlanBuilder } from "./workflow-internal.js";
+import {
+  getWorkflowPlanBuilder,
+  isAuthoredWorkflow,
+} from "./workflow-internal.js";
 
 function serializeSessionPolicy(
   policy: TaskInvocationOptions<unknown, unknown>["session"],
@@ -69,8 +74,45 @@ function registerTaskDefinition(
   taskDefinitions.set(task.id, task);
 }
 
+function registerWorkflowDefinition(
+  workflowDefinitions: Map<string, BuiltWorkflow<unknown, unknown>>,
+  workflow: AuthoredWorkflow<unknown, unknown>,
+  building: ReadonlySet<string>,
+): BuiltWorkflow<unknown, unknown> {
+  if (building.has(workflow.id)) {
+    throw new Error(`Cyclic workflow composition at "${workflow.id}"`);
+  }
+  const built = buildWorkflowInternal(
+    workflow,
+    new Set([...building, workflow.id]),
+  );
+  const existing = workflowDefinitions.get(workflow.id);
+  if (existing !== undefined && existing.workflow !== workflow) {
+    throw new Error(`Duplicate workflow definition "${workflow.id}"`);
+  }
+  workflowDefinitions.set(workflow.id, built);
+  for (const [id, nested] of built.workflowDefinitions) {
+    const nestedExisting = workflowDefinitions.get(id);
+    if (
+      nestedExisting !== undefined &&
+      nestedExisting.workflow !== nested.workflow
+    ) {
+      throw new Error(`Duplicate workflow definition "${id}"`);
+    }
+    workflowDefinitions.set(id, nested);
+  }
+  return built;
+}
+
 export function buildWorkflow<Input, Output>(
   workflow: AuthoredWorkflow<Input, Output>,
+): BuiltWorkflow<Input, Output> {
+  return buildWorkflowInternal(workflow, new Set([workflow.id]));
+}
+
+function buildWorkflowInternal<Input, Output>(
+  workflow: AuthoredWorkflow<Input, Output>,
+  building: ReadonlySet<string>,
 ): BuiltWorkflow<Input, Output> {
   const workflowBuilder = getWorkflowPlanBuilder(workflow);
   if (workflowBuilder === undefined) {
@@ -79,31 +121,73 @@ export function buildWorkflow<Input, Output>(
     );
   }
   const nodes: PlanNode[] = [];
-  const invocationCounts = new Map<TaskId, number>();
+  const invocationCounts = new Map<string, number>();
   const validationCounts = new Map<string, number>();
   let repeatCount = 0;
   const taskDefinitions = new Map<TaskId, TaskDefinition<unknown, unknown>>();
   const validatorDefinitions = new Map<string, ValidatorDefinition<unknown>>();
+  const workflowDefinitions = new Map<
+    string,
+    BuiltWorkflow<unknown, unknown>
+  >();
 
   function run<
     TaskInput,
     TaskOutput,
     Options extends TaskInvocationOptions<TaskInput, TaskOutput>,
   >(
-    task: TaskDefinition<TaskInput, TaskOutput>,
-    options: Options,
+    task: RunnableDefinition<TaskInput, TaskOutput>,
+    options: Options | (FlowWorkflowOptions & { readonly input: unknown }),
   ): TaskInvocation<TaskOutput, Options["session"]> {
+    if (isAuthoredWorkflow(task)) {
+      const nested = registerWorkflowDefinition(
+        workflowDefinitions,
+        task as AuthoredWorkflow<unknown, unknown>,
+        building,
+      );
+      for (const definition of nested.taskDefinitions.values()) {
+        registerTaskDefinition(taskDefinitions, definition);
+      }
+      for (const [id, definition] of nested.validatorDefinitions) {
+        const existing = validatorDefinitions.get(id);
+        if (existing !== undefined && existing !== definition) {
+          throw new Error(`Duplicate validator definition "${id}"`);
+        }
+        validatorDefinitions.set(id, definition);
+      }
+      const count = (invocationCounts.get(task.id) ?? 0) + 1;
+      invocationCounts.set(task.id, count);
+      const nodeId = `${task.id}:${count}`;
+      const dependencies = new Set<string>();
+      collectDependencies(options.input, dependencies);
+      for (const dependency of options.dependsOn ?? []) {
+        dependencies.add(dependency.nodeId);
+      }
+      nodes.push({
+        type: "workflow",
+        workflowId: task.id,
+        nodeId,
+        workspace: options.workspace ?? "exclusive",
+        input: serializeBinding(options.input),
+        dependsOn: [...dependencies],
+      });
+      return {
+        nodeId,
+        output: createValueRef<TaskOutput>(nodeId, ["output"]),
+      } as TaskInvocation<TaskOutput, Options["session"]>;
+    }
+    const taskOptions = options as Options;
     taskDefinitionSchema.parse(task);
     const count = (invocationCounts.get(task.id) ?? 0) + 1;
     invocationCounts.set(task.id, count);
     const nodeId = `${task.id}:${count}`;
     const dependencies = new Set<string>();
 
-    collectDependencies(options.input, dependencies);
-    for (const dependency of options.dependsOn ?? []) {
+    collectDependencies(taskOptions.input, dependencies);
+    for (const dependency of taskOptions.dependsOn ?? []) {
       dependencies.add(dependency.nodeId);
     }
-    const session = serializeSessionPolicy(options.session);
+    const session = serializeSessionPolicy(taskOptions.session);
     if (session !== undefined && session.type !== "isolated") {
       dependencies.add(session.from);
     }
@@ -112,15 +196,17 @@ export function buildWorkflow<Input, Output>(
       type: "task",
       taskId: task.id,
       nodeId,
-      workspace: options.workspace ?? "exclusive",
+      workspace: taskOptions.workspace ?? "exclusive",
       ...(session === undefined ? {} : { session }),
-      input: serializeBinding(options.input),
+      input: serializeBinding(taskOptions.input),
       dependsOn: [...dependencies],
     });
 
     const output = createValueRef<TaskOutput>(nodeId, ["output"]);
-    if (options.validateOutput !== undefined) {
-      const validation = validate(options.validateOutput, { input: output });
+    if (taskOptions.validateOutput !== undefined) {
+      const validation = validate(taskOptions.validateOutput, {
+        input: output,
+      });
       return (
         session === undefined
           ? { nodeId, output: validation.output }
@@ -204,7 +290,9 @@ export function buildWorkflow<Input, Output>(
     const nodeId = `repeat:${(repeatCount += 1)}`;
     const dependencies = new Set<string>();
     collectDependencies(options.initial, dependencies);
-    const bodyNodes: (TaskNode | ValidationNode)[] = [];
+    const bodyNodes: (
+      TaskNode | Extract<PlanNode, { type: "workflow" }> | ValidationNode
+    )[] = [];
     const bodyCounts = new Map<TaskId, number>();
     const bodyValidationPrefix = `${nodeId}/validation`;
     const bodyInput = createValueRef<State>(`${nodeId}:input`);
@@ -228,7 +316,9 @@ export function buildWorkflow<Input, Output>(
       for (const dependency of taskOptions.dependsOn ?? []) {
         bodyDependencies.add(dependency.nodeId);
       }
-      const session = serializeSessionPolicy(taskOptions.session);
+      const session = serializeSessionPolicy(
+        "session" in taskOptions ? taskOptions.session : undefined,
+      );
       if (session !== undefined && session.type !== "isolated") {
         bodyDependencies.add(session.from);
       }
@@ -323,5 +413,6 @@ export function buildWorkflow<Input, Output>(
     plan,
     taskDefinitions,
     validatorDefinitions,
+    workflowDefinitions,
   };
 }

@@ -1,11 +1,11 @@
 ---
 id: task.compose-workflows-as-runnables
 title: Compose Workflows as Runnables
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-11
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -82,7 +82,14 @@ Then run:
 
 ## Outcome
 
-Not started.
+Delivered in [PR #99](https://github.com/marcolink/seqlane/pull/99) from
+`feat/compose-workflows-as-runnables`.
+
+The implementation adds typed workflow-as-runnable authoring, serializable
+workflow invocation nodes, recursive private Mastra compilation, distinct
+parent and child invocation identities, child policy retention, cancellation
+propagation, and workflow Plan snapshot/event validation. Scoped tests,
+typechecks, lint, formatting, and SDLC validation passed.
 
 ## Traceability
 

@@ -8,6 +8,7 @@ import type { MastraCompositeStore } from "@mastra/core/storage";
 import { LibSQLStore } from "@mastra/libsql";
 import { isJsonValue } from "@seqlane/core";
 import type {
+  BuiltWorkflow,
   Plan,
   RuntimeProfileReference,
   SeqlaneEventSink,
@@ -31,7 +32,11 @@ import {
   preflightCompiledWorkflowSessionCapabilities,
   resolveCompiledWorkflowSessions,
 } from "../session/session-preflight.js";
-import { createMastraPlanInvocationHandler } from "./mastra-execution.js";
+import {
+  createMastraPlanInvocationHandler,
+  executeNestedMastraWorkflow,
+  workspaceResourcesForExecution,
+} from "./mastra-execution.js";
 import {
   createMastraComposition,
   type MastraWorkflowRegistration,
@@ -58,6 +63,10 @@ export interface OperationalWorkflowSource {
   readonly plan: Plan;
   /** Preserves an authored workflow's input and output validation contract. */
   readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
+  readonly workflowDefinitions?: ReadonlyMap<
+    string,
+    BuiltWorkflow<unknown, unknown>
+  >;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly eventSink?: (context: {
@@ -178,9 +187,11 @@ export function createOperationalWorkflow(
   const invocationHandler = createOperationalInvocationHandler(source);
   const compiled = compilePlanToMastra(source.plan, {
     workflow: source.workflow,
+    workflowDefinitions: source.workflowDefinitions,
     taskDefinitions: source.taskDefinitions,
     validatorDefinitions: source.validatorDefinitions,
     executeInvocation: invocationHandler.invoke,
+    executeWorkflowInvocation: invocationHandler.invoke,
     onWorkflowComplete: ({ runId }) => invocationHandler.complete(runId),
   });
   return { key: source.key, workflow: compiled.workflow };
@@ -216,12 +227,16 @@ interface OperationalInvocationHandler {
   readonly complete: (runId: string) => void;
 }
 
+interface PreparedOperationalInvocation {
+  readonly invoke: MastraPlanInvocation;
+}
+
 function createOperationalInvocationHandler(
   source: OperationalWorkflowSource,
 ): OperationalInvocationHandler {
   const preparedByRun = new Map<
     string,
-    Promise<ReturnType<typeof createMastraPlanInvocationHandler>>
+    Promise<PreparedOperationalInvocation>
   >();
 
   const invoke: MastraPlanInvocation = async (context) => {
@@ -257,9 +272,13 @@ function createOperationalInvocationHandler(
             `${source.plan.workflow.id}:${nodeId}`,
           executors: execution.executors,
           sessionResolver: execution.sessionResolver,
-          workspaceResources: execution.workspaceResources,
+          workspaceResources: workspaceResourcesForExecution(
+            execution.workspaceResources,
+            source.workflowDefinitions,
+          ),
           taskDefinitions: execution.taskDefinitions,
           validatorDefinitions: source.validatorDefinitions,
+          workflowDefinitions: source.workflowDefinitions,
           events,
         });
         preflightCompiledWorkflowSessionCapabilities(prepared);
@@ -272,13 +291,33 @@ function createOperationalInvocationHandler(
             context.runId,
           );
         }
-        return createMastraPlanInvocationHandler(prepared, source.plan);
+        const invokeWorkflow: MastraPlanInvocation = async (invocation) => {
+          const child = source.workflowDefinitions?.get(invocation.workflowId);
+          if (child === undefined) {
+            throw new Error(
+              `No nested workflow definition registered for "${invocation.workflowId}"`,
+            );
+          }
+          return executeNestedMastraWorkflow({
+            parent: prepared,
+            invocation,
+            child,
+            executors: execution.executors,
+            sessionResolver: execution.sessionResolver,
+            workspaceResources: prepared.context.workspaceResources,
+            events,
+          });
+        };
+        const invoke = createMastraPlanInvocationHandler(
+          prepared,
+          source.plan,
+          invokeWorkflow,
+        );
+        return { invoke };
       })();
     preparedByRun.set(context.runId, pending);
     try {
-      return await (
-        await pending
-      )(context);
+      return await (await pending).invoke(context);
     } catch (error) {
       if (preparedByRun.get(context.runId) === pending) {
         preparedByRun.delete(context.runId);

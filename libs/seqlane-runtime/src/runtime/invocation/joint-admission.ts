@@ -19,6 +19,7 @@ export interface JointAdmissionRequest {
   readonly workspace: WorkspaceResource;
   readonly workspacePolicy: WorkspacePolicy;
   readonly invocationId: string;
+  readonly ownerId?: string;
   readonly creationOrdinal: number;
   readonly onWorkspaceWaiting: (
     blockingInvocationId: string | undefined,
@@ -143,7 +144,13 @@ export class JointAdmissionRegistry {
 
   #tryAcquire(request: JointAdmissionRequest): JointAdmission | undefined {
     const { session, workspace, workspacePolicy } = request;
-    if (!this.workspaceLocks.isAvailable(workspace, workspacePolicy)) {
+    if (
+      !this.workspaceLocks.isAvailable(
+        workspace,
+        workspacePolicy,
+        request.ownerId,
+      )
+    ) {
       request.onWorkspaceWaiting(
         this.workspaceLocks.blockingInvocationId(workspace),
       );
@@ -161,6 +168,7 @@ export class JointAdmissionRegistry {
       workspacePolicy,
       request.onWorkspaceWaiting,
       request.invocationId,
+      request.ownerId,
     );
     const sessionLease =
       session === undefined

@@ -86,6 +86,45 @@ describe("loadWorkflow", () => {
     expect(loaded.definition?.output).toBeDefined();
   });
 
+  it("validates and retains authored nested workflows", async () => {
+    const zodSpecifier = import.meta.resolve("zod");
+    const coreSpecifier = import.meta.resolve("@seqlane/core");
+    const source = `
+      import { z } from ${JSON.stringify(zodSpecifier)};
+      import { createFlow, defineTask } from ${JSON.stringify(coreSpecifier)};
+      const schema = z.object({ value: z.number() });
+      const childTask = defineTask({
+        id: "nested-loader-task",
+        input: schema,
+        output: schema,
+        execute: async ({ input }) => input,
+      });
+      const child = createFlow({ id: "nested-loader-child", input: schema, output: schema })
+        .task("task", childTask, ({ input }) => input)
+        .output(({ tasks }) => tasks.task.output)
+        .define();
+      export const parent = createFlow({ id: "nested-loader-parent", input: schema, output: schema })
+        .task("child", child, ({ input }) => input)
+        .output(({ tasks }) => tasks.child.output)
+        .define();
+    `;
+    const loaded = await loadWorkflow(
+      {
+        id: "nested-loader-parent",
+        moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
+        exportName: "parent",
+      },
+      { value: 1 },
+    );
+
+    expect(loaded.built.workflowDefinitions.has("nested-loader-child")).toBe(
+      true,
+    );
+    expect(loaded.plan.nodes).toMatchObject([
+      { type: "workflow", workflowId: "nested-loader-child" },
+    ]);
+  });
+
   it("rejects an unsupported Plan node before validation or compilation", async () => {
     const source = `export const invalid = ${JSON.stringify({
       workflow: { id: "invalid" },

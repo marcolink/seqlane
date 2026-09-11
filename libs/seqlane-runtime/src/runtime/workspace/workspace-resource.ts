@@ -3,6 +3,8 @@ import type { WorkspaceIdentityRegistry } from "./workspace-identity.js";
 
 export interface WorkspaceResource {
   readonly key: string;
+  /** The concrete resources covered by a composed workflow resource. */
+  readonly resources?: readonly WorkspaceResource[];
 }
 
 export type WorkspaceResourceRegistry = ReadonlyMap<TaskId, WorkspaceResource>;

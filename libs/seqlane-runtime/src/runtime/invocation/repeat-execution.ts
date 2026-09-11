@@ -201,6 +201,10 @@ export async function executeRepeatNode(
               remainingConsumers: bodyRemainingConsumers,
               iteration,
             });
+          } else if (bodyNode.type === "workflow") {
+            throw new Error(
+              `Repeat execution does not support nested workflow node "${bodyNode.nodeId}"`,
+            );
           } else {
             const checkNode = bodyChecks.get(bodyNode.checkNodeId);
             if (!checkNode) {

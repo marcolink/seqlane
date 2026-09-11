@@ -34,6 +34,52 @@ useType<PublicWorkflowBuilder>();
 const schema = <T>() => z.custom<T>(() => true);
 
 describe("seqlane core", () => {
+  it("lowers a nested workflow as a typed workflow invocation", () => {
+    const childTask = defineTask({
+      id: "nested-child-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+      execute: async ({ input }) => ({ result: input.value + 1 }),
+    });
+    const child = createFlow({
+      id: "nested-child",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("increment", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.increment.output)
+      .define();
+    const parent = createFlow({
+      id: "nested-parent",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("child", child, ({ input }) => input)
+      .output(({ tasks }) => tasks.child.output)
+      .define();
+
+    const built = buildWorkflow(parent);
+
+    expect(built.plan.nodes).toEqual([
+      {
+        type: "workflow",
+        workflowId: "nested-child",
+        nodeId: "nested-child:1",
+        workspace: "exclusive",
+        input: { type: "ref", nodeId: "__seqlane_input", path: [] },
+        dependsOn: [],
+      },
+    ]);
+    expect(
+      built.workflowDefinitions.get("nested-child")?.plan.workflow,
+    ).toEqual({ id: "nested-child" });
+    expect(built.plan.output).toEqual({
+      type: "ref",
+      nodeId: "nested-child:1",
+      path: ["output"],
+    });
+  });
+
   it("defines an agent task through the unified task contract", () => {
     const task = defineAgentTask({
       id: "agent-task",
