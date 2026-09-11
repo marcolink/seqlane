@@ -222,7 +222,7 @@
 | [task.adopt-opencode-tool-setup-in-review-workflow](./2026-09-08-adopt-opencode-tool-setup-in-review-workflow.md) | Adopt OpenCode Tool Setup in the Review Workflow | completed | 2026-09-08 | core |
 | [task.adopt-ripwire-in-code-review](./2026-09-08-adopt-ripwire-in-code-review.md) | Adopt Ripwire in Seqlane Code Review | completed | 2026-09-08 | core |
 | [task.audit-sdlc-delivery-state](./2026-09-08-audit-sdlc-delivery-state.md) | Audit SDLC Delivery State | completed | 2026-09-08 | core |
-| [task.compose-workflows-as-runnables](./2026-09-08-compose-workflows-as-runnables.md) | Compose Workflows as Runnables | in-progress | 2026-09-08 | core |
+| [task.compose-workflows-as-runnables](./2026-09-08-compose-workflows-as-runnables.md) | Compose Workflows as Runnables | completed | 2026-09-08 | core |
 | [task.configure-generated-file-conflict-handlers](./2026-09-08-configure-generated-file-conflict-handlers.md) | Configure Generated-File Conflict Handlers | completed | 2026-09-08 | core |
 | [task.cut-over-to-mastra-runtime](./2026-09-08-cut-over-to-mastra-runtime.md) | Cut Over to the Mastra Runtime | completed | 2026-09-08 | core |
 | [task.deliver-direct-runtime-code-review-action](./2026-09-08-deliver-direct-runtime-code-review-action.md) | Deliver the Direct-Runtime Code-Review Action | completed | 2026-09-08 | core |
