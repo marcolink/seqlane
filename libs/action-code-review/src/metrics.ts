@@ -37,6 +37,19 @@ const invocationMetricsSchema = z
   })
   .strict();
 
+export const reviewRunSkillUsageSchema = z
+  .array(
+    z
+      .object({
+        name: z.string().min(1).max(256),
+        count: z.number().int().positive(),
+      })
+      .strict(),
+  )
+  .max(128);
+
+export type ReviewRunSkillUsage = z.infer<typeof reviewRunSkillUsageSchema>;
+
 /** The Action-private event projection used by the model-free publication workflow. */
 export const reviewMetricEventSchema = z.discriminatedUnion("type", [
   eventBaseSchema.extend({
@@ -56,6 +69,19 @@ export const reviewMetricEventSchema = z.discriminatedUnion("type", [
     type: z.literal("invocation.output"),
     invocationId: z.string().min(1),
     metrics: invocationMetricsSchema.optional(),
+  }),
+  eventBaseSchema.extend({
+    type: z.literal("invocation.activity"),
+    invocationId: z.string().min(1),
+    activityId: z.string().min(1).max(256),
+    kind: z.literal("skill"),
+    name: z.string().min(1).max(256),
+    state: z.enum(["started", "progress", "succeeded", "failed"]),
+  }),
+  eventBaseSchema.extend({
+    type: z.literal("invocation.skill-summary"),
+    invocationId: z.string().min(1),
+    skills: reviewRunSkillUsageSchema,
   }),
   ...(["succeeded", "failed", "skipped", "cancelled"] as const).map((state) =>
     eventBaseSchema.extend({
@@ -96,6 +122,18 @@ export function projectReviewMetricEvent(
         invocationId: event.invocationId,
         ...(event.metrics === undefined ? {} : { metrics: event.metrics }),
       };
+    case "invocation.activity":
+      return event.kind === "skill"
+        ? {
+            ...base,
+            type: event.type,
+            invocationId: event.invocationId,
+            activityId: event.activityId,
+            kind: event.kind,
+            name: event.name,
+            state: event.state,
+          }
+        : undefined;
     case "invocation.succeeded":
     case "invocation.failed":
     case "invocation.skipped":
@@ -137,6 +175,7 @@ const taskMetricsSchema = z
     provider: z.string().min(1).optional(),
     tokens: tokenMetricsSchema.optional(),
     cost: z.number().nonnegative().optional(),
+    skills: reviewRunSkillUsageSchema.optional(),
   })
   .strict();
 
@@ -179,6 +218,8 @@ export function deriveRunMetrics(
   > = [];
   const latestOutputs = new Map<string, InvocationOutput>();
   const latestResults = new Map<string, InvocationResult>();
+  const skillActivities = new Map<string, Map<string, string>>();
+  const skillSummaries = new Map<string, ReviewRunSkillUsage>();
   let latestHeartbeatElapsedMs = 0;
   let ended:
     | Extract<
@@ -215,6 +256,16 @@ export function deriveRunMetrics(
     }
     if (event.type === "invocation.output") {
       latestOutputs.set(event.invocationId, event);
+    }
+    if (event.type === "invocation.activity") {
+      const activities =
+        skillActivities.get(event.invocationId) ?? new Map<string, string>();
+      if (!activities.has(event.activityId) && activities.size < 128)
+        activities.set(event.activityId, event.name);
+      skillActivities.set(event.invocationId, activities);
+    }
+    if (event.type === "invocation.skill-summary") {
+      skillSummaries.set(event.invocationId, event.skills);
     }
     if (event.type === "run.heartbeat") {
       latestHeartbeatElapsedMs = Math.max(
@@ -270,6 +321,19 @@ export function deriveRunMetrics(
       if (resultState === undefined) return undefined;
       const taskMetrics =
         output?.type === "invocation.output" ? output.metrics : undefined;
+      const activities = skillActivities.get(created.invocationId);
+      const skills =
+        skillSummaries.get(created.invocationId) ??
+        (activities === undefined
+          ? undefined
+          : [...new Set(activities.values())]
+              .map((name) => ({
+                name,
+                count: [...activities.values()].filter(
+                  (activityName) => activityName === name,
+                ).length,
+              }))
+              .sort((left, right) => left.name.localeCompare(right.name)));
       const modelSelection = taskMetrics?.modelSelection;
       const hasMeasuredUsage =
         taskMetrics?.durationMs !== undefined ||
@@ -303,6 +367,7 @@ export function deriveRunMetrics(
           ? {}
           : { tokens: taskMetrics.tokens }),
         ...(taskMetrics?.cost === undefined ? {} : { cost: taskMetrics.cost }),
+        ...(skills === undefined || skills.length === 0 ? {} : { skills }),
       };
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);

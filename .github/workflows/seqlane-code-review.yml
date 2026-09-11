@@ -293,6 +293,17 @@ jobs:
         with:
           version: ${{ steps.opencode-version.outputs.version }}
 
+      - name: Resolve trusted repository skills
+        if: steps.pull-request.outputs.eligible == 'true'
+        id: skill-policy
+        working-directory: seqlane-source
+        env:
+          REVIEW_TARGET: ${{ github.workspace }}/review-target
+          BASE_REVISION: ${{ steps.pull-request.outputs.base_revision }}
+          HEAD_REVISION: ${{ steps.pull-request.outputs.head_revision }}
+          SKILL_STAGING_DIR: ${{ runner.temp }}/seqlane-review-skills
+        run: node scripts/resolve-code-review-skills.mjs >> "$GITHUB_OUTPUT"
+
       - name: Start OpenCode
         if: steps.pull-request.outputs.eligible == 'true'
         id: opencode
@@ -307,8 +318,81 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENCODE_DISABLE_PROJECT_CONFIG: "true"
-          OPENCODE_CONFIG_CONTENT: >-
-            {"model":"openai/gpt-5.6-luna","mcp":{"zvec_grep":{"type":"remote","url":"${{ steps.zvec-grep.outputs.mcp-url }}","enabled":true,"oauth":false,"timeout":10000},"ripwire":{"type":"remote","url":"${{ steps.ripwire.outputs.mcp-url }}","headers":{"Authorization":"Bearer ${{ steps.ripwire.outputs.mcp-token }}"},"enabled":true,"oauth":false,"timeout":10000}},"permission":{"*":"deny","StructuredOutput":"allow","zvec_grep_zvec_grep_search":"allow","ripwire_analyze":"allow","ripwire_find_symbol":"allow","ripwire_find_referencing_symbols":"allow","ripwire_grep":"allow","ripwire_cochange":"allow","ripwire_memory_recall":"allow","ripwire_situational_awareness":"allow","ripwire_mentions":"allow","ripwire_for":"allow","ripwire_lego":"allow","ripwire_owners":"allow","ripwire_fetch_body":"allow","ripwire_batch":"allow","ripwire_exemplar":"allow","ripwire_quality_delta":"allow","ripwire_impact":"allow","ripwire_uses":"allow","ripwire_path_between":"allow","ripwire_connect":"allow","ripwire_explore":"allow","ripwire_from_trace":"allow","ripwire_edit_check":"allow","ripwire_whereis":"allow","ripwire_stray_content":"allow","ripwire_flags":"allow","ripwire_doc_drift":"allow","ripwire_slice":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","bash":"deny","external_directory":"deny"}}
+          OPENCODE_DISABLE_EXTERNAL_SKILLS: "true"
+          # Only base-unchanged skills staged by the resolver are visible here.
+          OPENCODE_CONFIG_CONTENT: |
+            {
+              "model": "openai/gpt-5.6-luna",
+              "skills": {
+                "paths": [
+                  "${{ runner.temp }}/seqlane-review-skills/.agents/skills",
+                  "${{ runner.temp }}/seqlane-review-skills/.claude/skills",
+                  "${{ runner.temp }}/seqlane-review-skills/.opencode/skills"
+                ]
+              },
+              "mcp": {
+                "zvec_grep": {
+                  "type": "remote",
+                  "url": "${{ steps.zvec-grep.outputs.mcp-url }}",
+                  "enabled": true,
+                  "oauth": false,
+                  "timeout": 10000
+                },
+                "ripwire": {
+                  "type": "remote",
+                  "url": "${{ steps.ripwire.outputs.mcp-url }}",
+                  "headers": {
+                    "Authorization": "Bearer ${{ steps.ripwire.outputs.mcp-token }}"
+                  },
+                  "enabled": true,
+                  "oauth": false,
+                  "timeout": 10000
+                }
+              },
+              "permission": {
+                "*": "deny",
+                "skill": "allow",
+                "StructuredOutput": "allow",
+                "zvec_grep_zvec_grep_search": "allow",
+                "ripwire_analyze": "allow",
+                "ripwire_find_symbol": "allow",
+                "ripwire_find_referencing_symbols": "allow",
+                "ripwire_grep": "allow",
+                "ripwire_cochange": "allow",
+                "ripwire_memory_recall": "allow",
+                "ripwire_situational_awareness": "allow",
+                "ripwire_mentions": "allow",
+                "ripwire_for": "allow",
+                "ripwire_lego": "allow",
+                "ripwire_owners": "allow",
+                "ripwire_fetch_body": "allow",
+                "ripwire_batch": "allow",
+                "ripwire_exemplar": "allow",
+                "ripwire_quality_delta": "allow",
+                "ripwire_impact": "allow",
+                "ripwire_uses": "allow",
+                "ripwire_path_between": "allow",
+                "ripwire_connect": "allow",
+                "ripwire_explore": "allow",
+                "ripwire_from_trace": "allow",
+                "ripwire_edit_check": "allow",
+                "ripwire_whereis": "allow",
+                "ripwire_stray_content": "allow",
+                "ripwire_flags": "allow",
+                "ripwire_doc_drift": "allow",
+                "ripwire_slice": "allow",
+                "read": {
+                  "*": "allow",
+                  "*.env": "deny",
+                  "*.env.*": "deny",
+                  "*.env.example": "allow"
+                },
+                "glob": "allow",
+                "grep": "allow",
+                "bash": "deny",
+                "external_directory": "deny"
+              }
+            }
 
       - name: Run Seqlane code review
         if: steps.pull-request.outputs.eligible == 'true'

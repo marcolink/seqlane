@@ -1,4 +1,5 @@
 // @test-scope ./event-recorder.ts
+// @test-scope ./metrics.ts
 // @test-scope ./publication.ts
 import { describe, expect, it } from "vitest";
 import { BoundedEventRecorder } from "./event-recorder.js";
@@ -147,6 +148,68 @@ describe("BoundedEventRecorder", () => {
       totalCost: 1,
       totalTokens: { total: 20 },
       tasks: [{ task: "Review", durationMs: 300 }],
+    });
+  });
+
+  it("preserves bounded skill usage when raw activity events are evicted", () => {
+    const recorder = new BoundedEventRecorder(4);
+    recorder.emit({
+      type: "invocation.created",
+      workId: "w",
+      runId: "r",
+      invocationId: "i",
+      planNodeId: "p",
+      subject: { type: "task", taskId: "t" },
+      kind: "task",
+      label: "Review",
+      siblingOrder: 0,
+      dependencyIds: [],
+      taskId: "t",
+    });
+    recorder.emit({
+      type: "invocation.activity",
+      workId: "w",
+      runId: "r",
+      invocationId: "i",
+      activityId: "skill-1",
+      kind: "skill",
+      name: "repository-guide",
+      state: "succeeded",
+    });
+    recorder.emit({
+      type: "invocation.output",
+      workId: "w",
+      runId: "r",
+      invocationId: "i",
+      policy: "persistent",
+      channel: "task",
+      content: "",
+      metrics: { durationMs: 1 },
+    });
+    recorder.emit({
+      type: "invocation.succeeded",
+      workId: "w",
+      runId: "r",
+      invocationId: "i",
+    });
+    recorder.emit({
+      type: "run.succeeded",
+      workId: "w",
+      runId: "r",
+      output: null,
+    });
+
+    expect(recorder.events).toContainEqual({
+      type: "invocation.skill-summary",
+      workId: "w",
+      runId: "r",
+      invocationId: "i",
+      skills: [{ name: "repository-guide", count: 1 }],
+    });
+    expect(deriveRunMetrics(recorder.events, "r")).toMatchObject({
+      tasks: [
+        { task: "Review", skills: [{ name: "repository-guide", count: 1 }] },
+      ],
     });
   });
 });

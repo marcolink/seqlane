@@ -24,6 +24,11 @@ failures do not change execution. Span metadata is bounded and excludes raw
 prompts, transcripts, tool inputs, and tool outputs. OpenCode 1.18.27 does not
 expose a verified cost unit, so native cost context is omitted.
 
+OpenCode `skill` calls remain `TOOL_CALL` spans with `toolType: "skill"`. When
+the event exposes a skill name, the adapter uses that bounded identity as the
+span name, so traces distinguish individual skills without persisting skill
+contents or metadata.
+
 Structured output uses `auto` selection by default. A verified compatible
 OpenCode version uses native JSON Schema output. Affected, unknown, malformed,
 and prerelease versions use prompt-based JSON followed by local validation with

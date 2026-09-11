@@ -1,8 +1,72 @@
 // @test-scope ./metrics.ts
 import { describe, expect, it } from "vitest";
-import { deriveRunMetrics } from "./metrics.js";
+import { deriveRunMetrics, reviewRunMetricsSchema } from "./metrics.js";
 
 describe("review metrics", () => {
+  it("retains deduplicated skill usage per task", () => {
+    const metrics = deriveRunMetrics(
+      [
+        {
+          type: "invocation.created",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+          planNodeId: "p",
+          subject: { type: "task", taskId: "t" },
+          kind: "task",
+          label: "Review",
+          siblingOrder: 0,
+          dependencyIds: [],
+          taskId: "t",
+        },
+        {
+          type: "invocation.activity",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+          activityId: "skill-1",
+          kind: "skill",
+          name: "web-perf",
+          state: "started",
+        },
+        {
+          type: "invocation.activity",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+          activityId: "skill-1",
+          kind: "skill",
+          name: "web-perf",
+          state: "succeeded",
+        },
+        {
+          type: "invocation.activity",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+          activityId: "skill-2",
+          kind: "skill",
+          name: "security",
+          state: "succeeded",
+        },
+        {
+          type: "invocation.succeeded",
+          workId: "w",
+          runId: "r",
+          invocationId: "i",
+        },
+        { type: "run.succeeded", workId: "w", runId: "r", output: null },
+      ],
+      "r",
+    );
+
+    expect(metrics.tasks[0]?.skills).toEqual([
+      { name: "security", count: 1 },
+      { name: "web-perf", count: 1 },
+    ]);
+    expect(reviewRunMetricsSchema.safeParse(metrics).success).toBe(true);
+  });
+
   it("derives totals without model calls", () => {
     const metrics = deriveRunMetrics(
       [

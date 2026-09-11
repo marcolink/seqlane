@@ -70,6 +70,29 @@ function tupleKey(...values: readonly string[]): string {
   return JSON.stringify(values);
 }
 
+function stringField(
+  details: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = details[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function skillName(
+  observation: OpenCodeToolObservation,
+  names: Map<string, string>,
+): string | undefined {
+  if (observation.tool !== "skill") return undefined;
+  const key = tupleKey(observation.messageID, observation.callID);
+  const candidate =
+    stringField(observation.metadata ?? {}, "name") ??
+    stringField(observation.input ?? {}, "name");
+  if (candidate === undefined || candidate.length > MAX_METADATA_VALUE)
+    return names.get(key);
+  names.set(key, candidate);
+  return candidate;
+}
+
 function currentSpan(
   context: Partial<ObservabilityContext>,
   diagnose: (message: string) => void,
@@ -230,6 +253,7 @@ export function createOpenCodeObservability(
 
   const models = new Map<string, OpenSpan<ModelSpan>>();
   const tools = new Map<string, OpenSpan<ToolSpan>>();
+  const skillNames = new Map<string, string>();
   let disabled = false;
   let finished = false;
   let agent: OpenSpan<AgentSpan> | undefined;
@@ -362,6 +386,10 @@ export function createOpenCodeObservability(
 
   const applyTool = (observation: OpenCodeToolObservation): void => {
     const key = tupleKey(observation.messageID, observation.callID);
+    const resolvedName =
+      observation.tool === "skill"
+        ? (skillName(observation, skillNames) ?? TOOL_NAME_FALLBACK)
+        : observation.tool;
     let record = tools.get(key);
     if (record === undefined) {
       if (!admitIdentity(key, tools, MAX_TOOL_IDENTITIES, "tool")) return;
@@ -372,7 +400,7 @@ export function createOpenCodeObservability(
         record = {
           span: (model?.span ?? agent.span).createChildSpan({
             type: MastraSpanType.TOOL_CALL,
-            name: toolName.resolve(observation.tool),
+            name: toolName.resolve(resolvedName),
             ...(observation.startedAt === undefined
               ? {}
               : { startTime: new Date(observation.startedAt) }),
@@ -393,6 +421,9 @@ export function createOpenCodeObservability(
       record,
       {
         attributes: {
+          ...(observation.tool === "skill"
+            ? { toolType: "skill" }
+            : { toolType: "tool" }),
           success:
             observation.status === "completed"
               ? true

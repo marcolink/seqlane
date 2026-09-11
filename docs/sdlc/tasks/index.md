@@ -238,3 +238,4 @@
 | [task.unify-executable-task-contract](./2026-09-08-unify-executable-task-contract.md) | Unify the Executable Task Contract | completed | 2026-09-08 | core |
 | [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | completed | 2026-09-09 | core |
 | [task.migrate-to-runner-built-action-bundles](./2026-09-11-migrate-to-runner-built-action-bundles.md) | Migrate to Runner-Built Action Bundles | in-progress | 2026-09-11 | core |
+| [task.code-review-skill-policy](./2026-09-10-code-review-skill-policy.md) | Enable Safe Repository Skills in Pull-Request Review | completed | 2026-09-10 | core |

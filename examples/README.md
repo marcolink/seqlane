@@ -124,7 +124,11 @@ trusted Seqlane checkout. The Action calls `startWorkflowRun` with its
 statically bundled workflow; it does not install dependencies, build the CLI,
 or execute repository scripts from the separate review target. OpenCode ignores
 project runtime configuration during the review and receives a read-only tool
-policy. The workflow reads a bounded set of recent issue and review comments.
+policy. Repository skills are staged only when their directories are unchanged
+from the pull-request base revision; new or modified target skills are reported
+and excluded. Skill calls are retained in native telemetry and bounded run
+metrics by individual skill name. The workflow reads a bounded set of recent
+issue and review comments.
 It updates one marked comment
 from the trusted GitHub Actions bot. It records the report verdict without
 failing the review job when it is `request-changes`. It accepts review reruns
