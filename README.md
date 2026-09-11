@@ -45,11 +45,11 @@ pnpm hooks:install
 worktree. The pre-commit hook runs staged formatting and lint checks and
 rejects files with additional unstaged edits. The
 pre-push hook requires a clean worktree and runs the affected repository checks
-against the merge-base with `origin/main`. It also runs an uncached Nx Action
-bundle drift comparison for every Action and checks every committed bundle
-for presence, tracking, and cleanliness. Install dependencies separately in
-each worktree; do not share `node_modules` between worktrees. It validates one
-branch update at a time; tag-only or multi-ref pushes can use `--no-verify`.
+against the merge-base with `origin/main`. Action builds are ordinary affected
+Nx builds; generated `actions/*/dist/` output remains ignored. Install
+dependencies separately in each worktree; do not share `node_modules` between
+worktrees. It validates one branch update at a time; tag-only or multi-ref
+pushes can use `--no-verify`.
 
 To run the pre-push checks without pushing:
 
@@ -57,10 +57,11 @@ To run the pre-push checks without pushing:
 pnpm verify:push
 ```
 
-Pull requests run the same affected quality gates in GitHub Actions, plus
-affected builds, workflow validation, lightweight Action bundle verification,
-and a single `Merge gate` check suitable for branch protection. Full Action
-bundle-drift comparison and the Ripwire smoke test run only for relevant paths.
+Pull requests run one `CI / Quality gates` check. It validates workflows and
+documentation, then gives Nx one affected `lint,build,test` graph so shared
+dependencies run once. Configure that check as required in branch protection.
+Workflows build required local Actions from trusted source before invocation.
+The Ripwire smoke test runs only for relevant paths.
 
 ### Author a workflow
 

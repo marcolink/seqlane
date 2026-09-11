@@ -10,6 +10,8 @@
         "cwd": "libs/action-merge-conflict-resolution",
         "command": "tsc --build tsconfig.json"
       },
+      "cache": true,
+      "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
       "outputs": ["{projectRoot}/dist"]
     },
     "test": {

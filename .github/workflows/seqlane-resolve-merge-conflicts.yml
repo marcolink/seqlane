@@ -92,6 +92,12 @@ jobs:
         working-directory: seqlane-source
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Materialize resolver Action
+        working-directory: seqlane-source
+        run: >-
+          pnpm exec nx run action-resolve-merge-conflicts:build
+          --output-style=static
+
       - name: Resolve merge conflicts
         uses: ./seqlane-source/actions/resolve-merge-conflicts
         with:
@@ -106,19 +112,7 @@ jobs:
           conflict-handlers: |
             {
               "version": 1,
-              "rules": [
-                {
-                  "match": "actions/*/dist/*.js",
-                  "outputs": ["actions/*/dist/*.js"],
-                  "handler": {
-                    "setup": [
-                      ["corepack", "install", "--global", "pnpm@10.33.0"],
-                      ["corepack", "pnpm", "install", "--frozen-lockfile", "--ignore-scripts"]
-                    ],
-                    "command": ["corepack", "pnpm", "build"]
-                  }
-                }
-              ]
+              "rules": []
             }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

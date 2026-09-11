@@ -1,27 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-const rootRelevantPaths = new Set([
-  "package.json",
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "nx.json",
-  "tsconfig.json",
-  "tsconfig.base.json",
-  "tsconfig.spec.json",
-]);
-
-const bundleWorkflowPaths = new Set([
-  ".github/workflows/actionlint.yml",
-  ".github/workflows/bundle-drift.yml",
-  ".github/workflows/ci.yml",
-]);
-
-const ripwireWorkflowPaths = new Set([
-  ".github/workflows/actionlint.yml",
-  ".github/workflows/ci.yml",
-  ".github/workflows/unit-tests.yml",
-]);
+const ripwireWorkflowPaths = new Set([".github/workflows/ci.yml"]);
 
 function normalizePath(path) {
   return path.replaceAll("\\", "/").replace(/^\.\//, "");
@@ -51,10 +31,9 @@ export function classifyPaths(inputPaths) {
     : [];
 
   if (paths.length === 0) {
-    return { bundle_relevant: "true", ripwire_relevant: "true" };
+    return { ripwire_relevant: "true" };
   }
 
-  let bundleRelevant = false;
   let ripwireRelevant = false;
   let unknown = false;
 
@@ -65,30 +44,17 @@ export function classifyPaths(inputPaths) {
     if (path.startsWith("apps/")) continue;
 
     if (path.startsWith("actions/")) {
-      bundleRelevant = true;
       ripwireRelevant ||= isRipwirePath(path);
       continue;
     }
 
     if (path.startsWith("libs/")) {
-      bundleRelevant = true;
       ripwireRelevant ||= isRipwirePath(path);
       continue;
     }
 
-    if (rootRelevantPaths.has(path)) {
-      bundleRelevant = true;
-      continue;
-    }
-
     if (path.startsWith(".github/workflows/")) {
-      bundleRelevant ||= bundleWorkflowPaths.has(path);
       ripwireRelevant ||= ripwireWorkflowPaths.has(path);
-      continue;
-    }
-
-    if (path === "scripts/action-bundle-verifier.mjs") {
-      bundleRelevant = true;
       continue;
     }
 
@@ -96,13 +62,10 @@ export function classifyPaths(inputPaths) {
   }
 
   if (unknown) {
-    return { bundle_relevant: "true", ripwire_relevant: "true" };
+    return { ripwire_relevant: "true" };
   }
 
-  return {
-    bundle_relevant: String(bundleRelevant),
-    ripwire_relevant: String(ripwireRelevant),
-  };
+  return { ripwire_relevant: String(ripwireRelevant) };
 }
 
 function argumentValue(args, name) {

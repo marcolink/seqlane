@@ -19,8 +19,10 @@
         "cwd": "actions/zvec-grep-server",
         "command": "pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=dist/main.js --minify && pnpm exec esbuild src/post.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=dist/post.js --minify"
       },
-      "outputs": ["{projectRoot}/dist"],
-      "dependsOn": ["^build"]
+      "cache": true,
+      "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
+      "outputs": ["{projectRoot}/dist/main.js", "{projectRoot}/dist/post.js"],
+      "dependsOn": ["typecheck", "^build"]
     },
     "test": {
       "executor": "nx:run-commands",
@@ -28,14 +30,6 @@
       "options": {
         "cwd": "actions/zvec-grep-server",
         "command": "node --check process-anchor.js && pnpm exec vitest run src/commands.spec.ts src/readiness.spec.ts src/bundle-runtime.spec.ts src/main.spec.ts src/lifecycle.spec.ts"
-      }
-    },
-    "bundle-drift": {
-      "executor": "nx:run-commands",
-      "dependsOn": ["^build"],
-      "options": {
-        "cwd": "actions/zvec-grep-server",
-        "command": "tmpdir=$(mktemp -d) && trap 'rm -rf \"$tmpdir\"' EXIT && pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=\"$tmpdir/main.js\" --minify && pnpm exec esbuild src/post.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=\"$tmpdir/post.js\" --minify && cmp -s dist/main.js \"$tmpdir/main.js\" && cmp -s dist/post.js \"$tmpdir/post.js\""
       }
     }
   }

@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-11
 upstream:
   - adr.seqlane-action-library-boundary
+  - adr.runner-built-action-bundles
   - task.migrate-service-actions-to-workspace-structure
 supersedes: []
 ---
@@ -146,9 +147,9 @@ Action process path only after verification.
 The output path must be absolute and must identify the verified executable.
 The Action must not write the executable into the reviewed checkout.
 
-All runtime dependencies must be bundled in the committed Action distribution.
-The Action must use the Node 24 runtime and must not require installation by a
-consuming workflow.
+All runtime dependencies must be included in the runner-built Action output.
+The Action must use the Node 24 runtime. The consuming workflow must install
+and build only the trusted Seqlane source checkout before local invocation.
 
 ### requirement-cache
 
@@ -279,7 +280,7 @@ its existing post path.
 ## Migration
 
 Add `actions/setup-opencode` with its Action metadata, Node 24 entrypoint,
-private implementation, tests, bundled dependencies, and committed bundle.
+private implementation, tests, and runner-built bundled dependencies.
 
 Update `.github/workflows/seqlane-code-review.yml` to derive and compare the
 SDK-matched version, call the Setup Action, and pass its output to
@@ -303,7 +304,7 @@ review output ownership in the workflow or existing service and review code.
 - Unit-test executable discovery and exact reported-version verification.
 - Test that cache paths exclude credentials, configuration, checkout, Git
   state, and review output.
-- Build the Action bundle and verify that committed output has no drift.
+- Build the Action bundle and verify that its runtime entrypoint loads.
 - Run focused Action tests, typechecks, test mapping, and workflow metadata
   checks.
 - Run `pnpm docs:index`, `pnpm docs:validate`, and `git diff --check`.
@@ -329,9 +330,11 @@ review output ownership in the workflow or existing service and review code.
 - The review workflow uses the Setup Action and has no inline installer.
 - The review workflow passes the setup output to the Server Action.
 - OpenCode configuration and credentials remain workflow-owned.
-- Focused tests, bundle checks, documentation checks, and diff checks pass.
+- Focused tests, bundle-loading checks, documentation checks, and diff checks pass.
 
 ## Traceability
+
+- Packaging: [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-action-bundles.md)
 
 - [adr.seqlane-action-library-boundary](../adrs/2026-09-06-seqlane-action-library-boundary.md)
 - [task.migrate-service-actions-to-workspace-structure](../tasks/2026-09-07-migrate-service-actions-to-workspace-structure.md)

@@ -14,63 +14,22 @@
       "dependsOn": ["^build"]
     },
     "build": {
-      "executor": "@nx/esbuild:esbuild",
+      "executor": "nx:run-commands",
       "options": {
-        "main": "actions/code-review/src/main.ts",
-        "tsConfig": "actions/code-review/tsconfig.json",
-        "outputPath": "actions/code-review/dist",
-        "outputFileName": "main.js",
-        "deleteOutputPath": false,
-        "bundle": true,
-        "thirdParty": true,
-        "format": ["esm"],
-        "platform": "node",
-        "target": "node24",
-        "outputHashing": "none",
-        "minify": true,
-        "sourcemap": false,
-        "declaration": false,
-        "skipTypeCheck": true
+        "cwd": "actions/code-review",
+        "command": "pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --tsconfig=tsconfig.json --outfile=dist/main.js --minify && pnpm exec esbuild src/post.ts --bundle --platform=node --target=node24 --format=esm --tsconfig=tsconfig.json --outfile=dist/post.js --minify"
       },
-      "outputs": ["{projectRoot}/dist"],
-      "dependsOn": ["^build"]
-    },
-    "build-post": {
-      "executor": "@nx/esbuild:esbuild",
-      "options": {
-        "main": "actions/code-review/src/post.ts",
-        "tsConfig": "actions/code-review/tsconfig.json",
-        "outputPath": "actions/code-review/dist",
-        "outputFileName": "post.js",
-        "deleteOutputPath": false,
-        "bundle": true,
-        "thirdParty": true,
-        "format": ["esm"],
-        "platform": "node",
-        "target": "node24",
-        "outputHashing": "none",
-        "minify": true,
-        "sourcemap": false,
-        "declaration": false,
-        "skipTypeCheck": true
-      },
-      "outputs": ["{projectRoot}/dist"],
-      "dependsOn": ["^build"]
+      "cache": true,
+      "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
+      "outputs": ["{projectRoot}/dist/main.js", "{projectRoot}/dist/post.js"],
+      "dependsOn": ["typecheck", "^build"]
     },
     "test": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build", "build-post"],
+      "dependsOn": ["build"],
       "options": {
         "cwd": ".",
-        "command": "node actions/code-review/tests/entrypoint-smoke.mjs && pnpm exec vitest run actions/code-review/src/failure-diagnostics.spec.ts actions/code-review/src/main.spec.ts && git diff --exit-code -- actions/code-review/dist/"
-      }
-    },
-    "bundle-drift": {
-      "executor": "nx:run-commands",
-      "dependsOn": ["^build"],
-      "options": {
-        "cwd": "actions/code-review",
-        "command": "tmpdir=$(mktemp -d) && trap 'rm -rf \"$tmpdir\"' EXIT && pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --tsconfig=tsconfig.json --outfile=\"$tmpdir/main.js\" --minify && pnpm exec esbuild src/post.ts --bundle --platform=node --target=node24 --format=esm --tsconfig=tsconfig.json --outfile=\"$tmpdir/post.js\" --minify && cmp -s dist/main.js \"$tmpdir/main.js\" && cmp -s dist/post.js \"$tmpdir/post.js\""
+        "command": "node actions/code-review/tests/entrypoint-smoke.mjs && pnpm exec vitest run actions/code-review/src/failure-diagnostics.spec.ts actions/code-review/src/main.spec.ts"
       }
     }
   }

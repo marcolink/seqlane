@@ -31,23 +31,17 @@
         "declaration": false,
         "skipTypeCheck": true
       },
-      "outputs": ["{projectRoot}/dist"],
-      "dependsOn": ["^build"]
+      "cache": true,
+      "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
+      "outputs": ["{projectRoot}/dist/main.js"],
+      "dependsOn": ["typecheck", "^build"]
     },
     "test": {
       "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
         "cwd": ".",
-        "command": "pnpm exec vitest run actions/resolve-merge-conflicts/src/lazy-agent-port.spec.ts && node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs && git diff --exit-code -- actions/resolve-merge-conflicts/dist/"
-      }
-    },
-    "bundle-drift": {
-      "executor": "nx:run-commands",
-      "dependsOn": ["^build"],
-      "options": {
-        "cwd": "actions/resolve-merge-conflicts",
-        "command": "tmpdir=$(mktemp -d) && trap 'rm -rf \"$tmpdir\"' EXIT && pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --tsconfig=tsconfig.json --outfile=\"$tmpdir/main.js\" --minify && cmp -s dist/main.js \"$tmpdir/main.js\""
+        "command": "pnpm exec vitest run actions/resolve-merge-conflicts/src/lazy-agent-port.spec.ts && node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs"
       }
     }
   }

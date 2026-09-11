@@ -18,10 +18,21 @@
       "!{projectRoot}/src/test-setup.[jt]s",
       "!{projectRoot}/test-setup.[jt]s"
     ],
-    "sharedGlobals": [
-      "{workspaceRoot}/.github/workflows/*.yml",
-      "{workspaceRoot}/scripts/scoped-github-summary.ts"
-    ]
+    "bundleProduction": [
+      "{projectRoot}/**/*",
+      "!{projectRoot}/dist/**/*",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/src/test-setup.[jt]s",
+      "!{projectRoot}/test-setup.[jt]s"
+    ],
+    "bundleGlobals": [
+      "{workspaceRoot}/package.json",
+      "{workspaceRoot}/pnpm-lock.yaml",
+      "{workspaceRoot}/pnpm-workspace.yaml",
+      "{workspaceRoot}/tsconfig.base.json"
+    ],
+    "sharedGlobals": ["{workspaceRoot}/.github/workflows/*.yml"]
   },
   "plugins": [
     {
@@ -39,10 +50,5 @@
       }
     }
   ],
-  "targetDefaults": {
-    "lint": {
-      "dependsOn": ["typecheck"]
-    }
-  },
   "analytics": false
 }

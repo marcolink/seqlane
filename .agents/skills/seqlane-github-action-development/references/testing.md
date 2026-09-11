@@ -56,8 +56,9 @@ Select the scenarios relevant to the changed behavior:
 
 ## Bundle verification
 
-Rebuild all affected action bundles and run:
+Build all affected Action bundles, run their entrypoint-loading tests, and
+verify that generated files remain ignored:
 
 ```bash
-git diff --exit-code -- dist/ actions/*/dist/
+git check-ignore actions/*/dist/*.js
 ```

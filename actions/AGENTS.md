@@ -15,10 +15,14 @@ These instructions apply to all projects under `actions/`.
 ## Packaging
 
 - Bundle each action and its runtime dependencies into a self-contained `dist/main.js`.
-- Do not require dependency installation in the consuming workflow.
-- Commit generated action bundles.
-- A source change is incomplete until the corresponding bundle has been rebuilt and verified.
-- Before you commit an Action source or build change, rebuild its bundle and run its bundle-drift check.
+- Do not commit generated action bundles. `dist/` is runner-built output.
+- Each consuming workflow must install only its trusted Seqlane source checkout
+  with the frozen lockfile and build every required Action before its first
+  local `uses:` step.
+- Keep each Action's main and post entrypoints in one atomic, cacheable build
+  target with precise inputs and outputs.
+- A source change is incomplete until the corresponding bundle builds and its
+  runtime-loading tests pass.
 - Do not edit bundled files manually.
 
 ## Paths
@@ -48,6 +52,6 @@ Before completing an action change:
 
 1. Run its unit tests.
 2. Run Git integration tests against temporary repositories.
-3. Bundle the action.
-4. Verify the committed bundle matches the source.
+3. Build the Action bundle from a clean output directory.
+4. Verify the generated entrypoints load and remain ignored by Git.
 5. Run the action through `uses: ./actions/<name>` on a GitHub-hosted runner when behavior or metadata changed.

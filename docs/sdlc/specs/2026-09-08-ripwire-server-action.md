@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-11
 upstream:
   - adr.seqlane-action-library-boundary
+  - adr.runner-built-action-bundles
   - task.migrate-service-actions-to-workspace-structure
 supersedes: []
 ---
@@ -239,7 +240,7 @@ GitHub-hosted smoke job.
 
 ## Acceptance criteria
 
-- The Action is a self-contained committed ESM bundle with a separate post
+- The Action is a self-contained runner-built ESM bundle with a separate post
   bundle and process anchor.
 - It installs only a verified Ripwire binary from a direct versioned release
   URL for a supported target.
@@ -249,13 +250,15 @@ GitHub-hosted smoke job.
   `0.0.0.0` and `*` display equivalence; wildcard output does not satisfy a
   specific host.
 - All input and token security combinations are tested.
-- `.github/workflows/unit-tests.yml` runs a read-only hosted smoke job.
+- `.github/workflows/ci.yml` runs a read-only hosted smoke step.
 - The review workflow starts zvec-grep and Ripwire against `review-target`,
   uses Ripwire's generated URL and token, keeps remote edits disabled, and
   adds all Ripwire read-only tools to the OpenCode allowlist while the four
   write-capable tools remain denied.
 
 ## Traceability
+
+- Packaging: [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-action-bundles.md)
 
 - [adr.seqlane-action-library-boundary](../adrs/2026-09-06-seqlane-action-library-boundary.md)
 - [task.migrate-service-actions-to-workspace-structure](../tasks/2026-09-07-migrate-service-actions-to-workspace-structure.md)

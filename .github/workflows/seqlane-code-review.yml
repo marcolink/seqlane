@@ -237,6 +237,18 @@ jobs:
           cache: pnpm
           cache-dependency-path: seqlane-source/pnpm-lock.yaml
 
+      - name: Install trusted Action dependencies
+        if: steps.pull-request.outputs.eligible == 'true'
+        working-directory: seqlane-source
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Materialize code-review Actions
+        if: steps.pull-request.outputs.eligible == 'true'
+        working-directory: seqlane-source
+        run: >-
+          pnpm exec nx run-many -t build --output-style=static
+          --projects=action-code-review,action-opencode-server,action-ripwire-server,action-setup-opencode,action-zvec-grep-server
+
       - name: Start zvec-grep
         if: steps.pull-request.outputs.eligible == 'true'
         id: zvec-grep

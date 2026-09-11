@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-11
 upstream:
   - adr.seqlane-action-library-boundary
+  - adr.runner-built-action-bundles
   - task.migrate-service-actions-to-workspace-structure
 supersedes: []
 ---
@@ -143,10 +144,10 @@ zvec-grep lifecycle to a private Action module, and writes outputs or reports
 failures. The private module owns resolve, index, server startup, readiness,
 and process cleanup orchestration.
 
-No new consuming-workflow package installation is required; the committed
-Action bundle contains its Action runtime dependencies, while zvec-grep is
-resolved by the package manager at the requested version at execution time.
-The committed main and post bundles are loadable ESM modules and use a
+The consuming workflow installs and builds only its trusted Seqlane source
+checkout. The runner-built Action bundle contains its runtime dependencies,
+while zvec-grep is resolved by the package manager at the requested version at
+execution time. The generated main and post bundles are loadable ESM modules and use a
 CommonJS bridge for dependencies that require `require` at runtime.
 
 ## Failure and edge cases
@@ -171,7 +172,7 @@ project directory receive indexing as part of Action startup.
 - Unit-test pure command construction, defaults and overrides, exact file
   policy and glob ordering, representative sensitive-file exclusions,
   immutable exclusions, and zvec home/model-cache environment construction.
-- Run focused Action tests, typecheck, bundle build/drift checks, workflow and
+- Run focused Action tests, typecheck, bundle build/loading checks, workflow and
   metadata parsing, and `actionlint` when available.
 - Run test mapping and SDLC index/validation checks.
 
@@ -198,6 +199,8 @@ project directory receive indexing as part of Action startup.
   the Action against `review-target`.
 
 ## Traceability
+
+- Packaging: [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-action-bundles.md)
 
 - [adr.seqlane-action-library-boundary](../adrs/2026-09-06-seqlane-action-library-boundary.md)
 - [task.migrate-service-actions-to-workspace-structure](../tasks/2026-09-07-migrate-service-actions-to-workspace-structure.md)

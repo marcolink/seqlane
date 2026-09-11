@@ -134,20 +134,6 @@ function runPnpm(args, env) {
   return result.status === 0;
 }
 
-function runBundleVerifier(args, env) {
-  console.log(`\n> node scripts/action-bundle-verifier.mjs ${args.join(" ")}`);
-  const result = spawnSync(
-    process.execPath,
-    ["scripts/action-bundle-verifier.mjs", ...args],
-    {
-      cwd: repositoryRoot,
-      env,
-      stdio: "inherit",
-    },
-  );
-  return !result.error && result.status === 0;
-}
-
 function readHookInput() {
   if (process.stdin.isTTY) return Promise.resolve("");
 
@@ -216,24 +202,15 @@ async function main() {
     ["test mapping", ["test:mapping"]],
     ["workflow helper", ["test:workflow-helper"]],
     [
-      "affected typecheck",
-      nxAffectedArgs("typecheck", base, selection.revision),
+      "affected lint, build, and tests",
+      nxAffectedArgs("lint,build,test", base, selection.revision),
     ],
-    ["affected lint", nxAffectedArgs("lint", base, selection.revision)],
-    ["affected tests", nxAffectedArgs("test", base, selection.revision)],
-    ["affected build", nxAffectedArgs("build", base, selection.revision)],
   ];
 
   for (const [name, args] of checks) {
     console.log(`\n=== ${name} ===`);
     if (!runPnpm(args, env)) return 1;
   }
-
-  console.log("\n=== Action bundle drift ===");
-  if (!runBundleVerifier(["--drift"], env)) {
-    return 1;
-  }
-  if (!runBundleVerifier(["--verify"], env)) return 1;
 
   console.log("\nPre-push verification passed.");
   return 0;
