@@ -96,7 +96,7 @@ describe("merge-conflict resolution example workflow", () => {
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).toContain("timeout-minutes: 30");
     expect(workflow).toContain("ref: ${{ github.workflow_sha }}");
-    expect(workflow).toContain("path: seqlane-source/.nx/cache");
+    expect(workflow).not.toContain(".nx/cache");
     expect(workflow).toContain("Materialize resolver Action");
     expect(workflow).toContain(
       "uses: ./seqlane-source/actions/resolve-merge-conflicts",

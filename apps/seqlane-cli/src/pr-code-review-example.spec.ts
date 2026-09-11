@@ -188,7 +188,7 @@ describe("pull-request code review example workflow", () => {
       "ref: ${{ steps.pull-request.outputs.head_revision }}",
     );
     expect(workflow).toContain("working-directory: seqlane-source");
-    expect(workflow).toContain("path: seqlane-source/.nx/cache");
+    expect(workflow).not.toContain(".nx/cache");
     expect(workflow).toContain(
       "pnpm install --frozen-lockfile --ignore-scripts",
     );
