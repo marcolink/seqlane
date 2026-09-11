@@ -157,6 +157,7 @@ export async function startRun(
       workspaceResources: execution.workspaceResources,
       taskDefinitions: execution.taskDefinitions,
       validatorDefinitions: loadedWorkflow.validatorDefinitions,
+      workflowDefinitions: loadedWorkflow.built.workflowDefinitions,
       workflow: workflowDefinition,
       events,
       createInvocationId,

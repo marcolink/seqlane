@@ -40,6 +40,7 @@ function availableDependencyIds(
 
 export function invocationTaskId(node: PlanNode): string {
   if (node.type === "task") return node.taskId;
+  if (node.type === "workflow") return node.workflowId;
   if (node.type === "repeat") return node.nodeId;
   if (node.type === "validation.check") {
     return node.source.type === "task"
@@ -50,7 +51,11 @@ export function invocationTaskId(node: PlanNode): string {
 }
 
 export function invocationSubject(node: PlanNode): SeqlaneInvocationSubject {
-  if (node.type === "task" || node.type === "repeat") {
+  if (
+    node.type === "task" ||
+    node.type === "workflow" ||
+    node.type === "repeat"
+  ) {
     return { type: "task", taskId: invocationTaskId(node) };
   }
   if (node.type === "validation.check") {
@@ -65,6 +70,7 @@ export function invocationKind(
   node: PlanNode,
 ): "workflow" | "loop" | "task" | "validation" {
   if (node.type === "repeat") return "loop";
+  if (node.type === "workflow") return "workflow";
   if (node.type === "task") return "task";
   return "validation";
 }
@@ -152,8 +158,15 @@ export function startCompiledWorkflow(
           runId: context.runId,
           activeInvocationIds: compiled.orderedNodes
             .filter(
-              (node): node is TaskNode | RepeatNode =>
-                node.type === "task" || node.type === "repeat",
+              (
+                node,
+              ): node is
+                | TaskNode
+                | RepeatNode
+                | Extract<PlanNode, { type: "workflow" }> =>
+                node.type === "task" ||
+                node.type === "workflow" ||
+                node.type === "repeat",
             )
             .map((node) => invocationIdForNode(context, node)),
           elapsedMs: Date.now() - startedAt,

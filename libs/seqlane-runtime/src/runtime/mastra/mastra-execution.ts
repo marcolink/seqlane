@@ -9,12 +9,14 @@ import type {
   RunId,
   InvocationId,
   WorkflowDefinition,
+  WorkflowDefinitionRegistry,
 } from "@seqlane/core";
 import { SeqlaneError } from "@seqlane/core";
 import {
   compilePlanToMastra,
   type CompiledMastraPlan,
   type MastraPlanInvocation,
+  type MastraPlanInvocationContext,
 } from "../compile/mastra-plan-compiler.js";
 import {
   PlanCompiler,
@@ -22,6 +24,7 @@ import {
 } from "../compile/compile-plan.js";
 import {
   executeTaskNode,
+  executeWorkflowNode,
   executeValidationCheckNode,
   executeValidationGateNode,
 } from "../invocation/invocation-execution.js";
@@ -45,6 +48,11 @@ import { taskIdCompatibility } from "../invocation/invocation-support.js";
 import type { ExecutorResolvers } from "../execution/executor.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
+import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
+import {
+  preflightCompiledWorkflowSessionCapabilities,
+  resolveCompiledWorkflowSessions,
+} from "../session/session-preflight.js";
 
 export interface MastraPlanExecutionOptions {
   readonly plan: Plan;
@@ -57,6 +65,7 @@ export interface MastraPlanExecutionOptions {
   readonly workspaceResources: WorkspaceResourceRegistry;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
+  readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
   readonly events: SeqlaneEventSink;
 }
@@ -65,6 +74,25 @@ export interface MastraPlanExecution {
   readonly prepared: PreparedPlanExecution;
   readonly compiled: CompiledMastraPlan;
   readonly runtime: MastraRuntime;
+}
+
+function workspaceResourcesForExecution(
+  resources: WorkspaceResourceRegistry,
+  workflows: WorkflowDefinitionRegistry | undefined,
+): WorkspaceResourceRegistry {
+  if (workflows === undefined || workflows.size === 0) return resources;
+  const extended = new Map(resources);
+  for (const [workflowId, workflow] of workflows) {
+    if (extended.has(workflowId)) continue;
+    for (const taskId of workflow.taskDefinitions.keys()) {
+      const resource = extended.get(taskId);
+      if (resource !== undefined) {
+        extended.set(workflowId, resource);
+        break;
+      }
+    }
+  }
+  return extended;
 }
 
 function checkNodes(plan: Plan): Map<string, ValidationCheckNode> {
@@ -114,6 +142,7 @@ export function emitMastraInvocationTopology(
   compiled: CompiledMastraPlan,
   prepared: PreparedPlanExecution,
   events: SeqlaneEventSink,
+  parentInvocationId?: InvocationId,
 ): void {
   const { context } = prepared;
   for (const [siblingOrder, node] of compiled.orderedNodes.entries()) {
@@ -129,6 +158,7 @@ export function emitMastraInvocationTopology(
       ...taskIdCompatibility(subject),
       kind: invocationKind(node),
       label: invocationTaskId(node),
+      ...(parentInvocationId === undefined ? {} : { parentInvocationId }),
       siblingOrder,
       dependencyIds: dependencyInvocationIds(context, compiled, node),
     });
@@ -259,6 +289,20 @@ export function createMastraPlanInvocationHandler(
         remainingConsumers: context.remainingConsumers,
       });
     }
+    if (node.type === "workflow") {
+      return executeWorkflowNode(context, node, abortSignal, {
+        invocationId,
+        observability,
+        results,
+        remainingConsumers: prepared.context.remainingConsumers,
+        workspaceAdmission: "graph",
+        execute: async () => {
+          throw new Error(
+            `Nested workflow "${node.workflowId}" requires a Mastra workflow handler`,
+          );
+        },
+      });
+    }
     return executeRepeatNode(context, node, abortSignal, observability);
   };
 }
@@ -270,6 +314,10 @@ export function createMastraPlanExecution(
   const captureFailure = (failure: SeqlaneError): void => {
     typedFailure ??= failure;
   };
+  const workspaceResources = workspaceResourcesForExecution(
+    options.workspaceResources,
+    options.workflowDefinitions,
+  );
   const prepared = new PlanCompiler().prepareWorkflow(options.plan, {
     workId: options.workId,
     runId: options.runId,
@@ -277,9 +325,10 @@ export function createMastraPlanExecution(
     workflowInput: options.workflowInput,
     executors: options.executors,
     sessionResolver: options.sessionResolver,
-    workspaceResources: options.workspaceResources,
+    workspaceResources,
     taskDefinitions: options.taskDefinitions,
     validatorDefinitions: options.validatorDefinitions,
+    workflowDefinitions: options.workflowDefinitions,
     events: options.events,
   });
   const executeInvocation = createMastraPlanInvocationHandler(
@@ -298,7 +347,8 @@ export function createMastraPlanExecution(
     },
     taskDefinitions: options.taskDefinitions,
     validatorDefinitions: options.validatorDefinitions,
-    workspaceResources: options.workspaceResources,
+    workflowDefinitions: options.workflowDefinitions,
+    workspaceResources,
     workflow: options.workflow,
     onFailure: captureFailure,
     onInputValidationFailure: ({
@@ -325,6 +375,87 @@ export function createMastraPlanExecution(
         error,
         disposition: "fail_run",
       });
+    },
+    executeWorkflowInvocation: async (
+      invocation: MastraPlanInvocationContext,
+    ): Promise<unknown> => {
+      if (invocation.node.type !== "workflow") {
+        throw new Error("Workflow handler received a non-workflow Plan node");
+      }
+      const child = options.workflowDefinitions?.get(
+        invocation.node.workflowId,
+      );
+      if (child === undefined) {
+        throw new Error(
+          `No nested workflow definition registered for "${invocation.node.workflowId}"`,
+        );
+      }
+      return executeWorkflowNode(
+        prepared.context,
+        invocation.node,
+        invocation.abortSignal,
+        {
+          invocationId: invocation.invocationId,
+          observability: invocation.observability,
+          results: prepared.context.results,
+          remainingConsumers: prepared.context.remainingConsumers,
+          workspaceAdmission: "graph",
+          execute: async () => {
+            const childExecution = createMastraPlanExecution({
+              plan: child.plan,
+              workflowInput: invocation.input,
+              workId: invocation.workId,
+              runId: invocation.runId,
+              createInvocationId: (nodeId) =>
+                `${invocation.invocationId}:${nodeId}`,
+              executors: options.executors,
+              sessionResolver: options.sessionResolver,
+              workspaceResources,
+              taskDefinitions: child.taskDefinitions,
+              validatorDefinitions: child.validatorDefinitions,
+              workflowDefinitions: child.workflowDefinitions,
+              workflow: child.workflow,
+              events: options.events,
+            });
+            preflightCompiledWorkflowSessionCapabilities(
+              childExecution.prepared,
+            );
+            await preflightCompiledWorkflowModels(childExecution.prepared);
+            await resolveCompiledWorkflowSessions(childExecution.prepared);
+            emitMastraInvocationTopology(
+              childExecution.compiled,
+              childExecution.prepared,
+              options.events,
+              invocation.invocationId,
+            );
+            const childRun = childExecution.runtime.start({
+              workflowKey: childExecution.compiled.key,
+              input: invocation.input,
+              workId: invocation.workId,
+              runId: invocation.runId,
+            });
+            const cancelChild = (): void => {
+              void childRun.cancel().catch(() => undefined);
+            };
+            if (invocation.abortSignal.aborted) cancelChild();
+            else
+              invocation.abortSignal.addEventListener("abort", cancelChild, {
+                once: true,
+              });
+            try {
+              const result = await childRun.outcome;
+              if (result.status === "succeeded") return result.result;
+              if (result.status === "failed") throw result.error;
+              throw (
+                invocation.abortSignal.reason ??
+                new Error("Nested workflow cancelled")
+              );
+            } finally {
+              invocation.abortSignal.removeEventListener("abort", cancelChild);
+            }
+          },
+        },
+      );
     },
     executeInvocation: async (invocation) => {
       try {

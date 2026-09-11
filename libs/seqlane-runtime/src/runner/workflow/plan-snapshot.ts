@@ -63,6 +63,8 @@ function nodeLabel(node: PlanNode): string {
   switch (node.type) {
     case "task":
       return node.taskId;
+    case "workflow":
+      return node.workflowId;
     case "validation.check":
       return node.source.type === "task"
         ? node.source.taskId

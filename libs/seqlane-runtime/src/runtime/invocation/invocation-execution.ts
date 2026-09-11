@@ -3,6 +3,7 @@ import type {
   SeqlaneInvocationMetrics,
   ModelSelection,
   TaskNode,
+  WorkflowNode,
   ValidationCheckNode,
   ValidationGateNode,
 } from "@seqlane/core";
@@ -477,6 +478,117 @@ export async function executeTaskNode(
           ...optionalIteration(options.iteration),
         });
       }
+    }
+  }
+}
+
+export async function executeWorkflowNode(
+  context: ExecutionContext,
+  node: WorkflowNode,
+  abortSignal: AbortSignal,
+  options: Pick<
+    TaskExecutionOptions,
+    "invocationId" | "observability" | "results" | "remainingConsumers"
+  > & {
+    readonly execute: () => Promise<unknown>;
+    readonly workspaceAdmission?: "dynamic" | "graph";
+  },
+): Promise<unknown> {
+  const { invocationId, results, remainingConsumers } = options;
+  const creationOrdinal = invocationCreationOrdinal(context, invocationId);
+  let workspaceLease: WorkspaceLockLease | undefined;
+  let workspaceAdmitted = false;
+  let waitingReported = false;
+  const reportWaiting = (blockingInvocationId: string | undefined): void => {
+    if (waitingReported) return;
+    waitingReported = true;
+    context.events.emit({
+      type: "invocation.progress",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+      state: "waiting",
+      phase: "admission",
+      waitingReason: "workspace_unavailable",
+      workspace: node.workspace,
+      ...(blockingInvocationId === undefined ? {} : { blockingInvocationId }),
+    });
+  };
+
+  try {
+    const resource = context.workspaceResources.get(node.workflowId) ?? {
+      key: "seqlane:runtime-workspace",
+    };
+    if (options.workspaceAdmission === "graph") {
+      workspaceLease = await context.workspaceLocks.acquire(
+        resource,
+        node.workspace,
+        reportWaiting,
+        creationOrdinal,
+        invocationId,
+      );
+    } else {
+      const admission = await context.jointAdmissions.acquire({
+        signal: abortSignal,
+        session: undefined,
+        workspace: resource,
+        workspacePolicy: node.workspace,
+        invocationId,
+        creationOrdinal,
+        onWorkspaceWaiting: reportWaiting,
+        onSessionWaiting: () => undefined,
+      });
+      workspaceLease = admission.workspaceLease;
+    }
+    workspaceAdmitted = true;
+    context.events.emit({
+      type: "invocation.started",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+      subject: { type: "task", taskId: node.workflowId },
+      taskId: node.workflowId,
+    });
+    context.events.emit({
+      type: "invocation.progress",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+      state: "active",
+      phase: "execute",
+      message: "Executing workflow",
+      workspace: node.workspace,
+    });
+
+    const output = await options.execute();
+    results.set(node.nodeId, output);
+    context.events.emit({
+      type: "invocation.succeeded",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+    });
+    releaseIfUnused(results, remainingConsumers, node.nodeId);
+    return output;
+  } catch (cause) {
+    return throwInvocationFailure(cause, {
+      context,
+      abortSignal,
+      invocationId,
+      taskId: node.workflowId,
+    });
+  } finally {
+    workspaceLease?.release();
+    if (workspaceAdmitted) {
+      context.events.emit({
+        type: "invocation.progress",
+        workId: context.workId,
+        runId: context.runId,
+        invocationId,
+        state: "active",
+        phase: "workspace_released",
+        workspace: node.workspace,
+      });
     }
   }
 }

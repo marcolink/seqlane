@@ -8,6 +8,7 @@ function nodeContainsAgentWork(node: PlanNode): boolean {
   if (node.type === "task") return false;
   if (node.type === "validation.check") return node.source.type === "task";
   if (node.type === "validation.gate") return false;
+  if (node.type === "workflow") return false;
   return node.body.nodes.some(nodeContainsAgentWork);
 }
 

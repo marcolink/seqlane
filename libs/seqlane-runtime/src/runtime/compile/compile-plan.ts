@@ -9,6 +9,7 @@ import type {
   SeqlaneEventSink,
   ValidationCheckNode,
   ValidatorDefinitionRegistry,
+  WorkflowDefinitionRegistry,
   WorkId,
 } from "@seqlane/core";
 import {
@@ -75,6 +76,7 @@ export interface CompileWorkflowOptions {
   readonly workspaceResources?: WorkspaceResourceRegistry;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
+  readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
   readonly events?: SeqlaneEventSink;
 }
@@ -134,9 +136,18 @@ function computeRemainingConsumers(plan: Plan): Map<string, number> {
 
 export class PlanCompiler {
   /** Prepare a Plan without constructing a workflow. */
-  compile(plan: Plan, taskDefinitions?: TaskDefinitionRegistry): PreparedPlan {
+  compile(
+    plan: Plan,
+    taskDefinitions?: TaskDefinitionRegistry,
+    workflowDefinitions?: WorkflowDefinitionRegistry,
+  ): PreparedPlan {
     assertDefinitionRegistries(taskDefinitions, undefined);
-    const parsedPlan = validatePlan(plan, taskDefinitions);
+    const parsedPlan = validatePlan(
+      plan,
+      taskDefinitions,
+      taskDefinitions !== undefined || workflowDefinitions !== undefined,
+      workflowDefinitions,
+    );
     return {
       plan: parsedPlan,
       // Standalone Plan ordering is useful before definitions are loaded.
@@ -157,7 +168,11 @@ export class PlanCompiler {
       options.taskDefinitions,
       options.validatorDefinitions,
     );
-    const prepared = this.compile(plan, options.taskDefinitions);
+    const prepared = this.compile(
+      plan,
+      options.taskDefinitions,
+      options.workflowDefinitions,
+    );
     const parsedPlan = prepared.plan;
     const orderedNodes = lowerWorkspaceOrdering(
       lowerReuseSessionOrdering(prepared.orderedNodes),
@@ -235,6 +250,10 @@ export class PlanCompiler {
               subject: { type: "task", taskId: node.taskId },
               workspaceAdmission: "graph",
             });
+          } else if (node.type === "workflow") {
+            throw new Error(
+              `Sequential Plan compiler does not support workflow node "${node.nodeId}"`,
+            );
           } else if (node.type === "validation.check") {
             await executeValidationCheckNode(context, node, abortSignal, {
               invocationId: invocationIdForNode(context, node),

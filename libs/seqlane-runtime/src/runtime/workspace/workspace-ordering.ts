@@ -1,4 +1,10 @@
-import type { PlanNode, PlanNodeId, RepeatNode, TaskNode } from "@seqlane/core";
+import type {
+  PlanNode,
+  PlanNodeId,
+  RepeatNode,
+  TaskNode,
+  WorkflowNode,
+} from "@seqlane/core";
 import type { WorkspaceResourceRegistry } from "./workspace-resource.js";
 
 const DEFAULT_WORKSPACE_RESOURCE = "seqlane:runtime-workspace";
@@ -34,6 +40,14 @@ function taskWorkspace(
   return { policy, resourceKey };
 }
 
+function workflowWorkspace(
+  workflowId: string,
+  policy: WorkflowNode["workspace"],
+  workspaceResources: WorkspaceResourceRegistry | undefined,
+): WorkspaceAccess {
+  return taskWorkspace(workflowId, policy, workspaceResources);
+}
+
 function workspaceAccessesForNode(
   node: PlanNode,
   workspaceResources: WorkspaceResourceRegistry | undefined,
@@ -42,6 +56,18 @@ function workspaceAccessesForNode(
     return [
       {
         ...taskWorkspace(node.taskId, node.workspace, workspaceResources),
+        nodeId: node.nodeId,
+      },
+    ];
+  }
+  if (node.type === "workflow") {
+    return [
+      {
+        ...workflowWorkspace(
+          node.workflowId,
+          node.workspace,
+          workspaceResources,
+        ),
         nodeId: node.nodeId,
       },
     ];
@@ -73,14 +99,20 @@ function workspaceAccessesForRepeat(
     const access =
       bodyNode.type === "task"
         ? taskWorkspace(bodyNode.taskId, bodyNode.workspace, workspaceResources)
-        : bodyNode.type === "validation.check" &&
-            bodyNode.source.type === "task"
-          ? taskWorkspace(
-              bodyNode.source.taskId,
-              bodyNode.source.workspace,
+        : bodyNode.type === "workflow"
+          ? workflowWorkspace(
+              bodyNode.workflowId,
+              bodyNode.workspace,
               workspaceResources,
             )
-          : undefined;
+          : bodyNode.type === "validation.check" &&
+              bodyNode.source.type === "task"
+            ? taskWorkspace(
+                bodyNode.source.taskId,
+                bodyNode.source.workspace,
+                workspaceResources,
+              )
+            : undefined;
     if (access === undefined) continue;
     const previous = accesses.get(access.resourceKey);
     accesses.set(access.resourceKey, {

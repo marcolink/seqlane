@@ -175,6 +175,14 @@ export type TaskDefinitionRegistry = ReadonlyMap<
   TaskDefinition<unknown, unknown>
 >;
 
+export type RunnableDefinition<Input = unknown, Output = unknown> =
+  TaskDefinition<Input, Output> | AuthoredWorkflow<Input, Output>;
+
+export type WorkflowDefinitionRegistry = ReadonlyMap<
+  string,
+  import("./plan-types.js").BuiltWorkflow<unknown, unknown>
+>;
+
 /** Canonical runtime schemas for definition registries crossing boundaries. */
 export const taskDefinitionRegistrySchema = z
   .map(z.string().min(1), taskDefinitionSchema)
@@ -248,6 +256,11 @@ export interface FlowTaskOptions<Output, Input = unknown, Handles = unknown> {
   readonly workspace?: WorkspacePolicy;
 }
 
+export interface FlowWorkflowOptions<Handles = unknown> {
+  readonly dependsOn?: readonly (keyof Handles & string)[];
+  readonly workspace?: WorkspacePolicy;
+}
+
 export interface FlowValidationHandle<
   Output = unknown,
 > extends FlowHandle<Output> {
@@ -276,6 +289,16 @@ export interface FlowBuilder<Input, Output, Handles> {
     Input,
     Output,
     Handles & Record<Name, FlowHandle<TaskOutput, Options["session"]>>
+  >;
+  task<Name extends string, WorkflowInput, WorkflowOutput>(
+    name: LiteralUnusedFlowName<Name, Handles>,
+    definition: AuthoredWorkflow<WorkflowInput, WorkflowOutput>,
+    binding: FlowBinding<Input, Handles, WorkflowInput>,
+    options?: FlowWorkflowOptions<Handles>,
+  ): FlowBuilder<
+    Input,
+    Output,
+    Handles & Record<Name, FlowHandle<WorkflowOutput>>
   >;
   validate<Name extends string, Candidate>(
     name: LiteralUnusedFlowName<Name, Handles>,
@@ -317,6 +340,13 @@ export interface RepeatBodyContext<State> {
       definition: TaskDefinition<TaskInput, TaskOutput>,
       options: Omit<Options, "validateOutput">,
     ): TaskInvocation<TaskOutput, Options["session"]>;
+    <WorkflowInput, WorkflowOutput>(
+      definition: AuthoredWorkflow<WorkflowInput, WorkflowOutput>,
+      options: {
+        readonly input: InputBinding<WorkflowInput>;
+        readonly workspace?: WorkspacePolicy;
+      },
+    ): MechanicalTaskRef<WorkflowOutput>;
   };
   readonly validate: <Candidate>(
     validator: Validator<Candidate>,

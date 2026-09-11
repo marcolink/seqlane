@@ -92,6 +92,32 @@ describe("@seqlane/events", () => {
     ).toEqual(event);
   });
 
+  it("accepts workflow invocation nodes in a Plan snapshot", () => {
+    const event: SeqlaneExecutionEvent = {
+      type: "run.plan",
+      metadata,
+      workId: "work-1",
+      runId: "run-1",
+      plan: {
+        workflow: { id: "parent" },
+        nodes: [
+          {
+            planNodeId: "child:1",
+            type: "workflow",
+            label: "child",
+            dependsOn: [],
+            siblingOrder: 0,
+          },
+        ],
+      },
+    };
+
+    expect(isSeqlaneExecutionEvent(event)).toBe(true);
+    expect(
+      decodeSeqlaneExecutionEvent(encodeSeqlaneExecutionEvent(event)),
+    ).toEqual(event);
+  });
+
   it("accepts executor-neutral task session policies in a Plan snapshot", () => {
     const event = {
       type: "run.plan",

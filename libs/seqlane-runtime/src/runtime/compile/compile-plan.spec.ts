@@ -264,7 +264,9 @@ describe("PlanCompiler plan preparation", () => {
     ],
     [
       "legacy executor metadata",
-      plan([{ ...task("local-task"), executor: "legacy" } as PlanNode]),
+      plan([
+        { ...task("local-task"), executor: "legacy" } as unknown as PlanNode,
+      ]),
     ],
   ])("rejects non-canonical Plan %s", (_description, source) => {
     expect(() => validatePlan(source)).toThrow(/schema/i);

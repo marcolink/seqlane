@@ -109,6 +109,7 @@ export function startWorkflowRun<Input, Output>(
         workspaceResources: execution.workspaceResources,
         taskDefinitions: execution.taskDefinitions,
         validatorDefinitions: request.workflow.validatorDefinitions,
+        workflowDefinitions: request.workflow.workflowDefinitions,
         workflow: request.workflow.workflow,
         events: request.events,
         createInvocationId: () => randomUUID(),

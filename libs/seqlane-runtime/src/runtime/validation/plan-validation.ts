@@ -6,6 +6,8 @@ import type {
   TaskNode,
   ValidationNode,
   ValueBinding,
+  WorkflowDefinitionRegistry,
+  WorkflowNode,
 } from "@seqlane/core";
 import {
   modelSelectionSchema,
@@ -71,7 +73,8 @@ export type PlanValidationIssueCode =
   | "missing-session-dependency"
   | "forbidden-permission-configuration"
   | "missing-task-definition"
-  | "invalid-task-definition";
+  | "invalid-task-definition"
+  | "missing-workflow-definition";
 
 export interface PlanValidationIssue {
   readonly code: PlanValidationIssueCode;
@@ -149,6 +152,30 @@ function validateTaskDefinition(
       issues,
       "invalid-task-definition",
       `Task definition "${node.taskId}" is malformed`,
+      node.nodeId,
+    );
+  }
+}
+
+function validateWorkflowNode(
+  node: WorkflowNode,
+  workflowDefinitions: WorkflowDefinitionRegistry | undefined,
+  issues: PlanValidationIssue[],
+  validateDefinitions: boolean,
+): void {
+  if (!workspacePolicySchema.safeParse(node.workspace).success) {
+    addIssue(
+      issues,
+      "invalid-workspace-policy",
+      `Workflow "${node.nodeId}" must declare a valid workspace policy`,
+      node.nodeId,
+    );
+  }
+  if (validateDefinitions && !workflowDefinitions?.has(node.workflowId)) {
+    addIssue(
+      issues,
+      "missing-workflow-definition",
+      `Workflow "${node.nodeId}" has no registered definition for "${node.workflowId}"`,
       node.nodeId,
     );
   }
@@ -564,6 +591,7 @@ function validateRepeat(
   issues: PlanValidationIssue[],
   outerNodeIds: ReadonlySet<string>,
   taskDefinitions: TaskDefinitionRegistry | undefined,
+  workflowDefinitions: WorkflowDefinitionRegistry | undefined,
   validateDefinitions: boolean,
 ): void {
   if (
@@ -660,6 +688,14 @@ function validateRepeat(
       validateTaskDefinition(
         bodyNode,
         taskDefinitions,
+        issues,
+        validateDefinitions,
+      );
+    }
+    if (bodyNode.type === "workflow") {
+      validateWorkflowNode(
+        bodyNode,
+        workflowDefinitions,
         issues,
         validateDefinitions,
       );
@@ -843,6 +879,7 @@ function isSemanticallyTraversablePlan(value: unknown): value is Plan {
 function validatePlanWithCanonicalIssues(
   plan: Plan,
   taskDefinitions?: TaskDefinitionRegistry,
+  workflowDefinitions?: WorkflowDefinitionRegistry,
   validateDefinitions = taskDefinitions !== undefined,
   canonicalIssues: readonly z.ZodIssue[] = [],
 ): void {
@@ -910,6 +947,14 @@ function validatePlanWithCanonicalIssues(
         validateDefinitions,
       );
     }
+    if (node.type === "workflow") {
+      validateWorkflowNode(
+        node,
+        workflowDefinitions,
+        issues,
+        validateDefinitions,
+      );
+    }
     if (node.type === "validation.check" || node.type === "validation.gate") {
       validateValidationNode(
         node,
@@ -927,6 +972,7 @@ function validatePlanWithCanonicalIssues(
         issues,
         new Set(nodesById.keys()),
         taskDefinitions,
+        workflowDefinitions,
         validateDefinitions,
       );
     }
@@ -970,14 +1016,21 @@ export function validateParsedPlan(
   plan: Plan,
   taskDefinitions?: TaskDefinitionRegistry,
   validateDefinitions = taskDefinitions !== undefined,
+  workflowDefinitions?: WorkflowDefinitionRegistry,
 ): void {
-  validatePlanWithCanonicalIssues(plan, taskDefinitions, validateDefinitions);
+  validatePlanWithCanonicalIssues(
+    plan,
+    taskDefinitions,
+    workflowDefinitions,
+    validateDefinitions,
+  );
 }
 
 export function validatePlan(
   plan: Plan,
   taskDefinitions?: TaskDefinitionRegistry,
   validateDefinitions = taskDefinitions !== undefined,
+  workflowDefinitions?: WorkflowDefinitionRegistry,
 ): Plan {
   const parsed = planSchema.safeParse(plan);
   if (!parsed.success) {
@@ -985,6 +1038,7 @@ export function validatePlan(
       validatePlanWithCanonicalIssues(
         plan,
         taskDefinitions,
+        workflowDefinitions,
         validateDefinitions,
         parsed.error.issues,
       );
@@ -1002,6 +1056,7 @@ export function validatePlan(
   validatePlanWithCanonicalIssues(
     parsed.data,
     taskDefinitions,
+    workflowDefinitions,
     validateDefinitions,
   );
   return parsed.data;

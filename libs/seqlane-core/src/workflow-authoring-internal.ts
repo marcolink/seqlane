@@ -11,6 +11,8 @@ import type {
   TaskInvocationOptions,
   ValidationInvocationOptions,
   Validator,
+  AuthoredWorkflow,
+  WorkspacePolicy,
 } from "./contracts.js";
 
 export interface WorkflowBuildContext<Input = unknown> {
@@ -24,6 +26,14 @@ export interface WorkflowBuildContext<Input = unknown> {
       task: TaskDefinition<TaskInput, TaskOutput>,
       options: Options,
     ): TaskInvocation<TaskOutput, Options["session"]>;
+    <WorkflowInput, WorkflowOutput>(
+      workflow: AuthoredWorkflow<WorkflowInput, WorkflowOutput>,
+      options: {
+        readonly input: InputBinding<WorkflowInput>;
+        readonly dependsOn?: readonly { readonly nodeId: string }[];
+        readonly workspace?: WorkspacePolicy;
+      },
+    ): MechanicalTaskRef<WorkflowOutput>;
   };
   readonly validate: <Candidate>(
     validator: Validator<Candidate>,

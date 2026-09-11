@@ -8,6 +8,9 @@ import type {
   SessionPolicy,
   FlowValidationHandle,
   TaskDefinition,
+  FlowTaskOptions,
+  FlowWorkflowOptions,
+  RunnableDefinition,
   ValidatedRepeatCondition,
   Validator,
   ValidatorDefinition,
@@ -22,7 +25,10 @@ import type {
   ValueRef,
 } from "./bindings.js";
 import { z } from "zod";
-import { registerWorkflowPlanBuilder } from "./workflow-internal.js";
+import {
+  isAuthoredWorkflow,
+  registerWorkflowPlanBuilder,
+} from "./workflow-internal.js";
 
 export function defineValidator<Input>(
   definition: ValidatorDefinition<Input>,
@@ -215,8 +221,15 @@ export function createFlow<Input, Output>(
       });
     },
   };
-  const builder: FlowBuilder<Input, Output, Record<never, never>> = {
-    task: (name, definition, binding, taskOptions) => {
+  const builder = {
+    task: (
+      name: string,
+      definition: RunnableDefinition<unknown, unknown>,
+      binding: FlowBinding<Input, Record<never, never>, unknown>,
+      taskOptions?:
+        | FlowTaskOptions<unknown, Input, Record<never, never>>
+        | FlowWorkflowOptions<Record<never, never>>,
+    ) => {
       declarations.push({
         name,
         declare: (context, authoringContext) => {
@@ -225,14 +238,7 @@ export function createFlow<Input, Output>(
               ? (
                   binding as (
                     context: FlowAuthoringContext<Input, Record<never, never>>,
-                  ) => InputBinding<
-                    typeof definition extends TaskDefinition<
-                      infer TaskInput,
-                      unknown
-                    >
-                      ? TaskInput
-                      : never
-                  >
+                  ) => InputBinding<unknown>
                 )(authoringContext as never)
               : binding;
           const dependsOn = resolveFlowDependencies(
@@ -241,28 +247,47 @@ export function createFlow<Input, Output>(
           );
           const runOptions = {
             input: resolvedBinding,
-            ...(taskOptions?.validateOutput === undefined
-              ? {}
-              : { validateOutput: taskOptions.validateOutput }),
             ...(dependsOn === undefined ? {} : { dependsOn }),
           };
-          const sessionOption = taskOptions?.session;
+          if (isAuthoredWorkflow(definition)) {
+            return context.run(definition, {
+              ...runOptions,
+              ...(taskOptions?.workspace === undefined
+                ? {}
+                : { workspace: taskOptions.workspace }),
+            });
+          }
+          const taskOptionsTyped = taskOptions as
+            | FlowTaskOptions<unknown, Input, Record<string, FlowHandle>>
+            | undefined;
+          const sessionOption = taskOptionsTyped?.session;
           const session =
             typeof sessionOption === "function"
               ? sessionOption(authoringContext)
               : sessionOption;
-          return context.run(definition, {
+          return context.run(definition as TaskDefinition<unknown, unknown>, {
             ...runOptions,
-            ...(session === undefined ? {} : { session }),
-            ...(taskOptions?.workspace === undefined
+            ...(taskOptionsTyped?.validateOutput === undefined
               ? {}
-              : { workspace: taskOptions.workspace }),
+              : { validateOutput: taskOptionsTyped.validateOutput }),
+            ...(session === undefined ? {} : { session }),
+            ...(taskOptionsTyped?.workspace === undefined
+              ? {}
+              : { workspace: taskOptionsTyped.workspace }),
           });
         },
       });
       return builder as never;
     },
-    validate: (name, validator, binding, validationOptions) => {
+    validate: <Candidate>(
+      name: string,
+      validator: Validator<Candidate>,
+      binding: FlowBinding<Input, Record<never, never>, Candidate>,
+      validationOptions?: Omit<
+        import("./contracts.js").ValidationInvocationOptions<Candidate>,
+        "input"
+      >,
+    ) => {
       declarations.push({
         name,
         declare: (context, authoringContext) => {
@@ -287,7 +312,14 @@ export function createFlow<Input, Output>(
       });
       return builder as never;
     },
-    repeat: (name, options) => {
+    repeat: <State>(
+      name: string,
+      options: import("./contracts.js").RepeatOptions<
+        Input,
+        Record<never, never>,
+        State
+      >,
+    ) => {
       declarations.push({
         name,
         declare: (context, authoringContext) => {
@@ -309,11 +341,13 @@ export function createFlow<Input, Output>(
       });
       return builder as never;
     },
-    output: (binding) => {
+    output: (
+      binding: FlowBinding<Input, Record<string, FlowHandle>, Output>,
+    ) => {
       outputBinding = binding as FlowBinding<Input, unknown, Output>;
       return completed;
     },
-  };
+  } as unknown as FlowBuilder<Input, Output, Record<never, never>>;
 
   return builder;
 }

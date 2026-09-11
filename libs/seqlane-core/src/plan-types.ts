@@ -52,6 +52,15 @@ export interface TaskNode {
   readonly dependsOn: readonly PlanNodeId[];
 }
 
+export interface WorkflowNode {
+  readonly type: "workflow";
+  readonly workflowId: string;
+  readonly nodeId: PlanNodeId;
+  readonly workspace: WorkspacePolicy;
+  readonly input: ValueBinding;
+  readonly dependsOn: readonly PlanNodeId[];
+}
+
 export type ValidationSource =
   | { readonly type: "mechanical"; readonly validatorId: string }
   | {
@@ -83,7 +92,7 @@ export type ValidationNode = ValidationCheckNode | ValidationGateNode;
 
 export interface RepeatBodyPlan {
   readonly inputNodeId: PlanNodeId;
-  readonly nodes: readonly (TaskNode | ValidationNode)[];
+  readonly nodes: readonly (TaskNode | WorkflowNode | ValidationNode)[];
   readonly output: ValueBinding;
   readonly until: ValueRef<boolean>;
 }
@@ -97,7 +106,7 @@ export interface RepeatNode {
   readonly body: RepeatBodyPlan;
 }
 
-export type PlanNode = TaskNode | ValidationNode | RepeatNode;
+export type PlanNode = TaskNode | WorkflowNode | ValidationNode | RepeatNode;
 
 export interface Plan {
   readonly workflow: WorkflowIdentity;
@@ -114,6 +123,15 @@ export const taskNodeSchema = z.strictObject({
   nodeId: planNodeIdSchema,
   workspace: z.enum(["shared", "exclusive"]),
   session: planSessionPolicySchema.optional(),
+  input: valueBindingSchema,
+  dependsOn: dependencySchema,
+});
+
+export const workflowNodeSchema = z.strictObject({
+  type: z.literal("workflow"),
+  workflowId: z.string().min(1),
+  nodeId: planNodeIdSchema,
+  workspace: z.enum(["shared", "exclusive"]),
   input: valueBindingSchema,
   dependsOn: dependencySchema,
 });
@@ -154,6 +172,7 @@ export const validationNodeSchema = z.discriminatedUnion("type", [
 
 const repeatBodyNodeSchema = z.discriminatedUnion("type", [
   taskNodeSchema,
+  workflowNodeSchema,
   validationCheckNodeSchema,
   validationGateNodeSchema,
 ]);
@@ -179,6 +198,7 @@ export const repeatNodeSchema = z.strictObject({
 
 export const planNodeSchema = z.discriminatedUnion("type", [
   taskNodeSchema,
+  workflowNodeSchema,
   validationCheckNodeSchema,
   validationGateNodeSchema,
   repeatNodeSchema,
@@ -200,4 +220,9 @@ export interface BuiltWorkflow<Input = unknown, Output = unknown> {
   readonly plan: Plan;
   readonly taskDefinitions: TaskDefinitionRegistry;
   readonly validatorDefinitions: ValidatorDefinitionRegistry;
+  /** Runtime-only registry for nested workflow definitions. */
+  readonly workflowDefinitions: ReadonlyMap<
+    string,
+    BuiltWorkflow<unknown, unknown>
+  >;
 }

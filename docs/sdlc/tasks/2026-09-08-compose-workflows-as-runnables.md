@@ -1,11 +1,11 @@
 ---
 id: task.compose-workflows-as-runnables
 title: Compose Workflows as Runnables
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-11
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -82,7 +82,9 @@ Then run:
 
 ## Outcome
 
-Not started.
+Implementation and scoped verification are complete on the dedicated
+`feat/compose-workflows-as-runnables` branch. Final delivery is pending the
+dedicated pull request.
 
 ## Traceability
 

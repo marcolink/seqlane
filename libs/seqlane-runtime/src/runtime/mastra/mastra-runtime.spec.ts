@@ -14,6 +14,9 @@ import type {
   ValidatorDefinitionRegistry,
 } from "@seqlane/core";
 import {
+  buildWorkflow,
+  createFlow,
+  defineTask,
   ExecutorError,
   InputValidationError,
   OutputValidationError,
@@ -178,6 +181,241 @@ async function startMastraPlan(options: {
 }
 
 describe("private Mastra runtime spine", () => {
+  it("executes nested workflows through the private compiler", async () => {
+    const resolvedSessionInvocationIds: string[] = [];
+    const childTask = defineTask({
+      id: "nested-runtime-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+      execute: async ({ input }) => ({ result: input.value + 1 }),
+    });
+    const child = createFlow({
+      id: "nested-runtime-child",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("increment", childTask, ({ input }) => input, {
+        session: { type: "isolated" },
+        workspace: "shared",
+      })
+      .output(({ tasks }) => tasks.increment.output)
+      .define();
+    const parent = createFlow({
+      id: "nested-runtime-parent",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("child", child, ({ input }) => input)
+      .output(({ tasks }) => tasks.child.output)
+      .define();
+    const built = buildWorkflow(parent);
+    const events: SeqlaneEvent[] = [];
+    const execution = createMastraPlanExecution({
+      plan: built.plan,
+      workflowInput: { value: 1 },
+      workId: "nested-work",
+      runId: "nested-run",
+      createInvocationId: (nodeId) => nodeId ?? "nested-invocation",
+      executors: { agent: () => ({ execute: async () => ({}) }) },
+      sessionResolver: {
+        resolve: async ({ invocationId }) => {
+          resolvedSessionInvocationIds.push(invocationId);
+          return {
+            key: Symbol("nested-session"),
+            executor: { execute: async () => ({}) },
+          };
+        },
+      },
+      workspaceResources: new Map(),
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      workflow: built.workflow,
+      events: { emit: (event) => events.push(event) },
+    });
+    emitMastraInvocationTopology(execution.compiled, execution.prepared, {
+      emit: (event) => events.push(event),
+    });
+
+    await expect(
+      execution.runtime.run({
+        workflowKey: execution.compiled.key,
+        input: { value: 1 },
+        workId: "nested-work",
+        runId: "nested-run",
+      }),
+    ).resolves.toMatchObject({
+      status: "succeeded",
+      result: { result: 2 },
+    });
+    expect(
+      events
+        .filter((event) => event.type === "invocation.created")
+        .map((event) => event.invocationId),
+    ).toEqual(
+      expect.arrayContaining([
+        "nested-runtime-child:1",
+        "nested-runtime-child:1:nested-runtime-task:1",
+      ]),
+    );
+    expect(resolvedSessionInvocationIds).toEqual([
+      "nested-runtime-child:1:nested-runtime-task:1",
+    ]);
+    expect(
+      events.find(
+        (event) =>
+          event.type === "invocation.created" &&
+          event.invocationId === "nested-runtime-child:1",
+      ),
+    ).toMatchObject({
+      kind: "workflow",
+      label: "nested-runtime-child",
+      subject: { type: "task", taskId: "nested-runtime-child" },
+    });
+    expect(
+      events.find(
+        (event) =>
+          event.type === "invocation.created" &&
+          event.invocationId === "nested-runtime-child:1:nested-runtime-task:1",
+      ),
+    ).toMatchObject({
+      parentInvocationId: "nested-runtime-child:1",
+    });
+    expect(
+      events.find(
+        (event) =>
+          event.type === "invocation.progress" &&
+          event.invocationId ===
+            "nested-runtime-child:1:nested-runtime-task:1" &&
+          event.phase === "workspace_admitted",
+      ),
+    ).toMatchObject({ workspace: "shared" });
+  });
+
+  it("normalizes nested workflow failures", async () => {
+    const childTask = defineTask({
+      id: "nested-failing-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+      execute: async () => {
+        throw new Error("nested workflow failure");
+      },
+    });
+    const child = createFlow({
+      id: "nested-failing-child",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("fail", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.fail.output)
+      .define();
+    const parent = createFlow({
+      id: "nested-failing-parent",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("child", child, ({ input }) => input)
+      .output(({ tasks }) => tasks.child.output)
+      .define();
+    const built = buildWorkflow(parent);
+    const execution = createMastraPlanExecution({
+      plan: built.plan,
+      workflowInput: { value: 1 },
+      workId: "nested-failure-work",
+      runId: "nested-failure-run",
+      createInvocationId: (nodeId) => nodeId ?? "nested-failure-invocation",
+      executors: { agent: () => ({ execute: async () => ({}) }) },
+      sessionResolver: {
+        resolve: async () => ({
+          key: Symbol(),
+          executor: { execute: async () => ({}) },
+        }),
+      },
+      workspaceResources: new Map(),
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      workflow: built.workflow,
+      events: { emit: () => undefined },
+    });
+
+    await expect(
+      execution.runtime.run({
+        workflowKey: execution.compiled.key,
+        input: { value: 1 },
+        workId: "nested-failure-work",
+        runId: "nested-failure-run",
+      }),
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("propagates cancellation into a nested workflow", async () => {
+    let started = false;
+    const childTask = defineTask({
+      id: "nested-cancellable-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+      execute: async ({ signal }) => {
+        started = true;
+        await new Promise<never>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+        return { result: 1 };
+      },
+    });
+    const child = createFlow({
+      id: "nested-cancellable-child",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("wait", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.wait.output)
+      .define();
+    const parent = createFlow({
+      id: "nested-cancellable-parent",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("child", child, ({ input }) => input)
+      .output(({ tasks }) => tasks.child.output)
+      .define();
+    const built = buildWorkflow(parent);
+    const execution = createMastraPlanExecution({
+      plan: built.plan,
+      workflowInput: { value: 1 },
+      workId: "nested-cancel-work",
+      runId: "nested-cancel-run",
+      createInvocationId: (nodeId) => nodeId ?? "nested-cancel-invocation",
+      executors: { agent: () => ({ execute: async () => ({}) }) },
+      sessionResolver: {
+        resolve: async () => ({
+          key: Symbol(),
+          executor: { execute: async () => ({}) },
+        }),
+      },
+      workspaceResources: new Map(),
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      workflow: built.workflow,
+      events: { emit: () => undefined },
+    });
+    const active = execution.runtime.start({
+      workflowKey: execution.compiled.key,
+      input: { value: 1 },
+      workId: "nested-cancel-work",
+      runId: "nested-cancel-run",
+    });
+    while (!started) await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await active.cancel();
+    await expect(active.outcome).resolves.toMatchObject({
+      status: "cancelled",
+    });
+  });
+
   it("executes a registered workflow and preserves run identity", async () => {
     const runtime = createMastraRuntime([
       { key: "fixture", workflow: mastraRuntimeSpineWorkflow },

@@ -290,7 +290,7 @@ describe("Mastra Plan compiler", () => {
   it.each([
     [
       "legacy executor metadata",
-      plan([{ ...task("source"), executor: "legacy" } as PlanNode], {
+      plan([{ ...task("source"), executor: "legacy" } as unknown as PlanNode], {
         type: "ref",
         nodeId: "source",
         path: ["output"],
