@@ -237,16 +237,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: seqlane-source/pnpm-lock.yaml
 
-      - name: Restore Action build cache
-        if: steps.pull-request.outputs.eligible == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: seqlane-source/.nx/cache
-          key: seqlane-actions-${{ runner.os }}-${{ runner.arch }}-${{ github.workflow_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            seqlane-actions-${{ runner.os }}-${{ runner.arch }}-${{ github.workflow_sha }}-
-            seqlane-actions-${{ runner.os }}-${{ runner.arch }}-
-
       - name: Install trusted Action dependencies
         if: steps.pull-request.outputs.eligible == 'true'
         working-directory: seqlane-source

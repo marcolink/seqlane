@@ -8,6 +8,7 @@ created: 2026-09-11
 updated: 2026-09-11
 upstream:
   - adr.runner-built-action-bundles
+  - adr.use-runner-local-nx-cache
 supersedes: []
 ---
 
@@ -26,7 +27,7 @@ Implement [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-acti
 
 - Make all six Action builds atomic and cacheable.
 - Materialize required Actions before local `uses:` steps.
-- Cache Nx bundle computations across runner jobs.
+- Reuse Nx bundle computations within each runner job.
 - Remove tracked bundle output and committed-file drift checks.
 - Keep bundle-loading tests and hosted workflow verification.
 - Update Action instructions and active specifications.
@@ -42,7 +43,7 @@ Implement [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-acti
 
 1. Define precise Nx bundle inputs and outputs.
 2. Collapse each Action main/post build into one cacheable task.
-3. Restore the Nx cache and build required Action groups in each consuming job.
+3. Build required Action groups in each consuming job.
 4. Replace bundle-drift CI and hook checks with build and load checks.
 5. Remove tracked bundles and ignore `dist` output.
 6. Update specifications, instructions, and workflow fixtures.
@@ -71,7 +72,7 @@ Implement [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-acti
 
 - No Action bundle is tracked.
 - Every local Action is built before `uses:`.
-- Unchanged bundle tasks restore `dist` from Nx cache.
+- Repeated bundle tasks in one runner job restore `dist` from Nx cache.
 - Relevant source, dependency, lockfile, or build changes invalidate the cache.
 - Privileged workflows build only trusted source.
 - Required CI has no committed-bundle drift gate.
@@ -81,9 +82,9 @@ Implement [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-acti
 
 The implementation branch removes all ten tracked Action entrypoints and the
 committed-bundle drift workflow and verifier. The code-review, resolver, and
-Ripwire smoke jobs now install trusted dependencies, restore the Nx computation
-cache, and materialize required Actions before local invocation. Six Action and
-four transitive library build tasks declare cache inputs and outputs.
+Ripwire smoke jobs now install trusted dependencies and materialize required
+Actions before local invocation. Six Action and four transitive library build
+tasks declare cache inputs and outputs.
 
 Local verification built every Action from source. A second build restored all
 10 tasks from the local Nx cache. After removal of every generated Action
@@ -106,9 +107,9 @@ builds no longer repeat the same compilation through a global lint dependency.
 The pre-push hook uses the same graph.
 
 Hosted run `34584861924` showed that copying `.nx/cache` between Nx 22 runners
-produces unrecognized artifacts without their local metadata. The cache step
-remains pending a separate decision because the accepted ADR requires a
-persistent cross-run cache; a supported remote Nx cache is still unresolved.
+produces unrecognized artifacts without their local metadata. The ineffective
+restore steps were removed under `adr.use-runner-local-nx-cache`. A supported
+remote Nx cache remains deferred.
 
 ## Delivery state
 
@@ -118,6 +119,7 @@ Not delivered on `main`. The implementation is under review in
 ## Traceability
 
 - [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-action-bundles.md)
+- [adr.use-runner-local-nx-cache](../adrs/2026-09-11-use-runner-local-nx-cache.md)
 - [Code-review Action specification](../specs/2026-09-08-direct-runtime-code-review-action.md)
 - [Resolver Action specification](../specs/2026-09-06-seqlane-action-merge-conflict-resolution.md)
 - [OpenCode setup Action specification](../specs/2026-09-08-opencode-tool-setup-action.md)
