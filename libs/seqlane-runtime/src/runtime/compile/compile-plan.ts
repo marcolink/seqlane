@@ -44,6 +44,7 @@ import {
 import { executeRepeatNode } from "../invocation/repeat-execution.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
+import type { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
 import { validatePlan } from "../validation/plan-validation.js";
 import {
   lowerReuseSessionOrdering,
@@ -74,6 +75,8 @@ export interface CompileWorkflowOptions {
   readonly executors: ExecutorRegistry;
   readonly sessionResolver?: SessionResolver;
   readonly workspaceResources?: WorkspaceResourceRegistry;
+  readonly workspaceLocks?: WorkspaceLockRegistry;
+  readonly workspaceOwnerId?: string;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly workflowDefinitions?: WorkflowDefinitionRegistry;
@@ -192,6 +195,8 @@ export class PlanCompiler {
       executors: options.executors,
       sessionResolver: options.sessionResolver,
       workspaceResources: options.workspaceResources,
+      workspaceLocks: options.workspaceLocks,
+      workspaceOwnerId: options.workspaceOwnerId,
       remainingConsumers: computeRemainingConsumers(parsedPlan),
       taskDefinitions: options.taskDefinitions,
       validatorDefinitions: options.validatorDefinitions,

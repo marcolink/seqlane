@@ -1,5 +1,5 @@
 // @test-scope ./workspace-ordering.ts
-import type { RepeatNode, TaskNode } from "@seqlane/core";
+import type { RepeatNode, TaskNode, WorkflowNode } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { lowerWorkspaceOrdering } from "./workspace-ordering.js";
 
@@ -31,6 +31,17 @@ function repeat(nodeId: string, body: RepeatNode["body"]["nodes"]): RepeatNode {
       output: {},
       until: { type: "ref", nodeId: `${nodeId}:condition`, path: [] },
     },
+  };
+}
+
+function workflow(nodeId: string): WorkflowNode {
+  return {
+    type: "workflow",
+    workflowId: "composed",
+    nodeId,
+    workspace: "exclusive",
+    input: {},
+    dependsOn: [],
   };
 }
 
@@ -109,5 +120,23 @@ describe("workspace graph ordering", () => {
     );
 
     expect(nodes.map((node) => node.dependsOn)).toEqual([[], ["repair"]]);
+  });
+
+  it("uses every resource touched by a composed workflow", () => {
+    const nodes = lowerWorkspaceOrdering(
+      [workflow("composed:1"), task("second-checkout", "shared")],
+      new Map([
+        [
+          "composed",
+          {
+            key: "/checkout-a|/checkout-b",
+            resources: [{ key: "/checkout-a" }, { key: "/checkout-b" }],
+          },
+        ],
+        ["second-checkout", { key: "/checkout-b" }],
+      ]),
+    );
+
+    expect(nodes.map((node) => node.dependsOn)).toEqual([[], ["composed:1"]]);
   });
 });

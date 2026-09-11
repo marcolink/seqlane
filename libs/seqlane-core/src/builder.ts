@@ -304,52 +304,9 @@ function buildWorkflowInternal<Input, Output>(
         "validateOutput"
       >,
     >(
-      task: RunnableDefinition<TaskInput, TaskOutput>,
-      taskOptions:
-        | Options
-        | {
-            readonly input: unknown;
-            readonly dependsOn?: readonly { readonly nodeId: string }[];
-            readonly workspace?: "shared" | "exclusive";
-          },
+      task: TaskDefinition<TaskInput, TaskOutput>,
+      taskOptions: Options,
     ): TaskInvocation<TaskOutput, Options["session"]> {
-      if (isAuthoredWorkflow(task)) {
-        const nested = registerWorkflowDefinition(
-          workflowDefinitions,
-          task as AuthoredWorkflow<unknown, unknown>,
-          building,
-        );
-        for (const definition of nested.taskDefinitions.values()) {
-          registerTaskDefinition(taskDefinitions, definition);
-        }
-        for (const [id, definition] of nested.validatorDefinitions) {
-          const existing = validatorDefinitions.get(id);
-          if (existing !== undefined && existing !== definition) {
-            throw new Error(`Duplicate validator definition "${id}"`);
-          }
-          validatorDefinitions.set(id, definition);
-        }
-        const count = (bodyCounts.get(task.id) ?? 0) + 1;
-        bodyCounts.set(task.id, count);
-        const bodyNodeId = `${nodeId}/${task.id}:${count}`;
-        const bodyDependencies = new Set<string>();
-        collectDependencies(taskOptions.input, bodyDependencies);
-        for (const dependency of taskOptions.dependsOn ?? []) {
-          bodyDependencies.add(dependency.nodeId);
-        }
-        bodyNodes.push({
-          type: "workflow",
-          workflowId: task.id,
-          nodeId: bodyNodeId,
-          workspace: taskOptions.workspace ?? "exclusive",
-          input: serializeBinding(taskOptions.input),
-          dependsOn: [...bodyDependencies],
-        });
-        return {
-          nodeId: bodyNodeId,
-          output: createValueRef<TaskOutput>(bodyNodeId, ["output"]),
-        } as TaskInvocation<TaskOutput, Options["session"]>;
-      }
       taskDefinitionSchema.parse(task);
       const count = (bodyCounts.get(task.id) ?? 0) + 1;
       bodyCounts.set(task.id, count);

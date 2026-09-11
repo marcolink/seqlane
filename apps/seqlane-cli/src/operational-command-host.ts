@@ -49,6 +49,7 @@ export async function startOwnedOperationalHost(
         key: options.workflow.id,
         plan: loaded.plan,
         workflow: loaded.definition,
+        workflowDefinitions: loaded.built.workflowDefinitions,
         taskDefinitions: loaded.taskDefinitions,
         validatorDefinitions: loaded.validatorDefinitions,
         eventSink: options.eventSink,

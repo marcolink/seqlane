@@ -5,9 +5,15 @@ import type {
   TaskNode,
   WorkflowNode,
 } from "@seqlane/core";
-import type { WorkspaceResourceRegistry } from "./workspace-resource.js";
+import type {
+  WorkspaceResource,
+  WorkspaceResourceRegistry,
+} from "./workspace-resource.js";
 
 const DEFAULT_WORKSPACE_RESOURCE = "seqlane:runtime-workspace";
+const defaultWorkspaceResource: WorkspaceResource = {
+  key: DEFAULT_WORKSPACE_RESOURCE,
+};
 
 export class WorkspaceConstraintError extends Error {
   constructor(message: string) {
@@ -31,13 +37,39 @@ function taskWorkspace(
   workspaceResources: WorkspaceResourceRegistry | undefined,
 ): WorkspaceAccess {
   const resourceKey =
-    workspaceResources?.get(taskId)?.key ?? DEFAULT_WORKSPACE_RESOURCE;
+    workspaceResourcesForId(taskId, workspaceResources)[0]?.key ??
+    DEFAULT_WORKSPACE_RESOURCE;
   if (typeof resourceKey !== "string" || resourceKey.length === 0) {
     throw new WorkspaceConstraintError(
       `Task "${taskId}" has an invalid workspace resource identity`,
     );
   }
   return { policy, resourceKey };
+}
+
+function workspaceResourcesForId(
+  id: string,
+  workspaceResources: WorkspaceResourceRegistry | undefined,
+): readonly WorkspaceResource[] {
+  const resource = workspaceResources?.get(id);
+  if (resource === undefined) return [defaultWorkspaceResource];
+  return resource.resources === undefined || resource.resources.length === 0
+    ? [resource]
+    : resource.resources;
+}
+
+export function workspaceResourcesForPlanNode(
+  node: PlanNode,
+  workspaceResources?: WorkspaceResourceRegistry,
+): readonly WorkspaceResource[] {
+  if (node.type === "task")
+    return workspaceResourcesForId(node.taskId, workspaceResources);
+  if (node.type === "workflow")
+    return workspaceResourcesForId(node.workflowId, workspaceResources);
+  if (node.type === "validation.check" && node.source.type === "task") {
+    return workspaceResourcesForId(node.source.taskId, workspaceResources);
+  }
+  return [defaultWorkspaceResource];
 }
 
 function workflowWorkspace(
@@ -53,24 +85,22 @@ function workspaceAccessesForNode(
   workspaceResources: WorkspaceResourceRegistry | undefined,
 ): readonly ResolvedWorkspaceAccess[] {
   if (node.type === "task") {
-    return [
-      {
-        ...taskWorkspace(node.taskId, node.workspace, workspaceResources),
+    return workspaceResourcesForPlanNode(node, workspaceResources).map(
+      (resource) => ({
+        policy: node.workspace,
+        resourceKey: resource.key,
         nodeId: node.nodeId,
-      },
-    ];
+      }),
+    );
   }
   if (node.type === "workflow") {
-    return [
-      {
-        ...workflowWorkspace(
-          node.workflowId,
-          node.workspace,
-          workspaceResources,
-        ),
+    return workspaceResourcesForPlanNode(node, workspaceResources).map(
+      (resource) => ({
+        policy: node.workspace,
+        resourceKey: resource.key,
         nodeId: node.nodeId,
-      },
-    ];
+      }),
+    );
   }
   if (node.type === "validation.check" && node.source.type === "task") {
     return [

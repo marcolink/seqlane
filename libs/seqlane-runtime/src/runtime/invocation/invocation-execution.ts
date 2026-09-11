@@ -31,6 +31,7 @@ import { summarizeSeqlaneOutput } from "../execution/output-summary.js";
 import { getTaskSchema } from "../plan/task-schema.js";
 import { toSeqlaneDisplayValue } from "../execution/display-value.js";
 import type { WorkspaceLockLease } from "../workspace/workspace-lock.js";
+import { workspaceResourcesForPlanNode } from "../workspace/workspace-ordering.js";
 import {
   parseValidationResult,
   validationFailure,
@@ -146,6 +147,7 @@ export async function executeTaskNode(
         workspace: resource,
         workspacePolicy: node.workspace,
         invocationId,
+        ownerId: context.workspaceOwnerId ?? invocationId,
         creationOrdinal,
         onWorkspaceWaiting: reportWorkspaceWaiting,
         onSessionWaiting: reportSessionWaiting,
@@ -496,7 +498,7 @@ export async function executeWorkflowNode(
 ): Promise<unknown> {
   const { invocationId, results, remainingConsumers } = options;
   const creationOrdinal = invocationCreationOrdinal(context, invocationId);
-  let workspaceLease: WorkspaceLockLease | undefined;
+  const workspaceLeases: WorkspaceLockLease[] = [];
   let workspaceAdmitted = false;
   let waitingReported = false;
   const reportWaiting = (blockingInvocationId: string | undefined): void => {
@@ -516,18 +518,30 @@ export async function executeWorkflowNode(
   };
 
   try {
-    const resource = context.workspaceResources.get(node.workflowId) ?? {
-      key: "seqlane:runtime-workspace",
-    };
+    const resources = [
+      ...workspaceResourcesForPlanNode(node, context.workspaceResources),
+    ].sort((left, right) => left.key.localeCompare(right.key));
     if (options.workspaceAdmission === "graph") {
-      workspaceLease = await context.workspaceLocks.acquire(
-        resource,
-        node.workspace,
-        reportWaiting,
-        creationOrdinal,
-        invocationId,
-      );
+      try {
+        for (const resource of resources) {
+          workspaceLeases.push(
+            await context.workspaceLocks.acquire(
+              resource,
+              node.workspace,
+              reportWaiting,
+              creationOrdinal,
+              invocationId,
+              context.workspaceOwnerId ?? invocationId,
+            ),
+          );
+        }
+      } catch (cause) {
+        for (const lease of workspaceLeases.splice(0)) lease.release();
+        throw cause;
+      }
     } else {
+      const resource = resources[0];
+      if (resource === undefined) throw new Error("No workspace resource");
       const admission = await context.jointAdmissions.acquire({
         signal: abortSignal,
         session: undefined,
@@ -538,7 +552,7 @@ export async function executeWorkflowNode(
         onWorkspaceWaiting: reportWaiting,
         onSessionWaiting: () => undefined,
       });
-      workspaceLease = admission.workspaceLease;
+      workspaceLeases.push(admission.workspaceLease);
     }
     workspaceAdmitted = true;
     context.events.emit({
@@ -578,7 +592,7 @@ export async function executeWorkflowNode(
       taskId: node.workflowId,
     });
   } finally {
-    workspaceLease?.release();
+    for (const lease of workspaceLeases.splice(0)) lease.release();
     if (workspaceAdmitted) {
       context.events.emit({
         type: "invocation.progress",

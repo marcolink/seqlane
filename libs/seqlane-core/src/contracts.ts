@@ -340,13 +340,6 @@ export interface RepeatBodyContext<State> {
       definition: TaskDefinition<TaskInput, TaskOutput>,
       options: Omit<Options, "validateOutput">,
     ): TaskInvocation<TaskOutput, Options["session"]>;
-    <WorkflowInput, WorkflowOutput>(
-      definition: AuthoredWorkflow<WorkflowInput, WorkflowOutput>,
-      options: {
-        readonly input: InputBinding<WorkflowInput>;
-        readonly workspace?: WorkspacePolicy;
-      },
-    ): MechanicalTaskRef<WorkflowOutput>;
   };
   readonly validate: <Candidate>(
     validator: Validator<Candidate>,

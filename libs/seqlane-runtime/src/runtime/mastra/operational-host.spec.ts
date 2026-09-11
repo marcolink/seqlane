@@ -6,7 +6,13 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Plan, PlanNode } from "@seqlane/core";
+import {
+  buildWorkflow,
+  createFlow,
+  defineTask,
+  type Plan,
+  type PlanNode,
+} from "@seqlane/core";
 import type { AgentAdapter } from "@seqlane/agent-adapter";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -544,6 +550,71 @@ describe("Mastra operational host", () => {
       );
       await expect(json(invalidInputResponse)).resolves.toMatchObject({
         error: expect.stringContaining("Invalid input"),
+      });
+    } finally {
+      await host.close();
+    }
+  });
+
+  it("executes nested workflows through the owned Mastra host", async () => {
+    const childTask = defineTask({
+      id: "operational-child-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+      execute: async ({ input }) => ({ result: input.value + 1 }),
+    });
+    const child = createFlow({
+      id: "operational-child",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("increment", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.increment.output)
+      .define();
+    const parent = createFlow({
+      id: "operational-parent",
+      input: z.object({ value: z.number() }),
+      output: z.object({ result: z.number() }),
+    })
+      .task("child", child, ({ input }) => input)
+      .output(({ tasks }) => tasks.child.output)
+      .define();
+    const built = buildWorkflow(parent);
+    const host = await createOperationalHost({
+      workflows: [
+        createOperationalWorkflow({
+          key: "repository:operational-parent",
+          plan: built.plan,
+          workflow: built.workflow,
+          taskDefinitions: built.taskDefinitions,
+          validatorDefinitions: built.validatorDefinitions,
+          workflowDefinitions: built.workflowDefinitions,
+        }),
+      ],
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+
+    try {
+      const response = await host.fetch(
+        new Request(
+          "http://host/api/workflows/repository%3Aoperational-parent/start-async?runId=run-operational-nested",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              resourceId: "work-operational-nested",
+              inputData: { value: 2 },
+              requestContext: { "seqlane.runtimeId": "local" },
+            }),
+          },
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      await expect(json(response)).resolves.toMatchObject({
+        status: "success",
+        result: { result: 3 },
       });
     } finally {
       await host.close();

@@ -141,7 +141,12 @@ export async function loadWorkflow(
     }
   }
 
-  validateParsedPlan(plan, taskDefinitions);
+  validateParsedPlan(
+    plan,
+    taskDefinitions,
+    taskDefinitions !== undefined || built.workflowDefinitions.size > 0,
+    built.workflowDefinitions,
+  );
 
   return {
     reference,

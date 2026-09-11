@@ -339,14 +339,22 @@ describe("private Mastra runtime spine", () => {
       events: { emit: () => undefined },
     });
 
-    await expect(
-      execution.runtime.run({
-        workflowKey: execution.compiled.key,
-        input: { value: 1 },
-        workId: "nested-failure-work",
-        runId: "nested-failure-run",
-      }),
-    ).resolves.toMatchObject({ status: "failed" });
+    const outcome = await execution.runtime.run({
+      workflowKey: execution.compiled.key,
+      input: { value: 1 },
+      workId: "nested-failure-work",
+      runId: "nested-failure-run",
+    });
+    expect(outcome).toMatchObject({ status: "failed" });
+    if (outcome.status !== "failed") return;
+    expect(outcome.error).toBeInstanceOf(ExecutorError);
+    expect(outcome.error).toMatchObject({
+      category: "ExecutorError",
+      taskId: "nested-failing-task",
+    });
+    expect(outcome.error.cause).toMatchObject({
+      message: "nested workflow failure",
+    });
   });
 
   it("propagates cancellation into a nested workflow", async () => {
