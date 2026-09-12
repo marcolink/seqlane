@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import {
   decodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
-} from "@seqlane/events";
+} from "@seqlane/core";
 import {
   decodeRuntimeSessionUiAvailable,
   type RuntimeSessionUiAvailable,

@@ -4,7 +4,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { decodeSeqlaneExecutionEvent } from "@seqlane/events";
+import { decodeSeqlaneExecutionEvent } from "@seqlane/core";
 import {
   requestRunnerCancellation,
   startRun,

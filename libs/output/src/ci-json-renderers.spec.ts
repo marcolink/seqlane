@@ -2,7 +2,7 @@
 // @test-scope ./json-renderer.ts
 // @test-scope ./output-details.ts
 
-import type { SeqlaneExecutionEvent } from "@seqlane/events";
+import type { SeqlaneExecutionEvent } from "@seqlane/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CIRenderer, isCIOutput } from "./ci-renderer.js";
 import { JSONRenderer } from "./json-renderer.js";

@@ -30,7 +30,7 @@ import {
   encodeSeqlaneExecutionEvent,
   seqlaneExecutionEventSchema,
   type SeqlaneExecutionEvent,
-} from "@seqlane/events";
+} from "@seqlane/core";
 import {
   planCommandResultSchema,
   workflowListResultSchema,

@@ -41,7 +41,7 @@ identities, reducers, and span fields.
 
 - Making Mastra authoritative for Seqlane execution, workflows, Plans, or
   serialized events.
-- Adding Mastra imports or types to `@seqlane/core`, `@seqlane/events`,
+- Adding Mastra imports or types to `@seqlane/core`,
   workflow APIs, Plans, or runner IPC.
 - Creating a generic runtime `ExecutorObservation` union or generic Mastra
   projector for all executors.
@@ -69,7 +69,7 @@ identities, reducers, and span fields.
 
 ### R1. Boundary ownership
 
-The public `@seqlane/core` and `@seqlane/events` packages, workflow APIs,
+The public `@seqlane/core` package, workflow APIs,
 serialized Plans, and runner IPC MUST remain free of Mastra imports, types, and
 fields. The private `@seqlane/agent-adapter` contract MAY expose Mastra
 observability types. `@seqlane/runtime` already owns the Mastra-backed runtime
@@ -426,8 +426,8 @@ Tests MUST cover observable contracts and boundary behavior:
 - native span metrics and existing aggregate metrics remain separate outputs.
 - Mastra span/storage/exporter failure isolation from execution outcomes.
 - redaction, bounds, unsupported observations, and malformed payloads.
-- boundary tests proving Mastra types do not enter `@seqlane/core`,
-  `@seqlane/events`, workflow APIs, Plans, or runner IPC, while private runtime
+- boundary tests proving Mastra types do not enter `@seqlane/core`, workflow
+  APIs, Plans, or runner IPC, while private runtime
   and concrete adapter imports remain permitted.
 
 Use Mastra test storage or an equivalent deterministic span sink to assert

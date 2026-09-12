@@ -13,9 +13,6 @@
       "path": "./libs/acp"
     },
     {
-      "path": "./libs/events"
-    },
-    {
       "path": "./libs/opencode"
     },
     {

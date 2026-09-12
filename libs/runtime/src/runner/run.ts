@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
-} from "@seqlane/events";
+} from "@seqlane/core";
 import { RuntimeError, type RunRequest } from "@seqlane/core";
 import type { MastraActiveRun } from "../runtime/mastra/mastra-runtime.js";
 import {

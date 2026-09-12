@@ -196,10 +196,9 @@ and can produce only the bounded local diagnostic.
 ### REQ-OBS-002: Migrate runner and event consumers
 
 Runner notifications must stay narrow and use the versioned runner protocol
-defined below. Typed serialized run outcomes must remain available for IPC and
-UI consumers. Before a consumer migrates, `@seqlane/events` remains the
-canonical serialized event contract for that consumer. Its active consumer
-specification remains authoritative for current behavior.
+defined below. Typed serialized run outcomes and the existing serialized
+execution-event compatibility projection remain available for IPC and UI
+consumers. The migrated consumers use the core-owned contracts.
 
 The migration creates the core-owned replacement schemas. It must update each
 affected active consumer specification with its implementation change. The
@@ -211,8 +210,8 @@ reference.
 
 The migration creates strict Zod schemas and inferred types in the
 engine-neutral `@seqlane/core` runner-protocol boundary. The current boundary
-owns runner commands and references only. `@seqlane/events` owns the current
-serialized events until each consumer migrates.
+owns runner commands, references, notifications, outcomes, and the serialized
+execution-event compatibility projection.
 
 After migration, core owns runner notifications, protocol envelopes,
 serialized errors, and serialized run outcomes. The runtime owns emission and
@@ -310,7 +309,7 @@ prove these exclusions.
 
 The current event categories map as follows:
 
-| `@seqlane/events` category | Replacement destination | Compatibility rule |
+| Former serialized-event category | Replacement destination | Compatibility rule |
 | --- | --- | --- |
 | `run.started`, `invocation.started`, `invocation.progress`, `invocation.succeeded`, `invocation.failed`, `invocation.cancelled`, `run.heartbeat` | Runner notification | Preserve IDs, bounded fields, and run-local sequence semantics. |
 | `run.succeeded`, `run.failed`, `run.cancelled` | Serialized run outcome | Emit exactly one terminal outcome. |
@@ -318,9 +317,9 @@ The current event categories map as follows:
 | `run.plan` and Plan-node topology | Strict `PlanSnapshot` compatibility projection for Studio, recording, and replay | Preserve static identity and topology. Exclude values and executable data. |
 | Error metadata and consumer diagnostics | Serialized error category/code or bounded local diagnostic | Omit causes, stacks, credentials, prompts, and unrestricted payloads. |
 
-`@seqlane/events` remains in the repository until runner, CLI, output,
-Studio, recording, and replay compatibility tests pass against the replacement
-contract. The migration must not create a generic event bus or duplicate
+The former events package is removed after runner, CLI, output, Studio,
+recording, and replay compatibility tests pass against the core-owned
+contracts. The migration must not create a generic event bus or duplicate
 canonical schemas.
 
 ### REQ-COMPAT-001: Preserve current user-visible behavior
@@ -505,8 +504,8 @@ The implementation must record time spent waiting for admission after
 dependencies become ready. Runner notifications remain narrow and
 serializable. Consumers use typed run outcomes for IPC and UI decisions.
 Exporter failure must not alter the execution outcome and must produce only a
-bounded local diagnostic. Existing `@seqlane/events` consumers move before the
-package is deleted. The migration replaces raw Plan transport with the strict
+bounded local diagnostic. Existing serialized-event consumers use the
+core-owned compatibility projection. The migration replaces raw Plan transport with the strict
 topology-only `PlanSnapshot` projection. IPC, Studio, recording, and replay
 tests must reject unknown fields and prove that excluded data cannot cross
 their boundaries.
@@ -548,8 +547,8 @@ The delivery records use this order:
 5. Cut over the runtime to Mastra and remove Effect. Completed in PR #26.
 6. Compose workflows as runnables.
 7. Add Mastra observability. Native agent projections completed in PR #75.
-8. Migrate execution-event consumers.
-9. Remove `@seqlane/events`.
+8. Migrate execution-event consumers and move serialized contracts to core.
+9. Remove the former events package.
 
 Each slice remains independently committable. The cutover and final event
 deletion use repository-wide verification. Other slices use mapped, focused
@@ -559,8 +558,7 @@ Nx targets.
 
 Every implementation slice starts with `pnpm test:mapping`. Focused checks use
 the existing Nx targets, including `seqlane-core`, `seqlane-runtime`,
-`seqlane-events`, `seqlane-output`, `seqlane-opencode`, `seqlane-cli`, and
-`seqlane-studio`.
+`seqlane-output`, `seqlane-opencode`, `seqlane-cli`, and `seqlane-studio`.
 
 The Mastra cutover and final event deletion also run `pnpm run test`,
 `pnpm run typecheck`, and `pnpm run lint`. Documentation changes run
@@ -581,7 +579,7 @@ The Mastra cutover and final event deletion also run `pnpm run test`,
 - Cancellation, bounded output, cleanup, and typed errors remain covered.
 - Mastra observability includes Seqlane semantic attributes and admission wait.
 - Runner and UI consumers retain narrow notifications and typed outcomes.
-- `@seqlane/events` is removed only after its consumers migrate.
+- The former `@seqlane/events` consumers use core-owned contracts.
 - Runner schemas, envelope ordering, terminal outcome, cancellation,
   malformed-input, and compatibility tests pass.
 - Shell tasks use direct executable-plus-argv spawning with `shell: false`.

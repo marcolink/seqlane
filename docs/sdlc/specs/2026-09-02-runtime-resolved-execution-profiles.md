@@ -494,7 +494,8 @@ profile feature changes this rule.
 
 ## 10. Warning Event Contract
 
-Add a canonical warning event to `@seqlane/events`.
+Add a canonical warning event to the core-owned serialized execution-event
+contract.
 
 Conceptual shape:
 
@@ -615,7 +616,7 @@ missing agent. It still stops before session creation.
 - performs live availability checks; and
 - classifies and applies prompt-level transitions.
 
-### `seqlane-events`
+### Core serialized execution-event contract
 
 - owns the serialized warning event;
 - validates and encodes warning events; and

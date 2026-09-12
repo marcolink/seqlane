@@ -53,7 +53,7 @@ span exists. It remains a no-op when tracing is absent or the aliases conflict.
 
 ## Non-goals
 
-- Adding Mastra types to `@seqlane/core`, `@seqlane/events`, Plans, workflow
+- Adding Mastra types to `@seqlane/core`, Plans, workflow
   authoring, serialized events, or runner IPC.
 - Defining a generic executor observation union or shared executor projector.
 - Replacing Seqlane `onMetrics` aggregate invocation metrics.

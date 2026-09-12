@@ -236,9 +236,6 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:../../libs/core
-      '@seqlane/events':
-        specifier: workspace:*
-        version: link:../../libs/events
       '@seqlane/output':
         specifier: workspace:*
         version: link:../../libs/output
@@ -318,15 +315,6 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
 
-  libs/events:
-    dependencies:
-      '@seqlane/core':
-        specifier: workspace:*
-        version: link:../core
-      zod:
-        specifier: 4.5.4
-        version: 4.5.4
-
   libs/fixtures:
     dependencies:
       '@seqlane/core':
@@ -359,9 +347,6 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
-      '@seqlane/events':
-        specifier: workspace:*
-        version: link:../events
 
   libs/runtime:
     dependencies:
@@ -395,9 +380,6 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
-      '@seqlane/events':
-        specifier: workspace:*
-        version: link:../events
       '@seqlane/opencode-adapter':
         specifier: workspace:*
         version: link:../opencode

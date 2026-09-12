@@ -1,4 +1,4 @@
-import { seqlanePlanSnapshotSchema } from "@seqlane/events";
+import { seqlanePlanSnapshotSchema } from "@seqlane/core";
 import { z } from "zod";
 
 const workflowScopeSchema = z.enum(["repository", "user"]);

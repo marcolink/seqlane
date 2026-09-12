@@ -1,11 +1,11 @@
 ---
 id: task.migrate-execution-event-consumers
 title: Migrate Execution Event Consumers
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-13
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -19,8 +19,7 @@ Move runner, CLI, output, Studio, recording, and replay consumers to the
 replacement notification and typed outcome contracts before event-package
 deletion.
 
-Before this migration completes, `@seqlane/events` remains canonical for
-existing consumers. After migration, the replacement contracts are owned by
+The replacement contracts are owned by
 the engine-neutral `@seqlane/core` runner-protocol boundary. Runtime code owns
 emission. This task does not add a generic event bus or a second canonical
 schema.
@@ -53,11 +52,13 @@ schema.
   decode/encoding-failure tests.
 - Add IPC, Studio, recording, and replay redaction compatibility tests for the
   topology-only Plan snapshot.
-- Remove consumer imports that are no longer required from `@seqlane/events`.
+- Remove consumer imports that are no longer required from the former events
+  package.
 
 ## Out of scope
 
-- Deleting the `@seqlane/events` package.
+- Deleting the former events package is delivered with this migration because
+  the consumers cannot use a package that no longer exists.
 - Redesigning CLI or Studio behavior.
 - Changing Mastra compiler or admission policy.
 - Adding persistent event storage.
@@ -74,7 +75,6 @@ schema.
 
 ## Affected areas
 
-- `libs/events/`
 - `libs/output/`
 - `libs/runtime/`
 - `apps/cli/`
@@ -87,12 +87,10 @@ Run `pnpm test:mapping` first.
 
 Then run:
 
-- `pnpm exec nx run seqlane-events:test`
 - `pnpm exec nx run seqlane-output:test`
 - `pnpm exec nx run seqlane-cli:test`
 - `pnpm exec nx run seqlane-studio:test`
 - `pnpm exec nx run seqlane-studio-service:test`
-- `pnpm exec nx run seqlane-events:build`
 - `pnpm exec nx run seqlane-output:build`
 - `pnpm exec nx run seqlane-cli:build`
 - `pnpm exec nx run seqlane-studio:build`
@@ -111,7 +109,11 @@ Then run:
 
 ## Outcome
 
-Not started.
+Completed with the package removal in [PR #104](https://github.com/marcolink/seqlane/pull/104).
+CLI, output, runtime, recording, replay, and core consumers now use the
+core-owned serialized execution-event contract. Focused compatibility checks
+passed; the unrelated process lifecycle suite is blocked in the sandbox by
+`spawn EPERM`.
 
 ## Traceability
 

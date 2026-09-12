@@ -5,7 +5,7 @@ import {
   type JsonValue,
   type RunRequest,
 } from "@seqlane/core";
-import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
+import type { SeqlaneExecutionEventConsumer } from "../event-dispatcher.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { closeSync, openSync, readSync } from "node:fs";

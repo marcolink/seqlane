@@ -1,5 +1,5 @@
-import type { SeqlaneExecutionEvent } from "./contracts.js";
-import { isSeqlaneExecutionEvent } from "./validation.js";
+import type { SeqlaneExecutionEvent } from "./serialized-events.js";
+import { isSeqlaneExecutionEvent } from "./serialized-events.js";
 
 export function encodeSeqlaneExecutionEvent(
   event: SeqlaneExecutionEvent,

@@ -43,4 +43,4 @@ import {
 
 Pass a renderer a declared `OutputCapabilities` value, call `handle` for each
 canonical execution event, and call `finish` after the run ends. Renderers
-accept only `@seqlane/events` values.
+accept only serialized execution-event values from `@seqlane/core`.

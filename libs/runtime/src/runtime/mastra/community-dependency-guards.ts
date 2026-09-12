@@ -68,7 +68,7 @@ function throwForViolations(
 }
 
 export function publicPackageBoundaryFiles(repositoryRoot: string): string[] {
-  return ["libs/core", "libs/events"].flatMap((directory) =>
+  return ["libs/core"].flatMap((directory) =>
     filesUnder(resolve(repositoryRoot, directory)),
   );
 }

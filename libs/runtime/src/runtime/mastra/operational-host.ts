@@ -16,7 +16,7 @@ import type {
   ValidatorDefinitionRegistry,
   WorkflowDefinition,
 } from "@seqlane/core";
-import type { SeqlanePlanSnapshot } from "@seqlane/events";
+import type { SeqlanePlanSnapshot } from "@seqlane/core";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {

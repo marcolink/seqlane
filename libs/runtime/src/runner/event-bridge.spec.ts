@@ -3,10 +3,7 @@ import {
   ValidationFailedError,
   type SeqlaneEvent,
 } from "@seqlane/core";
-import type {
-  SeqlaneExecutionEvent,
-  SeqlanePlanSnapshot,
-} from "@seqlane/events";
+import type { SeqlaneExecutionEvent, SeqlanePlanSnapshot } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { createExecutionEventBridge } from "./event-bridge.js";
 

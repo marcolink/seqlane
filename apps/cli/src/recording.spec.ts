@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
-} from "@seqlane/events";
+} from "@seqlane/core";
 import {
   createRecordingConsumer,
   MAX_RECORDING_BYTES,

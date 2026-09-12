@@ -26,7 +26,6 @@
   "dependencies": {
     "mastra": "1.27.3",
     "@seqlane/core": "workspace:*",
-    "@seqlane/events": "workspace:*",
     "@seqlane/output": "workspace:*",
     "@seqlane/runtime": "workspace:*",
     "@oclif/core": "4.13.5",

@@ -1,14 +1,14 @@
-import type { SeqlaneErrorCategory } from "@seqlane/core";
+import type { SeqlaneErrorCategory } from "./errors.js";
 import type {
   SerializedSeqlaneError,
   SerializedValidationFailure,
   SerializeSeqlaneErrorOptions,
-} from "./contracts.js";
+} from "./serialized-events.js";
 import {
   hasNonEmptyString,
   isSeqlaneErrorCategory,
   isValidationIssue,
-} from "./validation.js";
+} from "./serialized-events.js";
 
 function safeErrorMessage(value: unknown): string {
   if (typeof value === "string") return value;

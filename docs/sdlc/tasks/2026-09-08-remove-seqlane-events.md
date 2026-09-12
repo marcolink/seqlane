@@ -1,11 +1,11 @@
 ---
 id: task.remove-seqlane-events
 title: Remove Seqlane Events
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-13
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -15,8 +15,8 @@ supersedes: []
 
 ## Objective
 
-Delete the transitional `@seqlane/events` package after every consumer uses the
-replacement observability, notification, and typed outcome contracts.
+Delete the transitional `@seqlane/events` package and keep its serialized
+consumer contracts in `@seqlane/core`.
 
 The replacement runner schemas and inferred types remain owned by the
 engine-neutral `@seqlane/core` runner-protocol boundary. Runtime emission,
@@ -30,12 +30,13 @@ Mastra telemetry, and bounded Studio or recording projections remain separate.
 
 ## Dependencies
 
-- Depends on [task.migrate-execution-event-consumers](./2026-09-08-migrate-execution-event-consumers.md).
+- Consumer migration is delivered in the same change because package deletion
+  cannot leave the workspace in a broken intermediate state.
 
 ## Scope
 
 - Prove that no runtime, CLI, output, Studio, fixture, or documentation
-  consumer imports `@seqlane/events`.
+  consumer imports the deleted package.
 - Prove that the core-owned versioned runner envelope, strict schemas, sequence
   ordering, cancellation semantics, and one terminal outcome remain available.
 - Remove the package source, project configuration, tests, exports, and
@@ -61,7 +62,6 @@ Mastra telemetry, and bounded Studio or recording projections remain separate.
 
 ## Affected areas
 
-- `libs/events/`
 - `libs/runtime/`
 - `libs/output/`
 - `apps/cli/`
@@ -97,7 +97,11 @@ Then run the full gate:
 
 ## Outcome
 
-Not started.
+Completed in [PR #104](https://github.com/marcolink/seqlane/pull/104).
+The package, workspace metadata, dependency links, and consumer imports were
+removed; serialized compatibility contracts remain available from core. The
+full repository graph reached all Seqlane checks. The unrelated process
+lifecycle suite remains blocked in the sandbox by `spawn EPERM`.
 
 ## Traceability
 

@@ -226,12 +226,12 @@
 | [task.configure-generated-file-conflict-handlers](./2026-09-08-configure-generated-file-conflict-handlers.md) | Configure Generated-File Conflict Handlers | completed | 2026-09-08 | core |
 | [task.cut-over-to-mastra-runtime](./2026-09-08-cut-over-to-mastra-runtime.md) | Cut Over to the Mastra Runtime | completed | 2026-09-08 | core |
 | [task.deliver-direct-runtime-code-review-action](./2026-09-08-deliver-direct-runtime-code-review-action.md) | Deliver the Direct-Runtime Code-Review Action | completed | 2026-09-08 | core |
-| [task.migrate-execution-event-consumers](./2026-09-08-migrate-execution-event-consumers.md) | Migrate Execution Event Consumers | planned | 2026-09-08 | core |
+| [task.migrate-execution-event-consumers](./2026-09-08-migrate-execution-event-consumers.md) | Migrate Execution Event Consumers | completed | 2026-09-08 | core |
 | [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
 | [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
 | [task.propagate-mastra-observability-context](./2026-09-08-propagate-mastra-observability-context.md) | Propagate Per-Invocation Mastra Observability Context | completed | 2026-09-08 | core |
 | [task.publish-live-merge-resolution-progress](./2026-09-08-publish-live-merge-resolution-progress.md) | Publish Live Merge Resolution Progress | completed | 2026-09-08 | core |
-| [task.remove-seqlane-events](./2026-09-08-remove-seqlane-events.md) | Remove Seqlane Events | planned | 2026-09-08 | core |
+| [task.remove-seqlane-events](./2026-09-08-remove-seqlane-events.md) | Remove Seqlane Events | completed | 2026-09-08 | core |
 | [task.remove-effect-subprocess-runtime](./2026-09-08-remove-effect-subprocess-runtime.md) | Remove the Effect Subprocess Runtime | completed | 2026-09-08 | core |
 | [task.require-explicit-opencode-server-executable](./2026-09-08-require-explicit-opencode-server-executable.md) | Require an Explicit OpenCode Server Executable | completed | 2026-09-08 | core |
 | [task.unify-flow-authoring-and-minimal-plan](./2026-09-08-unify-flow-authoring-and-minimal-plan.md) | Unify Flow Authoring and the Minimal Plan | completed | 2026-09-08 | core |

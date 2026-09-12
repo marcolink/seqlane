@@ -1,13 +1,8 @@
-import {
-  acyclicValueSchema,
-  isPlainRecord,
-  modelSelectionSchema,
-} from "@seqlane/core";
-import type {
-  JsonValue,
-  SeqlaneErrorCategory,
-  ValidationIssue,
-} from "@seqlane/core";
+import { acyclicValueSchema, isPlainRecord } from "./json.js";
+import { modelSelectionSchema } from "./models/model-ref.js";
+import type { JsonValue, ValidationIssue } from "./contracts.js";
+import type { SeqlaneErrorCategory } from "./errors.js";
+import type { SeqlaneDisplayValue } from "./events.js";
 import { z } from "zod";
 
 const plainRecordSchema = z.custom<Record<string, unknown>>((value) =>
@@ -561,24 +556,20 @@ export type RunFailedEvent = EventOf<"run.failed">;
 export type RunCancelledEvent = EventOf<"run.cancelled">;
 
 export function hasNonEmptyString(value: unknown): value is string {
-  try {
-    return nonEmptyStringSchema.safeParse(value).success;
-  } catch {
-    return false;
-  }
-}
-
-export function isJsonValue(value: unknown): value is JsonValue {
-  try {
-    return jsonValueSchema.safeParse(value).success;
-  } catch {
-    return false;
-  }
+  return schemaAccepts(nonEmptyStringSchema, value);
 }
 
 export function isValidationIssue(value: unknown): value is ValidationIssue {
+  return schemaAccepts(validationIssueSchema, value);
+}
+
+export interface SerializeSeqlaneErrorOptions {
+  readonly validationEvidence?: SeqlaneDisplayValue;
+}
+
+function schemaAccepts<T>(schema: z.ZodType<T>, value: unknown): value is T {
   try {
-    return validationIssueSchema.safeParse(value).success;
+    return schema.safeParse(value).success;
   } catch {
     return false;
   }
@@ -587,19 +578,11 @@ export function isValidationIssue(value: unknown): value is ValidationIssue {
 export function isSeqlaneErrorCategory(
   value: unknown,
 ): value is SeqlaneErrorCategory {
-  try {
-    return seqlaneErrorCategorySchema.safeParse(value).success;
-  } catch {
-    return false;
-  }
+  return schemaAccepts(seqlaneErrorCategorySchema, value);
 }
 
 export function isSeqlaneExecutionEvent(
   value: unknown,
 ): value is SeqlaneExecutionEvent {
-  try {
-    return seqlaneExecutionEventSchema.safeParse(value).success;
-  } catch {
-    return false;
-  }
+  return schemaAccepts(seqlaneExecutionEventSchema, value);
 }

@@ -60,7 +60,6 @@ describe("seqlane output package", () => {
 
     expect(manifest.dependencies).toEqual({
       "@seqlane/core": "workspace:*",
-      "@seqlane/events": "workspace:*",
     });
     expect(manifest.files).toEqual(["dist"]);
     expect(manifest.exports).toMatchObject({

@@ -6,10 +6,8 @@ import {
   readSync,
   writeSync,
 } from "node:fs";
-import {
-  decodeSeqlaneRecording,
-  type SeqlaneExecutionEventConsumer,
-} from "@seqlane/events";
+import { decodeSeqlaneRecording } from "./recording-format.js";
+import type { SeqlaneExecutionEventConsumer } from "./event-dispatcher.js";
 import {
   createRecordingEventValidator,
   createRecordingHeader,

@@ -25,6 +25,29 @@ export * from "./errors.js";
 export * from "./events.js";
 export * from "./json.js";
 export * from "./runner-protocol.js";
+export {
+  hasNonEmptyString,
+  isSeqlaneErrorCategory,
+  isSeqlaneExecutionEvent,
+  isValidationIssue,
+  seqlaneExecutionEventSchema,
+  seqlanePlanSnapshotSchema,
+} from "./serialized-events.js";
+export type {
+  ReadonlySchemaOutput,
+  SeqlaneExecutionEvent,
+  SeqlaneExecutionEventMetadata,
+  SeqlanePlanNodeSnapshot,
+  SeqlanePlanSnapshot,
+  SerializedSeqlaneError,
+  SerializedValidationFailure,
+  SerializeSeqlaneErrorOptions,
+} from "./serialized-events.js";
+export { serializeSeqlaneError } from "./serialized-events-errors.js";
+export {
+  decodeSeqlaneExecutionEvent,
+  encodeSeqlaneExecutionEvent,
+} from "./serialized-events-serialization.js";
 export * from "./workflow-descriptor.js";
 export { isAuthoredWorkflow } from "./workflow-internal.js";
 export { modelSelectionSchema } from "./models/model-ref.js";

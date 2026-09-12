@@ -2,7 +2,7 @@ import type { Plan, PlanNode } from "@seqlane/core";
 import type {
   SeqlanePlanNodeSnapshot,
   SeqlanePlanSnapshot,
-} from "@seqlane/events";
+} from "@seqlane/core";
 import { orderPlanNodes } from "../../runtime/plan/plan-ordering.js";
 
 const MAX_PLAN_NODE_ID_LENGTH = 256;

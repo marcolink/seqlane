@@ -1,5 +1,5 @@
 import { Args, Command, Flags } from "@oclif/core";
-import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
+import type { SeqlaneExecutionEventConsumer } from "../event-dispatcher.js";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import { readSeqlaneRecording } from "../recording.js";
 import {

@@ -51,7 +51,6 @@
     "@mastra/server": "1.64.0",
     "@hono/node-server": "2.1.1",
     "@seqlane/core": "workspace:*",
-    "@seqlane/events": "workspace:*",
     "@seqlane/opencode-adapter": "workspace:*",
     "hono": "4.13.5",
     "zod": "4.5.4"

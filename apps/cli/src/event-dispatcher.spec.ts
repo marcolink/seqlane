@@ -1,9 +1,9 @@
-import type {
-  SeqlaneExecutionEvent,
-  SeqlaneExecutionEventConsumer,
-} from "@seqlane/events";
+import type { SeqlaneExecutionEvent } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
-import { createEventDispatcher } from "./event-dispatcher.js";
+import {
+  createEventDispatcher,
+  type SeqlaneExecutionEventConsumer,
+} from "./event-dispatcher.js";
 
 const runStarted = (sequence: number): SeqlaneExecutionEvent => ({
   type: "run.started",

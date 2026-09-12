@@ -1,4 +1,4 @@
-import type { SeqlaneExecutionEvent } from "@seqlane/events";
+import type { SeqlaneExecutionEvent } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import {
   getHumanVisibleRows,
