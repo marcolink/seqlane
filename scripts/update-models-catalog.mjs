@@ -9,9 +9,9 @@ import { z } from "zod";
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const defaultSourceUrl = "https://models.dev/api.json";
 const defaultOpenAIOutputPath =
-  "libs/seqlane-core/src/models/providers/openai.generated.ts";
+  "libs/core/src/models/providers/openai.generated.ts";
 const defaultAnthropicOutputPath =
-  "libs/seqlane-core/src/models/providers/anthropic.generated.ts";
+  "libs/core/src/models/providers/anthropic.generated.ts";
 
 const catalogSchema = z.record(
   z.string(),

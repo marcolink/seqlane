@@ -22,7 +22,7 @@ lockfile resolution is `@agentclientprotocol/sdk` 0.21.1, which exports
 `PROTOCOL_VERSION = 1`.
 
 `AcpAgentStream` is an existing private ACP execution port declared in
-`libs/seqlane-acp/src/contracts.ts`. It is not an observability port.
+`libs/acp/src/contracts.ts`. It is not an observability port.
 `createDefaultAgent()` adapts `MastraAcpAgent.stream()` from `@mastra/acp`
 0.4.0 to this Seqlane-owned port. The port exposes AI SDK-style `fullStream`
 chunks and a final `text` promise. It does not expose raw ACP v1 types.

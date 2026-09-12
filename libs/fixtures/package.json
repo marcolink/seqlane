@@ -1,0 +1,63 @@
+{
+  "name": "@seqlane/fixtures",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./renovate-workflow": {
+      "types": "./dist/renovate-workflow.d.ts",
+      "import": "./dist/renovate-workflow.js",
+      "default": "./dist/renovate-workflow.js"
+    },
+    "./renovate-fake-workflow": {
+      "types": "./dist/renovate-fake-workflow.d.ts",
+      "import": "./dist/renovate-fake-workflow.js",
+      "default": "./dist/renovate-fake-workflow.js"
+    },
+    "./mixed-workflow": {
+      "types": "./dist/mixed-workflow.d.ts",
+      "import": "./dist/mixed-workflow.js",
+      "default": "./dist/mixed-workflow.js"
+    },
+    "./validation-workflow": {
+      "types": "./dist/validation-workflow.d.ts",
+      "import": "./dist/validation-workflow.js",
+      "default": "./dist/validation-workflow.js"
+    },
+    "./model-selection-workflow": {
+      "types": "./dist/model-selection-workflow.d.ts",
+      "import": "./dist/model-selection-workflow.js",
+      "default": "./dist/model-selection-workflow.js"
+    },
+    "./local-git-status": {
+      "types": "./dist/local-git-status.d.ts",
+      "import": "./dist/local-git-status.js",
+      "default": "./dist/local-git-status.js"
+    }
+  },
+  "nx": {
+    "$schema": "../../node_modules/nx/schemas/project-schema.json",
+    "tags": [
+      "type:lib",
+      "scope:private"
+    ]
+  },
+  "dependencies": {
+    "@seqlane/core": "workspace:*",
+    "zod": "4.5.4"
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcolink/seqlane.git",
+    "directory": "libs/fixtures"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "npm": "use pnpm instead - see README.md",
+    "yarn": "use pnpm instead - see README.md",
+    "pnpm": ">=10.33.0"
+  }
+}

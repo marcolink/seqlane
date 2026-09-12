@@ -10,7 +10,7 @@
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.spec.ts"],
   "references": [
-    { "path": "../seqlane-core" },
-    { "path": "../seqlane-runtime" }
+    { "path": "../core" },
+    { "path": "../runtime" }
   ]
 }

@@ -46,7 +46,7 @@ contracts.
 
 ## Affected areas
 
-- `libs/seqlane-runtime` Mastra operational-host integration
+- `libs/runtime` Mastra operational-host integration
 - private runtime boundary tests
 
 ## Verification

@@ -27,7 +27,7 @@ vi.mock("@seqlane/core", () => {
   };
 });
 vi.mock("@seqlane/core/models", () => ({ openai: () => ({}) }));
-vi.mock("@seqlane/opencode", () => ({
+vi.mock("@seqlane/opencode-adapter", () => ({
   createOpenCodeAdapter,
 }));
 vi.mock("@seqlane/runtime", () => ({

@@ -4,7 +4,7 @@ import {
   type TaskContext,
   type AuthoredWorkflow,
 } from "@seqlane/core";
-import { createOpenCodeAdapter } from "@seqlane/opencode";
+import { createOpenCodeAdapter } from "@seqlane/opencode-adapter";
 import {
   PlanCompiler,
   startCompiledWorkflow,

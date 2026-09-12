@@ -1,0 +1,31 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "seqlane-fixtures",
+  "projectType": "library",
+  "sourceRoot": "libs/fixtures/src",
+  "targets": {
+    "typecheck": {
+      "dependsOn": [],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/fixtures",
+        "command": "tsc --build tsconfig.json --emitDeclarationOnly"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/fixtures",
+        "command": "tsc --build tsconfig.json"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/fixtures",
+        "command": "vitest run"
+      }
+    }
+  }
+}

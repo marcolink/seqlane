@@ -1,0 +1,32 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
+    "types": ["node"],
+    "emitDeclarationOnly": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts"],
+  "references": [
+    {
+      "path": "../opencode"
+    },
+    {
+      "path": "../events"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../adapter"
+    },
+    {
+      "path": "../acp"
+    },
+    {
+      "path": "../fixtures"
+    }
+  ]
+}

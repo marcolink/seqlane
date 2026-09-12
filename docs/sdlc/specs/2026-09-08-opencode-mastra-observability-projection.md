@@ -18,7 +18,7 @@ supersedes: []
 
 This specification defines the OpenCode-specific projection from the private
 Seqlane adapter to native Mastra spans and derived metrics. It applies to the
-OpenCode SDK v2 event contract used by `@seqlane/opencode`. Other adapters have
+OpenCode SDK v2 event contract used by `@seqlane/opencode-adapter`. Other adapters have
 separate projection specifications for their own event and lifecycle contracts.
 
 This is not OpenCode SDK observability. The SDK is the validated observation

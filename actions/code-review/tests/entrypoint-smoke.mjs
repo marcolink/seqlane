@@ -38,7 +38,7 @@ const mainSource = await readFile(
 );
 assert.doesNotMatch(
   mainSource,
-  /apps\/seqlane-cli|child_process|dynamicImport|pnpm install/,
+  /apps\/cli|child_process|dynamicImport|pnpm install/,
 );
 const main = await readFile(
   new URL("../dist/main.js", import.meta.url),

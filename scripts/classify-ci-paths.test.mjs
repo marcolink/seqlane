@@ -28,7 +28,7 @@ test("keeps unrelated Action and library changes lightweight", () => {
   assert.deepEqual(classifyPaths(["actions/example/src/main.ts"]), {
     ripwire_relevant: "false",
   });
-  assert.deepEqual(classifyPaths(["libs/seqlane-core/src/index.ts"]), {
+  assert.deepEqual(classifyPaths(["libs/core/src/index.ts"]), {
     ripwire_relevant: "false",
   });
   assert.deepEqual(classifyPaths(["pnpm-lock.yaml"]), {

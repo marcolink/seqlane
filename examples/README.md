@@ -8,7 +8,7 @@ catalog.
 Run a file directly from the repository root:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run examples/minimal-workflow.ts \
+pnpm exec node apps/cli/bin/run.js run examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
   --runtime http://127.0.0.1:4096
 ```
@@ -25,7 +25,7 @@ session.
 passes its typed result to an agent task:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run examples/local-git-status.ts \
+pnpm exec node apps/cli/bin/run.js run examples/local-git-status.ts \
   --input '{}' \
   --runtime http://127.0.0.1:4096 \
   --workspace "$PWD"
@@ -34,7 +34,7 @@ pnpm exec node apps/seqlane-cli/bin/run.js run examples/local-git-status.ts \
 `local-only.ts` contains no agent work and runs without a runtime profile:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run examples/local-only.ts \
+pnpm exec node apps/cli/bin/run.js run examples/local-only.ts \
   --input '{"value":"local"}'
 ```
 
@@ -73,7 +73,7 @@ they may overlap. This is not a read-only workspace boundary; configure the
 runtime accordingly.
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run examples/pr-code-review.ts \
+pnpm exec node apps/cli/bin/run.js run examples/pr-code-review.ts \
   --input '{"repository":"/path/to/repository","baseBranch":"release/2026.09","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"number":123,"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
   --runtime http://127.0.0.1:4096 \
   --workspace /path/to/repository
@@ -282,7 +282,7 @@ fast. It currently omits repeat nodes because the Mastra Plan compiler does
 not support them.
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run examples/all-features.ts \
+pnpm exec node apps/cli/bin/run.js run examples/all-features.ts \
   --input '{"topic":"Seqlane","focus":"typed workflows"}' \
   --runtime http://127.0.0.1:4096
 ```
