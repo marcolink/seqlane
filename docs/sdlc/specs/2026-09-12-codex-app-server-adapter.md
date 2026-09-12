@@ -56,10 +56,13 @@ OpenAI recommends the Codex SDK for CI automation, so protocol proof is a delive
 
 ### requirement-codex-protocol-proof
 
-The implementation must select and pin a Codex CLI version before it claims app-server capabilities.
+The implementation must maintain a list of Codex CLI versions whose app-server
+protocol Seqlane has tested. The current local version is `0.147.0`.
 A controlled probe must prove initialization, model discovery, thread and turn operations, structured output, cancellation, and exact fork behavior.
 The probe must also establish event and error shapes used by the adapter.
-An unsupported version or operation must fail before the first agent task starts.
+An unconfirmed CLI version must emit a diagnostic warning and continue. A
+malformed or incompatible protocol, or an unsupported required operation, must
+fail before the first agent task starts.
 
 ### requirement-codex-private-configuration
 
@@ -147,7 +150,7 @@ It must validate each untrusted JSON-RPC message with an owning Zod schema.
 It must set line and message-size bounds, reject malformed required fields, and ignore unknown optional events.
 It must not depend on error-message text to decide outcomes.
 
-The capability resolver must declare `execute`, `structuredOutput`, `sessionReuse`, `checkpoint`, `fork`, `modelSelection`, and `activity` only after compatibility proof.
+The capability resolver must declare `execute`, `structuredOutput`, `sessionReuse`, `checkpoint`, `fork`, `modelSelection`, and `activity` only for operations represented by the tested protocol contract. A version-list mismatch is advisory and must not silently select a fallback or downgrade.
 It must declare `sessionUi: false` in the first delivery.
 The existing runtime must reject a required capability before session or workspace admission.
 
