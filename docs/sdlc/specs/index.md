@@ -25,7 +25,7 @@
 | [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md) | Mastra Runtime and Operational Integration | active | 2026-09-03 | core |
 | [spec.model-selection-and-session-model-semantics](./2026-09-03-model-selection-and-session-model-semantics.md) | Model Selection and Session Model Semantics | active | 2026-09-03 | core |
 | [spec.sdlc-documentation-system](./2026-09-03-sdlc-documentation-system.md) | SDLC documentation system | active | 2026-09-03 | core |
-| [spec.agent-adapter-boundary-and-capabilities](./2026-09-04-agent-adapter-boundary-and-capabilities.md) | Generic ACP Adapter Boundary and Capability Model | active | 2026-09-04 | core |
+| [spec.agent-adapter-boundary-and-capabilities](./2026-09-04-agent-adapter-boundary-and-capabilities.md) | Agent Adapter Boundary and Capability Model | active | 2026-09-04 | core |
 | [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md) | Versioned Pull Request Review Comments | active | 2026-09-05 | core |
 | [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md) | Mechanical Pull Request Review Dispositions | draft | 2026-09-06 | core |
 | [spec.seqlane-action-merge-conflict-resolution](./2026-09-06-seqlane-action-merge-conflict-resolution.md) | Seqlane Action Merge Conflict Resolution | active | 2026-09-06 | core |
@@ -37,3 +37,4 @@
 | [spec.opencode-tool-setup-action](./2026-09-08-opencode-tool-setup-action.md) | OpenCode Tool Setup Action | active | 2026-09-08 | core |
 | [spec.opencode-mastra-observability-projection](./2026-09-08-opencode-mastra-observability-projection.md) | OpenCode-to-Mastra Observability Projection | active | 2026-09-08 | core |
 | [spec.ripwire-server-action](./2026-09-08-ripwire-server-action.md) | Ripwire HTTP MCP GitHub Action | active | 2026-09-08 | core |
+| [spec.codex-app-server-adapter](./2026-09-12-codex-app-server-adapter.md) | Codex App-Server Adapter | draft | 2026-09-12 | core |

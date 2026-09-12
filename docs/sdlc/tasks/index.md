@@ -242,3 +242,6 @@
 | [task.migrate-to-runner-built-action-bundles](./2026-09-11-migrate-to-runner-built-action-bundles.md) | Migrate to Runner-Built Action Bundles | in-progress | 2026-09-11 | core |
 | [task.reject-nested-workflows-in-repeats](./2026-09-11-reject-nested-workflows-in-repeats.md) | Reject Nested Workflows in Repeat Bodies | planned | 2026-09-11 | core |
 | [task.nested-workflow-compilation-lifecycle](./2026-09-11-nested-workflow-compilation-lifecycle.md) | Simplify Nested Workflow Compilation and Lifecycle | planned | 2026-09-11 | core |
+| [task.implement-codex-app-server-adapter](./2026-09-12-implement-codex-app-server-adapter.md) | Implement the Codex App-Server Adapter | planned | 2026-09-12 | core |
+| [task.integrate-codex-runtime-adapter](./2026-09-12-integrate-codex-runtime-adapter.md) | Integrate the Codex Runtime Adapter | planned | 2026-09-12 | core |
+| [task.prove-codex-app-server-protocol](./2026-09-12-prove-codex-app-server-protocol.md) | Prove the Codex App-Server Protocol | planned | 2026-09-12 | core |

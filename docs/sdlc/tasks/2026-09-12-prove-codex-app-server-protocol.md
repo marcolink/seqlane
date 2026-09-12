@@ -1,0 +1,80 @@
+---
+id: task.prove-codex-app-server-protocol
+title: Prove the Codex App-Server Protocol
+status: planned
+owners:
+  - core
+created: 2026-09-12
+updated: 2026-09-12
+upstream:
+  - spec.codex-app-server-adapter
+supersedes: []
+---
+
+# Prove the Codex App-Server Protocol
+
+## Objective
+
+Establish the pinned Codex CLI and observed app-server contract before the adapter claims any capability.
+
+## Upstream requirements
+
+- [requirement-codex-protocol-proof](../specs/2026-09-12-codex-app-server-adapter.md#requirement-codex-protocol-proof)
+- [requirement-codex-model-selection](../specs/2026-09-12-codex-app-server-adapter.md#requirement-codex-model-selection)
+- [requirement-codex-typed-output](../specs/2026-09-12-codex-app-server-adapter.md#requirement-codex-typed-output)
+
+## Scope
+
+- Select and pin a Codex CLI release for Seqlane integration checks.
+- Build a controlled JSONL probe that starts `codex app-server` over stdio.
+- Record request, response, notification, and error shapes for required methods.
+- Prove model discovery, structured output, interruption, and exact fork position.
+- Prove that a pending approval request can be interrupted without an approval decision.
+- Record the supported version rule and any capability gaps in the integration spec.
+
+## Out of scope
+
+- Agent adapter implementation or runtime selection.
+- Cross-run thread persistence, external sockets, or user-facing CLI options.
+- A live model requirement for the normal repository test suite.
+
+## Implementation plan
+
+1. Inspect official app-server documentation and the selected CLI's generated schema or source.
+2. Pin the executable version used by compatibility tests.
+3. Exercise the handshake, thread, turn, model, fork, and interrupt methods.
+4. Save sanitized fixtures for deterministic protocol tests.
+5. Update the spec with proved shapes or a concrete unsupported capability.
+
+## Affected areas
+
+- Codex adapter test fixtures and version policy
+- Codex integration specification
+- CI setup for the protocol probe
+
+## Verification
+
+- Reject a mismatched or unsupported CLI version before task submission.
+- Demonstrate that `lastTurnId` forks at the completed checkpoint.
+- Demonstrate that `outputSchema` produces one locally validatable result.
+- Demonstrate the terminal status after `turn/interrupt`.
+- Demonstrate interruption while an approval request is pending.
+
+## Completion criteria
+
+- The selected version and required protocol shapes are recorded and reproducible.
+- Every advertised capability has evidence from the pinned app-server.
+- A failed probe blocks adapter delivery instead of enabling a fallback.
+
+## Outcome
+
+Planned. No protocol claim is verified by this task document.
+
+## Delivery state
+
+No implementation or reachable delivery commit is recorded.
+
+## Traceability
+
+- [spec.codex-app-server-adapter](../specs/2026-09-12-codex-app-server-adapter.md)
+- [OpenAI Codex App Server documentation](https://developers.openai.com/codex/app-server)
