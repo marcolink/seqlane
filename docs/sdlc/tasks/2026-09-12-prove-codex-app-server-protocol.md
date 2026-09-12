@@ -54,7 +54,8 @@ Establish the pinned Codex CLI and observed app-server contract before the adapt
 
 ## Verification
 
-- Reject a mismatched or unsupported CLI version before task submission.
+- Warn, but do not reject, a CLI version that is not in the confirmed version list.
+- Reject a malformed protocol or unsupported required operation before task submission.
 - Demonstrate that `lastTurnId` forks at the completed checkpoint.
 - Demonstrate that `outputSchema` produces one locally validatable result.
 - Demonstrate the terminal status after `turn/interrupt`.
@@ -64,7 +65,7 @@ Establish the pinned Codex CLI and observed app-server contract before the adapt
 
 - The selected version and required protocol shapes are recorded and reproducible.
 - Every advertised capability has evidence from the pinned app-server.
-- A failed probe blocks adapter delivery instead of enabling a fallback.
+- A failed probe blocks capability claims instead of enabling a fallback.
 
 ## Outcome
 

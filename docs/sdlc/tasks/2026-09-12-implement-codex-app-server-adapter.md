@@ -1,7 +1,7 @@
 ---
 id: task.implement-codex-app-server-adapter
 title: Implement the Codex App-Server Adapter
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-12
@@ -78,11 +78,16 @@ Implement one private `AgentAdapter` that maps run-scoped Codex threads and turn
 
 ## Outcome
 
-Planned. No adapter implementation is recorded.
+The private `@seqlane/codex-adapter` package is implemented with bounded JSONL
+transport, Zod protocol validation, advisory Codex version checks, typed output,
+session reuse, checkpoints, exact forks, activity, cancellation, and
+non-interactive interaction failure. Runtime registration and live protocol
+confirmation remain follow-up work.
 
 ## Delivery state
 
-No implementation or reachable delivery commit is recorded.
+The implementation is present in the current worktree. No delivery commit is
+recorded yet.
 
 ## Traceability
 
