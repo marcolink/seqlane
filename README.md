@@ -37,6 +37,33 @@ workflow layer:  workflow.ts + runtime profile: opencode
 
 This separation keeps the same workflow portable across runtime environments.
 
+## Current Mastra dependency
+
+Mastra is the runtime engine used by Seqlane today. Seqlane owns the workflow
+authoring API, typed Plan, task contracts, session policies, workspace policies,
+and stable CLI and event contracts. The private runtime layer compiles each
+Seqlane Plan into Mastra workflows and steps, then uses Mastra to execute the
+workflow.
+
+Mastra also provides the operational server foundation:
+
+- `seqlane serve` starts a Mastra-backed operational host with API routes for
+  workflow execution, run status, and cancellation.
+- The same host registers reusable Seqlane workflows as MCP tools at
+  `/api/mcp/seqlane-workflows/mcp`.
+- `seqlane studio` starts the Mastra Community Studio and connects it to the
+  host API at `/api`.
+
+```sh
+seqlane serve
+seqlane studio --server-url http://127.0.0.1:4111
+```
+
+Users write workflows against `@seqlane/core`; they do not need to use Mastra
+workflow APIs directly. Mastra remains behind the Seqlane runtime boundary and
+currently supplies workflow execution, operational API and MCP transport,
+storage, tracing, and the Community Studio integration.
+
 ## Install Seqlane
 
 Use Node.js 24 or later and pnpm 10.33 or later.
