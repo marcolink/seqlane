@@ -156,6 +156,44 @@ Seqlane process or operational server.
 Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
 source per run, and input files have a 1 MiB limit.
 
+## Choose an access pattern
+
+Use one-shot CLI execution when one process needs one workflow result:
+
+```sh
+seqlane run my-workflow.js --input '{}'
+```
+
+The CLI starts a temporary loopback operational server for the run, prints the
+result, and closes the server. Add `--runtime opencode` and configure
+`SEQLANE_RUNTIME_ADAPTER_CONFIG` when the workflow contains agent tasks.
+
+Use the MCP access pattern when an MCP client, Studio, or multiple runs need a
+persistent server:
+
+Local-only workflows do not need adapter configuration. For agent workflows,
+set the adapter configuration before you start the server:
+
+```sh
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
+seqlane serve
+```
+
+Connect an MCP client to
+`http://127.0.0.1:4111/api/mcp/seqlane-workflows/mcp`. The server registers
+discovered workflows as tools. For example, the `repository:review` workflow
+is available as `run_repository:review` with arguments like these:
+
+```json
+{
+  "input": { "topic": "Seqlane" },
+  "runtime": { "id": "opencode" }
+}
+```
+
+The MCP server owns adapter configuration. The `runtime.id` value selects the
+profile for a call; it does not contain the adapter URL.
+
 ## Use the CLI
 
 The main commands are:
@@ -178,9 +216,9 @@ seqlane run --help
 seqlane serve --help
 ```
 
-`run` owns a loopback operational server for the duration of a run. Use
-`--server-url` to attach to an existing loopback server. Use `serve` when you
-need multiple runs, persistent run inspection, MCP access, or Studio access.
+Use `--server-url` to attach `run`, `status`, or `cancel` to an existing
+loopback server. Use `serve` when you need multiple runs, persistent run
+inspection, MCP access, or Studio access.
 
 ### Discover reusable workflows
 
