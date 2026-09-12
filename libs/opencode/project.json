@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "seqlane-opencode",
+  "name": "opencode",
   "projectType": "library",
   "sourceRoot": "libs/opencode/src",
   "targets": {

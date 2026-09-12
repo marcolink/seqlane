@@ -276,5 +276,5 @@ pnpm exec node apps/cli/bin/run.js run examples/minimal-workflow.ts \
 Run the CLI boundary tests after a build:
 
 ```sh
-pnpm exec nx test:e2e seqlane-cli
+pnpm exec nx test:e2e cli
 ```

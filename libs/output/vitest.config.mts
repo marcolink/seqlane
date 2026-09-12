@@ -3,7 +3,7 @@ import { workspaceAliases } from "../../vitest.shared.mts";
 
 export default defineConfig({
   test: {
-    name: "seqlane-output",
+    name: "output",
     environment: "node",
     include: ["src/**/*.spec.ts"],
   },

@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "seqlane-runtime",
+  "name": "runtime",
   "projectType": "library",
   "sourceRoot": "libs/runtime/src",
   "targets": {

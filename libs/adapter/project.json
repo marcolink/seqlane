@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "seqlane-agent-adapter",
+  "name": "adapter",
   "projectType": "library",
   "sourceRoot": "libs/adapter/src",
   "targets": {

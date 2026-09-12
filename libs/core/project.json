@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "seqlane-core",
+  "name": "core",
   "projectType": "library",
   "sourceRoot": "libs/core/src",
   "targets": {

@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "seqlane-output",
+  "name": "output",
   "projectType": "library",
   "sourceRoot": "libs/output/src",
   "targets": {
