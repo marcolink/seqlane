@@ -16,6 +16,27 @@ declares task dependencies, session use, and workspace coordination.
 > Seqlane is in active development. Breaking changes can occur while its
 > contracts and package boundaries evolve.
 
+## Workflow layer and runtime layer
+
+Seqlane is the workflow layer. It defines typed tasks, task dependencies,
+schemas, sessions, workspace policy, and workflow outputs.
+
+Every run also selects a runtime profile. The runtime layer executes tasks and
+owns models, tools, permissions, processes, and adapter configuration.
+
+The built-in `local` profile runs deterministic tasks without an adapter. An
+agent task needs a configured adapter runtime, such as OpenCode. The workflow
+does not contain the adapter URL or its credentials.
+
+Choose the runtime profile when you start a run or call the MCP server:
+
+```text
+workflow layer:  workflow.ts + runtime profile: local
+workflow layer:  workflow.ts + runtime profile: opencode
+```
+
+This separation keeps the same workflow portable across runtime environments.
+
 ## Install Seqlane
 
 Use Node.js 24 or later and pnpm 10.33 or later.

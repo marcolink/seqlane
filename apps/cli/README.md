@@ -1,5 +1,13 @@
 # Seqlane CLI
 
+Seqlane provides the workflow layer. It defines typed tasks, dependencies,
+schemas, sessions, workspace policy, and workflow outputs.
+
+Every run selects a runtime profile. The runtime layer executes tasks and owns
+models, tools, permissions, processes, and adapter configuration. The built-in
+`local` profile runs deterministic tasks without an adapter. Agent tasks need a
+configured adapter runtime, such as OpenCode.
+
 ## Discover and plan workflows
 
 Repository workflows use `.seqlane/workflows/*.json` below the current working
