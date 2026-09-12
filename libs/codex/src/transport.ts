@@ -27,7 +27,10 @@ export interface CodexTransport {
     params: unknown,
     signal?: AbortSignal,
   ): Promise<unknown>;
-  respond(requestId: CodexRequestId, response: CodexServerRequestResponse): void;
+  respond(
+    requestId: CodexRequestId,
+    response: CodexServerRequestResponse,
+  ): void;
   subscribe(listener: (message: CodexInboundMessage) => void): () => void;
   close(): Promise<void>;
 }
@@ -83,7 +86,9 @@ function writeMessage(
       cause,
     );
   }
-  if (Buffer.byteLength(serialized, "utf8") > MAX_JSONL_OUTBOUND_MESSAGE_BYTES) {
+  if (
+    Buffer.byteLength(serialized, "utf8") > MAX_JSONL_OUTBOUND_MESSAGE_BYTES
+  ) {
     throw new CodexAdapterError(
       "limit",
       `Codex outbound JSONL message exceeded ${MAX_JSONL_OUTBOUND_MESSAGE_BYTES} bytes`,

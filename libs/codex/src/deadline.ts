@@ -1,7 +1,10 @@
 import { CodexAdapterError } from "./errors.js";
 
 export class CodexRequestDeadlineError extends CodexAdapterError {
-  constructor(readonly operation: string, milliseconds: number) {
+  constructor(
+    readonly operation: string,
+    milliseconds: number,
+  ) {
     super(
       "cancellation",
       `Codex ${operation} did not complete within ${milliseconds}ms`,

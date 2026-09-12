@@ -1,5 +1,8 @@
 import { InteractionRequiredError } from "@seqlane/core";
-import type { AgentActivity, AgentAdapterRequest } from "@seqlane/agent-adapter";
+import type {
+  AgentActivity,
+  AgentAdapterRequest,
+} from "@seqlane/agent-adapter";
 import { CodexAdapterError } from "./errors.js";
 import {
   CodexActivityReducer,
@@ -162,8 +165,12 @@ export function createTurnTracker(
     if (item.type !== "agentMessage" || typeof item.id !== "string") return;
     const state = agentMessages.get(item.id) ?? { text: "", bytes: 0 };
     const text = itemText(item);
-    const completedText = text ?? (state.text.length === 0 ? undefined : state.text);
-    agentMessages.set(item.id, { ...state, ...(completedText === undefined ? {} : { completedText }) });
+    const completedText =
+      text ?? (state.text.length === 0 ? undefined : state.text);
+    agentMessages.set(item.id, {
+      ...state,
+      ...(completedText === undefined ? {} : { completedText }),
+    });
     completedAgentMessageIds.push(item.id);
   };
   const selectAgentMessage = (
@@ -235,7 +242,9 @@ export function createTurnTracker(
         for (const item of completedTurn.items) {
           if (!items.some((existing) => existing.id === item.id)) addItem(item);
         }
-        const completedAgentMessageText = selectAgentMessage(completedTurn.items);
+        const completedAgentMessageText = selectAgentMessage(
+          completedTurn.items,
+        );
         resolveCompletion({
           turn: completedTurn,
           items,

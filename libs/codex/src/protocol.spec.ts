@@ -51,7 +51,8 @@ describe("Codex app-server protocol", () => {
     ).toEqual({
       error: {
         code: -32601,
-        message: 'Unsupported Codex server request "item/commandExecution/requestApproval"',
+        message:
+          'Unsupported Codex server request "item/commandExecution/requestApproval"',
       },
     });
   });

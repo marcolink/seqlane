@@ -92,11 +92,11 @@ function buildPrompt(request: AgentAdapterRequest): string {
     return value;
   };
   const boundedInput = component(input, "task input");
-  const instructions = request.agent?.instructions?.map(
-    (value) => component(`Instruction: ${value}`, "agent instruction"),
+  const instructions = request.agent?.instructions?.map((value) =>
+    component(`Instruction: ${value}`, "agent instruction"),
   );
-  const references = request.agent?.references?.map(
-    (value) => component(`Reference: ${value}`, "agent reference"),
+  const references = request.agent?.references?.map((value) =>
+    component(`Reference: ${value}`, "agent reference"),
   );
   const prompt = [
     component(
