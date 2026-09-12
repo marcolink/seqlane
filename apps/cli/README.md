@@ -1,5 +1,35 @@
 # Seqlane CLI
 
+Seqlane provides the workflow layer. It defines typed tasks, dependencies,
+schemas, sessions, workspace policy, and workflow outputs.
+
+Every run selects a runtime profile. The runtime layer executes tasks and owns
+models, tools, permissions, processes, and adapter configuration. The built-in
+`local` profile runs deterministic tasks without an adapter. Agent tasks need a
+configured adapter runtime, such as OpenCode.
+
+## Published and local-development commands
+
+Use the published `seqlane` binary when the CLI is installed from npm. Use the
+repository entrypoint when you are developing this workspace. Build the
+workspace before using the local entrypoint.
+
+| Operation          | Published CLI                | Local development                                       |
+| ------------------ | ---------------------------- | ------------------------------------------------------- |
+| Help               | `seqlane --help`             | `pnpm exec node apps/cli/bin/run.js --help`             |
+| List workflows     | `seqlane list`               | `pnpm exec node apps/cli/bin/run.js list`               |
+| Plan a workflow    | `seqlane plan <workflow>`    | `pnpm exec node apps/cli/bin/run.js plan <workflow>`    |
+| Run a workflow     | `seqlane run <workflow>`     | `pnpm exec node apps/cli/bin/run.js run <workflow>`     |
+| Start the server   | `seqlane serve`              | `pnpm exec node apps/cli/bin/run.js serve`              |
+| Start Studio       | `seqlane studio`             | `pnpm exec node apps/cli/bin/run.js studio`             |
+| Read a run         | `seqlane status <run-id>`    | `pnpm exec node apps/cli/bin/run.js status <run-id>`    |
+| Cancel a run       | `seqlane cancel <run-id>`    | `pnpm exec node apps/cli/bin/run.js cancel <run-id>`    |
+| Replay a recording | `seqlane replay <recording>` | `pnpm exec node apps/cli/bin/run.js replay <recording>` |
+
+The flags and arguments are the same in both columns. For example, append
+`--server-url http://127.0.0.1:4111` to either `status` command when using an
+existing operational host.
+
 ## Discover and plan workflows
 
 Repository workflows use `.seqlane/workflows/*.json` below the current working
@@ -9,7 +39,7 @@ file contains one descriptor:
 ```json
 {
   "name": "review",
-  "moduleSpecifier": "./review.ts",
+  "moduleSpecifier": "../../review.ts",
   "exportName": "default",
   "description": "Review a change"
 }
@@ -33,7 +63,6 @@ process, executor, or model:
 ```sh
 seqlane plan repository:review --input '{"topic":"Seqlane"}'
 seqlane plan ./examples/minimal-workflow.ts --output json
-seqlane run repository:review --input '{"topic":"Seqlane"}'
 ```
 
 Repository and user workflow modules are trusted local authoring code. The plan
@@ -49,6 +78,14 @@ Direct file and module references remain supported by `seqlane run` and
 Start the foreground Mastra operational host for all discovered workflows:
 
 ```sh
+seqlane serve
+```
+
+The host can start without adapter configuration for local-only workflows. For
+agent workflows, set the adapter configuration before you start the host:
+
+```sh
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
 seqlane serve
 ```
 
@@ -101,31 +138,21 @@ the recording is terminal-only as well.
 
 ### Runtime adapter configuration
 
-Agent runs use the private `SEQLANE_RUNTIME_ADAPTER_CONFIG` environment
-variable. Set this variable before you start `seqlane run` or `seqlane serve`:
+`seqlane run` uses the `local` runtime profile by default. Local-only workflows
+do not need adapter configuration. Agent runs use the private
+`SEQLANE_RUNTIME_ADAPTER_CONFIG` environment variable. Set this variable before
+you start `seqlane run` or `seqlane serve`:
 
 ```sh
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
+
+seqlane run repository:review --input '{"topic":"Seqlane"}' --runtime opencode
 ```
 
 The `--runtime` value is an opaque profile identifier. The CLI does not infer
 the adapter from a URL. A remote `run --server-url` sends only the profile and
 workspace metadata. The existing server must have its own adapter
 configuration.
-
-Run-control commands use the same host. Set `--server-url` to use an existing
-host; without it, the command owns a local host for its lifetime:
-
-```sh
-seqlane status <run-id> --server-url http://127.0.0.1:4111
-seqlane cancel <run-id> --server-url http://127.0.0.1:4111
-```
-
-`run` prints the Work and Run identifiers before progress output. It owns a
-loopback operational host by default and uses the same Mastra server path as
-`run --server-url`, which connects to an existing host. `status` reads the
-canonical Mastra run record. `cancel` sends the idempotent Mastra cancellation
-request.
 
 ## Community Studio
 
@@ -168,22 +195,18 @@ origins, including the Studio UI at `http://localhost:3000`.
 It also responds successfully at its root URL so Community Studio can detect
 the local Mastra instance automatically.
 
-## Dry run
+## Plan without execution
 
-Print the calculated, execution-safe Plan without connecting to the runtime or
-running any tasks:
+Print the calculated Plan without connecting to the runtime or running tasks:
 
 ```sh
-seqlane run ./examples/minimal-workflow.ts \
-  --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096 \
-  --dry
+seqlane plan ./examples/minimal-workflow.ts \
+  --input '{"topic":"Seqlane"}'
 ```
 
-The command writes the Plan as formatted JSON to stdout. `--runtime` is
-optional for dry runs and local-only workflows. When omitted, the CLI uses the
-local runtime profile; workflows with agent tasks must provide an OpenCode
-runtime URL.
+The command writes the Plan in human-readable form by default. Use
+`--output json` for machine-readable Plan output. The command does not need a
+runtime profile, even when the workflow contains agent tasks.
 
 Local-only workflows can execute without a runtime profile:
 
@@ -198,7 +221,7 @@ and actionable failures:
 ```sh
 seqlane run ./examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096 \
+  --runtime opencode \
   --output ci
 ```
 
@@ -214,9 +237,9 @@ filesystem permission boundary. The workflow input does not grant file access;
 configure executor permissions before starting a non-interactive Run.
 
 ```sh
-seqlane run ./examples/code-review.ts \
-  --input '{"repository":"/path/to/repository","target":"last-commit"}' \
-  --runtime http://127.0.0.1:4096 \
+seqlane run ./examples/pr-code-review.ts \
+  --input '{"repository":"owner/repository","baseBranch":"main","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"number":123,"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
+  --runtime opencode \
   --workspace /path/to/repository
 ```
 
@@ -234,7 +257,7 @@ Recording is explicit and writes a new, local newline-delimited JSON file:
 ```sh
 seqlane run ./examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096 \
+  --runtime opencode \
   --record ./seqlane-recording.jsonl
 ```
 
@@ -259,18 +282,18 @@ Build the workspace before you run the repository CLI entrypoint:
 pnpm build
 ```
 
-Then run the Community Studio from the repository root:
+Then run Community Studio:
 
 ```sh
 pnpm exec node apps/cli/bin/run.js studio --port 57694
 ```
 
-Run a local workflow with the same entrypoint:
+Run a local workflow:
 
 ```sh
 pnpm exec node apps/cli/bin/run.js run examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096
+  --runtime opencode
 ```
 
 Run the CLI boundary tests after a build:

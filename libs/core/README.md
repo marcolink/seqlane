@@ -139,15 +139,18 @@ Seqlane materializes declared branches before the parent session can advance.
 Branching needs an executor-native checkpoint fork; Seqlane rejects an adapter
 that cannot provide one rather than summarizing context or starting empty.
 
-Use `reuse()` when a code review needs the implementation session context. The
-review task waits for the implementation task and continues its exact session.
+Use `reuse()` when a code review needs the implementation session context. Bind
+the review input to the implementation output and continue its exact session:
 
 ```ts
-const implementation = run(implement, { input });
-const review = run(codeReview, {
-  input: { changes: implementation.output },
-  session: reuse(implementation.session),
-});
+.task("implementation", implementationTask, ({ input }) => input, {
+  session: isolated(),
+})
+.task("review", codeReviewTask, ({ tasks }) => ({
+  changes: tasks.implementation.output,
+}), {
+  session: ({ tasks }) => reuse(tasks.implementation.session),
+})
 ```
 
 Task invocations may declare `workspace: "shared" | "exclusive"`; omission
@@ -167,7 +170,8 @@ with `.task(name, definition, binding)`, select the final value with
 references and explicit `dependsOn` entries, not call order, create
 dependencies. Flow `dependsOn` entries name prior task handles. `.repeat()`
 creates a bounded post-condition repeat and retains only typed handles during
-authoring.
+authoring. The current Mastra runtime compiler rejects repeat nodes; use this
+feature only with a runtime that supports repeat lowering.
 
 Workflows are runnables. Pass a child workflow to `.task()` to create a typed
 nested workflow invocation. Its input and output schemas stay distinct from

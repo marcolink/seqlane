@@ -8,9 +8,9 @@ catalog.
 Run a file directly from the repository root:
 
 ```sh
-pnpm exec node apps/cli/bin/run.js run examples/minimal-workflow.ts \
+seqlane run examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096
+  --runtime opencode
 ```
 
 Direct file references load the module's default export. Use
@@ -25,16 +25,16 @@ session.
 passes its typed result to an agent task:
 
 ```sh
-pnpm exec node apps/cli/bin/run.js run examples/local-git-status.ts \
+seqlane run examples/local-git-status.ts \
   --input '{}' \
-  --runtime http://127.0.0.1:4096 \
+  --runtime opencode \
   --workspace "$PWD"
 ```
 
 `local-only.ts` contains no agent work and runs without a runtime profile:
 
 ```sh
-pnpm exec node apps/cli/bin/run.js run examples/local-only.ts \
+seqlane run examples/local-only.ts \
   --input '{"value":"local"}'
 ```
 
@@ -46,11 +46,13 @@ Examples may import `@seqlane/core` and `zod`. When copying an
 example to another project, install those dependencies there.
 
 To inspect OpenCode server logs during a local run, start the server in one
-terminal with `--print-logs`, then run the workflow command in another. The
-repository OpenCode configuration selects `openai/gpt-5.6-luna`.
+terminal with `--print-logs`, then configure the Seqlane adapter and run the
+workflow command in another. The repository OpenCode configuration selects
+`openai/gpt-5.6-luna`.
 
 ```sh
 opencode serve --hostname 127.0.0.1 --port 4096 --print-logs
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
 ```
 
 `pr-code-review.ts` is an autonomous pull-request code-review workflow. It
@@ -73,9 +75,9 @@ they may overlap. This is not a read-only workspace boundary; configure the
 runtime accordingly.
 
 ```sh
-pnpm exec node apps/cli/bin/run.js run examples/pr-code-review.ts \
+seqlane run examples/pr-code-review.ts \
   --input '{"repository":"/path/to/repository","baseBranch":"release/2026.09","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"number":123,"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
-  --runtime http://127.0.0.1:4096 \
+  --runtime opencode \
   --workspace /path/to/repository
 ```
 
@@ -282,7 +284,7 @@ fast. It currently omits repeat nodes because the Mastra Plan compiler does
 not support them.
 
 ```sh
-pnpm exec node apps/cli/bin/run.js run examples/all-features.ts \
+seqlane run examples/all-features.ts \
   --input '{"topic":"Seqlane","focus":"typed workflows"}' \
-  --runtime http://127.0.0.1:4096
+  --runtime opencode
 ```
