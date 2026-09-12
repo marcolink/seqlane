@@ -13,28 +13,28 @@ Workflows can combine:
 Seqlane checks task inputs and outputs at runtime. The workflow graph also
 declares task dependencies, session use, and workspace coordination.
 
-> Seqlane is in active development. The current repository is not a published
-> package. Use the checkout instructions below to run it.
+> Seqlane is in active development. Breaking changes can occur while its
+> contracts and package boundaries evolve.
 
-## Install the CLI from this repository
+## Install Seqlane
 
 Use Node.js 24 or later and pnpm 10.33 or later.
 
-```sh
-git clone https://github.com/marcolink/seqlane.git
-cd seqlane
-pnpm install --frozen-lockfile
-pnpm build
-```
-
-Run the CLI from the repository root with this command:
+Install the CLI globally:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js --help
+pnpm add --global seqlane
 ```
 
-The examples below use the same command prefix. A future published CLI can
-replace the prefix with `seqlane`.
+For a project-local installation, add the CLI and workflow dependencies:
+
+```sh
+pnpm add --save-dev seqlane
+pnpm add @seqlane/core zod
+```
+
+Run a project-local CLI with `pnpm exec seqlane`. Run a global installation
+with `seqlane`.
 
 ## Write a workflow
 
@@ -108,7 +108,7 @@ Compile a workflow without starting a runtime, calling a model, or running a
 task:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js plan ./workflow.ts \
+seqlane plan ./workflow.ts \
   --input '{"topic":"Seqlane"}'
 ```
 
@@ -119,14 +119,15 @@ Use `--output json` when another tool needs the Plan result.
 The included local-only example does not need an agent runtime:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run ./examples/local-only.ts \
+seqlane run ./examples/local-only.ts \
   --input '{"value":"local"}'
 ```
 
 ### Run an agent workflow
 
-Agent tasks need a configured runtime adapter. The following example uses an
-OpenCode server.
+`run` defaults to the `local` runtime profile. Local-only workflows do not need
+adapter configuration. Agent tasks need a configured runtime adapter and an
+agent runtime profile. The following example uses OpenCode.
 
 Start OpenCode in one terminal:
 
@@ -143,7 +144,7 @@ export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0
 Run the workflow in that terminal:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run ./workflow.ts \
+seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
   --runtime opencode
 ```
@@ -173,8 +174,8 @@ The main commands are:
 Run `--help` on any command for all flags:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run --help
-pnpm exec node apps/seqlane-cli/bin/run.js serve --help
+seqlane run --help
+seqlane serve --help
 ```
 
 `run` owns a loopback operational server for the duration of a run. Use
@@ -189,16 +190,17 @@ workflow descriptors in `~/.config/seqlane/workflows/*.json`.
 ```json
 {
   "name": "review",
-  "moduleSpecifier": "./review.ts",
+  "moduleSpecifier": "../../review.ts",
   "exportName": "default",
   "description": "Review a change"
 }
 ```
 
-The module path is relative to the descriptor file. List discovered workflows:
+The module path is relative to the descriptor file. This example assumes that
+`review.ts` is in the project root. List discovered workflows:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js list
+seqlane list
 ```
 
 Use `repository:review` or `user:review` when both scopes contain the same
@@ -209,7 +211,8 @@ name. An unqualified name works only when it is unique.
 Start a local operational server in one terminal:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js serve
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
+seqlane serve
 ```
 
 The default server is `http://127.0.0.1:4111`. It stores Mastra run data in
@@ -219,19 +222,19 @@ MCP endpoint.
 In another terminal, run a registered workflow and inspect its run:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js run repository:review \
+seqlane run repository:review \
   --input '{"topic":"Seqlane"}' \
   --runtime opencode \
   --server-url http://127.0.0.1:4111
 
-pnpm exec node apps/seqlane-cli/bin/run.js status <run-id> \
+seqlane status <run-id> \
   --server-url http://127.0.0.1:4111
 ```
 
 Start Community Studio against the same server:
 
 ```sh
-pnpm exec node apps/seqlane-cli/bin/run.js studio \
+seqlane studio \
   --server-url http://127.0.0.1:4111
 ```
 

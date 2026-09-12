@@ -9,7 +9,7 @@ file contains one descriptor:
 ```json
 {
   "name": "review",
-  "moduleSpecifier": "./review.ts",
+  "moduleSpecifier": "../../review.ts",
   "exportName": "default",
   "description": "Review a change"
 }
@@ -33,7 +33,7 @@ process, executor, or model:
 ```sh
 seqlane plan repository:review --input '{"topic":"Seqlane"}'
 seqlane plan ./examples/minimal-workflow.ts --output json
-seqlane run repository:review --input '{"topic":"Seqlane"}'
+seqlane run repository:review --input '{"topic":"Seqlane"}' --runtime opencode
 ```
 
 Repository and user workflow modules are trusted local authoring code. The plan
@@ -49,6 +49,14 @@ Direct file and module references remain supported by `seqlane run` and
 Start the foreground Mastra operational host for all discovered workflows:
 
 ```sh
+seqlane serve
+```
+
+The host can start without adapter configuration for local-only workflows. For
+agent workflows, set the adapter configuration before you start the host:
+
+```sh
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
 seqlane serve
 ```
 
@@ -101,8 +109,10 @@ the recording is terminal-only as well.
 
 ### Runtime adapter configuration
 
-Agent runs use the private `SEQLANE_RUNTIME_ADAPTER_CONFIG` environment
-variable. Set this variable before you start `seqlane run` or `seqlane serve`:
+`seqlane run` uses the `local` runtime profile by default. Local-only workflows
+do not need adapter configuration. Agent runs use the private
+`SEQLANE_RUNTIME_ADAPTER_CONFIG` environment variable. Set this variable before
+you start `seqlane run` or `seqlane serve`:
 
 ```sh
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
@@ -168,22 +178,18 @@ origins, including the Studio UI at `http://localhost:3000`.
 It also responds successfully at its root URL so Community Studio can detect
 the local Mastra instance automatically.
 
-## Dry run
+## Plan without execution
 
-Print the calculated, execution-safe Plan without connecting to the runtime or
-running any tasks:
+Print the calculated Plan without connecting to the runtime or running tasks:
 
 ```sh
-seqlane run ./examples/minimal-workflow.ts \
-  --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096 \
-  --dry
+seqlane plan ./examples/minimal-workflow.ts \
+  --input '{"topic":"Seqlane"}'
 ```
 
-The command writes the Plan as formatted JSON to stdout. `--runtime` is
-optional for dry runs and local-only workflows. When omitted, the CLI uses the
-local runtime profile; workflows with agent tasks must provide an OpenCode
-runtime URL.
+The command writes the Plan in human-readable form by default. Use
+`--output json` for machine-readable Plan output. The command does not need a
+runtime profile, even when the workflow contains agent tasks.
 
 Local-only workflows can execute without a runtime profile:
 
@@ -198,7 +204,7 @@ and actionable failures:
 ```sh
 seqlane run ./examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096 \
+  --runtime opencode \
   --output ci
 ```
 
@@ -216,7 +222,7 @@ configure executor permissions before starting a non-interactive Run.
 ```sh
 seqlane run ./examples/code-review.ts \
   --input '{"repository":"/path/to/repository","target":"last-commit"}' \
-  --runtime http://127.0.0.1:4096 \
+  --runtime opencode \
   --workspace /path/to/repository
 ```
 
@@ -234,7 +240,7 @@ Recording is explicit and writes a new, local newline-delimited JSON file:
 ```sh
 seqlane run ./examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096 \
+  --runtime opencode \
   --record ./seqlane-recording.jsonl
 ```
 
@@ -259,22 +265,22 @@ Build the workspace before you run the repository CLI entrypoint:
 pnpm build
 ```
 
-Then run the Community Studio from the repository root:
+Then run Community Studio:
 
 ```sh
-pnpm exec node apps/cli/bin/run.js studio --port 57694
+seqlane studio --port 57694
 ```
 
-Run a local workflow with the same entrypoint:
+Run a local workflow:
 
 ```sh
-pnpm exec node apps/cli/bin/run.js run examples/minimal-workflow.ts \
+seqlane run examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096
+  --runtime opencode
 ```
 
 Run the CLI boundary tests after a build:
 
 ```sh
-pnpm exec nx test:e2e cli
+pnpm exec nx test:e2e seqlane-cli
 ```
