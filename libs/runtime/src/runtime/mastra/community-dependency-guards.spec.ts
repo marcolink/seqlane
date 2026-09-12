@@ -101,10 +101,7 @@ describe("Community Mastra dependency boundary", () => {
     );
     const runtimeManifest = readFileSync(
       fileURLToPath(
-        new URL(
-          "../../../../../libs/runtime/package.json",
-          import.meta.url,
-        ),
+        new URL("../../../../../libs/runtime/package.json", import.meta.url),
       ),
       "utf8",
     );

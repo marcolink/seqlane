@@ -4,7 +4,10 @@ import type {
   AgentAdapterCapabilities,
   AgentAdapterRequest,
 } from "@seqlane/agent-adapter";
-import { acpLaunchConfigurationSchema, createAcpAdapter } from "@seqlane/acp-adapter";
+import {
+  acpLaunchConfigurationSchema,
+  createAcpAdapter,
+} from "@seqlane/acp-adapter";
 import {
   createOpenCodeAdapter,
   createOpenCodeModelCapabilities,

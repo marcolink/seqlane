@@ -6,7 +6,10 @@ import {
   MastraStorageExporter,
 } from "@mastra/observability";
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
-import { createAcpAdapter, parseAcpLaunchConfiguration } from "@seqlane/acp-adapter";
+import {
+  createAcpAdapter,
+  parseAcpLaunchConfiguration,
+} from "@seqlane/acp-adapter";
 import { createOpenCodeAdapterForRun } from "@seqlane/opencode-adapter/testing";
 import type { AgentTaskRequest, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";

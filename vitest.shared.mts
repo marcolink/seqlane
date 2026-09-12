@@ -6,10 +6,7 @@ const workspaceRoot = fileURLToPath(new URL(".", import.meta.url));
 export const workspaceAliases = [
   {
     find: "@seqlane/agent-adapter",
-    replacement: resolve(
-      workspaceRoot,
-      "libs/adapter/src/index.ts",
-    ),
+    replacement: resolve(workspaceRoot, "libs/adapter/src/index.ts"),
   },
   {
     find: "@seqlane/acp-adapter",
@@ -17,10 +14,7 @@ export const workspaceAliases = [
   },
   {
     find: "@seqlane/core/models",
-    replacement: resolve(
-      workspaceRoot,
-      "libs/core/src/models/index.ts",
-    ),
+    replacement: resolve(workspaceRoot, "libs/core/src/models/index.ts"),
   },
   {
     find: "@seqlane/core",
@@ -32,10 +26,7 @@ export const workspaceAliases = [
   },
   {
     find: "@seqlane/fixtures/mixed-workflow",
-    replacement: resolve(
-      workspaceRoot,
-      "libs/fixtures/src/mixed-workflow.ts",
-    ),
+    replacement: resolve(workspaceRoot, "libs/fixtures/src/mixed-workflow.ts"),
   },
   {
     find: "@seqlane/fixtures/renovate-fake-workflow",
@@ -86,17 +77,11 @@ export const workspaceAliases = [
   },
   {
     find: "@seqlane/runtime/runner-package",
-    replacement: resolve(
-      workspaceRoot,
-      "libs/runtime/src/runner-package.ts",
-    ),
+    replacement: resolve(workspaceRoot, "libs/runtime/src/runner-package.ts"),
   },
   {
     find: "@seqlane/runtime/runner",
-    replacement: resolve(
-      workspaceRoot,
-      "libs/runtime/src/runner/main.ts",
-    ),
+    replacement: resolve(workspaceRoot, "libs/runtime/src/runner/main.ts"),
   },
   {
     find: "@seqlane/runtime/workflow",
@@ -107,10 +92,7 @@ export const workspaceAliases = [
   },
   {
     find: "@seqlane/runtime/operational-host",
-    replacement: resolve(
-      workspaceRoot,
-      "libs/runtime/src/operational-host.ts",
-    ),
+    replacement: resolve(workspaceRoot, "libs/runtime/src/operational-host.ts"),
   },
   {
     find: "@seqlane/runtime",
