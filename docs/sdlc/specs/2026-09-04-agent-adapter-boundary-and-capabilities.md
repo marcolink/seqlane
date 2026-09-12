@@ -1,11 +1,11 @@
 ---
 id: spec.agent-adapter-boundary-and-capabilities
-title: Generic ACP Adapter Boundary and Capability Model
+title: Agent Adapter Boundary and Capability Model
 status: active
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-12
 upstream:
   - adr.executor-neutral-workflow-authoring
   - adr.opencode-executor-integration
@@ -14,15 +14,17 @@ supersedes:
   - spec.opencode-executor-integration
 ---
 
-# Generic ACP Adapter Boundary and Capability Model
+# Agent Adapter Boundary and Capability Model
 
 ## Summary
 
-Seqlane supports agent runtimes through one private adapter contract. A generic
-ACP adapter and an OpenCode SDK adapter implement this contract separately.
+Seqlane supports agent runtimes through one private adapter contract. The
+current implementations are a generic ACP adapter and an OpenCode SDK adapter.
+The planned Codex app-server adapter uses the same contract.
 
 The ACP adapter contains no OpenCode types, commands, defaults, or session
 assumptions. The OpenCode adapter uses only the supported OpenCode SDK.
+The Codex adapter uses the app-server protocol and keeps Codex types private.
 
 This specification supersedes the interim ACP/OpenCode design from
 `task.mastra-agent-acp`. That completed task remains a historical delivery
@@ -84,6 +86,13 @@ It must not route work through ACP, a CLI subprocess, or a Mastra ACP agent.
 The adapter must use the selected OpenCode endpoint and workspace
 configuration. It must preserve the OpenCode repository harness and native
 session behavior.
+
+### requirement-codex-app-server-boundary
+
+The planned Codex adapter must implement this same private adapter contract.
+It must keep app-server messages, thread IDs, and turn IDs inside its package.
+Its protocol, lifecycle, and first-delivery scope are defined in
+[spec.codex-app-server-adapter](./2026-09-12-codex-app-server-adapter.md).
 
 ### requirement-explicit-adapter-selection
 
@@ -154,6 +163,8 @@ private agent adapter contract
       +--> generic ACP adapter --> ACP implementation
       |
       +--> OpenCode adapter ----> OpenCode SDK --> OpenCode server
+      |
+      +--> Codex adapter ------> Codex app-server
 ```
 
 The generic ACP implementation belongs in a private ACP package. The OpenCode
@@ -200,6 +211,9 @@ The OpenCode SDK adapter can declare native session reuse, terminal-message
 checkpoints, and exact session forks after compatibility preflight. It can also
 declare native model selection, activity, and session UI support.
 
+The planned Codex adapter can declare only capabilities proved against its
+pinned app-server version. Its first delivery does not declare session UI.
+
 This mapping is configuration-sensitive. A version or connection that lacks a
 required operation must fail preflight and must not downgrade silently.
 
@@ -211,6 +225,8 @@ Each identity selects one adapter-owned configuration schema.
 ACP configuration identifies the ACP implementation and its launch or
 connection parameters. OpenCode configuration identifies the endpoint,
 workspace, and supported SDK options.
+Codex configuration identifies its local executable; the runtime supplies the
+workspace. Codex does not use OpenCode or ACP configuration fields.
 
 The runtime validates configuration before it starts a process or contacts a
 server. It redacts environment values, credentials, and tokens from errors and
@@ -285,5 +301,6 @@ configuration inference.
 - [adr.opencode-executor-integration](../adrs/2026-09-02-opencode-executor-integration.md)
 - [adr.session-checkpoint-reuse-and-branching](../adrs/2026-09-02-session-checkpoint-reuse-and-branching.md)
 - [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md)
+- [spec.codex-app-server-adapter](./2026-09-12-codex-app-server-adapter.md)
 - Supersedes [spec.opencode-executor-integration](./2026-09-02-opencode-executor-integration.md).
 - Replaces the interim design from [task.mastra-agent-acp](../tasks/2026-09-03-mastra-agent-acp.md).
