@@ -63,7 +63,6 @@ process, executor, or model:
 ```sh
 seqlane plan repository:review --input '{"topic":"Seqlane"}'
 seqlane plan ./examples/minimal-workflow.ts --output json
-seqlane run repository:review --input '{"topic":"Seqlane"}' --runtime opencode
 ```
 
 Repository and user workflow modules are trusted local authoring code. The plan
@@ -146,6 +145,8 @@ you start `seqlane run` or `seqlane serve`:
 
 ```sh
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
+
+seqlane run repository:review --input '{"topic":"Seqlane"}' --runtime opencode
 ```
 
 The `--runtime` value is an opaque profile identifier. The CLI does not infer
