@@ -14,6 +14,7 @@ const objectSchema = z.record(z.string(), z.unknown());
 
 const responseSchema = z
   .object({
+    jsonrpc: z.literal("2.0"),
     id: requestIdSchema,
     result: z.unknown().optional(),
     error: z
@@ -28,6 +29,7 @@ const responseSchema = z
 
 const notificationSchema = z
   .object({
+    jsonrpc: z.literal("2.0"),
     method: z.string().min(1).max(256),
     params: z.unknown().optional(),
   })
@@ -35,6 +37,7 @@ const notificationSchema = z
 
 const serverRequestSchema = z
   .object({
+    jsonrpc: z.literal("2.0"),
     id: requestIdSchema,
     method: z.string().min(1).max(256),
     params: z.unknown().optional(),
@@ -55,6 +58,15 @@ const turnSchema = z
   .passthrough();
 
 const threadSchema = z.object({ id: z.string().min(1).max(256) }).passthrough();
+
+const initializeResultSchema = z
+  .object({
+    userAgent: z.string().min(1),
+    codexHome: z.string().min(1),
+    platformFamily: z.string().min(1),
+    platformOs: z.string().min(1),
+  })
+  .passthrough();
 
 export const codexLaunchConfigurationSchema = z
   .object({
@@ -83,6 +95,13 @@ export function parseCodexLaunchConfiguration(
 
 export interface CodexThread {
   readonly id: string;
+}
+
+export interface CodexInitializeResult {
+  readonly userAgent: string;
+  readonly codexHome: string;
+  readonly platformFamily: string;
+  readonly platformOs: string;
 }
 
 export interface CodexTurn {
@@ -375,4 +394,16 @@ export function parseModelListResult(value: unknown): readonly {
     ),
     isDefault: model.isDefault,
   }));
+}
+
+export function parseInitializeResult(value: unknown): CodexInitializeResult {
+  const parsed = initializeResultSchema.safeParse(value);
+  if (!parsed.success)
+    throw new CodexProtocolError("initialize response was malformed");
+  return {
+    userAgent: parsed.data.userAgent,
+    codexHome: parsed.data.codexHome,
+    platformFamily: parsed.data.platformFamily,
+    platformOs: parsed.data.platformOs,
+  };
 }

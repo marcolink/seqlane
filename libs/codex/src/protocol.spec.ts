@@ -3,19 +3,23 @@ import { describe, expect, it } from "vitest";
 import { CodexProtocolError } from "./errors.js";
 import {
   parseCodexMessage,
+  parseInitializeResult,
   parseModelListResult,
   parseThreadResult,
 } from "./protocol.js";
 
 describe("Codex app-server protocol", () => {
   it("parses responses, notifications, and server requests", () => {
-    expect(parseCodexMessage({ id: 1, result: { ok: true } })).toEqual({
+    expect(
+      parseCodexMessage({ jsonrpc: "2.0", id: 1, result: { ok: true } }),
+    ).toEqual({
       kind: "response",
       id: 1,
       result: { ok: true },
     });
     expect(
       parseCodexMessage({
+        jsonrpc: "2.0",
         method: "turn/completed",
         params: {
           threadId: "thread-1",
@@ -28,6 +32,7 @@ describe("Codex app-server protocol", () => {
     });
     expect(
       parseCodexMessage({
+        jsonrpc: "2.0",
         id: 2,
         method: "item/commandExecution/requestApproval",
         params: { threadId: "thread-1", turnId: "turn-1" },
@@ -36,10 +41,43 @@ describe("Codex app-server protocol", () => {
   });
 
   it("rejects malformed required payloads", () => {
-    expect(() => parseCodexMessage({ id: 1 })).toThrow(CodexProtocolError);
+    expect(() => parseCodexMessage({ id: 1, result: { ok: true } })).toThrow(
+      CodexProtocolError,
+    );
+    expect(() =>
+      parseCodexMessage({ jsonrpc: "1.0", id: 1, result: { ok: true } }),
+    ).toThrow(CodexProtocolError);
+    expect(() => parseCodexMessage({ method: "notice", params: {} })).toThrow(
+      CodexProtocolError,
+    );
+    expect(() =>
+      parseCodexMessage({ jsonrpc: "2.0", id: 1, method: "" }),
+    ).toThrow(CodexProtocolError);
     expect(() => parseThreadResult({ thread: { id: "" } })).toThrow(
       CodexProtocolError,
     );
+  });
+
+  it("validates the typed initialize result", () => {
+    expect(
+      parseInitializeResult({
+        userAgent: "codex-cli/0.147.0",
+        codexHome: "/tmp/codex",
+        platformFamily: "unix",
+        platformOs: "macos",
+      }),
+    ).toEqual({
+      userAgent: "codex-cli/0.147.0",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "macos",
+    });
+    expect(() =>
+      parseInitializeResult({
+        userAgent: "codex-cli/0.147.0",
+        codexHome: "/tmp/codex",
+      }),
+    ).toThrow(CodexProtocolError);
   });
 
   it("normalizes the model catalog used by preflight", () => {

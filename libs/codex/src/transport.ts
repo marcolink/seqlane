@@ -7,6 +7,7 @@ import {
   type CodexLaunchConfiguration,
   type CodexRequestId,
   parseCodexMessage,
+  parseInitializeResult,
 } from "./protocol.js";
 import { readCodexVersion, versionDiagnostic } from "./version.js";
 
@@ -90,7 +91,7 @@ export async function createCodexTransportForProcess(
   child: ChildProcessWithoutNullStreams,
 ): Promise<CodexTransport> {
   let nextId = 1;
-  let closed = false;
+  let state: "open" | "closing" | "closed" = "open";
   let buffer = "";
   const pending = new Map<CodexRequestId, PendingRequest>();
   const ignoredResponses = new Set<CodexRequestId>();
@@ -100,9 +101,7 @@ export async function createCodexTransportForProcess(
     resolveTermination = resolve;
   });
 
-  const fail = (cause: unknown): void => {
-    if (closed) return;
-    closed = true;
+  const rejectPending = (cause: unknown): void => {
     const error = toError(cause);
     for (const [id, request] of pending) {
       if (request.onAbort !== undefined && request.signal !== undefined) {
@@ -111,13 +110,22 @@ export async function createCodexTransportForProcess(
       pending.delete(id);
       request.reject(error);
     }
+  };
+
+  const requestChildTermination = (): void => {
     try {
       child.stdin.destroy();
-      child.stdout.destroy();
+      if (!child.killed) child.kill();
     } catch {
       // Best-effort process cleanup.
     }
-    resolveTermination();
+  };
+
+  const fail = (cause: unknown): void => {
+    if (state !== "open") return;
+    state = "closing";
+    rejectPending(cause);
+    requestChildTermination();
   };
 
   const consumeLine = (line: string): void => {
@@ -176,7 +184,7 @@ export async function createCodexTransportForProcess(
   };
 
   child.stdout.on("data", (chunk: Buffer | string) => {
-    if (closed) return;
+    if (state !== "open") return;
     buffer += chunk.toString();
     if (Buffer.byteLength(buffer) > MAX_JSONL_BUFFER_BYTES) {
       fail(
@@ -192,7 +200,7 @@ export async function createCodexTransportForProcess(
       const line = buffer.slice(0, newline).replace(/\r$/, "");
       buffer = buffer.slice(newline + 1);
       consumeLine(line);
-      if (closed) break;
+      if (state !== "open") break;
     }
   });
   child.on("error", (cause) =>
@@ -205,21 +213,27 @@ export async function createCodexTransportForProcess(
     ),
   );
   child.on("close", (code, signal) => {
-    if (!closed) {
-      fail(
+    if (state === "open") {
+      rejectPending(
         new CodexAdapterError(
           "execution",
           `Codex app-server disconnected (${code ?? signal ?? "unknown"})`,
         ),
       );
     }
+    state = "closed";
+    listeners.clear();
     resolveTermination();
   });
+
+  // Stderr is intentionally ignored, but must be drained so diagnostics from
+  // the child cannot fill the pipe and stall stdout or process shutdown.
+  child.stderr.resume();
 
   const transport: CodexTransport = {
     termination,
     request(method, params, signal) {
-      if (closed)
+      if (state !== "open")
         return Promise.reject(
           new CodexAdapterError(
             "execution",
@@ -249,6 +263,7 @@ export async function createCodexTransportForProcess(
         } catch (cause) {
           pending.delete(id);
           reject(cause);
+          return;
         }
         signal?.addEventListener("abort", onAbort, { once: true });
       });
@@ -258,37 +273,38 @@ export async function createCodexTransportForProcess(
       return () => listeners.delete(listener);
     },
     async close() {
-      if (closed) return;
-      closed = true;
-      for (const [id, request] of pending) {
-        if (request.onAbort !== undefined && request.signal !== undefined) {
-          request.signal.removeEventListener("abort", request.onAbort);
-        }
-        pending.delete(id);
-        request.reject(
+      if (state === "closed") return termination;
+      if (state === "open") {
+        state = "closing";
+        rejectPending(
           new CodexAdapterError(
             "execution",
             "Codex app-server transport closed",
           ),
         );
       }
-      child.stdin.end();
-      if (!child.killed) child.kill();
-      resolveTermination();
-      listeners.clear();
+      try {
+        child.stdin.end();
+      } catch {
+        // Best-effort process cleanup.
+      }
+      requestChildTermination();
+      await termination;
     },
   };
 
   // The handshake is part of transport creation. Nothing else can use this
   // connection until the server has accepted the integration identity.
   try {
-    await transport.request("initialize", {
-      clientInfo: {
-        name: "seqlane",
-        title: "Seqlane Codex adapter",
-        version: "0.0.0",
-      },
-    });
+    parseInitializeResult(
+      await transport.request("initialize", {
+        clientInfo: {
+          name: "seqlane",
+          title: "Seqlane Codex adapter",
+          version: "0.0.0",
+        },
+      }),
+    );
     writeMessage(child, { jsonrpc: "2.0", method: "initialized", params: {} });
     return transport;
   } catch (cause) {

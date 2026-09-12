@@ -58,6 +58,14 @@ class FakeTransport implements CodexTransport {
   >();
   private turnNumber = 0;
   emitCompletion = true;
+  emitBeforeTurnResponse = false;
+  delayTurnStart = false;
+  private pendingTurnStart?: () => void;
+
+  resolveTurnStart(): void {
+    this.pendingTurnStart?.();
+    this.pendingTurnStart = undefined;
+  }
 
   async request(method: string, params: unknown): Promise<unknown> {
     this.requests.push({ method, params });
@@ -102,8 +110,24 @@ class FakeTransport implements CodexTransport {
         .find((value) => value.method === "turn/start")?.params as {
         readonly threadId: string;
       };
-      setTimeout(() => {
+      const emitTurnEvents = (): void => {
         if (!this.emitCompletion) return;
+        this.emit({
+          kind: "notification",
+          notification: {
+            method: "item/started",
+            params: {
+              threadId: threadId.threadId,
+              turnId,
+              item: {
+                id: `tool-${turnId}`,
+                type: "commandExecution",
+                input: { command: "true" },
+              },
+              startedAtMs: 1,
+            },
+          },
+        });
         this.emit({
           kind: "notification",
           notification: {
@@ -118,6 +142,18 @@ class FakeTransport implements CodexTransport {
                 output: "ok",
               },
               completedAtMs: 2,
+            },
+          },
+        });
+        this.emit({
+          kind: "notification",
+          notification: {
+            method: "item/agentMessage/delta",
+            params: {
+              threadId: threadId.threadId,
+              turnId,
+              itemId: `item-${turnId}`,
+              delta: '{"result":"done"}',
             },
           },
         });
@@ -175,8 +211,16 @@ class FakeTransport implements CodexTransport {
             },
           },
         });
-      }, 0);
-      return { turn: { id: turnId, status: "inProgress", items: [] } };
+      };
+      if (this.emitBeforeTurnResponse) emitTurnEvents();
+      else setTimeout(emitTurnEvents, 0);
+      const result = { turn: { id: turnId, status: "inProgress", items: [] } };
+      if (this.delayTurnStart) {
+        return new Promise((resolve) => {
+          this.pendingTurnStart = () => resolve(result);
+        });
+      }
+      return result;
     }
     throw new Error(`Unexpected method ${method}`);
   }
@@ -223,9 +267,24 @@ describe("Codex AgentAdapter", () => {
       ),
     ).resolves.toEqual({ result: "done" });
 
-    expect(activities).toMatchObject([
-      { activityId: "tool-turn-1", name: "commandExecution" },
-    ]);
+    expect(activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          activityId: "tool-turn-1",
+          name: "commandExecution",
+          state: "started",
+        }),
+        expect.objectContaining({
+          activityId: "tool-turn-1",
+          name: "commandExecution",
+          state: "succeeded",
+        }),
+        expect.objectContaining({
+          activityId: "item-turn-1",
+          state: "progress",
+        }),
+      ]),
+    );
     expect(metrics).toHaveLength(1);
     expect(
       transport.requests.find((value) => value.method === "thread/fork")
@@ -234,6 +293,37 @@ describe("Codex AgentAdapter", () => {
       threadId: "thread-1",
       lastTurnId: "turn-1",
     });
+  });
+
+  it("buffers turn events that arrive before the turn/start response", async () => {
+    const transport = new FakeTransport();
+    transport.emitBeforeTurnResponse = true;
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+
+    await expect(adapter.execute(request())).resolves.toEqual({
+      result: "done",
+    });
+  });
+
+  it("interrupts an accepted turn when turn/start is aborted", async () => {
+    const transport = new FakeTransport();
+    transport.delayTurnStart = true;
+    const controller = new AbortController();
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+    const execution = adapter.execute(request({ signal: controller.signal }));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    transport.resolveTurnStart();
+
+    await expect(execution).rejects.toBeDefined();
+    expect(
+      transport.requests.some((value) => value.method === "turn/interrupt"),
+    ).toBe(true);
   });
 
   it("rejects unsupported providers before task execution", async () => {
@@ -266,7 +356,7 @@ describe("Codex AgentAdapter", () => {
               request: {
                 id: 99,
                 method: "item/commandExecution/requestApproval",
-                params: {},
+                params: { threadId: "thread-1", turnId: "turn-1" },
               },
             }),
           0,

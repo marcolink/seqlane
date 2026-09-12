@@ -16,13 +16,19 @@ import {
   parseTurnStartResult,
   type CodexInboundMessage,
   type CodexLaunchConfiguration,
-  type CodexNotification,
   type CodexTokenUsage,
   type CodexTransport,
 } from "./index-internal.js";
 import { createCodexStdioTransport } from "./transport.js";
 
 const TURN_TIMEOUT_MS = 30_000;
+const TURN_START_CONFIRM_TIMEOUT_MS = 5_000;
+const TURN_INTERRUPT_REQUEST_TIMEOUT_MS = 5_000;
+const MAX_TURN_ITEMS = 1_024;
+const MAX_TURN_ITEM_BYTES = 1_000_000;
+const MAX_TURN_ITEMS_BYTES = 8_000_000;
+const MAX_BUFFERED_TURN_EVENTS = 2_048;
+const MAX_BUFFERED_TURN_EVENT_BYTES = 8_000_000;
 
 export interface CodexAdapterOptions {
   readonly signal?: AbortSignal;
@@ -46,12 +52,173 @@ interface CompletedTurn {
   readonly turn: ReturnType<typeof parseTurnStartResult>;
   readonly items: readonly Record<string, unknown>[];
   readonly usage?: CodexTokenUsage;
+  readonly agentMessageText?: string;
 }
 
 interface TurnTracker {
   readonly completion: Promise<CompletedTurn>;
   readonly interaction: Promise<never>;
+  readonly failure: Promise<never>;
   dispose(): void;
+}
+
+type SessionEvent = Exclude<CodexInboundMessage, { kind: "response" }>;
+type SessionEventListener = (message: SessionEvent) => void;
+
+interface TurnStartRegistration {
+  bind(turnId: string, listener: SessionEventListener): TurnEventSubscription;
+  cancel(): void;
+}
+
+interface TurnEventSubscription {
+  dispose(): void;
+}
+
+interface EventCorrelation {
+  readonly threadId?: string;
+  readonly turnId?: string;
+}
+
+function recordCorrelation(value: unknown): EventCorrelation {
+  if (typeof value !== "object" || value === null) return {};
+  const record = value as Record<string, unknown>;
+  return {
+    ...(typeof record.threadId === "string"
+      ? { threadId: record.threadId }
+      : {}),
+    ...(typeof record.turnId === "string" ? { turnId: record.turnId } : {}),
+  };
+}
+
+function eventCorrelation(message: SessionEvent): EventCorrelation {
+  if (message.kind === "server-request") {
+    return recordCorrelation(message.request.params);
+  }
+  const params =
+    typeof message.notification.params === "object" &&
+    message.notification.params !== null
+      ? (message.notification.params as Record<string, unknown>)
+      : undefined;
+  if (params === undefined) return {};
+  if (
+    message.notification.method === "turn/started" ||
+    message.notification.method === "turn/completed"
+  ) {
+    const turn =
+      typeof params.turn === "object" && params.turn !== null
+        ? (params.turn as Record<string, unknown>)
+        : undefined;
+    return {
+      ...(typeof params.threadId === "string"
+        ? { threadId: params.threadId }
+        : {}),
+      ...(typeof turn?.id === "string" ? { turnId: turn.id } : {}),
+    };
+  }
+  return recordCorrelation(params);
+}
+
+function turnKey(threadId: string, turnId: string): string {
+  return `${threadId}\u0000${turnId}`;
+}
+
+class CodexSessionEventDispatcher {
+  private readonly starts = new Set<{
+    readonly threadId: string;
+    readonly events: SessionEvent[];
+    eventBytes: number;
+  }>();
+  private readonly active = new Map<string, SessionEventListener>();
+
+  constructor(transport: CodexTransport) {
+    transport.subscribe((message) => {
+      if (message.kind !== "response") this.dispatch(message);
+    });
+  }
+
+  begin(threadId: string): TurnStartRegistration {
+    const state = { threadId, events: [], eventBytes: 0 };
+    this.starts.add(state);
+    return {
+      bind: (turnId, listener) => {
+        this.starts.delete(state);
+        const key = turnKey(threadId, turnId);
+        if (this.active.has(key)) {
+          throw new CodexAdapterError(
+            "protocol",
+            `Codex turn ${turnId} already has an event listener`,
+          );
+        }
+        this.active.set(key, listener);
+        try {
+          for (const event of state.events) {
+            const correlation = eventCorrelation(event);
+            if (
+              correlation.threadId === threadId &&
+              correlation.turnId === turnId
+            ) {
+              listener(event);
+            }
+          }
+        } catch (cause) {
+          this.active.delete(key);
+          throw cause;
+        }
+        return { dispose: () => this.active.delete(key) };
+      },
+      cancel: () => this.starts.delete(state),
+    };
+  }
+
+  private dispatch(message: SessionEvent): void {
+    const correlation = eventCorrelation(message);
+    if (
+      correlation.threadId !== undefined &&
+      correlation.turnId !== undefined
+    ) {
+      const listener = this.active.get(
+        turnKey(correlation.threadId, correlation.turnId),
+      );
+      if (listener !== undefined) {
+        listener(message);
+        return;
+      }
+    }
+    if (correlation.threadId === undefined) return;
+    for (const state of this.starts) {
+      if (state.threadId !== correlation.threadId) continue;
+      if (state.events.length >= MAX_BUFFERED_TURN_EVENTS) {
+        throw new CodexAdapterError(
+          "limit",
+          `Codex buffered turn events exceeded ${MAX_BUFFERED_TURN_EVENTS}`,
+        );
+      }
+      const bytes = Buffer.byteLength(JSON.stringify(message), "utf8");
+      if (state.eventBytes + bytes > MAX_BUFFERED_TURN_EVENT_BYTES) {
+        throw new CodexAdapterError(
+          "limit",
+          `Codex buffered turn events exceeded ${MAX_BUFFERED_TURN_EVENT_BYTES} bytes`,
+        );
+      }
+      state.eventBytes += bytes;
+      state.events.push(message);
+    }
+  }
+}
+
+const sessionDispatchers = new WeakMap<
+  CodexTransport,
+  CodexSessionEventDispatcher
+>();
+
+function sessionDispatcher(
+  transport: CodexTransport,
+): CodexSessionEventDispatcher {
+  const existing = sessionDispatchers.get(transport);
+  if (existing !== undefined) return existing;
+  const created = new CodexSessionEventDispatcher(transport);
+  sessionDispatchers.set(transport, created);
+  return created;
 }
 
 function reportDiagnostic(
@@ -150,49 +317,88 @@ function itemText(item: Record<string, unknown>): string | undefined {
     .join("");
 }
 
-function activityFromItem(
-  item: Record<string, unknown>,
-): AgentActivity | undefined {
-  const id = typeof item.id === "string" ? item.id : undefined;
-  const type = typeof item.type === "string" ? item.type : undefined;
-  if (id === undefined || type === undefined || type === "agentMessage") {
-    return undefined;
-  }
-  const status = item.status;
-  const state: AgentActivity["state"] =
-    status === "failed" || item.error !== undefined ? "failed" : "succeeded";
-  return {
-    activityId: id,
-    kind: "tool",
-    name: type,
-    state,
-    ...(item.input === undefined ? {} : { input: item.input }),
-    ...(item.output === undefined ? {} : { output: item.output }),
-    ...(typeof item.startedAtMs === "number"
-      ? { startedAt: item.startedAtMs }
-      : {}),
-    ...(typeof item.completedAtMs === "number"
-      ? { endedAt: item.completedAtMs }
-      : {}),
-  };
+interface ActivityRecord {
+  readonly activityId: string;
+  readonly name: string;
+  readonly input?: unknown;
+  readonly startedAt?: number;
 }
 
-type ItemCompletedParams = {
-  readonly threadId: string;
-  readonly turnId: string;
-  readonly item: Record<string, unknown>;
-};
+class CodexActivityReducer {
+  private readonly records = new Map<string, ActivityRecord>();
 
-type TokenUsageUpdatedParams = {
-  readonly threadId: string;
-  readonly turnId: string;
-  readonly tokenUsage: CodexTokenUsage;
-};
+  constructor(private readonly emit: (activity: AgentActivity) => void) {}
 
-type TurnCompletedParams = {
-  readonly threadId: string;
-  readonly turn: ReturnType<typeof parseTurnStartResult>;
-};
+  started(item: Record<string, unknown>, startedAt?: number): void {
+    const record = this.record(item, startedAt);
+    if (record === undefined) return;
+    this.records.set(record.activityId, record);
+    this.emit({ ...record, kind: "tool", state: "started" });
+  }
+
+  delta(itemId: string, delta: string): void {
+    const record =
+      this.records.get(itemId) ??
+      ({ activityId: itemId, name: "agentMessage" } satisfies ActivityRecord);
+    this.emit({
+      activityId: record.activityId,
+      kind: "tool",
+      name: record.name,
+      state: "progress",
+      message: delta,
+    });
+  }
+
+  completed(item: Record<string, unknown>, completedAt?: number): void {
+    const record = this.record(item);
+    if (record === undefined) return;
+    this.records.set(record.activityId, record);
+    const failed = item.status === "failed" || item.error !== undefined;
+    this.emit({
+      ...record,
+      kind: "tool",
+      state: failed ? "failed" : "succeeded",
+      ...(item.output === undefined ? {} : { output: item.output }),
+      ...(completedAt === undefined ? {} : { endedAt: completedAt }),
+      ...(failed ? { message: "Tool failed" } : {}),
+    });
+  }
+
+  private record(
+    item: Record<string, unknown>,
+    startedAt?: number,
+  ): ActivityRecord | undefined {
+    const activityId = typeof item.id === "string" ? item.id : undefined;
+    const name = typeof item.type === "string" ? item.type : undefined;
+    if (
+      activityId === undefined ||
+      name === undefined ||
+      name === "agentMessage"
+    ) {
+      return undefined;
+    }
+    return {
+      activityId,
+      name,
+      ...(item.input === undefined ? {} : { input: item.input }),
+      ...(startedAt === undefined ? {} : { startedAt }),
+    };
+  }
+}
+
+function boundedJsonBytes(value: unknown, description: string): number {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) throw new Error("value is not serializable");
+    return Buffer.byteLength(serialized, "utf8");
+  } catch (cause) {
+    throw new CodexAdapterError(
+      "limit",
+      `Codex ${description} could not be bounded`,
+      cause,
+    );
+  }
+}
 
 function metricsFromUsage(
   usage: CodexTokenUsage | undefined,
@@ -222,15 +428,19 @@ function metricsFromUsage(
 }
 
 function createTurnTracker(
-  transport: CodexTransport,
-  threadId: string,
+  registration: TurnStartRegistration,
   turnId: string,
+  onActivity: ((activity: AgentActivity) => void) | undefined,
 ): TurnTracker {
   const items: Record<string, unknown>[] = [];
+  let itemBytes = 0;
   let usage: CodexTokenUsage | undefined;
+  let agentMessageText = "";
+  let agentMessageTextBytes = 0;
   let resolveCompletion!: (value: CompletedTurn) => void;
   let rejectCompletion!: (cause: unknown) => void;
   let rejectInteraction!: (cause: unknown) => void;
+  let rejectFailure!: (cause: unknown) => void;
   let settled = false;
   const completion = new Promise<CompletedTurn>((resolve, reject) => {
     resolveCompletion = resolve;
@@ -239,58 +449,118 @@ function createTurnTracker(
   const interaction = new Promise<never>((_, reject) => {
     rejectInteraction = reject;
   });
-  const unsubscribe = transport.subscribe((message: CodexInboundMessage) => {
-    if (message.kind === "server-request") {
-      if (
-        message.request.method.includes("requestApproval") ||
-        message.request.method.includes("requestUserInput")
-      ) {
-        rejectInteraction(new InteractionRequiredError("user-input"));
-      }
-      return;
-    }
-    if (message.kind !== "notification") return;
-    const notification = message.notification as CodexNotification;
-    if (
-      notification.method === "item/completed" &&
-      (notification.params as ItemCompletedParams).threadId === threadId &&
-      (notification.params as ItemCompletedParams).turnId === turnId
-    ) {
-      items.push((notification.params as ItemCompletedParams).item);
-      return;
-    }
-    if (
-      notification.method === "thread/tokenUsage/updated" &&
-      (notification.params as TokenUsageUpdatedParams).threadId === threadId &&
-      (notification.params as TokenUsageUpdatedParams).turnId === turnId
-    ) {
-      usage = (notification.params as TokenUsageUpdatedParams).tokenUsage;
-      return;
-    }
-    if (isInteraction(notification.method)) {
-      rejectInteraction(new InteractionRequiredError("user-input"));
-      return;
-    }
-    if (
-      notification.method === "turn/completed" &&
-      (notification.params as TurnCompletedParams).threadId === threadId &&
-      (notification.params as TurnCompletedParams).turn.id === turnId &&
-      !settled
-    ) {
-      settled = true;
-      const completedTurn = (notification.params as TurnCompletedParams).turn;
-      resolveCompletion({
-        turn: completedTurn,
-        items: items.length > 0 ? items : completedTurn.items,
-        usage,
-      });
+  const failure = new Promise<never>((_, reject) => {
+    rejectFailure = reject;
+  });
+  const reducer = new CodexActivityReducer((activity) => {
+    try {
+      onActivity?.(activity);
+    } catch {
+      // Activity callbacks are observational and must not stop the turn.
     }
   });
+  const addItem = (item: Record<string, unknown>): void => {
+    if (items.length >= MAX_TURN_ITEMS) {
+      throw new CodexAdapterError(
+        "limit",
+        `Codex turn exceeded ${MAX_TURN_ITEMS} items`,
+      );
+    }
+    const bytes = boundedJsonBytes(item, "turn item");
+    if (
+      bytes > MAX_TURN_ITEM_BYTES ||
+      itemBytes + bytes > MAX_TURN_ITEMS_BYTES
+    ) {
+      throw new CodexAdapterError("limit", "Codex turn item limit exceeded");
+    }
+    itemBytes += bytes;
+    items.push(item);
+  };
+  const addMessageDelta = (delta: string): void => {
+    const bytes = Buffer.byteLength(delta, "utf8");
+    if (
+      bytes > MAX_TURN_ITEM_BYTES ||
+      agentMessageTextBytes + bytes > MAX_TURN_ITEMS_BYTES
+    ) {
+      throw new CodexAdapterError(
+        "limit",
+        "Codex agent message limit exceeded",
+      );
+    }
+    agentMessageTextBytes += bytes;
+    agentMessageText += delta;
+  };
+  const onMessage = (message: SessionEvent): void => {
+    if (settled) return;
+    try {
+      if (message.kind === "server-request") {
+        if (isInteraction(message.request.method)) {
+          rejectInteraction(new InteractionRequiredError("user-input"));
+        } else {
+          rejectFailure(
+            new CodexAdapterError(
+              "protocol",
+              `unsupported Codex server request "${message.request.method}"`,
+            ),
+          );
+        }
+        return;
+      }
+      const notification = message.notification;
+      const params = notification.params as Record<string, unknown>;
+      if (notification.method === "item/started") {
+        reducer.started(
+          params.item as Record<string, unknown>,
+          params.startedAtMs as number | undefined,
+        );
+        return;
+      }
+      if (notification.method === "item/completed") {
+        const item = params.item as Record<string, unknown>;
+        addItem(item);
+        reducer.completed(item, params.completedAtMs as number | undefined);
+        return;
+      }
+      if (notification.method === "item/agentMessage/delta") {
+        const delta = params.delta as string;
+        addMessageDelta(delta);
+        reducer.delta(params.itemId as string, delta);
+        return;
+      }
+      if (notification.method === "thread/tokenUsage/updated") {
+        usage = params.tokenUsage as CodexTokenUsage;
+        return;
+      }
+      if (isInteraction(notification.method)) {
+        rejectInteraction(new InteractionRequiredError("user-input"));
+        return;
+      }
+      if (notification.method === "turn/completed") {
+        settled = true;
+        const completedTurn = params.turn as ReturnType<
+          typeof parseTurnStartResult
+        >;
+        for (const item of completedTurn.items) {
+          if (!items.some((existing) => existing.id === item.id)) addItem(item);
+        }
+        resolveCompletion({
+          turn: completedTurn,
+          items,
+          usage,
+          ...(agentMessageText.length === 0 ? {} : { agentMessageText }),
+        });
+      }
+    } catch (cause) {
+      rejectFailure(cause);
+    }
+  };
+  const subscription = registration.bind(turnId, onMessage);
   return {
     completion,
     interaction,
+    failure,
     dispose() {
-      unsubscribe();
+      subscription.dispose();
       if (!settled) {
         settled = true;
         rejectCompletion(
@@ -327,12 +597,45 @@ async function withTimeout<T>(
   }
 }
 
+async function raceWithAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) {
+    throw (
+      signal.reason ??
+      new CodexAdapterError("cancellation", "Codex task was cancelled")
+    );
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener("abort", onAbort);
+      reject(
+        signal.reason ??
+          new CodexAdapterError("cancellation", "Codex task was cancelled"),
+      );
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (cause) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(cause);
+      },
+    );
+  });
+}
+
 function createAdapterForTransport(
   transport: CodexTransport,
   configuration: CodexLaunchConfiguration,
   options: CodexAdapterOptions,
   initialThreadId?: string,
 ): AgentAdapter {
+  const dispatcher = sessionDispatcher(transport);
   const binding = randomUUID();
   let threadId = initialThreadId;
   let lastTurnId: string | undefined;
@@ -433,10 +736,14 @@ function createAdapterForTransport(
     request: AgentAdapterRequest,
   ): Promise<void> => {
     try {
-      await transport.request("turn/interrupt", { threadId, turnId: id });
+      await withTimeout(
+        transport.request("turn/interrupt", { threadId, turnId: id }),
+        TURN_INTERRUPT_REQUEST_TIMEOUT_MS,
+      );
       await withTimeout(tracker.completion, TURN_TIMEOUT_MS);
     } catch (cause) {
       invalidated = true;
+      await transport.close().catch(() => undefined);
       request.onUncertainActivity?.({
         reason: "timeout",
         termination: transport.termination,
@@ -457,25 +764,59 @@ function createAdapterForTransport(
       const selection = await resolveSelection(requestedSelection, signal);
       const model = modelParams(selection);
       const id = await ensureThread(signal, selection);
-      const trackerPromise = transport.request(
-        "turn/start",
-        {
-          threadId: id,
-          input: [{ type: "text", text: buildPrompt(request) }],
-          cwd: configuration.workspace,
-          approvalPolicy: "never",
-          sandboxPolicy: {
-            type: "workspaceWrite",
-            writableRoots: [configuration.workspace],
-            networkAccess: configuration.networkAccess,
-          },
-          outputSchema: taskJsonSchema(request.task),
-          ...(model.model === undefined ? {} : model),
+      const registration = dispatcher.begin(id);
+      const turnStartPromise = transport.request("turn/start", {
+        threadId: id,
+        input: [{ type: "text", text: buildPrompt(request) }],
+        cwd: configuration.workspace,
+        approvalPolicy: "never",
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: [configuration.workspace],
+          networkAccess: configuration.networkAccess,
         },
-        signal,
-      );
-      const turn = parseTurnStartResult(await trackerPromise);
-      const tracker = createTurnTracker(transport, id, turn.id);
+        outputSchema: taskJsonSchema(request.task),
+        ...(model.model === undefined ? {} : model),
+      });
+      let turn: ReturnType<typeof parseTurnStartResult>;
+      let tracker!: TurnTracker;
+      try {
+        turn = parseTurnStartResult(
+          await raceWithAbort(turnStartPromise, signal),
+        );
+        tracker = createTurnTracker(registration, turn.id, request.onActivity);
+      } catch (cause) {
+        if (signal.aborted) {
+          try {
+            turn = parseTurnStartResult(
+              await withTimeout(
+                turnStartPromise,
+                TURN_START_CONFIRM_TIMEOUT_MS,
+              ),
+            );
+            tracker = createTurnTracker(
+              registration,
+              turn.id,
+              request.onActivity,
+            );
+            await interruptAndConfirm(turn.id, tracker, request);
+          } catch (confirmationCause) {
+            registration.cancel();
+            invalidated = true;
+            await transport.close().catch(() => undefined);
+            throw new CodexAdapterError(
+              "cancellation",
+              "Codex turn start could not be terminated safely",
+              confirmationCause,
+            );
+          } finally {
+            tracker?.dispose();
+          }
+        } else {
+          registration.cancel();
+        }
+        throw cause;
+      }
       if (!backgroundProcessReported) {
         backgroundProcessReported = true;
         request.onBackgroundProcess?.({
@@ -484,38 +825,29 @@ function createAdapterForTransport(
         });
       }
       try {
-        let removeAbortListener = (): void => undefined;
-        const abort = new Promise<never>((_, reject) => {
-          const onAbort = () => {
-            reject(
-              signal.reason ??
-                new CodexAdapterError(
-                  "cancellation",
-                  "Codex task was cancelled",
-                ),
-            );
-          };
-          if (signal.aborted) onAbort();
-          else {
-            signal.addEventListener("abort", onAbort, { once: true });
-            removeAbortListener = () =>
-              signal.removeEventListener("abort", onAbort);
-          }
-        });
         let completed: CompletedTurn;
         try {
-          completed = await Promise.race([
-            tracker.completion,
-            tracker.interaction,
-            abort,
-          ]);
+          completed = await raceWithAbort(
+            withTimeout(
+              Promise.race([
+                tracker.completion,
+                tracker.interaction,
+                tracker.failure,
+              ]),
+              TURN_TIMEOUT_MS,
+            ),
+            signal,
+          );
         } catch (cause) {
-          if (cause instanceof InteractionRequiredError || signal.aborted) {
+          const shouldInterrupt =
+            cause instanceof InteractionRequiredError ||
+            signal.aborted ||
+            (cause instanceof CodexAdapterError &&
+              ["cancellation", "limit", "protocol"].includes(cause.code));
+          if (shouldInterrupt) {
             await interruptAndConfirm(turn.id, tracker, request);
           }
           throw cause;
-        } finally {
-          removeAbortListener();
         }
         if (completed.turn.status !== "completed") {
           throw new CodexAdapterError(
@@ -524,14 +856,12 @@ function createAdapterForTransport(
           );
         }
         lastTurnId = completed.turn.id;
-        for (const item of completed.items) {
-          const activity = activityFromItem(item);
-          if (activity !== undefined) request.onActivity?.(activity);
-        }
-        const text = [...completed.items]
-          .reverse()
-          .map(itemText)
-          .find((value) => value !== undefined);
+        const text =
+          completed.agentMessageText ??
+          [...completed.items]
+            .reverse()
+            .map(itemText)
+            .find((value) => value !== undefined);
         if (text === undefined)
           throw new CodexStructuredOutputError(
             "Codex turn did not return an agent message",

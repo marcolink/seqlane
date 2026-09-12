@@ -79,8 +79,9 @@ Implement one private `AgentAdapter` that maps run-scoped Codex threads and turn
 ## Outcome
 
 The private `@seqlane/codex-adapter` package is implemented with bounded JSONL
-transport, Zod protocol validation, advisory Codex version checks, typed output,
-session reuse, checkpoints, exact forks, activity, cancellation, and
+transport, strict JSON-RPC and initialize validation, advisory Codex version
+checks, typed output, session reuse, checkpoints, exact forks, correlated turn
+events, activity lifecycle reduction, bounded turn payloads, cancellation, and
 non-interactive interaction failure. Runtime registration and live protocol
 confirmation remain follow-up work.
 
