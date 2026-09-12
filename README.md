@@ -1,84 +1,58 @@
 # Seqlane
 
-Seqlane runs typed TypeScript workflows. Define tasks with Seqlane contracts,
-then run the workflow with the CLI.
+Seqlane is a typed TypeScript workflow runtime for software-engineering work.
+Define tasks with Zod schemas, connect them in a static graph, and run the
+graph from the CLI.
 
-## Project status
+Workflows can combine:
 
-Seqlane is under active development. Breaking changes can occur while its
-contracts and package boundaries evolve.
+- agent tasks that use a configured runtime;
+- deterministic tasks that run in the Seqlane process; and
+- local process tasks that use direct executable arguments.
 
-## Repository layout
+Seqlane checks task inputs and outputs at runtime. The workflow graph also
+declares task dependencies, session use, and workspace coordination.
 
-The `actions/` workspace contains JavaScript GitHub Actions. Each action is an
-independent Nx project with its compiled entry point in its own `dist/` folder.
+> Seqlane is in active development. The current repository is not a published
+> package. Use the checkout instructions below to run it.
 
-## Documentation
+## Install the CLI from this repository
 
-See the [documentation index](docs/index.md). Product requirements,
-architecture decisions, technical specifications, and implementation tasks are
-in the [SDLC corpus](docs/sdlc/index.md).
-
-## Quickstart
-
-### Install
-
-Use Node.js 24 or later and pnpm 10.33 or later. Workflows with agent tasks
-require an available runtime. Local tasks execute in the Seqlane process and do
-not need a model session or model tokens.
+Use Node.js 24 or later and pnpm 10.33 or later.
 
 ```sh
-pnpm add @seqlane/core zod
-pnpm add --save-dev seqlane
-```
-
-## Repository development
-
-Install dependencies and enable the native hooks in each worktree:
-
-```sh
+git clone https://github.com/marcolink/seqlane.git
+cd seqlane
 pnpm install --frozen-lockfile
-pnpm hooks:install
+pnpm build
 ```
 
-`pnpm hooks:install` enables the versioned native Git hooks for the current
-worktree. The pre-commit hook runs staged formatting and lint checks and
-rejects files with additional unstaged edits. The
-pre-push hook requires a clean worktree and runs the affected repository checks
-against the merge-base with `origin/main`. Action builds are ordinary affected
-Nx builds; generated `actions/*/dist/` output remains ignored. Install
-dependencies separately in each worktree; do not share `node_modules` between
-worktrees. It validates one branch update at a time; tag-only or multi-ref
-pushes can use `--no-verify`.
-
-To run the pre-push checks without pushing:
+Run the CLI from the repository root with this command:
 
 ```sh
-pnpm verify:push
+pnpm exec node apps/seqlane-cli/bin/run.js --help
 ```
 
-Pull requests run one `CI / Quality gates` check. It validates workflows and
-documentation, then gives Nx one affected `lint,build,test` graph so shared
-dependencies run once. Configure that check as required in branch protection.
-Workflows build required local Actions from trusted source before invocation.
-The Ripwire smoke test runs only for relevant paths.
+The examples below use the same command prefix. A future published CLI can
+replace the prefix with `seqlane`.
 
-### Author a workflow
+## Write a workflow
 
-Create `workflow.ts`:
+Create `workflow.ts` in the repository root:
 
 ```ts
-import { createFlow, defineTask } from "@seqlane/core";
+import { createFlow, defineAgentTask } from "@seqlane/core";
 import { z } from "zod";
 
-const input = z.object({ topic: z.string() });
+const input = z.object({ topic: z.string().min(1) });
 const output = z.object({ answer: z.string() });
 
-const writeAnswer = defineTask({
-  id: "write-answer",
+const answerTask = defineAgentTask({
+  id: "answer-topic",
   input,
   output,
   goal: ({ topic }) => `Write a concise answer about ${topic}.`,
+  instructions: ["Return only the answer."],
 });
 
 export default createFlow({
@@ -86,74 +60,217 @@ export default createFlow({
   input,
   output,
 })
-  .task("answer", writeAnswer, ({ input }) => input)
+  .task("answer", answerTask, ({ input }) => input)
   .output(({ tasks }) => tasks.answer.output)
   .define();
 ```
 
-### Run it
+The workflow export must be the default export when you pass a file without an
+export name. Use `workflow.ts#namedExport` for a named export. The CLI accepts
+`.ts`, `.mts`, `.js`, and `.mjs` workflow files.
 
-```sh
-pnpm exec seqlane run ./workflow.ts \
-  --input '{"topic":"Seqlane"}' \
-  --runtime http://127.0.0.1:4096
+### Add local work
+
+Use `defineTask` for deterministic code. It does not call a model.
+
+```ts
+import { createFlow, defineTask } from "@seqlane/core";
+import { z } from "zod";
+
+const input = z.object({ value: z.string() });
+const output = z.object({ value: z.string() });
+
+const localTask = defineTask({
+  id: "copy-value",
+  input,
+  output,
+  execute: async ({ input }) => input,
+});
+
+export default createFlow({ id: "local", input, output })
+  .task("copy", localTask, ({ input }) => input)
+  .output(({ tasks }) => tasks.copy.output)
+  .define();
 ```
 
-Agent runs use the private `SEQLANE_RUNTIME_ADAPTER_CONFIG` environment
-variable. Set one validated adapter configuration before you run the CLI:
+Use `defineShellTask` when a task needs a local process. Seqlane passes the
+executable and argument list directly. It does not invoke a shell.
+
+See the [workflow examples](examples/README.md) and the
+[`@seqlane/core` guide](libs/seqlane-core/README.md) for sessions, branches,
+validators, references, and workspace policies.
+
+## Run a workflow
+
+### Inspect the Plan
+
+Compile a workflow without starting a runtime, calling a model, or running a
+task:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js plan ./workflow.ts \
+  --input '{"topic":"Seqlane"}'
+```
+
+Use `--output json` when another tool needs the Plan result.
+
+### Run a local-only workflow
+
+The included local-only example does not need an agent runtime:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js run ./examples/local-only.ts \
+  --input '{"value":"local"}'
+```
+
+### Run an agent workflow
+
+Agent tasks need a configured runtime adapter. The following example uses an
+OpenCode server.
+
+Start OpenCode in one terminal:
+
+```sh
+opencode serve --hostname 127.0.0.1 --port 4096
+```
+
+Set the adapter configuration in the terminal that runs Seqlane:
 
 ```sh
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
 ```
 
-To export runtime telemetry to Mastra Platform, also set the platform access
-token, project ID, and observability endpoint:
+Run the workflow in that terminal:
 
 ```sh
-export MASTRA_PLATFORM_ACCESS_TOKEN='...'
-export MASTRA_PROJECT_ID='...'
-export MASTRA_PLATFORM_OBSERVABILITY_ENDPOINT='https://observability.mastra.ai'
+pnpm exec node apps/seqlane-cli/bin/run.js run ./workflow.ts \
+  --input '{"topic":"Seqlane"}' \
+  --runtime opencode
 ```
 
-The `--runtime` value remains an opaque profile identifier. The CLI does not
-infer the adapter from the value. An existing operational server must have its
-own adapter configuration.
+The `--runtime` value is an opaque profile ID. It is not a URL, and the CLI
+does not infer the adapter from it. The adapter configuration belongs to the
+Seqlane process or operational server.
 
-Use `--input-file <path>` instead of `--input` for JSON input up to 1 MiB.
-Specify exactly one input source.
+Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
+source per run, and input files have a 1 MiB limit.
 
-### Run a local task
+## Use the CLI
 
-Use `execute` instead of `goal` for deterministic work. The local task below
-runs one executable with direct argv in the canonical workflow workspace:
+The main commands are:
 
-```ts
-const gitStatus = defineTask({
-  id: "git-status",
-  input: z.object({}),
-  output: z.object({
-    exitCode: z.number(),
-    stdout: z.string(),
-    stderr: z.string(),
-  }),
-  workspace: "shared",
-  execute: async (_input, { exec }) =>
-    exec({ command: "git", args: ["status", "--porcelain=v1"] }),
-});
+| Command              | Use                                                |
+| -------------------- | -------------------------------------------------- |
+| `run <workflow>`     | Execute one workflow.                              |
+| `plan <workflow>`    | Compile a Plan without execution.                  |
+| `list`               | List repository and user workflow descriptors.     |
+| `serve`              | Start a persistent local operational server.       |
+| `studio`             | Start Community Studio with an operational server. |
+| `status <run-id>`    | Read a run from an operational server.             |
+| `cancel <run-id>`    | Cancel a run on an operational server.             |
+| `replay <recording>` | Replay a local execution recording.                |
+
+Run `--help` on any command for all flags:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js run --help
+pnpm exec node apps/seqlane-cli/bin/run.js serve --help
 ```
 
-Local tasks have no `session`, model selection, or token metrics. `exec` does
-not invoke a shell. V1 supports only awaited, foreground, non-interactive
-commands with bounded output. Local tasks do not provide Git helpers, Git
-mutation APIs, shell support, background processes, or command policy.
+`run` owns a loopback operational server for the duration of a run. Use
+`--server-url` to attach to an existing loopback server. Use `serve` when you
+need multiple runs, persistent run inspection, MCP access, or Studio access.
 
-The complete local-to-agent fixture is documented in
-[`@seqlane/fixtures/local-git-status`](libs/fixtures/README.md). The
-later agent task receives the parsed `{ exitCode, stdout, stderr }` value as
-typed input.
+### Discover reusable workflows
 
-### Select a model
+Put repository workflow descriptors in `.seqlane/workflows/*.json`. Put user
+workflow descriptors in `~/.config/seqlane/workflows/*.json`.
 
-Models belong to sessions. New or branched sessions may select a model and
-reasoning effort; reuse sessions inherit the source selection. Omit selection
-to use the OpenCode default. See [core model selection](libs/core/README.md#model-catalog).
+```json
+{
+  "name": "review",
+  "moduleSpecifier": "./review.ts",
+  "exportName": "default",
+  "description": "Review a change"
+}
+```
+
+The module path is relative to the descriptor file. List discovered workflows:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js list
+```
+
+Use `repository:review` or `user:review` when both scopes contain the same
+name. An unqualified name works only when it is unique.
+
+### Use persistent operations
+
+Start a local operational server in one terminal:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js serve
+```
+
+The default server is `http://127.0.0.1:4111`. It stores Mastra run data in
+`.seqlane/mastra.db` and exposes the registered workflows through the local
+MCP endpoint.
+
+In another terminal, run a registered workflow and inspect its run:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js run repository:review \
+  --input '{"topic":"Seqlane"}' \
+  --runtime opencode \
+  --server-url http://127.0.0.1:4111
+
+pnpm exec node apps/seqlane-cli/bin/run.js status <run-id> \
+  --server-url http://127.0.0.1:4111
+```
+
+Start Community Studio against the same server:
+
+```sh
+pnpm exec node apps/seqlane-cli/bin/run.js studio \
+  --server-url http://127.0.0.1:4111
+```
+
+The server and Studio accept loopback HTTP URLs only. See the
+[CLI guide](apps/seqlane-cli/README.md) for MCP, recording, output modes,
+server storage, and run-control details.
+
+## Safety and execution rules
+
+Workflow files run as trusted local Node.js code in the runner process. Run
+only workflow files that you trust.
+
+Agent permissions belong to the configured runtime. Workspace policy in a
+workflow coordinates task scheduling; it does not grant filesystem or shell
+access.
+
+Local process tasks use awaited, foreground, non-interactive commands with
+bounded output. A nonzero process exit code is typed task output. Spawn,
+timeout, cancellation, and output-limit errors reject the task.
+
+## Repository development
+
+Install dependencies and enable the native hooks in a worktree:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm hooks:install
+```
+
+Run the main local checks:
+
+```sh
+pnpm format:check
+pnpm docs:validate
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+The [documentation index](docs/index.md) links to the project documentation.
+The [SDLC index](docs/sdlc/index.md) contains product requirements,
+architecture decisions, technical specifications, and implementation tasks.
