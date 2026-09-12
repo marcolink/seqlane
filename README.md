@@ -300,39 +300,3 @@ seqlane studio \
 The server and Studio accept loopback HTTP URLs only. See the
 [CLI guide](apps/seqlane-cli/README.md) for MCP, recording, output modes,
 server storage, and run-control details.
-
-## Safety and execution rules
-
-Workflow files run as trusted local Node.js code in the runner process. Run
-only workflow files that you trust.
-
-Agent permissions belong to the configured runtime. Workspace policy in a
-workflow coordinates task scheduling; it does not grant filesystem or shell
-access.
-
-Local process tasks use awaited, foreground, non-interactive commands with
-bounded output. A nonzero process exit code is typed task output. Spawn,
-timeout, cancellation, and output-limit errors reject the task.
-
-## Repository development
-
-Install dependencies and enable the native hooks in a worktree:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm hooks:install
-```
-
-Run the main local checks:
-
-```sh
-pnpm format:check
-pnpm docs:validate
-pnpm lint
-pnpm typecheck
-pnpm test
-```
-
-The [documentation index](docs/index.md) links to the project documentation.
-The [SDLC index](docs/sdlc/index.md) contains product requirements,
-architecture decisions, technical specifications, and implementation tasks.
