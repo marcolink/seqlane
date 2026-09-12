@@ -73,8 +73,8 @@ attributes, narrow runner notifications, and typed run outcomes.
 
 ## Affected areas
 
-- `libs/seqlane-runtime/`
-- `libs/seqlane-runtime/src/runner/`
+- `libs/runtime/`
+- `libs/runtime/src/runner/`
 
 ## Verification
 

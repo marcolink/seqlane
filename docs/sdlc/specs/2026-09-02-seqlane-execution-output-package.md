@@ -35,7 +35,7 @@ and event emission.
 
 ## 2. Normative Invariants
 
-- The package is created at libs/seqlane-output and is named
+- The package is created at libs/output and is named
   @seqlane/output.
 - The package is private and exposes only intentional package exports.
 - The package depends on @seqlane/events for canonical serialized
@@ -374,7 +374,7 @@ its current terminal event and cancellation semantics.
 
 The package contains, at minimum:
 
-    libs/seqlane-output/
+    libs/output/
       package.json
       project.json
       tsconfig.json

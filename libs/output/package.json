@@ -1,0 +1,41 @@
+{
+  "name": "@seqlane/output",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "$schema": "../../node_modules/nx/schemas/project-schema.json",
+    "tags": [
+      "type:lib",
+      "scope:private"
+    ]
+  },
+  "dependencies": {
+    "@seqlane/core": "workspace:*",
+    "@seqlane/events": "workspace:*"
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcolink/seqlane.git",
+    "directory": "libs/output"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "npm": "use pnpm instead - see README.md",
+    "yarn": "use pnpm instead - see README.md",
+    "pnpm": ">=10.33.0"
+  }
+}

@@ -148,7 +148,7 @@ commands with bounded output. Local tasks do not provide Git helpers, Git
 mutation APIs, shell support, background processes, or command policy.
 
 The complete local-to-agent fixture is documented in
-[`@seqlane/fixtures/local-git-status`](libs/seqlane-fixtures/README.md). The
+[`@seqlane/fixtures/local-git-status`](libs/fixtures/README.md). The
 later agent task receives the parsed `{ exitCode, stdout, stderr }` value as
 typed input.
 
@@ -156,4 +156,4 @@ typed input.
 
 Models belong to sessions. New or branched sessions may select a model and
 reasoning effort; reuse sessions inherit the source selection. Omit selection
-to use the OpenCode default. See [core model selection](libs/seqlane-core/README.md#model-catalog).
+to use the OpenCode default. See [core model selection](libs/core/README.md#model-catalog).

@@ -80,7 +80,7 @@ Implement [spec.mechanical-pull-request-review-dispositions](../specs/2026-09-06
 
 - `.github/workflows/seqlane-code-review.yml`
 - `examples/pr-code-review.ts` and extracted review-comment state modules
-- `apps/seqlane-cli/src/pr-code-review-example.spec.ts`
+- `apps/cli/src/pr-code-review-example.spec.ts`
 - workflow-script tests for YAML and publisher behavior
 - `examples/README.md`
 - `docs/sdlc/specs` and `docs/sdlc/tasks`

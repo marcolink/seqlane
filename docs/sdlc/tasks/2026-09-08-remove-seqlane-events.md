@@ -61,10 +61,10 @@ Mastra telemetry, and bounded Studio or recording projections remain separate.
 
 ## Affected areas
 
-- `libs/seqlane-events/`
-- `libs/seqlane-runtime/`
-- `libs/seqlane-output/`
-- `apps/seqlane-cli/`
+- `libs/events/`
+- `libs/runtime/`
+- `libs/output/`
+- `apps/cli/`
 - `apps/seqlane-studio/`
 - Workspace manifests, lockfile, fixtures, and docs.
 

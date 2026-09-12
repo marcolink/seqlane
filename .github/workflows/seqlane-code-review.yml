@@ -279,7 +279,7 @@ jobs:
         env:
           OPENCODE_VERSION: 1.18.27
         run: |
-          SDK_VERSION=$(node -p "require('./libs/seqlane-opencode/package.json').dependencies['@opencode-ai/sdk']")
+          SDK_VERSION=$(node -p "require('./libs/opencode/package.json').dependencies['@opencode-ai/sdk']")
           if [ "$SDK_VERSION" != "$OPENCODE_VERSION" ]; then
             echo "::error::OpenCode CLI $OPENCODE_VERSION must match @opencode-ai/sdk $SDK_VERSION."
             exit 1

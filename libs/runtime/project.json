@@ -1,0 +1,26 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "runtime",
+  "projectType": "library",
+  "sourceRoot": "libs/runtime/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/runtime",
+        "command": "rm -rf dist && tsc --build tsconfig.json"
+      },
+      "cache": true,
+      "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["^build", "build"],
+      "options": {
+        "cwd": "libs/runtime",
+        "command": "vitest run"
+      }
+    }
+  }
+}

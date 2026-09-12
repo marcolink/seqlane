@@ -74,10 +74,10 @@ schema.
 
 ## Affected areas
 
-- `libs/seqlane-events/`
-- `libs/seqlane-output/`
-- `libs/seqlane-runtime/`
-- `apps/seqlane-cli/`
+- `libs/events/`
+- `libs/output/`
+- `libs/runtime/`
+- `apps/cli/`
 - `apps/seqlane-studio/`
 - `libs/seqlane-studio/`
 

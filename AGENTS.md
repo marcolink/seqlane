@@ -3,11 +3,11 @@
 ## Project and scope
 
 - Foundation-only TypeScript monorepo using pnpm and Nx.
-- `libs/seqlane-core` owns public, engine-independent authoring contracts and Plan IR.
-- `libs/seqlane-events` owns public, consumer-agnostic serialized execution-event contracts.
-- `libs/seqlane-runtime` owns the private Mastra integration and execution path.
-- `libs/seqlane-fixtures` owns private test fixtures and fixture contract tests; expose only intentional fixture subpaths.
-- GitHub Action code is CI and platform integration code, not Seqlane application code. New Action-specific libraries must not use the `seqlane-` directory prefix. Do not create a generic Action support library for one Action.
+- `libs/core` owns public, engine-independent authoring contracts and Plan IR.
+- `libs/events` owns public, consumer-agnostic serialized execution-event contracts.
+- `libs/runtime` owns the private Mastra integration and execution path.
+- `libs/fixtures` owns private test fixtures and fixture contract tests; expose only intentional fixture subpaths.
+- GitHub Action code is CI and platform integration code, not Seqlane application code. New Action-specific libraries must use short, purpose-specific directory names. Do not create a generic Action support library for one Action.
 - Keep runtime-engine types and dependencies out of core, serialized Plans, and public workflow-author APIs.
 - Keep executor implementations, including OpenCode, out of workflow definitions, serialized Plans, public APIs, runner IPC, and documented CLI/configuration. Follow [adr.executor-neutral-workflow-authoring](docs/sdlc/adrs/2026-09-02-executor-neutral-workflow-authoring.md) when changing these boundaries.
 - Mastra is the sole generic runtime. Seqlane owns its public DSL, coding-task semantics, session and workspace policy, Work identity and provenance, executor contracts, and CLI experience.
@@ -27,7 +27,7 @@
 - Introduce meaningful abstractions for repeated behavior. Do not copy logic or create premature generic frameworks.
 - Keep pure transformations separate from side effects. Orchestration coordinates operations; it does not own every policy.
 - Across package boundaries, use declared dependencies and package exports; never use relative source or `dist` paths.
-- Keep `seqlane-core` free of Mastra dependencies and types.
+- Keep `libs/core` free of Mastra dependencies and types.
 
 ## Runtime integration
 
@@ -49,7 +49,7 @@
 ## Runtime contracts and errors
 
 - Treat HTTP, CLI, file, SSE, IPC, and subprocess data as untrusted input.
-- Use Zod schemas as the source of truth for runtime validation and inferred types. `seqlane-core` may depend on Zod; keep schemas in the package that owns each contract.
+- Use Zod schemas as the source of truth for runtime validation and inferred types. `libs/core` may depend on Zod; keep schemas in the package that owns each contract.
 - Derive types with `z.infer`, `z.input`, or `z.output` as appropriate. Use `schema.safeParse(value).success` for type guards only when the schema does not transform its input.
 - Do not expose or maintain standalone handwritten runtime predicate functions. When a constraint cannot be expressed structurally, encapsulate it in the owning schema with `z.custom<T>(predicate)` or `.pipe(z.custom<T>(predicate))`.
 - Do not use `.refine()` for type narrowing; Zod 4 does not support it.

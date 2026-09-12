@@ -56,9 +56,9 @@ inputs, outputs, identities, and runtime outcomes.
 
 ## Affected areas
 
-- `libs/seqlane-core/`
-- `libs/seqlane-runtime/`
-- `libs/seqlane-fixtures/`
+- `libs/core/`
+- `libs/runtime/`
+- `libs/fixtures/`
 - Public authoring examples and docs.
 
 ## Verification

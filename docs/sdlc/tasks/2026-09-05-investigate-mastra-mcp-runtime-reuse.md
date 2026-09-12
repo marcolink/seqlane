@@ -61,10 +61,10 @@ This task tracks review finding `SEQ-PR24-011` from
 
 ## Affected areas
 
-- `libs/seqlane-runtime/src/runtime/mastra/mastra-runtime.ts`
-- `libs/seqlane-runtime/src/runtime/mastra/mastra-server.ts`
+- `libs/runtime/src/runtime/mastra/mastra-runtime.ts`
+- `libs/runtime/src/runtime/mastra/mastra-server.ts`
 - Mastra runtime integration tests and benchmarks
-- `libs/seqlane-runtime/README.md`
+- `libs/runtime/README.md`
 
 ## Verification
 

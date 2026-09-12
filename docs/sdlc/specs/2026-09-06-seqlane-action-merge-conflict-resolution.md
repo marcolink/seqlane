@@ -119,8 +119,8 @@ The Action entrypoint must adapt those values to plain library inputs and
 ports.
 
 The package must own merge-resolution orchestration and resolver-specific
-Action integration. It must not become a dependency of `libs/seqlane-core`,
-`libs/seqlane-runtime`, the CLI, or generic workflow packages.
+Action integration. It must not become a dependency of `libs/core`,
+`libs/runtime`, the CLI, or generic workflow packages.
 
 The package must use the existing OSS GitHub communication package through a
 resolver-scoped adapter. It must not introduce a general GitHub client layer.

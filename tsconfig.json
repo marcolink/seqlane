@@ -4,31 +4,31 @@
   "files": [],
   "references": [
     {
-      "path": "./libs/seqlane-core"
+      "path": "./libs/core"
     },
     {
-      "path": "./libs/seqlane-agent-adapter"
+      "path": "./libs/adapter"
     },
     {
-      "path": "./libs/seqlane-acp"
+      "path": "./libs/acp"
     },
     {
-      "path": "./libs/seqlane-events"
+      "path": "./libs/events"
     },
     {
-      "path": "./libs/seqlane-opencode"
+      "path": "./libs/opencode"
     },
     {
-      "path": "./libs/seqlane-fixtures"
+      "path": "./libs/fixtures"
     },
     {
-      "path": "./libs/seqlane-runtime"
+      "path": "./libs/runtime"
     },
     {
-      "path": "./apps/seqlane-cli"
+      "path": "./apps/cli"
     },
     {
-      "path": "./libs/seqlane-output"
+      "path": "./libs/output"
     },
     {
       "path": "./libs/action-merge-conflict-resolution"
