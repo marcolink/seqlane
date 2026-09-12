@@ -8,6 +8,28 @@ models, tools, permissions, processes, and adapter configuration. The built-in
 `local` profile runs deterministic tasks without an adapter. Agent tasks need a
 configured adapter runtime, such as OpenCode.
 
+## Published and local-development commands
+
+Use the published `seqlane` binary when the CLI is installed from npm. Use the
+repository entrypoint when you are developing this workspace. Build the
+workspace before using the local entrypoint.
+
+| Operation          | Published CLI                | Local development                                       |
+| ------------------ | ---------------------------- | ------------------------------------------------------- |
+| Help               | `seqlane --help`             | `pnpm exec node apps/cli/bin/run.js --help`             |
+| List workflows     | `seqlane list`               | `pnpm exec node apps/cli/bin/run.js list`               |
+| Plan a workflow    | `seqlane plan <workflow>`    | `pnpm exec node apps/cli/bin/run.js plan <workflow>`    |
+| Run a workflow     | `seqlane run <workflow>`     | `pnpm exec node apps/cli/bin/run.js run <workflow>`     |
+| Start the server   | `seqlane serve`              | `pnpm exec node apps/cli/bin/run.js serve`              |
+| Start Studio       | `seqlane studio`             | `pnpm exec node apps/cli/bin/run.js studio`             |
+| Read a run         | `seqlane status <run-id>`    | `pnpm exec node apps/cli/bin/run.js status <run-id>`    |
+| Cancel a run       | `seqlane cancel <run-id>`    | `pnpm exec node apps/cli/bin/run.js cancel <run-id>`    |
+| Replay a recording | `seqlane replay <recording>` | `pnpm exec node apps/cli/bin/run.js replay <recording>` |
+
+The flags and arguments are the same in both columns. For example, append
+`--server-url http://127.0.0.1:4111` to either `status` command when using an
+existing operational host.
+
 ## Discover and plan workflows
 
 Repository workflows use `.seqlane/workflows/*.json` below the current working
@@ -262,13 +284,13 @@ pnpm build
 Then run Community Studio:
 
 ```sh
-seqlane studio --port 57694
+pnpm exec node apps/cli/bin/run.js studio --port 57694
 ```
 
 Run a local workflow:
 
 ```sh
-seqlane run examples/minimal-workflow.ts \
+pnpm exec node apps/cli/bin/run.js run examples/minimal-workflow.ts \
   --input '{"topic":"Seqlane"}' \
   --runtime opencode
 ```
@@ -276,5 +298,5 @@ seqlane run examples/minimal-workflow.ts \
 Run the CLI boundary tests after a build:
 
 ```sh
-pnpm exec nx test:e2e seqlane-cli
+pnpm exec nx test:e2e cli
 ```
