@@ -131,20 +131,6 @@ the adapter from a URL. A remote `run --server-url` sends only the profile and
 workspace metadata. The existing server must have its own adapter
 configuration.
 
-Run-control commands use the same host. Set `--server-url` to use an existing
-host; without it, the command owns a local host for its lifetime:
-
-```sh
-seqlane status <run-id> --server-url http://127.0.0.1:4111
-seqlane cancel <run-id> --server-url http://127.0.0.1:4111
-```
-
-`run` prints the Work and Run identifiers before progress output. It owns a
-loopback operational host by default and uses the same Mastra server path as
-`run --server-url`, which connects to an existing host. `status` reads the
-canonical Mastra run record. `cancel` sends the idempotent Mastra cancellation
-request.
-
 ## Community Studio
 
 Start the upstream Mastra Community Studio with an owned operational host:
@@ -228,8 +214,8 @@ filesystem permission boundary. The workflow input does not grant file access;
 configure executor permissions before starting a non-interactive Run.
 
 ```sh
-seqlane run ./examples/code-review.ts \
-  --input '{"repository":"/path/to/repository","target":"last-commit"}' \
+seqlane run ./examples/pr-code-review.ts \
+  --input '{"repository":"owner/repository","baseBranch":"main","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"number":123,"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
   --runtime opencode \
   --workspace /path/to/repository
 ```

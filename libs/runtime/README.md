@@ -1,7 +1,7 @@
 # @seqlane/runtime
 
-Private runtime boundary for compiling and executing Seqlane Plans. Effect is
-private infrastructure; its types do not cross this package boundary.
+Private runtime boundary for compiling and executing Seqlane Plans. Runtime
+implementation details and types do not cross this package boundary.
 
 ### Community Mastra dependency boundary
 

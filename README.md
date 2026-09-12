@@ -121,6 +121,99 @@ See the [workflow examples](examples/README.md) and the
 [`@seqlane/core` guide](libs/seqlane-core/README.md) for sessions, branches,
 validators, references, and workspace policies.
 
+## Declare workspace, session, and task dependencies
+
+These declarations describe how Seqlane can schedule work. They do not grant
+filesystem or executor permissions. Configure those permissions in the runtime.
+
+### Workspace convention
+
+Use `workspace: "shared"` for read-only work. Shared tasks can run at the same
+time, so multiple sessions can inspect the same workspace concurrently.
+
+Use `workspace: "exclusive"` whenever a task can write to the workspace or has
+the intention to write. An exclusive task waits for all workspace work to end,
+and no other shared or exclusive task uses that workspace until it finishes.
+Omit the option only when the default exclusive behavior is appropriate.
+
+```ts
+// These tasks can inspect the same workspace at the same time.
+.task("read-status", readStatusTask, ({ input }) => input, {
+  workspace: "shared",
+})
+.task("read-diff", readDiffTask, ({ input }) => input, {
+  workspace: "shared",
+})
+
+// This task may write, so it gets exclusive workspace access.
+.task("apply-change", applyChangeTask, ({ input }) => input, {
+  workspace: "exclusive",
+})
+```
+
+Seqlane does not inspect a task to decide whether it reads or writes. The
+workflow author must declare the scheduling policy. The policy coordinates
+tasks; it does not make a task read-only or prevent filesystem access.
+
+### Session convention
+
+Choose a session policy based on the history that a task needs:
+
+- `isolated()` creates a new session with no previous task history.
+- `reuse(previous.session)` continues the exact previous session. The previous
+  task must finish before the next task can use that session.
+- `branch(previous.session)` creates a new session from the previous session's
+  checkpoint. The branch keeps the previous history but can then proceed
+  independently. The selected runtime must support native checkpoint forks.
+
+```ts
+.task("draft", draftTask, ({ input }) => input, {
+  session: isolated(),
+})
+.task("polish", polishTask, ({ tasks }) => tasks.draft.output, {
+  session: ({ tasks }) => reuse(tasks.draft.session),
+})
+.task("alternative", alternativeTask, ({ tasks }) => tasks.draft.output, {
+  session: ({ tasks }) => branch(tasks.draft.session),
+})
+```
+
+Two tasks must never execute at the same time on the same session. Independent
+isolated sessions and completed branches can run in parallel when their graph,
+workspace, and runtime-capacity rules allow it.
+
+### Input, output, and execution dependencies
+
+An input binding that reads a task output creates a data dependency. Seqlane
+waits for the producing task, validates its output, and passes that typed value
+to the consuming task. A session reuse or branch also creates a dependency on
+the source task's checkpoint.
+
+Use `dependsOn` when a task needs another task to finish but does not need its
+output. Do not rely on declaration order: the workflow becomes a static DAG,
+and input references, session relationships, and explicit `dependsOn` entries
+define its execution order.
+
+```ts
+.task("prepare", prepareTask, ({ input }) => input, {
+  workspace: "shared",
+})
+.task("review", reviewTask, ({ tasks }) => tasks.prepare.output, {
+  workspace: "shared",
+})
+.task("audit", auditTask, ({ input }) => input, {
+  workspace: "shared",
+})
+.task("publish", publishTask, ({ tasks }) => tasks.review.output, {
+  workspace: "exclusive",
+  dependsOn: ["audit"],
+})
+```
+
+Here, `review` receives `prepare`'s typed output, so it cannot start until
+`prepare` has completed successfully. `publish` also waits for `audit` because
+of `dependsOn`, even though it does not read `audit`'s output.
+
 ## Run a workflow
 
 ### Inspect the Plan
