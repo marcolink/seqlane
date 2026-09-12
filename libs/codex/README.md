@@ -17,3 +17,19 @@ response, reduced into activity lifecycle events, and bounded by item and
 payload limits. Cancellation and request/turn deadlines interrupt the turn and
 require terminal confirmation. Unsupported server requests receive typed JSON-
 RPC errors.
+
+## Protocol compatibility probe
+
+Run the live probe only when Codex authentication and an external model call are
+approved:
+
+```sh
+node scripts/codex-app-server-probe.mjs \
+  --workspace "$PWD" \
+  --output libs/codex/fixtures/protocol-0.147.0.json
+```
+
+The command checks the local CLI version, initialization, model discovery,
+typed output, exact checkpoint forks, interruption, and approval interruption.
+It writes only a sanitized observation fixture. The normal test suite uses the
+deterministic fake-server test and does not start Codex.

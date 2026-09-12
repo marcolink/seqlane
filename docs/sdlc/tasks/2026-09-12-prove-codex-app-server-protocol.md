@@ -1,7 +1,7 @@
 ---
 id: task.prove-codex-app-server-protocol
 title: Prove the Codex App-Server Protocol
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-12
@@ -69,11 +69,15 @@ Establish the pinned Codex CLI and observed app-server contract before the adapt
 
 ## Outcome
 
-Planned. No protocol claim is verified by this task document.
+Added an opt-in JSONL probe with bounded framing, request correlation, typed
+output validation, exact checkpoint fork capture, interruption capture, and
+approval-request interruption without a decision response. Deterministic
+fake-server tests cover the complete sequence without a live model.
 
 ## Delivery state
 
-No implementation or reachable delivery commit is recorded.
+Live confirmation is pending because the probe requires credential-backed
+external model execution. No live protocol claim is recorded yet.
 
 ## Traceability
 
