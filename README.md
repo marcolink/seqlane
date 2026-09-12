@@ -117,9 +117,16 @@ The workflow export must be the default export when you pass a file without an
 export name. Use `workflow.ts#namedExport` for a named export. The CLI accepts
 `.ts`, `.mts`, `.js`, and `.mjs` workflow files.
 
-### Add local work
+## Choose a task factory
 
-Use `defineTask` for deterministic code. It does not call a model.
+Every task has an ID, an input schema, an output schema, and an execution
+contract. Choose the factory that matches the work.
+
+### `defineTask`
+
+Use `defineTask` for deterministic TypeScript logic. The factory does not add a
+model call. A custom `execute` function can use `context.exec` or explicitly
+call `context.runAgent` when that is part of the task's design.
 
 ```ts
 import { createFlow, defineTask } from "@seqlane/core";
@@ -141,11 +148,49 @@ export default createFlow({ id: "local", input, output })
   .define();
 ```
 
-Use `defineShellTask` when a task needs a local process. Seqlane passes the
-executable and argument list directly. It does not invoke a shell.
+### `defineAgentTask`
+
+Use `defineAgentTask` when a configured runtime agent must produce the result.
+The factory turns `goal`, `instructions`, and optional `references` into an
+agent execution. The task's output schema validates the structured result.
+
+```ts
+import { defineAgentTask } from "@seqlane/core";
+import { z } from "zod";
+
+const summarizeTask = defineAgentTask({
+  id: "summarize",
+  input: z.object({ text: z.string() }),
+  output: z.object({ summary: z.string() }),
+  goal: ({ text }) => `Summarize this text: ${text}`,
+  instructions: ["Return one concise summary."],
+});
+```
+
+Agent tasks require a runtime adapter, such as the OpenCode configuration shown
+in [Run an agent workflow](#run-an-agent-workflow).
+
+### `defineShellTask`
+
+Use `defineShellTask` when a task must run a local executable. Seqlane passes the
+executable and argument list directly and does not invoke a shell. The output
+is always `{ exitCode, stdout, stderr }`; do not provide a custom `output`
+schema or `execute` function.
+
+```ts
+import { defineShellTask } from "@seqlane/core";
+import { z } from "zod";
+
+const gitStatusTask = defineShellTask({
+  id: "git-status",
+  input: z.object({}),
+  executable: "git",
+  argv: () => ["status", "--porcelain=v1"],
+});
+```
 
 See the [workflow examples](examples/README.md) and the
-[`@seqlane/core` guide](libs/seqlane-core/README.md) for sessions, branches,
+[`@seqlane/core` guide](libs/core/README.md) for sessions, branches,
 validators, references, and workspace policies.
 
 ## Declare workspace, session, and task dependencies
@@ -418,5 +463,5 @@ seqlane studio \
 ```
 
 The server and Studio accept loopback HTTP URLs only. See the
-[CLI guide](apps/seqlane-cli/README.md) for MCP, recording, output modes,
+[CLI guide](apps/cli/README.md) for MCP, recording, output modes,
 server storage, and run-control details.
