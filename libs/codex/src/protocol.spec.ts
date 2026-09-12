@@ -6,6 +6,7 @@ import {
   parseInitializeResult,
   parseModelListResult,
   parseThreadResult,
+  unsupportedCodexServerRequest,
 } from "./protocol.js";
 
 describe("Codex app-server protocol", () => {
@@ -38,6 +39,21 @@ describe("Codex app-server protocol", () => {
         params: { threadId: "thread-1", turnId: "turn-1" },
       }),
     ).toMatchObject({ kind: "server-request", request: { id: 2 } });
+  });
+
+  it("builds a typed rejection for unsupported server requests", () => {
+    expect(
+      unsupportedCodexServerRequest({
+        id: 2,
+        method: "item/commandExecution/requestApproval",
+        params: {},
+      }),
+    ).toEqual({
+      error: {
+        code: -32601,
+        message: 'Unsupported Codex server request "item/commandExecution/requestApproval"',
+      },
+    });
   });
 
   it("rejects malformed required payloads", () => {

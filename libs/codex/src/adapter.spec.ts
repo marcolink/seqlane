@@ -59,6 +59,7 @@ class FakeTransport implements CodexTransport {
   private turnNumber = 0;
   emitCompletion = true;
   emitBeforeTurnResponse = false;
+  emitMultipleAgentMessages = false;
   delayTurnStart = false;
   private pendingTurnStart?: () => void;
 
@@ -157,6 +158,36 @@ class FakeTransport implements CodexTransport {
             },
           },
         });
+        if (this.emitMultipleAgentMessages) {
+          this.emit({
+            kind: "notification",
+            notification: {
+              method: "item/agentMessage/delta",
+              params: {
+                threadId: threadId.threadId,
+                turnId,
+                itemId: `other-item-${turnId}`,
+                delta: '{"result":"wrong"}',
+              },
+            },
+          });
+          this.emit({
+            kind: "notification",
+            notification: {
+              method: "item/completed",
+              params: {
+                threadId: threadId.threadId,
+                turnId,
+                item: {
+                  id: `other-item-${turnId}`,
+                  type: "agentMessage",
+                  text: '{"result":"wrong"}',
+                },
+                completedAtMs: 3,
+              },
+            },
+          });
+        }
         this.emit({
           kind: "notification",
           notification: {
@@ -234,6 +265,10 @@ class FakeTransport implements CodexTransport {
     return Promise.resolve();
   }
 
+  respond(): void {
+    // Server-request responses are not needed by this fake.
+  }
+
   emit(message: CodexInboundMessage): void {
     for (const listener of this.listeners) listener(message);
   }
@@ -278,6 +313,8 @@ describe("Codex AgentAdapter", () => {
           activityId: "tool-turn-1",
           name: "commandExecution",
           state: "succeeded",
+          startedAt: 1,
+          input: { command: "true" },
         }),
         expect.objectContaining({
           activityId: "item-turn-1",
@@ -292,6 +329,18 @@ describe("Codex AgentAdapter", () => {
     ).toEqual({
       threadId: "thread-1",
       lastTurnId: "turn-1",
+    });
+  });
+
+  it("selects the final completed agent message by item", async () => {
+    const transport = new FakeTransport();
+    transport.emitMultipleAgentMessages = true;
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+
+    await expect(adapter.execute(request())).resolves.toEqual({
+      result: "done",
     });
   });
 

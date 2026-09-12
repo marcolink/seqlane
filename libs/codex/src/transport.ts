@@ -1,15 +1,24 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { CodexAdapterError, CodexProtocolError } from "./errors.js";
 import {
+  MAX_JSONL_OUTBOUND_MESSAGE_BYTES,
+  MAX_JSONL_OUTBOUND_PARAMS_BYTES,
   MAX_JSONL_BUFFER_BYTES,
   MAX_JSONL_LINE_BYTES,
   type CodexInboundMessage,
   type CodexLaunchConfiguration,
   type CodexRequestId,
+  type CodexServerRequestResponse,
   parseCodexMessage,
   parseInitializeResult,
 } from "./protocol.js";
 import { readCodexVersion, versionDiagnostic } from "./version.js";
+
+const MAX_IGNORED_RESPONSE_IDS = 1_024;
+const IGNORED_RESPONSE_TTL_MS = 60_000;
+const SHUTDOWN_GRACE_MS = 1_000;
+const SHUTDOWN_FORCE_SETTLEMENT_MS = 1_000;
 
 export interface CodexTransport {
   readonly termination: Promise<void>;
@@ -18,6 +27,7 @@ export interface CodexTransport {
     params: unknown,
     signal?: AbortSignal,
   ): Promise<unknown>;
+  respond(requestId: CodexRequestId, response: CodexServerRequestResponse): void;
   subscribe(listener: (message: CodexInboundMessage) => void): () => void;
   close(): Promise<void>;
 }
@@ -63,7 +73,44 @@ function writeMessage(
   if (!child.stdin.writable) {
     throw new CodexProtocolError("Codex app-server stdin is not writable");
   }
-  child.stdin.write(`${JSON.stringify(message)}\n`);
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(message);
+  } catch (cause) {
+    throw new CodexAdapterError(
+      "limit",
+      "Codex outbound JSONL message could not be serialized",
+      cause,
+    );
+  }
+  if (Buffer.byteLength(serialized, "utf8") > MAX_JSONL_OUTBOUND_MESSAGE_BYTES) {
+    throw new CodexAdapterError(
+      "limit",
+      `Codex outbound JSONL message exceeded ${MAX_JSONL_OUTBOUND_MESSAGE_BYTES} bytes`,
+    );
+  }
+  if (message.params !== undefined) {
+    let serializedParams: string;
+    try {
+      serializedParams = JSON.stringify(message.params);
+    } catch (cause) {
+      throw new CodexAdapterError(
+        "limit",
+        "Codex outbound JSONL params could not be serialized",
+        cause,
+      );
+    }
+    if (
+      Buffer.byteLength(serializedParams, "utf8") >
+      MAX_JSONL_OUTBOUND_PARAMS_BYTES
+    ) {
+      throw new CodexAdapterError(
+        "limit",
+        `Codex outbound JSONL params exceeded ${MAX_JSONL_OUTBOUND_PARAMS_BYTES} bytes`,
+      );
+    }
+  }
+  child.stdin.write(`${serialized}\n`);
 }
 
 export async function createCodexStdioTransport(
@@ -93,13 +140,48 @@ export async function createCodexTransportForProcess(
   let nextId = 1;
   let state: "open" | "closing" | "closed" = "open";
   let buffer = "";
+  const decoder = new StringDecoder("utf8");
   const pending = new Map<CodexRequestId, PendingRequest>();
-  const ignoredResponses = new Set<CodexRequestId>();
+  const ignoredResponses = new Map<CodexRequestId, number>();
   const listeners = new Set<(message: CodexInboundMessage) => void>();
+  let terminationSettled = false;
+  let terminationRequested = false;
+  let shutdownGraceTimer: ReturnType<typeof setTimeout> | undefined;
+  let shutdownForceTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveTermination!: () => void;
   const termination = new Promise<void>((resolve) => {
     resolveTermination = resolve;
   });
+
+  const settleTermination = (): void => {
+    if (terminationSettled) return;
+    terminationSettled = true;
+    if (shutdownGraceTimer !== undefined) clearTimeout(shutdownGraceTimer);
+    if (shutdownForceTimer !== undefined) clearTimeout(shutdownForceTimer);
+    resolveTermination();
+  };
+
+  const pruneIgnoredResponses = (): void => {
+    const now = Date.now();
+    for (const [id, expiresAt] of ignoredResponses) {
+      if (expiresAt <= now) ignoredResponses.delete(id);
+    }
+    while (ignoredResponses.size >= MAX_IGNORED_RESPONSE_IDS) {
+      const oldest = ignoredResponses.keys().next().value;
+      if (oldest === undefined) break;
+      ignoredResponses.delete(oldest);
+    }
+  };
+
+  const ignoreResponse = (id: CodexRequestId): void => {
+    pruneIgnoredResponses();
+    ignoredResponses.set(id, Date.now() + IGNORED_RESPONSE_TTL_MS);
+  };
+
+  const wasIgnoredResponse = (id: CodexRequestId): boolean => {
+    pruneIgnoredResponses();
+    return ignoredResponses.delete(id);
+  };
 
   const rejectPending = (cause: unknown): void => {
     const error = toError(cause);
@@ -113,18 +195,38 @@ export async function createCodexTransportForProcess(
   };
 
   const requestChildTermination = (): void => {
+    if (terminationRequested) return;
+    terminationRequested = true;
     try {
       child.stdin.destroy();
-      if (!child.killed) child.kill();
     } catch {
       // Best-effort process cleanup.
     }
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // Best-effort process cleanup.
+    }
+    shutdownGraceTimer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Best-effort process cleanup.
+      }
+      shutdownForceTimer = setTimeout(
+        settleTermination,
+        SHUTDOWN_FORCE_SETTLEMENT_MS,
+      );
+      shutdownForceTimer.unref?.();
+    }, SHUTDOWN_GRACE_MS);
+    shutdownGraceTimer.unref?.();
   };
 
   const fail = (cause: unknown): void => {
     if (state !== "open") return;
     state = "closing";
     rejectPending(cause);
+    ignoredResponses.clear();
     requestChildTermination();
   };
 
@@ -155,7 +257,7 @@ export async function createCodexTransportForProcess(
     if (message.kind === "response") {
       const request = pending.get(message.id);
       if (request === undefined) {
-        if (ignoredResponses.delete(message.id)) return;
+        if (wasIgnoredResponse(message.id)) return;
         fail(
           new CodexProtocolError(
             "Codex app-server returned an unknown request ID",
@@ -180,12 +282,24 @@ export async function createCodexTransportForProcess(
       }
       return;
     }
-    for (const listener of listeners) listener(message);
+    try {
+      for (const listener of listeners) listener(message);
+    } catch (cause) {
+      fail(
+        new CodexAdapterError(
+          "execution",
+          "Codex app-server message delivery failed",
+          cause,
+        ),
+      );
+    }
   };
 
   child.stdout.on("data", (chunk: Buffer | string) => {
     if (state !== "open") return;
-    buffer += chunk.toString();
+    buffer += decoder.write(
+      typeof chunk === "string" ? Buffer.from(chunk) : chunk,
+    );
     if (Buffer.byteLength(buffer) > MAX_JSONL_BUFFER_BYTES) {
       fail(
         new CodexProtocolError(
@@ -201,6 +315,17 @@ export async function createCodexTransportForProcess(
       buffer = buffer.slice(newline + 1);
       consumeLine(line);
       if (state !== "open") break;
+    }
+  });
+  child.stdout.on("end", () => {
+    if (state !== "open") return;
+    buffer += decoder.end();
+    if (buffer.length > 0) {
+      fail(
+        new CodexProtocolError(
+          "Codex app-server stdout ended with an incomplete JSONL message",
+        ),
+      );
     }
   });
   child.on("error", (cause) =>
@@ -222,8 +347,9 @@ export async function createCodexTransportForProcess(
       );
     }
     state = "closed";
+    ignoredResponses.clear();
     listeners.clear();
-    resolveTermination();
+    settleTermination();
   });
 
   // Stderr is intentionally ignored, but must be drained so diagnostics from
@@ -244,7 +370,7 @@ export async function createCodexTransportForProcess(
       return new Promise((resolve, reject) => {
         const onAbort = (): void => {
           pending.delete(id);
-          ignoredResponses.add(id);
+          ignoreResponse(id);
           reject(
             signal?.reason ??
               new CodexAdapterError(
@@ -267,6 +393,20 @@ export async function createCodexTransportForProcess(
         }
         signal?.addEventListener("abort", onAbort, { once: true });
       });
+    },
+    respond(requestId, response) {
+      if (state !== "open") {
+        throw new CodexAdapterError(
+          "execution",
+          "Codex app-server transport is closed",
+        );
+      }
+      try {
+        writeMessage(child, { jsonrpc: "2.0", id: requestId, ...response });
+      } catch (cause) {
+        fail(cause);
+        throw cause;
+      }
     },
     subscribe(listener) {
       listeners.add(listener);

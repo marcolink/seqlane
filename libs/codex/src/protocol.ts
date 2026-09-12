@@ -3,6 +3,8 @@ import { CodexAdapterError, CodexProtocolError } from "./errors.js";
 
 export const MAX_JSONL_LINE_BYTES = 4 * 1024 * 1024;
 export const MAX_JSONL_BUFFER_BYTES = 8 * 1024 * 1024;
+export const MAX_JSONL_OUTBOUND_MESSAGE_BYTES = MAX_JSONL_LINE_BYTES;
+export const MAX_JSONL_OUTBOUND_PARAMS_BYTES = 2 * 1024 * 1024;
 
 export type CodexRequestId = number | string;
 
@@ -180,6 +182,27 @@ export interface CodexServerRequest {
   readonly id: CodexRequestId;
   readonly method: string;
   readonly params: unknown;
+}
+
+export interface CodexRpcError {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+}
+
+export type CodexServerRequestResponse =
+  | { readonly result: unknown; readonly error?: never }
+  | { readonly error: CodexRpcError; readonly result?: never };
+
+export function unsupportedCodexServerRequest(
+  request: CodexServerRequest,
+): CodexServerRequestResponse {
+  return {
+    error: {
+      code: -32601,
+      message: `Unsupported Codex server request "${request.method}"`,
+    },
+  };
 }
 
 export type CodexInboundMessage =

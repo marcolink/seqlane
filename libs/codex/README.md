@@ -10,8 +10,10 @@ diagnostic and continues; malformed or incompatible protocol messages fail the
 adapter.
 
 The transport requires JSON-RPC 2.0 envelopes, validates the initialize result,
-drains child stderr, and confirms child-process termination before resolving its
-termination promise. Turn events are correlated by thread and turn, buffered
-across the `turn/start` response, reduced into activity lifecycle events, and
-bounded by item and payload limits. Cancellation and turn deadlines interrupt
-the turn and require terminal confirmation.
+drains child stderr, handles split UTF-8 output, bounds outbound and inbound
+JSONL, and confirms child-process termination with forced shutdown escalation.
+Turn events are correlated by thread and turn, buffered across the `turn/start`
+response, reduced into activity lifecycle events, and bounded by item and
+payload limits. Cancellation and request/turn deadlines interrupt the turn and
+require terminal confirmation. Unsupported server requests receive typed JSON-
+RPC errors.
