@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AppServerClient,
@@ -93,7 +94,7 @@ const FAKE_SERVER_SOURCE = `
   `;
 
 async function createFakeExecutable() {
-  const directory = await mkdtemp("/private/tmp/seqlane-codex-probe-");
+  const directory = await mkdtemp(join(tmpdir(), "seqlane-codex-probe-"));
   temporaryDirectories.push(directory);
   const server = join(directory, "codex-fake.mjs");
   const executable = join(directory, "codex-fake");
