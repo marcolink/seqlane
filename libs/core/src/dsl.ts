@@ -50,6 +50,7 @@ interface AgentTaskFactoryInput<Input, Output> extends Omit<
   readonly goal: (input: Input) => string;
   readonly instructions?: readonly string[];
   readonly references?: readonly string[];
+  readonly toolPolicy?: "read-only";
 }
 
 export function defineAgentTask<Input, Output>(
@@ -58,7 +59,7 @@ export function defineAgentTask<Input, Output>(
   if (Object.hasOwn(definition, "execute")) {
     throw new TypeError("defineAgentTask does not accept execute");
   }
-  const { goal, instructions, references, ...base } = definition;
+  const { goal, instructions, references, toolPolicy, ...base } = definition;
   const task: TaskDefinition<Input, Output> = {
     ...base,
     execute: async ({ input, context }) =>
@@ -66,6 +67,7 @@ export function defineAgentTask<Input, Output>(
         goal: goal(input),
         ...(instructions === undefined ? {} : { instructions }),
         ...(references === undefined ? {} : { references }),
+        ...(toolPolicy === undefined ? {} : { toolPolicy }),
       }) as Promise<Output>,
   };
   return defineTask(task);
@@ -85,6 +87,9 @@ interface ShellTaskFactoryInput<Input> extends Omit<
 > {
   readonly executable: string;
   readonly argv: (input: Input) => readonly string[];
+  readonly timeoutMs?: number;
+  readonly outputLimitBytes?: number;
+  readonly onError?: (cause: unknown) => ShellTaskResult;
 }
 
 export function defineShellTask<Input>(
@@ -96,12 +101,24 @@ export function defineShellTask<Input>(
   if (Object.hasOwn(definition, "output")) {
     throw new TypeError("defineShellTask does not accept output");
   }
-  const { executable, argv, ...base } = definition;
+  const { executable, argv, timeoutMs, outputLimitBytes, onError, ...base } =
+    definition;
   return defineTask({
     ...base,
     output: shellTaskResultSchema,
-    execute: async ({ input, context }) =>
-      context.exec({ executable, argv: argv(input) }),
+    execute: async ({ input, context }) => {
+      try {
+        return await context.exec({
+          executable,
+          argv: argv(input),
+          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+          ...(outputLimitBytes === undefined ? {} : { outputLimitBytes }),
+        });
+      } catch (cause) {
+        if (onError === undefined) throw cause;
+        return onError(cause);
+      }
+    },
   });
 }
 

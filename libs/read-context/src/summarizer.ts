@@ -16,6 +16,7 @@ export async function summarizeEvidence(
       corpus: retrieval.corpus,
       retrieval: {
         selectedPaths: retrieval.selectedPaths,
+        selectedRanges: retrieval.selectedRanges,
         excludedPaths: retrieval.excludedPaths,
         usedExactSearch: retrieval.usedExactSearch,
         usedZvecGrep: retrieval.usedZvecGrep,
@@ -31,6 +32,7 @@ export async function summarizeEvidence(
     ].slice(0, 12),
     retrieval: {
       selectedPaths: retrieval.selectedPaths,
+      selectedRanges: retrieval.selectedRanges,
       excludedPaths: retrieval.excludedPaths,
       usedExactSearch: retrieval.usedExactSearch,
       usedZvecGrep: retrieval.usedZvecGrep,

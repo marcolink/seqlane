@@ -23,11 +23,21 @@ const runAvailable = (command: string, args: readonly string[]): string[] => [
   ...args,
 ];
 
+const scrapeFailure = (cause: unknown) => ({
+  exitCode: 1,
+  stdout: "",
+  stderr:
+    cause instanceof Error ? cause.message.slice(0, 1_000) : "scrape failed",
+});
+
 const exactSearchTask = defineShellTask({
   id: "workflow-read-context.retrieve.exact-search",
   input: readContextInputSchema,
   executable: "sh",
   argv: (input) => runAvailable("rg", exactSearchArguments(input, ".")),
+  timeoutMs: 5_000,
+  outputLimitBytes: 256_000,
+  onError: scrapeFailure,
 });
 
 const zvecSearchTask = defineShellTask({
@@ -35,6 +45,9 @@ const zvecSearchTask = defineShellTask({
   input: readContextInputSchema,
   executable: "sh",
   argv: (input) => runAvailable("zg", zvecSearchArguments(input)),
+  timeoutMs: 5_000,
+  outputLimitBytes: 128_000,
+  onError: scrapeFailure,
 });
 
 const ripwireSearchTask = defineShellTask({
@@ -42,6 +55,9 @@ const ripwireSearchTask = defineShellTask({
   input: readContextInputSchema,
   executable: "sh",
   argv: (input) => runAvailable("ripwire", ripwireSearchArguments(input, ".")),
+  timeoutMs: 10_000,
+  outputLimitBytes: 128_000,
+  onError: scrapeFailure,
 });
 
 const scrapeInputSchema = z.object({

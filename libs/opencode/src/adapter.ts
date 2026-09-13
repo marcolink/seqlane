@@ -57,6 +57,18 @@ function promptStrategyDiagnostic(
   );
 }
 
+function promptTools(
+  request: AgentAdapterRequest,
+  issues: StructuredOutputValidationError | undefined,
+): Record<string, boolean> | undefined {
+  if (request.agent?.toolPolicy === "read-only") {
+    return { "*": false, StructuredOutput: true };
+  }
+  return issues === undefined
+    ? undefined
+    : { "*": false, StructuredOutput: true };
+}
+
 function normalizeActivity(activity: OpenCodeActivity): AgentActivity {
   return {
     activityId: activity.activityId,
@@ -148,14 +160,13 @@ function createAdapterForRun({
         while (true) {
           attempts += 1;
           selection?.report?.({ type: "attempt", attempt: attempts });
+          const tools = promptTools(request, lastIssues);
           const response = await run.prompt({
             text: promptText,
             schema,
             strategy,
             retryCount,
-            ...(lastIssues === undefined
-              ? {}
-              : { tools: { "*": false, StructuredOutput: true } }),
+            ...(tools === undefined ? {} : { tools }),
             selection: request.modelSelection ?? configuredSelection,
             signal: request.signal,
             onActivity: (activity) =>

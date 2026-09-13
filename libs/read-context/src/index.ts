@@ -6,6 +6,7 @@ import {
 } from "./schemas.js";
 import { retrieveEvidence, type RetrievalOptions } from "./retrieval.js";
 import { summarizeEvidence, type SummarizerOptions } from "./summarizer.js";
+import { validateReadContextReferences } from "./result-validation.js";
 
 export * from "./schemas.js";
 export { formatReadContextMarkdown } from "./format.js";
@@ -13,6 +14,7 @@ export { classifyCommand } from "./command-classifier.js";
 export { estimateFile } from "./size-estimator.js";
 export { retrieveEvidence } from "./retrieval.js";
 export { summarizeEvidence } from "./summarizer.js";
+export { validateReadContextReferences } from "./result-validation.js";
 export { ReadContextSchema as readContextSchema };
 
 export interface ReadContextOptions
@@ -31,5 +33,8 @@ export async function readContext(
     { ...parsed.data, ...request },
     options,
   );
-  return ReadContextSchema.parse(await summarizeEvidence(retrieval, options));
+  return validateReadContextReferences(
+    ReadContextSchema.parse(await summarizeEvidence(retrieval, options)),
+    retrieval,
+  );
 }

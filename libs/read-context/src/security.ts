@@ -1,4 +1,5 @@
-import { basename, relative, resolve, sep } from "node:path";
+import { lstatSync, realpathSync, statSync } from "node:fs";
+import { basename, join, relative, resolve, sep } from "node:path";
 
 const deniedDirectoryNames = new Set([
   ".git",
@@ -23,6 +24,48 @@ export function isPathWithinRoot(root: string, candidate: string): boolean {
     relativePath === "" ||
     (!relativePath.startsWith("..") && relativePath !== "..")
   );
+}
+
+function hasSafeRealPath(root: string, candidate: string): boolean {
+  const rootPath = resolve(root);
+  const candidatePath = resolve(candidate);
+  if (!isPathWithinRoot(rootPath, candidatePath)) return false;
+  try {
+    let current = rootPath;
+    for (const segment of relative(rootPath, candidatePath)
+      .split(sep)
+      .filter(Boolean)) {
+      current = join(current, segment);
+      if (lstatSync(current).isSymbolicLink()) return false;
+    }
+    return isPathWithinRoot(
+      realpathSync(rootPath),
+      realpathSync(candidatePath),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Resolves an existing path only when every repository component is real. */
+export function resolveSafePath(
+  root: string,
+  candidate: string,
+  kind: "file" | "directory" | "either" = "either",
+): string | undefined {
+  const absolute = resolve(root, candidate);
+  if (!hasSafeRealPath(root, absolute)) return undefined;
+  try {
+    const stats = statSync(absolute);
+    if (
+      (kind === "file" && !stats.isFile()) ||
+      (kind === "directory" && !stats.isDirectory())
+    )
+      return undefined;
+    return absolute;
+  } catch {
+    return undefined;
+  }
 }
 
 export function repositoryRelativePath(

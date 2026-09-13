@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { extractExactAnchors } from "./anchors.js";
 import {
@@ -8,12 +7,13 @@ import {
 } from "./evidence-selection.js";
 import {
   deniedPathReason,
-  isPathWithinRoot,
   repositoryRelativePath,
+  resolveSafePath,
   commandPathGlobs,
 } from "./security.js";
+import { readBoundedFile } from "./bounded-read.js";
 import { nodeCommandRunner, type CommandRunner } from "./subprocess.js";
-import type { ReadContextRequest } from "./schemas.js";
+import { readContextInputSchema, type ReadContextRequest } from "./schemas.js";
 import { z } from "zod";
 
 const EXACT_SEARCH_TIMEOUT_MS = 5_000;
@@ -53,6 +53,11 @@ export interface RetrievalResult {
   readonly question: string;
   readonly corpus: string;
   readonly selectedPaths: string[];
+  readonly selectedRanges: {
+    path: string;
+    startLine: number;
+    endLine: number;
+  }[];
   readonly excludedPaths: { path: string; reason: string }[];
   readonly usedExactSearch: boolean;
   readonly usedZvecGrep: boolean;
@@ -66,9 +71,8 @@ function pathCandidate(
   explicit: boolean,
   order = 0,
 ): Candidate | undefined {
-  const absolute = resolve(root, value);
-  if (!isPathWithinRoot(root, absolute) || !existsSync(absolute))
-    return undefined;
+  const absolute = resolveSafePath(root, value, "file");
+  if (absolute === undefined) return undefined;
   const path = repositoryRelativePath(root, absolute);
   if (deniedPathReason(path) !== undefined) return undefined;
   return {
@@ -148,11 +152,23 @@ function makeCorpus(
     .join("\n\n");
 }
 
-function safeScope(root: string, request: ReadContextRequest): string[] {
-  return (request.scope ?? ["."])
-    .map((path) => resolve(root, path))
-    .filter((path) => isPathWithinRoot(root, path))
-    .map((path) => relative(root, path) || ".");
+function safeScope(
+  root: string,
+  request: ReadContextRequest,
+): { paths: string[]; invalid: boolean } {
+  if (request.scope === undefined) return { paths: ["."], invalid: false };
+  if (request.scope.length === 0) return { paths: [], invalid: true };
+  const paths: string[] = [];
+  let invalid = false;
+  for (const value of request.scope) {
+    const absolute = resolveSafePath(root, value, "directory");
+    if (absolute === undefined) {
+      invalid = true;
+      continue;
+    }
+    paths.push(relative(root, absolute) || ".");
+  }
+  return { paths, invalid };
 }
 
 export function exactSearchArguments(
@@ -160,6 +176,7 @@ export function exactSearchArguments(
   root = process.cwd(),
 ): string[] {
   const anchors = extractExactAnchors(request.question, request.paths ?? []);
+  const scope = safeScope(resolve(root), request);
   return [
     "--json",
     "--fixed-strings",
@@ -168,7 +185,9 @@ export function exactSearchArguments(
     ...(anchors.length === 0
       ? ["-e", "__seqlane_read_context_no_exact_anchor__"]
       : anchors.slice(0, 12).flatMap(({ value }) => ["-e", value])),
-    ...safeScope(resolve(root), request),
+    ...(scope.paths.length === 0
+      ? ["__seqlane_read_context_invalid_scope_7f5a__"]
+      : scope.paths),
   ];
 }
 
@@ -232,28 +251,19 @@ function emptyScrapeResult(): RetrievalScrapeResult {
   return { exitCode: 127, stdout: "", stderr: "unavailable" };
 }
 
-export async function retrieveEvidenceFromScrapes(
+interface OptionalCandidateResult {
+  readonly candidates: Candidate[];
+  readonly uncertainties: string[];
+  readonly usedZvecGrep: boolean;
+  readonly usedRipwire: boolean;
+}
+
+function collectOptionalCandidates(
   request: ReadContextRequest,
+  root: string,
   scrapes: RetrievalScrapes,
-  options: Pick<RetrievalOptions, "root"> = {},
-): Promise<RetrievalResult> {
-  const root = resolve(options.root ?? process.cwd());
-  const excludedPaths: { path: string; reason: string }[] = [];
-  const explicit = (request.paths ?? []).flatMap((path, index) => {
-    const candidate = pathCandidate(root, path, true, index);
-    if (candidate === undefined)
-      excludedPaths.push({
-        path,
-        reason: "outside root, missing, or denied path",
-      });
-    return candidate === undefined ? [] : [candidate];
-  });
-  const anchors = extractExactAnchors(request.question, request.paths ?? []);
-  const exactCandidates =
-    scrapes.exact.exitCode === 0
-      ? parseRg(scrapes.exact.stdout, root, anchors)
-      : [];
-  const optionalCandidates: Candidate[] = [];
+): OptionalCandidateResult {
+  const candidates: Candidate[] = [];
   const uncertainties: string[] = [];
   let usedZvecGrep = false;
   let usedRipwire = false;
@@ -262,7 +272,7 @@ export async function retrieveEvidenceFromScrapes(
       const matches = parseOptionalPaths(scrapes.zvec.stdout, root, "zvec");
       if (matches.length > 0) {
         usedZvecGrep = true;
-        optionalCandidates.push(...matches);
+        candidates.push(...matches);
       } else uncertainties.push("zvec-grep returned no usable source location");
     } else
       uncertainties.push(
@@ -278,19 +288,57 @@ export async function retrieveEvidenceFromScrapes(
       );
       if (matches.length > 0) {
         usedRipwire = true;
-        optionalCandidates.push(...matches);
+        candidates.push(...matches);
       } else uncertainties.push("Ripwire returned no usable source location");
     } else
       uncertainties.push(
         "Ripwire was unavailable or returned no usable result",
       );
   }
+  return { candidates, uncertainties, usedZvecGrep, usedRipwire };
+}
+
+export async function retrieveEvidenceFromScrapes(
+  request: ReadContextRequest,
+  scrapes: RetrievalScrapes,
+  options: Pick<RetrievalOptions, "root"> = {},
+): Promise<RetrievalResult> {
+  const parsedRequest = readContextInputSchema.safeParse(request);
+  if (!parsedRequest.success) {
+    throw new TypeError(
+      `Invalid read-context input: ${parsedRequest.error.issues[0]?.message ?? "invalid input"}`,
+    );
+  }
+  const root = resolve(options.root ?? process.cwd());
+  const excludedPaths: { path: string; reason: string }[] = [];
+  const explicit = (request.paths ?? []).flatMap((path, index) => {
+    const candidate = pathCandidate(root, path, true, index);
+    if (candidate === undefined)
+      excludedPaths.push({
+        path,
+        reason: "outside root, missing, or denied path",
+      });
+    return candidate === undefined ? [] : [candidate];
+  });
+  const anchors = extractExactAnchors(request.question, request.paths ?? []);
+  const scope = safeScope(root, request);
+  const exactCandidates =
+    scrapes.exact.exitCode === 0
+      ? parseRg(scrapes.exact.stdout, root, anchors)
+      : [];
+  const optional = collectOptionalCandidates(request, root, scrapes);
+  const uncertainties = [...optional.uncertainties];
+  if (scope.invalid)
+    uncertainties.push(
+      "One or more requested search scopes were invalid, missing, denied, or empty",
+    );
   const selection = await selectEvidence(
-    mergeCandidates([...explicit, ...exactCandidates, ...optionalCandidates]),
+    mergeCandidates([...explicit, ...exactCandidates, ...optional.candidates]),
     {
       maxFiles: request.maxFiles ?? 12,
       maxBytes: request.maxBytes ?? 16_000,
-      readFile: async (path) => readFileSync(resolve(root, path), "utf8"),
+      readFile: async (path, readRequest) =>
+        readBoundedFile(root, path, readRequest),
     },
   );
   const allExcluded = [...excludedPaths, ...selection.excludedPaths];
@@ -310,10 +358,11 @@ export async function retrieveEvidenceFromScrapes(
     question: request.question,
     corpus: makeCorpus(selection.units),
     selectedPaths: selection.selectedPaths,
+    selectedRanges: selection.selectedRanges,
     excludedPaths: allExcluded,
     usedExactSearch: anchors.length > 0,
-    usedZvecGrep,
-    usedRipwire,
+    usedZvecGrep: optional.usedZvecGrep,
+    usedRipwire: optional.usedRipwire,
     uncertainties,
   };
 }

@@ -254,6 +254,12 @@ export function createAcpAdapter(
 
   return {
     async execute(request) {
+      if (request.agent?.toolPolicy === "read-only") {
+        throw new AcpAdapterError(
+          "configuration",
+          "read-only agent tasks are not supported by the ACP adapter",
+        );
+      }
       const permissionScope: PermissionScope = { requested: false };
       return enqueueExecution(async () => {
         if (request.signal.aborted) {

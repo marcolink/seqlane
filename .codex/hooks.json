@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'exec node \"$(git rev-parse --show-toplevel)/.codex/hooks/read-context-guard.mjs\"'"
+            "command": "node .codex/hooks/read-context-guard.mjs"
           }
         ]
       }

@@ -7,7 +7,9 @@
 // @test-scope ./retrieval.ts
 // @test-scope ./retrieval-workflow.ts
 // @test-scope ./workflow.ts
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+// @test-scope ./result-validation.ts
+// @test-scope ./bounded-read.ts
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -17,9 +19,10 @@ import { formatReadContextMarkdown } from "./format.js";
 import { runReadContextGuard } from "./hook.js";
 import { summarizeWithOpenAICompatible } from "./providers/openai-compatible.js";
 import { rankCandidates, selectEvidence } from "./evidence-selection.js";
+import { validateReadContextReferences } from "./result-validation.js";
 import { estimateFile } from "./size-estimator.js";
 import { ReadContextSchema } from "./schemas.js";
-import { retrieveEvidence } from "./retrieval.js";
+import { exactSearchArguments, retrieveEvidence } from "./retrieval.js";
 import readContextWorkflow from "./workflow.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -47,8 +50,12 @@ describe("command classification and hook policy", () => {
     expect(classifyCommand("rg question src").kind).toBe("allow");
     expect(classifyCommand("git status --short").kind).toBe("allow");
     expect(
-      classifyCommand("seqlane run read-context.ts --input '{}'").kind,
-    ).toBe("allow");
+      classifyCommand(
+        "pnpm exec node apps/cli/bin/run.js run read-context.ts --input '{}' --workspace .",
+      ).kind,
+    ).toBe("workflow");
+    expect(classifyCommand("cat read-context.ts").kind).toBe("full");
+    expect(classifyCommand("cat /tmp/read-context.ts").kind).toBe("full");
     expect(classifyCommand("cat a.ts && cat b.ts").kind).toBe("unsupported");
   });
 
@@ -78,6 +85,50 @@ describe("command classification and hook policy", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("accepts only the validated repository-local workflow invocation", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-workflow-hook-"));
+    await mkdir(join(root, "apps/cli/bin"), { recursive: true });
+    await writeFile(join(root, "apps/cli/bin/run.js"), "runner");
+    await writeFile(join(root, "read-context.ts"), "workflow");
+    const previous = process.cwd();
+    process.chdir(root);
+    try {
+      const command =
+        'pnpm exec node apps/cli/bin/run.js run read-context.ts --input \'{"question":"q"}\' --runtime opencode --workspace .';
+      expect(
+        runReadContextGuard(JSON.stringify({ tool_input: { command } })),
+      ).toBe("{}");
+      const missingRuntime = runReadContextGuard(
+        JSON.stringify({
+          tool_input: {
+            command: command.replace(" --runtime opencode", ""),
+          },
+        }),
+      );
+      expect(JSON.parse(missingRuntime)).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" },
+      });
+    } finally {
+      process.chdir(previous);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects symlinked evidence paths", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-symlink-"));
+    const outside = await mkdtemp(join("/tmp", "read-context-outside-"));
+    try {
+      const outsideFile = join(outside, "secret.ts");
+      const linkedFile = join(root, "linked.ts");
+      await writeFile(outsideFile, "secret");
+      await symlink(outsideFile, linkedFile);
+      expect(estimateFile(linkedFile, { root })).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("size and evidence budgets", () => {
@@ -105,7 +156,12 @@ describe("size and evidence budgets", () => {
       {
         maxFiles: 1,
         maxBytes: 20,
-        readFile: async (path) => `${path}\ncontent`,
+        readFile: async (path, request) => ({
+          content: `${path}\ncontent`,
+          startLine: request.startLine,
+          endLine: request.endLine,
+          truncated: false,
+        }),
       },
     );
     expect(selected.selectedPaths).toEqual(["a.ts"]);
@@ -113,6 +169,33 @@ describe("size and evidence budgets", () => {
       path: "b.ts",
       reason: "max-files budget",
     });
+  });
+
+  it("does not mark a complete short read as bounded", async () => {
+    const selected = await selectEvidence(
+      [{ path: "a.ts", explicit: true, ranges: [] }],
+      {
+        maxFiles: 1,
+        maxBytes: 100,
+        maxChunkBytes: 50,
+        readFile: async (_path, request) => ({
+          content: "short source",
+          startLine: request.startLine,
+          endLine: 1,
+          truncated: false,
+        }),
+      },
+    );
+    expect(selected.excludedPaths).toEqual([]);
+  });
+
+  it("does not broaden an invalid search scope to the repository root", () => {
+    expect(
+      exactSearchArguments(
+        { question: "q", scope: ["missing-directory"] },
+        process.cwd(),
+      ),
+    ).toContain("__seqlane_read_context_invalid_scope_7f5a__");
   });
 
   it("degrades when optional retrieval tools fail", async () => {
@@ -132,6 +215,61 @@ describe("size and evidence budgets", () => {
       expect.arrayContaining([
         expect.stringContaining("zvec-grep"),
         expect.stringContaining("Ripwire"),
+      ]),
+    );
+  });
+});
+
+describe("read-context result references", () => {
+  it("removes model references outside selected source ranges", () => {
+    const retrieval = {
+      question: "q",
+      corpus: "src/config.ts:1-4",
+      selectedPaths: ["src/config.ts"],
+      selectedRanges: [{ path: "src/config.ts", startLine: 1, endLine: 4 }],
+      excludedPaths: [],
+      usedExactSearch: true,
+      usedZvecGrep: false,
+      usedRipwire: false,
+      uncertainties: [],
+    };
+    const result = validateReadContextReferences(
+      {
+        answer: "answer",
+        evidence: [
+          {
+            path: "outside.ts",
+            startLine: 1,
+            endLine: 2,
+            relevance: "invalid",
+          },
+          {
+            path: "src/config.ts",
+            startLine: 1,
+            endLine: 4,
+            relevance: "valid",
+          },
+        ],
+        relationships: [],
+        followUpReads: [
+          { path: "src/config.ts", startLine: 2, endLine: 3, reason: "valid" },
+          {
+            path: "src/config.ts",
+            startLine: 5,
+            endLine: 6,
+            reason: "invalid",
+          },
+        ],
+        uncertainties: [],
+        retrieval,
+      },
+      retrieval,
+    );
+    expect(result.evidence).toHaveLength(1);
+    expect(result.followUpReads).toHaveLength(1);
+    expect(result.uncertainties).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("outside the retrieved source ranges"),
       ]),
     );
   });
@@ -186,6 +324,7 @@ describe("provider and output contracts", () => {
     uncertainties: [],
     retrieval: {
       selectedPaths: ["src/config.ts"],
+      selectedRanges: [{ path: "src/config.ts", startLine: 1, endLine: 4 }],
       excludedPaths: [],
       usedExactSearch: true,
       usedZvecGrep: false,
@@ -201,6 +340,7 @@ describe("provider and output contracts", () => {
       expect(init?.headers).toMatchObject({
         authorization: "Bearer secret-value",
       });
+      expect(String(init?.body)).toContain('"max_tokens":1200');
       expect(String(init?.body)).toContain("focused question");
       return new Response(
         JSON.stringify({
@@ -242,5 +382,17 @@ describe("provider and output contracts", () => {
       vi.fn(async () => new Response("denied", { status: 401 })),
     ).catch((value: unknown) => value);
     expect(String(error)).not.toContain("secret-value");
+  });
+
+  it("bounds provider response bytes before parsing JSON", async () => {
+    vi.stubEnv("READ_CONTEXT_BASE_URL", "http://model.test");
+    vi.stubEnv("READ_CONTEXT_API_KEY", "secret-value");
+    vi.stubEnv("READ_CONTEXT_MODEL", "cheap-model");
+    await expect(
+      summarizeWithOpenAICompatible(
+        { question: "q", corpus: "", retrieval: modelResult.retrieval },
+        vi.fn(async () => new Response("x".repeat(256_001), { status: 200 })),
+      ),
+    ).rejects.toThrow("256000-byte limit");
   });
 });

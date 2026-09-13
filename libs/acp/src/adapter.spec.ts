@@ -423,6 +423,28 @@ describe("private ACP adapter", () => {
     expect(runs[0]?.errorCalls).toHaveLength(1);
   });
 
+  it("rejects unsupported read-only agent tasks before ACP execution", async () => {
+    let streamCalls = 0;
+    const executor = createTestExecutor(['{"value":"done"}'], {
+      createAgent: () => ({
+        stream: async () => {
+          streamCalls += 1;
+          return stream('{"value":"done"}');
+        },
+      }),
+    });
+
+    await expect(
+      executor.execute(
+        request({ agent: { ...agent, toolPolicy: "read-only" } }),
+      ),
+    ).rejects.toMatchObject({
+      name: "AcpAdapterError",
+      code: "configuration",
+    });
+    expect(streamCalls).toBe(0);
+  });
+
   it("repairs structured output and reports the normalized diagnostic", async () => {
     const diagnostics: unknown[] = [];
     const executor = createTestExecutor(["not json", '{"value":"repaired"}']);

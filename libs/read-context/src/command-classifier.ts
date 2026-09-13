@@ -8,6 +8,12 @@ export type ClassifiedRead =
       readonly startLine: number;
       readonly endLine: number;
     }
+  | {
+      readonly kind: "workflow";
+      readonly runnerPath: string;
+      readonly workflowPath: string;
+      readonly args: readonly string[];
+    }
   | { readonly kind: "allow" | "unsupported" };
 
 function tokenize(command: string): string[] | undefined {
@@ -47,12 +53,19 @@ export function classifyCommand(command: string): ClassifiedRead {
     return { kind: "allow" };
   }
   if (
-    tokens.some(
-      (token) =>
-        token === "read-context" || basename(token) === "read-context.ts",
-    )
+    tokens[0] === "pnpm" &&
+    tokens[1] === "exec" &&
+    tokens[2] === "node" &&
+    tokens[3] === "apps/cli/bin/run.js" &&
+    tokens[4] === "run" &&
+    tokens[5] === "read-context.ts"
   ) {
-    return { kind: "allow" };
+    return {
+      kind: "workflow",
+      runnerPath: tokens[3],
+      workflowPath: tokens[5],
+      args: tokens.slice(6),
+    };
   }
   if (
     executable === "git" &&

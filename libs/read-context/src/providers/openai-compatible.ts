@@ -2,6 +2,9 @@ import { ReadContextSchema, type ReadContextResult } from "../schemas.js";
 import { ReadContextError } from "../errors.js";
 import { z } from "zod";
 
+const MAX_PROVIDER_RESPONSE_BYTES = 256_000;
+const MAX_PROVIDER_OUTPUT_TOKENS = 1_200;
+
 const jsonTextSchema = z.string().transform((value, context) => {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -45,6 +48,45 @@ function parseJsonObject(value: string): unknown {
   return parsed.data;
 }
 
+async function readBoundedResponse(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  if (response.body === null) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      totalBytes += next.value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw new ReadContextError(
+          `The context provider response exceeded the ${maxBytes}-byte limit`,
+        );
+      }
+      chunks.push(next.value);
+    }
+    const body = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(body);
+  } catch (cause) {
+    if (cause instanceof ReadContextError) throw cause;
+    throw new ReadContextError(
+      "The context provider response could not be read",
+      { cause },
+    );
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function summarizeWithOpenAICompatible(
   request: SummarizeRequest,
   fetchImpl: typeof fetch = fetch,
@@ -72,6 +114,7 @@ export async function summarizeWithOpenAICompatible(
       },
     ],
     response_format: { type: "json_object" },
+    max_tokens: MAX_PROVIDER_OUTPUT_TOKENS,
   };
   let response: Response;
   try {
@@ -94,7 +137,9 @@ export async function summarizeWithOpenAICompatible(
       `The context provider returned HTTP ${response.status}`,
     );
   }
-  const payload = jsonTextSchema.safeParse(await response.text());
+  const payload = jsonTextSchema.safeParse(
+    await readBoundedResponse(response, MAX_PROVIDER_RESPONSE_BYTES),
+  );
   if (!payload.success)
     throw new ReadContextError("The context provider returned invalid JSON", {
       cause: payload.error,

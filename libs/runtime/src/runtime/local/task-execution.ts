@@ -47,7 +47,7 @@ function taskContext(
           cwd,
           taskId,
           invocationId,
-          outputLimitBytes,
+          outputLimitBytes: request.outputLimitBytes ?? outputLimitBytes,
           signal,
           timeoutMs: request.timeoutMs,
         });

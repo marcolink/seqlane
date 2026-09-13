@@ -12,6 +12,7 @@ import {
   ReadContextSchema,
 } from "./index.js";
 import { readContextRetrievalWorkflow } from "./retrieval-workflow.js";
+import { validateReadContextReferences } from "./result-validation.js";
 
 const summarizeReadContextTask = defineAgentTask({
   id: "workflow-read-context.summarize",
@@ -25,6 +26,7 @@ const summarizeReadContextTask = defineAgentTask({
     "Cite repository-relative source paths and line ranges in evidence.",
     "Return only data matching ReadContextSchema.",
   ],
+  toolPolicy: "read-only",
 });
 
 const normalizeReadContextTask = defineTask({
@@ -34,22 +36,19 @@ const normalizeReadContextTask = defineTask({
     summary: ReadContextSchema,
   }),
   output: ReadContextSchema,
-  execute: async ({ input }) => ({
-    ...input.summary,
-    uncertainties: [
-      ...new Set([
-        ...input.summary.uncertainties,
-        ...input.retrieval.uncertainties,
-      ]),
-    ].slice(0, 12),
-    retrieval: {
-      selectedPaths: input.retrieval.selectedPaths,
-      excludedPaths: input.retrieval.excludedPaths,
-      usedExactSearch: input.retrieval.usedExactSearch,
-      usedZvecGrep: input.retrieval.usedZvecGrep,
-      usedRipwire: input.retrieval.usedRipwire,
-    },
-  }),
+  execute: async ({ input }) =>
+    validateReadContextReferences(
+      {
+        ...input.summary,
+        uncertainties: [
+          ...new Set([
+            ...input.summary.uncertainties,
+            ...input.retrieval.uncertainties,
+          ]),
+        ].slice(0, 12),
+      },
+      input.retrieval,
+    ),
 });
 
 export const readContextWorkflow = createFlow({

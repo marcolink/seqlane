@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import { classifyCommand } from "./command-classifier.js";
+import { classifyCommand, type ClassifiedRead } from "./command-classifier.js";
 import { estimateFile } from "./size-estimator.js";
-import { isPathWithinRoot } from "./security.js";
+import { isPathWithinRoot, resolveSafePath } from "./security.js";
+import { readContextInputSchema } from "./schemas.js";
 import { z } from "zod";
 
 const jsonTextSchema = z.string().transform((value, context) => {
@@ -30,14 +30,8 @@ function limit(name: string, fallback: number): number {
   return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
-function rootDirectory(): string | undefined {
-  try {
-    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
-      encoding: "utf8",
-    }).trim();
-  } catch {
-    return undefined;
-  }
+function rootDirectory(): string {
+  return resolve(process.env.SEQLANE_READ_CONTEXT_ROOT ?? process.cwd());
 }
 
 function debug(message: string): void {
@@ -45,26 +39,102 @@ function debug(message: string): void {
     process.stderr.write(`[read-context] ${message}\n`);
 }
 
-export function runReadContextGuard(input: string): string {
-  const parsed = jsonTextSchema.safeParse(input);
-  if (!parsed.success) return "{}";
-  const event = inputSchema(parsed.data);
-  if (event?.command === undefined) return "{}";
-  const candidate = classifyCommand(event.command);
-  if (candidate.kind !== "full" && candidate.kind !== "bounded") {
-    if (candidate.kind === "unsupported")
-      debug("allowed unsupported or compound command");
-    return "{}";
+function deny(reason: string): string {
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: reason,
+    },
+  });
+}
+
+function validWorkflowArguments(
+  root: string,
+  args: readonly string[],
+): boolean {
+  let inputSeen = false;
+  let workspaceSeen = false;
+  let runtimeSeen = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--workspace") {
+      if (workspaceSeen) return false;
+      const workspace = args[index + 1];
+      if (
+        workspace === undefined ||
+        resolveSafePath(root, workspace, "directory") === undefined
+      ) {
+        return false;
+      }
+      workspaceSeen = true;
+      index += 1;
+      continue;
+    }
+    if (argument === "--runtime") {
+      if (runtimeSeen) return false;
+      if (args[index + 1] !== "opencode") return false;
+      runtimeSeen = true;
+      index += 1;
+      continue;
+    }
+    if (argument !== "--input") return false;
+    if (inputSeen) return false;
+    const input = jsonTextSchema.safeParse(args[index + 1] ?? "");
+    if (!input.success) return false;
+    const request = readContextInputSchema.safeParse(input.data);
+    if (!request.success) return false;
+    for (const value of request.data.paths ?? []) {
+      if (resolveSafePath(root, value, "file") === undefined) return false;
+    }
+    for (const value of request.data.scope ?? []) {
+      if (resolveSafePath(root, value, "directory") === undefined) {
+        return false;
+      }
+    }
+    inputSeen = true;
+    index += 1;
   }
-  const root = rootDirectory();
-  if (root === undefined) return "{}";
-  const absolutePath = resolve(process.cwd(), candidate.path);
-  if (!isPathWithinRoot(root, absolutePath)) return "{}";
-  const estimate = estimateFile(absolutePath);
-  if (estimate === undefined) return "{}";
+  return inputSeen && workspaceSeen && runtimeSeen;
+}
+
+function guardWorkflowCommand(
+  root: string,
+  candidate: Extract<ClassifiedRead, { kind: "workflow" }>,
+): string {
+  const runner = resolveSafePath(root, candidate.runnerPath, "file");
+  const workflow = resolveSafePath(root, candidate.workflowPath, "file");
+  return runner !== undefined &&
+    workflow !== undefined &&
+    validWorkflowArguments(root, candidate.args)
+    ? "{}"
+    : deny(
+        "Read-context workflow command must use the repository-local runner, workflow, workspace, and evidence paths",
+      );
+}
+
+function guardReadCommand(
+  root: string,
+  candidate: Extract<ClassifiedRead, { kind: "full" | "bounded" }>,
+): string {
+  const absolutePath = resolve(root, candidate.path);
+  if (!isPathWithinRoot(root, absolutePath)) {
+    return deny("Read-context guard rejected a path outside the repository");
+  }
+  if (resolveSafePath(root, absolutePath, "file") === undefined) {
+    return deny(
+      "Read-context guard rejected a missing, non-file, or symlinked repository path",
+    );
+  }
   const maxLines = limit("READ_CONTEXT_MAX_LINES", 400);
   const maxBytes = limit("READ_CONTEXT_MAX_BYTES", 30_000);
   const maxTargetedLines = limit("READ_CONTEXT_MAX_TARGETED_LINES", 250);
+  const estimate = estimateFile(absolutePath, {
+    root,
+    maxBytes,
+    maxLines,
+  });
+  if (estimate === undefined) return "{}";
   const requestedLines =
     candidate.kind === "bounded"
       ? candidate.endLine - candidate.startLine + 1
@@ -74,12 +144,23 @@ export function runReadContextGuard(input: string): string {
       ? (requestedLines ?? 0) > maxTargetedLines
       : estimate.lines > maxLines || estimate.bytes > maxBytes;
   if (!blocked) return "{}";
-  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use seqlane run read-context.ts for the workflow-read-context workflow with a focused question from the active task and this path as candidate evidence (for example, seqlane run read-context.ts --input '{"question":"...","paths":["${candidate.path}"]}' --runtime opencode --workspace "$PWD"). Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
-  return JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: reason,
-    },
-  });
+  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use pnpm exec node apps/cli/bin/run.js run read-context.ts --input '{"question":"...","paths":["${candidate.path}"]}' --runtime opencode --workspace "$PWD" for the workflow-read-context workflow with a focused question from the active task. Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
+  return deny(reason);
+}
+
+export function runReadContextGuard(input: string): string {
+  const parsed = jsonTextSchema.safeParse(input);
+  if (!parsed.success) return "{}";
+  const event = inputSchema(parsed.data);
+  if (event?.command === undefined) return "{}";
+  const candidate = classifyCommand(event.command);
+  const root = rootDirectory();
+  if (candidate.kind === "workflow")
+    return guardWorkflowCommand(root, candidate);
+  if (candidate.kind !== "full" && candidate.kind !== "bounded") {
+    if (candidate.kind === "unsupported")
+      debug("allowed unsupported or compound command");
+    return "{}";
+  }
+  return guardReadCommand(root, candidate);
 }
