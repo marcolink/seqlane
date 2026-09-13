@@ -71,7 +71,7 @@ const FAKE_SERVER_SOURCE = `
       } else if (message.method === "turn/start") {
         turnNumber += 1;
         const turnId = "turn-" + turnNumber;
-        if (message.params.sandboxPolicy?.type !== "read-only") fail("turn/start must use read-only sandbox policy");
+        if (message.params.sandboxPolicy?.type !== "readOnly") fail("turn/start must use readOnly sandbox policy");
         respond({ turn: { id: turnId, status: "inProgress", items: [] } });
         if (message.params.input[0].text.startsWith("Return exactly")) {
           setImmediate(() => {
