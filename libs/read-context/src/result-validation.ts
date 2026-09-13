@@ -4,26 +4,12 @@ import {
   type ReadContextRetrieval,
 } from "./schemas.js";
 
-function rangeIsSelected(
-  path: string,
-  startLine: number,
-  endLine: number,
-  retrieval: ReadContextRetrieval,
-): boolean {
-  if (startLine > endLine) return false;
-  return retrieval.selectedRanges.some(
-    (range) =>
-      range.path === path &&
-      startLine >= range.startLine &&
-      endLine <= range.endLine,
-  );
-}
-
 export function validateReadContextReferences(
   result: ReadContextResult,
   retrieval: ReadContextRetrieval,
 ): ReadContextResult {
-  const selectedPaths = new Set(retrieval.selectedPaths);
+  const selectedPaths = new Set(result.retrieval.selectedPaths);
+  const selectedRanges = result.retrieval.selectedRanges;
   let removedReference = false;
   const evidence = result.evidence.filter((item) => {
     const validPath = selectedPaths.has(item.path);
@@ -32,14 +18,24 @@ export function validateReadContextReferences(
       !hasRange ||
       (item.startLine !== undefined &&
         item.endLine !== undefined &&
-        rangeIsSelected(item.path, item.startLine, item.endLine, retrieval));
+        selectedRanges.some(
+          (range) =>
+            range.path === item.path &&
+            item.startLine! >= range.startLine &&
+            item.endLine! <= range.endLine,
+        ));
     if (!validPath || !validRange) removedReference = true;
     return validPath && validRange;
   });
   const followUpReads = result.followUpReads.filter((item) => {
     const valid =
       selectedPaths.has(item.path) &&
-      rangeIsSelected(item.path, item.startLine, item.endLine, retrieval);
+      selectedRanges.some(
+        (range) =>
+          range.path === item.path &&
+          item.startLine >= range.startLine &&
+          item.endLine <= range.endLine,
+      );
     if (!valid) removedReference = true;
     return valid;
   });
@@ -58,8 +54,8 @@ export function validateReadContextReferences(
       ]),
     ].slice(0, 12),
     retrieval: {
-      selectedPaths: retrieval.selectedPaths,
-      selectedRanges: retrieval.selectedRanges,
+      selectedPaths: result.retrieval.selectedPaths,
+      selectedRanges: result.retrieval.selectedRanges,
       excludedPaths: retrieval.excludedPaths,
       usedExactSearch: retrieval.usedExactSearch,
       usedZvecGrep: retrieval.usedZvecGrep,

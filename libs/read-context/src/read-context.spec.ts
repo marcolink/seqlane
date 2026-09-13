@@ -461,7 +461,7 @@ describe("size and evidence budgets", () => {
 });
 
 describe("read-context result references", () => {
-  it("removes model references outside selected source ranges", () => {
+  it("keeps validated ranges from bounded follow-up reads", () => {
     const retrieval = {
       question: "q",
       corpus: "src/config.ts:1-4",
@@ -489,6 +489,12 @@ describe("read-context result references", () => {
             endLine: 4,
             relevance: "valid",
           },
+          {
+            path: "src/runtime.ts",
+            startLine: 1,
+            endLine: 3,
+            relevance: "follow-up",
+          },
         ],
         relationships: [],
         followUpReads: [
@@ -501,12 +507,28 @@ describe("read-context result references", () => {
           },
         ],
         uncertainties: [],
-        retrieval,
+        retrieval: {
+          ...retrieval,
+          selectedPaths: ["src/config.ts", "src/runtime.ts"],
+          selectedRanges: [
+            ...retrieval.selectedRanges,
+            { path: "src/runtime.ts", startLine: 1, endLine: 3 },
+          ],
+        },
       },
       retrieval,
     );
-    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence).toHaveLength(2);
     expect(result.followUpReads).toHaveLength(1);
+    expect(result.retrieval.selectedPaths).toEqual([
+      "src/config.ts",
+      "src/runtime.ts",
+    ]);
+    expect(result.retrieval.selectedRanges).toContainEqual({
+      path: "src/runtime.ts",
+      startLine: 1,
+      endLine: 3,
+    });
     expect(result.uncertainties).toEqual(
       expect.arrayContaining([
         expect.stringContaining("outside the retrieved source ranges"),
