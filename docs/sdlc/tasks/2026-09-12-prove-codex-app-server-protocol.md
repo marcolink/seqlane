@@ -70,7 +70,7 @@ Establish the pinned Codex CLI and observed app-server contract before the adapt
 ## Outcome
 
 Added an opt-in JSONL probe with bounded framing, request correlation, strict
-JSON-RPC and result validation, typed output validation, exact checkpoint fork
+protocol envelope and result validation, typed output validation, exact checkpoint fork
 capture, and interruption of a read-only turn while an approval request is
 pending. The probe bounds transcript retention and process shutdown, and emits
 an advisory diagnostic for an unconfirmed CLI version. Deterministic fake-server

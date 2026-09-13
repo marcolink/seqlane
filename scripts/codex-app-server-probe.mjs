@@ -104,8 +104,8 @@ function isRequestId(value) {
 }
 
 function validateJsonRpcEnvelope(message) {
-  if (message.jsonrpc !== "2.0")
-    throw new Error("Codex app-server message is not JSON-RPC 2.0");
+  if (message.jsonrpc !== undefined && message.jsonrpc !== "2.0")
+    throw new Error("Codex app-server message has an invalid JSON-RPC marker");
   if (Object.hasOwn(message, "id") && !isRequestId(message.id))
     throw new Error("Codex app-server message has an invalid request id");
   if (typeof message.method === "string") {

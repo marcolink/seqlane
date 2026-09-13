@@ -34,8 +34,8 @@ function spawnServer() {
     input.on("line", (line) => {
       const message = JSON.parse(line);
       if (message.method === "probe") {
-        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "probe/event", params: { value: 1 } }) + "\\n");
-        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { ok: true } }) + "\\n");
+        process.stdout.write(JSON.stringify({ method: "probe/event", params: { value: 1 } }) + "\\n");
+        process.stdout.write(JSON.stringify({ id: message.id, result: { ok: true } }) + "\\n");
       }
     });
   `;
@@ -58,7 +58,7 @@ const FAKE_SERVER_SOURCE = `
     const fail = (message) => { console.error(message); process.exit(1); };
     input.on("line", (line) => {
       const message = JSON.parse(line);
-      const respond = (result) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\\n");
+      const respond = (result) => process.stdout.write(JSON.stringify({ id: message.id, result }) + "\\n");
       if (message.method === "initialize") respond({ userAgent: "codex-cli 0.147.0", codexHome: "/tmp/codex", platformFamily: "unix", platformOs: "test" });
       else if (message.method === "model/list") respond({ data: [{ id: "openai/gpt-test", model: "gpt-test", supportedReasoningEfforts: [{ reasoningEffort: "high" }], isDefault: true }] });
       else if (message.method === "thread/start") {
@@ -76,16 +76,16 @@ const FAKE_SERVER_SOURCE = `
         if (message.params.input[0].text.startsWith("Return exactly")) {
           setImmediate(() => {
             if (message.params.approvalPolicy !== "never") fail("structured turn approval policy was unexpected");
-            process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "item/completed", params: { threadId: message.params.threadId, turnId, item: { id: "item-" + turnId, type: "agentMessage", content: [{ type: "text", text: JSON.stringify({ ok: true, version: "probe" }) }] } } }) + "\\n");
-            process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: message.params.threadId, turn: { id: turnId, status: "completed", items: [] } } }) + "\\n");
+            process.stdout.write(JSON.stringify({ method: "item/completed", params: { threadId: message.params.threadId, turnId, item: { id: "item-" + turnId, type: "agentMessage", content: [{ type: "text", text: JSON.stringify({ ok: true, version: "probe" }) }] } } }) + "\\n");
+            process.stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: message.params.threadId, turn: { id: turnId, status: "completed", items: [] } } }) + "\\n");
           });
         } else if (message.params.approvalPolicy === "on-request") {
-          setImmediate(() => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 99, method: "item/commandExecution/requestApproval", params: { threadId: message.params.threadId, turnId } }) + "\\n"));
+          setImmediate(() => process.stdout.write(JSON.stringify({ id: 99, method: "item/commandExecution/requestApproval", params: { threadId: message.params.threadId, turnId } }) + "\\n"));
         } else fail("turn/start approval policy was unexpected");
       } else if (message.method === "turn/interrupt") {
         if (message.params.threadId !== "thread-2" || message.params.turnId !== "turn-2") fail("turn/interrupt correlation was unexpected");
         respond({});
-        setImmediate(() => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: message.params.threadId, turn: { id: message.params.turnId, status: "interrupted", items: [] } } }) + "\\n"));
+        setImmediate(() => process.stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: message.params.threadId, turn: { id: message.params.turnId, status: "interrupted", items: [] } } }) + "\\n"));
       }
     });
   `;
@@ -109,19 +109,15 @@ exec ${process.execPath} ${server} "$@"
 
 describe("Codex app-server protocol probe client", () => {
   it("parses only object JSONL messages", () => {
-    assert.deepEqual(
-      parseJsonLine('{"jsonrpc":"2.0","id":1,"result":{"ok":true}}'),
-      { jsonrpc: "2.0", id: 1, result: { ok: true } },
-    );
+    assert.deepEqual(parseJsonLine('{"id":1,"result":{"ok":true}}'), {
+      id: 1,
+      result: { ok: true },
+    });
     assert.throws(() => parseJsonLine("[]"), /not an object/);
     assert.throws(() => parseJsonLine("not-json"), /invalid JSON/);
     assert.throws(
-      () => parseJsonLine('{"id":1,"result":{}}'),
-      /not JSON-RPC 2.0/,
-    );
-    assert.throws(
       () => parseJsonLine('{"jsonrpc":"1.0","id":1,"result":{}}'),
-      /not JSON-RPC 2.0/,
+      /invalid JSON-RPC marker/,
     );
     assert.throws(
       () => parseJsonLine('{"jsonrpc":"2.0","id":1}'),
