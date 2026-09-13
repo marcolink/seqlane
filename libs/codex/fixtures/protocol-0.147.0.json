@@ -1,0 +1,216 @@
+{
+  "protocol": "codex-app-server",
+  "version": "0.147.0",
+  "generatedBy": "seqlane-protocol-probe",
+  "initialize": {
+    "responseKeys": [
+      "codexHome",
+      "platformFamily",
+      "platformOs",
+      "userAgent"
+    ],
+    "userAgent": "seqlane-protocol-probe/0.147.0 (Mac OS 26.6.2; arm64) WarpTerminal/v0.2026.08.12.21.54.stable_00 (seqlane-protocol-probe; 0.0.0)",
+    "platformFamily": "unix",
+    "platformOs": "macos"
+  },
+  "modelList": {
+    "responseKeys": [
+      "data",
+      "nextCursor"
+    ],
+    "defaultModel": "gpt-5.6-sol",
+    "models": [
+      {
+        "id": "gpt-5.6-sol",
+        "model": "gpt-5.6-sol",
+        "isDefault": true,
+        "supportedReasoningEfforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ]
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "model": "gpt-5.6-terra",
+        "isDefault": false,
+        "supportedReasoningEfforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ]
+      },
+      {
+        "id": "gpt-5.6-luna",
+        "model": "gpt-5.6-luna",
+        "isDefault": false,
+        "supportedReasoningEfforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      {
+        "id": "gpt-5.5",
+        "model": "gpt-5.5",
+        "isDefault": false,
+        "supportedReasoningEfforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      {
+        "id": "gpt-5.2",
+        "model": "gpt-5.2",
+        "isDefault": false,
+        "supportedReasoningEfforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      }
+    ]
+  },
+  "structuredOutput": {
+    "request": {
+      "method": "turn/start",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "version"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "eventMethods": [
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "thread/status/changed",
+      "turn/started",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "mcpServer/startupStatus/updated",
+      "item/started",
+      "item/completed",
+      "item/started",
+      "item/agentMessage/delta",
+      "item/agentMessage/delta",
+      "item/agentMessage/delta",
+      "item/agentMessage/delta",
+      "item/agentMessage/delta",
+      "item/agentMessage/delta",
+      "item/agentMessage/delta",
+      "item/agentMessage/delta",
+      "item/agentMessage/delta",
+      "item/completed",
+      "thread/tokenUsage/updated",
+      "thread/status/changed",
+      "turn/completed",
+      "thread/tokenUsage/updated"
+    ],
+    "terminalStatus": "completed",
+    "output": {
+      "ok": true,
+      "version": "probe"
+    }
+  },
+  "fork": {
+    "request": {
+      "method": "thread/fork",
+      "params": {
+        "lastTurnId": "<completed-turn-id>",
+        "threadId": "<thread-id>"
+      }
+    },
+    "responseKeys": [
+      "activePermissionProfile",
+      "approvalPolicy",
+      "approvalsReviewer",
+      "cwd",
+      "instructionSources",
+      "model",
+      "modelProvider",
+      "multiAgentMode",
+      "reasoningEffort",
+      "runtimeWorkspaceRoots",
+      "sandbox",
+      "serviceTier",
+      "thread"
+    ],
+    "returnedThread": "<forked-thread-id>"
+  },
+  "interrupt": {
+    "request": {
+      "method": "turn/interrupt",
+      "params": {
+        "threadId": "<thread-id>",
+        "turnId": "<active-turn-id>"
+      }
+    },
+    "terminalStatus": "interrupted"
+  },
+  "approval": {
+    "requestMethod": "item/fileChange/requestApproval",
+    "decisionResponseSent": false,
+    "interruptedWithoutDecision": true
+  }
+}
