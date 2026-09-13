@@ -13,7 +13,11 @@ import {
 } from "./security.js";
 import { readBoundedFile } from "./bounded-read.js";
 import { nodeCommandRunner, type CommandRunner } from "./subprocess.js";
-import { readContextInputSchema, type ReadContextRequest } from "./schemas.js";
+import {
+  READ_CONTEXT_CORPUS_MAX_BYTES,
+  readContextInputSchema,
+  type ReadContextRequest,
+} from "./schemas.js";
 import { z } from "zod";
 
 const EXACT_SEARCH_TIMEOUT_MS = 5_000;
@@ -143,13 +147,39 @@ function makeCorpus(
     endLine: number;
     content: string;
   }[],
-): string {
-  return units
-    .map(
-      (unit) =>
-        `--- ${unit.path}:${unit.startLine}-${unit.endLine} ---\n${unit.content}`,
-    )
-    .join("\n\n");
+  maxBytes: number,
+): { corpus: string; units: (typeof units)[number][]; truncated: boolean } {
+  const retained: (typeof units)[number][] = [];
+  let corpus = "";
+  let truncated = false;
+  for (const unit of units) {
+    const prefix = retained.length === 0 ? "" : "\n\n";
+    const header = `--- ${unit.path}:${unit.startLine}-${unit.endLine} ---\n`;
+    const available =
+      maxBytes - Buffer.byteLength(corpus + prefix + header, "utf8");
+    if (available <= 0) {
+      truncated = true;
+      break;
+    }
+    const content =
+      Buffer.byteLength(unit.content, "utf8") <= available
+        ? unit.content
+        : truncateUtf8(unit.content, available);
+    corpus += prefix + header + content;
+    retained.push(unit);
+    if (content !== unit.content) {
+      truncated = true;
+      break;
+    }
+  }
+  return { corpus, units: retained, truncated };
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  let end = Math.min(value.length, maxBytes);
+  while (end > 0 && Buffer.byteLength(value.slice(0, end), "utf8") > maxBytes)
+    end -= 1;
+  return value.slice(0, end);
 }
 
 function safeScope(
@@ -336,13 +366,32 @@ export async function retrieveEvidenceFromScrapes(
     mergeCandidates([...explicit, ...exactCandidates, ...optional.candidates]),
     {
       maxFiles: request.maxFiles ?? 12,
-      maxBytes: request.maxBytes ?? 16_000,
+      maxBytes: Math.min(
+        request.maxBytes ?? 16_000,
+        READ_CONTEXT_CORPUS_MAX_BYTES,
+      ),
+      maxScanBytes: 128_000,
       readFile: async (path, readRequest) =>
         readBoundedFile(root, path, readRequest),
     },
   );
-  const allExcluded = [...excludedPaths, ...selection.excludedPaths];
+  const requestedBytes = request.maxBytes ?? 16_000;
+  const corpusBudget = Math.min(requestedBytes, READ_CONTEXT_CORPUS_MAX_BYTES);
+  const corpusSelection = makeCorpus(selection.units, corpusBudget);
+  const retainedUnits = new Set(corpusSelection.units);
+  const corpusExcluded = selection.units
+    .filter((unit) => !retainedUnits.has(unit))
+    .map((unit) => ({ path: unit.path, reason: "corpus byte budget" }));
+  const retainedPaths = new Set(corpusSelection.units.map((unit) => unit.path));
+  const allExcluded = [
+    ...excludedPaths,
+    ...selection.excludedPaths,
+    ...corpusExcluded,
+  ];
+  const corpusLimited =
+    requestedBytes > READ_CONTEXT_CORPUS_MAX_BYTES || corpusSelection.truncated;
   if (
+    corpusLimited ||
     allExcluded.some(
       ({ reason }) => reason.includes("budget") || reason.includes("bounded"),
     )
@@ -350,15 +399,32 @@ export async function retrieveEvidenceFromScrapes(
     uncertainties.push(
       "Evidence was truncated or excluded by configured file/byte limits",
     );
+  if (allExcluded.some(({ reason }) => reason.includes("scan-work")))
+    uncertainties.push(
+      "Some requested evidence exceeded the bounded scan-work limit",
+    );
+  if (requestedBytes > READ_CONTEXT_CORPUS_MAX_BYTES)
+    uncertainties.push(
+      `Requested evidence budget was capped at ${READ_CONTEXT_CORPUS_MAX_BYTES} bytes to fit the retrieval corpus contract`,
+    );
   if (selection.units.length === 0)
     uncertainties.push(
       "No readable source evidence matched the question or supplied paths",
     );
   return {
     question: request.question,
-    corpus: makeCorpus(selection.units),
-    selectedPaths: selection.selectedPaths,
-    selectedRanges: selection.selectedRanges,
+    corpus: corpusSelection.corpus,
+    selectedPaths: selection.selectedPaths.filter((path) =>
+      retainedPaths.has(path),
+    ),
+    selectedRanges: selection.selectedRanges.filter((range) =>
+      corpusSelection.units.some(
+        (unit) =>
+          unit.path === range.path &&
+          unit.startLine === range.startLine &&
+          unit.endLine === range.endLine,
+      ),
+    ),
     excludedPaths: allExcluded,
     usedExactSearch: anchors.length > 0,
     usedZvecGrep: optional.usedZvecGrep,

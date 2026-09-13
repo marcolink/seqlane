@@ -5,6 +5,7 @@ export interface BoundedReadRequest {
   readonly startLine: number;
   readonly endLine: number;
   readonly maxBytes: number;
+  readonly maxScanBytes: number;
 }
 
 export interface BoundedReadResult {
@@ -12,6 +13,7 @@ export interface BoundedReadResult {
   readonly startLine: number;
   readonly endLine: number;
   readonly truncated: boolean;
+  readonly excludedReason?: string;
 }
 
 /** Reads only the requested line range and byte budget from a real file. */
@@ -22,6 +24,13 @@ export function readBoundedFile(
 ): BoundedReadResult | undefined {
   const target = resolveSafePath(root, path, "file");
   if (target === undefined) return undefined;
+  if (
+    !Number.isSafeInteger(request.maxBytes) ||
+    request.maxBytes <= 0 ||
+    !Number.isSafeInteger(request.maxScanBytes) ||
+    request.maxScanBytes <= 0
+  )
+    return undefined;
   const descriptor = openSync(target, "r");
   try {
     const size = fstatSync(descriptor).size;
@@ -35,7 +44,23 @@ export function readBoundedFile(
     let stopPosition = 0;
 
     while (offset < size && !stopped) {
-      const count = readSync(descriptor, buffer, 0, buffer.length, offset);
+      const remainingScanBytes = request.maxScanBytes - offset;
+      if (remainingScanBytes <= 0) {
+        return {
+          content: "",
+          startLine: request.startLine,
+          endLine: request.endLine,
+          truncated: true,
+          excludedReason: "scan-work budget",
+        };
+      }
+      const count = readSync(
+        descriptor,
+        buffer,
+        0,
+        Math.min(buffer.length, remainingScanBytes),
+        offset,
+      );
       if (count === 0) break;
       for (let index = 0; index < count; index += 1) {
         const value = buffer[index] ?? 0;
@@ -64,6 +89,18 @@ export function readBoundedFile(
     }
 
     if (!selected) return undefined;
+    if (!stopped && offset >= request.maxScanBytes && offset < size) {
+      return {
+        content: "",
+        startLine: request.startLine,
+        endLine: request.endLine,
+        truncated: true,
+        excludedReason: "scan-work budget",
+      };
+    }
+    if (!stopped && line >= request.startLine && line <= request.endLine) {
+      selectedLine = line;
+    }
     const endLine = Math.max(
       request.startLine,
       Math.min(request.endLine, selectedLine),

@@ -19,10 +19,15 @@ import { formatReadContextMarkdown } from "./format.js";
 import { runReadContextGuard } from "./hook.js";
 import { summarizeWithOpenAICompatible } from "./providers/openai-compatible.js";
 import { rankCandidates, selectEvidence } from "./evidence-selection.js";
+import { readBoundedFile } from "./bounded-read.js";
 import { validateReadContextReferences } from "./result-validation.js";
 import { estimateFile } from "./size-estimator.js";
 import { ReadContextSchema } from "./schemas.js";
-import { exactSearchArguments, retrieveEvidence } from "./retrieval.js";
+import {
+  exactSearchArguments,
+  retrieveEvidence,
+  retrieveEvidenceFromScrapes,
+} from "./retrieval.js";
 import readContextWorkflow from "./workflow.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -47,8 +52,8 @@ describe("command classification and hook policy", () => {
   });
 
   it("allows searches, workflow calls, metadata, and unsupported compounds", () => {
-    expect(classifyCommand("rg question src").kind).toBe("allow");
-    expect(classifyCommand("git status --short").kind).toBe("allow");
+    expect(classifyCommand("rg question src").kind).toBe("path-bearing");
+    expect(classifyCommand("git status --short").kind).toBe("path-bearing");
     expect(
       classifyCommand(
         "pnpm exec node apps/cli/bin/run.js run read-context.ts --input '{}' --workspace .",
@@ -57,6 +62,42 @@ describe("command classification and hook policy", () => {
     expect(classifyCommand("cat read-context.ts").kind).toBe("full");
     expect(classifyCommand("cat /tmp/read-context.ts").kind).toBe("full");
     expect(classifyCommand("cat a.ts && cat b.ts").kind).toBe("unsupported");
+  });
+
+  it("rejects sensitive paths from direct and path-bearing commands", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-sensitive-hook-"));
+    await writeFile(join(root, ".env"), "TOKEN=secret");
+    const previous = process.cwd();
+    const previousRoot = process.env.SEQLANE_READ_CONTEXT_ROOT;
+    process.env.SEQLANE_READ_CONTEXT_ROOT = root;
+    process.chdir(root);
+    try {
+      for (const command of [
+        "cat .env",
+        "rg secret .env",
+        "grep secret .env",
+        "git grep secret -- .env",
+        "git show HEAD:.env",
+        "git diff -- .env",
+        "git status --short -- .env",
+        "git log -- .env",
+        "rg secret /tmp/.env",
+      ]) {
+        expect(
+          JSON.parse(
+            runReadContextGuard(JSON.stringify({ tool_input: { command } })),
+          ),
+        ).toMatchObject({
+          hookSpecificOutput: { permissionDecision: "deny" },
+        });
+      }
+    } finally {
+      process.chdir(previous);
+      if (previousRoot === undefined)
+        delete process.env.SEQLANE_READ_CONTEXT_ROOT;
+      else process.env.SEQLANE_READ_CONTEXT_ROOT = previousRoot;
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("returns valid deny JSON for an oversized file and no debug noise on stdout", async () => {
@@ -129,6 +170,24 @@ describe("command classification and hook policy", () => {
       await rm(outside, { recursive: true, force: true });
     }
   });
+
+  it("finalizes the last selected line at EOF without a trailing newline", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-eof-"));
+    try {
+      const path = join(root, "source.ts");
+      await writeFile(path, "a\nb\nc");
+      expect(
+        readBoundedFile(root, path, {
+          startLine: 1,
+          endLine: 10,
+          maxBytes: 100,
+          maxScanBytes: 100,
+        }),
+      ).toMatchObject({ content: "a\nb\nc", startLine: 1, endLine: 3 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("size and evidence budgets", () => {
@@ -196,6 +255,59 @@ describe("size and evidence budgets", () => {
         process.cwd(),
       ),
     ).toContain("__seqlane_read_context_invalid_scope_7f5a__");
+  });
+
+  it("excludes evidence that exceeds the bounded scan-work limit", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-scan-limit-"));
+    try {
+      const path = join(root, "source.ts");
+      await writeFile(path, `${"line\n".repeat(60_000)}`);
+      const result = await retrieveEvidenceFromScrapes(
+        { question: "q", paths: ["source.ts"] },
+        {
+          exact: {
+            exitCode: 0,
+            stdout: '{"path":{"text":"source.ts"},"line_number":40000}',
+            stderr: "",
+          },
+          zvec: { exitCode: 1, stdout: "", stderr: "disabled" },
+          ripwire: { exitCode: 1, stdout: "", stderr: "disabled" },
+        },
+        { root },
+      );
+      expect(result.selectedPaths).toEqual([]);
+      expect(result.uncertainties).toEqual(
+        expect.arrayContaining([expect.stringContaining("scan-work limit")]),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("caps oversized evidence requests before corpus construction", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-corpus-limit-"));
+    try {
+      await writeFile(join(root, "source.ts"), `${"line\n".repeat(10_000)}`);
+      const result = await retrieveEvidenceFromScrapes(
+        { question: "q", paths: ["source.ts"], maxBytes: 40_000 },
+        {
+          exact: { exitCode: 1, stdout: "", stderr: "none" },
+          zvec: { exitCode: 1, stdout: "", stderr: "disabled" },
+          ripwire: { exitCode: 1, stdout: "", stderr: "disabled" },
+        },
+        { root },
+      );
+      expect(Buffer.byteLength(result.corpus, "utf8")).toBeLessThanOrEqual(
+        32_000,
+      );
+      expect(result.uncertainties).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("capped at 32000 bytes"),
+        ]),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("degrades when optional retrieval tools fail", async () => {
@@ -371,6 +483,22 @@ describe("provider and output contracts", () => {
     const parsed = ReadContextSchema.parse(modelResult);
     expect(formatReadContextMarkdown(parsed)).toContain("## Answer");
     expect(formatReadContextMarkdown(parsed)).toContain("src/config.ts:1-4");
+  });
+
+  it("rejects reversed model line ranges", () => {
+    expect(
+      ReadContextSchema.safeParse({
+        ...modelResult,
+        evidence: [
+          {
+            path: "src/config.ts",
+            startLine: 4,
+            endLine: 1,
+            relevance: "reversed",
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 
   it("does not expose the provider credential in HTTP errors", async () => {

@@ -28,6 +28,7 @@ export interface EvidenceReadRequest {
   readonly startLine: number;
   readonly endLine: number;
   readonly maxBytes: number;
+  readonly maxScanBytes: number;
 }
 
 export interface EvidenceReadResult {
@@ -35,6 +36,7 @@ export interface EvidenceReadResult {
   readonly startLine: number;
   readonly endLine: number;
   readonly truncated: boolean;
+  readonly excludedReason?: string;
 }
 
 export interface EvidenceSelectionOptions {
@@ -42,6 +44,7 @@ export interface EvidenceSelectionOptions {
   maxBytes: number;
   maxChunkLines?: number;
   maxChunkBytes?: number;
+  maxScanBytes?: number;
   readFile: (
     path: string,
     request: EvidenceReadRequest,
@@ -155,6 +158,7 @@ function validateEvidenceBudgets(
   options: EvidenceSelectionOptions,
   maxChunkLines: number,
   maxChunkBytes: number,
+  maxScanBytes: number,
 ): void {
   if (
     !Number.isSafeInteger(options.maxFiles) ||
@@ -174,6 +178,11 @@ function validateEvidenceBudgets(
       "Evidence chunk budgets must be positive safe integers",
     );
   }
+  if (!Number.isSafeInteger(maxScanBytes) || maxScanBytes <= 0) {
+    throw new RangeError(
+      "Evidence scan budget must be a positive safe integer",
+    );
+  }
 }
 
 export async function selectEvidence(
@@ -182,7 +191,8 @@ export async function selectEvidence(
 ): Promise<EvidenceSelection> {
   const maxChunkLines = options.maxChunkLines ?? 120;
   const maxChunkBytes = options.maxChunkBytes ?? 16_000;
-  validateEvidenceBudgets(options, maxChunkLines, maxChunkBytes);
+  const maxScanBytes = options.maxScanBytes ?? 128_000;
+  validateEvidenceBudgets(options, maxChunkLines, maxChunkBytes, maxScanBytes);
   const units: EvidenceUnit[] = [];
   const selectedPaths: string[] = [];
   const selectedRanges: {
@@ -208,10 +218,15 @@ export async function selectEvidence(
       ranges.length === 0 ? [{ startLine: 1, endLine: maxChunkLines }] : ranges;
     let fileHadContent = false;
     let fileWasBounded = false;
+    let fileExcludedReason: string | undefined;
+    const fileUnits: EvidenceUnit[] = [];
+    const fileRanges: { path: string; startLine: number; endLine: number }[] =
+      [];
+    let fileBytes = 0;
 
     for (const requestedRange of requestedRanges) {
-      if (usedBytes >= options.maxBytes) break;
-      const remainingBytes = options.maxBytes - usedBytes;
+      if (usedBytes + fileBytes >= options.maxBytes) break;
+      const remainingBytes = options.maxBytes - usedBytes - fileBytes;
       const allowedBytes = Math.min(remainingBytes, maxChunkBytes);
       let read: EvidenceReadResult | undefined;
       try {
@@ -222,30 +237,39 @@ export async function selectEvidence(
             requestedRange.startLine + maxChunkLines - 1,
           ),
           maxBytes: allowedBytes,
+          maxScanBytes,
         });
       } catch {
         read = undefined;
       }
       if (read === undefined) continue;
+      if (read.excludedReason !== undefined) {
+        fileExcludedReason = read.excludedReason;
+        break;
+      }
       const content = takeUtf8Prefix(read.content, allowedBytes);
       if (content.length === 0) break;
       fileHadContent = true;
       fileWasBounded ||= read.truncated || content !== read.content;
-      units.push({
+      fileUnits.push({
         path: candidate.path,
         ...(candidate.symbol === undefined ? {} : { symbol: candidate.symbol }),
         startLine: read.startLine,
         endLine: read.endLine,
         content,
       });
-      selectedRanges.push({
+      fileRanges.push({
         path: candidate.path,
         startLine: read.startLine,
         endLine: read.endLine,
       });
-      usedBytes += Buffer.byteLength(content, "utf8");
+      fileBytes += Buffer.byteLength(content, "utf8");
     }
 
+    if (fileExcludedReason !== undefined) {
+      excludedPaths.push({ path: candidate.path, reason: fileExcludedReason });
+      continue;
+    }
     if (!fileHadContent) {
       excludedPaths.push({
         path: candidate.path,
@@ -253,6 +277,9 @@ export async function selectEvidence(
       });
       continue;
     }
+    units.push(...fileUnits);
+    selectedRanges.push(...fileRanges);
+    usedBytes += fileBytes;
     selectedPaths.push(candidate.path);
     if (fileWasBounded) {
       excludedPaths.push({

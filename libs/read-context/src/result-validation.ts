@@ -10,6 +10,7 @@ function rangeIsSelected(
   endLine: number,
   retrieval: ReadContextRetrieval,
 ): boolean {
+  if (startLine > endLine) return false;
   return retrieval.selectedRanges.some(
     (range) =>
       range.path === path &&

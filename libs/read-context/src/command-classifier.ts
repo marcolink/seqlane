@@ -14,6 +14,11 @@ export type ClassifiedRead =
       readonly workflowPath: string;
       readonly args: readonly string[];
     }
+  | {
+      readonly kind: "path-bearing";
+      readonly operation: "search" | "metadata";
+      readonly paths: readonly string[];
+    }
   | { readonly kind: "allow" | "unsupported" };
 
 function tokenize(command: string): string[] | undefined {
@@ -40,17 +45,27 @@ function bounded(
   return { kind: "bounded", path, startLine, endLine };
 }
 
+function pathBearing(
+  operation: "search" | "metadata",
+  tokens: readonly string[],
+): ClassifiedRead {
+  return {
+    kind: "path-bearing",
+    operation,
+    paths: tokens.filter((token) => token !== "--" && !token.startsWith("-")),
+  };
+}
+
 export function classifyCommand(command: string): ClassifiedRead {
   const tokens = tokenize(command.trim());
   if (tokens === undefined || tokens.length === 0)
     return { kind: "unsupported" };
   const executable = basename(tokens[0] ?? "");
-  if (
-    executable === "rg" ||
-    executable === "grep" ||
-    (executable === "git" && tokens[1] === "grep")
-  ) {
-    return { kind: "allow" };
+  if (executable === "rg" || executable === "grep") {
+    return pathBearing("search", tokens.slice(1));
+  }
+  if (executable === "git" && tokens[1] === "grep") {
+    return pathBearing("search", tokens.slice(2));
   }
   if (
     tokens[0] === "pnpm" &&
@@ -71,7 +86,7 @@ export function classifyCommand(command: string): ClassifiedRead {
     executable === "git" &&
     (tokens[1] === "status" || tokens[1] === "diff" || tokens[1] === "log")
   ) {
-    return { kind: "allow" };
+    return pathBearing("metadata", tokens.slice(2));
   }
   if (
     (executable === "cat" || executable === "less" || executable === "more") &&

@@ -1,7 +1,13 @@
+import { lstatSync } from "node:fs";
 import { resolve } from "node:path";
 import { classifyCommand, type ClassifiedRead } from "./command-classifier.js";
 import { estimateFile } from "./size-estimator.js";
-import { isPathWithinRoot, resolveSafePath } from "./security.js";
+import {
+  deniedPathReason,
+  isPathWithinRoot,
+  repositoryRelativePath,
+  resolveSafePath,
+} from "./security.js";
 import { readContextInputSchema } from "./schemas.js";
 import { z } from "zod";
 
@@ -121,6 +127,12 @@ function guardReadCommand(
   if (!isPathWithinRoot(root, absolutePath)) {
     return deny("Read-context guard rejected a path outside the repository");
   }
+  const deniedReason = deniedPathReason(
+    repositoryRelativePath(root, absolutePath),
+  );
+  if (deniedReason !== undefined) {
+    return deny(`Read-context guard rejected a ${deniedReason}`);
+  }
   if (resolveSafePath(root, absolutePath, "file") === undefined) {
     return deny(
       "Read-context guard rejected a missing, non-file, or symlinked repository path",
@@ -148,6 +160,40 @@ function guardReadCommand(
   return deny(reason);
 }
 
+function guardPathBearingCommand(
+  root: string,
+  candidate: Extract<ClassifiedRead, { kind: "path-bearing" }>,
+): string {
+  for (const path of candidate.paths) {
+    const absolute = resolve(root, path);
+    if (!isPathWithinRoot(root, absolute)) {
+      return deny(
+        `Read-context guard rejected a ${candidate.operation} path outside the repository`,
+      );
+    }
+    const deniedReason = deniedPathReason(
+      repositoryRelativePath(root, absolute),
+    );
+    if (deniedReason !== undefined) {
+      return deny(
+        `Read-context guard rejected a ${candidate.operation} of a ${deniedReason}`,
+      );
+    }
+    if (resolveSafePath(root, absolute, "either") === undefined) {
+      try {
+        lstatSync(absolute);
+        return deny(
+          `Read-context guard rejected a ${candidate.operation} of a missing or symlinked repository path`,
+        );
+      } catch {
+        // Allow search paths that do not exist yet; containment and denial
+        // policy were still validated above.
+      }
+    }
+  }
+  return "{}";
+}
+
 export function runReadContextGuard(input: string): string {
   const parsed = jsonTextSchema.safeParse(input);
   if (!parsed.success) return "{}";
@@ -157,6 +203,8 @@ export function runReadContextGuard(input: string): string {
   const root = rootDirectory();
   if (candidate.kind === "workflow")
     return guardWorkflowCommand(root, candidate);
+  if (candidate.kind === "path-bearing")
+    return guardPathBearingCommand(root, candidate);
   if (candidate.kind !== "full" && candidate.kind !== "bounded") {
     if (candidate.kind === "unsupported")
       debug("allowed unsupported or compound command");
