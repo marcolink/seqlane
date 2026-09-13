@@ -1,4 +1,4 @@
-import type { WorkflowReference } from "@seqlane/core";
+import type { WorkflowReference } from "@seqlane/protocol";
 import { extname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 

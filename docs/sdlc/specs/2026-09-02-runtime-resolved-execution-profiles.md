@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-13
 upstream:
   - adr.runtime-resolved-execution-profiles
 supersedes: []
@@ -494,7 +494,7 @@ profile feature changes this rule.
 
 ## 10. Warning Event Contract
 
-Add a canonical warning event to `@seqlane/events`.
+Add a canonical warning event to `@seqlane/protocol`.
 
 Conceptual shape:
 

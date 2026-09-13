@@ -7,7 +7,7 @@
 
 import type { TaskContext } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
-import type { SeqlaneExecutionEvent } from "@seqlane/events";
+import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
   gitStatusOutputSchema,
   localGitStatusTask,

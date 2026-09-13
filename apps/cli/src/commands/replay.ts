@@ -1,5 +1,5 @@
 import { Args, Command, Flags } from "@oclif/core";
-import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
+import type { ExecutionEventConsumer } from "../event-dispatcher.js";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import { readSeqlaneRecording } from "../recording.js";
 import {
@@ -51,7 +51,7 @@ export default class ReplayCommand extends Command {
       capabilities,
     );
     const disconnectResize = connectTerminalResize(renderer, process.stdout);
-    const outputConsumer: SeqlaneExecutionEventConsumer = {
+    const outputConsumer: ExecutionEventConsumer = {
       consume: (event) => {
         try {
           renderer.handle(event);

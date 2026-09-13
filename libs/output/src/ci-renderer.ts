@@ -2,7 +2,7 @@ import { isPlainRecord } from "@seqlane/core";
 import type {
   InvocationActivityEvent,
   SeqlaneExecutionEvent,
-} from "@seqlane/events";
+} from "@seqlane/protocol";
 import {
   createHumanViewModel,
   reduceHumanViewModel,

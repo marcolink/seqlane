@@ -4,7 +4,6 @@ import {
   encodeSeqlaneExecutionEvent,
   isSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
-  type SeqlaneExecutionEventConsumer,
 } from "./index.js";
 
 const metadata = {
@@ -23,7 +22,7 @@ const started: SeqlaneExecutionEvent = {
   runId: "run-1",
 };
 
-describe("@seqlane/events", () => {
+describe("@seqlane/protocol", () => {
   it("round-trips a canonical event with metadata", () => {
     const encoded = encodeSeqlaneExecutionEvent(started);
 
@@ -306,26 +305,5 @@ describe("@seqlane/events", () => {
         },
       }),
     ).toBe(false);
-  });
-
-  it("defines a consumer contract with ordered event delivery", async () => {
-    const received: SeqlaneExecutionEvent[] = [];
-    const consumer: SeqlaneExecutionEventConsumer = {
-      consume(event) {
-        received.push(event);
-      },
-      async flush() {
-        await Promise.resolve();
-      },
-      async close() {
-        await Promise.resolve();
-      },
-    };
-
-    consumer.consume(started);
-    await consumer.flush();
-    await consumer.close();
-
-    expect(received).toEqual([started]);
   });
 });

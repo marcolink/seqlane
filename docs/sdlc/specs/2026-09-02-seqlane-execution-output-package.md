@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-09-13
 upstream:
   - adr.dedicated-seqlane-output-package
 supersedes: []
@@ -38,7 +38,7 @@ and event emission.
 - The package is created at libs/output and is named
   @seqlane/output.
 - The package is private and exposes only intentional package exports.
-- The package depends on @seqlane/events for canonical serialized
+- The package depends on @seqlane/protocol for canonical serialized
   event contracts and on @seqlane/core only for shared Seqlane
   primitives.
 - The package does not depend on Mastra, OpenCode, seqlane-runtime, or

@@ -7,8 +7,8 @@ import type {
   ValidatorDefinitionRegistry,
   WorkflowDefinition,
   AuthoredWorkflow,
-  WorkflowReference,
 } from "@seqlane/core";
+import type { WorkflowReference } from "@seqlane/protocol";
 import { buildWorkflow, isAuthoredWorkflow, planSchema } from "@seqlane/core";
 import { validateParsedPlan } from "../../runtime/validation/plan-validation.js";
 import { z } from "zod";

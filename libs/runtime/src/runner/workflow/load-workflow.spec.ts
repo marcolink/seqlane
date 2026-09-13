@@ -1,4 +1,4 @@
-import type { WorkflowReference } from "@seqlane/core";
+import type { WorkflowReference } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import { loadWorkflow } from "./load-workflow.js";
 

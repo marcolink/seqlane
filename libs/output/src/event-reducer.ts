@@ -9,8 +9,8 @@ import type {
 import type {
   SerializedSeqlaneError,
   SeqlaneExecutionEvent,
-} from "@seqlane/events";
-import { isValidationIssue } from "@seqlane/events";
+} from "@seqlane/protocol";
+import { isValidationIssue } from "@seqlane/protocol";
 
 export type OutputEvent = SeqlaneExecutionEvent;
 

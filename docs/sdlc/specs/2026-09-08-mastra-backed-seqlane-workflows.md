@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-13
 upstream:
   - adr.mastra-backed-seqlane-workflows
+  - adr.separate-seqlane-protocol-package
 supersedes:
   - spec.effect-runtime-integration
   - spec.fluent-seqlane-flow-dsl
@@ -35,7 +36,9 @@ authoring, Plan IR, and consumer-agnostic event specifications.
   behavior during migration.
 - Move observability to Mastra with Seqlane semantic attributes.
 - Define a versioned runner protocol with strict schemas and one terminal
-  serialized outcome for each run.
+  serialized event for each run.
+- Keep serialized cross-process contracts in `@seqlane/protocol`, separate
+  from the public authoring surface in `@seqlane/core`.
 
 ## Non-goals
 
@@ -47,7 +50,7 @@ authoring, Plan IR, and consumer-agnostic event specifications.
 - Deleting Studio, recording, or replay.
 - Changing active session, model, admission, or runner semantics beyond making
   workspace and session explicit invocation policy.
-- Creating a generic replacement event bus or a new public protocol package.
+- Creating a generic replacement event bus.
 
 ## Terminology
 
@@ -196,28 +199,31 @@ and can produce only the bounded local diagnostic.
 ### REQ-OBS-002: Migrate runner and event consumers
 
 Runner notifications must stay narrow and use the versioned runner protocol
-defined below. Typed serialized run outcomes must remain available for IPC and
-UI consumers. Before a consumer migrates, `@seqlane/events` remains the
-canonical serialized event contract for that consumer. Its active consumer
-specification remains authoritative for current behavior.
+defined below. Typed serialized terminal events must remain available for IPC
+and UI consumers. `@seqlane/protocol` is the canonical serialized contract for
+runner commands, execution events, errors, and Plan snapshots. The former
+`@seqlane/events` package is deleted by this migration.
 
-The migration creates the core-owned replacement schemas. It must update each
+The migration creates the `@seqlane/protocol` replacement schemas. It must update each
 affected active consumer specification with its implementation change. The
 transition ends only when runner, CLI, output, Studio, recording, and replay
 compatibility tests pass. The final deletion must leave no consumer or package
 reference.
 
-### REQ-RUNNER-001: Own the replacement runner protocol in core
+### REQ-RUNNER-001: Own the replacement runner protocol in `@seqlane/protocol`
 
 The migration creates strict Zod schemas and inferred types in the
-engine-neutral `@seqlane/core` runner-protocol boundary. The current boundary
-owns runner commands and references only. `@seqlane/events` owns the current
-serialized events until each consumer migrates.
+engine-neutral `@seqlane/protocol` package. It owns runner commands and
+references, serialized execution events, serialized errors, Plan snapshots, and
+their codecs. `@seqlane/core` owns workflow authoring contracts and Plan IR; it
+does not own the cross-process protocol.
 
-After migration, core owns runner notifications, protocol envelopes,
-serialized errors, and serialized run outcomes. The runtime owns emission and
-encoding. No Mastra or executor type crosses the boundary. The migration must
-not add a generic replacement event bus.
+The runtime owns rich in-process execution events and translates them into
+protocol events at the process boundary. CLI and other application surfaces own
+consumer dispatch and recording lifecycle. No Mastra or executor type crosses
+the protocol boundary. The migration must not add a generic replacement event
+bus. Relocating the rich runtime event model out of core is a follow-up
+runtime-private extraction and is not required for this package migration.
 
 Each Run uses a versioned JSON envelope. The envelope has a protocol version,
 the Work and Run identities, a run-local sequence, and exactly one payload.
@@ -310,7 +316,7 @@ prove these exclusions.
 
 The current event categories map as follows:
 
-| `@seqlane/events` category | Replacement destination | Compatibility rule |
+| Serialized event category | Replacement destination | Compatibility rule |
 | --- | --- | --- |
 | `run.started`, `invocation.started`, `invocation.progress`, `invocation.succeeded`, `invocation.failed`, `invocation.cancelled`, `run.heartbeat` | Runner notification | Preserve IDs, bounded fields, and run-local sequence semantics. |
 | `run.succeeded`, `run.failed`, `run.cancelled` | Serialized run outcome | Emit exactly one terminal outcome. |
@@ -318,10 +324,10 @@ The current event categories map as follows:
 | `run.plan` and Plan-node topology | Strict `PlanSnapshot` compatibility projection for Studio, recording, and replay | Preserve static identity and topology. Exclude values and executable data. |
 | Error metadata and consumer diagnostics | Serialized error category/code or bounded local diagnostic | Omit causes, stacks, credentials, prompts, and unrestricted payloads. |
 
-`@seqlane/events` remains in the repository until runner, CLI, output,
-Studio, recording, and replay compatibility tests pass against the replacement
-contract. The migration must not create a generic event bus or duplicate
-canonical schemas.
+The former `@seqlane/events` package is removed. Runner, CLI, output, Studio,
+recording, and replay compatibility tests pass against
+`@seqlane/protocol`. The migration must not create a generic event bus or
+duplicate canonical schemas.
 
 ### REQ-COMPAT-001: Preserve current user-visible behavior
 
@@ -505,10 +511,11 @@ The implementation must record time spent waiting for admission after
 dependencies become ready. Runner notifications remain narrow and
 serializable. Consumers use typed run outcomes for IPC and UI decisions.
 Exporter failure must not alter the execution outcome and must produce only a
-bounded local diagnostic. Existing `@seqlane/events` consumers move before the
-package is deleted. The migration replaces raw Plan transport with the strict
-topology-only `PlanSnapshot` projection. IPC, Studio, recording, and replay
-tests must reject unknown fields and prove that excluded data cannot cross
+bounded local diagnostic. Former `@seqlane/events` consumers use
+`@seqlane/protocol`. The migration replaces raw Plan transport with the strict
+topology-only `PlanSnapshot` projection. IPC,
+Studio, recording, and replay tests must reject unknown fields and prove that
+excluded data cannot cross
 their boundaries.
 
 ## Failure and edge cases
@@ -548,18 +555,18 @@ The delivery records use this order:
 5. Cut over the runtime to Mastra and remove Effect. Completed in PR #26.
 6. Compose workflows as runnables.
 7. Add Mastra observability. Native agent projections completed in PR #75.
-8. Migrate execution-event consumers.
-9. Remove `@seqlane/events`.
+8. Migrate execution-event consumers to `@seqlane/protocol`.
+9. Remove the former `@seqlane/events` package.
 
-Each slice remains independently committable. The cutover and final event
-deletion use repository-wide verification. Other slices use mapped, focused
-Nx targets.
+Each slice remains independently committable. The protocol extraction and
+final event deletion use repository-wide verification. Other slices use
+mapped, focused Nx targets.
 
 ## Verification
 
 Every implementation slice starts with `pnpm test:mapping`. Focused checks use
-the existing Nx targets, including `seqlane-core`, `seqlane-runtime`,
-`seqlane-events`, `seqlane-output`, `seqlane-opencode`, `seqlane-cli`, and
+the existing Nx targets, including `core`, `protocol`,
+`seqlane-runtime`, `seqlane-output`, `seqlane-opencode`, `seqlane-cli`, and
 `seqlane-studio`.
 
 The Mastra cutover and final event deletion also run `pnpm run test`,
@@ -581,7 +588,8 @@ The Mastra cutover and final event deletion also run `pnpm run test`,
 - Cancellation, bounded output, cleanup, and typed errors remain covered.
 - Mastra observability includes Seqlane semantic attributes and admission wait.
 - Runner and UI consumers retain narrow notifications and typed outcomes.
-- `@seqlane/events` is removed only after its consumers migrate.
+- `@seqlane/protocol` is the canonical serialized contract and the former
+  `@seqlane/events` package is absent.
 - Runner schemas, envelope ordering, terminal outcome, cancellation,
   malformed-input, and compatibility tests pass.
 - Shell tasks use direct executable-plus-argv spawning with `shell: false`.
@@ -594,6 +602,7 @@ The Mastra cutover and final event deletion also run `pnpm run test`,
 ## Traceability
 
 - [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [adr.separate-seqlane-protocol-package: Separate Seqlane Protocol Contracts from Core Authoring](../adrs/2026-09-13-separate-seqlane-protocol-package.md)
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)
 - [spec.invocation-admission-and-workspace-coordination: Invocation Admission and Workspace Coordination](./2026-09-02-invocation-admission-and-workspace-coordination.md)

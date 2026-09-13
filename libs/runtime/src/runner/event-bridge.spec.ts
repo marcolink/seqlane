@@ -6,7 +6,7 @@ import {
 import type {
   SeqlaneExecutionEvent,
   SeqlanePlanSnapshot,
-} from "@seqlane/events";
+} from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import { createExecutionEventBridge } from "./event-bridge.js";
 

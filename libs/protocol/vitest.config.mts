@@ -3,7 +3,7 @@ import { workspaceAliases } from "../../vitest.shared.mts";
 
 export default defineConfig({
   test: {
-    name: "events",
+    name: "protocol",
     environment: "node",
     include: ["src/**/*.spec.ts"],
   },

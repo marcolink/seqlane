@@ -1,11 +1,7 @@
 import { Args, Command, Flags } from "@oclif/core";
-import {
-  isJsonValue,
-  RuntimeError,
-  type JsonValue,
-  type RunRequest,
-} from "@seqlane/core";
-import type { SeqlaneExecutionEventConsumer } from "@seqlane/events";
+import { isJsonValue, RuntimeError, type JsonValue } from "@seqlane/core";
+import type { RunRequest } from "@seqlane/protocol";
+import type { ExecutionEventConsumer } from "../event-dispatcher.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { closeSync, openSync, readSync } from "node:fs";
@@ -250,7 +246,7 @@ export default class RunCommand extends Command {
       renderer === undefined
         ? () => undefined
         : connectTerminalResize(renderer, process.stdout);
-    let recordingConsumer: SeqlaneExecutionEventConsumer | undefined;
+    let recordingConsumer: ExecutionEventConsumer | undefined;
     if (flags.record !== undefined) {
       try {
         recordingConsumer = createRecordingConsumer(
@@ -264,7 +260,7 @@ export default class RunCommand extends Command {
         `Seqlane recording: bounded execution data is written to disk at ${flags.record}\n`,
       );
     }
-    const outputConsumer: SeqlaneExecutionEventConsumer = {
+    const outputConsumer: ExecutionEventConsumer = {
       consume: (event) => {
         try {
           if (flags.dry) {

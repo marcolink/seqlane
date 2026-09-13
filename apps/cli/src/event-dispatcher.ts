@@ -1,14 +1,17 @@
-import type {
-  SeqlaneExecutionEvent,
-  SeqlaneExecutionEventConsumer,
-} from "@seqlane/events";
+import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
+
+export interface ExecutionEventConsumer {
+  consume(event: SeqlaneExecutionEvent): void | Promise<void>;
+  flush(): Promise<void>;
+  close(): Promise<void>;
+}
 
 const DEFAULT_MAX_QUEUE_SIZE = 256;
 const MAX_DIAGNOSTIC_LENGTH = 200;
 
 export interface EventConsumerRegistration {
   readonly name: string;
-  readonly consumer: SeqlaneExecutionEventConsumer;
+  readonly consumer: ExecutionEventConsumer;
 }
 
 export interface EventDispatcherOptions {

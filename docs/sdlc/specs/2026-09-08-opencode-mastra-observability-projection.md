@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-10
+updated: 2026-09-13
 upstream:
   - adr.mastra-native-agent-observability
   - spec.mastra-native-agent-observability
@@ -53,7 +53,7 @@ span exists. It remains a no-op when tracing is absent or the aliases conflict.
 
 ## Non-goals
 
-- Adding Mastra types to `@seqlane/core`, `@seqlane/events`, Plans, workflow
+- Adding Mastra types to `@seqlane/core`, `@seqlane/protocol`, Plans, workflow
   authoring, serialized events, or runner IPC.
 - Defining a generic executor observation union or shared executor projector.
 - Replacing Seqlane `onMetrics` aggregate invocation metrics.

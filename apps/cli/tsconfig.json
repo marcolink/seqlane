@@ -17,7 +17,7 @@
       "path": "../../libs/output"
     },
     {
-      "path": "../../libs/events"
+      "path": "../../libs/protocol"
     },
     {
       "path": "../../libs/core"

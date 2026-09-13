@@ -3,12 +3,12 @@ import { createRequire } from "node:module";
 import {
   decodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
-} from "@seqlane/events";
+} from "@seqlane/protocol";
 import {
   decodeRuntimeSessionUiAvailable,
   type RuntimeSessionUiAvailable,
 } from "@seqlane/runtime";
-import { encodeRunnerCommand, type RunRequest } from "@seqlane/core";
+import { encodeRunnerCommand, type RunRequest } from "@seqlane/protocol";
 
 export type TerminalSeqlaneExecutionEvent = Extract<
   SeqlaneExecutionEvent,

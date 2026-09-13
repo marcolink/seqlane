@@ -1,13 +1,13 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "events",
+  "name": "protocol",
   "projectType": "library",
-  "sourceRoot": "libs/events/src",
+  "sourceRoot": "libs/protocol/src",
   "targets": {
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "cwd": "libs/events",
+        "cwd": "libs/protocol",
         "command": "tsc --build tsconfig.json"
       },
       "outputs": ["{projectRoot}/dist"]
@@ -15,7 +15,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "cwd": "libs/events",
+        "cwd": "libs/protocol",
         "command": "vitest run"
       }
     }

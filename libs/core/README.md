@@ -182,7 +182,7 @@ Executors use `InteractionRequiredError` when work cannot continue without a
 human decision. Its finite requirement kind is local to the executor boundary;
 the message is safe to pass through Seqlane failure handling.
 
-Serialized execution events belong to `@seqlane/events`, not this
+Serialized execution events belong to `@seqlane/protocol`, not this
 package. They identify both the runtime `invocationId` and its static
 `planNodeId`. Validated task inputs and results use Seqlane-owned display
 values with explicit present, omitted, redacted, or truncated states.

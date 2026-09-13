@@ -5,7 +5,7 @@ import {
   type SeqlaneExecutionEvent,
   type SeqlaneExecutionEventMetadata,
   type SeqlanePlanSnapshot,
-} from "@seqlane/events";
+} from "@seqlane/protocol";
 import {
   ValidationFailedError,
   type SeqlaneError,

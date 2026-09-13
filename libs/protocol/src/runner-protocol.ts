@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { jsonValueSchema, plainRecordSchema } from "./json.js";
+import { jsonValueSchema, plainRecordSchema } from "@seqlane/core";
 
-export { isJsonValue } from "./json.js";
+export { isJsonValue } from "@seqlane/core";
 
 const workflowReferenceSchema = plainRecordSchema.pipe(
   z.strictObject({
