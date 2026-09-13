@@ -39,7 +39,7 @@ seqlane run examples/local-only.ts \
 ```
 
 The repository's `workflow-read-context` workflow is defined in `read-context.ts`. It
-is read-only and uses `openai/gpt-5.6-luna` with medium reasoning:
+uses `openai/gpt-5.6-luna` with medium reasoning:
 
 ```sh
 seqlane run read-context.ts \

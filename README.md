@@ -468,11 +468,11 @@ server storage, and run-control details.
 
 ## Route oversized reads to context analysis
 
-This repository includes the read-only `workflow-read-context` workflow. It retrieves a
+This repository includes the `workflow-read-context` workflow. It retrieves a
 small, source-grounded evidence set with native `rg`, and optionally uses
 installed zvec-grep and Ripwire tools before asking
-`openai/gpt-5.6-luna` with medium reasoning for a structured answer. It never
-writes the repository or lets the summarizer propose edits.
+`openai/gpt-5.6-luna` with medium reasoning for a structured answer. Runtime
+configuration remains authoritative for executor permissions.
 
 Build and run it with the normal Seqlane CLI:
 

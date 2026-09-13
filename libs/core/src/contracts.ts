@@ -76,8 +76,6 @@ export interface AgentTaskRequest {
   readonly goal: string;
   readonly instructions?: readonly string[];
   readonly references?: readonly string[];
-  /** Restricts the executor's tool surface for this agent invocation. */
-  readonly toolPolicy?: "read-only";
 }
 
 export interface TaskExecResult {
@@ -92,8 +90,6 @@ export interface TaskContext {
     readonly argv?: readonly string[];
     /** Optional foreground process timeout in milliseconds. */
     readonly timeoutMs?: number;
-    /** Optional retained stdout/stderr limit in bytes. */
-    readonly outputLimitBytes?: number;
   }): Promise<TaskExecResult>;
   runAgent(request: AgentTaskRequest): Promise<unknown>;
 }

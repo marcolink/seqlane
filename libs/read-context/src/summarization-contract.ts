@@ -5,16 +5,13 @@ import {
 } from "./schemas.js";
 
 export const READ_CONTEXT_SUMMARY_SYSTEM_PROMPT =
-  "You are a read-only codebase analyst. Answer the exact question from supplied evidence only. Do not propose code changes, implementation plans, or architectural choices. Do not reproduce large code blocks. Cite source paths and line ranges in evidence. If evidence is incomplete, state that explicitly in uncertainties. Suggested follow-up reads must be narrow and identify why that exact range is needed. Return only JSON matching ReadContextSchema.";
+  "You are a codebase analyst. Answer the exact question from supplied evidence only. Do not reproduce large code blocks. Cite source paths and line ranges in evidence. If evidence is incomplete, state that explicitly in uncertainties. Suggested follow-up reads must be narrow and identify why that exact range is needed. Return only JSON matching ReadContextSchema.";
 
 export const READ_CONTEXT_SUMMARY_INSTRUCTIONS = [
-  "Do not propose code changes, implementation plans, or architectural choices.",
   "Do not reproduce large code blocks.",
   "Cite repository-relative source paths and line ranges in evidence.",
   "Return only data matching ReadContextSchema.",
 ] as const;
-
-export const READ_CONTEXT_SUMMARY_TOOL_POLICY = "read-only" as const;
 
 export interface ReadContextSummarizationRequest {
   readonly question: string;

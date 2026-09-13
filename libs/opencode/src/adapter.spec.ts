@@ -131,25 +131,6 @@ describe("OpenCode AgentAdapter", () => {
     expect(metrics).toHaveLength(1);
   });
 
-  it("denies workspace tools for read-only agent tasks", async () => {
-    let prompt: OpenCodePrompt | undefined;
-    const run = createRun(async (value) => {
-      prompt = value;
-      return { structured: { result: "done" } };
-    });
-    const adapter = createOpenCodeAdapterForRun(run);
-
-    await expect(
-      adapter.execute(
-        request({
-          agent: { ...agent, toolPolicy: "read-only" },
-        }),
-      ),
-    ).resolves.toEqual({ result: "done" });
-
-    expect(prompt?.tools).toEqual({ "*": false, StructuredOutput: true });
-  });
-
   it("forwards uncertain activity callbacks", async () => {
     const termination = Promise.resolve();
     const uncertainActivities: unknown[] = [];

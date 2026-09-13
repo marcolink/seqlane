@@ -36,7 +36,6 @@ const exactSearchTask = defineShellTask({
   executable: "sh",
   argv: (input) => runAvailable("rg", exactSearchArguments(input, ".")),
   timeoutMs: 5_000,
-  outputLimitBytes: 256_000,
   onError: scrapeFailure,
 });
 
@@ -46,7 +45,6 @@ const zvecSearchTask = defineShellTask({
   executable: "sh",
   argv: (input) => runAvailable("zg", zvecSearchArguments(input)),
   timeoutMs: 5_000,
-  outputLimitBytes: 128_000,
   onError: scrapeFailure,
 });
 
@@ -56,7 +54,6 @@ const ripwireSearchTask = defineShellTask({
   executable: "sh",
   argv: (input) => runAvailable("ripwire", ripwireSearchArguments(input, ".")),
   timeoutMs: 10_000,
-  outputLimitBytes: 128_000,
   onError: scrapeFailure,
 });
 

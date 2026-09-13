@@ -16,7 +16,6 @@ import {
   formatReadContextSummaryPrompt,
   mergeReadContextUncertainties,
   READ_CONTEXT_SUMMARY_INSTRUCTIONS,
-  READ_CONTEXT_SUMMARY_TOOL_POLICY,
 } from "./summarization-contract.js";
 import { validateReadContextReferences } from "./result-validation.js";
 
@@ -26,7 +25,6 @@ const summarizeReadContextTask = defineAgentTask({
   output: ReadContextSchema,
   goal: formatReadContextSummaryPrompt,
   instructions: [...READ_CONTEXT_SUMMARY_INSTRUCTIONS],
-  toolPolicy: READ_CONTEXT_SUMMARY_TOOL_POLICY,
 });
 
 const normalizeReadContextTask = defineTask({
