@@ -1,11 +1,11 @@
 ---
 id: task.prove-codex-app-server-protocol
 title: Prove the Codex App-Server Protocol
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 upstream:
   - spec.codex-app-server-adapter
 supersedes: []
@@ -60,6 +60,10 @@ Establish the pinned Codex CLI and observed app-server contract before the adapt
 - Demonstrate that `outputSchema` produces one locally validatable result.
 - Demonstrate the terminal status after `turn/interrupt`.
 - Demonstrate interruption while an approval request is pending.
+- Continue with an advisory diagnostic when the version command fails.
+- Cover agent-message deltas and completed-turn item collections.
+- Bound pending protocol messages by count and aggregate bytes.
+- Use a disposable workspace unless an explicit workspace is supplied.
 
 ## Completion criteria
 
@@ -69,11 +73,19 @@ Establish the pinned Codex CLI and observed app-server contract before the adapt
 
 ## Outcome
 
-Planned. No protocol claim is verified by this task document.
+Added an opt-in JSONL probe split into focused CLI, protocol, transport, and
+orchestration modules. It validates protocol envelopes and results, correlates
+agent-message deltas and completed items, validates fork identity, bounds
+transcript and pending-message memory, uses a disposable workspace by default,
+and confirms interruption of a read-only turn while an approval request is
+pending. It emits an advisory diagnostic when version discovery fails or finds
+an unconfirmed CLI version. Deterministic fake-server tests cover the complete
+sequence without a live model.
 
 ## Delivery state
 
-No implementation or reachable delivery commit is recorded.
+Live confirmation completed against Codex CLI 0.147.0. The generated sanitized
+fixture remains local and is intentionally ignored by version control.
 
 ## Traceability
 

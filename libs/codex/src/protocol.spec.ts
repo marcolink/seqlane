@@ -18,6 +18,15 @@ describe("Codex app-server protocol", () => {
       id: 1,
       result: { ok: true },
     });
+    expect(parseCodexMessage({ id: 3, result: { ok: true } })).toEqual({
+      kind: "response",
+      id: 3,
+      result: { ok: true },
+    });
+    expect(parseCodexMessage({ method: "notice", params: {} })).toMatchObject({
+      kind: "notification",
+      notification: { method: "notice" },
+    });
     expect(
       parseCodexMessage({
         jsonrpc: "2.0",
@@ -58,15 +67,9 @@ describe("Codex app-server protocol", () => {
   });
 
   it("rejects malformed required payloads", () => {
-    expect(() => parseCodexMessage({ id: 1, result: { ok: true } })).toThrow(
-      CodexProtocolError,
-    );
     expect(() =>
       parseCodexMessage({ jsonrpc: "1.0", id: 1, result: { ok: true } }),
     ).toThrow(CodexProtocolError);
-    expect(() => parseCodexMessage({ method: "notice", params: {} })).toThrow(
-      CodexProtocolError,
-    );
     expect(() =>
       parseCodexMessage({ jsonrpc: "2.0", id: 1, method: "" }),
     ).toThrow(CodexProtocolError);

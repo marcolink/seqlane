@@ -9,7 +9,7 @@ The tested-version list is advisory. An unconfirmed CLI version emits a
 diagnostic and continues; malformed or incompatible protocol messages fail the
 adapter.
 
-The transport requires JSON-RPC 2.0 envelopes, validates the initialize result,
+The transport validates protocol envelopes and the initialize result,
 drains child stderr, handles split UTF-8 output, bounds outbound and inbound
 JSONL, and confirms child-process termination with forced shutdown escalation.
 Turn events are correlated by thread and turn, buffered across the `turn/start`
@@ -17,3 +17,24 @@ response, reduced into activity lifecycle events, and bounded by item and
 payload limits. Cancellation and request/turn deadlines interrupt the turn and
 require terminal confirmation. Unsupported server requests receive typed JSON-
 RPC errors.
+
+## Protocol compatibility probe
+
+Run the live probe only when Codex authentication and an external model call are
+approved:
+
+```sh
+node scripts/codex-app-server-probe.mjs \
+  --workspace "$PWD" \
+  --output libs/codex/fixtures/protocol-0.147.0.json
+```
+
+The command checks the local CLI version, initialization, model discovery,
+typed output, exact checkpoint forks, and interruption of a read-only turn
+while an approval request is pending. It validates required protocol envelopes and result
+shapes, bounds pending messages by count and bytes, and warns when the CLI
+version is not in the tested list. Without `--workspace`, it uses a disposable
+temporary workspace. An explicit `--workspace` selects the caller-provided
+workspace. It writes only a sanitized observation fixture; generated fixtures
+are ignored by version control. The normal test suite uses the deterministic
+fake-server test and does not start Codex.

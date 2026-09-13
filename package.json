@@ -8,6 +8,7 @@
     "build": "pnpm exec nx run-many -t build",
     "docs:index": "node scripts/update-sdlc-indexes.mjs",
     "docs:test": "node --test scripts/validate-sdlc.test.mjs",
+    "codex:protocol-probe": "node scripts/codex-app-server-probe.mjs",
     "docs:validate": "node scripts/validate-sdlc.mjs",
     "format": "pnpm exec nx format:write --all",
     "format:check": "pnpm exec nx format:check --all",
@@ -18,7 +19,7 @@
     "verify:push": "node scripts/verify-push.mjs",
     "test": "pnpm run test:mapping && pnpm run test:tooling && pnpm run test:workflow-helper && pnpm exec nx run-many -t test",
     "test:mapping": "node scripts/check-test-mapping.mjs",
-    "test:tooling": "node --test scripts/classify-ci-paths.test.mjs scripts/verify-staged.test.mjs scripts/verify-push.test.mjs",
+    "test:tooling": "node --test scripts/classify-ci-paths.test.mjs scripts/codex-app-server-probe.test.mjs scripts/verify-staged.test.mjs scripts/verify-push.test.mjs",
     "test:workflow-helper": "pnpm exec tsc --build libs/action-merge-conflict-resolution/tsconfig.json && node --experimental-strip-types --test scripts/resolve-merge-conflicts-workflow.test.ts",
     "typecheck": "pnpm exec tsc --build && pnpm run typecheck:specs",
     "typecheck:specs": "pnpm exec tsc --noEmit --project tsconfig.spec.json"

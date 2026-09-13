@@ -200,7 +200,9 @@ Do not add Codex fields to public authoring, Plan, runner IPC, or CLI result sch
 
 ## Delivery state
 
-Draft only. No Codex adapter or protocol probe is delivered by this document.
+The private adapter and an opt-in protocol probe are present on the delivery
+branch. Capability claims remain unconfirmed until the probe runs against the
+pinned CLI with approved live authentication and records a sanitized fixture.
 
 ## Traceability
 
