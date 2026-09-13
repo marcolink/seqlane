@@ -104,6 +104,9 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:libs/core
+      '@seqlane/read-context':
+        specifier: workspace:*
+        version: link:libs/read-context
       '@seqlane/runtime':
         specifier: workspace:*
         version: link:libs/runtime
@@ -367,6 +370,15 @@ importers:
         version: link:../protocol
 
   libs/protocol:
+    dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
+  libs/read-context:
     dependencies:
       '@seqlane/core':
         specifier: workspace:*

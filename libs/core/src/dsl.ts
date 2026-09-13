@@ -85,6 +85,8 @@ interface ShellTaskFactoryInput<Input> extends Omit<
 > {
   readonly executable: string;
   readonly argv: (input: Input) => readonly string[];
+  readonly timeoutMs?: number;
+  readonly onError?: (cause: unknown) => ShellTaskResult;
 }
 
 export function defineShellTask<Input>(
@@ -96,12 +98,22 @@ export function defineShellTask<Input>(
   if (Object.hasOwn(definition, "output")) {
     throw new TypeError("defineShellTask does not accept output");
   }
-  const { executable, argv, ...base } = definition;
+  const { executable, argv, timeoutMs, onError, ...base } = definition;
   return defineTask({
     ...base,
     output: shellTaskResultSchema,
-    execute: async ({ input, context }) =>
-      context.exec({ executable, argv: argv(input) }),
+    execute: async ({ input, context }) => {
+      try {
+        return await context.exec({
+          executable,
+          argv: argv(input),
+          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+        });
+      } catch (cause) {
+        if (onError === undefined) throw cause;
+        return onError(cause);
+      }
+    },
   });
 }
 

@@ -465,3 +465,37 @@ seqlane studio \
 The server and Studio accept loopback HTTP URLs only. See the
 [CLI guide](apps/cli/README.md) for MCP, recording, output modes,
 server storage, and run-control details.
+
+## Route oversized reads to context analysis
+
+This repository includes the `workflow-read-context` workflow. It retrieves a
+small, source-grounded evidence set with native `rg`, and optionally uses
+installed zvec-grep and Ripwire tools before asking
+`openai/gpt-5.6-luna` with medium reasoning for a structured answer. Runtime
+configuration remains authoritative for executor permissions.
+
+Build and run it with the normal Seqlane CLI:
+
+```sh
+pnpm build
+pnpm exec node apps/cli/bin/run.js run examples/read-context.ts \
+  --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
+  --runtime opencode \
+  --workspace "$PWD"
+```
+
+Configure the selected Seqlane runtime, for example with
+`SEQLANE_RUNTIME_ADAPTER_CONFIG` for OpenCode. The workflow explicitly selects
+`openai/gpt-5.6-luna` with medium reasoning. Optional `zg`/zvec-grep and
+`ripwire` failures are reported as uncertainties.
+
+Evidence is bounded to a 32,000-byte retrieval corpus. Scan and corpus limits
+are reported as uncertainties when they exclude evidence.
+
+The project-local Codex hook in `.codex/hooks.json` denies supported oversized
+broad reads, unscoped or unsupported read-like commands, and denied paths. It
+points the active session to `seqlane run examples/read-context.ts` for the
+`workflow-read-context` workflow. Trust the project-local hook through `/hooks`
+before enabling it. The hook fails open for commands it cannot classify as
+read-like. Read-context sends selected source to the configured endpoint, so
+review the endpoint's privacy and retention policy.

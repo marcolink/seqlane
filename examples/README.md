@@ -38,6 +38,19 @@ seqlane run examples/local-only.ts \
   --input '{"value":"local"}'
 ```
 
+The repository's `workflow-read-context` workflow is defined in `examples/read-context.ts`. It
+uses `openai/gpt-5.6-luna` with medium reasoning:
+
+```sh
+seqlane run examples/read-context.ts \
+  --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
+  --runtime opencode \
+  --workspace "$PWD"
+```
+
+The workflow keeps retrieval deterministic and bounded. zvec-grep and Ripwire
+are optional. Configure the selected Seqlane runtime before running it.
+
 Workflow files run as local Node.js code in the runner process. Run only files
 you trust. TypeScript files use Node.js 24 native type stripping; use
 erasable TypeScript syntax or compile unsupported syntax to `.mjs`.

@@ -7,6 +7,9 @@
       "path": "./libs/core"
     },
     {
+      "path": "./libs/read-context"
+    },
+    {
       "path": "./libs/adapter"
     },
     {
