@@ -6,12 +6,10 @@ import {
   readSync,
   writeSync,
 } from "node:fs";
-import {
-  decodeSeqlaneRecording,
-  type SeqlaneExecutionEventConsumer,
-} from "@seqlane/events";
+import type { ExecutionEventConsumer } from "./event-dispatcher.js";
 import {
   createRecordingEventValidator,
+  decodeSeqlaneRecording,
   createRecordingHeader,
   encodeRecordingEvent,
   encodeRecordingHeader,
@@ -55,7 +53,7 @@ export function createRecordingConsumer(
   path: string,
   workflowId: string,
   options: RecordingOptions = {},
-): SeqlaneExecutionEventConsumer {
+): ExecutionEventConsumer {
   const header = createRecordingHeader(workflowId);
   const maxBytes = assertPositiveBound(options.maxBytes, MAX_RECORDING_BYTES);
   const maxEvents = assertPositiveBound(

@@ -1,11 +1,11 @@
 ---
 id: task.remove-seqlane-events
 title: Remove Seqlane Events
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-13
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -15,12 +15,13 @@ supersedes: []
 
 ## Objective
 
-Delete the transitional `@seqlane/events` package after every consumer uses the
-replacement observability, notification, and typed outcome contracts.
+Delete the transitional `@seqlane/events` package after every consumer uses
+the `@seqlane/protocol` serialized contracts.
 
-The replacement runner schemas and inferred types remain owned by the
-engine-neutral `@seqlane/core` runner-protocol boundary. Runtime emission,
-Mastra telemetry, and bounded Studio or recording projections remain separate.
+The public authoring surface remains in `@seqlane/core`. The protocol package
+owns runner commands, serialized execution events, errors, and Plan snapshots.
+Runtime emission, Mastra telemetry, and bounded Studio or recording projections
+remain separate.
 
 ## Upstream requirements
 
@@ -36,8 +37,9 @@ Mastra telemetry, and bounded Studio or recording projections remain separate.
 
 - Prove that no runtime, CLI, output, Studio, fixture, or documentation
   consumer imports `@seqlane/events`.
-- Prove that the core-owned versioned runner envelope, strict schemas, sequence
-  ordering, cancellation semantics, and one terminal outcome remain available.
+- Prove that the protocol-owned versioned runner envelope, strict schemas,
+  sequence ordering, cancellation semantics, and one terminal event remain
+  available.
 - Remove the package source, project configuration, tests, exports, and
   workspace dependency entries.
 - Remove obsolete event build artifacts from package and release metadata.
@@ -48,20 +50,22 @@ Mastra telemetry, and bounded Studio or recording projections remain separate.
 - Removing Mastra observability.
 - Removing runner notifications or typed run outcomes.
 - Deleting Studio, recording, or replay.
-- Redesigning event semantics.
+- Moving the rich in-process event model and event sink out of `@seqlane/core`;
+  that is a follow-up runtime-private extraction.
 
 ## Implementation plan
 
 1. Search the repository for package and symbol references.
 2. Resolve each remaining consumer through the versioned migration contract.
 3. Run compatibility and malformed-input tests for notifications and outcomes.
-4. Delete the package and its workspace metadata.
+4. Delete the legacy package and add the protocol package and its workspace
+   metadata.
 5. Update exports, lockfile, fixtures, and documentation.
 6. Run the full repository gate and inspect the final dependency graph.
 
 ## Affected areas
 
-- `libs/events/`
+- `libs/protocol/`
 - `libs/runtime/`
 - `libs/output/`
 - `apps/cli/`
@@ -87,20 +91,25 @@ Then run the full gate:
 ## Completion criteria
 
 - `@seqlane/events` has no source, project, export, or dependency reference.
+- `@seqlane/protocol` owns the replacement serialized contracts without a
+  dependency on Mastra or executor packages.
 - Runner, CLI, output, Studio, recording, and replay checks pass.
 - Typed outcomes and narrow notifications remain available.
 - No duplicate replacement schema, generic event bus, or Mastra type is
   introduced.
 - The changed behavior passes every required check.
 - Any remaining failure is proven on the unchanged baseline and recorded.
-- The active specification and ADR remain the only migration authority.
+- The active specification and protocol-package ADR remain the migration
+  authority.
 
 ## Outcome
 
-Not started.
+Implementation is in progress on `refactor/seqlane-protocol`, with the
+replacement package and consumer migration prepared for review.
 
 ## Traceability
 
 - [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
 - [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [adr.separate-seqlane-protocol-package: Separate Seqlane Protocol Contracts from Core Authoring](../adrs/2026-09-13-separate-seqlane-protocol-package.md)
 - [task.migrate-execution-event-consumers: Migrate Execution Event Consumers](./2026-09-08-migrate-execution-event-consumers.md)

@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import type {
   BuiltWorkflow,
   JsonValue,
-  RuntimeProfileReference,
   SeqlaneEventSink,
   SeqlaneRunOutcome,
   WorkId,
   RunId,
 } from "@seqlane/core";
+import type { RuntimeProfileReference } from "@seqlane/protocol";
 import { RuntimeError } from "@seqlane/core";
 import type { MastraActiveRun } from "./runtime/mastra/mastra-runtime.js";
 import {

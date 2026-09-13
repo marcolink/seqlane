@@ -10,13 +10,15 @@ import { isJsonValue } from "@seqlane/core";
 import type {
   BuiltWorkflow,
   Plan,
-  RuntimeProfileReference,
   SeqlaneEventSink,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
   WorkflowDefinition,
 } from "@seqlane/core";
-import type { SeqlanePlanSnapshot } from "@seqlane/events";
+import type {
+  RuntimeProfileReference,
+  SeqlanePlanSnapshot,
+} from "@seqlane/protocol";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {

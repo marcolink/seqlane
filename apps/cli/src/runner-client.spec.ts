@@ -2,9 +2,9 @@ import { EventEmitter } from "node:events";
 import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
-} from "@seqlane/events";
+} from "@seqlane/protocol";
 import { encodeRuntimeSessionUiAvailable } from "@seqlane/runtime";
-import type { RunRequest } from "@seqlane/core";
+import type { RunRequest } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import {
   mapRunnerOutcomeToStatus,

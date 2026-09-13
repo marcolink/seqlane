@@ -1,4 +1,4 @@
-import type { SeqlaneExecutionEvent } from "@seqlane/events";
+import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { CIRenderer } from "./ci-renderer.js";
 import { HumanTTYRenderer } from "./human-renderer.js";
 import { JSONRenderer } from "./json-renderer.js";

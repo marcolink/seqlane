@@ -1,5 +1,5 @@
 {
-  "name": "@seqlane/events",
+  "name": "@seqlane/protocol",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -30,7 +30,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/marcolink/seqlane.git",
-    "directory": "libs/events"
+    "directory": "libs/protocol"
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {

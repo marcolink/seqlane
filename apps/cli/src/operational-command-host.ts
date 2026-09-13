@@ -1,4 +1,5 @@
-import type { JsonValue, WorkflowReference } from "@seqlane/core";
+import type { JsonValue } from "@seqlane/core";
+import type { WorkflowReference } from "@seqlane/protocol";
 import {
   createOperationalHost,
   createOperationalWorkflow,

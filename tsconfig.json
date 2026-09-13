@@ -13,7 +13,7 @@
       "path": "./libs/acp"
     },
     {
-      "path": "./libs/events"
+      "path": "./libs/protocol"
     },
     {
       "path": "./libs/opencode"

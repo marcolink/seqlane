@@ -1,5 +1,5 @@
 // @test-scope ./index.ts
-// @test-scope ./runner-protocol.ts
+// @test-scope ../../protocol/src/runner-protocol.ts
 // @test-scope ./contracts.ts
 
 import { readFileSync } from "node:fs";
@@ -29,7 +29,7 @@ describe("adr.executor-neutral-workflow-authoring executor-neutral boundaries", 
     expectNoBoundaryLeak(
       [
         "libs/core/src/index.ts",
-        "libs/core/src/runner-protocol.ts",
+        "libs/protocol/src/runner-protocol.ts",
         "libs/core/src/contracts.ts",
         "apps/cli/src/commands/run.ts",
       ],
@@ -91,7 +91,7 @@ describe("adr.executor-neutral-workflow-authoring executor-neutral boundaries", 
 describe("adr.consumer-agnostic-seqlane-execution-events execution-event boundaries", () => {
   it("does not expose the legacy RunnerEvent contract from core", () => {
     const coreIndex = source("libs/core/src/index.ts");
-    const runnerProtocol = source("libs/core/src/runner-protocol.ts");
+    const runnerProtocol = source("libs/protocol/src/runner-protocol.ts");
 
     for (const contents of [coreIndex, runnerProtocol]) {
       expect(contents).not.toMatch(/\bRunnerEvent\b/);

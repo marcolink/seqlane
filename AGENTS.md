@@ -4,7 +4,7 @@
 
 - Foundation-only TypeScript monorepo using pnpm and Nx.
 - `libs/core` owns public, engine-independent authoring contracts and Plan IR.
-- `libs/events` owns public, consumer-agnostic serialized execution-event contracts.
+- `libs/protocol` owns public, consumer-agnostic serialized execution events and runner IPC contracts.
 - `libs/runtime` owns the private Mastra integration and execution path.
 - `libs/fixtures` owns private test fixtures and fixture contract tests; expose only intentional fixture subpaths.
 - GitHub Action code is CI and platform integration code, not Seqlane application code. New Action-specific libraries must use short, purpose-specific directory names. Do not create a generic Action support library for one Action.

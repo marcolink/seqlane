@@ -4,7 +4,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { decodeSeqlaneExecutionEvent } from "@seqlane/events";
+import { decodeSeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
   requestRunnerCancellation,
   startRun,
@@ -12,7 +12,8 @@ import {
   type RunnerRunControl,
 } from "./run.js";
 import { bindRunnerCancellationSignals, startRunnerProcess } from "./main.js";
-import type { RunRequest, TaskDefinitionRegistry } from "@seqlane/core";
+import type { TaskDefinitionRegistry } from "@seqlane/core";
+import type { RunRequest } from "@seqlane/protocol";
 import type {
   ResolvedExecutorSession,
   SessionResolver,

@@ -8,8 +8,8 @@ import type { Mastra } from "@mastra/core/mastra";
 import type { RequestContext } from "@mastra/core/request-context";
 import type { AnyWorkflow } from "@mastra/core/workflows";
 import type { ServerContext } from "@mastra/server/server-adapter";
-import type { RuntimeProfileReference } from "@seqlane/core";
-import { runtimeProfileReferenceSchema } from "@seqlane/core";
+import type { RuntimeProfileReference } from "@seqlane/protocol";
+import { runtimeProfileReferenceSchema } from "@seqlane/protocol";
 import { z } from "zod";
 
 export const MCP_SERVER_ID = "seqlane-workflows";

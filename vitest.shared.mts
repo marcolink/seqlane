@@ -21,8 +21,8 @@ export const workspaceAliases = [
     replacement: resolve(workspaceRoot, "libs/core/src/index.ts"),
   },
   {
-    find: "@seqlane/events",
-    replacement: resolve(workspaceRoot, "libs/events/src/index.ts"),
+    find: "@seqlane/protocol",
+    replacement: resolve(workspaceRoot, "libs/protocol/src/index.ts"),
   },
   {
     find: "@seqlane/fixtures/mixed-workflow",

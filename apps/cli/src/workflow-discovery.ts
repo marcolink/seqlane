@@ -1,4 +1,5 @@
-import type { WorkflowDescriptor, WorkflowReference } from "@seqlane/core";
+import type { WorkflowDescriptor } from "@seqlane/core";
+import type { WorkflowReference } from "@seqlane/protocol";
 import { workflowDescriptorSchema } from "@seqlane/core";
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";

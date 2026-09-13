@@ -33,3 +33,4 @@
 | [adr.direct-runtime-code-review-action](./2026-09-08-direct-runtime-code-review-action.md) | Run Trusted Code-Review Actions Through a Direct Runtime Service | accepted | 2026-09-08 | core |
 | [adr.runner-built-action-bundles](./2026-09-11-runner-built-action-bundles.md) | Build Repository-Local GitHub Actions on the Runner | accepted | 2026-09-11 | core |
 | [adr.use-runner-local-nx-cache](./2026-09-11-use-runner-local-nx-cache.md) | Use Runner-Local Nx Cache | accepted | 2026-09-11 | core |
+| [adr.separate-seqlane-protocol-package](./2026-09-13-separate-seqlane-protocol-package.md) | Separate Seqlane Protocol Contracts from Core Authoring | accepted | 2026-09-13 | core |

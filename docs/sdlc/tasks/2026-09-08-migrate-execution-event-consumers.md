@@ -1,11 +1,11 @@
 ---
 id: task.migrate-execution-event-consumers
 title: Migrate Execution Event Consumers
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-13
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -16,14 +16,13 @@ supersedes: []
 ## Objective
 
 Move runner, CLI, output, Studio, recording, and replay consumers to the
-replacement notification and typed outcome contracts before event-package
+replacement `@seqlane/protocol` contracts before legacy event-package
 deletion.
 
-Before this migration completes, `@seqlane/events` remains canonical for
-existing consumers. After migration, the replacement contracts are owned by
-the engine-neutral `@seqlane/core` runner-protocol boundary. Runtime code owns
-emission. This task does not add a generic event bus or a second canonical
-schema.
+The replacement contracts are owned by the engine-neutral
+`@seqlane/protocol` package. `@seqlane/core` remains the public authoring and
+Plan IR package. Runtime code owns rich-event emission and translation. This
+task does not add a generic event bus or a second canonical schema.
 
 ## Upstream requirements
 
@@ -65,7 +64,7 @@ schema.
 ## Implementation plan
 
 1. Inventory all event imports and runner message consumers.
-2. Add the core-owned schemas and adapters at the runtime-to-consumer
+2. Add the protocol-owned schemas and codecs at the runtime-to-consumer
    boundary.
 3. Migrate CLI, output, Studio, recording, and replay in dependency order.
 4. Preserve ordering, redaction, bounds, cancellation, and consumer isolation.
@@ -74,7 +73,7 @@ schema.
 
 ## Affected areas
 
-- `libs/events/`
+- `libs/protocol/`
 - `libs/output/`
 - `libs/runtime/`
 - `apps/cli/`
@@ -87,12 +86,12 @@ Run `pnpm test:mapping` first.
 
 Then run:
 
-- `pnpm exec nx run seqlane-events:test`
+- `pnpm exec nx run protocol:test`
 - `pnpm exec nx run seqlane-output:test`
 - `pnpm exec nx run seqlane-cli:test`
 - `pnpm exec nx run seqlane-studio:test`
 - `pnpm exec nx run seqlane-studio-service:test`
-- `pnpm exec nx run seqlane-events:build`
+- `pnpm exec nx run protocol:build`
 - `pnpm exec nx run seqlane-output:build`
 - `pnpm exec nx run seqlane-cli:build`
 - `pnpm exec nx run seqlane-studio:build`
@@ -111,10 +110,12 @@ Then run:
 
 ## Outcome
 
-Not started.
+Implementation is in progress on `refactor/seqlane-protocol`, with runner,
+CLI, output, recording, and replay consumers migrated to `@seqlane/protocol`.
 
 ## Traceability
 
 - [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
 - [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [adr.separate-seqlane-protocol-package: Separate Seqlane Protocol Contracts from Core Authoring](../adrs/2026-09-13-separate-seqlane-protocol-package.md)
 - [task.add-mastra-observability: Add Mastra Observability](./2026-09-08-add-mastra-observability.md)

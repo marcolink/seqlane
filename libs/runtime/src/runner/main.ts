@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { decodeRunnerCommand } from "@seqlane/core";
+import { decodeRunnerCommand } from "@seqlane/protocol";
 import {
   requestRunnerCancellation,
   startRun,

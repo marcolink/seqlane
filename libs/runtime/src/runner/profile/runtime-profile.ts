@@ -2,9 +2,9 @@ import type {
   JsonValue,
   ModelSelection,
   RunId,
-  RuntimeProfileReference,
   TaskDefinitionRegistry,
 } from "@seqlane/core";
+import type { RuntimeProfileReference } from "@seqlane/protocol";
 import { randomUUID } from "node:crypto";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
 import type { AgentAdapter } from "@seqlane/agent-adapter";

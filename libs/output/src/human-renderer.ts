@@ -1,4 +1,4 @@
-import type { SeqlaneExecutionEvent } from "@seqlane/events";
+import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
   createHumanViewModel,
   getHumanVisibleRows,

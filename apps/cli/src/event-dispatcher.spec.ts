@@ -1,9 +1,9 @@
-import type {
-  SeqlaneExecutionEvent,
-  SeqlaneExecutionEventConsumer,
-} from "@seqlane/events";
+import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
-import { createEventDispatcher } from "./event-dispatcher.js";
+import {
+  createEventDispatcher,
+  type ExecutionEventConsumer,
+} from "./event-dispatcher.js";
 
 const runStarted = (sequence: number): SeqlaneExecutionEvent => ({
   type: "run.started",
@@ -21,7 +21,7 @@ function consumer(
   onConsume: (event: SeqlaneExecutionEvent) => void,
   onFlush: () => Promise<void> = async () => undefined,
   onClose: () => Promise<void> = async () => undefined,
-): SeqlaneExecutionEventConsumer {
+): ExecutionEventConsumer {
   return { consume: onConsume, flush: onFlush, close: onClose };
 }
 
