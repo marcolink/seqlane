@@ -60,12 +60,15 @@ owns the Action and runtime boundary.
   `C`.
 - **Changed paths** `D(C,H)`: paths whose tree entries differ in `git diff
   --name-status -z --no-renames C H`.
-- **Eligible paths** `E`: PR paths on which a new finding may be anchored.
-- **Reviewable paths**: eligible paths whose contents are permitted by the
-  existing lockfile and generated-output exclusion policy.
+- **Eligible paths** `E`: PR paths selected by the baseline or incremental
+  comparison, before content exclusions.
+- **Excluded paths** `X`: paths in `E` covered by the established lockfile or
+  generated-output content exclusions.
+- **Reviewable eligible paths** `R = E - X`: paths whose content may be sent to
+  review lanes and on which new findings may be anchored.
 - **Review generation**: one baseline and all incremental reviews following
   it. A new baseline creates a new generation and finding-ID namespace.
-- **Complete coverage**: every eligible reviewable path and diff hunk reached
+- **Complete coverage**: every path in `R` and its diff hunks reached
   the appropriate review lane, and all expected lane outputs were validated.
   It is evidence-delivery coverage, not a claim that every defect was found.
 
@@ -73,12 +76,20 @@ owns the Action and runtime boundary.
 
 ### requirement-scope-selection
 
-The first run without a valid current-version checkpoint must use baseline
-mode. This includes the first run after an old-version report:
+Classify the trusted report before selecting scope. No authoritative report,
+or one with a recognized older version, selects baseline mode. A report with a
+current-version marker and a valid state selects incremental mode. A missing,
+malformed, oversized, or unsupported current-version state, an unknown future
+version, or ambiguous trusted report identity fails closed. Such a report must
+not become a new baseline or lose its existing contents. This classification
+must be the same in scope selection, migration, and publication.
+
+Baseline mode uses the complete current PR diff:
 
 ```text
 E = P(B,H)
-patch = complete diff B...H for reviewable E
+R = E - X
+patch = complete diff B...H for R
 ```
 
 Here `B...H` uses Git's merge base, as the existing PR diff does. The run must
@@ -89,8 +100,9 @@ When a published checkpoint `C` exists, a run must use incremental mode:
 
 ```text
 E = P(B,H) ∩ D(C,H)
-review patch = complete current PR diff B...H, restricted to reviewable E
-change evidence = two-tree diff C H, restricted to E
+R = E - X
+review patch = complete current PR diff B...H, restricted to R
+change evidence = two-tree diff C H, restricted to R
 ```
 
 The intersection uses paths, not commit dates, commit messages, GitHub event
@@ -110,26 +122,38 @@ change counts as a changed tree entry. Do not traverse symlinks or execute
 submodule content. A deleted path can anchor a deletion finding without a
 current-head line number.
 
+Parse `-z` output as NUL-delimited byte records and decode paths without
+replacement characters. Reject empty paths, invalid UTF-8, absolute paths,
+and `.` or `..` path segments. Keep the same canonical relative path bytes for
+scope membership and Git arguments. Construct scoped diffs with an argv-based
+Git process, `git --literal-pathspecs diff ... -- <paths>`, using each validated
+path as one literal argument. Do not interpolate paths into a shell command or
+combine them with Git pathspec-magic exclusions. Filter excluded paths in the
+trusted scope selector before constructing the argv. Parse the returned diff's
+paths and fail if they differ from the requested reviewable path set. The
+batch limits below also bound argv size. When `R` is empty, do not run a scoped
+diff with an empty path list; it could otherwise select the full repository.
+
 ### requirement-new-finding-admission
 
-Each proposed new finding must have a workspace-relative path in `E`. A
+Each proposed new finding must have a workspace-relative path in `R`. A
 pathless finding cannot receive a new stable ID. A finding that describes an
-effect in an unchanged file must point to an eligible changed file containing
+effect in an unchanged file must point to a reviewable changed file containing
 the cause, with evidence that connects the change to the effect. Context reads
 of unchanged files do not make those files eligible.
 
-Review lanes and synthesis must receive the mode, exact revisions, eligible
-paths, complete current-PR patch for those paths, change evidence, exclusions,
+Review lanes and synthesis must receive the mode, exact revisions, `R`, the
+complete current-PR patch for `R`, change evidence, exclusions,
 and retained findings. They must propose only findings from the current scope
 and reference an existing stable ID when they recognize a retained finding.
 Before stable-ID allocation, a deterministic local gate must reject or omit a
-newly proposed finding outside `E`; the run must report that limitation. The
+newly proposed finding outside `R`; the run must report that limitation. The
 gate must not silently relabel it as a prior finding. Findings about excluded
 file contents cannot be inferred from metadata alone. An excluded-only change
 may produce a coverage limitation, not an invented content finding.
 
 The gate applies after synthesis and before lifecycle reconciliation. It must
-validate paths against the exact scope calculated for that run, not a
+validate paths against the exact `R` calculated for that run, not a
 model-supplied list. Agent output cannot widen the scope or assign final IDs.
 
 ### requirement-existing-findings
@@ -155,9 +179,9 @@ review input.
 The report verdict remains cumulative: it reflects all active retained
 Critical and Required findings plus any admitted new ones. Incremental ratings,
 summary, and verification must identify their current scope. They must not say
-that unchanged PR files received a new full review. When `E` is empty, skip
-discovery lanes and publish a deterministic no-change result only if the
-current-head and checkpoint guards pass. Do not interpret empty discovery
+that unchanged PR files received a new full review. When `R` is empty, skip
+discovery lanes and publish a deterministic no-discovery result only if the
+publication guards pass. Do not interpret empty discovery
 output as proof that prior findings were resolved.
 
 Each newly allocated finding must retain its immutable
@@ -217,14 +241,37 @@ GitHub run IDs, and `previousReviewedRevision` are not eligibility anchors.
 
 Path collection must be complete before model work. A truncated, malformed, or
 unavailable path list cannot define `E`. The scoped current-PR patch must
-deliver every reviewable eligible hunk. The two-tree change evidence must also
-be complete for `E`, so agents can distinguish new edits from existing PR
-content. The current byte bound must not turn a truncated patch into complete
-coverage. The workflow may partition the patch by path and
-hunk into bounded, ordered batches; it must account for every expected batch
-and validate its output before publication. Intentional lockfile and generated
-`dist` exclusions remain explicit in the evidence and report. No agent may
-claim to have reviewed excluded contents.
+deliver every hunk in `R`. The two-tree change evidence must also be complete
+for `R`, so agents can distinguish new edits from existing PR content. The
+current byte bound must not turn a truncated patch into complete coverage.
+The workflow may partition the patch by path and hunk into bounded, ordered
+batches; it must account for every expected batch and validate its output
+before publication. Intentional lockfile and generated `dist` exclusions remain
+explicit in the evidence and report. No agent may claim to have reviewed
+excluded contents.
+
+The complete run plan has these hard ceilings:
+
+| Resource | Maximum |
+| --- | ---: |
+| Eligible paths, including excluded paths | 200 |
+| Emitted diff hunks across both evidence forms | 1,000 |
+| Evidence batches | 8 |
+| Bytes in one evidence batch | 512,000 |
+| Bytes across all review patches and change evidence | 2,048,000 |
+| Model invocations, including retries and history verification | 26 |
+| Cumulative model-facing input tokens across invocations | 500,000 |
+| Elapsed time from first model call through finalization | 20 minutes |
+
+Before model fan-out, compute the complete path, hunk, byte, and batch counts.
+Compute token counts for known model requests with the configured model's
+tokenizer, including repeated history and instruction context. Reserve the
+maximum schema-bounded result size for requests whose input depends on earlier
+model output. If a tokenizer is unavailable or any planned ceiling is exceeded,
+fail before model work. Before each later invocation, count its final input
+against the remaining token budget. Count retries as new invocations. Cancel
+the review when the elapsed-time ceiling is reached. A dynamically exceeded
+ceiling also fails without publication or checkpoint advancement.
 
 If complete evidence cannot fit or a required batch fails, the review fails
 without publishing new findings or a new checkpoint. The workflow removes only
@@ -234,14 +281,17 @@ away coverage metadata or silently fall back to a broader baseline.
 
 ### requirement-publication-atomicity
 
-Review scope is calculated from a specific trusted checkpoint `C`, target `B`,
-and head `H`. Immediately before the final write, the publisher must re-read
-the trusted report and live PR. It must require the live head to equal `H` and
-the current published checkpoint to equal `C` (or still be absent with the
-same trusted report identity for a new baseline). It must reconcile current-generation
-authorized dispositions under the existing
-publication rules. A mismatched checkpoint or head makes the result stale;
-the publisher must not advance state or attach findings from the old scope.
+Review scope is calculated from a specific trusted checkpoint `C`, target
+branch name, target commit `B`, and head `H`. Capture all four at admission.
+Immediately before the final write, the publisher must re-read the trusted
+report and live PR. It must require the live head to equal `H`, the live target
+branch name and target commit to equal the captured values, and the current
+published checkpoint to equal `C` (or still be absent with the same trusted
+report identity for a new baseline). If the target or head moved, or the
+checkpoint changed, the result is stale. Do not publish it; start a new review
+with the live PR revisions and recompute scope. The publisher must reconcile
+current-generation authorized dispositions under the existing publication
+rules. It must not attach findings from a stale scope.
 
 The final report, retained findings, scope checkpoint, and visible limitation
 text are one publication. A marker write, run start, successful agent result,
@@ -268,15 +318,17 @@ The trusted sequence is:
    baseline if no such checkpoint exists. Do not import old-version findings.
 3. Validate `B` and `H` as Git commits and validate the checkout HEAD as `H`.
    Fetch `C` by exact SHA when it is not present locally.
-4. Compute `P(B,H)`, `D(C,H)` when applicable, and `E`. Record scope mode,
-   immutable revisions, path counts, excluded paths, and batch coverage in
-   bounded run evidence.
+4. Compute `P(B,H)`, `D(C,H)` when applicable, `E`, `X`, and `R`. Validate
+   literal paths and the complete run budget before model work. Record scope
+   mode, immutable revisions, path counts, excluded paths, and batch coverage
+   in bounded run evidence.
 5. Run historical-finding verification independently. Run discovery lanes only
    for complete eligible reviewable evidence. Synthesize and gate new findings.
 6. Reconcile retained findings and dispositions, then derive the cumulative
    verdict mechanically.
-7. Re-read the live head and checkpoint under the publication guard. Publish
-   the report and checkpoint together, or leave the old report authoritative.
+7. Re-read the live target branch, base revision, head, and checkpoint under
+   the publication guard. Publish the report and checkpoint together, or
+   leave the old report authoritative and recompute scope in a new run.
 
 No unchecked Git output may become a path, revision, or shell argument. Bounds
 on path count, path length, patch size, state size, and model output remain
@@ -289,6 +341,7 @@ is an incomplete review, not a smaller valid scope.
 | --- | --- |
 | First review, no trusted report | Complete `B...H` baseline. |
 | Trusted old-version report | Complete `B...H` baseline; replace old findings, dispositions, metrics, and state. |
+| Invalid or unsupported current-version state | Fail closed; preserve the report and checkpoint. |
 | Same head reviewed again | Empty `E`; no new IDs. |
 | New commit changes one PR file | Review that file's current PR diff; new findings only in that file. |
 | Earlier change is reverted before the next review | Restored tree entry is ineligible. |
@@ -297,9 +350,10 @@ is an incomplete review, not a smaller valid scope.
 | Target branch moves or PR is retargeted | Recompute current PR paths; unchanged head files remain ineligible. |
 | File leaves the current PR diff | It cannot receive a new finding; retained findings follow lifecycle rules. |
 | Path list, patch batch, or state exceeds a bound | Fail without publishing or advancing. |
-| Head or checkpoint changes before publication | Treat result as stale; do not publish it. |
-| New finding lacks a path or names an ineligible path | Reject it before ID allocation and show a scope limitation. |
+| Head, target branch, target commit, or checkpoint changes before publication | Treat result as stale; do not publish it. |
+| New finding lacks a path or names a path outside `R` | Reject it before ID allocation and show a scope limitation. |
 | Only excluded files change | Do not claim their contents were reviewed or invent a content finding. |
+| A planned or dynamic cumulative ceiling is exceeded | Fail without publication or checkpoint advancement. |
 
 ## Migration
 
@@ -314,6 +368,10 @@ The new baseline covers the complete current `B...H` diff, creates a new
 generation, resets the finding index and metrics ledger, and writes one new
 report body. The old report remains visible until this baseline succeeds. A
 failed or stale baseline leaves it unchanged after owned-marker cleanup.
+
+The state classification in `requirement-scope-selection` governs this path.
+In particular, a malformed current-version state must not be relabeled as a
+legacy report or replaced by a baseline.
 
 Old slash commands cannot apply to new findings because their IDs lack the
 new generation. An old-version report with malformed historical state can
@@ -330,8 +388,13 @@ force-push, retargeting, model change, or state parse failure.
 - Unit-test exact path-set selection for first review, incremental review,
   same head, additions, deletions, modes, renames, revert, base movement,
   retargeting, and non-ancestor history.
-- Test complete `-z` path parsing, malformed paths, bounds, excluded paths,
-  chunk accounting, and a patch larger than the former byte limit.
+- Test complete `-z` path parsing, invalid UTF-8, absolute and traversal
+  paths, filenames containing pathspec magic or wildcards, literal argv
+  handling, exclusions, batch accounting, and a patch larger than the former
+  byte limit.
+- Test every cumulative ceiling at its boundary and one unit over it. Prove
+  that preflight failures make zero model calls and time or token exhaustion
+  cannot publish.
 - Test the finalizer with out-of-scope and pathless agent findings. Prove that
   no new stable ID is allocated and a limitation is visible.
 - Test that retained findings, dispositions, fix verification, and verdict
@@ -339,8 +402,9 @@ force-push, retargeting, model change, or state parse failure.
 - Test old-version replacement, discarded old findings and metrics, old-command
   isolation, invalid-current-state refusal, missing prior commit, and
   exact-SHA fetch behavior.
-- Test failed, cancelled, incomplete, stale-head, and changed-checkpoint runs.
-  Assert that their authoritative checkpoint does not advance.
+- Test failed, cancelled, incomplete, stale-head, moved-target, and
+  changed-checkpoint runs. Assert that their authoritative checkpoint does not
+  advance.
 - Test that the progress marker cannot be parsed as a published checkpoint and
   that failed legacy replacement restores the old report.
 - Run the repository test-mapping check before focused tests. Run focused
@@ -355,11 +419,19 @@ force-push, retargeting, model change, or state parse failure.
   selected target revision.
 - A trusted old-version report is replaced by a complete baseline with a new
   generation. No old finding or command can attach to a new finding.
-- A later publication allocates no new finding ID outside `P(B,H) ∩ D(C,H)`.
+- Malformed or unsupported current-version state cannot trigger baseline
+  replacement or erase the prior report.
+- A later publication allocates no new finding ID outside
+  `(P(B,H) ∩ D(C,H)) - X`.
+- Git pathspec syntax cannot widen a scoped diff, and excluded paths cannot
+  receive new findings.
 - Re-running an unchanged head allocates no new finding ID.
 - Previously published findings remain visible and can change lifecycle only
   through existing verification and disposition rules.
 - No failure, stale result, or partial evidence advances the checkpoint.
+- A moved target branch or base commit invalidates the in-flight scope before
+  publication, even when the head SHA is unchanged.
+- No cumulative resource ceiling can be bypassed by adding batches or retries.
 - Rebase, force-push, and base movement do not silently reopen full-branch
   discovery.
 - The human report identifies the review mode and scope and does not present

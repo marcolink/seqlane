@@ -31,13 +31,13 @@ Preserve the state, lifecycle, trust, and publication rules in
   carrying its findings, dispositions, or metrics.
 - Select baseline or incremental scope from immutable Git revisions and the
   last published trusted checkpoint.
-- Collect complete eligible paths and scoped patch evidence, with complete
-  bounded batch coverage or a clear failure.
+- Collect complete eligible paths and scoped patch evidence with literal Git
+  path arguments and hard cumulative batch, model, and time limits.
 - Restrict review lanes to the selected scope and gate new findings locally
   before stable-ID allocation.
 - Preserve retained finding lifecycle, dispositions, and cumulative verdict.
-- Publish the report and checkpoint together after current-head and
-  previous-checkpoint guards pass.
+- Publish the report and checkpoint together only after the live target branch,
+  base revision, head, and previous-checkpoint guards pass.
 - Show review mode, scope, and limitations in the human report.
 
 ## Out of scope
@@ -52,18 +52,20 @@ Preserve the state, lifecycle, trust, and publication rules in
 1. Extend the existing report-state schema, metadata marker, finding-ID parser,
    and reader. Coordinate the next outer schema revision with the draft
    mechanical-disposition work so one version has one meaning.
-2. Add a pure scope selector for `P(B,H) ∩ D(C,H)` and tests for Git path
-   records, non-ancestor commits, renames, deletions, base movement, and
-   same-head runs.
-3. Change Git evidence to produce a complete scoped patch or fail. Partition
-   large patches into bounded batches with explicit coverage accounting.
+2. Add a pure report-state classifier and scope selector for
+   `P(B,H) ∩ D(C,H)`, then apply exclusions before finding admission. Test
+   invalid current state, Git path records, non-ancestor commits, renames,
+   deletions, base movement, and same-head runs.
+3. Change Git evidence to use validated literal argv paths and produce a
+   complete scoped patch or fail. Partition large patches into bounded
+   batches with explicit coverage and cumulative resource accounting.
 4. Pass scope and prior current-generation findings to history verification,
    review lanes, and synthesis. Add the deterministic new-finding path gate
    and first-observed revision.
 5. Preserve prior findings and compute a cumulative verdict in finalization.
    Skip discovery lanes for empty scope.
-6. Re-read checkpoint and live head at publication. Write the new checkpoint
-   only with the completed report.
+6. Re-read checkpoint and live target branch, base revision, and head at
+   publication. Write the new checkpoint only with the completed report.
 7. Update documentation and run focused, contract, and hosted workflow checks.
 
 ## Affected areas
@@ -85,8 +87,9 @@ Preserve the state, lifecycle, trust, and publication rules in
 - Run `pnpm run test:mapping` before focused tests.
 - Run focused Action-library tests for the requirement and failure matrix in
   the specification.
-- Run old-version replacement, malformed-input, publication-guard,
-  finding-ID isolation, and workflow admission tests.
+- Run old-version replacement, malformed-input, literal pathspec, exclusion,
+  cumulative budget, publication-guard, finding-ID isolation, and workflow
+  admission tests.
 - Run `pnpm docs:index`, `pnpm docs:validate`, formatting, and `git diff
   --check`.
 - Run the hosted workflow on an open PR for a baseline, a changed-file
