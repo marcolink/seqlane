@@ -244,4 +244,4 @@
 | [task.nested-workflow-compilation-lifecycle](./2026-09-11-nested-workflow-compilation-lifecycle.md) | Simplify Nested Workflow Compilation and Lifecycle | planned | 2026-09-11 | core |
 | [task.implement-codex-app-server-adapter](./2026-09-12-implement-codex-app-server-adapter.md) | Implement the Codex App-Server Adapter | in-progress | 2026-09-12 | core |
 | [task.integrate-codex-runtime-adapter](./2026-09-12-integrate-codex-runtime-adapter.md) | Integrate the Codex Runtime Adapter | planned | 2026-09-12 | core |
-| [task.prove-codex-app-server-protocol](./2026-09-12-prove-codex-app-server-protocol.md) | Prove the Codex App-Server Protocol | in-progress | 2026-09-12 | core |
+| [task.prove-codex-app-server-protocol](./2026-09-12-prove-codex-app-server-protocol.md) | Prove the Codex App-Server Protocol | completed | 2026-09-12 | core |

@@ -14,9 +14,10 @@ const requestIdSchema = z.union([
 ]);
 const objectSchema = z.record(z.string(), z.unknown());
 
+// Current Codex app-server JSONL omits the JSON-RPC marker on inbound messages.
 const responseSchema = z
   .object({
-    jsonrpc: z.literal("2.0"),
+    jsonrpc: z.literal("2.0").optional(),
     id: requestIdSchema,
     result: z.unknown().optional(),
     error: z
@@ -31,7 +32,7 @@ const responseSchema = z
 
 const notificationSchema = z
   .object({
-    jsonrpc: z.literal("2.0"),
+    jsonrpc: z.literal("2.0").optional(),
     method: z.string().min(1).max(256),
     params: z.unknown().optional(),
   })
@@ -39,7 +40,7 @@ const notificationSchema = z
 
 const serverRequestSchema = z
   .object({
-    jsonrpc: z.literal("2.0"),
+    jsonrpc: z.literal("2.0").optional(),
     id: requestIdSchema,
     method: z.string().min(1).max(256),
     params: z.unknown().optional(),

@@ -32,7 +32,9 @@ node scripts/codex-app-server-probe.mjs \
 The command checks the local CLI version, initialization, model discovery,
 typed output, exact checkpoint forks, and interruption of a read-only turn
 while an approval request is pending. It validates required protocol envelopes and result
-shapes, bounds the transcript and shutdown, and warns when the CLI version is
-not in the tested list. It writes only a sanitized observation fixture. The
-normal test suite uses the deterministic fake-server test and does not start
-Codex.
+shapes, bounds pending messages by count and bytes, and warns when the CLI
+version is not in the tested list. Without `--workspace`, it uses a disposable
+temporary workspace. An explicit `--workspace` selects the caller-provided
+workspace. It writes only a sanitized observation fixture; generated fixtures
+are ignored by version control. The normal test suite uses the deterministic
+fake-server test and does not start Codex.

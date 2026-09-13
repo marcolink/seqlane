@@ -5,11 +5,13 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   AppServerClient,
+  findAgentMessage,
   parseInitializeResult,
   parseJsonLine,
   parseModelListResult,
   parseThreadResult,
   parseTurnResult,
+  requireDistinctThread,
   runProbe,
 } from "./codex-app-server-probe.mjs";
 
@@ -152,6 +154,71 @@ describe("Codex app-server protocol probe client", () => {
     );
   });
 
+  it("extracts correlated agent messages from deltas and completed items", () => {
+    const deltaMessages = [
+      {
+        direction: "server",
+        message: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "item-1",
+            delta: '{"ok":',
+          },
+        },
+      },
+      {
+        direction: "server",
+        message: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "item-1",
+            delta: 'true,"version":"probe"}',
+          },
+        },
+      },
+    ];
+    assert.equal(
+      findAgentMessage(deltaMessages, "thread-1", "turn-1"),
+      '{"ok":true,"version":"probe"}',
+    );
+    const completedItemMessages = [
+      {
+        direction: "server",
+        message: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              type: "agentMessage",
+              content: [{ type: "text", text: '{"ok":true}' }],
+            },
+          },
+        },
+      },
+    ];
+    assert.equal(
+      findAgentMessage(completedItemMessages, "thread-1", "turn-1"),
+      '{"ok":true}',
+    );
+    assert.throws(
+      () => findAgentMessage(deltaMessages, "thread-2", "turn-1"),
+      /did not contain an agent message/,
+    );
+  });
+
+  it("rejects a fork that returns the source thread", () => {
+    assert.equal(requireDistinctThread("thread-1", "thread-2"), "thread-2");
+    assert.throws(
+      () => requireDistinctThread("thread-1", "thread-1"),
+      /returned the source thread/,
+    );
+  });
+
   it("keeps notifications while correlating the matching response", async () => {
     const child = spawnServer();
     const client = new AppServerClient(child);
@@ -179,6 +246,43 @@ describe("Codex app-server protocol probe client", () => {
     const startedAt = Date.now();
     await client.close();
     assert.ok(Date.now() - startedAt < 3_000);
+  });
+
+  it("bounds pending messages by aggregate payload bytes", async () => {
+    const child = spawn(
+      process.execPath,
+      [
+        "-e",
+        `const readline = require("node:readline"); readline.createInterface({ input: process.stdin }).on("line", () => process.stdout.write(JSON.stringify({ method: "notice", params: { payload: "x".repeat(700 * 1024) } }) + "\\n"));`,
+      ],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    );
+    children.push(child);
+    const client = new AppServerClient(child);
+    await assert.rejects(
+      client.request("probe", {}, 1_000),
+      /pending message budget/,
+    );
+    await client.close();
+  });
+
+  it("uses a disposable workspace and continues after version failure", async () => {
+    const { server } = await createFakeExecutable();
+    let launchedWorkspace;
+    const fixture = await runProbe({
+      executable: "codex-fake",
+      timeoutMs: 1_000,
+      readVersion: () => {
+        throw new Error("version command failed");
+      },
+      spawnProcess: (_executable, args, spawnOptions) => {
+        launchedWorkspace = spawnOptions.cwd;
+        return spawn(process.execPath, [server, ...args], spawnOptions);
+      },
+    });
+    assert.notEqual(launchedWorkspace, process.cwd());
+    assert.equal(fixture.version, "unknown");
+    assert.equal(fixture.diagnostic.version, undefined);
   });
 
   it("runs the complete protocol sequence against a deterministic fake server", async () => {

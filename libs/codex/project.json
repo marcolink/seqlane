@@ -8,7 +8,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": "libs/codex",
-        "command": "tsc --build tsconfig.json"
+        "command": "tsc --build tsconfig.json && cp src/version-shared.mjs dist/version-shared.mjs"
       },
       "outputs": ["{projectRoot}/dist"]
     },
