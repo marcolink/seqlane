@@ -8,6 +8,13 @@ import { StringDecoder } from "node:string_decoder";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_LINE_BYTES = 4 * 1024 * 1024;
 const MAX_BUFFER_BYTES = 8 * 1024 * 1024;
+const MAX_TRANSCRIPT_ENTRIES = 256;
+const MAX_TRANSCRIPT_BYTES = 1 * 1024 * 1024;
+const SHUTDOWN_GRACE_MS = 1_000;
+const SHUTDOWN_FORCE_SETTLEMENT_MS = 1_000;
+const MAX_STRUCTURED_OUTPUT_BYTES = 16 * 1024;
+// Keep this list aligned with TESTED_CODEX_VERSIONS in libs/codex/src/version.ts.
+const TESTED_CODEX_VERSIONS = ["0.147.0"];
 const VERSION_PATTERN = /codex-cli\s+([0-9]+\.[0-9]+\.[0-9]+(?:[-+][^\s]+)?)/i;
 const PROBE_OUTPUT_SCHEMA = {
   type: "object",
@@ -85,7 +92,50 @@ function parseJsonLine(line) {
   }
   if (!isRecord(value))
     throw new Error("Codex app-server message is not an object");
+  validateJsonRpcEnvelope(value);
   return value;
+}
+
+function isRequestId(value) {
+  return (
+    (typeof value === "number" && Number.isInteger(value) && value >= 0) ||
+    (typeof value === "string" && value.length > 0 && value.length <= 128)
+  );
+}
+
+function validateJsonRpcEnvelope(message) {
+  if (message.jsonrpc !== "2.0")
+    throw new Error("Codex app-server message is not JSON-RPC 2.0");
+  if (Object.hasOwn(message, "id") && !isRequestId(message.id))
+    throw new Error("Codex app-server message has an invalid request id");
+  if (typeof message.method === "string") {
+    if (message.method.length === 0 || message.method.length > 256)
+      throw new Error("Codex app-server message has an invalid method");
+    if (Object.hasOwn(message, "result") || Object.hasOwn(message, "error"))
+      throw new Error(
+        "Codex app-server message mixes method and response fields",
+      );
+    if (Object.hasOwn(message, "id") && !isRequestId(message.id))
+      throw new Error("Codex app-server request has an invalid id");
+    return;
+  }
+  if (Object.hasOwn(message, "method"))
+    throw new Error("Codex app-server message has an invalid method");
+  if (!Object.hasOwn(message, "id"))
+    throw new Error("Codex app-server message has neither method nor id");
+  const hasResult = Object.hasOwn(message, "result");
+  const hasError = Object.hasOwn(message, "error");
+  if (hasResult === hasError)
+    throw new Error("Codex app-server response must contain result or error");
+  if (
+    hasError &&
+    (!isRecord(message.error) ||
+      typeof message.error.code !== "number" ||
+      !Number.isFinite(message.error.code) ||
+      typeof message.error.message !== "string" ||
+      message.error.message.length > 4_096)
+  )
+    throw new Error("Codex app-server response has an invalid error");
 }
 
 function responseFor(message, id) {
@@ -114,11 +164,177 @@ function serverRequestFor(message) {
   );
 }
 
+function approvalRequestFor(message, threadId, turnId) {
+  return (
+    serverRequestFor(message) &&
+    message.method.includes("Approval") &&
+    isRecord(message.params) &&
+    message.params.threadId === threadId &&
+    message.params.turnId === turnId
+  );
+}
+
 function responseResult(message, operation) {
   if (Object.hasOwn(message, "error")) {
     throw new Error(`${operation} failed: ${JSON.stringify(message.error)}`);
   }
   return message.result;
+}
+
+function nonEmptyString(value, description) {
+  if (typeof value !== "string" || value.length === 0)
+    throw new Error(`${description} must be a non-empty string`);
+  return value;
+}
+
+function parseInitializeResult(result) {
+  if (!isRecord(result)) throw new Error("initialize response was malformed");
+  return {
+    userAgent: nonEmptyString(result.userAgent, "initialize.userAgent"),
+    codexHome: nonEmptyString(result.codexHome, "initialize.codexHome"),
+    platformFamily: nonEmptyString(
+      result.platformFamily,
+      "initialize.platformFamily",
+    ),
+    platformOs: nonEmptyString(result.platformOs, "initialize.platformOs"),
+  };
+}
+
+function parseModelListResult(result) {
+  if (!isRecord(result) || !Array.isArray(result.data))
+    throw new Error("model/list response was malformed");
+  return result.data
+    .map((value, index) => {
+      if (!isRecord(value))
+        throw new Error(`model/list data[${index}] was malformed`);
+      const efforts = value.supportedReasoningEfforts ?? [];
+      if (!Array.isArray(efforts))
+        throw new Error(`model/list data[${index}] efforts were malformed`);
+      const supportedReasoningEfforts = efforts.map((effort, effortIndex) => {
+        if (!isRecord(effort))
+          throw new Error(
+            `model/list data[${index}] effort[${effortIndex}] was malformed`,
+          );
+        return nonEmptyString(
+          effort.reasoningEffort,
+          `model/list data[${index}] reasoningEffort`,
+        );
+      });
+      return {
+        id: nonEmptyString(value.id, `model/list data[${index}].id`),
+        model: nonEmptyString(value.model, `model/list data[${index}].model`),
+        isDefault: value.isDefault ?? false,
+        supportedReasoningEfforts,
+      };
+    })
+    .map((model, index) => {
+      if (typeof model.isDefault !== "boolean")
+        throw new Error(`model/list data[${index}].isDefault was malformed`);
+      return model;
+    });
+}
+
+const TURN_STATUSES = new Set([
+  "completed",
+  "interrupted",
+  "failed",
+  "inProgress",
+]);
+
+function parseTurnResult(result, operation) {
+  if (!isRecord(result) || !isRecord(result.turn))
+    throw new Error(`${operation} response did not contain a turn`);
+  const turn = result.turn;
+  const id = nonEmptyString(turn.id, `${operation}.turn.id`);
+  if (typeof turn.status !== "string" || !TURN_STATUSES.has(turn.status))
+    throw new Error(`${operation}.turn.status was malformed`);
+  if (
+    turn.items !== undefined &&
+    (!Array.isArray(turn.items) || turn.items.some((item) => !isRecord(item)))
+  )
+    throw new Error(`${operation}.turn.items was malformed`);
+  return { ...result, turn: { ...turn, id, items: turn.items ?? [] } };
+}
+
+function parseThreadResult(result, operation = "thread") {
+  if (!isRecord(result) || !isRecord(result.thread))
+    throw new Error(`${operation} response did not contain a thread`);
+  return {
+    ...result,
+    thread: {
+      ...result.thread,
+      id: nonEmptyString(result.thread.id, `${operation}.thread.id`),
+    },
+  };
+}
+
+function completedTurnStatus(
+  message,
+  threadId,
+  turnId,
+  description,
+  expectedStatus = "interrupted",
+) {
+  if (!completedTurn(message, threadId, turnId))
+    throw new Error(`${description} did not contain a matching completed turn`);
+  const parsed = parseTurnResult(message.params, description);
+  if (parsed.turn.status !== expectedStatus)
+    throw new Error(
+      `${description} did not produce ${expectedStatus} status: ${JSON.stringify(parsed.turn)}`,
+    );
+  return parsed;
+}
+
+function killChild(child, signal) {
+  if (child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // The child may not own a process group.
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // Best-effort process cleanup.
+  }
+}
+
+function recordTranscript(transcript, bytes, direction, message) {
+  const entry = { direction, message };
+  const entryBytes = Buffer.byteLength(JSON.stringify(entry), "utf8");
+  if (entryBytes > MAX_TRANSCRIPT_BYTES)
+    throw new Error("Codex app-server transcript entry exceeded its limit");
+  let nextBytes = bytes;
+  while (
+    transcript.length >= MAX_TRANSCRIPT_ENTRIES ||
+    nextBytes + entryBytes > MAX_TRANSCRIPT_BYTES
+  ) {
+    const removed = transcript.shift();
+    if (removed === undefined) break;
+    nextBytes -= Buffer.byteLength(JSON.stringify(removed), "utf8");
+  }
+  transcript.push(entry);
+  return nextBytes + entryBytes;
+}
+
+function waitForShutdown(ms) {
+  return new Promise((resolveShutdown) => {
+    const timer = setTimeout(resolveShutdown, ms);
+    timer.unref?.();
+  });
+}
+
+async function closeChild(child, closed) {
+  if (child.exitCode === null && child.signalCode === null) {
+    child.stdin.end();
+    killChild(child, "SIGTERM");
+  }
+  await Promise.race([closed, waitForShutdown(SHUTDOWN_GRACE_MS)]);
+  if (child.exitCode === null && child.signalCode === null)
+    killChild(child, "SIGKILL");
+  await Promise.race([closed, waitForShutdown(SHUTDOWN_FORCE_SETTLEMENT_MS)]);
 }
 
 class AppServerClient {
@@ -130,6 +346,7 @@ class AppServerClient {
   #nextId = 1;
   #closed;
   #resolveClosed;
+  #transcriptBytes = 0;
 
   constructor(child) {
     this.#child = child;
@@ -171,7 +388,9 @@ class AppServerClient {
       if (line.length === 0) continue;
       try {
         const message = parseJsonLine(line);
-        this.transcript.push({ direction: "server", message });
+        this.#record("server", message);
+        if (this.#messages.length >= MAX_TRANSCRIPT_ENTRIES)
+          throw new Error("Codex app-server pending message limit exceeded");
         this.#messages.push(message);
         this.#flushWaiters();
       } catch (cause) {
@@ -179,6 +398,15 @@ class AppServerClient {
         return;
       }
     }
+  }
+
+  #record(direction, message) {
+    this.#transcriptBytes = recordTranscript(
+      this.transcript,
+      this.#transcriptBytes,
+      direction,
+      message,
+    );
   }
 
   #fail(cause) {
@@ -208,14 +436,14 @@ class AppServerClient {
 
   send(method, params, id = this.#nextId++) {
     const message = { jsonrpc: "2.0", id, method, params };
-    this.transcript.push({ direction: "client", message });
+    this.#record("client", message);
     this.#child.stdin.write(`${JSON.stringify(message)}\n`);
     return id;
   }
 
   notify(method, params) {
     const message = { jsonrpc: "2.0", method, params };
-    this.transcript.push({ direction: "client", message });
+    this.#record("client", message);
     this.#child.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
@@ -249,11 +477,7 @@ class AppServerClient {
   }
 
   async close() {
-    if (this.#child.exitCode === null && this.#child.signalCode === null) {
-      this.#child.stdin.end();
-      this.#child.kill("SIGTERM");
-    }
-    await this.#closed;
+    await closeChild(this.#child, this.#closed);
   }
 }
 
@@ -265,44 +489,23 @@ function codexVersion(executable, workspace) {
     maxBuffer: 16_384,
   });
   const version = VERSION_PATTERN.exec(output)?.[1];
-  if (version === undefined)
-    throw new Error(
-      "Codex --version output did not contain a semantic version",
-    );
   return version;
 }
 
 function defaultModel(result) {
-  if (!isRecord(result) || !Array.isArray(result.data))
-    throw new Error("model/list response did not contain data");
-  const model = result.data.find(
-    (value) => isRecord(value) && value.isDefault === true,
-  );
-  if (!isRecord(model) || typeof model.model !== "string")
+  const models = parseModelListResult(result);
+  const model = models.find((value) => value.isDefault === true);
+  if (model === undefined)
     throw new Error("model/list response did not contain a default model");
   return model.model;
 }
 
 function turnIdFrom(result) {
-  if (
-    !isRecord(result) ||
-    !isRecord(result.turn) ||
-    typeof result.turn.id !== "string"
-  ) {
-    throw new Error("turn/start response did not contain a turn id");
-  }
-  return result.turn.id;
+  return parseTurnResult(result, "turn/start").turn.id;
 }
 
 function threadIdFrom(result) {
-  if (
-    !isRecord(result) ||
-    !isRecord(result.thread) ||
-    typeof result.thread.id !== "string"
-  ) {
-    throw new Error("thread response did not contain a thread id");
-  }
-  return result.thread.id;
+  return parseThreadResult(result, "thread").thread.id;
 }
 
 function completedTurn(message, threadId, turnId) {
@@ -315,6 +518,22 @@ function completedTurn(message, threadId, turnId) {
   );
 }
 
+function agentMessageText(item) {
+  if (!isRecord(item) || item.type !== "agentMessage") return undefined;
+  if (typeof item.text === "string") return item.text;
+  if (!Array.isArray(item.content)) return undefined;
+  const text = item.content
+    .filter(
+      (part) =>
+        isRecord(part) &&
+        (part.type === "text" || part.type === "output_text") &&
+        typeof part.text === "string",
+    )
+    .map((part) => part.text)
+    .join("");
+  return text.length === 0 ? undefined : text;
+}
+
 function findAgentMessage(messages, turnId) {
   const completed = messages
     .filter((entry) => entry.direction === "server")
@@ -325,23 +544,20 @@ function findAgentMessage(messages, turnId) {
         isRecord(message.params) &&
         message.params.turnId === turnId,
     )
-    .map((message) => message.params.item)
-    .find(
-      (item) =>
-        isRecord(item) &&
-        item.type === "agentMessage" &&
-        typeof item.text === "string",
-    );
+    .map((message) => agentMessageText(message.params.item))
+    .find((text) => text !== undefined);
   if (completed === undefined)
     throw new Error("completed turn did not contain an agent message item");
-  return completed.text;
+  if (Buffer.byteLength(completed, "utf8") > MAX_STRUCTURED_OUTPUT_BYTES)
+    throw new Error("agent message exceeded the structured output limit");
+  return completed;
 }
 
 function assertProbeOutput(value) {
   if (
     !isRecord(value) ||
     value.ok !== true ||
-    typeof value.version !== "string" ||
+    value.version !== "probe" ||
     Object.keys(value).length !== 2
   ) {
     throw new Error(
@@ -351,26 +567,7 @@ function assertProbeOutput(value) {
 }
 
 function compactModelList(result) {
-  if (!isRecord(result) || !Array.isArray(result.data))
-    throw new Error("model/list response did not contain data");
-  return result.data
-    .map((model) => ({
-      id: isRecord(model) ? model.id : undefined,
-      model: isRecord(model) ? model.model : undefined,
-      isDefault: isRecord(model) ? model.isDefault : undefined,
-      supportedReasoningEfforts:
-        isRecord(model) && Array.isArray(model.supportedReasoningEfforts)
-          ? model.supportedReasoningEfforts
-              .map((effort) =>
-                isRecord(effort) ? effort.reasoningEffort : undefined,
-              )
-              .filter(Boolean)
-          : [],
-    }))
-    .filter(
-      (model) =>
-        typeof model.id === "string" && typeof model.model === "string",
-    );
+  return parseModelListResult(result);
 }
 
 function compactEvents(transcript, threadId, turnId) {
@@ -389,22 +586,63 @@ function compactEvents(transcript, threadId, turnId) {
     .map((message) => message.method);
 }
 
+function observedRequestShape(transcript, method) {
+  const entry = transcript.find(
+    (value) =>
+      value.direction === "client" &&
+      isRecord(value.message) &&
+      value.message.method === method,
+  );
+  if (entry === undefined || !isRecord(entry.message.params))
+    throw new Error(`client did not send ${method}`);
+  const params = Object.fromEntries(
+    Object.keys(entry.message.params)
+      .sort()
+      .map((key) => [
+        key,
+        key === "threadId"
+          ? "<thread-id>"
+          : key === "lastTurnId"
+            ? "<completed-turn-id>"
+            : key === "turnId"
+              ? "<active-turn-id>"
+              : "<redacted>",
+      ]),
+  );
+  return { method, params };
+}
+
 async function runProbe(options) {
-  const version =
+  const detectedVersion =
     options.readVersion === undefined
       ? codexVersion(options.executable, options.workspace)
       : options.readVersion(options.executable, options.workspace);
+  const version = detectedVersion ?? "unknown";
+  const diagnostic =
+    detectedVersion !== undefined &&
+    TESTED_CODEX_VERSIONS.includes(detectedVersion)
+      ? undefined
+      : {
+          code: "codex-version-unconfirmed",
+          message: `Codex CLI version ${detectedVersion ?? "unknown"} is not in the tested version list; continuing with advisory compatibility only`,
+          ...(detectedVersion === undefined
+            ? {}
+            : { version: detectedVersion }),
+          testedVersions: TESTED_CODEX_VERSIONS,
+        };
+  if (diagnostic !== undefined) console.error(`warning: ${diagnostic.message}`);
   const child = (options.spawnProcess ?? spawn)(
     options.executable,
     ["app-server", "--stdio"],
     {
       cwd: options.workspace,
       stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
     },
   );
   const client = new AppServerClient(child);
   try {
-    const initialize = await client.request(
+    const initializeResponse = await client.request(
       "initialize",
       {
         clientInfo: {
@@ -415,9 +653,11 @@ async function runProbe(options) {
       },
       options.timeoutMs,
     );
+    const initialize = parseInitializeResult(initializeResponse);
     client.notify("initialized", {});
 
     const models = await client.request("model/list", {}, options.timeoutMs);
+    parseModelListResult(models);
     const model = defaultModel(models);
     const threadId = threadIdFrom(
       await client.request(
@@ -426,7 +666,7 @@ async function runProbe(options) {
           cwd: options.workspace,
           model,
           approvalPolicy: "never",
-          sandbox: "workspace-write",
+          sandbox: "readOnly",
         },
         options.timeoutMs,
       ),
@@ -444,11 +684,7 @@ async function runProbe(options) {
         ],
         cwd: options.workspace,
         approvalPolicy: "never",
-        sandboxPolicy: {
-          type: "workspaceWrite",
-          writableRoots: [options.workspace],
-          networkAccess: false,
-        },
+        sandboxPolicy: { type: "readOnly" },
         outputSchema: PROBE_OUTPUT_SCHEMA,
         model,
       },
@@ -459,6 +695,13 @@ async function runProbe(options) {
       (message) => completedTurn(message, threadId, turnId),
       options.timeoutMs,
       "structured turn completion",
+    );
+    const completedTurnResult = completedTurnStatus(
+      completed,
+      threadId,
+      turnId,
+      "structured turn completion",
+      "completed",
     );
     const outputText = findAgentMessage(client.transcript, turnId);
     let output;
@@ -482,8 +725,8 @@ async function runProbe(options) {
         {
           cwd: options.workspace,
           model,
-          approvalPolicy: "never",
-          sandbox: "workspace-write",
+          approvalPolicy: "on-request",
+          sandbox: "readOnly",
         },
         options.timeoutMs,
       ),
@@ -492,57 +735,6 @@ async function runProbe(options) {
       "turn/start",
       {
         threadId: interruptThreadId,
-        input: [
-          { type: "text", text: "Run `sleep 20`, then return the word done." },
-        ],
-        cwd: options.workspace,
-        approvalPolicy: "never",
-        sandboxPolicy: {
-          type: "workspaceWrite",
-          writableRoots: [options.workspace],
-          networkAccess: false,
-        },
-        outputSchema: { type: "string" },
-        model,
-      },
-      options.timeoutMs,
-    );
-    const interruptTurnId = turnIdFrom(interruptStart);
-    await client.request(
-      "turn/interrupt",
-      { threadId: interruptThreadId, turnId: interruptTurnId },
-      options.timeoutMs,
-    );
-    const interrupted = await client.waitFor(
-      (message) => completedTurn(message, interruptThreadId, interruptTurnId),
-      options.timeoutMs,
-      "interrupt completion",
-    );
-    if (
-      !isRecord(interrupted.params.turn) ||
-      interrupted.params.turn.status !== "interrupted"
-    ) {
-      throw new Error(
-        `turn/interrupt did not produce interrupted status: ${JSON.stringify(interrupted.params.turn)}`,
-      );
-    }
-
-    const approvalThreadId = threadIdFrom(
-      await client.request(
-        "thread/start",
-        {
-          cwd: options.workspace,
-          model,
-          approvalPolicy: "on-request",
-          sandbox: "read-only",
-        },
-        options.timeoutMs,
-      ),
-    );
-    const approvalStart = await client.request(
-      "turn/start",
-      {
-        threadId: approvalThreadId,
         input: [
           {
             type: "text",
@@ -557,33 +749,37 @@ async function runProbe(options) {
       },
       options.timeoutMs,
     );
-    const approvalTurnId = turnIdFrom(approvalStart);
-    let approvalRequest;
-    try {
-      approvalRequest = await client.waitFor(
-        (message) =>
-          serverRequestFor(message) && message.method.includes("Approval"),
-        options.timeoutMs,
-        "approval request",
-      );
-    } finally {
-      await client
-        .request(
-          "turn/interrupt",
-          { threadId: approvalThreadId, turnId: approvalTurnId },
-          options.timeoutMs,
-        )
-        .catch(() => undefined);
-    }
-    if (approvalRequest === undefined)
-      throw new Error("approval request was not observed");
+    const interruptTurnId = turnIdFrom(interruptStart);
+    const approvalRequest = await client.waitFor(
+      (message) =>
+        approvalRequestFor(message, interruptThreadId, interruptTurnId),
+      options.timeoutMs,
+      "approval request",
+    );
+    await client.request(
+      "turn/interrupt",
+      { threadId: interruptThreadId, turnId: interruptTurnId },
+      options.timeoutMs,
+    );
+    const interrupted = await client.waitFor(
+      (message) => completedTurn(message, interruptThreadId, interruptTurnId),
+      options.timeoutMs,
+      "interrupt completion",
+    );
+    const interruptedTurn = completedTurnStatus(
+      interrupted,
+      interruptThreadId,
+      interruptTurnId,
+      "interrupt completion",
+    );
 
     const fixture = {
       protocol: "codex-app-server",
       version,
       generatedBy: "seqlane-protocol-probe",
+      ...(diagnostic === undefined ? {} : { diagnostic }),
       initialize: {
-        responseKeys: Object.keys(initialize).sort(),
+        responseKeys: Object.keys(initializeResponse).sort(),
         userAgent:
           typeof initialize.userAgent === "string"
             ? initialize.userAgent
@@ -599,16 +795,12 @@ async function runProbe(options) {
       structuredOutput: {
         request: { method: "turn/start", outputSchema: PROBE_OUTPUT_SCHEMA },
         eventMethods: compactEvents(client.transcript, threadId, turnId),
-        terminalStatus: completed.params.turn.status,
+        terminalStatus: completedTurnResult.turn.status,
         output,
       },
       fork: {
         request: {
-          method: "thread/fork",
-          params: {
-            threadId: "<thread-id>",
-            lastTurnId: "<completed-turn-id>",
-          },
+          ...observedRequestShape(client.transcript, "thread/fork"),
         },
         responseKeys: Object.keys(forkResult).sort(),
         returnedThread:
@@ -616,15 +808,15 @@ async function runProbe(options) {
       },
       interrupt: {
         request: {
-          method: "turn/interrupt",
-          params: { threadId: "<thread-id>", turnId: "<active-turn-id>" },
+          ...observedRequestShape(client.transcript, "turn/interrupt"),
         },
-        terminalStatus: interrupted.params.turn.status,
+        terminalStatus: interruptedTurn.turn.status,
       },
       approval: {
         requestMethod: approvalRequest.method,
         decisionResponseSent: false,
-        interruptedWithoutDecision: true,
+        interruptedWithoutDecision:
+          interruptedTurn.turn.status === "interrupted",
       },
     };
     return fixture;
@@ -653,4 +845,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-export { AppServerClient, PROBE_OUTPUT_SCHEMA, parseJsonLine, runProbe };
+export {
+  AppServerClient,
+  PROBE_OUTPUT_SCHEMA,
+  parseInitializeResult,
+  parseJsonLine,
+  parseModelListResult,
+  parseThreadResult,
+  parseTurnResult,
+  runProbe,
+};
