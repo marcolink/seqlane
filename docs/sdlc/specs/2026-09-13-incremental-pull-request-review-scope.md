@@ -292,6 +292,16 @@ Pre-model Git work has its own budget beginning when admission accepts the
 event. This is separate from the model-phase elapsed-time ceiling and does not
 change the unapproved decision about when the overall review deadline starts:
 
+These limits are required because the review consumes untrusted repository
+content and can fan out work across batches, lanes, and retries. Without hard
+ceilings, a large diff, pathological path names, repeated failures, or an
+oversized model context could consume the Action's available CPU, memory,
+output, or wall time and still leave an incomplete review looking successful.
+The ceilings make completeness decidable: the workflow either accounts for the
+whole permitted scope within the budget or fails closed without publishing.
+They are normative defaults owned by the Action library. A model, review lane,
+or repository input cannot raise them for one run.
+
 | Resource | Maximum |
 | --- | ---: |
 | Admission-to-model-start wall time | 120 seconds |
@@ -302,6 +312,26 @@ change the unapproved decision about when the overall review deadline starts:
 | Git stdout plus stderr before parsing | 2,048,000 bytes |
 | Exact-checkpoint fetch transfer | 16 MiB |
 | Exact-checkpoint fetch wall time | 30 seconds |
+
+The limits apply in layers:
+
+1. Admission constructs one immutable budget object containing the limits and
+   zeroed monotonic counters. The scope selector and evidence collector reserve
+   path, hunk, batch, byte, and Git-operation capacity before work starts.
+2. The bounded Git adapter wraps every subprocess and exact-SHA fetch. It
+   streams NUL-delimited output, enforces wall, CPU, memory, transfer, and
+   output caps, and kills the complete process group on a breach. It returns a
+   typed limit failure; it does not retry outside the same budget.
+3. Before model fan-out, the orchestrator preflights all planned batch,
+   invocation, token, and elapsed-time capacity. Before each invocation it
+   reserves the final input and one invocation unit, including retries and
+   retained-finding verification. Dynamic overruns cancel the run and cannot
+   be hidden by adding batches or changing lanes.
+4. Every breach records the resource, observed value, limit, and operation in
+   bounded run evidence. A pre-model breach makes zero model calls. Any later
+   breach fails the run, leaves the previous report and checkpoint
+   authoritative, and prevents publication. Boundary and one-over-limit cases
+   are covered by the verification tests below.
 
 Run Git through a bounded subprocess adapter that streams NUL-delimited path
 records, caps output before buffering, and aborts the process group when any
