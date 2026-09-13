@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-05
-updated: 2026-09-06
+updated: 2026-09-13
 upstream: []
 supersedes: []
 ---
@@ -46,6 +46,12 @@ state.
   an ancestor of the current reviewed revision.
 - **Disposition:** An authorized human decision, such as `wont-fix` or
   `downgrade`.
+
+Review-scope selection and checkpoint advancement are defined in
+[spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md).
+The version 3 state below describes the existing transport and lifecycle
+contract. A new strict state revision must add that spec's scope checkpoint
+without changing the trusted-comment or run-metrics ownership here.
 
 ## Requirements
 
@@ -127,6 +133,11 @@ new final identifiers.
 The finalizer must collapse duplicate temporary and legacy identifiers before
 it assigns stable identifiers. Legacy deduplication must mark the state as
 truncated and add a limitation.
+
+The incremental-review scope contract uses generation-qualified IDs for new
+baseline reports. This prevents a disposition aimed at an older report from
+applying to a new finding after that report is replaced. The numeric format
+above remains the version 3 contract.
 
 ### requirement-lifecycle
 
@@ -304,6 +315,10 @@ counts.
 The reader accepts legacy v1 and v2 snapshots during migration. The first v3
 publication converts retained legacy findings to publisher-owned identifiers.
 
+This describes the version 3 migration. Under the incremental-review scope
+contract, the first new-version publication replaces a trusted older-version
+report with a fresh baseline and does not migrate its findings or metrics.
+
 The v3 state stores legacy aliases when an existing disposition uses an old
 identifier. New reports and commands use the v3 identifier.
 
@@ -337,6 +352,7 @@ identifier. New reports and commands use the v3 identifier.
 ## Traceability
 
 - Source proposal: [Seqlane review template](https://github.com/marcolink/seqlane/issues/45)
+- Review scope: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Delivery: [task.publish-versioned-pull-request-review-comments](../tasks/2026-09-05-publish-versioned-pull-request-review-comments.md)
 - Delivery: [task.prevent-comment-triggered-review-cancellation](../tasks/2026-09-05-prevent-comment-triggered-review-cancellation.md)
 - Delivery: [task.consolidate-pull-request-review-run-metrics](../tasks/2026-09-06-consolidate-pull-request-review-run-metrics.md)

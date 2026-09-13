@@ -1,0 +1,115 @@
+---
+id: task.incremental-pull-request-review-scope
+title: Implement Incremental Pull Request Review Scope
+status: planned
+owners:
+  - core
+created: 2026-09-13
+updated: 2026-09-13
+upstream:
+  - spec.incremental-pull-request-review-scope
+supersedes: []
+---
+
+# Implement Incremental Pull Request Review Scope
+
+## Objective
+
+Make the first published PR review cover the full branch diff. Make later
+reviews add findings only for PR files changed since the last published review.
+
+## Upstream requirements
+
+Implement [spec.incremental-pull-request-review-scope](../specs/2026-09-13-incremental-pull-request-review-scope.md).
+Preserve the state, lifecycle, trust, and publication rules in
+[spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md).
+
+## Scope
+
+- Add strict scope-checkpoint state and a new finding-ID generation.
+- Replace a trusted old-version report with a fresh full-diff baseline, without
+  carrying its findings, dispositions, or metrics.
+- Select baseline or incremental scope from immutable Git revisions and the
+  last published trusted checkpoint.
+- Collect complete eligible paths and scoped patch evidence, with complete
+  bounded batch coverage or a clear failure.
+- Restrict review lanes to the selected scope and gate new findings locally
+  before stable-ID allocation.
+- Preserve retained finding lifecycle, dispositions, and cumulative verdict.
+- Publish the report and checkpoint together after current-head and
+  previous-checkpoint guards pass.
+- Show review mode, scope, and limitations in the human report.
+
+## Out of scope
+
+- A new public Seqlane workflow or runtime API.
+- A separate durable review database or patch archive.
+- Automatic baseline reset on force-push, retargeting, or state failure.
+- Changes to the existing GitHub admission and concurrency policy.
+
+## Implementation plan
+
+1. Extend the existing report-state schema, metadata marker, finding-ID parser,
+   and reader. Coordinate the next outer schema revision with the draft
+   mechanical-disposition work so one version has one meaning.
+2. Add a pure scope selector for `P(B,H) ∩ D(C,H)` and tests for Git path
+   records, non-ancestor commits, renames, deletions, base movement, and
+   same-head runs.
+3. Change Git evidence to produce a complete scoped patch or fail. Partition
+   large patches into bounded batches with explicit coverage accounting.
+4. Pass scope and prior current-generation findings to history verification,
+   review lanes, and synthesis. Add the deterministic new-finding path gate
+   and first-observed revision.
+5. Preserve prior findings and compute a cumulative verdict in finalization.
+   Skip discovery lanes for empty scope.
+6. Re-read checkpoint and live head at publication. Write the new checkpoint
+   only with the completed report.
+7. Update documentation and run focused, contract, and hosted workflow checks.
+
+## Affected areas
+
+- `libs/action-code-review/src/workflows/review-contracts.ts`
+- `libs/action-code-review/src/workflows/review-history.ts`
+- `libs/action-code-review/src/workflows/review-git-evidence.ts`
+- `libs/action-code-review/src/workflows/review-workflow.ts`
+- `libs/action-code-review/src/workflows/review-lanes.ts`
+- `libs/action-code-review/src/workflows/review-synthesis.ts`
+- `libs/action-code-review/src/workflows/review-finalization.ts`
+- `libs/action-code-review/src/publication-*.ts`
+- `libs/action-code-review/src/review-run.ts`
+- `libs/action-code-review/README.md`
+- `.github/workflows/seqlane-code-review.yml`
+
+## Verification
+
+- Run `pnpm run test:mapping` before focused tests.
+- Run focused Action-library tests for the requirement and failure matrix in
+  the specification.
+- Run old-version replacement, malformed-input, publication-guard,
+  finding-ID isolation, and workflow admission tests.
+- Run `pnpm docs:index`, `pnpm docs:validate`, formatting, and `git diff
+  --check`.
+- Run the hosted workflow on an open PR for a baseline, a changed-file
+  follow-up, and a same-head follow-up. Inspect the authoritative state and
+  verify that unchanged-file findings receive no new ID.
+
+## Completion criteria
+
+- All acceptance criteria in the upstream spec are demonstrated by focused
+  tests and the hosted run.
+- A partial or failed run preserves the prior published checkpoint.
+- Review output and report state do not claim a full-branch re-review on an
+  incremental run.
+
+## Outcome
+
+Implementation pending.
+
+## Delivery state
+
+Planned. No implementation or target-branch delivery claim is made here.
+
+## Traceability
+
+- Contract: [spec.incremental-pull-request-review-scope](../specs/2026-09-13-incremental-pull-request-review-scope.md)
+- State and lifecycle: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md)
