@@ -63,7 +63,7 @@ const FAKE_SERVER_SOURCE = `
       else if (message.method === "model/list") respond({ data: [{ id: "openai/gpt-test", model: "gpt-test", supportedReasoningEfforts: [{ reasoningEffort: "high" }], isDefault: true }] });
       else if (message.method === "thread/start") {
         threadNumber += 1;
-        if (message.params.sandbox !== "readOnly" || message.params.approvalPolicy !== (threadNumber === 1 ? "never" : "on-request")) fail("thread/start parameters were unexpected");
+        if (message.params.sandbox !== "read-only" || message.params.approvalPolicy !== (threadNumber === 1 ? "never" : "on-request")) fail("thread/start parameters were unexpected");
         respond({ thread: { id: "thread-" + threadNumber } });
       } else if (message.method === "thread/fork") {
         if (message.params.threadId !== "thread-1" || message.params.lastTurnId !== "turn-1") fail("thread/fork correlation was unexpected");
@@ -71,7 +71,7 @@ const FAKE_SERVER_SOURCE = `
       } else if (message.method === "turn/start") {
         turnNumber += 1;
         const turnId = "turn-" + turnNumber;
-        if (message.params.sandboxPolicy?.type !== "readOnly") fail("turn/start must use readOnly sandbox policy");
+        if (message.params.sandboxPolicy?.type !== "read-only") fail("turn/start must use read-only sandbox policy");
         respond({ turn: { id: turnId, status: "inProgress", items: [] } });
         if (message.params.input[0].text.startsWith("Return exactly")) {
           setImmediate(() => {
