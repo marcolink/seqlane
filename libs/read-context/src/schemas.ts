@@ -11,6 +11,7 @@ export const readContextInputSchema = z.object({
 });
 
 export const READ_CONTEXT_CORPUS_MAX_BYTES = 32_000;
+export const READ_CONTEXT_MAX_FOLLOW_UP_RANGES = 8;
 
 const lineRangeSchema = z
   .strictObject({
@@ -85,6 +86,7 @@ export const ReadContextSchema = z
     followUpReads: z
       .array(lineRangeSchema.extend({ reason: z.string().max(2_000) }))
       .max(8),
+    truncatedFollowUpRanges: z.number().int().nonnegative().max(100).optional(),
     uncertainties: z.array(z.string().max(2_000)).max(12),
     retrieval: z
       .object({

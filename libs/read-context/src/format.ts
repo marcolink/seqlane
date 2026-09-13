@@ -36,5 +36,9 @@ export function formatReadContextMarkdown(result: ReadContextResult): string {
     result.retrieval.excludedPaths.length > 0
       ? `\n\n> Retrieval note: ${result.retrieval.excludedPaths.length} path(s) were bounded or excluded.`
       : "";
-  return `## Answer\n\n${result.answer}\n\n## Evidence\n\n${evidence}\n\n## Relationships\n\n${relationships}\n\n## Suggested targeted reads\n\n${followUps}${uncertainties}${retrievalNote}`;
+  const followUpTrimNote =
+    result.truncatedFollowUpRanges === undefined
+      ? ""
+      : `\n\n> Retrieval note: ${result.truncatedFollowUpRanges} follow-up evidence range(s) were not included because the bounded range capacity was reached.`;
+  return `## Answer\n\n${result.answer}\n\n## Evidence\n\n${evidence}\n\n## Relationships\n\n${relationships}\n\n## Suggested targeted reads\n\n${followUps}${uncertainties}${retrievalNote}${followUpTrimNote}`;
 }

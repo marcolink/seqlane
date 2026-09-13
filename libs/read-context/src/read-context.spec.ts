@@ -8,6 +8,7 @@
 // @test-scope ./retrieval-workflow.ts
 // @test-scope ./workflow.ts
 // @test-scope ./result-validation.ts
+// @test-scope ./summarization-contract.ts
 // @test-scope ./bounded-read.ts
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -28,6 +29,7 @@ import {
   retrieveEvidence,
   retrieveEvidenceFromScrapes,
 } from "./retrieval.js";
+import { mergeReadContextUncertainties } from "./summarization-contract.js";
 import readContextWorkflow from "./workflow.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -533,6 +535,49 @@ describe("read-context result references", () => {
       expect.arrayContaining([
         expect.stringContaining("outside the retrieved source ranges"),
       ]),
+    );
+  });
+
+  it("reports follow-up range trimming instead of hiding it", () => {
+    const retrieval = {
+      question: "q",
+      corpus: "src/config.ts:1-4",
+      selectedPaths: ["src/config.ts"],
+      selectedRanges: [{ path: "src/config.ts", startLine: 1, endLine: 4 }],
+      excludedPaths: [],
+      usedExactSearch: true,
+      usedZvecGrep: false,
+      usedRipwire: false,
+      uncertainties: [],
+    };
+    const summary = ReadContextSchema.parse({
+      answer: "answer",
+      evidence: [],
+      relationships: [],
+      followUpReads: [],
+      uncertainties: [],
+      retrieval: {
+        excludedPaths: retrieval.excludedPaths,
+        usedExactSearch: retrieval.usedExactSearch,
+        usedZvecGrep: retrieval.usedZvecGrep,
+        usedRipwire: retrieval.usedRipwire,
+        selectedPaths: ["src/config.ts", "src/runtime.ts"],
+        selectedRanges: [
+          ...retrieval.selectedRanges,
+          ...Array.from({ length: 10 }, (_, index) => ({
+            path: "src/runtime.ts",
+            startLine: index + 1,
+            endLine: index + 1,
+          })),
+        ],
+      },
+    });
+    const result = mergeReadContextUncertainties(summary, retrieval);
+
+    expect(result.truncatedFollowUpRanges).toBe(2);
+    expect(result.retrieval.selectedRanges).toHaveLength(9);
+    expect(formatReadContextMarkdown(result)).toContain(
+      "2 follow-up evidence range(s) were not included",
     );
   });
 });

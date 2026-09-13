@@ -1,4 +1,5 @@
 import {
+  READ_CONTEXT_MAX_FOLLOW_UP_RANGES,
   ReadContextSchema,
   type ReadContextResult,
   type ReadContextRetrieval,
@@ -50,18 +51,60 @@ export function mergeReadContextUncertainties(
       ...summary.retrieval.selectedPaths,
     ]),
   ].slice(0, 20);
+  const retrievalRangeKeys = new Set(
+    retrieval.selectedRanges.map(
+      (range) => `${range.path}:${range.startLine}-${range.endLine}`,
+    ),
+  );
+  const followUpRanges = [
+    ...new Map(
+      summary.retrieval.selectedRanges
+        .filter(
+          (range) =>
+            !retrievalRangeKeys.has(
+              `${range.path}:${range.startLine}-${range.endLine}`,
+            ),
+        )
+        .map((range) => [
+          `${range.path}:${range.startLine}-${range.endLine}`,
+          range,
+        ]),
+    ).values(),
+  ];
+  const retainedFollowUpRanges = followUpRanges.slice(
+    0,
+    READ_CONTEXT_MAX_FOLLOW_UP_RANGES,
+  );
+  const truncatedFollowUpRanges =
+    followUpRanges.length - retainedFollowUpRanges.length;
   const selectedRanges = [
     ...new Map(
-      [...retrieval.selectedRanges, ...summary.retrieval.selectedRanges].map(
-        (range) => [`${range.path}:${range.startLine}-${range.endLine}`, range],
-      ),
+      [...retrieval.selectedRanges, ...retainedFollowUpRanges].map((range) => [
+        `${range.path}:${range.startLine}-${range.endLine}`,
+        range,
+      ]),
     ).values(),
   ].slice(0, 100);
+  const capacityTrimmedFollowUpRanges =
+    followUpRanges.length -
+    selectedRanges.filter(
+      (range) =>
+        !retrievalRangeKeys.has(
+          `${range.path}:${range.startLine}-${range.endLine}`,
+        ),
+    ).length;
+  const totalTrimmedFollowUpRanges = Math.max(
+    truncatedFollowUpRanges,
+    capacityTrimmedFollowUpRanges,
+  );
   return ReadContextSchema.parse({
     ...summary,
     uncertainties: [
       ...new Set([...summary.uncertainties, ...retrieval.uncertainties]),
     ].slice(0, 12),
+    ...(totalTrimmedFollowUpRanges === 0
+      ? {}
+      : { truncatedFollowUpRanges: totalTrimmedFollowUpRanges }),
     retrieval: {
       selectedPaths,
       selectedRanges,
