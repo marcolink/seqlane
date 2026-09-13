@@ -59,11 +59,13 @@ describe("command classification and hook policy", () => {
     expect(classifyCommand("git status --short").kind).toBe("unsafe");
     expect(
       classifyCommand(
-        "pnpm exec node apps/cli/bin/run.js run read-context.ts --input '{}' --workspace .",
+        "pnpm exec node apps/cli/bin/run.js run examples/read-context.ts --input '{}' --workspace .",
       ).kind,
     ).toBe("workflow");
-    expect(classifyCommand("cat read-context.ts").kind).toBe("full");
-    expect(classifyCommand("cat /tmp/read-context.ts").kind).toBe("full");
+    expect(classifyCommand("cat examples/read-context.ts").kind).toBe("full");
+    expect(classifyCommand("cat /tmp/examples/read-context.ts").kind).toBe(
+      "full",
+    );
     expect(classifyCommand("cat a.ts && cat b.ts").kind).toBe("unsupported");
   });
 
@@ -160,13 +162,14 @@ describe("command classification and hook policy", () => {
   it("accepts only the validated repository-local workflow invocation", async () => {
     const root = await mkdtemp(join("/tmp", "read-context-workflow-hook-"));
     await mkdir(join(root, "apps/cli/bin"), { recursive: true });
+    await mkdir(join(root, "examples"), { recursive: true });
     await writeFile(join(root, "apps/cli/bin/run.js"), "runner");
-    await writeFile(join(root, "read-context.ts"), "workflow");
+    await writeFile(join(root, "examples/read-context.ts"), "workflow");
     const previous = process.cwd();
     process.chdir(root);
     try {
       const command =
-        'pnpm exec node apps/cli/bin/run.js run read-context.ts --input \'{"question":"q"}\' --runtime opencode --workspace .';
+        'pnpm exec node apps/cli/bin/run.js run examples/read-context.ts --input \'{"question":"q"}\' --runtime opencode --workspace .';
       expect(
         runReadContextGuard(JSON.stringify({ tool_input: { command } })),
       ).toBe("{}");
@@ -443,7 +446,7 @@ describe("size and evidence budgets", () => {
       timedOut: false,
     }));
     const result = await retrieveEvidence(
-      { question: "q", paths: ["read-context.ts"] },
+      { question: "q", paths: ["examples/read-context.ts"] },
       { root: resolve(process.cwd(), "../.."), commandRunner: run },
     );
     expect(result.usedZvecGrep).toBe(false);

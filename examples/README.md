@@ -38,11 +38,11 @@ seqlane run examples/local-only.ts \
   --input '{"value":"local"}'
 ```
 
-The repository's `workflow-read-context` workflow is defined in `read-context.ts`. It
+The repository's `workflow-read-context` workflow is defined in `examples/read-context.ts`. It
 uses `openai/gpt-5.6-luna` with medium reasoning:
 
 ```sh
-seqlane run read-context.ts \
+seqlane run examples/read-context.ts \
   --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
   --runtime opencode \
   --workspace "$PWD"

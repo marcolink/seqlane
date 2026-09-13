@@ -478,7 +478,7 @@ Build and run it with the normal Seqlane CLI:
 
 ```sh
 pnpm build
-pnpm exec node apps/cli/bin/run.js run read-context.ts \
+pnpm exec node apps/cli/bin/run.js run examples/read-context.ts \
   --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
   --runtime opencode \
   --workspace "$PWD"
@@ -494,7 +494,7 @@ are reported as uncertainties when they exclude evidence.
 
 The project-local Codex hook in `.codex/hooks.json` denies supported oversized
 broad reads, unscoped or unsupported read-like commands, and denied paths. It
-points the active session to `seqlane run read-context.ts` for the
+points the active session to `seqlane run examples/read-context.ts` for the
 `workflow-read-context` workflow. Trust the project-local hook through `/hooks`
 before enabling it. The hook fails open for commands it cannot classify as
 read-like. Read-context sends selected source to the configured endpoint, so
