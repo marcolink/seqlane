@@ -31,24 +31,35 @@ function request(
   };
 }
 
+async function processIsAlive(pid: number): Promise<boolean> {
+  if (process.platform === "linux") {
+    try {
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const stateIndex = stat.lastIndexOf(")") + 2;
+      return stat[stateIndex] !== "Z";
+    } catch {
+      return false;
+    }
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function waitForProcessToExit(pid: number): Promise<boolean> {
   const deadline = Date.now() + PROCESS_EXIT_WAIT_MS;
   while (Date.now() < deadline) {
-    try {
-      process.kill(pid, 0);
-    } catch {
+    if (!(await processIsAlive(pid))) {
       return true;
     }
     await new Promise((resolve) =>
       setTimeout(resolve, PROCESS_EXIT_POLL_INTERVAL_MS),
     );
   }
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch {
-    return true;
-  }
+  return !(await processIsAlive(pid));
 }
 
 describe("Mastra deterministic process integration", () => {
