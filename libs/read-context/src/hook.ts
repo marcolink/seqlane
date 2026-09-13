@@ -205,6 +205,8 @@ export function runReadContextGuard(input: string): string {
     return guardWorkflowCommand(root, candidate);
   if (candidate.kind === "path-bearing")
     return guardPathBearingCommand(root, candidate);
+  if (candidate.kind === "unsafe")
+    return deny(`Read-context guard rejected ${candidate.reason}`);
   if (candidate.kind !== "full" && candidate.kind !== "bounded") {
     if (candidate.kind === "unsupported")
       debug("allowed unsupported or compound command");

@@ -14,6 +14,7 @@ export interface BoundedReadResult {
   readonly endLine: number;
   readonly truncated: boolean;
   readonly excludedReason?: string;
+  readonly scannedBytes: number;
 }
 
 /** Reads only the requested line range and byte budget from a real file. */
@@ -52,6 +53,7 @@ export function readBoundedFile(
           endLine: request.endLine,
           truncated: true,
           excludedReason: "scan-work budget",
+          scannedBytes: offset,
         };
       }
       const count = readSync(
@@ -88,7 +90,14 @@ export function readBoundedFile(
       offset += count;
     }
 
-    if (!selected) return undefined;
+    if (!selected)
+      return {
+        content: "",
+        startLine: request.startLine,
+        endLine: request.endLine,
+        truncated: false,
+        scannedBytes: offset,
+      };
     if (!stopped && offset >= request.maxScanBytes && offset < size) {
       return {
         content: "",
@@ -96,6 +105,7 @@ export function readBoundedFile(
         endLine: request.endLine,
         truncated: true,
         excludedReason: "scan-work budget",
+        scannedBytes: offset,
       };
     }
     if (!stopped && line >= request.startLine && line <= request.endLine) {
@@ -114,6 +124,7 @@ export function readBoundedFile(
         request.startLine > 1 ||
         (stopped && position < size) ||
         (!stopped && line <= request.endLine && position < size),
+      scannedBytes: offset,
     };
   } finally {
     closeSync(descriptor);

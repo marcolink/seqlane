@@ -12,21 +12,21 @@ import {
   ReadContextSchema,
 } from "./index.js";
 import { readContextRetrievalWorkflow } from "./retrieval-workflow.js";
+import {
+  formatReadContextSummaryPrompt,
+  mergeReadContextUncertainties,
+  READ_CONTEXT_SUMMARY_INSTRUCTIONS,
+  READ_CONTEXT_SUMMARY_TOOL_POLICY,
+} from "./summarization-contract.js";
 import { validateReadContextReferences } from "./result-validation.js";
 
 const summarizeReadContextTask = defineAgentTask({
   id: "workflow-read-context.summarize",
   input: readContextRetrievalSchema,
   output: ReadContextSchema,
-  goal: ({ question, corpus }) =>
-    `Answer this exact codebase question from the supplied evidence only: ${question}\n\nEvidence:\n${corpus}`,
-  instructions: [
-    "Do not propose code changes, implementation plans, or architectural choices.",
-    "Do not reproduce large code blocks.",
-    "Cite repository-relative source paths and line ranges in evidence.",
-    "Return only data matching ReadContextSchema.",
-  ],
-  toolPolicy: "read-only",
+  goal: formatReadContextSummaryPrompt,
+  instructions: [...READ_CONTEXT_SUMMARY_INSTRUCTIONS],
+  toolPolicy: READ_CONTEXT_SUMMARY_TOOL_POLICY,
 });
 
 const normalizeReadContextTask = defineTask({
@@ -38,15 +38,7 @@ const normalizeReadContextTask = defineTask({
   output: ReadContextSchema,
   execute: async ({ input }) =>
     validateReadContextReferences(
-      {
-        ...input.summary,
-        uncertainties: [
-          ...new Set([
-            ...input.summary.uncertainties,
-            ...input.retrieval.uncertainties,
-          ]),
-        ].slice(0, 12),
-      },
+      mergeReadContextUncertainties(input.summary, input.retrieval),
       input.retrieval,
     ),
 });

@@ -1,5 +1,9 @@
 import { summarizeWithOpenAICompatible } from "./providers/openai-compatible.js";
 import type { RetrievalResult } from "./retrieval.js";
+import {
+  createReadContextSummarizationRequest,
+  mergeReadContextUncertainties,
+} from "./summarization-contract.js";
 import type { ReadContextResult } from "./schemas.js";
 
 export interface SummarizerOptions {
@@ -11,10 +15,10 @@ export async function summarizeEvidence(
   options: SummarizerOptions = {},
 ): Promise<ReadContextResult> {
   const result = await summarizeWithOpenAICompatible(
-    {
-      question: retrieval.question,
-      corpus: retrieval.corpus,
-      retrieval: {
+    createReadContextSummarizationRequest(
+      retrieval.question,
+      retrieval.corpus,
+      {
         selectedPaths: retrieval.selectedPaths,
         selectedRanges: retrieval.selectedRanges,
         excludedPaths: retrieval.excludedPaths,
@@ -22,21 +26,18 @@ export async function summarizeEvidence(
         usedZvecGrep: retrieval.usedZvecGrep,
         usedRipwire: retrieval.usedRipwire,
       },
-    },
+    ),
     options.fetchImpl,
   );
-  return {
-    ...result,
-    uncertainties: [
-      ...new Set([...result.uncertainties, ...retrieval.uncertainties]),
-    ].slice(0, 12),
-    retrieval: {
-      selectedPaths: retrieval.selectedPaths,
-      selectedRanges: retrieval.selectedRanges,
-      excludedPaths: retrieval.excludedPaths,
-      usedExactSearch: retrieval.usedExactSearch,
-      usedZvecGrep: retrieval.usedZvecGrep,
-      usedRipwire: retrieval.usedRipwire,
-    },
-  };
+  return mergeReadContextUncertainties(result, {
+    question: retrieval.question,
+    corpus: retrieval.corpus,
+    selectedPaths: retrieval.selectedPaths,
+    selectedRanges: retrieval.selectedRanges,
+    excludedPaths: retrieval.excludedPaths,
+    usedExactSearch: retrieval.usedExactSearch,
+    usedZvecGrep: retrieval.usedZvecGrep,
+    usedRipwire: retrieval.usedRipwire,
+    uncertainties: retrieval.uncertainties,
+  });
 }

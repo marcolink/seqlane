@@ -37,6 +37,7 @@ export interface EvidenceReadResult {
   readonly endLine: number;
   readonly truncated: boolean;
   readonly excludedReason?: string;
+  readonly scannedBytes?: number;
 }
 
 export interface EvidenceSelectionOptions {
@@ -202,6 +203,7 @@ export async function selectEvidence(
   }[] = [];
   const excludedPaths: ReadContextExcludedPath[] = [];
   let usedBytes = 0;
+  let usedScanBytes = 0;
 
   for (const candidate of rankCandidates(candidates)) {
     if (selectedPaths.length >= options.maxFiles) {
@@ -210,6 +212,10 @@ export async function selectEvidence(
     }
     if (usedBytes >= options.maxBytes) {
       excludedPaths.push({ path: candidate.path, reason: "max-bytes budget" });
+      continue;
+    }
+    if (usedScanBytes >= maxScanBytes) {
+      excludedPaths.push({ path: candidate.path, reason: "scan-work budget" });
       continue;
     }
 
@@ -237,12 +243,27 @@ export async function selectEvidence(
             requestedRange.startLine + maxChunkLines - 1,
           ),
           maxBytes: allowedBytes,
-          maxScanBytes,
+          maxScanBytes: maxScanBytes - usedScanBytes,
         });
       } catch {
         read = undefined;
       }
       if (read === undefined) continue;
+      const remainingScanBytes = maxScanBytes - usedScanBytes;
+      const scannedBytes =
+        read.scannedBytes === undefined
+          ? remainingScanBytes
+          : read.scannedBytes;
+      if (
+        !Number.isSafeInteger(scannedBytes) ||
+        scannedBytes < 0 ||
+        scannedBytes > remainingScanBytes
+      ) {
+        usedScanBytes = maxScanBytes;
+        fileExcludedReason = "scan-work budget";
+        break;
+      }
+      usedScanBytes += scannedBytes;
       if (read.excludedReason !== undefined) {
         fileExcludedReason = read.excludedReason;
         break;

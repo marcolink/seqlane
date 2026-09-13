@@ -165,12 +165,12 @@ function makeCorpus(
       Buffer.byteLength(unit.content, "utf8") <= available
         ? unit.content
         : truncateUtf8(unit.content, available);
-    corpus += prefix + header + content;
-    retained.push(unit);
     if (content !== unit.content) {
       truncated = true;
       break;
     }
+    corpus += prefix + header + content;
+    retained.push(unit);
   }
   return { corpus, units: retained, truncated };
 }
@@ -339,9 +339,10 @@ export async function retrieveEvidenceFromScrapes(
       `Invalid read-context input: ${parsedRequest.error.issues[0]?.message ?? "invalid input"}`,
     );
   }
+  const normalizedRequest = parsedRequest.data;
   const root = resolve(options.root ?? process.cwd());
   const excludedPaths: { path: string; reason: string }[] = [];
-  const explicit = (request.paths ?? []).flatMap((path, index) => {
+  const explicit = (normalizedRequest.paths ?? []).flatMap((path, index) => {
     const candidate = pathCandidate(root, path, true, index);
     if (candidate === undefined)
       excludedPaths.push({
@@ -350,13 +351,16 @@ export async function retrieveEvidenceFromScrapes(
       });
     return candidate === undefined ? [] : [candidate];
   });
-  const anchors = extractExactAnchors(request.question, request.paths ?? []);
-  const scope = safeScope(root, request);
+  const anchors = extractExactAnchors(
+    normalizedRequest.question,
+    normalizedRequest.paths ?? [],
+  );
+  const scope = safeScope(root, normalizedRequest);
   const exactCandidates =
     scrapes.exact.exitCode === 0
       ? parseRg(scrapes.exact.stdout, root, anchors)
       : [];
-  const optional = collectOptionalCandidates(request, root, scrapes);
+  const optional = collectOptionalCandidates(normalizedRequest, root, scrapes);
   const uncertainties = [...optional.uncertainties];
   if (scope.invalid)
     uncertainties.push(
@@ -365,9 +369,9 @@ export async function retrieveEvidenceFromScrapes(
   const selection = await selectEvidence(
     mergeCandidates([...explicit, ...exactCandidates, ...optional.candidates]),
     {
-      maxFiles: request.maxFiles ?? 12,
+      maxFiles: normalizedRequest.maxFiles ?? 12,
       maxBytes: Math.min(
-        request.maxBytes ?? 16_000,
+        normalizedRequest.maxBytes ?? 16_000,
         READ_CONTEXT_CORPUS_MAX_BYTES,
       ),
       maxScanBytes: 128_000,
@@ -375,7 +379,7 @@ export async function retrieveEvidenceFromScrapes(
         readBoundedFile(root, path, readRequest),
     },
   );
-  const requestedBytes = request.maxBytes ?? 16_000;
+  const requestedBytes = normalizedRequest.maxBytes ?? 16_000;
   const corpusBudget = Math.min(requestedBytes, READ_CONTEXT_CORPUS_MAX_BYTES);
   const corpusSelection = makeCorpus(selection.units, corpusBudget);
   const retainedUnits = new Set(corpusSelection.units);
@@ -412,7 +416,7 @@ export async function retrieveEvidenceFromScrapes(
       "No readable source evidence matched the question or supplied paths",
     );
   return {
-    question: request.question,
+    question: normalizedRequest.question,
     corpus: corpusSelection.corpus,
     selectedPaths: selection.selectedPaths.filter((path) =>
       retainedPaths.has(path),
@@ -437,9 +441,16 @@ export async function retrieveEvidence(
   request: ReadContextRequest,
   options: RetrievalOptions = {},
 ): Promise<RetrievalResult> {
+  const parsedRequest = readContextInputSchema.safeParse(request);
+  if (!parsedRequest.success) {
+    throw new TypeError(
+      `Invalid read-context input: ${parsedRequest.error.issues[0]?.message ?? "invalid input"}`,
+    );
+  }
+  const normalizedRequest = parsedRequest.data;
   const root = resolve(options.root ?? process.cwd());
   const run = options.commandRunner ?? nodeCommandRunner;
-  const specs = retrievalCommandSpecs(request, root);
+  const specs = retrievalCommandSpecs(normalizedRequest, root);
   const runSpec = async (
     spec: RetrievalCommandSpec | undefined,
   ): Promise<RetrievalScrapeResult> => {
@@ -461,7 +472,7 @@ export async function retrieveEvidence(
     runSpec(specs.ripwire),
   ]);
   return retrieveEvidenceFromScrapes(
-    request,
+    normalizedRequest,
     { exact, zvec, ripwire },
     { root },
   );

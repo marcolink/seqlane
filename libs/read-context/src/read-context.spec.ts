@@ -53,7 +53,10 @@ describe("command classification and hook policy", () => {
 
   it("allows searches, workflow calls, metadata, and unsupported compounds", () => {
     expect(classifyCommand("rg question src").kind).toBe("path-bearing");
-    expect(classifyCommand("git status --short").kind).toBe("path-bearing");
+    expect(classifyCommand("git status --short -- .").kind).toBe(
+      "path-bearing",
+    );
+    expect(classifyCommand("git status --short").kind).toBe("unsafe");
     expect(
       classifyCommand(
         "pnpm exec node apps/cli/bin/run.js run read-context.ts --input '{}' --workspace .",
@@ -62,6 +65,33 @@ describe("command classification and hook policy", () => {
     expect(classifyCommand("cat read-context.ts").kind).toBe("full");
     expect(classifyCommand("cat /tmp/read-context.ts").kind).toBe("full");
     expect(classifyCommand("cat a.ts && cat b.ts").kind).toBe("unsupported");
+  });
+
+  it("denies unscoped and unsupported read command forms", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-command-forms-"));
+    await writeFile(join(root, ".env"), "TOKEN=secret");
+    const previous = process.cwd();
+    process.chdir(root);
+    try {
+      for (const command of [
+        "rg --hidden TOKEN",
+        "git grep TOKEN",
+        "git diff",
+        "git log",
+        "cat -- .env",
+      ]) {
+        expect(
+          JSON.parse(
+            runReadContextGuard(JSON.stringify({ tool_input: { command } })),
+          ),
+        ).toMatchObject({
+          hookSpecificOutput: { permissionDecision: "deny" },
+        });
+      }
+    } finally {
+      process.chdir(previous);
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("rejects sensitive paths from direct and path-bearing commands", async () => {
@@ -284,6 +314,42 @@ describe("size and evidence budgets", () => {
     }
   });
 
+  it("applies one scan-work budget across disjoint candidate reads", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-scan-budget-"));
+    try {
+      await writeFile(join(root, "a.ts"), "x\n".repeat(10_000));
+      await writeFile(join(root, "b.ts"), "x\n".repeat(10_000));
+      const selected = await selectEvidence(
+        [
+          {
+            path: "a.ts",
+            explicit: true,
+            ranges: [{ startLine: 1, endLine: 1 }],
+          },
+          {
+            path: "b.ts",
+            explicit: true,
+            ranges: [{ startLine: 1, endLine: 1 }],
+          },
+        ],
+        {
+          maxFiles: 2,
+          maxBytes: 100,
+          maxScanBytes: 8_192,
+          readFile: async (path, request) =>
+            readBoundedFile(root, path, request),
+        },
+      );
+      expect(selected.selectedPaths).toEqual(["a.ts"]);
+      expect(selected.excludedPaths).toContainEqual({
+        path: "b.ts",
+        reason: "scan-work budget",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("caps oversized evidence requests before corpus construction", async () => {
     const root = await mkdtemp(join("/tmp", "read-context-corpus-limit-"));
     try {
@@ -304,6 +370,65 @@ describe("size and evidence budgets", () => {
         expect.arrayContaining([
           expect.stringContaining("capped at 32000 bytes"),
         ]),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("drops a partially retained corpus unit and its citation range", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-corpus-range-"));
+    try {
+      const content = `${"x".repeat(135)}\n`.repeat(120);
+      await writeFile(join(root, "a.ts"), content);
+      await writeFile(join(root, "b.ts"), content);
+      const result = await retrieveEvidenceFromScrapes(
+        {
+          question: "q",
+          paths: ["a.ts", "b.ts"],
+          maxBytes: 40_000,
+        },
+        {
+          exact: { exitCode: 1, stdout: "", stderr: "none" },
+          zvec: { exitCode: 1, stdout: "", stderr: "disabled" },
+          ripwire: { exitCode: 1, stdout: "", stderr: "disabled" },
+        },
+        { root },
+      );
+      expect(result.selectedPaths).toEqual(["a.ts"]);
+      expect(result.selectedRanges).toHaveLength(1);
+      expect(result.selectedRanges[0]?.path).toBe("a.ts");
+      expect(result.excludedPaths).toContainEqual({
+        path: "b.ts",
+        reason: "corpus byte budget",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses normalized input at the exported retrieval boundary", async () => {
+    const root = await mkdtemp(join("/tmp", "read-context-normalized-input-"));
+    try {
+      await writeFile(join(root, "source.ts"), "source\n");
+      const result = await retrieveEvidenceFromScrapes(
+        {
+          question: " q ",
+          paths: [" source.ts "],
+          maxBytes: 40_000,
+          extra: "ignored",
+        } as unknown as Parameters<typeof retrieveEvidenceFromScrapes>[0],
+        {
+          exact: { exitCode: 1, stdout: "", stderr: "none" },
+          zvec: { exitCode: 1, stdout: "", stderr: "disabled" },
+          ripwire: { exitCode: 1, stdout: "", stderr: "disabled" },
+        },
+        { root },
+      );
+      expect(result.question).toBe("q");
+      expect(result.selectedPaths).toEqual(["source.ts"]);
+      expect(result.uncertainties).toEqual(
+        expect.arrayContaining([expect.stringContaining("capped at 32000")]),
       );
     } finally {
       await rm(root, { recursive: true, force: true });

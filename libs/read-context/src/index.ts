@@ -29,10 +29,7 @@ export async function readContext(
     throw new TypeError(
       `Invalid read-context input: ${parsed.error.issues[0]?.message ?? "invalid input"}`,
     );
-  const retrieval = await retrieveEvidence(
-    { ...parsed.data, ...request },
-    options,
-  );
+  const retrieval = await retrieveEvidence(parsed.data, options);
   return validateReadContextReferences(
     ReadContextSchema.parse(await summarizeEvidence(retrieval, options)),
     retrieval,

@@ -1,5 +1,10 @@
 import { ReadContextSchema, type ReadContextResult } from "../schemas.js";
 import { ReadContextError } from "../errors.js";
+import {
+  formatReadContextSummaryPrompt,
+  READ_CONTEXT_SUMMARY_SYSTEM_PROMPT,
+  type ReadContextSummarizationRequest,
+} from "../summarization-contract.js";
 import { z } from "zod";
 
 const MAX_PROVIDER_RESPONSE_BYTES = 256_000;
@@ -17,11 +22,7 @@ const jsonTextSchema = z.string().transform((value, context) => {
   return z.NEVER;
 });
 
-export interface SummarizeRequest {
-  readonly question: string;
-  readonly corpus: string;
-  readonly retrieval: ReadContextResult["retrieval"];
-}
+export type SummarizeRequest = ReadContextSummarizationRequest;
 
 function setting(name: string): string | undefined {
   const value = process.env[name]?.trim();
@@ -101,16 +102,14 @@ export async function summarizeWithOpenAICompatible(
   }
   const timeout = Number(process.env.READ_CONTEXT_TIMEOUT_MS ?? "30000");
   const timeoutMs = Number.isInteger(timeout) && timeout > 0 ? timeout : 30_000;
-  const system =
-    "You are a read-only codebase analyst. Answer the exact question from supplied evidence only. Do not propose code changes, implementation plans, or architectural choices. Do not reproduce large code blocks. Cite source paths and line ranges in evidence. If evidence is incomplete, state that explicitly in uncertainties. Suggested follow-up reads must be narrow and identify why that exact range is needed. Return only JSON matching the requested schema.";
   const body = {
     model,
     temperature: 0,
     messages: [
-      { role: "system", content: system },
+      { role: "system", content: READ_CONTEXT_SUMMARY_SYSTEM_PROMPT },
       {
         role: "user",
-        content: `Question: ${request.question}\n\nEvidence:\n${request.corpus}`,
+        content: formatReadContextSummaryPrompt(request),
       },
     ],
     response_format: { type: "json_object" },

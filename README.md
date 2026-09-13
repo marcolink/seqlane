@@ -489,9 +489,13 @@ Configure the selected Seqlane runtime, for example with
 `openai/gpt-5.6-luna` with medium reasoning. Optional `zg`/zvec-grep and
 `ripwire` failures are reported as uncertainties.
 
-The project-local Codex hook in `.codex/hooks.json` denies only supported
-oversized broad reads and points the active session to `seqlane run
-read-context.ts` for the `workflow-read-context` workflow. Trust the project-local hook through `/hooks` before
-enabling it. The hook fails
-open when it cannot inspect a path. Read-context sends selected source to the
-configured endpoint, so review the endpoint's privacy and retention policy.
+Evidence is bounded to a 32,000-byte retrieval corpus. Scan and corpus limits
+are reported as uncertainties when they exclude evidence.
+
+The project-local Codex hook in `.codex/hooks.json` denies supported oversized
+broad reads, unscoped or unsupported read-like commands, and denied paths. It
+points the active session to `seqlane run read-context.ts` for the
+`workflow-read-context` workflow. Trust the project-local hook through `/hooks`
+before enabling it. The hook fails open for commands it cannot classify as
+read-like. Read-context sends selected source to the configured endpoint, so
+review the endpoint's privacy and retention policy.
