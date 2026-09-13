@@ -53,6 +53,9 @@ owns the Action and runtime boundary.
 
 - **Head** `H`: the immutable PR head commit selected at admission.
 - **Target** `B`: the immutable target-branch commit selected at admission.
+- **Report classification**: exactly one of `absent`, `legacy`, `current`, or
+  `invalid-current`; it is selected before scope calculation and reused by
+  migration and publication.
 - **PR paths** `P(B,H)`: paths in `git diff --name-status -z --no-renames
   B...H`, before the established patch-content exclusions.
 - **Published checkpoint** `C`: the reviewed head in the last valid, trusted
@@ -71,18 +74,31 @@ owns the Action and runtime boundary.
 - **Complete coverage**: every path in `R` and its diff hunks reached
   the appropriate review lane, and all expected lane outputs were validated.
   It is evidence-delivery coverage, not a claim that every defect was found.
+- **Scope identity**: the immutable admission tuple `{ pullRequestNumber,
+  targetBranch, baseRevision, headRevision, checkpointRevision, reportId }`.
+  `checkpointRevision` is absent for a baseline.
+- **Evidence batch**: one bounded, typed unit of scoped Git evidence. A batch
+  has an ordinal, path list, patch bytes, change-evidence bytes, and coverage
+  counts. A batch result records completion, parsed paths, hunks, byte counts,
+  and failure or limitation data.
 
 ## Requirements
 
 ### requirement-scope-selection
 
-Classify the trusted report before selecting scope. No authoritative report,
-or one with a recognized older version, selects baseline mode. A report with a
-current-version marker and a valid state selects incremental mode. A missing,
-malformed, oversized, or unsupported current-version state, an unknown future
-version, or ambiguous trusted report identity fails closed. Such a report must
-not become a new baseline or lose its existing contents. This classification
-must be the same in scope selection, migration, and publication.
+Classify the trusted report before selecting scope. The classifications are
+mutually exclusive:
+
+| Classification | Condition | Scope action |
+| --- | --- | --- |
+| `absent` | No authoritative report exists. | Start a baseline. |
+| `legacy` | The trusted marker is a recognized older schema and report identity is unambiguous. | Start a baseline replacement; import no old state. |
+| `current` | The trusted marker is the supported current schema and its decoded state passes strict validation, including identity and checkpoint validation. | Start an incremental or no-change review from the persisted checkpoint. |
+| `invalid-current` | A current-version marker has malformed, oversized, unsupported, mismatched, or undecodable state; the marker names a future version; or report identity is ambiguous. | Fail closed. Preserve the report and checkpoint. |
+
+Only `absent` and `legacy` select baseline mode. `invalid-current` must never
+be relabeled as `absent` or `legacy`. Reuse this classifier without variation
+in scope selection, migration, publication, and marker cleanup.
 
 Baseline mode uses the complete current PR diff:
 
@@ -114,6 +130,14 @@ require `C` to be an ancestor of `H`; this is necessary for rebases and
 force-pushes. A file touched and then restored to the same tree entry is
 unchanged for this purpose. A branch-base change alone does not make an
 unchanged head file eligible.
+
+Before using `C`, validate the full SHA with an exact Git object query and
+require `git cat-file -e "${C}^{commit}"` (or an equivalent typed object query)
+to succeed. A tree, blob, tag, abbreviated SHA, missing object, or other object
+type is invalid. If `C` is absent locally, fetch that exact SHA through the
+trusted Git adapter, then repeat the commit-object validation. Do not compute
+`D(C,H)` until this check succeeds. A failed fetch or validation fails closed
+and leaves the previous report authoritative.
 
 Use Git path records parsed without line splitting or shell interpolation.
 Disable rename detection for both path sets, so a rename has a removed old path
@@ -230,12 +254,26 @@ the new form. Old `SEQ-PR{number}-{index}` commands cannot resolve to a new
 finding, even when the numeric index repeats. The publisher must not migrate
 old finding aliases into the new generation.
 
-The new state fields require a new outer state schema revision and matching
-metadata marker. If the draft mechanical-disposition work also lands in that
-revision, one shared revision must include both sets of fields; two
-incompatible meanings of version 4 are forbidden. The run metrics ledger is
-unchanged and is never a checkpoint source. Previous-report timestamps,
-GitHub run IDs, and `previousReviewedRevision` are not eligibility anchors.
+The run metrics ledger is unchanged and is never a checkpoint source.
+Previous-report timestamps, GitHub run IDs, and `previousReviewedRevision` are
+not eligibility anchors.
+
+The schema-evolution matrix is canonical:
+
+| State revision | Fields and marker | Readers | Migration and replacement |
+| --- | --- | --- | --- |
+| v3 | Existing lifecycle state, v3 metadata marker, numeric finding IDs. | Current v3 reader. | Accepted as legacy when the scope feature is enabled; replaced by a new baseline. |
+| v4 | Transitional mechanical-disposition state: v3 fields plus monotonic state revision and writer identity; v4 marker. It has no scope checkpoint and is never an incremental checkpoint for this feature. | v4 disposition reader and the scope reader as legacy. | If published before v5, v3 migrates to v4 for disposition work. The first scope-capable publication replaces v4 with a fresh v5 baseline and discards v4 findings, dispositions, metrics, and checkpoint. |
+| v5 | Unified current state: v4 disposition fields plus `scopeCheckpoint`, generation-qualified finding IDs, and the v5 marker. | v5 reader only for current operation; older readers reject it. | v3 or v4 is legacy and is replaced by a fresh v5 baseline. Invalid v5 state is `invalid-current` and fails closed. |
+
+The v5 schema is the only target for the incremental scope implementation.
+If incremental scope lands before mechanical dispositions, it still writes v5
+with the disposition fields present and empty where permitted. If mechanical
+dispositions land first, they may write v4, but they must not claim v4 is the
+current scope checkpoint. This table prevents one revision from having two
+meanings. The outer state revision, metadata marker, and compressed envelope
+must agree. A trusted old report is replaced; it is never partially migrated
+into v5.
 
 ### requirement-complete-evidence
 
@@ -249,6 +287,83 @@ batches; it must account for every expected batch and validate its output
 before publication. Intentional lockfile and generated `dist` exclusions remain
 explicit in the evidence and report. No agent may claim to have reviewed
 excluded contents.
+
+Pre-model Git work has its own budget beginning when admission accepts the
+event. This is separate from the model-phase elapsed-time ceiling and does not
+change the unapproved decision about when the overall review deadline starts:
+
+| Resource | Maximum |
+| --- | ---: |
+| Admission-to-model-start wall time | 120 seconds |
+| One Git subprocess wall time | 30 seconds |
+| Cumulative Git subprocess wall time | 90 seconds |
+| Cumulative Git subprocess CPU time | 60 seconds |
+| Peak Git subprocess memory | 256 MiB |
+| Git stdout plus stderr before parsing | 2,048,000 bytes |
+| Exact-checkpoint fetch transfer | 16 MiB |
+| Exact-checkpoint fetch wall time | 30 seconds |
+
+Run Git through a bounded subprocess adapter that streams NUL-delimited path
+records, caps output before buffering, and aborts the process group when any
+limit is reached. The adapter must report which limit fired. It must never
+retry an exact-SHA fetch outside the cumulative budget. A pre-model budget
+failure makes zero model calls and preserves the previous checkpoint.
+
+Path selection, evidence collection, and model orchestration are separate
+owners. The pure scope selector owns `E`, `X`, `R`, and the immutable scope
+identity. The Git-evidence collector owns typed batch construction and bounded
+subprocesses. The workflow orchestrator owns lane fan-out, retries, aggregate
+budgets, result aggregation, and publication admission. Review lanes never
+select paths or enforce the global budget.
+
+The batch contracts are:
+
+```text
+EvidenceBatchPlan {
+  scopeIdentity: ScopeIdentity
+  ordinal: positive integer
+  paths: non-empty array of validated relative paths
+  expectedHunks: non-negative integer
+  expectedPatchBytes: bounded integer
+  expectedChangeBytes: bounded integer
+}
+
+EvidenceBatchResult {
+  scopeIdentity: ScopeIdentity
+  ordinal: positive integer
+  status: "complete" | "failed" | "cancelled"
+  paths: array of validated relative paths
+  patch: bounded text
+  changeEvidence: bounded text
+  hunkCount: non-negative integer
+  patchBytes: non-negative integer
+  changeBytes: non-negative integer
+  limitations: bounded array of strings
+}
+```
+
+The collector must emit exactly one result for every plan ordinal, in ordinal
+order after aggregation. Each result must echo the scope identity and its
+planned paths. Aggregation must reject duplicate or missing ordinals, identity
+mismatches, returned paths outside the plan, returned paths omitted from the
+plan, byte or hunk counts over the plan, and any failed or cancelled batch.
+It must verify that the union of completed result paths equals `R` and that
+the sum of hunk and byte counts matches the pre-model plan. It must preserve
+limitations in deterministic ordinal order.
+
+After batch aggregation, the orchestrator deduplicates findings by normalized
+stable ID, then by the existing finding identity key and finally by exact
+`path`, `line`, `axis`, and normalized summary when no ID exists. It retains
+the highest severity and deterministic first occurrence for duplicates. Only
+the aggregated result enters synthesis. A missing or ambiguous deduplication
+key is a limitation and cannot allocate a new stable ID.
+
+The invocation policy is fixed: run history verification once for the retained
+current-generation findings, run each configured discovery lane once per
+evidence batch, and run synthesis once over the deterministic aggregate. A
+retry consumes another invocation budget unit and must reuse the same batch
+ordinal and scope identity. Do not fan out discovery lanes when `R` is empty;
+the finalizer may still process retained findings and dispositions.
 
 The complete run plan has these hard ceilings:
 
@@ -283,6 +398,23 @@ away coverage metadata or silently fall back to a broader baseline.
 
 Review scope is calculated from a specific trusted checkpoint `C`, target
 branch name, target commit `B`, and head `H`. Capture all four at admission.
+Represent that admission as one strict `ScopeIdentity` value:
+
+```text
+ScopeIdentity {
+  pullRequestNumber: positive integer
+  targetBranch: non-empty branch name
+  baseRevision: full Git commit SHA
+  headRevision: full Git commit SHA
+  checkpointRevision: full Git commit SHA | absent
+  reportId: trusted comment ID | absent for a new baseline
+}
+```
+
+The scope selector, every `EvidenceBatchPlan` and `EvidenceBatchResult`, the
+review input, finalization snapshot, and publication request must carry this
+same value. The workflow must reject a missing field, revision mismatch,
+report-ID mismatch, or a value that was reconstructed from model output.
 Immediately before the final write, the publisher must re-read the trusted
 report and live PR. It must require the live head to equal `H`, the live target
 branch name and target commit to equal the captured values, and the current
@@ -317,7 +449,8 @@ The trusted sequence is:
 2. Select `C` from a valid current-version published state, or select a fresh
    baseline if no such checkpoint exists. Do not import old-version findings.
 3. Validate `B` and `H` as Git commits and validate the checkout HEAD as `H`.
-   Fetch `C` by exact SHA when it is not present locally.
+   Fetch `C` by exact SHA when it is not present locally, then validate `C` as
+   a commit object before any two-tree diff.
 4. Compute `P(B,H)`, `D(C,H)` when applicable, `E`, `X`, and `R`. Validate
    literal paths and the complete run budget before model work. Record scope
    mode, immutable revisions, path counts, excluded paths, and batch coverage
@@ -400,8 +533,8 @@ force-push, retargeting, model change, or state parse failure.
 - Test that retained findings, dispositions, fix verification, and verdict
   remain correct on both incremental and no-change runs.
 - Test old-version replacement, discarded old findings and metrics, old-command
-  isolation, invalid-current-state refusal, missing prior commit, and
-  exact-SHA fetch behavior.
+  isolation, invalid-current-state refusal, missing prior commit, tree/blob/tag
+  rejection, and exact-SHA fetch behavior.
 - Test failed, cancelled, incomplete, stale-head, moved-target, and
   changed-checkpoint runs. Assert that their authoritative checkpoint does not
   advance.
