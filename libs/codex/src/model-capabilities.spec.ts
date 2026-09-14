@@ -72,4 +72,36 @@ describe("Codex model capabilities", () => {
     );
     expect(closed).toBe(1);
   });
+
+  it("bounds transport creation and closes a transport that resolves late", async () => {
+    let closed = 0;
+    let resolveTransport!: (transport: CodexTransport) => void;
+    const capabilities = createCodexModelCapabilities(
+      {
+        executable: "/opt/codex",
+        workspace: "/workspace",
+        networkAccess: false,
+      },
+      {
+        requestTimeoutMs: 10,
+        createTransport: () =>
+          new Promise<CodexTransport>((resolve) => {
+            resolveTransport = resolve;
+          }),
+      },
+    );
+
+    await expect(capabilities.listModels()).rejects.toBeInstanceOf(
+      CodexRequestDeadlineError,
+    );
+    resolveTransport({
+      request: async () => ({ data: [] }),
+      close: async () => {
+        closed += 1;
+      },
+    } as unknown as CodexTransport);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(closed).toBe(1);
+  });
 });

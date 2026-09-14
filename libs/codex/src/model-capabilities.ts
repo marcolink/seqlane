@@ -14,6 +14,10 @@ export interface CodexModelCapabilitiesOptions {
   readonly requestTimeoutMs?: number;
   readonly createTransport?: (
     configuration: CodexLaunchConfiguration,
+    options?: {
+      readonly signal?: AbortSignal;
+      readonly initializeTimeoutMs?: number;
+    },
   ) => Promise<CodexTransport>;
 }
 
@@ -30,15 +34,51 @@ export function createCodexModelCapabilities(
   let modelsPromise: Promise<readonly CodexModel[]> | undefined;
   const resolveModels = async () =>
     (modelsPromise ??= (async () => {
-      const transport = await (
-        options.createTransport ?? ((value) => createCodexStdioTransport(value))
-      )(configuration);
+      const timeoutMs =
+        options.requestTimeoutMs ?? DEFAULT_MODEL_LIST_TIMEOUT_MS;
+      const createTransport =
+        options.createTransport ??
+        ((value: CodexLaunchConfiguration, transportOptions) =>
+          createCodexStdioTransport(value, transportOptions));
+      let creationSettled = false;
+      const transportPromise = Promise.resolve().then(() =>
+        createTransport(configuration, {
+          signal: options.signal,
+          initializeTimeoutMs: timeoutMs,
+        }),
+      );
+      void transportPromise.then(
+        () => {
+          creationSettled = true;
+        },
+        () => {
+          creationSettled = true;
+        },
+      );
+      let transport: CodexTransport;
+      try {
+        transport = await withDeadline(
+          transportPromise,
+          timeoutMs,
+          "transport initialization",
+          options.signal,
+        );
+      } catch (cause) {
+        if (!creationSettled) {
+          void transportPromise.then(
+            (lateTransport) => lateTransport.close().catch(() => undefined),
+            () => undefined,
+          );
+        }
+        throw cause;
+      }
       try {
         return parseModelListResult(
           await withDeadline(
             transport.request("model/list", {}, options.signal),
-            options.requestTimeoutMs ?? DEFAULT_MODEL_LIST_TIMEOUT_MS,
+            timeoutMs,
             "model/list",
+            options.signal,
           ),
         );
       } finally {

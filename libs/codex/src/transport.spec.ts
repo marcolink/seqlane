@@ -2,6 +2,7 @@
 // @test-scope ./protocol.ts
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
+import { CodexRequestDeadlineError } from "./deadline.js";
 import { CodexAdapterError, CodexProtocolError } from "./errors.js";
 import {
   MAX_JSONL_OUTBOUND_PARAMS_BYTES,
@@ -96,6 +97,23 @@ describe("Codex app-server transport", () => {
     await expect(createCodexTransportForProcess(child)).rejects.toThrow(
       CodexProtocolError,
     );
+    expect(closed).toBe(true);
+  });
+
+  it("bounds an unresponsive initialize handshake and terminates the child", async () => {
+    const child = spawnServer(`
+      if (message.method === "initialize") {
+        // Keep the handshake unresolved.
+      }
+    `);
+    let closed = false;
+    child.once("close", () => {
+      closed = true;
+    });
+
+    await expect(
+      createCodexTransportForProcess(child, { initializeTimeoutMs: 10 }),
+    ).rejects.toBeInstanceOf(CodexRequestDeadlineError);
     expect(closed).toBe(true);
   });
 
