@@ -9,6 +9,8 @@ updated: 2026-09-14
 upstream:
   - spec.github-native-review-publication
   - spec.mechanical-pull-request-review-dispositions
+  - task.unify-code-review-comment-state
+  - task.persist-code-review-run-artifacts
 supersedes: []
 ---
 
@@ -47,8 +49,12 @@ The shared queue must satisfy
   final summary. Trigger candidate-artifact cleanup on proven failure.
 - Show queue overflow, cancellation, stale result, uncertain write, and
   artifact cleanup failures in the Action result.
-- Route cancelled-before-start candidates to the completed-run reconciler;
-  keep ambiguous candidates until their effect is resolved or they expire.
+- Replay overflowed or cancelled-before-write publishers from the sealed
+  candidate or authorized command ledger. Use `workflow_run: completed` and
+  a scheduled sweep so a missed recovery event cannot silently lose a write.
+  Replayed runs retain source identity, recheck live state, and become no-ops
+  when already published or stale. Keep ambiguous candidates until their
+  effect is resolved or they expire.
 
 ## Out of scope
 
@@ -63,8 +69,8 @@ The shared queue must satisfy
    merged strict state supplied by the comment-state task.
 3. Write once with an operation identity. Resolve uncertain results by
    readback; fail closed when still unknown.
-4. Connect artifact result handling and cleanup. Update docs and hosted
-   workflow checks.
+4. Connect artifact result handling, replay, and cleanup. Update docs and
+   hosted workflow checks.
 
 ## Affected areas
 
@@ -78,7 +84,7 @@ The shared queue must satisfy
 
 - Run test mapping and focused Action tests for stale identity, two baseline
   publishers, concurrent disposition updates, exact readback, queue
-  overflow, and artifact cleanup.
+  overflow, cancelled replay, duplicate recovery, and artifact cleanup.
 - Run a hosted baseline and follow-up; verify one final summary write and
   no v5 progress or inline comments. Run docs validation and diff checks.
 
@@ -102,4 +108,6 @@ Planned. No target-branch delivery claim is made here.
 
 - Contract: [spec.github-native-review-publication](../specs/2026-09-14-github-native-review-publication.md)
 - Mechanical writer: [spec.mechanical-pull-request-review-dispositions](../specs/2026-09-06-mechanical-pull-request-review-dispositions.md)
+- State dependency: [task.unify-code-review-comment-state](./2026-09-14-unify-code-review-comment-state.md)
+- Artifact dependency: [task.persist-code-review-run-artifacts](./2026-09-14-persist-code-review-run-artifacts.md)
 - Follow-on proposal: [PR #112](https://github.com/marcolink/seqlane/pull/112)

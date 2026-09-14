@@ -8,6 +8,9 @@ created: 2026-09-14
 updated: 2026-09-14
 upstream:
   - adr.github-native-review-publication-state
+  - spec.versioned-pull-request-review-comments
+  - spec.mechanical-pull-request-review-dispositions
+  - spec.incremental-pull-request-review-scope
 supersedes: []
 ---
 
@@ -85,6 +88,15 @@ the existing metadata marker. The decoder limits encoded input, compressed
 bytes, and decompressed bytes before parsing and validates the strict schema.
 Malformed base64, gzip, JSON, duplicated markers, or mismatched identity
 cannot produce a checkpoint.
+
+The base64 payload is at most 20,000 characters and must decode canonically
+to at most 15,000 compressed bytes. The decoded UTF-8 JSON is at most 512,000
+bytes. After validating the encoded length and alphabet, the decoder feeds
+the compressed bytes to a streaming gzip decoder. It counts emitted bytes,
+aborts as soon as the 512,000-byte limit would be exceeded, and only then
+decodes UTF-8 with fatal error handling and parses JSON. It never calls an
+unbounded whole-buffer decompressor. These limits apply to every readback and
+reconciliation path.
 
 The publisher renders visible text only from the same state it writes. A
 mechanical disposition changes that state and regenerates the entire
@@ -175,7 +187,22 @@ Review computation may be cancelled when a newer revision arrives. Final
 review publication and mechanical dispositions use the **same** non-cancelling
 per-PR Actions queue. It uses `queue: max` without `cancel-in-progress: true`.
 GitHub allows up to 100 pending jobs in that group; overflow is cancelled and
-must be visible. A queued publisher re-reads the live PR, trusted comment,
+must be visible. Queue admission alone is not durable delivery. A cancelled
+pending publisher is recovered from its GitHub-owned source: the sealed
+candidate artifact for a review, or the authorized issue-comment command
+ledger for a disposition. The default-branch recovery dispatcher handles the
+publisher's `workflow_run: completed` event and sweeps terminal publisher
+runs and candidate artifacts on a schedule. It re-dispatches a trusted
+publisher only after proving the earlier attempt did not send a comment
+write. The replay retains the original review run ID and attempt or
+disposition command identity, but uses its own writer run ID. It checks the
+current head and state; a superseded review becomes stale. Duplicate recovery
+events can dispatch duplicate attempts, but the shared queue and source
+identity check make them idempotent. A cancelled replay is eligible for the
+same recovery. Recovery failure remains visible and retains a review
+candidate until safe replay, cleanup, or expiry; it cannot claim publication.
+
+A queued publisher re-reads the live PR, trusted comment,
 and authorized command ledger. It validates the captured
 scope, report identity, checkpoint, head, base, and target. It merges decisions
 made during computation before rendering. A stale attempt makes no write.
@@ -190,7 +217,8 @@ PublicationOperation = {
   stateRevision: positive integer,
   writerRunId: decimal GitHub workflow run ID,
   writerAttempt: positive integer,
-  source: { kind: "review", scopeIdentityDigest: SHA-256 }
+  source: { kind: "review", sourceRunId: decimal GitHub run ID,
+            sourceAttempt: positive integer, scopeIdentityDigest: SHA-256 }
         | { kind: "disposition", commandLedgerDigest: SHA-256 },
   payloadDigest: lowercase SHA-256
 }
@@ -219,18 +247,43 @@ Delete a candidate artifact only after proving it was not published. The
 candidate name includes the trusted PR number, run ID, and attempt so a
 recovery job can find it by listing artifacts for that completed workflow run.
 The `workflow_run: completed` event triggers an independent Action-owned
-reconciler from the default branch. It lists only artifacts for that workflow
-run and checks the completed run and publisher-job status, candidate artifact
-ID, and live trusted comment. If the publisher never started, no comment
-write could have occurred and the reconciler deletes the candidate.
+reconciler from the default branch. Before listing, replaying, or deleting,
+it fetches the run and publisher job through the GitHub API. It requires the
+run and artifact to belong to the current repository; an allowlisted workflow
+ID and file path whose definition commit is reachable from the trusted
+default branch; matching run ID, attempt, PR number, artifact name, and
+artifact owner; an event of `pull_request_target`, `issue_comment`, or
+`workflow_dispatch`; and the allowlisted publisher job belonging to that
+run. It compares the event hint with the fetched run before trusting either.
+For `pull_request_target` and
+`issue_comment`, it rechecks the live PR, excludes fork-origin reviews, and
+revalidates disposition authors and current command text. A
+`workflow_dispatch` run is eligible only from the trusted default-branch
+definition; PR-branch dispatches are excluded. A replay dispatch also has to
+match its validated original source identity. Event payloads and artifacts
+are untrusted hints.
+The reconciler never executes PR-controlled code or artifact content, and
+validates artifact bytes before use. Its inspection job has only Actions and
+PR/issue read access. Only a separate recovery job receives `actions: write`
+for dispatch or deletion. Neither job receives comment-write permission.
+
+The reconciler lists artifacts only for the verified workflow run and checks
+publisher-job status, candidate artifact ID, and the live trusted comment.
+If the publisher never started, no comment write could have occurred. It
+replays an eligible current source rather than deleting its review candidate.
+An already published source keeps its artifact for 90 days, even if a newer
+comment replaces its reference. If the source is stale and provably never
+published, the reconciler deletes the candidate only after proving that no
+write remains in flight.
 For a started publisher, it accepts an exact operation and artifact-reference
 match as published. It deletes only after a definite pre-write failure or
 other proof that the write was not sent. A missing reference alone is not
 proof when a write may have been in flight or a later report may have
 replaced it. Such candidates remain until a later safe reconciliation or
 normal 90-day expiry, with an Action notice. The reconciler never mutates the
-comment or advances a checkpoint. A confirmed published artifact remains for
-90 days. Failed and cancelled reviews have no published artifact. An
+comment or advances a checkpoint; only a replay publisher may do that. A
+confirmed published artifact remains for 90 days. Failed and cancelled
+reviews have no published artifact. An
 unresolved effect fails closed and is visible in the Action result.
 
 ## Detailed design or contracts
@@ -242,12 +295,14 @@ visible Markdown projection
 -->
 ```
 
-The final publisher performs these steps in order: validate sealed run,
+The first publisher performs these steps in order: validate sealed run,
 upload and verify its artifact, enter the shared queue, read live PR and bot
 comment, reconcile authorized decisions, merge the run into the current
 state, render the projection and hidden state, check sizes, write the final
 comment, and reconcile the result. An artifact uploaded before queue entry
-is only a candidate. The comment reference makes it published.
+is only a candidate. A replay publisher verifies the existing candidate
+instead of uploading another artifact. The comment reference makes it
+published.
 
 ## Failure and edge cases
 
@@ -257,7 +312,9 @@ is only a candidate. The comment reference makes it published.
   write and leaves a candidate artifact unpublished for cleanup.
 - An uncertain write is resolved by exact readback. Absence during an
   in-flight request alone is not proof that the request failed.
-- A queue overflow or platform cancellation cannot claim publication.
+- A queue overflow or platform cancellation starts replay only when its
+  comment write was provably never sent. If that cannot be proved, keep the
+  candidate and report an unresolved effect instead of risking a second write.
 - If an authorized disposition arrives during model work, the final
   publisher incorporates it from the live command ledger.
 - A size breach fails visibly. No compaction changes the cost total or hides
@@ -274,7 +331,8 @@ new state version rather than treating two schemas as v5.
 ## Verification
 
 - Round-trip hidden state, malformed transport, strict identity, and
-  bounded decompression tests.
+  bounded decompression tests at 512,000 and 512,001 decoded bytes, including
+  a high-expansion gzip payload and malformed UTF-8.
 - Deterministic projection and cost tests: missing provider cost,
   duplicate attempt, compacted history, mechanical disposition, and new
   cost-period label.
@@ -285,7 +343,11 @@ new state version rather than treating two schemas as v5.
 - Test upload-before-comment ordering, exact readback, definite and
   uncertain failures, and cleanup of a proven unpublished artifact.
 - Test full-review and disposition writers in one queue, decisions arriving
-  during computation, stale updates, queue overflow, and one final write.
+  during computation, stale updates, queue overflow, cancelled replay,
+  duplicate recovery dispatch, and one final write.
+- Reject wrong-repository, fork, PR-branch workflow dispatch, untrusted
+  workflow file/ref, mismatched run and artifact, unauthorized command, and
+  ambiguous in-flight writes before recovery mutation.
 - Run `pnpm run test:mapping`, focused Action tests, documentation validation,
   and a hosted baseline and follow-up workflow.
 
@@ -315,6 +377,7 @@ contracts, and aligns the single v5 schema. No delivery is claimed here.
 - Architecture: [adr.github-native-review-publication-state](../adrs/2026-09-14-github-native-review-publication-state.md)
 - Finding lifecycle: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
 - Mechanical writers: [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md)
+- Incremental scope: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Proposed scope and manifest: [PR #112](https://github.com/marcolink/seqlane/pull/112)
 - Queue semantics: [GitHub Actions concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 - Recovery trigger: [GitHub `workflow_run` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)

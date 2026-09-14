@@ -43,8 +43,13 @@ and string limits.
 - Name candidates with PR, run ID, and attempt. Add a default-branch
   `workflow_run: completed` reconciler that lists artifacts for that run,
   confirms the publisher outcome and live comment, and deletes only a proven
-  unpublished candidate. Report unresolved candidates and let retention
-  expire those that cannot be proven safe to delete.
+  unpublished candidate. Require verified repository, default-branch workflow
+  identity and file/ref, run ID and attempt, allowed event origin, same-repo
+  PR, publisher job, and artifact ownership before any replay or deletion.
+  Exclude PR-branch dispatches and untrusted PR code execution. Separate
+  read-only inspection from a narrowly scoped `actions: write` recovery job;
+  neither receives comment-write permission. Report unresolved candidates
+  and let retention expire those that cannot be proven safe to delete.
 
 ## Out of scope
 
@@ -61,8 +66,9 @@ and string limits.
 3. Wire the adapter to the comment-state reference. Treat expiry as missing
    audit evidence, not an invalid checkpoint.
 4. Add post-run reconciliation after exact final-write readback, including
-   a terminal-run cleanup trigger for cancelled or overflowed publishers.
-   Keep unproven candidates until later safe reconciliation or expiry.
+   a terminal-run trigger and scheduled sweep for cancelled or overflowed
+   publishers. Replay a proven never-started publisher from its candidate;
+   keep unproven candidates until later safe reconciliation or expiry.
 
 ## Affected areas
 
@@ -77,6 +83,8 @@ and string limits.
 - Run test mapping and focused artifact lifecycle, expansion-boundary,
   archive-path, integrity, expiry, access, and cleanup tests. Cover
   cancellation before publisher start and uncertainty after a write starts.
+  Reject wrong repository, workflow file/ref, run or artifact owner, fork,
+  PR-branch dispatch, and unauthorized disposition before mutation.
 - Verify 90-day retention and direct-ID retrieval in a hosted Action run.
   Run docs validation and `git diff --check`.
 

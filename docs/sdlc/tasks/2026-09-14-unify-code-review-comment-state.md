@@ -31,6 +31,9 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
   and period start. If a conflicting v5 state has shipped, use a new version.
 - Replace the collapsed machine-data section and visible JSON metrics ledger
   with one bounded base64/gzip HTML comment block.
+- Reject non-canonical base64, more than 20,000 encoded characters, more than
+  15,000 compressed bytes, or more than 512,000 decompressed UTF-8 JSON bytes.
+  Stream gzip into a counted sink and abort at the limit before JSON parsing.
 - Render the visible report solely from validated state. Show known overall
   and last published run cost; mark missing provider cost and new-period start.
 - Define the typed publication operation in hidden state. Hash a deterministic
@@ -73,6 +76,8 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
 
 - Run test mapping and focused codec, migration, projection, cost, malformed
   input, operation-digest, hostile Markdown/HTML/URL, and size-bound tests.
+  Include 512,000- and 512,001-byte decoded states, high-expansion gzip,
+  malformed UTF-8, and the readback decoder.
 - Verify multibyte comment size and a missing-cost run. Run docs validation
   and `git diff --check`.
 
