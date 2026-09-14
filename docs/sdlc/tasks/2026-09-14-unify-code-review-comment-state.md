@@ -33,6 +33,10 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
   with one bounded base64/gzip HTML comment block.
 - Render the visible report solely from validated state. Show known overall
   and last published run cost; mark missing provider cost and new-period start.
+- Define the typed publication operation in hidden state. Hash a deterministic
+  digest-free render and verify the operation and exact body on readback.
+- Redact secret-like values and encode untrusted text and links before
+  rendering the projection or retaining bounded artifact data.
 - Deduplicate GitHub run ID and attempt after recent-run compaction without
   dropping cumulative cost or incompleteness.
 - Measure encoded payload characters and entire UTF-8 comment bytes. Warn
@@ -68,7 +72,7 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
 ## Verification
 
 - Run test mapping and focused codec, migration, projection, cost, malformed
-  input, and size-bound tests.
+  input, operation-digest, hostile Markdown/HTML/URL, and size-bound tests.
 - Verify multibyte comment size and a missing-cost run. Run docs validation
   and `git diff --check`.
 

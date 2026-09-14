@@ -40,11 +40,15 @@ The shared queue must satisfy
 - Validate head, target, base, scope, report identity, and checkpoint before
   one final create or update.
 - Bind final state revision, writer/source identity, and payload digest.
-  Reconcile ambiguous responses by exact readback without duplicate writes.
+  Reconcile ambiguous responses by matching the exact bot comment ID,
+  operation, artifact reference, digest, and body bytes, without duplicate
+  writes.
 - Commit the checkpoint and artifact reference only through the confirmed
   final summary. Trigger candidate-artifact cleanup on proven failure.
 - Show queue overflow, cancellation, stale result, uncertain write, and
   artifact cleanup failures in the Action result.
+- Route cancelled-before-start candidates to the completed-run reconciler;
+  keep ambiguous candidates until their effect is resolved or they expire.
 
 ## Out of scope
 

@@ -22,8 +22,9 @@ making artifact availability a prerequisite for an old comment checkpoint.
 
 Implement `requirement-published-artifact` in
 [spec.github-native-review-publication](../specs/2026-09-14-github-native-review-publication.md).
-Adopt PR #112's manifest item, lane, provenance, and finding-evidence
-contracts when that proposal is based on this specification.
+Do not implement against this draft alone. PR #112 must first land a canonical
+manifest specification with stable ID and complete item, lane, path, finding,
+and string limits.
 
 ## Scope
 
@@ -33,11 +34,17 @@ contracts when that proposal is based on this specification.
 - Store only the verified direct artifact reference in the final comment.
 - Fetch a referenced artifact by ID for specific audit or future reuse needs;
   expiry and invalid evidence must not reset a valid comment checkpoint.
-- Enforce 2 MiB manifest, 512 KiB compressed manifest, and 32 MiB artifact
-  hard bounds. Report advisory PR and repository usage only when measurable;
-  label estimates.
+- Enforce 2 MiB manifest, 512 KiB compressed manifest, 32 MiB compressed
+  artifact, and 64 MiB uncompressed artifact hard bounds. Stream extraction
+  through cumulative and per-entry limits before parsing or hashing.
+  Report advisory PR and repository usage only when measurable; label estimates.
 - Reconcile and delete a proven unpublished candidate after a failed or stale
   final write. Retain unresolved candidates until the write effect is known.
+- Name candidates with PR, run ID, and attempt. Add a default-branch
+  `workflow_run: completed` reconciler that lists artifacts for that run,
+  confirms the publisher outcome and live comment, and deletes only a proven
+  unpublished candidate. Report unresolved candidates and let retention
+  expire those that cannot be proven safe to delete.
 
 ## Out of scope
 
@@ -47,14 +54,15 @@ contracts when that proposal is based on this specification.
 
 ## Implementation plan
 
-1. Add a typed Action-owned artifact adapter for sealing, upload, readback,
-   direct-ID retrieval, and guarded deletion.
+1. Add a typed Action-owned artifact adapter for sealing, upload, bounded
+   readback, direct-ID retrieval, and guarded deletion.
 2. Apply byte and item bounds before upload. Verify the returned artifact
    reference and canonical digest before allowing final publication.
 3. Wire the adapter to the comment-state reference. Treat expiry as missing
    audit evidence, not an invalid checkpoint.
-4. Add cleanup after exact final-write reconciliation and visible failure
-   reporting for unresolved or interrupted attempts.
+4. Add post-run reconciliation after exact final-write readback, including
+   a terminal-run cleanup trigger for cancelled or overflowed publishers.
+   Keep unproven candidates until later safe reconciliation or expiry.
 
 ## Affected areas
 
@@ -66,8 +74,9 @@ contracts when that proposal is based on this specification.
 
 ## Verification
 
-- Run test mapping and focused artifact lifecycle, boundary, integrity,
-  expiry, access, and cleanup tests.
+- Run test mapping and focused artifact lifecycle, expansion-boundary,
+  archive-path, integrity, expiry, access, and cleanup tests. Cover
+  cancellation before publisher start and uncertainty after a write starts.
 - Verify 90-day retention and direct-ID retrieval in a hosted Action run.
   Run docs validation and `git diff --check`.
 

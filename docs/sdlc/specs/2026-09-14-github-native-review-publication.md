@@ -1,7 +1,7 @@
 ---
 id: spec.github-native-review-publication
 title: GitHub-Native Review Publication and Storage
-status: active
+status: draft
 owners:
   - core
 created: 2026-09-14
@@ -20,12 +20,14 @@ state drives the visible Markdown report. One bounded Actions artifact holds
 structured evidence for each published review. The publisher writes the final
 comment once, through the shared per-PR queue.
 
-This contract amends the storage and projection parts of
+This draft proposes changes to the storage and projection parts of
 [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md).
-That specification still owns finding lifecycle. The proposed incremental
-scope and manifest contracts in PR #112 must adopt this contract before they
-are delivered. Their proposed checkpoint, item-outcome, and provenance rules
-remain in force where they do not conflict with this storage contract.
+The existing active specification remains the current contract. PR #112 must
+reconcile that specification, the mechanical-disposition contract, and its
+incremental-scope and manifest specifications with this draft before the new
+publication path can become active. The manifest specification must land with
+a stable identity and complete item, path, finding, and string limits. This
+draft alone does not authorize a second active transport or state schema.
 
 ## Goals
 
@@ -89,6 +91,15 @@ mechanical disposition changes that state and regenerates the entire
 projection. No separate per-run JSON metrics block appears in the comment.
 Bounded detailed metrics belong in the run artifact.
 
+The trusted renderer treats model output, PR text, paths, provenance, and
+artifact evidence as untrusted. It redacts known credentials and secret-like
+values before either sink. It escapes Markdown and HTML metacharacters in
+every untrusted projection field; no untrusted string becomes raw HTML or a
+Markdown link. Links are constructed only from validated GitHub identities
+or an explicitly allowlisted HTTPS URL. Reject `javascript:`, `data:`,
+`file:`, protocol-relative, and malformed URLs. Artifact JSON uses a strict
+field allowlist and bounded strings; URL-typed fields follow the same policy.
+
 ### requirement-cost-projection
 
 The state stores a cost-period start, known cumulative USD cost as a decimal
@@ -136,11 +147,15 @@ logs. The first delivery uses one final artifact and no artifact journal or
 append sequence.
 
 The run artifact has a hard 2 MiB uncompressed manifest limit, 512 KiB
-compressed manifest limit, and 32 MiB compressed total limit. Item, path,
-finding, and string limits are owned by the manifest specification in PR
-#112. Per-PR 256 MiB and repository 1 GiB over 90 days are advisory usage
-thresholds, not atomic reservations. A warning based on incomplete inventory
-must say so. Upload, integrity, retention-setting, or hard-size failure blocks
+compressed manifest limit, 32 MiB compressed total limit, and 64 MiB total
+uncompressed limit. Retrieval streams each archive entry through per-entry
+and cumulative byte budgets before parsing or hashing. It rejects duplicate
+entries, traversal paths, symlinks, and excess entries. Item, path, finding,
+and string limits must be defined by the canonical manifest specification
+before this draft becomes active. Per-PR 256 MiB and repository 1 GiB over
+90 days are advisory usage thresholds, not atomic reservations. A warning
+based on incomplete inventory must say so. Upload, integrity,
+retention-setting, or hard-size failure blocks
 final publication and preserves the old checkpoint.
 
 A new run reads the comment first. It fetches a specific artifact by the
@@ -158,15 +173,41 @@ step status show progress. It creates no progress notice or inline finding
 comment. The existing v3 progress path remains legacy until replacement.
 Review computation may be cancelled when a newer revision arrives. Final
 review publication and mechanical dispositions use the **same** non-cancelling
-per-PR Actions queue. It must use `queue: max`, with visible handling if the
-platform cancels a pending job. A queued publisher re-reads the live PR,
-trusted comment, and authorized command ledger. It validates the captured
+per-PR Actions queue. It uses `queue: max` without `cancel-in-progress: true`.
+GitHub allows up to 100 pending jobs in that group; overflow is cancelled and
+must be visible. A queued publisher re-reads the live PR, trusted comment,
+and authorized command ledger. It validates the captured
 scope, report identity, checkpoint, head, base, and target. It merges decisions
 made during computation before rendering. A stale attempt makes no write.
 
-Each final body includes a monotonic state revision, writer kind, source
-identity, and payload digest. The single confirmed final comment write is
-the checkpoint commit point. GitHub comment POST and PATCH are not
+The hidden state stores one typed `PublicationOperation`:
+
+```text
+PublicationOperation = {
+  schemaVersion: 1,
+  writerKind: "full-review" | "mechanical-disposition",
+  pullRequestNumber: positive integer,
+  stateRevision: positive integer,
+  writerRunId: decimal GitHub workflow run ID,
+  writerAttempt: positive integer,
+  source: { kind: "review", scopeIdentityDigest: SHA-256 }
+        | { kind: "disposition", commandLedgerDigest: SHA-256 },
+  payloadDigest: lowercase SHA-256
+}
+```
+
+`stateRevision` is exactly one greater than the freshly read trusted state.
+The writer identity and source are validated, never supplied by model output.
+To calculate `payloadDigest`, render the deterministic complete comment with
+only that digest field omitted from the state. Hash those UTF-8 bytes. Then
+set the digest, rerender, and send the final body. On readback, parse the
+hidden state, verify the typed operation, rerender with only the digest field
+omitted, and compare the hash. An uncertain current attempt counts as
+published only when the live bot comment's ID, complete body bytes, operation
+identity, and artifact reference exactly match its submitted candidate.
+
+The single confirmed final comment write is the checkpoint commit point.
+GitHub comment POST and PATCH are not
 compare-and-swap operations; this guarantee covers configured writers using
 the shared queue. A writer outside the queue violates the contract.
 
@@ -174,11 +215,23 @@ Upload and verify the artifact before the final comment write. If the write
 result is ambiguous, read the trusted comment and accept only an exact
 operation identity and body match. Do not send another write while the first
 may complete. A known failed write leaves the old checkpoint authoritative.
-Delete a candidate artifact only after proving the final comment did not
-reference it. A confirmed published artifact remains for 90 days. A failed
-or cancelled review has no published artifact. An interrupted runner can
-leave a temporary orphan; recovery must reconcile the comment before cleanup.
-An unresolved effect fails closed and is visible in the Action result.
+Delete a candidate artifact only after proving it was not published. The
+candidate name includes the trusted PR number, run ID, and attempt so a
+recovery job can find it by listing artifacts for that completed workflow run.
+The `workflow_run: completed` event triggers an independent Action-owned
+reconciler from the default branch. It lists only artifacts for that workflow
+run and checks the completed run and publisher-job status, candidate artifact
+ID, and live trusted comment. If the publisher never started, no comment
+write could have occurred and the reconciler deletes the candidate.
+For a started publisher, it accepts an exact operation and artifact-reference
+match as published. It deletes only after a definite pre-write failure or
+other proof that the write was not sent. A missing reference alone is not
+proof when a write may have been in flight or a later report may have
+replaced it. Such candidates remain until a later safe reconciliation or
+normal 90-day expiry, with an Action notice. The reconciler never mutates the
+comment or advances a checkpoint. A confirmed published artifact remains for
+90 days. Failed and cancelled reviews have no published artifact. An
+unresolved effect fails closed and is visible in the Action result.
 
 ## Detailed design or contracts
 
@@ -251,8 +304,11 @@ new state version rather than treating two schemas as v5.
 
 ## Delivery state
 
-This specification defines intended behavior. Implementation is pending.
-PR #112 is a proposed consumer and must be reconciled with this contract.
+This is a draft future contract, not an amendment to the current active
+review-comment specification. Implementation is pending. It cannot become
+active until PR #112 lands a canonical manifest specification with stable ID
+and complete bounds, updates the existing review-comment and mechanical
+contracts, and aligns the single v5 schema. No delivery is claimed here.
 
 ## Traceability
 
@@ -260,3 +316,6 @@ PR #112 is a proposed consumer and must be reconciled with this contract.
 - Finding lifecycle: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
 - Mechanical writers: [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md)
 - Proposed scope and manifest: [PR #112](https://github.com/marcolink/seqlane/pull/112)
+- Queue semantics: [GitHub Actions concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+- Recovery trigger: [GitHub `workflow_run` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)
+- Artifact lookup and deletion: [GitHub Actions artifacts API](https://docs.github.com/en/rest/actions/artifacts)
