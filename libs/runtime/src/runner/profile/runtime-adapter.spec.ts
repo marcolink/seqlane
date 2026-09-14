@@ -79,6 +79,15 @@ describe("private runtime adapter selection", () => {
       networkAccess: false,
       workspace: "/workspace",
     });
+    expect(
+      createRuntimeAdapterRegistry().resolve(
+        configurationWithWorkspace(codexConfiguration, "/workspace"),
+      ).configuration,
+    ).toEqual({
+      ...codexConfiguration,
+      networkAccess: false,
+      workspace: "/workspace",
+    });
     expect(() =>
       parseRuntimeAdapterConfiguration({
         ...codexConfiguration,

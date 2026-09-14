@@ -50,6 +50,8 @@ export interface OperationalWorkflowRegistration {
   readonly key: string;
   /** Mastra workflow values stay opaque at this boundary. */
   readonly workflow: unknown;
+  /** Closes adapter resources for one terminal workflow run. */
+  readonly terminate?: (runId: string) => Promise<void>;
   /** Closes adapter resources owned by active runs for this workflow. */
   readonly shutdown?: () => Promise<void>;
 }
@@ -196,11 +198,14 @@ export function createOperationalWorkflow(
     validatorDefinitions: source.validatorDefinitions,
     executeInvocation: invocationHandler.invoke,
     executeWorkflowInvocation: invocationHandler.invoke,
-    onWorkflowComplete: ({ runId }) => invocationHandler.complete(runId),
+    onWorkflowComplete: ({ runId }) => {
+      void invocationHandler.terminate(runId);
+    },
   });
   return {
     key: source.key,
     workflow: compiled.workflow,
+    terminate: invocationHandler.terminate,
     shutdown: invocationHandler.shutdown,
   };
 }
@@ -232,7 +237,7 @@ function runtimeProfileFromContext(
 
 interface OperationalInvocationHandler {
   readonly invoke: MastraPlanInvocation;
-  readonly complete: (runId: string) => void;
+  readonly terminate: (runId: string) => Promise<void>;
   readonly shutdown: () => Promise<void>;
 }
 
@@ -253,12 +258,22 @@ function createOperationalInvocationHandler(
   const closeRun = (
     runId: string,
     pending: Promise<PreparedOperationalInvocation>,
-  ): void => {
+  ): Promise<void> => {
     const cleanup = pending.then(({ close }) => close()).catch(() => undefined);
     cleanupByRun.set(runId, cleanup);
     void cleanup.finally(() => {
       if (cleanupByRun.get(runId) === cleanup) cleanupByRun.delete(runId);
     });
+    return cleanup;
+  };
+
+  const terminate = (runId: string): Promise<void> => {
+    const pending = preparedByRun.get(runId);
+    if (pending !== undefined) {
+      preparedByRun.delete(runId);
+      return closeRun(runId, pending);
+    }
+    return cleanupByRun.get(runId) ?? Promise.resolve();
   };
 
   const invoke: MastraPlanInvocation = async (context) => {
@@ -355,6 +370,7 @@ function createOperationalInvocationHandler(
     } catch (error) {
       if (preparedByRun.get(context.runId) === pending) {
         preparedByRun.delete(context.runId);
+        await closeRun(context.runId, pending);
       }
       throw error;
     }
@@ -362,17 +378,14 @@ function createOperationalInvocationHandler(
 
   return {
     invoke,
-    complete: (runId) => {
-      const pending = preparedByRun.get(runId);
-      if (pending === undefined) return;
-      preparedByRun.delete(runId);
-      closeRun(runId, pending);
-    },
+    terminate,
     shutdown: async () => {
       const pending = [...preparedByRun.entries()];
       preparedByRun.clear();
-      for (const [runId, value] of pending) closeRun(runId, value);
-      await Promise.all([...cleanupByRun.values()]);
+      await Promise.all([
+        ...pending.map(([runId, value]) => closeRun(runId, value)),
+        ...cleanupByRun.values(),
+      ]);
     },
   };
 }
@@ -389,6 +402,7 @@ function asMastraRegistrations(
 
 function registerOperationalMastraServer(
   composition: ReturnType<typeof createMastraComposition>,
+  terminalCleanup: ReadonlyMap<string, (runId: string) => Promise<void>>,
 ): void {
   registerMastraServer(
     composition.mastra,
@@ -439,6 +453,7 @@ function registerOperationalMastraServer(
         return cancelled ? { status: "cancelled" } : result;
       } finally {
         abortSignal.removeEventListener("abort", cancel);
+        await terminalCleanup.get(workflowKey)?.(runId);
       }
     },
     undefined,
@@ -462,7 +477,14 @@ export async function createOperationalHost(
       asMastraRegistrations(options.workflows),
       storage,
     );
-    registerOperationalMastraServer(composition);
+    registerOperationalMastraServer(
+      composition,
+      new Map(
+        options.workflows.flatMap(({ key, terminate }) =>
+          terminate === undefined ? [] : [[key, terminate] as const],
+        ),
+      ),
+    );
     const app = new Hono();
     app.use(cors({ origin: localStudioOrigin, credentials: true }));
     const adapter = new MastraServer({ app, mastra: composition.mastra });

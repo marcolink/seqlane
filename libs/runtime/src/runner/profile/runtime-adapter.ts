@@ -56,6 +56,7 @@ const acpRuntimeConfigurationSchema = z.strictObject({
 
 const codexRuntimeConfigurationSchema = z.strictObject({
   adapter: z.literal("codex"),
+  workspace: z.string().min(1).optional(),
   executable: z
     .string()
     .min(1)
@@ -284,7 +285,9 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
                 ? {}
                 : { modelSelection: context.modelSelection }),
             }),
-          modelCapabilities: createCodexModelCapabilities(launchConfiguration),
+          modelCapabilities: createCodexModelCapabilities(launchConfiguration, {
+            signal: context.signal,
+          }),
         };
       },
     },

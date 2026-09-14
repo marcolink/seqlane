@@ -4,9 +4,14 @@ import {
   parseModelListResult,
   type CodexLaunchConfiguration,
 } from "./protocol.js";
+import { withDeadline } from "./deadline.js";
 import { createCodexStdioTransport, type CodexTransport } from "./transport.js";
 
+const DEFAULT_MODEL_LIST_TIMEOUT_MS = 5_000;
+
 export interface CodexModelCapabilitiesOptions {
+  readonly signal?: AbortSignal;
+  readonly requestTimeoutMs?: number;
   readonly createTransport?: (
     configuration: CodexLaunchConfiguration,
   ) => Promise<CodexTransport>;
@@ -29,7 +34,13 @@ export function createCodexModelCapabilities(
         options.createTransport ?? ((value) => createCodexStdioTransport(value))
       )(configuration);
       try {
-        return parseModelListResult(await transport.request("model/list", {}));
+        return parseModelListResult(
+          await withDeadline(
+            transport.request("model/list", {}, options.signal),
+            options.requestTimeoutMs ?? DEFAULT_MODEL_LIST_TIMEOUT_MS,
+            "model/list",
+          ),
+        );
       } finally {
         await transport.close();
       }
