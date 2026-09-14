@@ -13,10 +13,16 @@ import {
   createOpenCodeModelCapabilities,
   resolveOpenCodeBrowserUiUrl,
 } from "@seqlane/opencode-adapter";
+import {
+  CODEX_AGENT_CAPABILITIES,
+  createCodexAdapter,
+  createCodexModelCapabilities,
+} from "@seqlane/codex-adapter";
 import type { RequestContext } from "@mastra/core/request-context";
 import type { ModelSelection } from "@seqlane/core";
 import type { ExecutorModelCapabilities } from "../../runtime/execution/executor.js";
 import { z } from "zod";
+import { isAbsolute } from "node:path";
 
 const httpUrlSchema = z.url().pipe(
   z.custom<string>(
@@ -48,15 +54,33 @@ const acpRuntimeConfigurationSchema = z.strictObject({
   configuration: acpLaunchConfigurationSchema.strict(),
 });
 
+const codexRuntimeConfigurationSchema = z.strictObject({
+  adapter: z.literal("codex"),
+  executable: z
+    .string()
+    .min(1)
+    .pipe(
+      z.custom<string>(
+        (value) => typeof value === "string" && isAbsolute(value),
+        { message: "must be an absolute executable path" },
+      ),
+    ),
+  networkAccess: z.boolean().default(false),
+});
+
 /** The sole private runtime configuration contract for agent adapter selection. */
 export const runtimeAdapterConfigurationSchema = z.discriminatedUnion(
   "adapter",
-  [openCodeRuntimeConfigurationSchema, acpRuntimeConfigurationSchema],
+  [
+    openCodeRuntimeConfigurationSchema,
+    acpRuntimeConfigurationSchema,
+    codexRuntimeConfigurationSchema,
+  ],
 );
 
 export type RuntimeAdapterConfiguration = z.output<
   typeof runtimeAdapterConfigurationSchema
->;
+> & { readonly workspace?: string };
 export type RuntimeAdapterIdentity = RuntimeAdapterConfiguration["adapter"];
 
 export const runtimeAdapterConfigurationEnvironment =
@@ -213,6 +237,57 @@ export function assertRuntimeAdapterCapabilities(
 
 function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
   return [
+    {
+      identity: "codex",
+      resolveCapabilities(configuration) {
+        if (configuration.adapter !== "codex") {
+          throw new RuntimeAdapterSelectionError(
+            'factory "codex" received a different adapter configuration',
+          );
+        }
+        return CODEX_AGENT_CAPABILITIES;
+      },
+      async prepare(configuration) {
+        if (configuration.adapter !== "codex") {
+          throw new RuntimeAdapterSelectionError(
+            'factory "codex" received a different adapter configuration',
+          );
+        }
+        if (configuration.workspace === undefined) {
+          throw new RuntimeAdapterSelectionError(
+            "Codex requires a runtime workspace",
+          );
+        }
+        return {};
+      },
+      create(configuration, context) {
+        if (configuration.adapter !== "codex") {
+          throw new RuntimeAdapterSelectionError(
+            'factory "codex" received a different adapter configuration',
+          );
+        }
+        if (configuration.workspace === undefined) {
+          throw new RuntimeAdapterSelectionError(
+            "Codex requires a runtime workspace",
+          );
+        }
+        const launchConfiguration = {
+          executable: configuration.executable,
+          workspace: configuration.workspace,
+          networkAccess: configuration.networkAccess,
+        };
+        return {
+          createAdapter: () =>
+            createCodexAdapter(launchConfiguration, {
+              signal: context.signal,
+              ...(context.modelSelection === undefined
+                ? {}
+                : { modelSelection: context.modelSelection }),
+            }),
+          modelCapabilities: createCodexModelCapabilities(launchConfiguration),
+        };
+      },
+    },
     {
       identity: "acp",
       resolveCapabilities(configuration) {
@@ -431,7 +506,10 @@ export function configurationWithWorkspace(
   workspace: string | undefined,
 ): RuntimeAdapterConfiguration {
   const configuration = parseRuntimeAdapterConfiguration(value);
-  if (workspace === undefined || configuration.adapter !== "opencode") {
+  if (
+    workspace === undefined ||
+    (configuration.adapter !== "opencode" && configuration.adapter !== "codex")
+  ) {
     return configuration;
   }
   return { ...configuration, workspace };
@@ -453,7 +531,7 @@ export function redactRuntimeAdapterText(
     for (const value of Object.values(configuration.configuration.env ?? {})) {
       addSecret(value);
     }
-  } else {
+  } else if (configuration.adapter === "opencode") {
     try {
       const url = new URL(configuration.url);
       const addEncodedComponent = (component: string): void => {
@@ -572,6 +650,17 @@ export function redactRuntimeAdapter(
   return {
     capabilities: adapter.capabilities,
     execute,
+    ...(adapter.close === undefined
+      ? {}
+      : {
+          close: async () => {
+            try {
+              await adapter.close?.();
+            } catch (cause) {
+              throw redactRuntimeAdapterError(cause, configuration);
+            }
+          },
+        }),
     ...(adapter.captureCheckpoint === undefined
       ? {}
       : {

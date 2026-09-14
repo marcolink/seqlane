@@ -1,11 +1,11 @@
 ---
 id: task.implement-codex-app-server-adapter
 title: Implement the Codex App-Server Adapter
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-14
 upstream:
   - spec.codex-app-server-adapter
 supersedes: []
@@ -83,14 +83,15 @@ transport, strict JSON-RPC and initialize validation, split UTF-8 handling,
 advisory Codex version checks, typed output, session reuse, checkpoints, exact
 forks, correlated turn events, activity lifecycle reduction, bounded turn
 payloads and prompts, request deadlines, cancellation, bounded shutdown, and
-typed non-interactive server-request failure. Runtime registration and live
-protocol confirmation remain follow-up work.
+typed non-interactive server-request failure. Runtime registration is delivered
+by the dependent integration task.
 
 ## Delivery state
 
-The implementation is present in the current branch and covered by focused
-transport, protocol, activity, and adapter tests. Runtime registration and
-live protocol confirmation remain follow-up work.
+The implementation is present on the delivery branch and covered by focused
+transport, protocol, activity, and adapter tests. Runtime registration is
+covered by the dependent integration task. The commit and pull request are not
+yet reachable from the default branch.
 
 ## Traceability
 

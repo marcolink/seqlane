@@ -1,5 +1,10 @@
 export { createCodexAdapter, type CodexAdapterOptions } from "./adapter.js";
 export {
+  createCodexModelCapabilities,
+  type CodexModelCapabilitiesOptions,
+} from "./model-capabilities.js";
+export { CODEX_AGENT_CAPABILITIES } from "./capabilities.js";
+export {
   CodexAdapterError,
   CodexProtocolError,
   CodexStructuredOutputError,

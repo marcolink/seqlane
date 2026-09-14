@@ -129,7 +129,8 @@ function runtimeProfileRegistration(
           id: taskId,
           input,
           output,
-          execute: async () => ({ files: [], rootCause: "fixture" }),
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "complete the fixture task" }),
         },
       ],
     ]),
@@ -234,6 +235,7 @@ describe("Mastra operational host", () => {
 
   it("exposes the registered Seqlane MCP server through Mastra HTTP routes", async () => {
     let receivedRuntimeId: string | undefined;
+    let closed = 0;
     const capabilities = {
       execute: true as const,
       modelSelection: false,
@@ -250,6 +252,9 @@ describe("Mastra operational host", () => {
         files: ["package.json"],
         rootCause: `runtime=${receivedRuntimeId}`,
       }),
+      close: async () => {
+        closed += 1;
+      },
     };
     const adapterRegistry = createRuntimeAdapterRegistry([
       {
@@ -378,7 +383,7 @@ describe("Mastra operational host", () => {
           content: [
             {
               type: "text",
-              text: expect.stringContaining('"rootCause":"fixture"'),
+              text: expect.stringContaining('"rootCause":"runtime=opencode"'),
             },
           ],
         },
@@ -412,7 +417,9 @@ describe("Mastra operational host", () => {
           content: [
             {
               type: "text",
-              text: expect.stringContaining('"rootCause":"fixture"'),
+              text: expect.stringContaining(
+                '"rootCause":"Renovate updated a dependency without its peer range"',
+              ),
             },
           ],
         },
@@ -451,6 +458,7 @@ describe("Mastra operational host", () => {
     } finally {
       await host.close();
     }
+    expect(closed).toBe(1);
   });
 
   it("rejects non-loopback startup before opening storage or a listener", async () => {

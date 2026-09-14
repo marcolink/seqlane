@@ -416,6 +416,9 @@ importers:
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../adapter
+      '@seqlane/codex-adapter':
+        specifier: workspace:*
+        version: link:../codex
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core

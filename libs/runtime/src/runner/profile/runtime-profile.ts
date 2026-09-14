@@ -48,6 +48,7 @@ export interface RuntimeExecution {
   readonly taskDefinitions: TaskDefinitionRegistry;
   readonly workspaceIdentities: WorkspaceIdentityRegistry;
   readonly workspaceResources: WorkspaceResourceRegistry;
+  readonly close?: () => Promise<void>;
 }
 
 export type RuntimeSessionUiNotifier = (
@@ -262,6 +263,7 @@ function createLazyAgentSession(
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
   checkpointBinding: SessionCheckpointBinding,
+  onAdapterCreated: (adapter: AgentAdapter) => void,
 ): ResolvedExecutorSession {
   const binding = createAdapter({
     signal,
@@ -270,6 +272,7 @@ function createLazyAgentSession(
       : { modelSelection: effectiveSelection }),
   });
   const adapter = binding.createAdapter();
+  onAdapterCreated(adapter);
   assertRuntimeAdapterCapabilities(adapter, checkpointBinding.capabilities);
   return createAgentSession(
     taskDefinitions,
@@ -326,6 +329,7 @@ export async function resolveRuntimeProfile(
       taskDefinitions,
       workspaceIdentities,
       workspaceResources,
+      close: async () => undefined,
     };
   }
 
@@ -368,6 +372,16 @@ export async function resolveRuntimeProfile(
     configurationBinding: selected.configurationBinding,
     capabilities,
   };
+  const ownedAdapters = new Set<AgentAdapter>();
+  const close = async (): Promise<void> => {
+    const adapters = [...ownedAdapters];
+    ownedAdapters.clear();
+    await Promise.all(
+      adapters.map(async (adapter) => {
+        await adapter.close?.();
+      }),
+    );
+  };
   const workspaceIdentities = await resolveTaskWorkspaceIdentities(
     taskDefinitions,
     workspacePath,
@@ -401,6 +415,7 @@ export async function resolveRuntimeProfile(
         onSessionUiAvailable,
         effectiveSelection,
         checkpointBinding,
+        (adapter) => ownedAdapters.add(adapter),
       ),
   };
 
@@ -415,13 +430,12 @@ export async function resolveRuntimeProfile(
           ? {}
           : { requestContext: options.requestContext }),
       });
+      const oneShotAdapter = oneShotBinding.createAdapter();
+      ownedAdapters.add(oneShotAdapter);
       return {
         execute: (request: ExecutorRequest) =>
           executeAgentAdapterRequest(
-            redactRuntimeAdapter(
-              oneShotBinding.createAdapter(),
-              selected.configuration,
-            ),
+            redactRuntimeAdapter(oneShotAdapter, selected.configuration),
             taskDefinitions,
             undefined,
             request,
@@ -435,6 +449,7 @@ export async function resolveRuntimeProfile(
     taskDefinitions,
     workspaceIdentities,
     workspaceResources,
+    close,
   };
 }
 
@@ -555,5 +570,6 @@ async function createTestFixtureExecution(
     taskDefinitions,
     workspaceIdentities,
     workspaceResources,
+    close: async () => undefined,
   };
 }

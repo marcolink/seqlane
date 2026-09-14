@@ -231,6 +231,55 @@ describe("resolveRuntimeProfile", () => {
     });
   });
 
+  it("closes adapters owned by a resolved run", async () => {
+    const source = task("source", "shared");
+    let closed = 0;
+    const adapter: AgentAdapter = {
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: true,
+        checkpoint: false,
+        fork: false,
+        activity: false,
+        sessionUi: false,
+      },
+      execute: async () => ({ value: "done" }),
+      close: async () => {
+        closed += 1;
+      },
+    };
+    const execution = await resolveRuntimeProfile(
+      { id: "custom", workspace: process.cwd() },
+      new Map([[source.id, source]]),
+      new AbortController().signal,
+      null,
+      undefined,
+      {
+        adapterConfiguration: {
+          adapter: "opencode",
+          url: "http://adapter.test",
+        },
+        adapterRegistry: createRuntimeAdapterRegistry([
+          {
+            identity: "opencode",
+            resolveCapabilities: () => adapter.capabilities,
+            prepare: async () => ({}),
+            create: () => ({ createAdapter: () => adapter }),
+          },
+        ]),
+      },
+    );
+
+    await execution.sessionResolver.resolve({
+      invocationId: "invocation:source",
+      task: source,
+    });
+    await execution.close?.();
+    expect(closed).toBe(1);
+  });
+
   it("does not derive OpenCode authority from task workspace policy", async () => {
     const server = await startOpenCodeServer();
     const sharedTask = task("shared-task", "shared");

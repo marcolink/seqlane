@@ -249,7 +249,6 @@ function createAdapterForTransport(
   let queue = Promise.resolve();
   let selectionResolved = false;
   let effectiveSelection: ModelSelection | undefined;
-  let backgroundProcessReported = false;
 
   const closeAfterDeadline = async (cause: unknown): Promise<void> => {
     if (!(cause instanceof CodexRequestDeadlineError)) return;
@@ -460,13 +459,6 @@ function createAdapterForTransport(
         }
         throw cause;
       }
-      if (!backgroundProcessReported) {
-        backgroundProcessReported = true;
-        request.onBackgroundProcess?.({
-          mutatesWorkspace: true,
-          termination: transport.termination,
-        });
-      }
       try {
         let completed: CompletedTurn;
         try {
@@ -544,6 +536,7 @@ function createAdapterForTransport(
 
   const adapter: AgentAdapter = {
     capabilities: CODEX_AGENT_CAPABILITIES,
+    close: () => transport.close(),
     execute,
     captureCheckpoint: async () => {
       if (threadId === undefined || lastTurnId === undefined) {
@@ -641,6 +634,10 @@ export function createCodexAdapter(
     },
     execute: (request) =>
       resolveAdapter(request).then((adapter) => adapter.execute(request)),
+    close: async () => {
+      const adapter = await adapterPromise;
+      await adapter?.close?.();
+    },
     captureCheckpoint: async () => {
       const adapter = await resolveAdapter(lifecycleRequest());
       if (adapter.captureCheckpoint === undefined) {

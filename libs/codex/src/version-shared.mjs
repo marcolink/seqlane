@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import testedVersions from "../tested-versions.json" with { type: "json" };
 
-const execFileAsync = promisify(execFile);
 const VERSION_PATTERN = /codex-cli\s+([0-9]+\.[0-9]+\.[0-9]+(?:[-+][^\s]+)?)/i;
 
 export const TESTED_CODEX_VERSIONS = testedVersions;
@@ -13,6 +11,8 @@ export function parseCodexVersion(output) {
 
 export async function readCodexVersion(executable, cwd) {
   try {
+    const { execFile } = await import("node:child_process");
+    const execFileAsync = promisify(execFile);
     const result = await execFileAsync(executable, ["--version"], {
       cwd,
       timeout: 3_000,
