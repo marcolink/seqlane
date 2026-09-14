@@ -343,6 +343,15 @@ seqlane run ./workflow.ts \
   --runtime opencode
 ```
 
+For Codex, provide the runtime workspace explicitly:
+
+```sh
+seqlane run ./workflow.ts \
+  --input '{"topic":"Seqlane"}' \
+  --runtime codex \
+  --workspace "$PWD"
+```
+
 The `--runtime` value is an opaque profile ID. It is not a URL, and the CLI
 does not infer the adapter from it. The adapter configuration belongs to the
 Seqlane process or operational server.

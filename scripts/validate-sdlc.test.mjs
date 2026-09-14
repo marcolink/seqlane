@@ -138,6 +138,23 @@ test("renders all owners in generated indexes", () => {
   }
 });
 
+test("documents a runnable Codex command with its runtime workspace", () => {
+  const readme = readFileSync(join(repositoryRoot, "README.md"), "utf8");
+  const shellBlocks = [...readme.matchAll(/```sh\n([\s\S]*?)```/g)].map(
+    (match) => match[1],
+  );
+
+  assert.ok(
+    shellBlocks.some(
+      (block) =>
+        block.includes("seqlane run ./workflow.ts") &&
+        block.includes("--runtime codex") &&
+        block.includes('--workspace "$PWD"'),
+    ),
+    "README must include a runnable Codex command with an explicit workspace",
+  );
+});
+
 test("preserves partial historical supersession relationships", () => {
   const executorNeutralAdr = readFileSync(
     join(

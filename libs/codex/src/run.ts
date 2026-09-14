@@ -1,4 +1,4 @@
-import type { AgentAdapter } from "@seqlane/agent-adapter";
+import type { AgentAdapter, AgentDiagnostic } from "@seqlane/agent-adapter";
 import type { ModelSelection } from "@seqlane/core";
 import { createCodexAdapter } from "./adapter.js";
 import { createCodexModelCapabilities } from "./model-capabilities.js";
@@ -11,6 +11,7 @@ export interface CodexRunOptions {
     configuration: CodexLaunchConfiguration,
     options: {
       readonly signal?: AbortSignal;
+      readonly initializeTimeoutMs?: number;
       readonly onDiagnostic?: (diagnostic: {
         readonly code: string;
         readonly message: string;
@@ -26,13 +27,28 @@ export function createCodexRun(
 ) {
   let transportPromise: Promise<CodexTransport> | undefined;
   let closed = false;
-  const transport = async (): Promise<CodexTransport> => {
+  const pendingDiagnostics: AgentDiagnostic[] = [];
+  const transport = async (
+    _configuration: CodexLaunchConfiguration,
+    transportOptions: {
+      readonly signal?: AbortSignal;
+      readonly initializeTimeoutMs?: number;
+      readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
+    } = {},
+  ): Promise<CodexTransport> => {
     if (closed) throw new Error("Codex run is closed");
     return (transportPromise ??= (
       options.createTransport ?? createCodexStdioTransport
     )(configuration, {
+      ...transportOptions,
       ...(options.signal === undefined ? {} : { signal: options.signal }),
-      onDiagnostic: ({ message }) => process.emitWarning(message),
+      onDiagnostic: (diagnostic) => {
+        if (transportOptions.onDiagnostic !== undefined) {
+          transportOptions.onDiagnostic(diagnostic);
+        } else if (pendingDiagnostics.length < 32) {
+          pendingDiagnostics.push(diagnostic);
+        }
+      },
     }));
   };
   const modelCapabilities = createCodexModelCapabilities(configuration, {
@@ -49,6 +65,14 @@ export function createCodexRun(
       return createCodexAdapter(configuration, {
         signal,
         ...(modelSelection === undefined ? {} : { modelSelection }),
+        closeTransport: false,
+        drainDiagnostics: () => {
+          const diagnostics = pendingDiagnostics.splice(
+            0,
+            pendingDiagnostics.length,
+          );
+          return diagnostics;
+        },
         createTransport: transport,
       });
     },

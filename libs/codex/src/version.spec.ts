@@ -23,4 +23,17 @@ describe("Codex version policy", () => {
       "codex-version-unconfirmed",
     );
   });
+
+  it("sanitizes and bounds hostile version diagnostics", () => {
+    const parsedVersion = parseCodexVersion(
+      `codex-cli 0.148.0-\u001b[31m${"x".repeat(1_000)}`,
+    );
+    const diagnostic = versionDiagnostic(parsedVersion);
+
+    expect(diagnostic).toBeDefined();
+    expect(diagnostic?.message).not.toContain("\u001b");
+    expect(diagnostic?.version).not.toContain("\u001b");
+    expect(diagnostic?.message.length).toBeLessThanOrEqual(512);
+    expect(diagnostic?.version?.length).toBeLessThanOrEqual(512);
+  });
 });
