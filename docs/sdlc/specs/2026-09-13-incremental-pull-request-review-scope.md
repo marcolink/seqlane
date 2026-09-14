@@ -124,7 +124,7 @@ A publication progress marker or pending publication record is not an
 authoritative report. Scope selection must ignore its candidate findings and
 checkpoint and continue from the last completed trusted state. A progress-only
 summary must retain that old state; it cannot expose a new checkpoint before
-the publication state machine reaches its final conditional write.
+the publisher confirms its final guarded write.
 
 Baseline mode uses the complete current PR diff:
 
@@ -543,7 +543,7 @@ its own progress marker and leaves the previous authoritative report intact.
 It must expose a clear failure reason in the Action result. It must not compact
 away coverage metadata or silently fall back to a broader baseline.
 
-### requirement-publication-atomicity
+### requirement-scope-publication-guard
 
 Review scope is calculated from a specific trusted checkpoint `C`, target
 branch name, target commit `B`, and head `H`. Capture all four at admission.
@@ -588,32 +588,16 @@ variant mismatch, report-ID mismatch, legacy-marker mismatch, or a value that
 was reconstructed from model output. A legacy replacement must carry the exact
 trusted old-version marker identity read at admission; a new baseline must
 carry no prior report identity.
-Immediately before the final write, the publisher must re-read the trusted
-report and live PR. It must require the live head to equal `H`, the live target
-branch name and target commit to equal the captured values, and the current
-published checkpoint to equal `C` for incremental and no-change runs. For a
-new baseline, the authoritative report must still be absent. For a legacy
-replacement, the live report ID and legacy marker identity must still equal the
-captured values. If the target or head moved, the checkpoint changed, or any
-required report identity changed, the result is stale. Do not publish it; start
-a new review with the live PR revisions and recompute scope. The publisher must
-reconcile current-generation authorized dispositions under the existing
-publication rules. It must not attach findings from a stale scope.
-
-The final report, retained findings, scope checkpoint, and visible limitation
-text are one publication. A marker write, run start, successful agent result,
-or metrics-ledger update alone never advances `C`. A failed, cancelled,
-incomplete, or stale run leaves `C` unchanged. Existing per-PR concurrency and
-run-identity guards remain in force.
-
-An in-progress marker must be distinguishable from a published state marker.
-During a legacy replacement it may precede the old report, but it must not
-claim that a new-version checkpoint already exists. Publication and cleanup
-must check the marker's owning run and preserve the old report when that run
-does not publish. For a legacy replacement, the final publisher must verify the
-same trusted report ID and old-version marker identity it read at review start.
-A new baseline must verify that no authoritative report appeared after
-admission.
+The publisher revalidates this immutable scope identity before publication.
+The live head, target branch and commit, checkpoint when present, and
+variant-specific trusted report identity must still match. A new baseline
+requires an absent authoritative report; a legacy replacement requires the
+captured old report ID and marker. A mismatch is stale and requires a new scope
+calculation. Only a successful final authoritative report can establish the
+next checkpoint `C`. The
+[publisher-owned state machine and coordinator](./2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-state-machine)
+define write ordering, conditional coordination, journal transitions,
+reconciliation, fallback, and cleanup.
 
 ## Detailed design or contracts
 
@@ -637,14 +621,8 @@ The trusted sequence is:
    for complete eligible reviewable evidence. Synthesize and gate new findings.
 6. Reconcile retained findings and dispositions, derive the cumulative verdict
    mechanically, and validate findings. Finalize execution coverage and finding
-   statuses, then seal the run manifest. Subsequent publication transitions
-   belong to the publisher's journal and cannot mutate execution evidence.
-7. Re-read the live target branch, base revision, head, checkpoint, and
-   variant-specific report identity under the publication guard. Publish the
-   report and checkpoint together, or leave the old report authoritative and
-   recompute scope in a new run. Summary and inline publication are separate
-   idempotent operations; reconcile uncertain writes before retrying and route
-   unpublishable findings to a visible summary fallback.
+   statuses, then seal the run manifest. Pass the immutable scope identity and
+   sealed manifest to the publisher under its linked state-machine contract.
 
 No unchecked Git output may become a path, revision, or shell argument. Bounds
 on path count, path length, patch size, state size, and model output remain

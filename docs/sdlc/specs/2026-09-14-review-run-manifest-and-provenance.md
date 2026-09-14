@@ -67,8 +67,45 @@ The manifest stores execution statuses `coverage` and `finding`. The publisher
 joins these with `publication` and derived `admission` in the strict
 [run status contract](./2026-09-05-versioned-pull-request-review-comments.md#requirement-run-status-gates).
 Publication evidence belongs to the publisher's journal, never to a sealed
-execution snapshot. Empty collections use `[]`; all paths, items, outcomes,
-failures, retries, findings, and limitations are sorted deterministically.
+execution snapshot. Empty collections use `[]`; canonical ordering is defined
+below and is mandatory for storage, digest calculation, and reuse reads.
+
+### requirement-canonical-manifest-bytes
+
+Canonical bytes are UTF-8 JSON with no byte-order mark or insignificant
+whitespace. Object keys are sorted by unsigned UTF-8 byte order. Strings use
+one JSON escape form: escape quotation mark, backslash, and control characters
+as lowercase `\u00xx`; do not escape other Unicode scalar values. Reject
+invalid UTF-8, unpaired surrogates, duplicate object keys, non-finite numbers,
+and unknown fields. Counts and ordinals are integers; other numeric values use
+canonical decimal strings. An absent optional field is omitted, not encoded as
+`null`, unless its schema explicitly requires `null`. Git paths retain their
+validated raw UTF-8 bytes; Unicode normalization must not merge distinct Git
+paths. The digest is SHA-256 of these exact uncompressed bytes.
+
+Arrays use these complete sort keys, in order. Byte comparisons are unsigned,
+lexicographic, and prefix-shorter-first; integer comparisons are numeric.
+`pr-patch` precedes `change-evidence` wherever an evidence-form rank is needed.
+The adapter rejects duplicate identity keys; it never depends on insertion
+order, locale collation, or worker completion order.
+
+| Array | Canonical sort key |
+| --- | --- |
+| Selected and excluded paths | Raw relative-path UTF-8 bytes. |
+| Manifest items | `batchOrdinal`, path bytes, evidence-form rank, numeric `hunkOrdinal`, item-ID bytes. |
+| Item outcomes | Item-ID bytes; exactly one outcome per sealed item. |
+| Failure records | Run-level before item-level, then item-ID bytes (empty for run), failure-class bytes, numeric attempt, reason bytes. Exact duplicates are rejected. |
+| Retry records | Item-ID bytes, numeric attempt, invocation-ID bytes. The tuple is unique. |
+| Retained findings | Parsed generation bytes, numeric finding index; unallocated candidates are excluded from this array. |
+| Limitations | Limitation-code bytes, related item-ID bytes (empty if absent), explanation bytes. Exact duplicates are coalesced with a numeric occurrence count. |
+
+Failure records must contain their level, optional sealed item ID, failure
+class, attempt, and bounded sanitized reason. Retry records must contain item
+ID, attempt, and locally allocated invocation ID. Limitations must contain a
+typed code, optional related item ID, bounded explanation, and positive
+occurrence count. The same canonicalizer is used when sealing, replaying,
+recomputing a digest, and validating a reuse source. Permuting otherwise equal
+input records must produce identical bytes and digests.
 
 ### requirement-manifest-items
 
@@ -271,13 +308,54 @@ records, and 20 limitations. Paths are at most 512 bytes; other persisted
 strings are at most 2,000 bytes. Evidence bodies and repeated explanations use
 SHA-256 hashes plus bounded references instead of duplication.
 
-Aggregate storage and write amplification are also bounded: at most 16
+Aggregate storage and write amplification are also bounded: at most 16 live
 snapshots and 32 MiB per run, 128 snapshots and 256 MiB per pull request in a
 30-day retention window, and 1,024 snapshots and 1 GiB per repository in that
-window. The adapter reserves capacity before model work and before each write.
-It may compact snapshots only by writing a new digest-verified full snapshot
-that preserves the sequence chain and final sealed state. A capacity breach or
+window. The Action-owned adapter is the retention and deletion owner. It uses
+the same trusted DynamoDB coordinator as publication for per-run, per-PR, and
+repository capacity records. A single-region `TransactWriteItems` operation
+conditionally reserves all three counters before model work or an artifact
+upload. Concurrent runs cannot both spend the same remaining capacity. A
+reservation stays charged after an uncertain upload or deletion until exact
+artifact reconciliation; TTL alone never releases it. A capacity breach or
 unknown size fails closed without publication.
+
+Capacity tracks both live artifacts and cumulative uploads in the window.
+Deleting an artifact releases live count and bytes only; it does not refund
+upload count or written bytes. The same numeric limits above apply to both
+sets of counters. Admission reserves one overlap slot and its maximum bytes
+for a future compaction checkpoint, so compaction can publish a replacement
+while the old chain still exists. If that headroom is unavailable, fail before
+model work. Compaction reclaims storage and live snapshot count, but cannot
+hide write amplification or extend a spent upload budget.
+
+Compaction writes a new immutable checkpoint artifact with the complete current
+state and a bounded canonical event log sufficient to replay every retained
+snapshot transition. The log includes each prior sequence, previous digest,
+event payload, and result digest. Replay must reproduce the exact canonical
+bytes and SHA-256 of each predecessor, including a final sealed state when
+present; a list of old digests alone is not sufficient. The new checkpoint
+has a new sequence and digest and references the verified chain head. If the
+event log cannot fit the per-snapshot limits, compaction fails closed and does
+not discard events or raise a limit.
+
+The adapter uploads and verifies the checkpoint while the old chain remains
+readable. It conditionally advances the run's active checkpoint reference in
+the coordinator from the old sequence/digest to the new one. A conflict leaves
+the old checkpoint authoritative and the candidate an orphan. After a
+successful switch, the adapter may delete superseded artifacts only when no
+live report, journal, resume source, or in-flight reader pins their artifact
+IDs. The initial and final artifacts remain pinned while referenced. Before
+deletion, it verifies the compacted checkpoint can replay the full chain;
+after deletion, it verifies absence and transactionally releases charged
+capacity. If deletion is uncertain, capacity remains charged until readback.
+
+Recovery enumerates the coordinator's active reference and verifies its
+artifact and replayable chain. A crash before the switch keeps the old chain;
+a crash after the switch keeps the new checkpoint. Orphans are deleted after
+reference checks. An absent active artifact or ambiguous branch of the chain
+fails closed. Expired artifacts disable reuse as specified above; retention
+does not silently turn a missing proof into successful work.
 
 ### requirement-provenance-and-rule-trust
 
@@ -356,6 +434,9 @@ or progress marker is treated as a manifest.
 
 - Test strict schema parsing, canonical serialization, deterministic ordering,
   empty-array encoding, and malformed or oversized snapshots.
+- Permute each manifest array and object-key insertion order; assert identical
+  canonical bytes and digests. Reject duplicate sort identities, ambiguous
+  numeric encodings, invalid UTF-8, and locale-dependent path ordering.
 - Test the typed item union, exact path/batch/evidence/hunk identity, one-to-one
   outcomes, failed and waived coverage, finalization backstop, and conflicting
   transitions.
@@ -368,6 +449,9 @@ or progress marker is treated as a manifest.
 - Test artifact creation, sequence continuity, digest validation, access
   control, redaction, expiry, aggregate per-run/pull-request/repository bounds,
   and safe compaction.
+- Test concurrent capacity reservations, upload and deletion uncertainty,
+  compaction replay, pinned references, failed checkpoint switch, crashes on
+  both sides of the switch, and measured reclamation of unpinned artifacts.
 - Test exact resume identity, narrow item reuse, missing checkpoints, rule
   precedence, trusted-source rejection, and provenance hash changes.
 - Reject forged source IDs, altered outcome digests, missing source evidence,
@@ -404,4 +488,5 @@ This specification defines intended behavior. Implementation is pending.
 
 - Scope and checkpoint: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Trusted state and publication: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
+- Capacity and deletion guarantees: [DynamoDB transactions](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html) and [GitHub artifact deletion](https://docs.github.com/en/rest/actions/artifacts)
 - Delivery: [task.incremental-pull-request-review-scope](../tasks/2026-09-13-incremental-pull-request-review-scope.md)

@@ -153,11 +153,62 @@ creates a duplicate or deletes historical comments. A changed head, target,
 checkpoint, report identity, or scope identity transitions the operation to
 `stale`.
 
-The final summary update must use a conditional write with the ETag (or
-equivalent compare-and-swap token) captured from the trusted report read. A
-precondition conflict is `stale` and cannot overwrite the report. Read-before-
-write checks or workflow concurrency alone are not sufficient. Inline creates
-and updates use the same conditional or idempotent reconciliation policy.
+### requirement-publication-coordinator
+
+All writes by the review bot for one pull request, including progress, inline
+findings, final summary, and cleanup, require one Action-owned publication
+lease. The coordinator is a DynamoDB table in one region; it stores only bounded
+lease, journal-head, and capacity metadata, never findings or patches. A
+conditional `PutItem` creates the per-PR lease row when absent. Conditional
+`UpdateItem` compares its revision and owner before acquisition or release.
+The lease owner is the trusted workflow run ID, attempt, and a unique fencing
+nonce. The workflow gives coordinator permission only to the trusted Action
+adapter and publisher; review-target code and model work receive none.
+
+The lease does not expire into another active writer. A takeover requires the
+previous GitHub workflow run to be verifiably terminal, followed by a
+conditional owner/revision update. An unverifiable owner blocks publication.
+Before every GitHub write, the publisher checks its lease and re-reads the live
+PR and trusted report under that lease. Every allowed bot publication path must
+use this coordinator; a bypass is a configuration failure. The publisher keeps
+the lease through write reconciliation and the durable journal receipt. A
+lost lease or failed coordinator read stops new writes and leaves an uncertain
+write for recovery. A runner cannot continue writing after another owner takes
+over because takeover waits for its verified termination.
+
+The live report precondition is a strict union:
+
+```text
+ReportPrecondition =
+  | { kind: "absent"; pullRequestNumber; scopeIdentity; runId; attempt }
+  | { kind: "present"; reportId; markerDigest; stateDigest;
+      pullRequestNumber; scopeIdentity; runId; attempt }
+```
+
+For a new baseline, acquire the lease, confirm `absent` in a fresh trusted
+comment read, and durably journal an intent with that exact precondition before
+creating the summary. This is the create-if-absent operation: the lease makes
+the absence check and creation exclusive among authorized bot writers. An
+already present authoritative comment produces `stale`; the publisher must
+not create a second one. An uncertain create is reconciled by exact operation
+identity and payload before retry. For existing reports, `present` guards every
+summary update and cleanup against the current report ID and content digest.
+After each confirmed summary write, replace the local precondition with the
+validated returned ID and digest. Inline writes do not alter that report
+precondition, but their own comment IDs and payload digests are reconciled and
+the live report is re-read before the next write. Re-read and validate the
+current report immediately before final publication. A mismatch is `stale`;
+an unknown write effect is `uncertain`. Journal the precondition and each
+confirmed successor so retries do not reuse a token from before a progress
+write. No progress marker or inline operation can advance the checkpoint.
+
+GitHub's issue-comment endpoints do not document conditional `POST` or `PATCH`
+writes. This contract therefore uses an exclusive trusted writer, not a
+fictional GitHub ETag precondition. Its guarantee covers the configured review
+bot. A writer using the bot credential outside the coordinator violates the
+trust boundary and cannot be made atomic by read-before-write checks. The
+workflow must withhold that credential from bypass paths and fail deployment
+checks if any bot writer is not routed through this lease.
 
 Publication is complete only when coverage is complete, finding validation is
 complete, the authoritative summary is written, and every admitted finding is
@@ -182,6 +233,26 @@ repository, workflow run and attempt, artifact ID, journal run ID, schema versio
 sequence, and SHA-256 digest. Missing entries, invalid transitions, or digest
 mismatches fail closed. Each snapshot has a canonical SHA-256 digest.
 
+The lease also serializes each journal's append. Its coordinator row stores the
+active journal ID, head sequence, head digest, and owner nonce. To append, the
+publisher first uploads a uniquely named immutable candidate snapshot and
+verifies its artifact ID, bytes, digest, and previous head. It then atomically
+updates the row only if owner, journal ID, head sequence, and head digest still
+match. This conditional update is the commit of the next sequence. A conflict
+must re-read the row and artifacts: an exact already committed candidate is
+idempotent; another digest or missing artifact is a fork/integrity failure.
+Do not send an external write until its intent is the committed head. An
+uncommitted candidate is an orphan, never evidence of an operation.
+
+After a crash or uncertain receipt, a new verified lease owner starts a new
+journal attempt with a `parentJournalReference` to the last validated head.
+It cannot append to or rewrite the old attempt. It first reconciles any
+committed external-write intent against live GitHub state. If a receipt append
+conflicts after an external write, preserve the committed intent and stop;
+recovery in the new attempt can record the exact confirmed result. Unknown
+effects never become success by advancing a journal pointer. The publisher
+keeps capacity for intent, receipt, and recovery before starting a write.
+
 Persist an intent before a GitHub write; append its confirmed receipt or bounded
 failure afterward. Journal entries reference execution snapshot digests in one
 direction. Early progress entries may reference the initial execution snapshot;
@@ -203,7 +274,7 @@ authoritative write or manufacture a second checkpoint advancement.
 
 The audit result joins the sealed execution digest with the latest verified
 journal digest. Neither digest requires mutation of the other artifact. The
-journal does not replace the conditional-write requirement above.
+journal cannot replace the publication lease and live-report guards above.
 
 ### requirement-run-status-gates
 
@@ -559,6 +630,12 @@ input and are never written as the current incremental state.
   incomplete coverage, uncertain final writes, and failed publication.
 - Test journal intent/receipt ordering and crash recovery before and after the
   final GitHub write; sealed execution bytes must remain unchanged.
+- Test absent-report lease acquisition by two baseline runs, progress-to-final
+  precondition refresh, changed report content, and lost lease. Exactly one
+  authoritative bot comment may be created; conflicts keep the old checkpoint.
+- Test concurrent journal append candidates, owner takeover only after run
+  termination, orphan artifacts, head conflicts before and after a GitHub
+  write, and exact recovery from a committed intent.
 - Test uncertain transitions for exact success, proven non-application, changed
   identity, repeated unknown effects, and cancellation during reconciliation.
   Retry must retain operation identity; unknown effects cannot advance the
@@ -592,6 +669,7 @@ input and are never written as the current incremental state.
 - Source proposal: [Seqlane review template](https://github.com/marcolink/seqlane/issues/45)
 - Review scope: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Execution evidence: [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md)
+- Coordinator guarantees: [DynamoDB conditional writes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.ConditionExpressions.html) and [transactions](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html); [GitHub REST conditional-request limits](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
 - Delivery: [task.publish-versioned-pull-request-review-comments](../tasks/2026-09-05-publish-versioned-pull-request-review-comments.md)
 - Delivery: [task.prevent-comment-triggered-review-cancellation](../tasks/2026-09-05-prevent-comment-triggered-review-cancellation.md)
 - Delivery: [task.consolidate-pull-request-review-run-metrics](../tasks/2026-09-06-consolidate-pull-request-review-run-metrics.md)
