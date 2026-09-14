@@ -113,10 +113,13 @@ The feature branch implements and verifies the fluent repeat contract. This
 task supersedes four completed tasks that defined or implemented the earlier
 repeat shape, and the cancelled plan to reject child workflows in repeats.
 Their completed statuses remain historical records.
+Review fixes isolate run identity, repeat budgets, and events; preserve task
+output validation; admit all child workflow resources; and split repeat
+compilation by concern. The full test suite and typecheck pass.
 
 ## Delivery state
 
-In review. Commit `35c16b5` on `feat/fluent-task-until-repeats` and
+In review. Commit `27b50d2` on `feat/fluent-task-until-repeats` and
 [pull request #114](https://github.com/marcolink/seqlane/pull/114) contain the
 implementation. The feature is not yet delivered on the target branch.
 
