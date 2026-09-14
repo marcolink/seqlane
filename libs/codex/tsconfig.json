@@ -8,7 +8,7 @@
     "types": ["node"],
     "emitDeclarationOnly": false
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.mts"],
   "exclude": ["src/**/*.spec.ts"],
   "references": [{ "path": "../core" }, { "path": "../adapter" }]
 }

@@ -5,11 +5,14 @@ const VERSION_PATTERN = /codex-cli\s+([0-9]+\.[0-9]+\.[0-9]+(?:[-+][^\s]+)?)/i;
 
 export const TESTED_CODEX_VERSIONS = testedVersions;
 
-export function parseCodexVersion(output) {
+export function parseCodexVersion(output: string): string | undefined {
   return VERSION_PATTERN.exec(output)?.[1];
 }
 
-export async function readCodexVersion(executable, cwd) {
+export async function readCodexVersion(
+  executable: string,
+  cwd: string,
+): Promise<string | undefined> {
   try {
     const { execFile } = await import("node:child_process");
     const execFileAsync = promisify(execFile);
@@ -24,7 +27,16 @@ export async function readCodexVersion(executable, cwd) {
   }
 }
 
-export function versionDiagnostic(version) {
+export interface CodexVersionDiagnostic {
+  readonly code: "codex-version-unconfirmed";
+  readonly message: string;
+  readonly version?: string;
+  readonly testedVersions: readonly string[];
+}
+
+export function versionDiagnostic(
+  version: string | undefined,
+): CodexVersionDiagnostic | undefined {
   if (version !== undefined && TESTED_CODEX_VERSIONS.includes(version))
     return undefined;
   const label = version === undefined ? "unknown" : version;

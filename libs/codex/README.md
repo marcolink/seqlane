@@ -24,7 +24,7 @@ Run the live probe only when Codex authentication and an external model call are
 approved:
 
 ```sh
-node scripts/codex-app-server-probe.mjs \
+node --experimental-strip-types scripts/codex-app-server-probe.mjs \
   --workspace "$PWD" \
   --output libs/codex/fixtures/protocol-0.147.0.json
 ```
