@@ -74,9 +74,12 @@ owns the Action and runtime boundary.
 - **Complete coverage**: every path in `R` and its diff hunks reached
   the appropriate review lane, and all expected lane outputs were validated.
   It is evidence-delivery coverage, not a claim that every defect was found.
-- **Scope identity**: the immutable admission tuple `{ pullRequestNumber,
-  targetBranch, baseRevision, headRevision, checkpointRevision, reportId }`.
-  `checkpointRevision` is absent for a baseline.
+- **Scope identity**: the immutable, discriminated admission value carrying the
+  pull-request number, target branch, base revision, head revision, checkpoint
+  revision, and trusted report identity required by its mode. A new baseline
+  has no prior report identity; a legacy replacement has the prior trusted
+  report ID and legacy marker identity; an incremental or no-change run has
+  the current trusted report ID and checkpoint revision.
 - **Evidence batch**: one bounded, typed unit of scoped Git evidence. A batch
   has an ordinal, path list, patch bytes, change-evidence bytes, and coverage
   counts. A batch result records completion, parsed paths, hunks, byte counts,
@@ -92,7 +95,7 @@ mutually exclusive:
 | Classification | Condition | Scope action |
 | --- | --- | --- |
 | `absent` | No authoritative report exists. | Start a baseline. |
-| `legacy` | The trusted marker is a recognized older schema and report identity is unambiguous. | Start a baseline replacement; import no old state. |
+| `legacy` | The trusted marker is a recognized older schema and the report ID plus exact marker identity are unambiguous. | Start a baseline replacement; import no old state. |
 | `current` | The trusted marker is the supported current schema and its decoded state passes strict validation, including identity and checkpoint validation. | Start an incremental or no-change review from the persisted checkpoint. |
 | `invalid-current` | A current-version marker has malformed, oversized, unsupported, mismatched, or undecodable state; the marker names a future version; or report identity is ambiguous. | Fail closed. Preserve the report and checkpoint. |
 
@@ -428,32 +431,58 @@ away coverage metadata or silently fall back to a broader baseline.
 
 Review scope is calculated from a specific trusted checkpoint `C`, target
 branch name, target commit `B`, and head `H`. Capture all four at admission.
-Represent that admission as one strict `ScopeIdentity` value:
+Represent that admission as one strict discriminated `ScopeIdentity` value. The
+variant is selected by the trusted report classifier and cannot be changed by
+agent output:
 
 ```text
-ScopeIdentity {
+CommonScopeIdentity {
   pullRequestNumber: positive integer
   targetBranch: non-empty branch name
   baseRevision: full Git commit SHA
   headRevision: full Git commit SHA
-  checkpointRevision: full Git commit SHA | absent
-  reportId: trusted comment ID | absent for a new baseline
 }
+
+ScopeIdentity =
+  CommonScopeIdentity & {
+    mode: "new-baseline"
+    checkpointRevision: absent
+    reportId: absent
+  }
+  | CommonScopeIdentity & {
+    mode: "legacy-replacement"
+    checkpointRevision: absent
+    reportId: trusted comment ID
+    legacyMarker: {
+      schemaVersion: positive integer
+      markerDigest: lowercase hexadecimal SHA-256 digest of exact marker bytes
+    }
+  }
+  | CommonScopeIdentity & {
+    mode: "incremental" | "no-change"
+    checkpointRevision: full Git commit SHA
+    reportId: trusted current-version comment ID
+  }
 ```
 
 The scope selector, every `EvidenceBatchPlan` and `EvidenceBatchResult`, the
 review input, finalization snapshot, and publication request must carry this
 same value. The workflow must reject a missing field, revision mismatch,
-report-ID mismatch, or a value that was reconstructed from model output.
+variant mismatch, report-ID mismatch, legacy-marker mismatch, or a value that
+was reconstructed from model output. A legacy replacement must carry the exact
+trusted old-version marker identity read at admission; a new baseline must
+carry no prior report identity.
 Immediately before the final write, the publisher must re-read the trusted
 report and live PR. It must require the live head to equal `H`, the live target
 branch name and target commit to equal the captured values, and the current
-published checkpoint to equal `C` (or still be absent with the same trusted
-report identity for a new baseline). If the target or head moved, or the
-checkpoint changed, the result is stale. Do not publish it; start a new review
-with the live PR revisions and recompute scope. The publisher must reconcile
-current-generation authorized dispositions under the existing publication
-rules. It must not attach findings from a stale scope.
+published checkpoint to equal `C` for incremental and no-change runs. For a
+new baseline, the authoritative report must still be absent. For a legacy
+replacement, the live report ID and legacy marker identity must still equal the
+captured values. If the target or head moved, the checkpoint changed, or any
+required report identity changed, the result is stale. Do not publish it; start
+a new review with the live PR revisions and recompute scope. The publisher must
+reconcile current-generation authorized dispositions under the existing
+publication rules. It must not attach findings from a stale scope.
 
 The final report, retained findings, scope checkpoint, and visible limitation
 text are one publication. A marker write, run start, successful agent result,
@@ -465,8 +494,10 @@ An in-progress marker must be distinguishable from a published state marker.
 During a legacy replacement it may precede the old report, but it must not
 claim that a new-version checkpoint already exists. Publication and cleanup
 must check the marker's owning run and preserve the old report when that run
-does not publish. For a baseline replacement, the final publisher must verify
-the same trusted report ID and old-version identity it read at review start.
+does not publish. For a legacy replacement, the final publisher must verify the
+same trusted report ID and old-version marker identity it read at review start.
+A new baseline must verify that no authoritative report appeared after
+admission.
 
 ## Detailed design or contracts
 
@@ -474,8 +505,9 @@ The trusted sequence is:
 
 1. Read the authoritative report and identify its trusted version before
    changing its marker. Validate a current-version state; classify a trusted
-   older-version report as a baseline replacement. Keep its report identity
-   for the final publication guard.
+   older-version report as a legacy replacement. Capture the exact trusted
+   report ID and old-version marker identity for the legacy `ScopeIdentity`
+   publication guard. An absent report selects the new-baseline variant.
 2. Select `C` from a valid current-version published state, or select a fresh
    baseline if no such checkpoint exists. Do not import old-version findings.
 3. Validate `B` and `H` as Git commits and validate the checkout HEAD as `H`.
@@ -489,9 +521,10 @@ The trusted sequence is:
    for complete eligible reviewable evidence. Synthesize and gate new findings.
 6. Reconcile retained findings and dispositions, then derive the cumulative
    verdict mechanically.
-7. Re-read the live target branch, base revision, head, and checkpoint under
-   the publication guard. Publish the report and checkpoint together, or
-   leave the old report authoritative and recompute scope in a new run.
+7. Re-read the live target branch, base revision, head, checkpoint, and
+   variant-specific report identity under the publication guard. Publish the
+   report and checkpoint together, or leave the old report authoritative and
+   recompute scope in a new run.
 
 No unchecked Git output may become a path, revision, or shell argument. Bounds
 on path count, path length, patch size, state size, and model output remain
@@ -514,6 +547,7 @@ is an incomplete review, not a smaller valid scope.
 | File leaves the current PR diff | It cannot receive a new finding; retained findings follow lifecycle rules. |
 | Path list, patch batch, or state exceeds a bound | Fail without publishing or advancing. |
 | Head, target branch, target commit, or checkpoint changes before publication | Treat result as stale; do not publish it. |
+| Variant-specific report ID or legacy marker identity changes before publication | Treat result as stale; do not publish it. |
 | New finding lacks a path or names a path outside `R` | Reject it before ID allocation and show a scope limitation. |
 | Only excluded files change | Do not claim their contents were reviewed or invent a content finding. |
 | A planned or dynamic cumulative ceiling is exceeded | Fail without publication or checkpoint advancement. |
@@ -564,7 +598,10 @@ force-push, retargeting, model change, or state parse failure.
   remain correct on both incremental and no-change runs.
 - Test old-version replacement, discarded old findings and metrics, old-command
   isolation, invalid-current-state refusal, missing prior commit, tree/blob/tag
-  rejection, and exact-SHA fetch behavior.
+  rejection, exact-SHA fetch behavior, and new-baseline versus legacy-replacement
+  identity guards.
+- Test that v4 remains disposition-only and that v5 is the sole unified schema
+  once incremental scope is enabled; no shared-v4 writer or reader is allowed.
 - Test failed, cancelled, incomplete, stale-head, moved-target, and
   changed-checkpoint runs. Assert that their authoritative checkpoint does not
   advance.
@@ -582,6 +619,10 @@ force-push, retargeting, model change, or state parse failure.
   selected target revision.
 - A trusted old-version report is replaced by a complete baseline with a new
   generation. No old finding or command can attach to a new finding.
+- A legacy replacement carries and revalidates its prior report ID and marker
+  identity; a new baseline requires the authoritative report to remain absent.
+- V4 is disposition-only; V5 is the sole current schema when incremental scope
+  is enabled.
 - Malformed or unsupported current-version state cannot trigger baseline
   replacement or erase the prior report.
 - A later publication allocates no new finding ID outside

@@ -73,10 +73,13 @@ It must not overwrite those decisions.
 
 The next state schema revision adds a monotonic state revision and writer
 identity. If this proposal lands before the incremental-review scope contract,
-its version 4 reader may migrate v1-v3 state. The later incremental version
-replaces that report with a full baseline. If both proposals share version 4,
-that one schema must contain both sets of fields and follow the incremental
-contract's older-report replacement rule.
+its version 4 reader may migrate v1-v3 state. This v4 schema is
+disposition-only: it has no scope checkpoint and cannot be used for incremental
+eligibility. When the incremental-review scope contract is delivered, v5 is the
+sole current schema. V5 includes the v4 disposition fields and the scope
+fields, while v4 is read only as legacy and replaced by a fresh v5 baseline.
+The mechanical path must not publish a shared-v4 alternative after v5 is
+available; one state revision has one field set and one meaning.
 
 ### requirement-human-projection
 
