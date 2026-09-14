@@ -1,5 +1,7 @@
 import { CodexAdapterError } from "./errors.js";
 
+export const CODEX_PREFLIGHT_TIMEOUT_MS = 15_000;
+
 export class CodexRequestDeadlineError extends CodexAdapterError {
   constructor(
     readonly operation: string,

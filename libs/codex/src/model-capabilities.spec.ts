@@ -8,6 +8,7 @@ describe("Codex model capabilities", () => {
   it("caches a validated model list and closes its discovery transport", async () => {
     const requests: string[] = [];
     let closed = 0;
+    let initializeTimeoutMs: number | undefined;
     const capabilities = createCodexModelCapabilities(
       {
         executable: "/opt/codex",
@@ -15,8 +16,9 @@ describe("Codex model capabilities", () => {
         networkAccess: false,
       },
       {
-        createTransport: async () =>
-          ({
+        createTransport: async (_configuration, options) => {
+          initializeTimeoutMs = options?.initializeTimeoutMs;
+          return {
             request: async (method: string) => {
               requests.push(method);
               return {
@@ -33,7 +35,8 @@ describe("Codex model capabilities", () => {
             close: async () => {
               closed += 1;
             },
-          }) as unknown as CodexTransport,
+          } as unknown as CodexTransport;
+        },
       },
     );
 
@@ -45,6 +48,7 @@ describe("Codex model capabilities", () => {
     });
     expect(requests).toEqual(["model/list"]);
     expect(closed).toBe(1);
+    expect(initializeTimeoutMs).toBe(15_000);
   });
 
   it("bounds an unresponsive model discovery request and closes its transport", async () => {

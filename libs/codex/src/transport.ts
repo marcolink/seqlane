@@ -13,12 +13,11 @@ import {
   parseCodexMessage,
   parseInitializeResult,
 } from "./protocol.js";
-import { withDeadline } from "./deadline.js";
+import { CODEX_PREFLIGHT_TIMEOUT_MS, withDeadline } from "./deadline.js";
 import { readCodexVersion, versionDiagnostic } from "./version.js";
 
 const MAX_IGNORED_RESPONSE_IDS = 1_024;
 const IGNORED_RESPONSE_TTL_MS = 60_000;
-const DEFAULT_INITIALIZE_TIMEOUT_MS = 5_000;
 const SHUTDOWN_GRACE_MS = 1_000;
 const SHUTDOWN_FORCE_SETTLEMENT_MS = 1_000;
 
@@ -52,6 +51,7 @@ export interface CodexTransportOptions {
 }
 
 interface PendingRequest {
+  readonly method: string;
   readonly resolve: (value: unknown) => void;
   readonly reject: (cause: unknown) => void;
   readonly signal?: AbortSignal;
@@ -60,6 +60,21 @@ interface PendingRequest {
 
 function toError(cause: unknown): Error {
   return cause instanceof Error ? cause : new Error(String(cause));
+}
+
+function rejectedRequestMessage(method: string, code: number): string {
+  const safeMethod = /^[A-Za-z][A-Za-z0-9/]{0,63}$/.test(method)
+    ? method
+    : "request";
+  const reason =
+    code === -32600
+      ? "invalid request"
+      : code === -32601
+        ? "unknown method"
+        : code === -32602
+          ? "invalid parameters"
+          : "request failed";
+  return `Codex app-server rejected ${safeMethod} (code ${code}): ${reason}`;
 }
 
 function defaultSpawn(
@@ -329,7 +344,7 @@ export async function createCodexTransportForProcess(
         request.reject(
           new CodexAdapterError(
             "execution",
-            "Codex app-server rejected a request",
+            rejectedRequestMessage(request.method, message.error.code),
             message.error,
           ),
         );
@@ -439,7 +454,7 @@ export async function createCodexTransportForProcess(
           onAbort();
           return;
         }
-        pending.set(id, { resolve, reject, signal, onAbort });
+        pending.set(id, { method, resolve, reject, signal, onAbort });
         try {
           writeMessage(child, { jsonrpc: "2.0", id, method, params });
         } catch (cause) {
@@ -505,7 +520,7 @@ export async function createCodexTransportForProcess(
           },
           options.signal,
         ),
-        options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS,
+        options.initializeTimeoutMs ?? CODEX_PREFLIGHT_TIMEOUT_MS,
         "initialize",
         options.signal,
       ),

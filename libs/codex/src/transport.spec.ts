@@ -58,6 +58,52 @@ async function createTransport(body: string): Promise<{
 }
 
 describe("Codex app-server transport", () => {
+  it("surfaces a safe request rejection while retaining the server error as cause", async () => {
+    const { transport } = await createTransport(`
+      if (message.method === "initialize") {
+        ${writeResponse(initializeResult, "message.id")}
+      } else if (message.method === "thread/start") {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32600, message: "unknown sandbox variant" },
+        }) + "\\n");
+      }
+    `);
+
+    await expect(transport.request("thread/start", {})).rejects.toMatchObject({
+      code: "execution",
+      message:
+        "Codex adapter: Codex app-server rejected thread/start (code -32600): invalid request",
+      cause: { code: -32600, message: "unknown sandbox variant" },
+    });
+    await transport.close();
+  });
+
+  it("does not expose hostile server text or request names in errors", async () => {
+    const hostileMessage = `secret-value\n\u001b[31mforged\u001b[0m${"x".repeat(2_000)}`;
+    const { transport } = await createTransport(`
+      if (message.method === "initialize") {
+        ${writeResponse(initializeResult, "message.id")}
+      } else if (message.id !== undefined) {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32602, message: ${JSON.stringify(hostileMessage)} },
+        }) + "\\n");
+      }
+    `);
+
+    await expect(
+      transport.request("thread/start\n\u001b[31m", {}),
+    ).rejects.toMatchObject({
+      message:
+        "Codex adapter: Codex app-server rejected request (code -32602): invalid parameters",
+      cause: { code: -32602, message: hostileMessage },
+    });
+    await transport.close();
+  });
+
   it("preserves notification ordering when response and notification share a chunk", async () => {
     const { transport } = await createTransport(`
       if (message.method === "initialize") {
