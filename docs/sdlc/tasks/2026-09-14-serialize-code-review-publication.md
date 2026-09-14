@@ -1,0 +1,101 @@
+---
+id: task.serialize-code-review-publication
+title: Serialize Final Code Review Publication
+status: planned
+owners:
+  - core
+created: 2026-09-14
+updated: 2026-09-14
+upstream:
+  - spec.github-native-review-publication
+  - spec.mechanical-pull-request-review-dispositions
+supersedes: []
+---
+
+# Serialize Final Code Review Publication
+
+## Objective
+
+Publish one complete review comment after model work, through the same
+per-PR queue used by mechanical dispositions.
+
+## Upstream requirements
+
+Implement `requirement-final-publication` in
+[spec.github-native-review-publication](../specs/2026-09-14-github-native-review-publication.md).
+This task follows [task.unify-code-review-comment-state](./2026-09-14-unify-code-review-comment-state.md)
+and [task.persist-code-review-run-artifacts](./2026-09-14-persist-code-review-run-artifacts.md).
+The shared queue must satisfy
+[spec.mechanical-pull-request-review-dispositions](../specs/2026-09-06-mechanical-pull-request-review-dispositions.md).
+
+## Scope
+
+- Keep cancellable review computation separate from non-cancelling final
+  publication. Use one `queue: max` group for all authoritative-comment
+  writers, including mechanical dispositions.
+- Remove v5 progress, inline, and cleanup comment writes. Show progress in
+  Action job and step status.
+- After queue admission, re-read live PR, trusted comment, and authorized
+  command ledger. Merge dispositions made during review computation.
+- Validate head, target, base, scope, report identity, and checkpoint before
+  one final create or update.
+- Bind final state revision, writer/source identity, and payload digest.
+  Reconcile ambiguous responses by exact readback without duplicate writes.
+- Commit the checkpoint and artifact reference only through the confirmed
+  final summary. Trigger candidate-artifact cleanup on proven failure.
+- Show queue overflow, cancellation, stale result, uncertain write, and
+  artifact cleanup failures in the Action result.
+
+## Out of scope
+
+- A DynamoDB lease, journal, or branch used as a lock.
+- Publication for failed, incomplete, or invalid review execution.
+
+## Implementation plan
+
+1. Split computation from final publisher scheduling in the workflow and
+   grant only the queued publisher bot write permission.
+2. Reconcile live comment and command state in the publisher. Render from the
+   merged strict state supplied by the comment-state task.
+3. Write once with an operation identity. Resolve uncertain results by
+   readback; fail closed when still unknown.
+4. Connect artifact result handling and cleanup. Update docs and hosted
+   workflow checks.
+
+## Affected areas
+
+- `.github/workflows/seqlane-code-review.yml`
+- `libs/action-code-review/src/workflows/publication-workflow.ts`
+- `libs/action-code-review/src/review-run.ts`
+- `libs/action-code-review/src/publication-state.ts`
+- `libs/action-code-review/README.md`
+
+## Verification
+
+- Run test mapping and focused Action tests for stale identity, two baseline
+  publishers, concurrent disposition updates, exact readback, queue
+  overflow, and artifact cleanup.
+- Run a hosted baseline and follow-up; verify one final summary write and
+  no v5 progress or inline comments. Run docs validation and diff checks.
+
+## Completion criteria
+
+- A newer review cancels stale computation without cancelling an active
+  publisher; disposition updates survive a concurrent review.
+- A failed, stale, or uncertain attempt cannot advance the checkpoint.
+- A confirmed publication has exactly one complete comment state and one
+  verified artifact reference.
+
+## Outcome
+
+Implementation pending.
+
+## Delivery state
+
+Planned. No target-branch delivery claim is made here.
+
+## Traceability
+
+- Contract: [spec.github-native-review-publication](../specs/2026-09-14-github-native-review-publication.md)
+- Mechanical writer: [spec.mechanical-pull-request-review-dispositions](../specs/2026-09-06-mechanical-pull-request-review-dispositions.md)
+- Follow-on proposal: [PR #112](https://github.com/marcolink/seqlane/pull/112)
