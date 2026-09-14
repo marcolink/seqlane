@@ -53,6 +53,9 @@ Review-scope selection and checkpoint advancement are defined in
 The version 4 state below describes the current transport and lifecycle
 contract. A new strict state revision must add that spec's scope checkpoint
 without changing the trusted-comment or run-metrics ownership here.
+The incremental-scope specification owns manifest schema, persistence, and
+coverage evidence. This specification owns the publication state machine and
+the trusted summary projection.
 
 ## Requirements
 
@@ -68,6 +71,46 @@ The publisher must read the live pull-request state before each write. The
 pull request must remain open and eligible. Its head revision must equal the
 report revision.
 
+### requirement-publication-state-machine
+
+The Action-library publisher is the sole owner of publication state. The
+scope selector and review lanes produce data; they do not write GitHub state.
+Publication follows one canonical state machine:
+
+```text
+prepared
+  -> summary-published
+  -> inline-reconciled
+  -> finalizable
+  -> published
+
+prepared | summary-published | inline-reconciled | finalizable
+  -> stale | cancelled | failed
+```
+
+The authoritative projection is one trusted bot summary comment containing the
+validated human projection, state block, and metrics ledger. Inline comments
+are secondary projections and are never the checkpoint. The summary is written
+before inline comments; the final summary update records publication counters,
+limitations, fallback findings, and terminal statuses.
+
+Every publication operation carries one idempotency key
+`(pullRequestNumber, scopeIdentity, runId, attempt)`. Each inline finding also
+uses `(pullRequestNumber, findingId, evidenceHeadRevision, contentDigest)`.
+Before retrying an uncertain write, the publisher re-reads the live summary or
+inline comment and treats an exact key and content match as success. It never
+creates a duplicate or deletes historical comments. A changed head, target,
+checkpoint, report identity, or scope identity transitions the operation to
+`stale`.
+
+Publication is complete only when coverage is complete, finding validation is
+complete, the authoritative summary is written, and every admitted finding is
+either inline-published or represented in the final summary fallback. An
+unresolved inline write, missing fallback, or failed final summary update makes
+publication partial and blocks checkpoint advancement. The scope checkpoint,
+retained findings, visible limitations, and publication status are one final
+authoritative write. Checkpoint advancement is allowed only from `published`.
+
 ### requirement-state-contract
 
 The authoritative comment must contain exactly one metadata marker and one
@@ -82,7 +125,11 @@ The state must contain these fields:
 - comparable predecessor revision, when available;
 - the next finding index;
 - retained findings and lifecycle metadata;
-- review limitations.
+- review limitations;
+- comparison outcomes for retained findings;
+- publication and automation-admission status;
+- the bounded manifest artifact identity and SHA-256 digest, when a manifest
+  was produced.
 
 ### requirement-run-status-and-metrics
 
@@ -151,6 +198,15 @@ Each retained finding has one lifecycle status:
 A finding has one severity. The current finding and persisted state schemas
 reject disposition and effective-severity fields. Finding identifiers are
 case-insensitive.
+
+Each retained finding also has a separate typed `comparisonOutcome` with one of
+`new`, `persisting`, `resolved`, or `not_reviewed`. This field is stored in the
+validated state and rendered in the human projection; it does not replace
+lifecycle status, severity, or disposition. `not_reviewed` is assigned when the
+later run omits the finding's path from its reviewable scope and cannot change
+the lifecycle or imply resolution. `resolved` and `reopened` require
+current-head verification under `requirement-fixed-verification`. Authorized
+dispositions remain authoritative when comparison output is merged.
 
 ### requirement-fixed-verification
 
