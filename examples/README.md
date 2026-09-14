@@ -17,9 +17,8 @@ Direct file references load the module's default export. Use
 `path/to/workflow.ts#namedExport` only when a module intentionally exports a
 named workflow. The CLI supports `.ts`, `.mts`, `.js`, and `.mjs` files.
 
-The minimal workflow explicitly selects `openai/gpt-5.6-luna` with `high`
-reasoning for its `prepare` session and `openai/gpt-5.6-terra` for its `finish`
-session.
+The minimal workflow explicitly selects `openai/gpt-5.6-luna` for both
+sessions, with `high` reasoning for `prepare`.
 
 `local-git-status.ts` runs a direct `git status --porcelain=v1` task, then
 passes its typed result to an agent task:
@@ -259,8 +258,9 @@ merge conflicts, the merge strategy stops without a commit.
 
 If conflicts exist, the local `resolve-merge-conflicts` Action receives the
 exact conflict paths and both immutable revisions. Its exclusive agent task
-runs in a fresh, non-Git staging workspace that contains only regular conflict
-files. The OpenCode policy denies shell commands, external paths, and project
+uses `openai/gpt-5.6-luna` with high reasoning. The task runs in a fresh,
+non-Git staging workspace that contains only regular conflict files. The
+OpenCode policy denies shell commands, external paths, and project
 configuration. The Action rejects symlinks and copies back only the supplied
 conflict files.
 

@@ -63,7 +63,7 @@ export default createFlow({
   .task("resolve", conflictResolutionTask, ({ input }) => input, {
     workspace: "exclusive",
     session: isolated({
-      model: openai("gpt-5.6-terra"),
+      model: openai("gpt-5.6-luna"),
       reasoning: "high",
     }),
   })
