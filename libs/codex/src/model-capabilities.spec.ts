@@ -75,6 +75,10 @@ describe("Codex model capabilities", () => {
 
   it("bounds transport creation and closes a transport that resolves late", async () => {
     let closed = 0;
+    let closeCalled!: () => void;
+    const closeCalledPromise = new Promise<void>((resolve) => {
+      closeCalled = resolve;
+    });
     let resolveTransport!: (transport: CodexTransport) => void;
     const capabilities = createCodexModelCapabilities(
       {
@@ -98,10 +102,10 @@ describe("Codex model capabilities", () => {
       request: async () => ({ data: [] }),
       close: async () => {
         closed += 1;
+        closeCalled();
       },
     } as unknown as CodexTransport);
-    await Promise.resolve();
-    await Promise.resolve();
+    await closeCalledPromise;
     expect(closed).toBe(1);
   });
 });
