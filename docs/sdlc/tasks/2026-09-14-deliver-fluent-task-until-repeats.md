@@ -109,16 +109,16 @@ imports.
 
 ## Outcome
 
-Implementation and verification are in progress on the feature branch. This
+The feature branch implements and verifies the fluent repeat contract. This
 task supersedes four completed tasks that defined or implemented the earlier
 repeat shape, and the cancelled plan to reject child workflows in repeats.
 Their completed statuses remain historical records.
 
 ## Delivery state
 
-In progress. The feature branch implements the fluent API and Mastra-native
-loop, but this record does not claim delivery on the target branch. Record the
-commit and pull request here after branch verification.
+In review. Commit `35c16b5` on `feat/fluent-task-until-repeats` and
+[pull request #114](https://github.com/marcolink/seqlane/pull/114) contain the
+implementation. The feature is not yet delivered on the target branch.
 
 ## Traceability
 
