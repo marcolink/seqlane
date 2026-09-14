@@ -6,7 +6,9 @@ import type {
   ValidationInvocation,
 } from "./bindings.js";
 import type {
-  RepeatBuildOptions,
+  RunnableDefinition,
+  UntilContext,
+  NextInputContext,
   TaskDefinition,
   TaskInvocationOptions,
   ValidationInvocationOptions,
@@ -14,6 +16,21 @@ import type {
   AuthoredWorkflow,
   WorkspacePolicy,
 } from "./contracts.js";
+
+export interface RepeatBuildOptions<TaskInput, TaskOutput> {
+  readonly initial: InputBinding<TaskInput>;
+  readonly runnable: RunnableDefinition<TaskInput, TaskOutput>;
+  readonly until: (
+    context: Pick<UntilContext<TaskOutput>, "result">,
+  ) => ValueRef<boolean>;
+  readonly nextInput?: (
+    context: Pick<NextInputContext<TaskInput, TaskOutput>, "input" | "result">,
+  ) => InputBinding<TaskInput>;
+  readonly maxIterations: number;
+  readonly dependsOn?: readonly { readonly nodeId: string }[];
+  readonly workspace?: WorkspacePolicy;
+  readonly session?: import("./contracts.js").SessionPolicy;
+}
 
 export interface WorkflowBuildContext<Input = unknown> {
   readonly input: ValueRef<Input>;
@@ -39,9 +56,9 @@ export interface WorkflowBuildContext<Input = unknown> {
     validator: Validator<Candidate>,
     options: ValidationInvocationOptions<Candidate>,
   ) => ValidationInvocation<Candidate>;
-  readonly repeat: <State>(
-    options: RepeatBuildOptions<State>,
-  ) => MechanicalTaskRef<State>;
+  readonly repeat: <TaskInput, TaskOutput>(
+    options: RepeatBuildOptions<TaskInput, TaskOutput>,
+  ) => MechanicalTaskRef<TaskOutput>;
 }
 
 export type WorkflowBuilder<Input = unknown, Output = unknown> = (

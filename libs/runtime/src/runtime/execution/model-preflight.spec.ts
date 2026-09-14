@@ -25,6 +25,7 @@ function task(
   nodeId: string,
   session?: Extract<PlanNode, { type: "task" }>["session"],
   dependsOn: readonly string[] = [],
+  input: Extract<PlanNode, { type: "task" }>["input"] = {},
 ): Extract<PlanNode, { type: "task" }> {
   return {
     type: "task",
@@ -33,7 +34,7 @@ function task(
     workspace: "shared",
     session: { type: "isolated" },
     ...(session === undefined ? {} : { session }),
-    input: {},
+    input,
     dependsOn,
   };
 }
@@ -280,7 +281,7 @@ describe("executor model preflight", () => {
     expect(compiled.context.effectiveModelSelections).toEqual(new Map());
   });
 
-  it("validates repeat-body models without recording static invocation keys", async () => {
+  it("validates repeat-attempt models without recording static invocation keys", async () => {
     const requested = model("openai/gpt-5");
     let listed = 0;
     const executor = fakeExecutor(
@@ -294,28 +295,27 @@ describe("executor model preflight", () => {
       () => undefined,
     );
     const repeatNodeId = "repeat";
-    const bodyNodeId = "repeat/body";
+    const attemptNodeId = "repeat/attempt";
     const repeat: RepeatNode = {
       type: "repeat",
       nodeId: repeatNodeId,
       input: {},
       dependsOn: [],
       maximumIterations: 2,
-      body: {
-        inputNodeId: "repeat/input",
-        nodes: [
-          task(bodyNodeId, {
-            type: "isolated",
-            model: { model: requested },
-          }),
-        ],
-        output: { type: "ref", nodeId: bodyNodeId, path: [] },
-        until: { type: "ref", nodeId: bodyNodeId, path: ["passed"] },
-      },
+      attempt: task(
+        attemptNodeId,
+        {
+          type: "isolated",
+          model: { model: requested },
+        },
+        [],
+        { type: "ref", nodeId: "repeat:input", path: [] },
+      ),
+      until: { type: "ref", nodeId: attemptNodeId, path: ["output", "passed"] },
     };
     const compiled = new PlanCompiler().compileWorkflow(plan([repeat]), {
       createInvocationId: (nodeId) => nodeId,
-      executors: new Map([[bodyNodeId, executor]]),
+      executors: new Map([[attemptNodeId, executor]]),
     });
 
     await preflightCompiledWorkflowModels(compiled);

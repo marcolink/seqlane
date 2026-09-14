@@ -1,4 +1,5 @@
 // @test-scope ./mastra-plan-compiler.ts
+// @test-scope ./mastra-repeat-compiler.ts
 // @test-scope ./compile-plan.ts
 // @test-scope ../validation/plan-validation.ts
 // @test-scope ../plan/plan-ordering.ts
@@ -387,44 +388,396 @@ describe("Mastra Plan compiler", () => {
     );
   });
 
-  it("rejects repeat nodes before creating a Mastra workflow", () => {
+  it("lowers repeat nodes through Mastra dountil", () => {
     const repeatNode: Extract<PlanNode, { type: "repeat" }> = {
       type: "repeat",
       nodeId: "repeat:1",
       input: { passed: false },
       dependsOn: [],
       maximumIterations: 2,
-      body: {
-        inputNodeId: "repeat:1:input",
-        nodes: [
-          task("repeat:1/body:1", ["repeat:1:input"], {
-            type: "ref",
-            nodeId: "repeat:1:input",
-            path: [],
-          }) as Extract<PlanNode, { type: "task" }>,
-        ],
-        output: {
-          type: "ref",
-          nodeId: "repeat:1/body:1",
-          path: ["output"],
-        },
-        until: {
-          type: "ref",
-          nodeId: "repeat:1/body:1",
-          path: ["output", "passed"],
-        },
+      attempt: task("repeat:1:attempt", [], {
+        type: "ref",
+        nodeId: "repeat:1:input",
+        path: [],
+      }) as Extract<PlanNode, { type: "task" }>,
+      until: {
+        type: "ref",
+        nodeId: "repeat:1:attempt",
+        path: ["output", "passed"],
       },
     };
 
-    expect(() =>
-      compilePlanToMastra(
-        plan([repeatNode], {
-          type: "ref",
-          nodeId: "repeat:1",
-          path: ["output"],
+    const compiled = compilePlanToMastra(
+      plan([repeatNode], {
+        type: "ref",
+        nodeId: "repeat:1",
+        path: ["output"],
+      }),
+      {
+        taskDefinitions: new Map([
+          [
+            "repeat:1:attempt",
+            {
+              id: "repeat:1:attempt",
+              input: z.object({ passed: z.boolean() }),
+              output: z.object({ passed: z.boolean() }),
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "repeat" }),
+            },
+          ],
+        ]),
+        executeInvocation: async ({ input }) => ({
+          passed: (input as { passed: boolean }).passed,
         }),
-      ),
-    ).toThrow('Mastra Plan compiler does not support repeat node "repeat:1"');
+      },
+    );
+    expect(compiled.workflow.serializedStepGraph).toEqual(
+      expect.arrayContaining([
+        { type: "step", step: expect.objectContaining({ id: "repeat:1" }) },
+      ]),
+    );
+  });
+
+  it("runs attempts until the typed result condition succeeds", async () => {
+    const attempt = task("repeat:1:attempt", [], {
+      type: "ref",
+      nodeId: "repeat:1:input",
+      path: [],
+    }) as Extract<PlanNode, { type: "task" }>;
+    const repeatNode: Extract<PlanNode, { type: "repeat" }> = {
+      type: "repeat",
+      nodeId: "repeat:1",
+      input: { count: 0 },
+      dependsOn: [],
+      maximumIterations: 2,
+      attempt,
+      until: {
+        type: "ref",
+        nodeId: attempt.nodeId,
+        path: ["output", "done"],
+      },
+      nextInput: {
+        count: {
+          type: "ref",
+          nodeId: attempt.nodeId,
+          path: ["output", "count"],
+        },
+      },
+    };
+    const inputs: unknown[] = [];
+    const compiled = compilePlanToMastra(
+      plan([repeatNode], {
+        type: "ref",
+        nodeId: repeatNode.nodeId,
+        path: ["output"],
+      }),
+      {
+        taskDefinitions: new Map([
+          [
+            attempt.taskId,
+            {
+              id: attempt.taskId,
+              input: z.object({ count: z.number() }),
+              output: z.object({ count: z.number(), done: z.boolean() }),
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "repeat" }),
+            },
+          ],
+        ]),
+        executeInvocation: async ({ input }) => {
+          inputs.push(input);
+          const count = (input as { count: number }).count + 1;
+          return { count, done: count >= 2 };
+        },
+      },
+    );
+    const result = await (
+      await compiled.workflow.createRun({ runId: "repeat-run" })
+    ).start({ inputData: {} });
+    if (result.status !== "success") {
+      throw new Error(`repeat run failed with status ${result.status}`);
+    }
+    expect(result.result).toEqual({ count: 2, done: true });
+    expect(inputs).toEqual([{ count: 0 }, { count: 1 }]);
+  });
+
+  it("reuses the initial input when nextInput is omitted", async () => {
+    const attempt = task("repeat:stable:attempt", [], {
+      type: "ref",
+      nodeId: "repeat:stable:input",
+      path: [],
+    }) as Extract<PlanNode, { type: "task" }>;
+    const repeatNode: Extract<PlanNode, { type: "repeat" }> = {
+      type: "repeat",
+      nodeId: "repeat:stable",
+      input: { value: 4 },
+      dependsOn: [],
+      maximumIterations: 3,
+      attempt,
+      until: {
+        type: "ref",
+        nodeId: attempt.nodeId,
+        path: ["output", "done"],
+      },
+    };
+    const inputs: unknown[] = [];
+    const compiled = compilePlanToMastra(
+      plan([repeatNode], {
+        type: "ref",
+        nodeId: repeatNode.nodeId,
+        path: ["output"],
+      }),
+      {
+        taskDefinitions: new Map([
+          [
+            attempt.taskId,
+            {
+              id: attempt.taskId,
+              input: z.object({ value: z.number() }),
+              output: z.object({ value: z.number(), done: z.boolean() }),
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "repeat" }),
+            },
+          ],
+        ]),
+        executeInvocation: async ({ input }) => {
+          inputs.push(input);
+          return { value: 4, done: inputs.length === 2 };
+        },
+      },
+    );
+
+    const result = await (
+      await compiled.workflow.createRun({ runId: "repeat-stable-run" })
+    ).start({ inputData: {} });
+    if (result.status !== "success") {
+      throw new Error(`repeat run failed with status ${result.status}`);
+    }
+    expect(inputs).toEqual([{ value: 4 }, { value: 4 }]);
+  });
+
+  it("resolves prior task output in a repeat nextInput binding", async () => {
+    const prior: PlanNode = {
+      type: "task",
+      taskId: "prior-task",
+      nodeId: "prior",
+      workspace: "shared",
+      input: {},
+      dependsOn: [],
+    };
+    const attempt = task("repeat:prior:attempt", ["prior"], {
+      type: "ref",
+      nodeId: "repeat:prior:input",
+      path: [],
+    }) as Extract<PlanNode, { type: "task" }>;
+    const repeatNode: Extract<PlanNode, { type: "repeat" }> = {
+      type: "repeat",
+      nodeId: "repeat:prior",
+      input: { value: 0 },
+      dependsOn: ["prior"],
+      maximumIterations: 3,
+      attempt,
+      until: {
+        type: "ref",
+        nodeId: attempt.nodeId,
+        path: ["output", "done"],
+      },
+      nextInput: {
+        value: { type: "ref", nodeId: "prior", path: ["output", "value"] },
+      },
+    };
+    const inputs: unknown[] = [];
+    const outputSchema = z.object({ value: z.number(), done: z.boolean() });
+    const compiled = compilePlanToMastra(
+      plan([prior, repeatNode], {
+        type: "ref",
+        nodeId: repeatNode.nodeId,
+        path: ["output"],
+      }),
+      {
+        taskDefinitions: new Map([
+          [
+            "prior-task",
+            {
+              id: "prior-task",
+              input: z.object({}),
+              output: outputSchema,
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "prior" }),
+            },
+          ],
+          [
+            attempt.taskId,
+            {
+              id: attempt.taskId,
+              input: z.object({ value: z.number() }),
+              output: outputSchema,
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "repeat" }),
+            },
+          ],
+        ]),
+        executeInvocation: async ({ node, input }) => {
+          if (node.nodeId === "prior") return { value: 9, done: false };
+          inputs.push(input);
+          return {
+            value: (input as { value: number }).value,
+            done: inputs.length === 2,
+          };
+        },
+      },
+    );
+
+    const result = await (
+      await compiled.workflow.createRun({ runId: "repeat-prior-run" })
+    ).start({ inputData: {} });
+    if (result.status !== "success") {
+      throw new Error(`repeat run failed with status ${result.status}`);
+    }
+    expect(inputs).toEqual([{ value: 0 }, { value: 9 }]);
+  });
+
+  it("resolves a prior task boolean in the until condition", async () => {
+    const prior: PlanNode = {
+      type: "task",
+      taskId: "prior-condition-task",
+      nodeId: "prior-condition",
+      workspace: "shared",
+      input: {},
+      dependsOn: [],
+    };
+    const attempt = task("repeat:condition:attempt", ["prior-condition"], {
+      type: "ref",
+      nodeId: "repeat:condition:input",
+      path: [],
+    }) as Extract<PlanNode, { type: "task" }>;
+    const repeatNode: Extract<PlanNode, { type: "repeat" }> = {
+      type: "repeat",
+      nodeId: "repeat:condition",
+      input: { value: 0 },
+      dependsOn: ["prior-condition"],
+      maximumIterations: 2,
+      attempt,
+      until: {
+        type: "ref",
+        nodeId: "prior-condition",
+        path: ["output", "done"],
+      },
+    };
+    let attempts = 0;
+    const outputSchema = z.object({ value: z.number(), done: z.boolean() });
+    const compiled = compilePlanToMastra(
+      plan([prior, repeatNode], {
+        type: "ref",
+        nodeId: repeatNode.nodeId,
+        path: ["output"],
+      }),
+      {
+        taskDefinitions: new Map([
+          [
+            "prior-condition-task",
+            {
+              id: "prior-condition-task",
+              input: z.object({}),
+              output: outputSchema,
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "prior" }),
+            },
+          ],
+          [
+            attempt.taskId,
+            {
+              id: attempt.taskId,
+              input: z.object({ value: z.number() }),
+              output: outputSchema,
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "repeat" }),
+            },
+          ],
+        ]),
+        executeInvocation: async ({ node, input }) => {
+          if (node.nodeId === "prior-condition") {
+            return { value: 9, done: true };
+          }
+          attempts += 1;
+          return { value: (input as { value: number }).value, done: false };
+        },
+      },
+    );
+
+    const result = await (
+      await compiled.workflow.createRun({ runId: "repeat-condition-run" })
+    ).start({ inputData: {} });
+    if (result.status !== "success") {
+      throw new Error(`repeat run failed with status ${result.status}`);
+    }
+    expect(attempts).toBe(1);
+  });
+
+  it("returns a typed loop-limit error when the final attempt is false", async () => {
+    const attempt = task("repeat:limit:attempt", [], {
+      type: "ref",
+      nodeId: "repeat:limit:input",
+      path: [],
+    }) as Extract<PlanNode, { type: "task" }>;
+    const repeatNode: Extract<PlanNode, { type: "repeat" }> = {
+      type: "repeat",
+      nodeId: "repeat:limit",
+      input: { value: 0 },
+      dependsOn: [],
+      maximumIterations: 2,
+      attempt,
+      until: {
+        type: "ref",
+        nodeId: attempt.nodeId,
+        path: ["output", "done"],
+      },
+      nextInput: {
+        value: {
+          type: "ref",
+          nodeId: attempt.nodeId,
+          path: ["output", "value"],
+        },
+      },
+    };
+    const compiled = compilePlanToMastra(
+      plan([repeatNode], {
+        type: "ref",
+        nodeId: repeatNode.nodeId,
+        path: ["output"],
+      }),
+      {
+        taskDefinitions: new Map([
+          [
+            attempt.taskId,
+            {
+              id: attempt.taskId,
+              input: z.object({ value: z.number() }),
+              output: z.object({ value: z.number(), done: z.boolean() }),
+              execute: async ({ context }) =>
+                context.runAgent({ goal: "repeat" }),
+            },
+          ],
+        ]),
+        executeInvocation: async ({ input }) => ({
+          value: (input as { value: number }).value + 1,
+          done: false,
+        }),
+      },
+    );
+
+    const result = await (
+      await compiled.workflow.createRun({ runId: "repeat-limit-run" })
+    ).start({ inputData: {} });
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") return;
+    expect(result.error).toMatchObject({
+      name: "RuntimeError",
+      category: "RuntimeError",
+      nodeId: "repeat:limit",
+      maximumIterations: 2,
+      evidence: { kind: "object" },
+    });
   });
 
   it("normalizes typed input failures through Mastra's workflow result", async () => {

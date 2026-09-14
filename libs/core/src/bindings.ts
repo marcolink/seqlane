@@ -23,8 +23,13 @@ type ValueRefProperties<T> = T extends readonly (infer Item)[]
   ? { readonly [index: number]: ValueRef<Item> }
   : T extends object
     ? { readonly [Key in keyof T]-?: ValueRef<T[Key]> }
-    : unknown;
+    : T extends boolean
+      ? { readonly [booleanValueRefBrand]: true }
+      : unknown;
 
+declare const booleanValueRefBrand: unique symbol;
+
+/** Boolean references carry a type-only marker for condition authoring. */
 export type ValueRef<T = unknown> = ValueRefData & ValueRefProperties<T>;
 
 declare const sessionCheckpointRefBrand: unique symbol;

@@ -8,7 +8,6 @@ import {
   createFlow,
   defineAgentTask,
   defineValidator,
-  validatedBy,
   ValidationFailedError,
   type ValidationResult,
 } from "./index.js";
@@ -338,108 +337,5 @@ describe("semantic validation core contracts", () => {
     expect(error.sourceId).toBe("title-quality");
     expect(error.issues).toHaveLength(1);
     expect(error.evidence).toEqual({ title: "" });
-  });
-
-  it("lowers a validated repeat postcondition to a final body gate", () => {
-    const repair = defineAgentTask({
-      id: "repair-state",
-      input: schema<{ readonly passed: boolean }>(),
-      output: schema<{ readonly passed: boolean }>(),
-      goal: () => "Repair state",
-    });
-    const validator = defineValidator({
-      id: "state-quality",
-      input: schema<{ readonly passed: boolean }>(),
-      validate: ({ passed }) =>
-        passed
-          ? { success: true }
-          : {
-              success: false,
-              issues: [{ code: "not-ready", message: "State is not ready" }],
-            },
-    });
-
-    const plan = buildWorkflow(
-      createFlow({
-        id: "validated-repeat",
-        input: schema<{ readonly passed: boolean }>(),
-        output: schema<{ readonly passed: boolean }>(),
-      })
-        .repeat("repair", {
-          initial: ({ input }) => input,
-          body: ({ input, task }) => task(repair, { input }).output,
-          until: validatedBy(validator),
-          maximumIterations: 3,
-        })
-        .output(({ tasks }) => tasks.repair.output)
-        .define(),
-    ).plan;
-
-    expect(plan.nodes).toEqual([
-      {
-        type: "repeat",
-        nodeId: "repeat:1",
-        input: {
-          type: "ref",
-          nodeId: "__seqlane_input",
-          path: [],
-        },
-        dependsOn: [],
-        maximumIterations: 3,
-        body: {
-          inputNodeId: "repeat:1:input",
-          nodes: [
-            {
-              type: "task",
-              taskId: "repair-state",
-              nodeId: "repeat:1/repair-state:1",
-              workspace: "exclusive",
-              input: {
-                type: "ref",
-                nodeId: "repeat:1:input",
-                path: [],
-              },
-              dependsOn: ["repeat:1:input"],
-            },
-            {
-              type: "validation.check",
-              nodeId: "repeat:1/validation.check:1",
-              source: { type: "mechanical", validatorId: "state-quality" },
-              input: {
-                type: "ref",
-                nodeId: "repeat:1/repair-state:1",
-                path: ["output"],
-              },
-              dependsOn: ["repeat:1/repair-state:1"],
-            },
-            {
-              type: "validation.gate",
-              nodeId: "repeat:1/validation.gate:1",
-              input: {
-                type: "ref",
-                nodeId: "repeat:1/repair-state:1",
-                path: ["output"],
-              },
-              checkNodeId: "repeat:1/validation.check:1",
-              policy: "repeat-postcondition",
-              dependsOn: [
-                "repeat:1/repair-state:1",
-                "repeat:1/validation.check:1",
-              ],
-            },
-          ],
-          output: {
-            type: "ref",
-            nodeId: "repeat:1/validation.gate:1",
-            path: ["value"],
-          },
-          until: {
-            type: "ref",
-            nodeId: "repeat:1/validation.gate:1",
-            path: ["validation", "success"],
-          },
-        },
-      },
-    ]);
   });
 });

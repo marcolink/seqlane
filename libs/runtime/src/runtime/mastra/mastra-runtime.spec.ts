@@ -12,6 +12,7 @@ import type {
   TaskDefinition,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
+  WorkflowDefinitionRegistry,
 } from "@seqlane/core";
 import {
   buildWorkflow,
@@ -131,6 +132,9 @@ async function runMastraPlan(options: {
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly workflow?: { input: SeqlaneSchema; output: SeqlaneSchema };
+  readonly workflowDefinitions?: WorkflowDefinitionRegistry;
+  readonly workflowInput?: unknown;
+  readonly resolvedSessionInvocationIds?: string[];
   readonly executor?: (request: ExecutorRequest) => Promise<unknown>;
   readonly events?: SeqlaneEvent[];
 }) {
@@ -143,6 +147,9 @@ async function startMastraPlan(options: {
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly workflow?: { input: SeqlaneSchema; output: SeqlaneSchema };
+  readonly workflowDefinitions?: WorkflowDefinitionRegistry;
+  readonly workflowInput?: unknown;
+  readonly resolvedSessionInvocationIds?: string[];
   readonly executor?: (request: ExecutorRequest) => Promise<unknown>;
   readonly events?: SeqlaneEvent[];
 }) {
@@ -156,17 +163,21 @@ async function startMastraPlan(options: {
   };
   const execution = createMastraPlanExecution({
     plan: options.plan,
-    workflowInput: {},
+    workflowInput: options.workflowInput ?? {},
     workId: "fixture-work",
     runId: "fixture-run",
     createInvocationId: (nodeId) => nodeId ?? "fixture-invocation",
     executors: { agent: () => executor },
     sessionResolver: {
-      resolve: async () => ({ key: Symbol("fixture-session"), executor }),
+      resolve: async ({ invocationId }) => {
+        options.resolvedSessionInvocationIds?.push(invocationId);
+        return { key: Symbol("fixture-session"), executor };
+      },
     },
     workspaceResources: new Map(),
     taskDefinitions: options.taskDefinitions,
     validatorDefinitions: options.validatorDefinitions,
+    workflowDefinitions: options.workflowDefinitions,
     workflow: options.workflow,
     events,
   });
@@ -174,7 +185,7 @@ async function startMastraPlan(options: {
   emitMastraInvocationTopology(execution.compiled, execution.prepared, events);
   return execution.runtime.start({
     workflowKey: options.plan.workflow.id,
-    input: {},
+    input: options.workflowInput ?? {},
     workId: "fixture-work",
     runId: "fixture-run",
   });
@@ -290,6 +301,287 @@ describe("private Mastra runtime spine", () => {
           event.phase === "workspace_admitted",
       ),
     ).toMatchObject({ workspace: "shared" });
+  });
+
+  it("repeats a child workflow with typed next input and inspectable attempts", async () => {
+    let executions = 0;
+    const childTask = defineTask({
+      id: "until-child-attempt-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ value: z.number(), done: z.boolean() }),
+      execute: async ({ input }) => {
+        executions += 1;
+        const value = input.value + 1;
+        return { value, done: value >= 2 };
+      },
+    });
+    const child = createFlow({
+      id: "until-child-workflow",
+      input: z.object({ value: z.number() }),
+      output: z.object({ value: z.number(), done: z.boolean() }),
+    })
+      .task("attempt", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const parent = createFlow({
+      id: "until-parent-workflow",
+      input: z.object({ value: z.number() }),
+      output: z.object({ value: z.number(), done: z.boolean() }),
+    })
+      .task("child", child, ({ input }) => input)
+      .until(({ result }) => result.done, {
+        maxIterations: 3,
+        nextInput: ({ result }) => ({ value: result.value }),
+      })
+      .output(({ tasks }) => tasks.child.output)
+      .define();
+    const built = buildWorkflow(parent);
+    const events: SeqlaneEvent[] = [];
+
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { value: 0 },
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+    });
+
+    expect(outcome).toMatchObject({
+      status: "succeeded",
+      result: { value: 2, done: true },
+    });
+    expect(executions).toBe(2);
+    const attemptEvents = events.filter(
+      (event) =>
+        event.type === "invocation.created" &&
+        event.planNodeId === "repeat:1:attempt" &&
+        event.iteration !== undefined,
+    );
+    expect(attemptEvents).toHaveLength(2);
+    expect(attemptEvents[1]).toMatchObject({
+      invocationId: "repeat:1:attempt:2",
+      dependencyIds: ["repeat:1:attempt:1"],
+      iteration: 2,
+    });
+  });
+
+  it("cancels a repeated child workflow before a later attempt starts", async () => {
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let executions = 0;
+    const childTask = defineTask({
+      id: "cancel-until-child-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+      execute: async ({ signal }) => {
+        executions += 1;
+        started();
+        await new Promise<never>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+        return { done: false };
+      },
+    });
+    const child = createFlow({
+      id: "cancel-until-child-workflow",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("wait", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.wait.output)
+      .define();
+    const parent = createFlow({
+      id: "cancel-until-parent-workflow",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("child", child, ({ input }) => input)
+      .until(({ result }) => result.done, { maxIterations: 3 })
+      .output(({ tasks }) => tasks.child.output)
+      .define();
+    const built = buildWorkflow(parent);
+    const events: SeqlaneEvent[] = [];
+    const active = await startMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { value: 0 },
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+    });
+
+    await startedPromise;
+    await active.cancel();
+    await expect(active.outcome).resolves.toMatchObject({
+      status: "cancelled",
+    });
+    expect(executions).toBe(1);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "invocation.created" &&
+          event.planNodeId === "repeat:1:attempt" &&
+          event.iteration !== undefined,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("shares the repeat execution budget across nested child workflows", async () => {
+    let executions = 0;
+    const innerTask = defineTask({
+      id: "budget-inner-task",
+      input: z.object({}),
+      output: z.object({ done: z.boolean() }),
+      execute: async () => {
+        executions += 1;
+        return { done: executions % 500 === 0 };
+      },
+    });
+    const child = createFlow({
+      id: "budget-child-workflow",
+      input: z.object({}),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("inner", innerTask, () => ({}))
+      .until(({ result }) => result.done, { maxIterations: 500 })
+      .output(() => ({ done: false }))
+      .define();
+    const parent = createFlow({
+      id: "budget-parent-workflow",
+      input: z.object({}),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("child", child, () => ({}))
+      .until(({ result }) => result.done, { maxIterations: 3 })
+      .output(({ tasks }) => tasks.child.output)
+      .define();
+    const built = buildWorkflow(parent);
+
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+    });
+
+    expect(outcome.status).toBe("failed");
+    if (outcome.status !== "failed") return;
+    expect(outcome.error.message).toContain(
+      "repeat-body execution budget of 1000",
+    );
+    // The two outer child-workflow attempts consume two entries as well.
+    expect(executions).toBe(998);
+  });
+
+  it("stops a repeated task after its first failure", async () => {
+    let executions = 0;
+    const failingTask = defineTask({
+      id: "until-failing-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+      execute: async () => {
+        executions += 1;
+        throw new Error("repeat attempt failed");
+      },
+    });
+    const workflow = createFlow({
+      id: "until-failing-workflow",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("attempt", failingTask, ({ input }) => input)
+      .until(({ result }) => result.done, { maxIterations: 3 })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+    const events: SeqlaneEvent[] = [];
+
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { value: 0 },
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+    });
+
+    expect(outcome).toMatchObject({ status: "failed" });
+    expect(executions).toBe(1);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "invocation.created" &&
+          event.planNodeId === "repeat:1:attempt" &&
+          event.iteration !== undefined,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("admits each repeated task attempt with its session and workspace policy", async () => {
+    let executions = 0;
+    const resolvedSessionInvocationIds: string[] = [];
+    const admittedTask = defineTask({
+      id: "until-admitted-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+      execute: async () => {
+        executions += 1;
+        return { done: executions >= 2 };
+      },
+    });
+    const workflow = createFlow({
+      id: "until-admitted-workflow",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("attempt", admittedTask, ({ input }) => input, {
+        session: { type: "isolated" },
+        workspace: "shared",
+      })
+      .until(({ result }) => result.done, { maxIterations: 3 })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+    const events: SeqlaneEvent[] = [];
+
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { value: 0 },
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      resolvedSessionInvocationIds,
+      events,
+    });
+
+    expect(outcome).toMatchObject({
+      status: "succeeded",
+      result: { done: true },
+    });
+    expect(executions).toBe(2);
+    expect(resolvedSessionInvocationIds).toEqual([
+      "repeat:1:attempt:1",
+      "repeat:1:attempt:2",
+    ]);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "invocation.progress" &&
+          event.phase === "workspace_admitted" &&
+          event.workspace === "shared" &&
+          event.invocationId.startsWith("repeat:1:attempt:"),
+      ),
+    ).toHaveLength(2);
   });
 
   it("normalizes nested workflow failures", async () => {

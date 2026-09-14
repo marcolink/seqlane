@@ -11,7 +11,8 @@ import type {
   FlowTaskOptions,
   FlowWorkflowOptions,
   RunnableDefinition,
-  ValidatedRepeatCondition,
+  UntilContext,
+  UntilOptions,
   Validator,
   ValidatorDefinition,
   WorkflowDefinition,
@@ -117,12 +118,6 @@ export function defineShellTask<Input>(
   });
 }
 
-export function validatedBy<State>(
-  validator: Validator<State>,
-): ValidatedRepeatCondition<State> {
-  return { type: "validated", validator };
-}
-
 export function isolated(
   model?: ModelSelection,
 ): Extract<SessionPolicy, { readonly type: "isolated" }> {
@@ -157,14 +152,6 @@ interface FlowDeclaration<Input> {
   ): FlowHandle;
 }
 
-interface FlowRepeatDeclaration<Input> {
-  readonly name: string;
-  declare(
-    context: WorkflowBuildContext<Input>,
-    authoringContext: RuntimeFlowAuthoringContext<Input>,
-  ): FlowHandle;
-}
-
 interface FlowValidationDeclaration<Input> {
   readonly name: string;
   declare(
@@ -188,6 +175,130 @@ function resolveFlowDependencies<Input>(
   });
 }
 
+type RuntimeTaskOptions<Input> =
+  | FlowTaskOptions<unknown, Input, Record<string, FlowHandle>>
+  | FlowWorkflowOptions<Record<string, FlowHandle>>
+  | undefined;
+
+type RuntimeTaskBinding<Input> = FlowBinding<
+  Input,
+  Record<string, FlowHandle>,
+  unknown
+>;
+
+interface PendingTask<Input> {
+  readonly name: string;
+  readonly definition: RunnableDefinition<unknown, unknown>;
+  readonly binding: RuntimeTaskBinding<Input>;
+  readonly options: RuntimeTaskOptions<Input>;
+  readonly declaration: FlowDeclaration<Input>;
+}
+
+function resolveTaskBinding<Input>(
+  binding: RuntimeTaskBinding<Input>,
+  authoringContext: RuntimeFlowAuthoringContext<Input>,
+): InputBinding<unknown> {
+  return typeof binding === "function" ? binding(authoringContext) : binding;
+}
+
+function resolveSessionOption<Input>(
+  options: RuntimeTaskOptions<Input>,
+  authoringContext: RuntimeFlowAuthoringContext<Input>,
+): import("./contracts.js").SessionPolicy | undefined {
+  const sessionOption =
+    "session" in (options ?? {})
+      ? (options as FlowTaskOptions<unknown>).session
+      : undefined;
+  return typeof sessionOption === "function"
+    ? sessionOption(authoringContext)
+    : sessionOption;
+}
+
+function createTaskDeclaration<Input>(
+  name: string,
+  definition: RunnableDefinition<unknown, unknown>,
+  binding: RuntimeTaskBinding<Input>,
+  options: RuntimeTaskOptions<Input>,
+): FlowDeclaration<Input> {
+  return {
+    name,
+    declare: (context, authoringContext) => {
+      const resolvedBinding = resolveTaskBinding(binding, authoringContext);
+      const dependsOn = resolveFlowDependencies(
+        options?.dependsOn,
+        authoringContext,
+      );
+      const runOptions = {
+        input: resolvedBinding,
+        ...(dependsOn === undefined ? {} : { dependsOn }),
+      };
+      if (isAuthoredWorkflow(definition)) {
+        return context.run(definition, {
+          ...runOptions,
+          ...(options?.workspace === undefined
+            ? {}
+            : { workspace: options.workspace }),
+        });
+      }
+      const taskOptions = options as
+        FlowTaskOptions<unknown, Input, Record<string, FlowHandle>> | undefined;
+      const session = resolveSessionOption(taskOptions, authoringContext);
+      return context.run(definition as TaskDefinition<unknown, unknown>, {
+        ...runOptions,
+        ...(taskOptions?.validateOutput === undefined
+          ? {}
+          : { validateOutput: taskOptions.validateOutput }),
+        ...(session === undefined ? {} : { session }),
+        ...(taskOptions?.workspace === undefined
+          ? {}
+          : { workspace: taskOptions.workspace }),
+      });
+    },
+  };
+}
+
+function createUntilDeclaration<Input>(
+  pending: PendingTask<Input>,
+  condition: (
+    context: UntilContext<unknown, Record<string, FlowHandle>>,
+  ) => ValueRef<boolean>,
+  options: UntilOptions<unknown, unknown, Record<string, FlowHandle>>,
+): FlowDeclaration<Input> {
+  return {
+    name: pending.name,
+    declare: (context, authoringContext) => {
+      const initial = resolveTaskBinding(pending.binding, authoringContext);
+      const dependsOn = resolveFlowDependencies(
+        pending.options?.dependsOn,
+        authoringContext,
+      );
+      const session = resolveSessionOption(pending.options, authoringContext);
+      const nextInput = options.nextInput;
+      return context.repeat({
+        initial,
+        runnable: pending.definition,
+        until: ({ result }) =>
+          condition({ result, tasks: authoringContext.tasks }),
+        nextInput:
+          nextInput === undefined
+            ? undefined
+            : ({ input, result }) =>
+                nextInput({
+                  input,
+                  result,
+                  tasks: authoringContext.tasks,
+                }),
+        maxIterations: options.maxIterations,
+        ...(dependsOn === undefined ? {} : { dependsOn }),
+        ...(pending.options?.workspace === undefined
+          ? {}
+          : { workspace: pending.options.workspace }),
+        ...(session === undefined ? {} : { session }),
+      });
+    },
+  };
+}
+
 /**
  * Starts a typed Flow definition. Its declarations lower directly to the
  * private Plan builder when define() is called.
@@ -196,9 +307,7 @@ export function createFlow<Input, Output>(
   options: CreateFlowOptions<Input, Output>,
 ): FlowBuilder<Input, Output, Record<never, never>> {
   const declarations: (
-    | FlowDeclaration<Input>
-    | FlowRepeatDeclaration<Input>
-    | FlowValidationDeclaration<Input>
+    FlowDeclaration<Input> | FlowValidationDeclaration<Input>
   )[] = [];
   let outputBinding: FlowBinding<Input, unknown, Output> | undefined;
 
@@ -233,6 +342,7 @@ export function createFlow<Input, Output>(
       });
     },
   };
+  let pendingTask: PendingTask<Input> | undefined;
   const builder = {
     task: (
       name: string,
@@ -242,53 +352,22 @@ export function createFlow<Input, Output>(
         | FlowTaskOptions<unknown, Input, Record<never, never>>
         | FlowWorkflowOptions<Record<never, never>>,
     ) => {
-      declarations.push({
+      const runtimeBinding = binding as RuntimeTaskBinding<Input>;
+      const runtimeOptions = taskOptions as RuntimeTaskOptions<Input>;
+      const declaration = createTaskDeclaration(
         name,
-        declare: (context, authoringContext) => {
-          const resolvedBinding =
-            typeof binding === "function"
-              ? (
-                  binding as (
-                    context: FlowAuthoringContext<Input, Record<never, never>>,
-                  ) => InputBinding<unknown>
-                )(authoringContext as never)
-              : binding;
-          const dependsOn = resolveFlowDependencies(
-            taskOptions?.dependsOn,
-            authoringContext,
-          );
-          const runOptions = {
-            input: resolvedBinding,
-            ...(dependsOn === undefined ? {} : { dependsOn }),
-          };
-          if (isAuthoredWorkflow(definition)) {
-            return context.run(definition, {
-              ...runOptions,
-              ...(taskOptions?.workspace === undefined
-                ? {}
-                : { workspace: taskOptions.workspace }),
-            });
-          }
-          const taskOptionsTyped = taskOptions as
-            | FlowTaskOptions<unknown, Input, Record<string, FlowHandle>>
-            | undefined;
-          const sessionOption = taskOptionsTyped?.session;
-          const session =
-            typeof sessionOption === "function"
-              ? sessionOption(authoringContext)
-              : sessionOption;
-          return context.run(definition as TaskDefinition<unknown, unknown>, {
-            ...runOptions,
-            ...(taskOptionsTyped?.validateOutput === undefined
-              ? {}
-              : { validateOutput: taskOptionsTyped.validateOutput }),
-            ...(session === undefined ? {} : { session }),
-            ...(taskOptionsTyped?.workspace === undefined
-              ? {}
-              : { workspace: taskOptionsTyped.workspace }),
-          });
-        },
-      });
+        definition,
+        runtimeBinding,
+        runtimeOptions,
+      );
+      declarations.push(declaration);
+      pendingTask = {
+        name,
+        definition,
+        binding: runtimeBinding,
+        options: runtimeOptions,
+        declaration,
+      };
       return builder as never;
     },
     validate: <Candidate>(
@@ -300,6 +379,7 @@ export function createFlow<Input, Output>(
         "input"
       >,
     ) => {
+      pendingTask = undefined;
       declarations.push({
         name,
         declare: (context, authoringContext) => {
@@ -324,38 +404,26 @@ export function createFlow<Input, Output>(
       });
       return builder as never;
     },
-    repeat: <State>(
-      name: string,
-      options: import("./contracts.js").RepeatOptions<
-        Input,
-        Record<never, never>,
-        State
-      >,
+    until: (
+      condition: (context: UntilContext<unknown>) => ValueRef<boolean>,
+      options: UntilOptions<unknown, unknown>,
     ) => {
-      declarations.push({
-        name,
-        declare: (context, authoringContext) => {
-          const initial =
-            typeof options.initial === "function"
-              ? (
-                  options.initial as (
-                    context: RuntimeFlowAuthoringContext<Input>,
-                  ) => InputBinding<unknown>
-                )(authoringContext)
-              : options.initial;
-          return context.repeat({
-            initial: initial as InputBinding<never>,
-            body: options.body,
-            until: options.until,
-            maximumIterations: options.maximumIterations,
-          });
-        },
-      });
+      const task = pendingTask;
+      if (task === undefined || declarations.at(-1) !== task.declaration) {
+        throw new Error("until() must follow a task declaration");
+      }
+      declarations[declarations.length - 1] = createUntilDeclaration(
+        task,
+        condition,
+        options,
+      );
+      pendingTask = undefined;
       return builder as never;
     },
     output: (
       binding: FlowBinding<Input, Record<string, FlowHandle>, Output>,
     ) => {
+      pendingTask = undefined;
       outputBinding = binding as FlowBinding<Input, unknown, Output>;
       return completed;
     },

@@ -1,11 +1,11 @@
 ---
 id: task.reject-nested-workflows-in-repeats
 title: Reject Nested Workflows in Repeat Bodies
-status: planned
+status: cancelled
 owners:
   - core
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-14
 upstream:
   - task.compose-workflows-as-runnables
   - spec.mastra-backed-seqlane-workflows
@@ -71,13 +71,20 @@ typechecks, and builds covering repeat validation and nested execution.
 
 ## Outcome
 
-Not delivered. This task records the follow-up for `SEQ-PR99-003`.
+Cancelled before implementation. The proposed
+[fluent task-until repeat specification](../specs/2026-09-14-fluent-task-until-repeats.md)
+supports child workflows as repeat attempts. Rejecting them would conflict
+with that contract. [task.deliver-fluent-task-until-repeats](./2026-09-14-deliver-fluent-task-until-repeats.md)
+supersedes this task and carries the `SEQ-PR99-003` follow-up through
+supported nested execution.
 
 ## Delivery state
 
-Planned; no implementation or delivery evidence claimed.
+Cancelled; no implementation or delivery evidence claimed.
 
 ## Traceability
 
 - [task.compose-workflows-as-runnables: Compose Workflows as Runnables](./2026-09-08-compose-workflows-as-runnables.md)
 - [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.fluent-task-until-repeats: Fluent Task-Until Repeats](../specs/2026-09-14-fluent-task-until-repeats.md)
+- [task.deliver-fluent-task-until-repeats: Deliver Fluent Task-Until Repeats](./2026-09-14-deliver-fluent-task-until-repeats.md)

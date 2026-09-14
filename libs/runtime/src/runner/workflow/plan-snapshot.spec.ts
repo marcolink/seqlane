@@ -6,10 +6,8 @@ function adaptLegacyLocalExecutionFixture(plan: Plan): Plan {
   const [node] = plan.nodes;
   if (node?.type !== "task") return plan;
 
-  const { execute: _execute, ...input } = node.input as {
-    execute?: unknown;
-    readonly [key: string]: unknown;
-  };
+  const input = { ...(node.input as Record<string, unknown>) };
+  delete input.execute;
   return {
     ...plan,
     nodes: [{ ...node, input: input as unknown as TaskNode["input"] }],
@@ -40,51 +38,22 @@ describe("Seqlane Plan snapshots", () => {
           input: { prompt: "private prompt", state: { value: 42 } },
           dependsOn: ["prepare:1"],
           maximumIterations: 3,
-          body: {
-            inputNodeId: "repeat:1:input",
-            nodes: [
-              {
-                type: "task",
-                nodeId: "repeat:1/body:1",
-                taskId: longTaskId,
-                workspace: "shared",
-                input: {
-                  callback: "private callback",
-                  state: {
-                    type: "ref",
-                    nodeId: "repeat:1:input",
-                    path: [],
-                  },
-                },
-                dependsOn: ["repeat:1:input"],
-              },
-              {
-                type: "validation.check",
-                nodeId: "repeat:1/check:1",
-                source: {
-                  type: "mechanical",
-                  validatorId: "private-validator",
-                },
-                input: {
-                  candidate: {
-                    type: "ref",
-                    nodeId: "repeat:1/body:1",
-                    path: ["output"],
-                  },
-                },
-                dependsOn: ["repeat:1/body:1"],
-              },
-            ],
-            output: {
+          attempt: {
+            type: "task",
+            nodeId: "repeat:1/attempt:1",
+            taskId: longTaskId,
+            workspace: "shared",
+            input: {
               type: "ref",
-              nodeId: "repeat:1/body:1",
-              path: ["output"],
+              nodeId: "repeat:1:input",
+              path: [],
             },
-            until: {
-              type: "ref",
-              nodeId: "repeat:1/body:1",
-              path: ["output", "done"],
-            },
+            dependsOn: [],
+          },
+          until: {
+            type: "ref",
+            nodeId: "repeat:1/attempt:1",
+            path: ["output", "done"],
           },
         },
         {
@@ -178,21 +147,13 @@ describe("Seqlane Plan snapshots", () => {
           session: { type: "reuse", from: "prepare:1" },
         },
         {
-          planNodeId: "repeat:1/body:1",
+          planNodeId: "repeat:1/attempt:1",
           type: "task",
           label: longTaskId.slice(0, 512),
           taskId: longTaskId.slice(0, 256),
           dependsOn: [],
           parentPlanNodeId: "repeat:1",
           siblingOrder: 0,
-        },
-        {
-          planNodeId: "repeat:1/check:1",
-          type: "validation.check",
-          label: "private-validator",
-          dependsOn: ["repeat:1/body:1"],
-          parentPlanNodeId: "repeat:1",
-          siblingOrder: 1,
         },
       ],
     });

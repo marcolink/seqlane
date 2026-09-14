@@ -168,10 +168,13 @@ For fluent authoring, use `createFlow({ id, input, output })`. Add named tasks
 with `.task(name, definition, binding)`, select the final value with
 `.output(binding)`, then call `.define()`. Names are source-only aliases;
 references and explicit `dependsOn` entries, not call order, create
-dependencies. Flow `dependsOn` entries name prior task handles. `.repeat()`
-creates a bounded post-condition repeat and retains only typed handles during
-authoring. The current Mastra runtime compiler rejects repeat nodes; use this
-feature only with a runtime that supports repeat lowering.
+dependencies. Flow `dependsOn` entries name prior task handles. Chain
+`.until(({ result }) => result.done, { maxIterations: 10, nextInput: ({ result }) => result })`
+after `.task()` for a bounded post-condition loop. The task runs at least once;
+the condition reads its result after each attempt. `nextInput` supplies the
+next attempt's input when the condition is false. Child workflow tasks support
+the same form. Omit `nextInput` to reuse the initial input for every attempt.
+Both callbacks can read handles from earlier tasks through `tasks`.
 
 Workflows are runnables. Pass a child workflow to `.task()` to create a typed
 nested workflow invocation. Its input and output schemas stay distinct from

@@ -10,6 +10,7 @@ import type {
   PlanNodeId,
   RunId,
   SeqlaneSchema,
+  SeqlaneEventSink,
   TaskId,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
@@ -40,10 +41,16 @@ import {
   toSeqlaneInvocationError,
   type SeqlaneFailurePhase,
 } from "../execution/errors.js";
+import {
+  buildRepeatStep,
+  type RepeatCompilerDependencies,
+  type RepeatExecutionBudget,
+} from "./mastra-repeat-compiler.js";
+
+export type { RepeatExecutionBudget } from "./mastra-repeat-compiler.js";
 
 const RESULT_STEP_ID = "__seqlane_result";
 const RESERVED_NODE_IDS = new Set([WORKFLOW_INPUT_NODE_ID, RESULT_STEP_ID]);
-
 export interface MastraPlanInvocationContext {
   readonly node: PlanNode;
   readonly input: unknown;
@@ -98,6 +105,10 @@ export interface MastraPlanCompilerOptions {
   readonly onInputValidationFailure?: (
     context: MastraPlanInputValidationFailureContext,
   ) => void;
+  /** Shared run budget for repeat attempts. */
+  readonly repeatBudget?: RepeatExecutionBudget;
+  readonly events?: SeqlaneEventSink;
+  readonly workflowId?: string;
 }
 
 export interface MastraPlanStep {
@@ -129,6 +140,9 @@ function schemaForNodeInput(
   node: PlanNode,
   options: MastraPlanCompilerOptions,
 ): SeqlaneSchema | undefined {
+  if (node.type === "repeat") {
+    return schemaForNodeInput(node.attempt, options);
+  }
   if (node.type === "task") {
     return getTaskSchema(
       options.taskSchemas,
@@ -159,6 +173,9 @@ function schemaForNodeOutput(
   node: PlanNode,
   options: MastraPlanCompilerOptions,
 ): SeqlaneSchema | undefined {
+  if (node.type === "repeat") {
+    return schemaForNodeOutput(node.attempt, options);
+  }
   if (node.type === "task") {
     return getTaskSchema(
       options.taskSchemas,
@@ -388,13 +405,6 @@ function assertMastraSupportedPlan(plan: Plan): void {
       );
     }
   }
-
-  const repeat = plan.nodes.find((node) => node.type === "repeat");
-  if (repeat?.type === "repeat") {
-    throw new Error(
-      `Mastra Plan compiler does not support repeat node "${repeat.nodeId}"`,
-    );
-  }
 }
 
 function assertValidationRegistries(
@@ -448,12 +458,36 @@ export function compilePlanToMastra(
         `${parsedPlan.workflow.id}:${node.nodeId}`,
     );
   }
+  const repeatBudget = options.repeatBudget ?? { executed: 0 };
+  const repeatCompilerDependencies: RepeatCompilerDependencies = {
+    schemaForMastra,
+    schemaForNodeInput,
+    schemaForNodeOutput,
+    resolveStepInput,
+    reportFailure,
+    invocationIdForNode: (nodeId) => invocationIds.get(nodeId),
+  };
   const invocationSteps = orderedNodes.map((node) => {
     const invocationId = invocationIds.get(node.nodeId);
     if (invocationId === undefined) {
       throw new Error(
         `No Invocation ID allocated for Plan node "${node.nodeId}"`,
       );
+    }
+    if (node.type === "repeat") {
+      return {
+        nodeId: node.nodeId,
+        step: buildRepeatStep(
+          node,
+          {
+            ...options,
+            repeatBudget,
+            workflowId: parsedPlan.workflow.id,
+          },
+          invocationId,
+          repeatCompilerDependencies,
+        ),
+      };
     }
     return {
       nodeId: node.nodeId,
@@ -488,7 +522,7 @@ export function compilePlanToMastra(
         dependsOn: [...orderedNodes.map(({ nodeId }) => nodeId)],
       },
     },
-    execute: async ({ getInitData, getStepResult, runId, resourceId }) => {
+    execute: async ({ getInitData, getStepResult }) => {
       try {
         const workflowInput = getInitData<unknown>();
         const results = new Map<string, unknown>();

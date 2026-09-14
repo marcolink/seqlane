@@ -36,7 +36,7 @@ describe("semantic validation workflow fixtures", () => {
     expectSerializablePlan(plan);
   });
 
-  it("builds an evaluator-backed bounded repeat postcondition", () => {
+  it("builds a task-backed bounded until repeat", () => {
     const built = buildWorkflow(evaluatorRepeatWorkflow);
     const plan = built.plan;
     const repeat = plan.nodes[0];
@@ -44,41 +44,30 @@ describe("semantic validation workflow fixtures", () => {
     expect(repeat).toMatchObject({
       type: "repeat",
       maximumIterations: 3,
-      body: {
-        nodes: [
-          { type: "task", taskId: "validation.fixture.repair" },
-          {
-            type: "validation.check",
-            source: {
-              type: "task",
-              taskId: "validation.fixture.evaluator",
-            },
-          },
-          {
-            type: "validation.gate",
-            policy: "repeat-postcondition",
-          },
-        ],
+      attempt: {
+        type: "task",
+        taskId: "validation.fixture.repair",
       },
     });
     expectSerializablePlan(plan);
   });
 
-  it("validates evaluator results at the task boundary", () => {
-    const evaluator = buildWorkflow(
-      evaluatorRepeatWorkflow,
-    ).taskDefinitions.get("validation.fixture.evaluator");
+  it("validates repeated task results at the task boundary", () => {
+    const repair = buildWorkflow(evaluatorRepeatWorkflow).taskDefinitions.get(
+      "validation.fixture.repair",
+    );
 
-    if (!evaluator) {
-      throw new Error("Expected evaluator fixture task definition");
-    }
+    if (!repair) throw new Error("Expected repair fixture task definition");
 
-    expect(() => evaluator.output.parse({ success: "unknown" })).toThrow();
+    expect(() =>
+      repair.output.parse({ value: "x", attempt: "bad", ready: false }),
+    ).toThrow();
     expect(
-      evaluator.output.parse({
-        success: false,
-        issues: [{ code: "not-ready", message: "State is not ready" }],
-      }),
-    ).toMatchObject({ success: false });
+      repair.output.parse({ value: "x", attempt: 1, ready: true }),
+    ).toEqual({
+      value: "x",
+      attempt: 1,
+      ready: true,
+    });
   });
 });

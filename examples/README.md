@@ -38,6 +38,13 @@ seqlane run examples/local-only.ts \
   --input '{"value":"local"}'
 ```
 
+`until-workflow.ts` repeats one deterministic task until its result is ready:
+
+```sh
+seqlane run examples/until-workflow.ts \
+  --input '{"remaining":3,"attempts":0}'
+```
+
 The repository's `workflow-read-context` workflow is defined in `examples/read-context.ts`. It
 uses `openai/gpt-5.6-luna` with medium reasoning:
 
@@ -293,8 +300,9 @@ shared and exclusive workspaces, isolated/reused/branched sessions, explicit
 dependencies, whole/nested/literal bindings, references, Studio observability
 selections, fan-out/fan-in, mechanical gates, and one validated polish step.
 The two branch lanes can run concurrently, so the example stays small and
-fast. It currently omits repeat nodes because the Mastra Plan compiler does
-not support them.
+fast. It omits repeat nodes because this feature tour does not need them. The
+validation fixture demonstrates the
+fluent `.task(...).until(...)` repeat shape.
 
 ```sh
 seqlane run examples/all-features.ts \

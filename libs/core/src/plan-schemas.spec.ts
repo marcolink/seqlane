@@ -66,16 +66,15 @@ describe("canonical Plan schemas", () => {
       input: null,
       dependsOn: [],
       maximumIterations: 1_001,
-      body: {
-        inputNodeId: "repeat:1:input",
-        nodes: [],
-        output: null,
-        until: {
-          type: "ref",
-          nodeId: "repeat:1:input",
-          path: ["done"],
-        },
+      attempt: {
+        type: "task",
+        taskId: "repeat-task",
+        nodeId: "repeat:1:attempt",
+        workspace: "exclusive",
+        input: null,
+        dependsOn: [],
       },
+      until: { type: "ref", nodeId: "repeat:1:attempt", path: ["output"] },
     };
     expect(planNodeSchema.safeParse(repeat).success).toBe(false);
     expect(

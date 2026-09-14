@@ -1008,6 +1008,76 @@ describe("Mastra operational host", () => {
     }
   });
 
+  it("executes a deterministic task-until workflow through the owned host", async () => {
+    const state = z.object({
+      remaining: z.number().int().nonnegative(),
+      attempts: z.number().int().nonnegative(),
+      done: z.boolean(),
+    });
+    const attemptTask = defineTask({
+      id: "operational-until-attempt",
+      input: state,
+      output: state,
+      execute: async ({ input }) => ({
+        remaining: input.remaining - 1,
+        attempts: input.attempts + 1,
+        done: input.remaining === 1,
+      }),
+    });
+    const workflow = createFlow({
+      id: "operational-until",
+      input: state,
+      output: state,
+    })
+      .task("attempt", attemptTask, ({ input }) => input)
+      .until(({ result }) => result.done, {
+        maxIterations: 5,
+        nextInput: ({ result }) => result,
+      })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+    const host = await createOperationalHost({
+      workflows: [
+        createOperationalWorkflow({
+          key: "repository:operational-until",
+          plan: built.plan,
+          workflow: built.workflow,
+          taskDefinitions: built.taskDefinitions,
+          validatorDefinitions: built.validatorDefinitions,
+          workflowDefinitions: built.workflowDefinitions,
+        }),
+      ],
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+
+    try {
+      const response = await host.fetch(
+        new Request(
+          "http://host/api/workflows/repository%3Aoperational-until/start-async?runId=run-operational-until",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              resourceId: "work-operational-until",
+              inputData: { remaining: 3, attempts: 0, done: false },
+              requestContext: { "seqlane.runtimeId": "local" },
+            }),
+          },
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      await expect(json(response)).resolves.toMatchObject({
+        status: "success",
+        result: { remaining: 0, attempts: 3, done: true },
+      });
+    } finally {
+      await host.close();
+    }
+  });
+
   it("executes nested workflows through the owned Mastra host", async () => {
     const childTask = defineTask({
       id: "operational-child-task",

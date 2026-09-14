@@ -11,6 +11,7 @@
 // @test-scope ./cli-contracts.ts
 // @test-scope ../../../examples/minimal-workflow.ts
 // @test-scope ../../../examples/local-only.ts
+// @test-scope ../../../examples/until-workflow.ts
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type ServerResponse } from "node:http";
@@ -44,6 +45,7 @@ const workflowReference =
   "@seqlane/fixtures/renovate-workflow#renovateWorkflow";
 const exampleWorkflowReference = "examples/minimal-workflow.ts";
 const localOnlyWorkflowReference = "examples/local-only.ts";
+const untilWorkflowReference = "examples/until-workflow.ts";
 const input = JSON.stringify({
   dependency: "some-package",
   fromVersion: "1.0.0",
@@ -891,6 +893,22 @@ describe("seqlane CLI entrypoints", () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('"type":"run.succeeded"');
+  });
+
+  it("runs a deterministic task-until workflow through the CLI", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      untilWorkflowReference,
+      "--input",
+      '{"remaining":3,"attempts":0}',
+      "--output",
+      "json",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('"type":"run.succeeded"');
+    expect(result.stdout).toContain('"remaining":0');
+    expect(result.stdout).toContain('"attempts":3');
   });
 
   it("runs a TypeScript workflow file through its default export", async () => {

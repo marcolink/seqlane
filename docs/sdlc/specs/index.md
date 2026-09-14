@@ -39,3 +39,4 @@
 | [spec.ripwire-server-action](./2026-09-08-ripwire-server-action.md) | Ripwire HTTP MCP GitHub Action | active | 2026-09-08 | core |
 | [spec.codex-app-server-adapter](./2026-09-12-codex-app-server-adapter.md) | Codex App-Server Adapter | draft | 2026-09-12 | core |
 | [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md) | Incremental Pull Request Review Scope | active | 2026-09-13 | core |
+| [spec.fluent-task-until-repeats](./2026-09-14-fluent-task-until-repeats.md) | Fluent Task-Until Repeats | active | 2026-09-14 | core |

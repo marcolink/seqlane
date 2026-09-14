@@ -152,7 +152,7 @@ describe("buildWorkflow", () => {
     expect(buildWorkflow(workflow).plan.nodes[0]).not.toHaveProperty("model");
   });
 
-  it("carries session model selection into repeat body task nodes", () => {
+  it("carries session model selection into a repeated task attempt", () => {
     const task = defineAgentTask({
       id: "repeat-selected-model",
       input: schema<{ readonly complete: boolean }>(),
@@ -164,31 +164,90 @@ describe("buildWorkflow", () => {
       input: schema<Record<never, never>>(),
       output: schema<{ readonly complete: boolean }>(),
     })
-      .repeat("loop", {
-        initial: { complete: false },
-        body: ({ input, task: runTask }) =>
-          runTask(task, {
-            input,
-            session: isolated({ model: openai("gpt-5.6-sol") }),
-          }).output,
-        until: ({ output }) => output.complete,
-        maximumIterations: 1,
+      .task("loop", task, () => ({ complete: false }), {
+        session: isolated({ model: openai("gpt-5.6-sol") }),
       })
+      .until(({ result }) => result.complete, { maxIterations: 1 })
       .output(({ tasks }) => tasks.loop.output)
       .define();
 
     expect(buildWorkflow(workflow).plan.nodes[0]).toMatchObject({
-      body: {
-        nodes: [
-          {
-            session: {
-              type: "isolated",
-              model: {
-                model: { provider: "openai", model: "gpt-5.6-sol" },
-              },
-            },
+      attempt: {
+        session: {
+          type: "isolated",
+          model: {
+            model: { provider: "openai", model: "gpt-5.6-sol" },
           },
-        ],
+        },
+      },
+    });
+  });
+
+  it("carries explicit and session dependencies into the attempt node", () => {
+    const task = defineTask({
+      id: "repeat-dependency",
+      input: schema<Record<never, never>>(),
+      output: schema<{ readonly complete: boolean }>(),
+      execute: async () => ({ complete: true }),
+    });
+    const workflow = createFlow({
+      id: "repeat-dependency-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<{ readonly complete: boolean }>(),
+    })
+      .task("prepare", task, () => ({}), { session: isolated() })
+      .task("loop", task, () => ({}), {
+        dependsOn: ["prepare"],
+        session: ({ tasks }) => reuse(tasks.prepare.session),
+      })
+      .until(({ result }) => result.complete, { maxIterations: 1 })
+      .output(({ tasks }) => tasks.loop.output)
+      .define();
+
+    const repeat = buildWorkflow(workflow).plan.nodes[1];
+    expect(repeat).toMatchObject({
+      dependsOn: ["repeat-dependency:1"],
+      attempt: {
+        dependsOn: ["repeat-dependency:1"],
+      },
+    });
+  });
+
+  it("serializes prior task handles in repeat bindings and dependencies", () => {
+    const task = defineTask({
+      id: "repeat-prior-binding",
+      input: schema<{ readonly value: boolean }>(),
+      output: schema<{ readonly done: boolean }>(),
+      execute: async () => ({ done: true }),
+    });
+    const workflow = createFlow({
+      id: "repeat-prior-binding-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<{ readonly done: boolean }>(),
+    })
+      .task("prepare", task, () => ({ value: true }))
+      .task("loop", task, () => ({ value: false }))
+      .until(({ tasks }) => tasks.prepare.output.done, {
+        maxIterations: 2,
+        nextInput: ({ tasks }) => ({ value: tasks.prepare.output.done }),
+      })
+      .output(({ tasks }) => tasks.loop.output)
+      .define();
+
+    expect(buildWorkflow(workflow).plan.nodes[1]).toMatchObject({
+      type: "repeat",
+      dependsOn: ["repeat-prior-binding:1"],
+      until: {
+        type: "ref",
+        nodeId: "repeat-prior-binding:1",
+        path: ["output", "done"],
+      },
+      nextInput: {
+        value: {
+          type: "ref",
+          nodeId: "repeat-prior-binding:1",
+          path: ["output", "done"],
+        },
       },
     });
   });
@@ -251,7 +310,7 @@ describe("buildWorkflow", () => {
     expect(JSON.stringify(built.plan)).not.toContain("repository");
   });
 
-  it("carries local task execution through repeat bodies", () => {
+  it("carries local task execution through repeated attempts", () => {
     const local = defineTask({
       id: "local-repeat",
       input: schema<{ readonly complete: boolean }>(),
@@ -263,12 +322,8 @@ describe("buildWorkflow", () => {
       input: schema<Record<never, never>>(),
       output: schema<{ readonly complete: boolean }>(),
     })
-      .repeat("loop", {
-        initial: { complete: false },
-        body: ({ input, task }) => task(local, { input }).output,
-        until: ({ output }) => output.complete,
-        maximumIterations: 1,
-      })
+      .task("loop", local, () => ({ complete: false }))
+      .until(({ result }) => result.complete, { maxIterations: 1 })
       .output(({ tasks }) => tasks.loop.output)
       .define();
 
@@ -277,16 +332,12 @@ describe("buildWorkflow", () => {
 
     expect(repeat).toMatchObject({
       type: "repeat",
-      body: {
-        nodes: [
-          {
-            taskId: "local-repeat",
-          },
-        ],
+      attempt: {
+        taskId: "local-repeat",
       },
     });
     expect(
-      (repeat as Extract<typeof repeat, { type: "repeat" }>).body.nodes[0],
+      (repeat as Extract<typeof repeat, { type: "repeat" }>).attempt,
     ).not.toHaveProperty("session");
     expect(built.taskDefinitions.get(local.id)).toBe(local);
   });
@@ -441,58 +492,6 @@ describe("buildWorkflow", () => {
     expect(buildWorkflow(workflow).plan.nodes[1]).toMatchObject({
       taskId: "flow-publish",
       dependsOn: ["flow-prepare:1"],
-    });
-  });
-
-  it("adds an order-only dependency inside a repeat body", () => {
-    const prepare = defineAgentTask({
-      id: "repeat-prepare",
-      input: schema<{ readonly complete: boolean }>(),
-      output: schema<{ readonly complete: boolean }>(),
-      goal: () => "prepare",
-    });
-    const publish = defineAgentTask({
-      id: "repeat-publish",
-      input: schema<{ readonly complete: boolean }>(),
-      output: schema<{ readonly complete: boolean }>(),
-      goal: () => "publish",
-    });
-    const workflow = createFlow({
-      id: "repeat-order-only-dependency",
-      input: schema<Record<never, never>>(),
-      output: schema<{ readonly complete: boolean }>(),
-    })
-      .repeat("loop", {
-        initial: { complete: false },
-        body: ({ input, task }) => {
-          const prepared = task(prepare, { input });
-          return task(publish, {
-            input: { complete: true },
-            dependsOn: [prepared],
-          }).output;
-        },
-        until: ({ output }) => output.complete,
-        maximumIterations: 1,
-      })
-      .output(({ tasks }) => tasks.loop.output)
-      .define();
-
-    const repeat = buildWorkflow(workflow).plan.nodes[0];
-
-    expect(repeat).toMatchObject({
-      type: "repeat",
-      body: {
-        nodes: [
-          {
-            nodeId: "repeat:1/repeat-prepare:1",
-            dependsOn: ["repeat:1:input"],
-          },
-          {
-            nodeId: "repeat:1/repeat-publish:1",
-            dependsOn: ["repeat:1/repeat-prepare:1"],
-          },
-        ],
-      },
     });
   });
 });

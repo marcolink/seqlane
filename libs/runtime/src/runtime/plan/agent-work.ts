@@ -9,7 +9,7 @@ function nodeContainsAgentWork(node: PlanNode): boolean {
   if (node.type === "validation.check") return node.source.type === "task";
   if (node.type === "validation.gate") return false;
   if (node.type === "workflow") return false;
-  return node.body.nodes.some(nodeContainsAgentWork);
+  return nodeContainsAgentWork(node.attempt);
 }
 
 /** Returns whether a Plan contains agent work at any supported nesting level. */

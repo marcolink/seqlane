@@ -19,6 +19,7 @@ import {
   type CompiledMastraPlan,
   type MastraPlanInvocation,
   type MastraPlanInvocationContext,
+  type RepeatExecutionBudget,
 } from "../compile/mastra-plan-compiler.js";
 import {
   PlanCompiler,
@@ -30,7 +31,6 @@ import {
   executeValidationCheckNode,
   executeValidationGateNode,
 } from "../invocation/invocation-execution.js";
-import { executeRepeatNode } from "../invocation/repeat-execution.js";
 import {
   invocationKind,
   invocationSubject,
@@ -59,6 +59,7 @@ import {
   preflightCompiledWorkflowSessionCapabilities,
   resolveCompiledWorkflowSessions,
 } from "../session/session-preflight.js";
+import { resolveTaskSession } from "../session/session-resolution.js";
 
 export interface MastraPlanExecutionOptions {
   readonly plan: Plan;
@@ -76,6 +77,7 @@ export interface MastraPlanExecutionOptions {
   readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
   readonly events: SeqlaneEventSink;
+  readonly repeatBudget?: RepeatExecutionBudget;
 }
 
 export interface MastraPlanExecution {
@@ -134,7 +136,6 @@ export function workspaceResourcesForExecution(
 function checkNodes(plan: Plan): Map<string, ValidationCheckNode> {
   return new Map(
     plan.nodes
-      .flatMap((node) => (node.type === "repeat" ? node.body.nodes : [node]))
       .filter(
         (node): node is ValidationCheckNode => node.type === "validation.check",
       )
@@ -296,6 +297,11 @@ export function createMastraPlanInvocationHandler(
   executeWorkflowInvocation?: MastraPlanInvocation,
 ): MastraPlanInvocation {
   const checks = checkNodes(plan);
+  const repeatAttemptNodeIds = new Set(
+    plan.nodes.flatMap((entry) =>
+      entry.type === "repeat" ? [entry.attempt.nodeId] : [],
+    ),
+  );
   return async ({
     node,
     input,
@@ -317,6 +323,16 @@ export function createMastraPlanInvocationHandler(
       failure: undefined,
     };
     if (node.type === "task") {
+      if (node.session !== undefined && repeatAttemptNodeIds.has(node.nodeId)) {
+        await resolveTaskSession(
+          prepared.context.resolvedSessions,
+          prepared.context.sessionResolver,
+          prepared.context.taskDefinitions,
+          invocationId,
+          node.taskId,
+          prepared.context.effectiveModelSelectionsByNode.get(node.nodeId),
+        );
+      }
       return executeTaskNode(context, node, abortSignal, {
         invocationId,
         observability,
@@ -374,7 +390,9 @@ export function createMastraPlanInvocationHandler(
           ),
       });
     }
-    return executeRepeatNode(context, node, abortSignal, observability);
+    throw new Error(
+      `Repeat node "${node.nodeId}" must be lowered through Mastra dountil`,
+    );
   };
 }
 
@@ -387,6 +405,7 @@ export async function executeNestedMastraWorkflow(options: {
   readonly workspaceResources: WorkspaceResourceRegistry;
   readonly events: SeqlaneEventSink;
   readonly onFailure?: (failure: SeqlaneError) => void;
+  readonly repeatBudget?: RepeatExecutionBudget;
 }): Promise<unknown> {
   const { invocation, child } = options;
   const childExecution = createMastraPlanExecution({
@@ -405,6 +424,7 @@ export async function executeNestedMastraWorkflow(options: {
     workflowDefinitions: child.workflowDefinitions,
     workflow: child.workflow,
     events: options.events,
+    repeatBudget: options.repeatBudget,
   });
   preflightCompiledWorkflowSessionCapabilities(childExecution.prepared);
   await preflightCompiledWorkflowModels(childExecution.prepared);
@@ -451,6 +471,7 @@ export async function executeNestedMastraWorkflow(options: {
 export function createMastraPlanExecution(
   options: MastraPlanExecutionOptions,
 ): MastraPlanExecution {
+  const repeatBudget = options.repeatBudget ?? { executed: 0 };
   let typedFailure: SeqlaneError | undefined;
   const captureFailure = (failure: SeqlaneError): void => {
     typedFailure ??= failure;
@@ -493,6 +514,8 @@ export function createMastraPlanExecution(
     workflowDefinitions: options.workflowDefinitions,
     workspaceResources,
     workflow: options.workflow,
+    repeatBudget,
+    events: options.events,
     onFailure: captureFailure,
     onInputValidationFailure: ({
       node,
@@ -561,6 +584,7 @@ export function createMastraPlanExecution(
               workflowDefinitions: child.workflowDefinitions,
               workflow: child.workflow,
               events: options.events,
+              repeatBudget,
             });
             preflightCompiledWorkflowSessionCapabilities(
               childExecution.prepared,

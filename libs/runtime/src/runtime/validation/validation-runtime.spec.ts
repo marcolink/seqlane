@@ -1,5 +1,4 @@
 // @test-scope ../compile/compile-plan.ts
-// @test-scope ../invocation/repeat-execution.ts
 import type {
   Plan,
   PlanNode,
@@ -15,7 +14,6 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   ExecutorError,
-  LoopLimitExceededError,
   OutputValidationError,
   RuntimeError,
   ValidationFailedError,
@@ -101,7 +99,7 @@ function compile(
   const collect = (node: PlanNode): void => {
     nodes.push(node);
     if (node.type === "repeat") {
-      for (const bodyNode of node.body.nodes) collect(bodyNode);
+      collect(node.attempt);
     }
   };
   for (const node of plan.nodes) collect(node);
@@ -440,159 +438,6 @@ describe("runtime validation execution", () => {
 
     await expect(activeRun.outcome).resolves.toEqual({ status: "cancelled" });
     expect(attempts).toBe(1);
-  });
-
-  it("runs a validated repeat until the postcondition passes", async () => {
-    const calls: number[] = [];
-    const checkNodeId = "repeat:1/validation.check:1";
-    const gateNodeId = "repeat:1/validation.gate:1";
-    const bodyNodeId = "repeat:1/repair:1";
-    const plan: Plan = {
-      workflow: { id: "validated-repeat" },
-      nodes: [
-        {
-          type: "repeat",
-          nodeId: "repeat:1",
-          input: { value: 0 },
-          dependsOn: [],
-          maximumIterations: 3,
-          body: {
-            inputNodeId: "repeat:1:input",
-            nodes: [
-              task(bodyNodeId, ["repeat:1:input"], {
-                state: { type: "ref", nodeId: "repeat:1:input", path: [] },
-              }) as TaskNode,
-              {
-                type: "validation.check",
-                nodeId: checkNodeId,
-                source: { type: "mechanical", validatorId: "converged" },
-                input: { type: "ref", nodeId: bodyNodeId, path: ["output"] },
-                dependsOn: [bodyNodeId],
-              },
-              {
-                type: "validation.gate",
-                nodeId: gateNodeId,
-                input: { type: "ref", nodeId: bodyNodeId, path: ["output"] },
-                checkNodeId,
-                policy: "repeat-postcondition",
-                dependsOn: [bodyNodeId, checkNodeId],
-              },
-            ],
-            output: { type: "ref", nodeId: gateNodeId, path: ["value"] },
-            until: {
-              type: "ref",
-              nodeId: gateNodeId,
-              path: ["validation", "success"],
-            },
-          },
-        },
-      ],
-      output: { type: "ref", nodeId: "repeat:1", path: ["output"] },
-    };
-    const compiled = compile(plan, {
-      validators: new Map([
-        [
-          "converged",
-          {
-            id: "converged",
-            input: schema<{ readonly value: number }>(),
-            validate: ({ value }) => {
-              calls.push(value);
-              return value >= 2
-                ? { success: true }
-                : {
-                    success: false,
-                    issues: [{ code: "not-ready", message: "Keep repairing" }],
-                  };
-            },
-          },
-        ],
-      ]) as ValidatorDefinitionRegistry,
-      executor: async ({ input }) => ({
-        value: (input as { state: { value: number } }).state.value + 1,
-      }),
-    });
-
-    await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
-      status: "succeeded",
-      result: { value: 2 },
-    });
-    expect(calls).toEqual([1, 2]);
-  });
-
-  it("includes latest repeat validation evidence on exhaustion", async () => {
-    const checkNodeId = "repeat:1/validation.check:1";
-    const gateNodeId = "repeat:1/validation.gate:1";
-    const bodyNodeId = "repeat:1/repair:1";
-    const plan: Plan = {
-      workflow: { id: "exhausted-repeat" },
-      nodes: [
-        {
-          type: "repeat",
-          nodeId: "repeat:1",
-          input: { value: 0 },
-          dependsOn: [],
-          maximumIterations: 2,
-          body: {
-            inputNodeId: "repeat:1:input",
-            nodes: [
-              task(bodyNodeId, ["repeat:1:input"], {
-                state: { type: "ref", nodeId: "repeat:1:input", path: [] },
-              }) as TaskNode,
-              {
-                type: "validation.check",
-                nodeId: checkNodeId,
-                source: { type: "mechanical", validatorId: "never" },
-                input: { type: "ref", nodeId: bodyNodeId, path: ["output"] },
-                dependsOn: [bodyNodeId],
-              },
-              {
-                type: "validation.gate",
-                nodeId: gateNodeId,
-                input: { type: "ref", nodeId: bodyNodeId, path: ["output"] },
-                checkNodeId,
-                policy: "repeat-postcondition",
-                dependsOn: [bodyNodeId, checkNodeId],
-              },
-            ],
-            output: { type: "ref", nodeId: gateNodeId, path: ["value"] },
-            until: {
-              type: "ref",
-              nodeId: gateNodeId,
-              path: ["validation", "success"],
-            },
-          },
-        },
-      ],
-      output: { type: "ref", nodeId: "repeat:1", path: ["output"] },
-    };
-    const compiled = compile(plan, {
-      validators: new Map([
-        [
-          "never",
-          {
-            id: "never",
-            input: schema(),
-            validate: () => ({
-              success: false,
-              issues: [{ code: "never", message: "Still invalid" }],
-              evidence: { latest: true },
-            }),
-          },
-        ],
-      ]),
-    });
-
-    const outcome = await runCompiledWorkflow(compiled);
-
-    expect(outcome.status).toBe("failed");
-    const error = (outcome as Extract<typeof outcome, { status: "failed" }>)
-      .error;
-    expect(error).toBeInstanceOf(LoopLimitExceededError);
-    expect(error).toMatchObject({
-      issues: [{ code: "never" }],
-      evidence: { latest: true },
-    });
   });
 
   it("releases check results and validation envelopes by consumer lifetime", async () => {

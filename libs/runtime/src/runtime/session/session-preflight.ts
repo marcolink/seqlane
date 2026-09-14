@@ -42,7 +42,7 @@ function agentTaskNodes(compiled: PreparedPlanExecution): readonly TaskNode[] {
       return;
     }
     if (node.type === "repeat") {
-      for (const bodyNode of node.body.nodes) visit(bodyNode);
+      visit(node.attempt);
       return;
     }
   };

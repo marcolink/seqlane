@@ -6,7 +6,7 @@ import type {
   WorkspacePolicy,
   WorkflowDefinition,
 } from "./contracts.js";
-import type { ValueBinding, ValueRef } from "./bindings.js";
+import type { ValueBinding, ValueRefData } from "./bindings.js";
 import { valueBindingSchema, valueRefSchema } from "./bindings.js";
 import type { ModelSelection } from "./models/model-ref.js";
 import { modelSelectionSchema } from "./models/model-ref.js";
@@ -90,20 +90,18 @@ export interface ValidationGateNode {
 
 export type ValidationNode = ValidationCheckNode | ValidationGateNode;
 
-export interface RepeatBodyPlan {
-  readonly inputNodeId: PlanNodeId;
-  readonly nodes: readonly (TaskNode | WorkflowNode | ValidationNode)[];
-  readonly output: ValueBinding;
-  readonly until: ValueRef<boolean>;
-}
-
 export interface RepeatNode {
   readonly type: "repeat";
   readonly nodeId: PlanNodeId;
   readonly input: ValueBinding;
   readonly dependsOn: readonly PlanNodeId[];
   readonly maximumIterations: number;
-  readonly body: RepeatBodyPlan;
+  /** The single task or child workflow executed for each attempt. */
+  readonly attempt: TaskNode | WorkflowNode;
+  /** A boolean reference evaluated after each successful attempt. */
+  readonly until: ValueRefData;
+  /** Optional binding for the next attempt's input. */
+  readonly nextInput?: ValueBinding;
 }
 
 export type PlanNode = TaskNode | WorkflowNode | ValidationNode | RepeatNode;
@@ -170,13 +168,6 @@ export const validationNodeSchema = z.discriminatedUnion("type", [
   validationGateNodeSchema,
 ]);
 
-const repeatBodyNodeSchema = z.discriminatedUnion("type", [
-  taskNodeSchema,
-  workflowNodeSchema,
-  validationCheckNodeSchema,
-  validationGateNodeSchema,
-]);
-
 export const repeatNodeSchema = z.strictObject({
   type: z.literal("repeat"),
   nodeId: planNodeIdSchema,
@@ -188,12 +179,9 @@ export const repeatNodeSchema = z.strictObject({
     .finite()
     .min(1)
     .max(MAX_REPEAT_BODY_EXECUTIONS),
-  body: z.strictObject({
-    inputNodeId: planNodeIdSchema,
-    nodes: z.array(repeatBodyNodeSchema),
-    output: valueBindingSchema,
-    until: valueRefSchema,
-  }),
+  attempt: z.discriminatedUnion("type", [taskNodeSchema, workflowNodeSchema]),
+  until: valueRefSchema,
+  nextInput: valueBindingSchema.optional(),
 });
 
 export const planNodeSchema = z.discriminatedUnion("type", [

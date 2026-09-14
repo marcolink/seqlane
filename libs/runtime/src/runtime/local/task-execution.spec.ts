@@ -5,7 +5,6 @@
 // @test-scope ../execution/model-preflight.ts
 // @test-scope ../session/session-preflight.ts
 // @test-scope ../workspace/workspace-lock.ts
-// @test-scope ../invocation/repeat-execution.ts
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { z } from "zod";
@@ -369,68 +368,6 @@ describe("local task execution", () => {
     } finally {
       await rm(workspace, { recursive: true, force: true });
     }
-  });
-
-  it("executes local tasks in a repeat body without session resolution", async () => {
-    const definition: TaskDefinition = {
-      id: "local-repeat",
-      input: identitySchema,
-      output: identitySchema,
-      execute: async () => ({ complete: true }),
-    };
-    const repeatTaskId = "repeat:1/local-repeat:1";
-    const compiled = new PlanCompiler().compileWorkflow(
-      {
-        workflow: { id: "local-repeat-workflow" },
-        nodes: [
-          {
-            type: "repeat",
-            nodeId: "repeat:1",
-            input: { complete: false },
-            dependsOn: [],
-            maximumIterations: 2,
-            body: {
-              inputNodeId: "repeat:1:input",
-              nodes: [
-                {
-                  ...localTaskNode(definition.id, repeatTaskId),
-                  input: {
-                    type: "ref",
-                    nodeId: "repeat:1:input",
-                    path: [],
-                  },
-                  dependsOn: ["repeat:1:input"],
-                },
-              ],
-              output: { type: "ref", nodeId: repeatTaskId, path: [] },
-              until: {
-                type: "ref",
-                nodeId: repeatTaskId,
-                path: ["complete"],
-              },
-            },
-          },
-        ],
-        output: {
-          type: "ref",
-          nodeId: "repeat:1",
-          path: ["output"],
-        },
-      },
-      {
-        workId: "local-repeat-work",
-        runId: "local-repeat-run",
-        workflowInput: {},
-        createInvocationId: (nodeId) => nodeId,
-        executors: { agent: () => ({ execute: async () => ({}) }) },
-        taskDefinitions: new Map([[definition.id, definition]]),
-      },
-    );
-
-    await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
-      status: "succeeded",
-      result: { complete: true },
-    });
   });
 
   it("does not call agent, model, or session infrastructure for local tasks", async () => {

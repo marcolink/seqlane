@@ -1,16 +1,10 @@
-import type {
-  Plan,
-  PlanNode,
-  RepeatNode,
-  TaskDefinitionRegistry,
-} from "@seqlane/core";
+import type { Plan, PlanNode, TaskDefinitionRegistry } from "@seqlane/core";
 import {
   PlanValidationError,
   validatePlan,
 } from "../validation/plan-validation.js";
 
 type NodeWithId = { readonly nodeId: string };
-type RepeatBodyNode = RepeatNode["body"]["nodes"][number];
 
 function compareNodes(left: NodeWithId, right: NodeWithId): number {
   if (left.nodeId < right.nodeId) return -1;
@@ -21,50 +15,6 @@ function compareNodes(left: NodeWithId, right: NodeWithId): number {
 function insertReadyNode<T extends NodeWithId>(queue: T[], node: T): void {
   queue.push(node);
   queue.sort(compareNodes);
-}
-
-export function orderRepeatBodyNodes(
-  node: RepeatNode,
-): readonly RepeatBodyNode[] {
-  const nodesById = new Map(
-    node.body.nodes.map((bodyNode) => [bodyNode.nodeId, bodyNode]),
-  );
-  const remainingDependencies = new Map(
-    node.body.nodes.map((bodyNode) => [
-      bodyNode.nodeId,
-      bodyNode.dependsOn.filter((dependency) => nodesById.has(dependency))
-        .length,
-    ]),
-  );
-  const dependents = new Map<string, RepeatBodyNode[]>();
-  for (const bodyNode of node.body.nodes) {
-    for (const dependency of bodyNode.dependsOn) {
-      if (!nodesById.has(dependency)) continue;
-      const dependentNodes = dependents.get(dependency) ?? [];
-      dependentNodes.push(bodyNode);
-      dependents.set(dependency, dependentNodes);
-    }
-  }
-
-  const ready = node.body.nodes
-    .filter((bodyNode) => remainingDependencies.get(bodyNode.nodeId) === 0)
-    .sort(compareNodes);
-  const orderedNodes: RepeatBodyNode[] = [];
-  while (ready.length > 0) {
-    const next = ready.shift();
-    if (!next) continue;
-    orderedNodes.push(next);
-    for (const dependent of dependents.get(next.nodeId) ?? []) {
-      const remaining = (remainingDependencies.get(dependent.nodeId) ?? 0) - 1;
-      remainingDependencies.set(dependent.nodeId, remaining);
-      if (remaining === 0) insertReadyNode(ready, dependent);
-    }
-  }
-
-  if (orderedNodes.length !== node.body.nodes.length) {
-    throw new Error(`Repeat body "${node.nodeId}" contains a dependency cycle`);
-  }
-  return orderedNodes;
 }
 
 export function orderParsedPlanNodes(plan: Plan): readonly PlanNode[] {
