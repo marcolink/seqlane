@@ -291,6 +291,10 @@ function createOperationalInvocationHandler(
           noExecutionEvents;
         const profile = runtimeProfileFromContext(context.requestContext);
         let closeExecution: (() => Promise<void>) | undefined;
+        let closeExecutionPromise: Promise<void> | undefined;
+        const closeExecutionOnce = (): Promise<void> =>
+          (closeExecutionPromise ??= closeExecution?.() ?? Promise.resolve());
+        let handedOff = false;
         try {
           const execution = await resolveRuntimeProfile(
             profile,
@@ -357,13 +361,15 @@ function createOperationalInvocationHandler(
             source.plan,
             invokeWorkflow,
           );
+          handedOff = true;
           return {
             invoke,
-            close: execution.close ?? (async () => undefined),
+            close: closeExecutionOnce,
           };
-        } catch (error) {
-          await closeExecution?.().catch(() => undefined);
-          throw error;
+        } finally {
+          if (!handedOff) {
+            await closeExecutionOnce().catch(() => undefined);
+          }
         }
       })();
     preparedByRun.set(context.runId, pending);

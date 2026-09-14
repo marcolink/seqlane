@@ -2,79 +2,137 @@
 import { z } from "zod";
 import type { CodexInboundMessage } from "./protocol.js";
 import { describe, expect, it, vi } from "vitest";
-import { CodexRequestDeadlineError } from "./deadline.js";
 import { createCodexRun } from "./run.js";
 import type { CodexTransport } from "./transport.js";
+
+interface RunTransportTurnContext {
+  readonly threadId: string;
+  readonly turnId: string;
+  readonly turnNumber: number;
+  readonly emit: (message: CodexInboundMessage) => void;
+}
+
+interface RunTransportOptions {
+  readonly onThreadStart?: (threadId: string) => void;
+  readonly onTurnStart?: (context: RunTransportTurnContext) => void;
+  readonly onInterrupt?: (context: RunTransportTurnContext) => void;
+  readonly onClose?: () => void;
+}
+
+function createRunTestTransport(
+  options: RunTransportOptions = {},
+): CodexTransport {
+  let closed = false;
+  let threadNumber = 0;
+  let turnNumber = 0;
+  const listeners = new Set<(message: CodexInboundMessage) => void>();
+  const emit = (message: CodexInboundMessage): void => {
+    for (const listener of listeners) listener(message);
+  };
+
+  return {
+    termination: Promise.resolve(),
+    request: async (method, params) => {
+      if (closed) throw new Error("transport is closed");
+      if (method === "model/list") {
+        return {
+          data: [
+            {
+              id: "openai/gpt-5.6-sol",
+              model: "gpt-5.6-sol",
+              isDefault: true,
+            },
+          ],
+        };
+      }
+      if (method === "thread/start") {
+        threadNumber += 1;
+        const threadId = `thread-${threadNumber}`;
+        options.onThreadStart?.(threadId);
+        return { thread: { id: threadId } };
+      }
+      if (method === "turn/start") {
+        turnNumber += 1;
+        const threadId = (params as { threadId: string }).threadId;
+        const turnId = `turn-${turnNumber}`;
+        options.onTurnStart?.({
+          threadId,
+          turnId,
+          turnNumber,
+          emit,
+        });
+        return { turn: { id: turnId, status: "inProgress", items: [] } };
+      }
+      if (method === "turn/interrupt") {
+        const threadId = (params as { threadId: string }).threadId;
+        const turnId = (params as { turnId: string }).turnId;
+        options.onInterrupt?.({
+          threadId,
+          turnId,
+          turnNumber,
+          emit,
+        });
+        return {};
+      }
+      if (method === "thread/fork") {
+        return { thread: { id: `thread-fork-${threadNumber + 1}` } };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    },
+    respond: () => undefined,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    close: async () => {
+      closed = true;
+      options.onClose?.();
+    },
+  };
+}
 
 describe("Codex run ownership", () => {
   it("shares one app-server across model preflight and sessions, then closes it once", async () => {
     let starts = 0;
     let closes = 0;
     let threads = 0;
-    const listeners = new Set<(message: CodexInboundMessage) => void>();
-    const transport: CodexTransport = {
-      termination: Promise.resolve(),
-      request: async (method, params) => {
-        if (method === "model/list") {
-          return {
-            data: [
-              {
-                id: "openai/gpt-5.6-sol",
-                model: "gpt-5.6-sol",
-                isDefault: true,
+    const transport = createRunTestTransport({
+      onThreadStart: () => {
+        threads += 1;
+      },
+      onTurnStart: ({ threadId, turnId, emit }) => {
+        setTimeout(() => {
+          emit({
+            kind: "notification",
+            notification: {
+              method: "item/completed",
+              params: {
+                threadId,
+                turnId,
+                item: {
+                  id: `message-${threadId}`,
+                  type: "agentMessage",
+                  text: '{"result":"done"}',
+                },
               },
-            ],
-          };
-        }
-        if (method === "thread/start") {
-          threads += 1;
-          return { thread: { id: `thread-${threads}` } };
-        }
-        if (method === "turn/start") {
-          const threadId = (params as { threadId: string }).threadId;
-          const turnId = `turn-${threadId}`;
-          setTimeout(() => {
-            for (const listener of listeners) {
-              listener({
-                kind: "notification",
-                notification: {
-                  method: "item/completed",
-                  params: {
-                    threadId,
-                    turnId,
-                    item: {
-                      id: `message-${threadId}`,
-                      type: "agentMessage",
-                      text: '{"result":"done"}',
-                    },
-                  },
-                },
-              });
-              listener({
-                kind: "notification",
-                notification: {
-                  method: "turn/completed",
-                  params: {
-                    threadId,
-                    turn: { id: turnId, status: "completed", items: [] },
-                  },
-                },
-              });
-            }
-          }, 0);
-          return { turn: { id: turnId, status: "inProgress", items: [] } };
-        }
-        throw new Error(`Unexpected method ${method}`);
+            },
+          });
+          emit({
+            kind: "notification",
+            notification: {
+              method: "turn/completed",
+              params: {
+                threadId,
+                turn: { id: turnId, status: "completed", items: [] },
+              },
+            },
+          });
+        }, 0);
       },
-      respond: () => undefined,
-      subscribe: (listener: (message: CodexInboundMessage) => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      close: async () => {
+      onClose: () => {
         closes += 1;
       },
-    };
+    });
     const run = createCodexRun(
       {
         executable: "/opt/codex",
@@ -169,14 +227,16 @@ describe("Codex run ownership", () => {
         await Promise.resolve();
       }
       expect(resolveTransport).toBeTypeOf("function");
+      const closing = run.close();
       await vi.advanceTimersByTimeAsync(5_000);
-      await expect(lookup).resolves.toBeInstanceOf(CodexRequestDeadlineError);
+      await expect(closing).resolves.toBeUndefined();
+      await expect(lookup).resolves.toMatchObject({ code: "cancellation" });
+      expect(closes).toBe(0);
       resolveTransport(transport);
       await Promise.resolve();
-      expect(closes).toBe(0);
-      await run.close();
-      await run.close();
+      await Promise.resolve();
       expect(closes).toBe(1);
+      await run.close();
     } finally {
       vi.useRealTimers();
     }
@@ -186,93 +246,59 @@ describe("Codex run ownership", () => {
     let closes = 0;
     let turnNumber = 0;
     let hangingTurnId: string | undefined;
-    const listeners = new Set<(message: CodexInboundMessage) => void>();
-    const transport: CodexTransport = {
-      termination: Promise.resolve(),
-      request: async (method, params) => {
-        if (method === "model/list") {
-          return {
-            data: [
-              {
-                id: "openai/gpt-5.6-sol",
-                model: "gpt-5.6-sol",
-                isDefault: true,
-              },
-            ],
-          };
+    const transport = createRunTestTransport({
+      onTurnStart: ({ threadId, turnId, turnNumber: currentTurn, emit }) => {
+        turnNumber = currentTurn;
+        if (hangingTurnId === undefined) {
+          hangingTurnId = turnId;
+          return;
         }
-        if (method === "thread/start") {
-          return { thread: { id: `thread-${turnNumber + 1}` } };
-        }
-        if (method === "turn/start") {
-          turnNumber += 1;
-          const threadId = (params as { threadId: string }).threadId;
-          const turnId = `turn-${turnNumber}`;
-          if (hangingTurnId === undefined) {
-            hangingTurnId = turnId;
-          } else {
-            setTimeout(() => {
-              for (const listener of listeners) {
-                listener({
-                  kind: "notification",
-                  notification: {
-                    method: "item/completed",
-                    params: {
-                      threadId,
-                      turnId,
-                      item: {
-                        id: `message-${turnId}`,
-                        type: "agentMessage",
-                        text: '{"result":"done"}',
-                      },
-                    },
-                  },
-                });
-                listener({
-                  kind: "notification",
-                  notification: {
-                    method: "turn/completed",
-                    params: {
-                      threadId,
-                      turn: { id: turnId, status: "completed", items: [] },
-                    },
-                  },
-                });
-              }
-            }, 0);
-          }
-          return { turn: { id: turnId, status: "inProgress", items: [] } };
-        }
-        if (method === "turn/interrupt") {
-          const threadId = (params as { threadId: string }).threadId;
-          const turnId = (params as { turnId: string }).turnId;
-          setTimeout(() => {
-            for (const listener of listeners) {
-              listener({
-                kind: "notification",
-                notification: {
-                  method: "turn/completed",
-                  params: {
-                    threadId,
-                    turn: { id: turnId, status: "interrupted", items: [] },
-                  },
+        setTimeout(() => {
+          emit({
+            kind: "notification",
+            notification: {
+              method: "item/completed",
+              params: {
+                threadId,
+                turnId,
+                item: {
+                  id: `message-${turnId}`,
+                  type: "agentMessage",
+                  text: '{"result":"done"}',
                 },
-              });
-            }
-          }, 0);
-          return {};
-        }
-        throw new Error(`Unexpected method ${method}`);
+              },
+            },
+          });
+          emit({
+            kind: "notification",
+            notification: {
+              method: "turn/completed",
+              params: {
+                threadId,
+                turn: { id: turnId, status: "completed", items: [] },
+              },
+            },
+          });
+        }, 0);
       },
-      respond: () => undefined,
-      subscribe: (listener) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
+      onInterrupt: ({ threadId, turnId, emit }) => {
+        setTimeout(() => {
+          emit({
+            kind: "notification",
+            notification: {
+              method: "turn/completed",
+              params: {
+                threadId,
+                turn: { id: turnId, status: "interrupted", items: [] },
+              },
+            },
+          });
+        }, 0);
       },
-      close: async () => {
+      onClose: () => {
         closes += 1;
       },
-    };
+    });
     const run = createCodexRun(
       {
         executable: "/opt/codex",
@@ -326,84 +352,46 @@ describe("Codex run ownership", () => {
 
   it("closes the run after failed interruption and rejects sibling and checkpoint reuse", async () => {
     let closes = 0;
-    let closed = false;
     let turnNumber = 0;
-    let threadNumber = 0;
-    const listeners = new Set<(message: CodexInboundMessage) => void>();
-    const transport: CodexTransport = {
-      termination: Promise.resolve(),
-      request: async (method, params) => {
-        if (closed) throw new Error("transport is closed");
-        if (method === "model/list") {
-          return {
-            data: [
-              {
-                id: "openai/gpt-5.6-sol",
-                model: "gpt-5.6-sol",
-                isDefault: true,
+    const transport = createRunTestTransport({
+      onTurnStart: ({ threadId, turnId, turnNumber: currentTurn, emit }) => {
+        turnNumber = currentTurn;
+        if (currentTurn !== 1) return;
+        setTimeout(() => {
+          emit({
+            kind: "notification",
+            notification: {
+              method: "item/completed",
+              params: {
+                threadId,
+                turnId,
+                item: {
+                  id: "message-1",
+                  type: "agentMessage",
+                  text: '{"result":"done"}',
+                },
               },
-            ],
-          };
-        }
-        if (method === "thread/start") {
-          threadNumber += 1;
-          return { thread: { id: `thread-${threadNumber}` } };
-        }
-        if (method === "turn/start") {
-          turnNumber += 1;
-          const threadId = (params as { threadId: string }).threadId;
-          const turnId = `turn-${turnNumber}`;
-          if (turnNumber === 1) {
-            setTimeout(() => {
-              for (const listener of listeners) {
-                listener({
-                  kind: "notification",
-                  notification: {
-                    method: "item/completed",
-                    params: {
-                      threadId,
-                      turnId,
-                      item: {
-                        id: "message-1",
-                        type: "agentMessage",
-                        text: '{"result":"done"}',
-                      },
-                    },
-                  },
-                });
-                listener({
-                  kind: "notification",
-                  notification: {
-                    method: "turn/completed",
-                    params: {
-                      threadId,
-                      turn: { id: turnId, status: "completed", items: [] },
-                    },
-                  },
-                });
-              }
-            }, 0);
-          }
-          return { turn: { id: turnId, status: "inProgress", items: [] } };
-        }
-        if (method === "turn/interrupt") {
-          throw new Error("interrupt was refused");
-        }
-        if (method === "thread/fork") {
-          throw new Error("invalidated session must not fork");
-        }
-        throw new Error(`Unexpected method ${method}`);
+            },
+          });
+          emit({
+            kind: "notification",
+            notification: {
+              method: "turn/completed",
+              params: {
+                threadId,
+                turn: { id: turnId, status: "completed", items: [] },
+              },
+            },
+          });
+        }, 0);
       },
-      respond: () => undefined,
-      subscribe: (listener) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
+      onInterrupt: () => {
+        throw new Error("interrupt was refused");
       },
-      close: async () => {
+      onClose: () => {
         closes += 1;
-        closed = true;
       },
-    };
+    });
     const run = createCodexRun(
       {
         executable: "/opt/codex",

@@ -6,6 +6,8 @@ import { createCodexModelCapabilities } from "./model-capabilities.js";
 import type { CodexLaunchConfiguration } from "./protocol.js";
 import { createCodexStdioTransport, type CodexTransport } from "./transport.js";
 
+const RUN_CLOSE_TIMEOUT_MS = 5_000;
+
 export interface CodexRunOptions {
   readonly signal?: AbortSignal;
   readonly createTransport?: (
@@ -64,8 +66,19 @@ export function createCodexRun(
       runController.abort(
         new CodexAdapterError("cancellation", "Codex run is closed"),
       );
-      const created = await transportPromise?.catch(() => undefined);
-      await created?.close();
+      const pending = transportPromise;
+      if (pending === undefined) return;
+
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const closeLateTransport = pending.then(
+        (created) => created.close().catch(() => undefined),
+        () => undefined,
+      );
+      const timeoutReached = new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, RUN_CLOSE_TIMEOUT_MS);
+      });
+      await Promise.race([closeLateTransport, timeoutReached]);
+      if (timeout !== undefined) clearTimeout(timeout);
     })());
   const modelCapabilities = createCodexModelCapabilities(configuration, {
     createTransport: transport,
