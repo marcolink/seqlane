@@ -52,9 +52,10 @@ Review-scope selection and checkpoint advancement are defined in
 The version 3 state below is historical transport and lifecycle input. The
 current strict state revision is v5 and adds that spec's scope checkpoint
 without changing trusted-comment or run-metrics ownership here.
-The incremental-scope specification owns manifest schema, persistence, and
-coverage evidence. This specification owns the publication state machine and
-the trusted summary projection.
+The incremental-scope specification owns `E`, `X`, `R`, and checkpoint
+semantics. [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md)
+owns manifest schema, persistence, coverage, and provenance. This specification
+owns trusted state, the publication state machine, and its publication journal.
 
 ## Requirements
 
@@ -112,10 +113,16 @@ PublicationOperation = {
 }
 ```
 
+To avoid self-referential hashes, `payloadDigest` hashes the canonical report or
+inline payload with only its operation marker and journal-intent reference
+omitted. It still covers findings, statuses, checkpoint, execution reference,
+and human projection. Readback uses this same projection and separately verifies
+the omitted identity fields against the durable intent.
+
 An inline finding additionally includes its finding ID and evidence-head
-revision. The publisher persists stage transitions in the manifest and accepts
-an idempotent retry only when the stage and payload digest match. Before
-retrying an uncertain write, it re-reads the live summary or inline comment and
+revision. The publisher persists stage transitions in the publication journal.
+It accepts an idempotent retry only when the stage and payload digest match.
+Before retrying an uncertain write, it re-reads the live summary or inline comment and
 treats an exact operation identity and content match as success. It never
 creates a duplicate or deletes historical comments. A changed head, target,
 checkpoint, report identity, or scope identity transitions the operation to
@@ -131,9 +138,103 @@ Publication is complete only when coverage is complete, finding validation is
 complete, the authoritative summary is written, and every admitted finding is
 either inline-published or represented in the final summary fallback. An
 unresolved inline write, missing fallback, or failed final summary update makes
-publication partial and blocks checkpoint advancement. The scope checkpoint,
-retained findings, visible limitations, and publication status are one final
+publication incomplete (`uncertain` or `failed`) and blocks checkpoint advancement.
+The scope checkpoint, retained findings, visible limitations, and publication status are one final
 authoritative write. Checkpoint advancement is allowed only from `published`.
+
+### requirement-publication-journal
+
+The publisher owns an append-only `review.publication-journal/v1` journal.
+The Action artifact adapter persists immutable journal snapshots under the
+manifest's trusted repository, workflow, access, redaction, and retention
+boundary. Each entry contains journal run ID and attempt, monotonic sequence,
+previous-entry digest (null only at sequence zero), `PublicationOperation`,
+publication stage, `ManifestReference`, and an outcome of `intent`, `confirmed`,
+`unknown`, or `failed`. Confirmed writes also record the GitHub comment ID and
+validated payload digest. Each entry carries `RunStatus`, validated against its
+execution snapshot and the transition rules below. A journal reference contains
+repository, workflow run and attempt, artifact ID, journal run ID, schema version,
+sequence, and SHA-256 digest. Missing entries, invalid transitions, or digest
+mismatches fail closed. Each snapshot has a canonical SHA-256 digest.
+
+Persist an intent before a GitHub write; append its confirmed receipt or bounded
+failure afterward. Journal entries reference execution snapshot digests in one
+direction. Early progress entries may reference the initial execution snapshot;
+inline and final entries must reference the final sealed execution snapshot.
+They cannot change execution items, findings, statuses, or manifest digests.
+Reserve journal capacity before writes within the manifest's existing aggregate
+limits. A journal snapshot is limited to 256 entries and 512 KiB uncompressed;
+reserve room for uncertain-write reconciliation and the terminal receipt.
+Capacity exhaustion stops further writes and leaves the attempt unconfirmed.
+
+The final comment binds the sealed execution reference and the durable journal
+intent reference. It cannot embed its own receipt digest: the receipt follows
+the GitHub commit point. On a crash or failed receipt write, recovery reads the
+live comment and verifies the exact operation identity, references, and payload.
+An exact match permits appending the missing receipt without another GitHub
+write. A mismatch remains uncertain or stale under the publication guard;
+it cannot be called successful. Losing a receipt does not undo a confirmed
+authoritative write or manufacture a second checkpoint advancement.
+
+The audit result joins the sealed execution digest with the latest verified
+journal digest. Neither digest requires mutation of the other artifact. The
+journal does not replace the conditional-write requirement above.
+
+### requirement-run-status-gates
+
+One strict schema defines the joined run status. Unknown enum values, missing
+dimensions, or inconsistent combinations are invalid; no consumer may infer
+them from a summary, verdict, or a generic success flag.
+
+```text
+RunStatus = {
+  coverage: "pending" | "complete" | "incomplete"
+  finding: "pending" | "valid" | "invalid"
+  publication: "not-started" | "in-progress" | "published"
+             | "uncertain" | "failed" | "cancelled" | "stale"
+  admission: "blocked" | "admissible"
+}
+```
+
+The manifest finalizer owns `coverage` and `finding`. Before sealing, coverage
+changes once from `pending` to `complete` or `incomplete`; finding changes once
+from `pending` to `valid` or `invalid`. Finding validity requires schema,
+evidence, identity, history, disposition, and cumulative-verdict validation.
+Incomplete validation becomes `invalid`, never an implicit success. These
+dimensions cannot change after sealing.
+
+The publisher owns `publication` in the journal. `prepared` maps to
+`not-started`; `progress-marked`, `inline-reconciled`, and `finalizable` map to
+`in-progress`. The matching terminal stages map to `published`, `failed`,
+`cancelled`, or `stale`. A write with unknown effect maps to `uncertain` and
+retains its last confirmed stage. Only exact reconciliation can restore that
+stage or confirm the next one; no later write may bypass uncertainty. A failed,
+cancelled, or stale attempt cannot restart; retry uses a new attempt identity.
+The same execution reference may be reused only if all publication guards hold.
+
+The publisher derives `admission` mechanically from the following matrix.
+`admissible` means consumers may accept the completed review result. It does
+not mean merge approval: a valid review can still request changes.
+All final-publication rows also require execution outcome `complete` and live
+publication guards. Any other execution outcome blocks final publication and
+admission, even if its individual coverage and finding dimensions succeeded.
+
+| Execution and publication state | Permitted action | Checkpoint | Admission |
+| --- | --- | --- | --- |
+| Execution pending; guards pass | Progress notice retaining prior authoritative state | Preserve | `blocked` |
+| Sealed `complete` / `valid`; `not-started` or `in-progress`; guards pass | Progress and inline reconciliation; final write only at `finalizable` | Preserve until final write succeeds | `blocked` |
+| Sealed `complete` / `valid`; final write confirmed, all findings inline or fallback | Record `published` and accept final state | Advance atomically with final comment | `admissible` |
+| Either execution dimension incomplete, invalid, or pending at finalization | Failure reporting or progress cleanup only | Preserve | `blocked` |
+| Any `uncertain`, `failed`, `cancelled`, or `stale` publication | Reconciliation or cleanup only | No new advancement | `blocked` |
+
+The final payload carries `published` / `admissible` as the postcondition of its
+successful guarded write. Constructing that payload is not publication success.
+There is no requirement to be published before attempting the final write.
+After an uncertain final write, the previous checkpoint remains the last locally
+confirmed checkpoint until exact readback establishes which state is live.
+The final write is the only authority transition; a later journal receipt
+confirms that event. Prior published results remain historical evidence when a
+new attempt starts with `not-started` / `blocked`.
 
 ### requirement-state-contract
 
@@ -148,13 +249,14 @@ The state must contain these fields:
 - base and reviewed revisions;
 - comparable predecessor revision, when available;
 - the next finding index;
-- retained findings, canonical `identityKey` and `occurrenceKey`, and lifecycle
-  metadata;
+- retained findings, typed finding identity, canonical `identityKey` and
+  `occurrenceKey`, and lifecycle metadata;
 - review limitations;
 - comparison outcomes for retained findings;
-- publication and automation-admission status;
-- the bounded manifest artifact identity and SHA-256 digest, when a manifest
-  was produced.
+- the strict joined `RunStatus`;
+- the required final sealed `ManifestReference`, including artifact identity,
+  snapshot sequence, and SHA-256 digest;
+- the required publication journal intent reference and digest.
 
 The current state contract is version 5. Its strict envelope and marker must
 agree on `schemaVersion: 5` and must contain the scope checkpoint, generation-
@@ -164,6 +266,13 @@ numeric finding IDs described below are legacy input only; they are never
 written as the current state after scope-capable delivery. V4 is a
 disposition-only transitional state and is also never an incremental
 checkpoint.
+
+A v5 reference must match the report's repository, pull request, reviewed
+revision, run, and scope identity. Missing or malformed manifest references or
+digests classify the report as `invalid-current` and fail closed. They never
+select legacy replacement or an automatic baseline. Artifact expiry disables
+resume reuse, as defined by the manifest specification; it does not erase a
+structurally valid reference or reset the published Git checkpoint.
 
 ### requirement-run-status-and-metrics
 
@@ -212,10 +321,12 @@ The finalizer must not reuse an index. A retained or reopened finding keeps its
 identifier. Review agents can reference prior identifiers but cannot allocate
 new final identifiers.
 
-Each retained finding stores its canonical location-independent `identityKey`
-and semantic `occurrenceKey`. Exact pairs identify duplicates; distinct
-occurrences retain independent evidence, lifecycle status, dispositions, and
-comparison outcomes even when their summaries are similar.
+Each retained finding stores its typed identity, canonical location-independent
+`identityKey`, and semantic `occurrenceKey` under the
+[scope identity algorithm](./2026-09-13-incremental-pull-request-review-scope.md#requirement-new-finding-admission).
+Equal pairs identify duplicates only after local evidence confirms the same
+occurrence. Distinct or ambiguous occurrences retain independent evidence,
+lifecycle status, dispositions, and comparison outcomes even when prose matches.
 
 The finalizer must collapse duplicate temporary and legacy identifiers before
 it assigns stable identifiers. Legacy deduplication must mark the state as
@@ -417,6 +528,12 @@ input and are never written as the current incremental state.
 ## Verification
 
 - Add schema compatibility and malformed-state tests.
+- Reject v5 state without a valid manifest reference and digest; distinguish
+  that failure from artifact expiry with a valid published checkpoint.
+- Test every run-status gate, including valid request-changes results,
+  incomplete coverage, uncertain final writes, and failed publication.
+- Test journal intent/receipt ordering and crash recovery before and after the
+  final GitHub write; sealed execution bytes must remain unchanged.
 - Add lifecycle transition and stable-identifier tests.
 - Add current-head fix-verification tests.
 - Add trusted-author and stale-head publication tests.
@@ -445,6 +562,7 @@ input and are never written as the current incremental state.
 
 - Source proposal: [Seqlane review template](https://github.com/marcolink/seqlane/issues/45)
 - Review scope: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
+- Execution evidence: [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md)
 - Delivery: [task.publish-versioned-pull-request-review-comments](../tasks/2026-09-05-publish-versioned-pull-request-review-comments.md)
 - Delivery: [task.prevent-comment-triggered-review-cancellation](../tasks/2026-09-05-prevent-comment-triggered-review-cancellation.md)
 - Delivery: [task.consolidate-pull-request-review-run-metrics](../tasks/2026-09-06-consolidate-pull-request-review-run-metrics.md)

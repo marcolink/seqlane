@@ -215,21 +215,55 @@ receiving an invented line. Finding identity is separate from presentation
 location: line numbers, ranges, and formatting are not part of the semantic
 identity used for deduplication or cross-run comparison.
 
-Before stable-ID allocation, every candidate must carry one canonical,
-location-independent `identityKey`. The key is the lowercase SHA-256 of the
-canonical JSON object `{axis, summary, recommendation}` after Unicode NFC
-normalization, trimming, and collapsing internal whitespace in each field.
-Path, line, evidence side, and code excerpts are excluded from this key. Each
-candidate must also carry an `occurrenceKey`, the lowercase SHA-256 of canonical
-JSON `{identityKey, semanticEvidenceFingerprint}`. The fingerprint is derived
-locally from normalized evidence plus its enclosing symbol or data-flow anchor;
-it excludes path and line but distinguishes independent exploit paths or code
-occurrences with similar prose. Candidates with the same pair are duplicates;
-distinct occurrence keys remain separate findings with independent evidence and
-lifecycle state. The same normalizer and key algorithms must be used for
-candidate deduplication, retained-finding comparison, and resume reuse. A
-missing or ambiguous key is retained as a limitation and cannot receive a new
-stable ID. The finalizer still owns the immutable public finding ID.
+Before stable-ID allocation, the local finalizer must construct a strict
+`review.finding-identity/v1` representation from frozen repository evidence:
+
+```text
+FindingIdentity = {
+  schema: "review.finding-identity/v1"
+  normalizerVersion
+  language
+  defectKind: member of the trusted reviewer taxonomy
+  cause: { enclosingDeclaration, tokenDigest }
+  occurrence: ordered list of {
+    role: "cause" | "source" | "sink" | "guard"
+    enclosingDeclaration
+    tokenDigest
+  }
+}
+```
+
+The local normalizer parses supported source evidence, resolves declarations,
+and hashes canonical token-kind/value sequences. It omits comments and trivia,
+but preserves identifier and literal values. Enclosing declarations use typed
+symbol signatures, not line numbers or file paths. Occurrence anchors retain
+causal order, so distinct source-to-sink paths remain distinct. A candidate's
+defect kind and anchor claims are untrusted: the local validator must verify
+them against the pinned taxonomy and supplied evidence before accepting them.
+Unsupported evidence or an unprovable relation yields a visible limitation,
+not a guessed identity or a prose-derived fallback.
+
+`identityKey` is lowercase SHA-256 of canonical JSON containing schema,
+normalizer version, language, defect kind, and cause. `occurrenceKey` is
+lowercase SHA-256 of canonical JSON `{identityKey, occurrence}`. Canonical JSON
+sorts object keys, preserves array order, and uses UTF-8 without changing token
+values. Summary, recommendation, severity, axis labels, evidence side, paths,
+and lines are mutable presentation or verification metadata; none enters
+either key. Persist the typed identity with its keys so a reader can validate
+the derivation. Pin the same normalizer for candidate deduplication, retained
+comparison, and resume reuse; a version change cannot silently rekey history.
+
+Equal keys are duplicates only when local evidence also resolves to the same
+occurrence. Identical code in distinct declarations or ambiguous anchors must
+not merge independent findings. Ambiguity is a visible limitation with no new
+stable ID; retained findings keep their independent IDs and dispositions.
+For an unambiguous match, rewording, recommendation changes, and path or line
+movement preserve the public ID, dispositions, and verification history.
+If changed source produces new keys, retaining an old ID requires a locally
+verified one-to-one occurrence match against prior and current evidence. Model
+claims alone cannot establish that match. This contract promises continuity
+for verified matches, not automatic recognition of arbitrary semantic rewrites.
+The finalizer owns stable-ID allocation and lifecycle changes.
 
 ### requirement-existing-findings
 
@@ -347,7 +381,7 @@ The schema-evolution matrix is canonical:
 | --- | --- | --- | --- |
 | v3 | Existing lifecycle state, v3 metadata marker, numeric finding IDs. | Current v3 reader. | Accepted as legacy when the scope feature is enabled; replaced by a new baseline. |
 | v4 | Transitional mechanical-disposition state: v3 fields plus monotonic state revision and writer identity; v4 marker. It has no scope checkpoint and is never an incremental checkpoint for this feature. | v4 disposition reader and the scope reader as legacy. | If published before v5, v3 migrates to v4 for disposition work. The first scope-capable publication replaces v4 with a fresh v5 baseline and discards v4 findings, dispositions, metrics, and checkpoint. |
-| v5 | Unified current state: v4 disposition fields plus `scopeCheckpoint`, generation-qualified finding IDs, and the v5 marker. | v5 reader only for current operation; older readers reject it. | v3 or v4 is legacy and is replaced by a fresh v5 baseline. Invalid v5 state is `invalid-current` and fails closed. |
+| v5 | Unified current state: v4 disposition fields plus `scopeCheckpoint`, generation-qualified finding IDs, typed identities and comparisons, strict run status, required sealed manifest and publication intent references with digests, and the v5 marker. | v5 reader only for current operation; older readers reject it. | v3 or v4 is legacy and is replaced by a fresh v5 baseline. Invalid v5 state, including a missing manifest reference, is `invalid-current` and fails closed. |
 
 The v5 schema is the only target for the incremental scope implementation.
 If incremental scope lands before mechanical dispositions, it still writes v5
@@ -465,8 +499,9 @@ the sum of hunk and byte counts matches the pre-model plan. It must preserve
 limitations in deterministic ordinal order.
 
 After batch aggregation, the orchestrator deduplicates findings by normalized
-stable ID, then by the canonical `(identityKey, occurrenceKey)` pair. It retains
-the highest severity and deterministic first occurrence for exact duplicates;
+stable ID, then by the canonical `(identityKey, occurrenceKey)` pair with local
+same-occurrence verification. It retains the highest severity and deterministic
+first occurrence for exact duplicates;
 distinct occurrence keys remain independent. Only the aggregated result enters
 synthesis. A missing or ambiguous identity or occurrence key is a limitation and
 cannot allocate a new stable ID; path and line may be shown only as evidence and
@@ -600,8 +635,10 @@ The trusted sequence is:
    in bounded run evidence.
 5. Run historical-finding verification independently. Run discovery lanes only
    for complete eligible reviewable evidence. Synthesize and gate new findings.
-6. Seal and finalize the run manifest, reconcile retained findings and
-   dispositions, then derive the cumulative verdict mechanically.
+6. Reconcile retained findings and dispositions, derive the cumulative verdict
+   mechanically, and validate findings. Finalize execution coverage and finding
+   statuses, then seal the run manifest. Subsequent publication transitions
+   belong to the publisher's journal and cannot mutate execution evidence.
 7. Re-read the live target branch, base revision, head, checkpoint, and
    variant-specific report identity under the publication guard. Publish the
    report and checkpoint together, or leave the old report authoritative and
@@ -699,6 +736,12 @@ force-push, retargeting, model change, or state parse failure.
 - Test evidence-backed positioning, unlocated and ambiguous findings,
   location-independent deduplication, and `new`, `persisting`, `resolved`, and
   `not_reviewed` comparison outcomes.
+- Test reworded summaries, changed recommendations, and moved source with the
+  same verified occurrence: retain keys, public IDs, dispositions, and history.
+  Distinct exploit paths stay separate; ambiguous or unsupported evidence
+  cannot receive a guessed key. Reject model-supplied keys and normalizer drift.
+- Test v5 missing or malformed manifest references as `invalid-current`, without
+  automatic baseline replacement. Expired artifacts disable reuse only.
 - Test rule precedence, exclusion explanations, provenance hashes, uncertain
   publication reconciliation, and visible fallback for unpublishable findings.
 - Test that the progress marker cannot be parsed as a published checkpoint and
