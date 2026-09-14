@@ -17,9 +17,10 @@ supersedes: []
 ## Summary
 
 The first successful review of a pull request examines its complete diff against
-its target branch. A later review may create findings only for pull-request files
-whose Git tree entries changed since the last **published** review. Existing
-findings remain in the report and follow their established lifecycle.
+its target branch. Later reviews select only pull-request files changed since
+the last **published** review. A new finding must also have a verified cause
+anchor in that new change, not merely in an older hunk of a selected file.
+Existing findings remain in the report and follow their established lifecycle.
 
 The authoritative comment is the durable checkpoint. A run that fails, is
 cancelled, sees a stale head, or cannot cover its whole eligible scope does not
@@ -40,7 +41,8 @@ owns the Action and runtime boundary.
 ## Goals
 
 - Review the full PR diff on the first successfully published review.
-- Prevent new findings for files unchanged since the last published review.
+- Prevent new findings whose cause is outside the change since the last
+  published review, including older hunks in a newly edited file.
 - Preserve previous finding IDs, statuses, dispositions, and the cumulative
   verdict across follow-up runs.
 - Make rebases, force-pushes, base movement, retries, and partial evidence
@@ -147,11 +149,14 @@ change evidence = two-tree diff C H, restricted to R
 
 The intersection uses paths, not commit dates, commit messages, GitHub event
 types, or prior finding locations. It excludes changes that no longer form part
-of the current PR. The `C H` diff selects files; the `B...H` diff shows the
-current PR contribution in those files. Agents must not treat changes imported
-from the target branch as PR-authored code. The two-tree comparison does not
-require `C` to be an ancestor of `H`; this is necessary for rebases and
-force-pushes. A file touched and then restored to the same tree entry is
+of the current PR. The `C H` diff selects files and supplies the required
+new-finding cause anchors; the `B...H` diff shows the complete current PR
+contribution in those files as review context. A path being in `R` alone does
+not authorize a new finding from an unchanged hunk of that file. Agents must
+not treat changes imported from the target branch as PR-authored code. The
+two-tree comparison does not require `C` to be an ancestor of `H`; this is
+necessary for rebases and force-pushes. A file touched and then restored to
+the same tree entry is
 unchanged for this purpose. A branch-base change alone does not make an
 unchanged head file eligible.
 
@@ -185,24 +190,30 @@ diff with an empty path list; it could otherwise select the full repository.
 ### requirement-new-finding-admission
 
 Each proposed new finding must have a workspace-relative path in `R`. A
-pathless finding cannot receive a new stable ID. A finding that describes an
-effect in an unchanged file must point to a reviewable changed file containing
-the cause, with evidence that connects the change to the effect. Context reads
-of unchanged files do not make those files eligible.
+pathless finding cannot receive a new stable ID. Its primary cause anchor
+must overlap a changed line or changed tree-entry record in the baseline
+`B...H` evidence or, for incremental mode, in the two-tree `C H` evidence.
+For a text hunk, an old-side removed line or new-side added line qualifies;
+unchanged context lines alone do not. A finding that describes an effect in
+an unchanged file must point to the eligible changed cause and use the
+unchanged file only as supporting context. A no-change run admits no new
+findings.
 
 Review lanes and synthesis must receive the mode, exact revisions, `R`, the
-complete current-PR patch for `R`, change evidence, exclusions,
-and retained findings. They must propose only findings from the current scope
+complete current-PR patch for `R`, change evidence, exclusions, and retained
+findings. They must propose only findings from the current scope
 and reference an existing stable ID when they recognize a retained finding.
 Before stable-ID allocation, a deterministic local gate must reject or omit a
-newly proposed finding outside `R`; the run must report that limitation. The
-gate must not silently relabel it as a prior finding. Findings about excluded
-file contents cannot be inferred from metadata alone. An excluded-only change
+newly proposed finding outside `R` or without a verified current-change cause
+anchor; the run must report that limitation. The gate must not silently
+relabel it as a prior finding. Findings about excluded file contents cannot be
+inferred from metadata alone. An excluded-only change
 may produce a coverage limitation, not an invented content finding.
 
 The gate applies after synthesis and before lifecycle reconciliation. It must
-validate paths against the exact `R` calculated for that run, not a
-model-supplied list. Agent output cannot widen the scope or assign final IDs.
+validate paths against the exact `R` and cause anchors calculated for that
+run, not a model-supplied list. Agent output cannot widen the scope or assign
+final IDs.
 
 Every proposed new finding must have bounded evidence from a sealed
 ManifestItem. The trusted finalizer, not the agent, validates this strict model
@@ -213,12 +224,7 @@ FindingEvidence = {
   itemId: sealed ManifestItem ID
   evidenceForm: "pr-patch" | "change-evidence"
   itemEvidenceDigest: lowercase SHA-256 matching that item
-  sourceRevision: full Git commit SHA
   path: validated relative path matching that item
-  side: "old" | "new" | "context"
-  sourceDigest: lowercase SHA-256 of frozen source bytes
-  excerpt: nonempty UTF-8 string, at most 500 bytes
-  excerptDigest: lowercase SHA-256 of exact excerpt bytes
   supportingEvidence: array of at most 4 {
     role: "cause" | "source" | "sink" | "guard"
     path: validated relative path
@@ -227,7 +233,19 @@ FindingEvidence = {
     excerpt: nonempty UTF-8 string, at most 500 bytes
     excerptDigest: lowercase SHA-256
   }
-}
+} & (
+  | { anchorKind: "changed-text"
+      side: "old" | "new"
+      sourceRevision: full Git commit SHA
+      sourceDigest: lowercase SHA-256 of frozen source bytes
+      excerpt: nonempty UTF-8 string, at most 500 bytes
+      excerptDigest: lowercase SHA-256 of exact excerpt bytes
+      changedStartLine: positive integer
+      changedEndLine: integer >= changedStartLine }
+  | { anchorKind: "changed-tree-entry"
+      beforeEntryDigest: lowercase SHA-256 or absent
+      afterEntryDigest: lowercase SHA-256 or absent }
+)
 
 LocationStatus =
   | { kind: "located"; side: "old" | "new";
@@ -237,30 +255,42 @@ LocationStatus =
       candidateCount: positive integer }
 ```
 
-The finalizer verifies the item, path, form, revision, side, excerpt bytes,
-and digests against the frozen patch or source blob at the named revision.
-The manifest records the source digest for every referenced blob. A new
-finding's primary path must be in R; supporting context may come from other
-readable files but cannot widen R. The finalizer derives a range by searching
-the frozen evidence and refuses a model-supplied range it cannot reproduce.
-A located range must be on the named side and revision; context-only evidence
-cannot claim a located PR line. If no unique safe range exists, the finding
-remains visible as unlocated or ambiguous with a limitation. Invalid or
-missing evidence makes finding validation fail.
+New-baseline and legacy-replacement findings reference a pr-patch item;
+incremental findings reference a change-evidence item. A no-change run cannot
+create one. The trusted
+finalizer proves that changedStartLine through changedEndLine overlaps added
+or removed lines in that exact frozen hunk and that the primary excerpt
+includes at least one of those lines. It derives these lines locally;
+model-supplied positions are untrusted. For a zero-hunk binary, mode, or
+tree-entry change, changed-tree-entry must reference the matching changed
+entry record and has no invented text line. The baseline old side is the
+merge-base tree; the incremental old side is C. The new side is H.
+
+The finalizer verifies the item, path, form, revisions, source bytes, excerpts,
+and digests against the frozen evidence and records each referenced source
+digest in the manifest. Supporting context may come from other readable files
+but cannot widen R or replace the primary changed anchor. A located range
+must be on the named changed side and revision; a tree-entry anchor is
+unlocated. If no unique safe range exists, the finding remains visible as
+unlocated or ambiguous with a limitation. Invalid or missing cause evidence
+makes finding validation fail.
 
 Finding identity is a matching aid, separate from presentation location and
 the publisher-assigned public ID. The finalizer computes a versioned
 identityKey from the trusted defect kind and a whitespace-normalized,
-evidence-verified cause excerpt. It computes occurrenceKey from identityKey,
-the verified path, and ordered digests of validated supporting evidence.
+evidence-verified text cause or changed tree-entry digests. It computes
+occurrenceKey from identityKey, the verified path, and ordered digests of
+validated supporting evidence.
 Line numbers, severity, summary, and recommendation are excluded. The trusted
 finalizer validates every input to these hashes. No AST parser, language-specific
 declaration resolver, or claimed data-flow proof is required in this
 iteration. Identical prose alone never merges findings.
 
 The identityKey is SHA-256 of canonical JSON containing schema
-review.finding-identity/v1, the trusted defect kind, and SHA-256 of the cause
-excerpt after trimming and collapsing ASCII whitespace runs to one space.
+review.finding-identity/v1, the trusted defect kind, anchor kind, and cause
+digest. For text, the cause digest hashes the excerpt after trimming and
+collapsing ASCII whitespace runs to one space. For a tree-entry change, it
+hashes the before and after entry digests, including an explicit absent side.
 The occurrenceKey is SHA-256 of canonical JSON containing identityKey, the
 validated primary path, and the ordered supporting-evidence roles, paths,
 source digests, and excerpt digests. Canonical JSON sorts object keys and
@@ -710,6 +740,10 @@ force-push, retargeting, model change, or state parse failure.
   cannot publish.
 - Test the finalizer with out-of-scope and pathless agent findings. Prove that
   no new stable ID is allocated and a limitation is visible.
+- Test a file edited twice: an older PR hunk in that file is context only,
+  while a verified C-to-H added or removed line can anchor a new finding.
+  Test a zero-hunk tree-entry change, unchanged context lines, changed-line
+  range forgery, and a no-change run. No unverified anchor receives a new ID.
 - Test that retained findings, dispositions, fix verification, and verdict
   remain correct on both incremental and no-change runs.
 - Test old-version replacement, discarded old findings and metrics, old-command

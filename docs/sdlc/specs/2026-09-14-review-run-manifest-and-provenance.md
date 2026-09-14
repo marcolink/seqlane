@@ -180,8 +180,11 @@ The manifest retains each admitted finding's typed FindingEvidence and
 LocationStatus from the
 [scope contract](./2026-09-13-incremental-pull-request-review-scope.md#requirement-new-finding-admission).
 The finding references one sealed item and its evidence digest. The trusted
-finalizer verifies the bounded excerpt or range against that frozen evidence,
-or records a typed unlocated or ambiguous status with a visible limitation.
+finalizer verifies its primary changed-line or changed-tree-entry anchor
+against that frozen item: pr-patch for a baseline, change-evidence for an
+incremental run. Full PR patch context from an earlier hunk cannot satisfy
+an incremental cause anchor. The finalizer records a typed unlocated or
+ambiguous status with a visible limitation when a safe line is unavailable.
 A finding without valid evidence is invalid; a safe but unlocated finding
 remains visible in the summary. The trusted comment persists the same bounded
 finding fields so later runs do not depend on an expired artifact for finding

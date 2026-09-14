@@ -35,6 +35,9 @@ Preserve the state, lifecycle, trust, and publication rules in
   arguments, exact checkpoint commit validation, typed batches, and hard
   cumulative Git, model, and time limits.
 - Restrict review lanes to selected scope and gate new findings locally.
+- Require each new finding's primary cause anchor to overlap the baseline
+  PR change or the current checkpoint-to-head change. Older hunks in a
+  newly edited file remain context only.
 - Persist typed bounded finding evidence and location status. Keep finding
   identity separate from line position without requiring language parsers.
 - Assemble one run-local manifest with a sealed item and lane denominator,
@@ -68,8 +71,9 @@ Preserve the state, lifecycle, trust, and publication rules in
    deterministic aggregation, bounded subprocesses, and cumulative budgets.
 4. Pass scope and retained current-generation findings to history
    verification, configured lanes, and synthesis. Add the deterministic
-   new-finding path gate, first-observed revision, typed evidence and location
-   status, evidence-backed identity, and typed comparison outcomes.
+   new-finding path and changed-anchor gate, first-observed revision, typed
+   evidence and location status, evidence-backed identity, and typed
+   comparison outcomes.
 5. Preserve prior findings and compute a cumulative verdict. Skip discovery
    lanes for empty scope; still verify retained findings as required.
 6. Add the Action-owned run-local manifest, sealed item and expected-lane
@@ -113,6 +117,10 @@ Preserve the state, lifecycle, trust, and publication rules in
   and workflow-admission tests.
 - Prove every configured batch lane has a validated result before coverage
   can be complete; missing or failed lanes preserve the old checkpoint.
+- Test a file edited twice: a candidate anchored only in the earlier PR
+  hunk receives no new ID, while a candidate anchored in the C-to-H hunk
+  can receive one. Cover added, removed, zero-hunk tree-entry, and no-change
+  evidence; validate the cause locally before ID allocation.
 - Test two baseline publishers and concurrent report updates in the same
   shared queue, disposition reconciliation, stale guards, queue overflow,
   ambiguous-write readback, and one final authoritative comment.
