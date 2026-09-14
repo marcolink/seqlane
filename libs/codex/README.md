@@ -14,9 +14,12 @@ drains child stderr, handles split UTF-8 output, bounds outbound and inbound
 JSONL, and confirms child-process termination with forced shutdown escalation.
 Turn events are correlated by thread and turn, buffered across the `turn/start`
 response, reduced into activity lifecycle events, and bounded by item and
-payload limits. Cancellation and request/turn deadlines interrupt the turn and
+payload limits. Turn cancellation and deadlines attempt interruption and
 require terminal confirmation. Unsupported server requests receive typed JSON-
 RPC errors.
+If interruption cannot be confirmed, the run closes its shared connection and
+rejects further session work, checkpoints, and forks. A timed-out model probe
+leaves a run-owned connection for the run to close.
 
 ## Protocol compatibility probe
 

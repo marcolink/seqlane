@@ -1,6 +1,7 @@
 import type { AgentAdapter, AgentDiagnostic } from "@seqlane/agent-adapter";
 import type { ModelSelection } from "@seqlane/core";
 import { createCodexAdapter } from "./adapter.js";
+import { CodexAdapterError } from "./errors.js";
 import { createCodexModelCapabilities } from "./model-capabilities.js";
 import type { CodexLaunchConfiguration } from "./protocol.js";
 import { createCodexStdioTransport, type CodexTransport } from "./transport.js";
@@ -27,6 +28,12 @@ export function createCodexRun(
 ) {
   let transportPromise: Promise<CodexTransport> | undefined;
   let closed = false;
+  let closePromise: Promise<void> | undefined;
+  const runController = new AbortController();
+  const runSignal =
+    options.signal === undefined
+      ? runController.signal
+      : AbortSignal.any([options.signal, runController.signal]);
   const pendingDiagnostics: AgentDiagnostic[] = [];
   const transport = async (
     _configuration: CodexLaunchConfiguration,
@@ -41,7 +48,7 @@ export function createCodexRun(
       options.createTransport ?? createCodexStdioTransport
     )(configuration, {
       ...transportOptions,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      signal: runSignal,
       onDiagnostic: (diagnostic) => {
         if (transportOptions.onDiagnostic !== undefined) {
           transportOptions.onDiagnostic(diagnostic);
@@ -51,10 +58,19 @@ export function createCodexRun(
       },
     }));
   };
+  const close = (): Promise<void> =>
+    (closePromise ??= (async () => {
+      closed = true;
+      runController.abort(
+        new CodexAdapterError("cancellation", "Codex run is closed"),
+      );
+      const created = await transportPromise?.catch(() => undefined);
+      await created?.close();
+    })());
   const modelCapabilities = createCodexModelCapabilities(configuration, {
     createTransport: transport,
     closeTransport: false,
-    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    signal: runSignal,
   });
   return {
     modelCapabilities,
@@ -63,9 +79,11 @@ export function createCodexRun(
       modelSelection?: ModelSelection,
     ): AgentAdapter {
       return createCodexAdapter(configuration, {
-        signal,
+        signal: AbortSignal.any([runSignal, signal]),
         ...(modelSelection === undefined ? {} : { modelSelection }),
         closeTransport: false,
+        onUnconfirmedTermination: close,
+        isRunClosed: () => closed,
         drainDiagnostics: () => {
           const diagnostics = pendingDiagnostics.splice(
             0,
@@ -76,13 +94,7 @@ export function createCodexRun(
         createTransport: transport,
       });
     },
-    async close(): Promise<void> {
-      if (closed) return;
-      closed = true;
-      if (transportPromise !== undefined) {
-        await (await transportPromise).close();
-      }
-    },
+    close,
   };
 }
 

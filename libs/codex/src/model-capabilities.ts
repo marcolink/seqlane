@@ -60,6 +60,7 @@ export function createCodexModelCapabilities(
         transportPromise,
         timeoutMs,
         options.signal,
+        options.closeTransport !== false,
       );
       try {
         return parseModelListResult(
