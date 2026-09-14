@@ -183,7 +183,9 @@ The finding references one sealed item and its evidence digest. The trusted
 finalizer verifies its primary changed-line or changed-tree-entry anchor
 against that frozen item: pr-patch for a baseline, change-evidence for an
 incremental run. Full PR patch context from an earlier hunk cannot satisfy
-an incremental cause anchor. The finalizer records a typed unlocated or
+an incremental cause anchor. The finalizer also verifies that the cause is
+part of the current PR patch, not only an imported target-branch change in
+the same path. It records a typed unlocated or
 ambiguous status with a visible limitation when a safe line is unavailable.
 A finding without valid evidence is invalid; a safe but unlocated finding
 remains visible in the summary. The trusted comment persists the same bounded

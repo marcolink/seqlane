@@ -37,7 +37,8 @@ Preserve the state, lifecycle, trust, and publication rules in
 - Restrict review lanes to selected scope and gate new findings locally.
 - Require each new finding's primary cause anchor to overlap the baseline
   PR change or the current checkpoint-to-head change. Older hunks in a
-  newly edited file remain context only.
+  newly edited file remain context only. An incremental cause must also
+  remain part of the current PR diff, not an imported target-branch edit.
 - Persist typed bounded finding evidence and location status. Keep finding
   identity separate from line position without requiring language parsers.
 - Assemble one run-local manifest with a sealed item and lane denominator,
@@ -119,8 +120,9 @@ Preserve the state, lifecycle, trust, and publication rules in
   can be complete; missing or failed lanes preserve the old checkpoint.
 - Test a file edited twice: a candidate anchored only in the earlier PR
   hunk receives no new ID, while a candidate anchored in the C-to-H hunk
-  can receive one. Cover added, removed, zero-hunk tree-entry, and no-change
-  evidence; validate the cause locally before ID allocation.
+  and still in the PR diff can receive one. Cover imported target changes,
+  added, removed, zero-hunk tree-entry, and no-change evidence; validate
+  the cause locally before ID allocation.
 - Test two baseline publishers and concurrent report updates in the same
   shared queue, disposition reconciliation, stale guards, queue overflow,
   ambiguous-write readback, and one final authoritative comment.

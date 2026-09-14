@@ -193,6 +193,11 @@ Each proposed new finding must have a workspace-relative path in `R`. A
 pathless finding cannot receive a new stable ID. Its primary cause anchor
 must overlap a changed line or changed tree-entry record in the baseline
 `B...H` evidence or, for incremental mode, in the two-tree `C H` evidence.
+For incremental mode, the local gate must also verify that this same cause
+is part of the current PR contribution in `B...H`. A change imported from
+the target branch does not qualify, even when its file is in `R`. If the
+two evidence forms cannot establish that relation, show a limitation and
+allocate no new ID.
 For a text hunk, an old-side removed line or new-side added line qualifies;
 unchanged context lines alone do not. A finding that describes an effect in
 an unchanged file must point to the eligible changed cause and use the
@@ -741,8 +746,9 @@ force-push, retargeting, model change, or state parse failure.
 - Test the finalizer with out-of-scope and pathless agent findings. Prove that
   no new stable ID is allocated and a limitation is visible.
 - Test a file edited twice: an older PR hunk in that file is context only,
-  while a verified C-to-H added or removed line can anchor a new finding.
-  Test a zero-hunk tree-entry change, unchanged context lines, changed-line
+  while a verified C-to-H added or removed line that remains part of the PR
+  can anchor a new finding. Test imported target-branch changes in the same
+  file, zero-hunk tree-entry changes, unchanged context lines, changed-line
   range forgery, and a no-change run. No unverified anchor receives a new ID.
 - Test that retained findings, dispositions, fix verification, and verdict
   remain correct on both incremental and no-change runs.
