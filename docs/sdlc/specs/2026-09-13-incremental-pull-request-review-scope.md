@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-09-14
 upstream:
   - spec.versioned-pull-request-review-comments
 supersedes: []
@@ -25,6 +25,11 @@ cancelled, sees a stale head, or cannot cover its whole eligible scope does not
 advance that checkpoint. Scope selection and finding admission are deterministic
 Action-library behavior, not agent discretion.
 
+Each admitted run also produces one versioned, machine-readable manifest. The
+manifest records frozen input, provenance, coverage outcomes, limitations, and
+terminal status. The authoritative comment remains the trusted cross-run
+checkpoint; it is not the complete execution trace.
+
 This specification owns review scope and checkpoint semantics. The
 [versioned-comment specification](./2026-09-05-versioned-pull-request-review-comments.md)
 owns trusted state transport, finding lifecycle, publication, and metrics. The
@@ -40,6 +45,10 @@ owns the Action and runtime boundary.
 - Make rebases, force-pushes, base movement, retries, and partial evidence
   deterministic.
 - Never turn an incomplete review into an apparently complete checkpoint.
+- Make coverage, finding validity, publication, and automation admission
+  independently visible.
+- Preserve enough bounded evidence to explain location, comparison, retry, and
+  failure decisions without trusting model assertions.
 
 ## Non-goals
 
@@ -84,6 +93,13 @@ owns the Action and runtime boundary.
   has an ordinal, path list, patch bytes, change-evidence bytes, and coverage
   counts. A batch result records completion, parsed paths, hunks, byte counts,
   and failure or limitation data.
+- **Run manifest**: the versioned, immutable machine-readable record of one
+  admitted review, including frozen input, provenance, coverage outcomes,
+  limitations, and terminal status.
+- **Finding evidence**: the bounded source excerpt and diff side used to support
+  a finding and derive its current presentation location.
+- **Not reviewed**: a comparison outcome for a prior finding whose path was not
+  in the later run's reviewable scope. It is never equivalent to resolved.
 
 ## Requirements
 
@@ -183,6 +199,21 @@ The gate applies after synthesis and before lifecycle reconciliation. It must
 validate paths against the exact `R` calculated for that run, not a
 model-supplied list. Agent output cannot widen the scope or assign final IDs.
 
+Every proposed finding must include bounded evidence from the supplied patch or
+current-head file, together with an evidence side (`old`, `new`, or `context`)
+when applicable. The local positioning step derives a line range by searching
+the frozen evidence. A finding may remain `unlocated` or `ambiguous` when no
+safe position exists; it must remain visible with a limitation instead of
+receiving an invented line. Finding identity is separate from presentation
+location: line numbers, ranges, and formatting are not part of the semantic
+identity used for deduplication or cross-run comparison.
+
+Before stable-ID allocation, duplicate candidates are collapsed by a
+deterministic identity key that excludes location and normalizes bounded
+whitespace. A missing or ambiguous identity key is retained as a limitation and
+cannot receive a new stable ID. The finalizer still owns the immutable public
+finding ID.
+
 ### requirement-existing-findings
 
 For an incremental or no-change run, the workflow must load **all** findings
@@ -218,6 +249,57 @@ claimed *dependency revision range*: the review range records where the agent
 first observed the problem, not every file or commit on which the problem
 depends. Rebase can change that range without changing the defect. Current
 validity is established by current-head evidence, not range membership.
+
+Comparison must produce four disjoint outcomes: `new`, `persisting`, `resolved`,
+and `not_reviewed`. A finding can be `resolved` only after the later run
+reviewed the relevant path and current-head verification supports that result.
+An incremental run that did not select a path must preserve the finding as
+`not_reviewed` and carry its lifecycle forward.
+
+### requirement-run-manifest-and-lifecycle
+
+Every admitted run must create one strict, versioned manifest before model work.
+Its identity and frozen input must include the run ID, optional parent run ID,
+pull-request number, mode, target and head revisions, checkpoint revision when
+applicable, source artifact or diff hash, and the trusted scope identity. Its
+execution provenance must include reviewer version, provider and model
+identity, rule and runtime configuration hashes, configured concurrency, and
+background context hash when background context can affect the result. Do not
+persist credentials, raw endpoints, or unbounded provider errors.
+
+The manifest must seal the selected denominator before concurrency or resume
+reuse begins. For every selected path or evidence item, exactly one terminal
+outcome is required: `completed`, `reused`, `failed`, or `waived`. Repeated
+identical transitions are idempotent; conflicting transitions fail. Finalize
+must reject later mutation and must convert any selected item without an
+outcome into a typed failure. Failure classes are fixed and recorded at the
+narrowest known level (`provider`, `timeout`, `cancelled`, `configuration`,
+`input`, `budget`, `panic`, or `unknown`). A per-item failure does not imply a
+run-level failure.
+
+The manifest must expose separate statuses for coverage, finding validation,
+publication, and automation admission. A run with complete coverage but failed
+publication is not publication-complete or automation-admissible. A run with
+partial coverage cannot be rendered as clean. Empty collections are encoded as
+`[]`, and all paths, outcomes, findings, limitations, and retry records are
+sorted deterministically.
+
+Resume reuse is allowed only after strict run-level validation of mode, frozen
+input, scope identity, rules, filters, provider, model, and runtime
+configuration. Reuse is narrow and item-level: only settled compatible
+checkpoints may be reused; missing or invalid items are rerun under the same
+manifest identity and budget. State must not be created before these admission
+checks pass.
+
+### requirement-provenance-and-explainability
+
+The run must record which rule layer and file-selection decision applied to each
+reviewed or excluded path. Rule resolution is deterministic and ordered:
+per-run rules, project rules, global rules, then embedded system rules. Selection
+and rule resolution remain separate decisions. The machine-readable result must
+retain bounded explanations for exclusions, selected rules, retries, and
+limitations so a human or automation consumer can reconstruct why an item was
+reviewed, skipped, or failed.
 
 ### requirement-checkpoint-state
 
@@ -257,7 +339,9 @@ the new form. Old `SEQ-PR{number}-{index}` commands cannot resolve to a new
 finding, even when the numeric index repeats. The publisher must not migrate
 old finding aliases into the new generation.
 
-The run metrics ledger is unchanged and is never a checkpoint source.
+The run metrics ledger is unchanged and is never a checkpoint source. The
+manifest is the source for coverage and lifecycle evidence; the ledger remains
+the source for rendered run metrics.
 Previous-report timestamps, GitHub run IDs, and `previousReviewedRevision` are
 not eligibility anchors.
 
@@ -519,12 +603,14 @@ The trusted sequence is:
    in bounded run evidence.
 5. Run historical-finding verification independently. Run discovery lanes only
    for complete eligible reviewable evidence. Synthesize and gate new findings.
-6. Reconcile retained findings and dispositions, then derive the cumulative
-   verdict mechanically.
+6. Seal and finalize the run manifest, reconcile retained findings and
+   dispositions, then derive the cumulative verdict mechanically.
 7. Re-read the live target branch, base revision, head, checkpoint, and
    variant-specific report identity under the publication guard. Publish the
    report and checkpoint together, or leave the old report authoritative and
-   recompute scope in a new run.
+   recompute scope in a new run. Summary and inline publication are separate
+   idempotent operations; reconcile uncertain writes before retrying and route
+   unpublishable findings to a visible summary fallback.
 
 No unchecked Git output may become a path, revision, or shell argument. Bounds
 on path count, path length, patch size, state size, and model output remain
@@ -551,6 +637,10 @@ is an incomplete review, not a smaller valid scope.
 | New finding lacks a path or names a path outside `R` | Reject it before ID allocation and show a scope limitation. |
 | Only excluded files change | Do not claim their contents were reviewed or invent a content finding. |
 | A planned or dynamic cumulative ceiling is exceeded | Fail without publication or checkpoint advancement. |
+| A selected item has no terminal outcome at finalization | Record a typed failure; coverage is incomplete and publication is blocked. |
+| A finding cannot be safely located | Preserve it as unlocated or ambiguous with a visible limitation. |
+| A later run omits a prior finding's path | Preserve it as `not_reviewed`; do not mark it resolved. |
+| An external write has an uncertain result | Re-read and reconcile before retry; do not duplicate or silently drop it. |
 
 ## Migration
 
@@ -605,6 +695,15 @@ force-push, retargeting, model change, or state parse failure.
 - Test failed, cancelled, incomplete, stale-head, moved-target, and
   changed-checkpoint runs. Assert that their authoritative checkpoint does not
   advance.
+- Test manifest sealing, idempotent and conflicting transitions, finalization
+  backstop failures, per-item versus run-level failure classes, strict resume
+  identity, deterministic ordering, and independent coverage, finding,
+  publication, and admission statuses.
+- Test evidence-backed positioning, unlocated and ambiguous findings,
+  location-independent deduplication, and `new`, `persisting`, `resolved`, and
+  `not_reviewed` comparison outcomes.
+- Test rule precedence, exclusion explanations, provenance hashes, uncertain
+  publication reconciliation, and visible fallback for unpublishable findings.
 - Test that the progress marker cannot be parsed as a published checkpoint and
   that failed legacy replacement restores the old report.
 - Run the repository test-mapping check before focused tests. Run focused
@@ -638,6 +737,12 @@ force-push, retargeting, model change, or state parse failure.
 - No cumulative resource ceiling can be bypassed by adding batches or retries.
 - Rebase, force-push, and base movement do not silently reopen full-branch
   discovery.
+- Every selected item has one explicit outcome in an immutable versioned
+  manifest, and missing outcomes become visible failures.
+- Findings retain bounded evidence, safe location status, and semantic identity
+  independent of line location.
+- Comparisons preserve `not_reviewed`, and coverage, finding, publication, and
+  admission statuses cannot collapse into one completion flag.
 - The human report identifies the review mode and scope and does not present
   incremental ratings as a fresh full-branch review.
 
