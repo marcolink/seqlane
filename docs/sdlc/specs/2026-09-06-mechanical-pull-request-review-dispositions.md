@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-13
 upstream: []
 supersedes: []
 ---
@@ -71,9 +71,15 @@ It must not overwrite those decisions.
 
 ### requirement-state-migration
 
-The next state schema is version 4. It adds a monotonic state revision and
-writer identity. Readers accept valid versions 1 through 3 and migrate retained
-state on the next write.
+The next state schema revision adds a monotonic state revision and writer
+identity. If this proposal lands before the incremental-review scope contract,
+its version 4 reader may migrate v1-v3 state. This v4 schema is
+disposition-only: it has no scope checkpoint and cannot be used for incremental
+eligibility. When the incremental-review scope contract is delivered, v5 is the
+sole current schema. V5 includes the v4 disposition fields and the scope
+fields, while v4 is read only as legacy and replaced by a fresh v5 baseline.
+The mechanical path must not publish a shared-v4 alternative after v5 is
+available; one state revision has one field set and one meaning.
 
 ### requirement-human-projection
 
@@ -108,4 +114,5 @@ legacy-state compatibility.
 ## Traceability
 
 - Current contract: [spec.versioned-pull-request-review-comments](2026-09-05-versioned-pull-request-review-comments.md)
+- Review scope: [spec.incremental-pull-request-review-scope](2026-09-13-incremental-pull-request-review-scope.md)
 - Delivery: [task.mechanical-pull-request-review-dispositions](../tasks/2026-09-06-mechanical-pull-request-review-dispositions.md)

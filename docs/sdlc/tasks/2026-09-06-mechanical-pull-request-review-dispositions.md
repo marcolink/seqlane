@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-08
+updated: 2026-09-13
 upstream:
   - spec.mechanical-pull-request-review-dispositions
 supersedes: []
@@ -36,8 +36,9 @@ Implement [spec.mechanical-pull-request-review-dispositions](../specs/2026-09-06
   lock shared by the mechanical path and full-review publication.
 - Re-read the live comment and command ledger inside the lock, and reconcile
   an agent result with decisions that appeared after the review began.
-- Migrate persisted review state from v3 to v4 with a monotonic state revision
-  and writer identity.
+- Add a monotonic state revision and writer identity. Migrate v3 to v4 only if
+  this task lands before incremental review scope; otherwise use the current
+  generation-qualified schema.
 - Preserve and safely clear the existing run-specific progress marker.
 - Keep slash-command syntax out of the human projection until this task's
   mechanical disposition path is complete and verified.
@@ -54,8 +55,10 @@ Implement [spec.mechanical-pull-request-review-dispositions](../specs/2026-09-06
 1. Extract the strict state decoding, command-ledger collection, lifecycle
    reconciliation, and safe Markdown rendering from the example into a
    reusable, pure module with schemas as the contract source.
-2. Define v4 state and migration from v1-v3. Add `stateRevision` and a writer
-   identity, but keep command comments as the source of human decisions.
+2. Add `stateRevision` and a writer identity, but keep command comments as the
+   source of human decisions. Coordinate the state version with
+   `spec.incremental-pull-request-review-scope`; never use one version number
+   for two incompatible schemas.
 3. Split the current workflow into review computation (cancellable for
    obsolete heads), a shared queued publication job, and a mechanical
    disposition job. Use the same publication concurrency group with
@@ -122,6 +125,7 @@ Planned.
 ## Traceability
 
 - Contract: [spec.mechanical-pull-request-review-dispositions](../specs/2026-09-06-mechanical-pull-request-review-dispositions.md)
+- Review scope: [spec.incremental-pull-request-review-scope](../specs/2026-09-13-incremental-pull-request-review-scope.md)
 - Current contract: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md)
 - Prior delivery: [Publish Versioned Pull Request Review Comments](2026-09-05-publish-versioned-pull-request-review-comments.md)
 - Planning and prerequisite: [pull request 58](https://github.com/marcolink/seqlane/pull/58)

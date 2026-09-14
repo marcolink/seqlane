@@ -38,3 +38,4 @@
 | [spec.opencode-mastra-observability-projection](./2026-09-08-opencode-mastra-observability-projection.md) | OpenCode-to-Mastra Observability Projection | active | 2026-09-08 | core |
 | [spec.ripwire-server-action](./2026-09-08-ripwire-server-action.md) | Ripwire HTTP MCP GitHub Action | active | 2026-09-08 | core |
 | [spec.codex-app-server-adapter](./2026-09-12-codex-app-server-adapter.md) | Codex App-Server Adapter | draft | 2026-09-12 | core |
+| [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md) | Incremental Pull Request Review Scope | active | 2026-09-13 | core |
