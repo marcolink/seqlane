@@ -58,6 +58,28 @@ async function createTransport(body: string): Promise<{
 }
 
 describe("Codex app-server transport", () => {
+  it("surfaces the rejected method, code, and server message", async () => {
+    const { transport } = await createTransport(`
+      if (message.method === "initialize") {
+        ${writeResponse(initializeResult, "message.id")}
+      } else if (message.method === "thread/start") {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32600, message: "unknown sandbox variant" },
+        }) + "\\n");
+      }
+    `);
+
+    await expect(transport.request("thread/start", {})).rejects.toMatchObject({
+      code: "execution",
+      message:
+        "Codex adapter: Codex app-server rejected thread/start (code -32600): unknown sandbox variant",
+      cause: { code: -32600, message: "unknown sandbox variant" },
+    });
+    await transport.close();
+  });
+
   it("preserves notification ordering when response and notification share a chunk", async () => {
     const { transport } = await createTransport(`
       if (message.method === "initialize") {

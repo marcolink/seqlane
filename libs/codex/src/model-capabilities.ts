@@ -12,7 +12,7 @@ import {
   withCodexTransportDeadline,
 } from "./transport.js";
 
-const DEFAULT_MODEL_LIST_TIMEOUT_MS = 5_000;
+const DEFAULT_MODEL_LIST_TIMEOUT_MS = 15_000;
 
 export interface CodexModelCapabilitiesOptions {
   readonly signal?: AbortSignal;

@@ -18,7 +18,7 @@ import { readCodexVersion, versionDiagnostic } from "./version.js";
 
 const MAX_IGNORED_RESPONSE_IDS = 1_024;
 const IGNORED_RESPONSE_TTL_MS = 60_000;
-const DEFAULT_INITIALIZE_TIMEOUT_MS = 5_000;
+const DEFAULT_INITIALIZE_TIMEOUT_MS = 15_000;
 const SHUTDOWN_GRACE_MS = 1_000;
 const SHUTDOWN_FORCE_SETTLEMENT_MS = 1_000;
 
@@ -52,6 +52,7 @@ export interface CodexTransportOptions {
 }
 
 interface PendingRequest {
+  readonly method: string;
   readonly resolve: (value: unknown) => void;
   readonly reject: (cause: unknown) => void;
   readonly signal?: AbortSignal;
@@ -329,7 +330,7 @@ export async function createCodexTransportForProcess(
         request.reject(
           new CodexAdapterError(
             "execution",
-            "Codex app-server rejected a request",
+            `Codex app-server rejected ${request.method} (code ${message.error.code}): ${message.error.message}`,
             message.error,
           ),
         );
@@ -439,7 +440,7 @@ export async function createCodexTransportForProcess(
           onAbort();
           return;
         }
-        pending.set(id, { resolve, reject, signal, onAbort });
+        pending.set(id, { method, resolve, reject, signal, onAbort });
         try {
           writeMessage(child, { jsonrpc: "2.0", id, method, params });
         } catch (cause) {

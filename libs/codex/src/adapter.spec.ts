@@ -332,6 +332,25 @@ describe("Codex AgentAdapter", () => {
     );
     expect(metrics).toHaveLength(1);
     expect(
+      transport.requests.find((value) => value.method === "thread/start")
+        ?.params,
+    ).toEqual({
+      cwd: configuration.workspace,
+      approvalPolicy: "never",
+      sandbox: "workspace-write",
+      model: selection.model.model,
+    });
+    expect(
+      transport.requests.find((value) => value.method === "turn/start")?.params,
+    ).toMatchObject({
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: [configuration.workspace],
+        networkAccess: false,
+      },
+      effort: selection.reasoning,
+    });
+    expect(
       transport.requests.find((value) => value.method === "thread/fork")
         ?.params,
     ).toEqual({

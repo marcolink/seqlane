@@ -374,11 +374,12 @@ function createAdapterForTransport(
     assertUsable();
     if (threadId !== undefined) return threadId;
     return (threadPromise ??= (async () => {
+      const model = modelParams(selection).model;
       const params = {
         cwd: configuration.workspace,
         approvalPolicy: "never",
-        sandbox: "workspaceWrite",
-        ...(selection === undefined ? {} : modelParams(selection)),
+        sandbox: "workspace-write",
+        ...(model === undefined ? {} : { model }),
       };
       let result: unknown;
       try {
