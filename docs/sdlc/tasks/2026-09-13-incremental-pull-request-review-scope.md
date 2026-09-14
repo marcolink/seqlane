@@ -51,7 +51,8 @@ Preserve the state, lifecycle, trust, and publication rules in
 ## Out of scope
 
 - A new public Seqlane workflow or runtime API.
-- A separate durable review database or patch archive.
+- A separate durable review database or patch archive. The coordinator stores
+  only lease, journal-head, reference, and capacity metadata.
 - Automatic baseline reset on force-push, retargeting, or state failure.
 - Changes to the existing GitHub admission and concurrency policy.
 
@@ -79,16 +80,26 @@ Preserve the state, lifecycle, trust, and publication rules in
    typed item outcomes with source reuse proofs, provenance and rule-source
    validation, and strict resume reuse. Require the sealed manifest reference
    in v5 state and implement the independent status enums and gate matrix.
+   Implement exact canonical ordering and replayable compaction. Reclaim only
+   unpinned artifacts after a verified checkpoint switch.
 7. Implement the canonical publication state machine. Reconcile uncertain
    summary and inline writes, route unpublishable findings to a visible
    fallback, and advance the checkpoint only after final publication. Persist
    publication intents and receipts in the separate publisher-owned journal;
-   test crash recovery without mutating sealed execution snapshots.
-8. Thread one typed scope identity through evidence, lanes, finalization, and
+   use conditional journal-head updates and test crash recovery without
+   mutating sealed execution snapshots.
+8. Add the Action-owned DynamoDB coordinator for per-PR publication leases
+   and atomic per-run, per-PR, and repository capacity reservations. Bind its
+   regional table and narrow IAM role to the trusted workflow. Acquire the
+   coordinator through short-lived GitHub OIDC credentials; never pass those
+   credentials to review-target code or model subprocesses. Verify the
+   previous workflow run is terminal before lease takeover. Gate absent-report
+   creation, existing-report updates, and marker cleanup through that lease.
+9. Thread one typed scope identity through evidence, lanes, finalization, and
    publication. Re-read checkpoint and live target branch, base revision, and
    head at publication. Write the new checkpoint only with the completed
    report.
-9. Update documentation and run focused, contract, and hosted workflow checks.
+10. Update documentation and run focused, contract, and hosted workflow checks.
 
 ## Affected areas
 
@@ -114,6 +125,9 @@ Preserve the state, lifecycle, trust, and publication rules in
   budget, publication-identity, finding-ID isolation, manifest lifecycle,
   evidence positioning, comparison outcome, rule-source, and workflow
   admission tests.
+- Test concurrent baseline creation and report updates, journal append
+  conflicts, lease takeover, all-level capacity reservations, byte-stable
+  manifests, replayable compaction, safe deletion, and crash recovery.
 - Run `pnpm docs:index`, `pnpm docs:validate`, formatting, and `git diff
   --check`.
 - Run the hosted workflow on an open PR for a baseline, a changed-file
