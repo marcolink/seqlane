@@ -77,14 +77,16 @@ export function mergeReadContextUncertainties(
   );
   const truncatedFollowUpRanges =
     followUpRanges.length - retainedFollowUpRanges.length;
-  const selectedRanges = [
+  const mergedRanges = [
     ...new Map(
       [...retrieval.selectedRanges, ...retainedFollowUpRanges].map((range) => [
         `${range.path}:${range.startLine}-${range.endLine}`,
         range,
       ]),
     ).values(),
-  ].slice(0, 100);
+  ];
+  const selectedRanges = mergedRanges.slice(0, 100);
+  const truncatedRetrievalRanges = mergedRanges.length - selectedRanges.length;
   const capacityTrimmedFollowUpRanges =
     followUpRanges.length -
     selectedRanges.filter(
@@ -102,9 +104,8 @@ export function mergeReadContextUncertainties(
     uncertainties: [
       ...new Set([...summary.uncertainties, ...retrieval.uncertainties]),
     ].slice(0, 12),
-    ...(totalTrimmedFollowUpRanges === 0
-      ? {}
-      : { truncatedFollowUpRanges: totalTrimmedFollowUpRanges }),
+    truncatedFollowUpRanges: totalTrimmedFollowUpRanges,
+    truncatedRetrievalRanges,
     retrieval: {
       selectedPaths,
       selectedRanges,

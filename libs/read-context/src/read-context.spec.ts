@@ -575,9 +575,50 @@ describe("read-context result references", () => {
     const result = mergeReadContextUncertainties(summary, retrieval);
 
     expect(result.truncatedFollowUpRanges).toBe(2);
+    expect(result.truncatedRetrievalRanges).toBe(0);
     expect(result.retrieval.selectedRanges).toHaveLength(9);
     expect(formatReadContextMarkdown(result)).toContain(
       "2 follow-up evidence range(s) were not included",
+    );
+  });
+
+  it("reports the total range trim when retrieval capacity is reached", () => {
+    const retrieval = {
+      question: "q",
+      corpus: "src/config.ts:1-100",
+      selectedPaths: ["src/config.ts"],
+      selectedRanges: Array.from({ length: 100 }, (_, index) => ({
+        path: "src/config.ts",
+        startLine: index + 1,
+        endLine: index + 1,
+      })),
+      excludedPaths: [],
+      usedExactSearch: true,
+      usedZvecGrep: false,
+      usedRipwire: false,
+      uncertainties: [],
+    };
+    const summary = ReadContextSchema.parse({
+      answer: "answer",
+      evidence: [],
+      relationships: [],
+      followUpReads: [],
+      uncertainties: [],
+      retrieval: {
+        selectedPaths: ["src/config.ts", "src/runtime.ts"],
+        selectedRanges: [{ path: "src/runtime.ts", startLine: 1, endLine: 1 }],
+        excludedPaths: [],
+        usedExactSearch: true,
+        usedZvecGrep: false,
+        usedRipwire: false,
+      },
+    });
+    const result = mergeReadContextUncertainties(summary, retrieval);
+
+    expect(result.truncatedFollowUpRanges).toBe(1);
+    expect(result.truncatedRetrievalRanges).toBe(1);
+    expect(formatReadContextMarkdown(result)).toContain(
+      "1 total evidence range(s) were not included",
     );
   });
 });

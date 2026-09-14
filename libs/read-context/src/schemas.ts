@@ -87,6 +87,12 @@ export const ReadContextSchema = z
       .array(lineRangeSchema.extend({ reason: z.string().max(2_000) }))
       .max(8),
     truncatedFollowUpRanges: z.number().int().nonnegative().max(100).optional(),
+    truncatedRetrievalRanges: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(100)
+      .optional(),
     uncertainties: z.array(z.string().max(2_000)).max(12),
     retrieval: z
       .object({
