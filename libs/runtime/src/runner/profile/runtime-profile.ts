@@ -165,6 +165,7 @@ function createAgentSession(
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
   checkpointBinding: SessionCheckpointBinding,
+  onAdapterCreated: (adapter: AgentAdapter) => void,
 ): ResolvedExecutorSession {
   const checkpointState: SessionCheckpointState = { generation: 0 };
   const capture = adapter.captureCheckpoint;
@@ -238,6 +239,7 @@ function createAgentSession(
               checkpoint: parsed.data.value,
               ...(selection === undefined ? {} : { modelSelection: selection }),
             });
+            onAdapterCreated(child);
             assertRuntimeAdapterCapabilities(
               child,
               checkpointBinding.capabilities,
@@ -248,6 +250,7 @@ function createAgentSession(
               onSessionUiAvailable,
               selection,
               checkpointBinding,
+              onAdapterCreated,
             );
           },
         }),
@@ -280,6 +283,7 @@ function createLazyAgentSession(
     onSessionUiAvailable,
     effectiveSelection,
     checkpointBinding,
+    onAdapterCreated,
   );
 }
 

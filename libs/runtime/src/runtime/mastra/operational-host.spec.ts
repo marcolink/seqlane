@@ -763,6 +763,94 @@ describe("Mastra operational host", () => {
     expect(closed).toBe(1);
   });
 
+  it("keeps a shared adapter open when one parallel node fails", async () => {
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    let rightStarted!: () => void;
+    const rightExecutionStarted = new Promise<void>((resolve) => {
+      rightStarted = resolve;
+    });
+    let releaseRight!: () => void;
+    const rightExecutionReleased = new Promise<void>((resolve) => {
+      releaseRight = resolve;
+    });
+    let leftFailed!: () => void;
+    const leftFailureObserved = new Promise<void>((resolve) => {
+      leftFailed = resolve;
+    });
+    let closed = 0;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async ({ task }) => {
+        if (task.id === "parallel.left") {
+          await rightExecutionStarted;
+          leftFailed();
+          throw new Error("fixture left node failed");
+        }
+        rightStarted();
+        await rightExecutionReleased;
+        return { value: task.id };
+      },
+      close: async () => {
+        closed += 1;
+      },
+    };
+    const registration = parallelRuntimeProfileRegistration({
+      adapterConfiguration: {
+        adapter: "acp",
+        configuration: {
+          id: "fixture-agent",
+          description: "Fixture agent",
+          command: "fixture-agent",
+          persistSession: true,
+        },
+      },
+      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+    });
+    const workflow = registration.workflow as AnyWorkflow;
+    const runId = "run-parallel-failure";
+    const run = await workflow.createRun({
+      runId,
+      resourceId: "work-run-parallel-failure",
+      shouldPersistSnapshot: () => false,
+    });
+    const outcome = run.start({
+      inputData: { dependency: "runtime-profile" },
+      requestContext: new RequestContext([
+        ["seqlane.runtimeId", "test-runtime"],
+      ]),
+    });
+    void outcome.catch(() => undefined);
+    await leftFailureObserved;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(closed).toBe(0);
+
+    let cleanupSettled = false;
+    if (registration.terminate === undefined) {
+      throw new Error("Operational registration must expose terminal cleanup");
+    }
+    const cleanup = registration.terminate(runId).then(() => {
+      cleanupSettled = true;
+    });
+    await Promise.resolve();
+    expect(cleanupSettled).toBe(false);
+    expect(closed).toBe(0);
+
+    releaseRight();
+    expect((await outcome).status).toBe("failed");
+    await cleanup;
+    await registration.terminate(runId);
+    expect(closed).toBe(1);
+  });
+
   it("rejects non-loopback startup before opening storage or a listener", async () => {
     await expect(
       createOperationalHost({

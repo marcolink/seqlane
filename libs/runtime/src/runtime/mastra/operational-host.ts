@@ -251,12 +251,17 @@ function createOperationalInvocationHandler(
     Promise<PreparedOperationalInvocation>
   >();
   const cleanupByRun = new Map<string, Promise<void>>();
+  const activeByRun = new Map<string, Set<Promise<void>>>();
 
   const closeRun = (
     runId: string,
     pending: Promise<PreparedOperationalInvocation>,
   ): Promise<void> => {
-    const cleanup = pending.then(({ close }) => close()).catch(() => undefined);
+    const cleanup = (async () => {
+      await Promise.all(activeByRun.get(runId) ?? []);
+      const { close } = await pending;
+      await close();
+    })().catch(() => undefined);
     cleanupByRun.set(runId, cleanup);
     void cleanup.finally(() => {
       if (cleanupByRun.get(runId) === cleanup) cleanupByRun.delete(runId);
@@ -273,7 +278,7 @@ function createOperationalInvocationHandler(
     return cleanupByRun.get(runId) ?? Promise.resolve();
   };
 
-  const invoke: MastraPlanInvocation = async (context) => {
+  const invokePrepared: MastraPlanInvocation = async (context) => {
     const pending =
       preparedByRun.get(context.runId) ??
       (async () => {
@@ -362,15 +367,22 @@ function createOperationalInvocationHandler(
         }
       })();
     preparedByRun.set(context.runId, pending);
-    try {
-      return await (await pending).invoke(context);
-    } catch (error) {
-      if (preparedByRun.get(context.runId) === pending) {
-        preparedByRun.delete(context.runId);
-        await closeRun(context.runId, pending);
-      }
-      throw error;
-    }
+    return (await pending).invoke(context);
+  };
+
+  const invoke: MastraPlanInvocation = (context) => {
+    const active = activeByRun.get(context.runId) ?? new Set<Promise<void>>();
+    activeByRun.set(context.runId, active);
+    let release!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    active.add(settled);
+    return invokePrepared(context).finally(() => {
+      active.delete(settled);
+      if (active.size === 0) activeByRun.delete(context.runId);
+      release();
+    });
   };
 
   return {

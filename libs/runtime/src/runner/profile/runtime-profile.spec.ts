@@ -459,6 +459,7 @@ describe("resolveRuntimeProfile", () => {
       activity: false,
       sessionUi: false,
     };
+    let childClosed = 0;
     const child: AgentAdapter = {
       capabilities: {
         ...capabilities,
@@ -466,6 +467,9 @@ describe("resolveRuntimeProfile", () => {
         fork: false,
       },
       execute: async () => ({ value: "child" }),
+      close: async () => {
+        childClosed += 1;
+      },
     };
     const parent: AgentAdapter = {
       capabilities,
@@ -521,6 +525,91 @@ describe("resolveRuntimeProfile", () => {
         task: source,
       }),
     ).rejects.toThrow(/capability/i);
+    await execution.close?.();
+    expect(childClosed).toBe(1);
+  });
+
+  it("closes parent and forked adapters when the runtime ends", async () => {
+    const source = task("source", "shared");
+    const tasks: TaskDefinitionRegistry = new Map([[source.id, source]]);
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: true,
+      fork: true,
+      activity: false,
+      sessionUi: false,
+    };
+    let parentClosed = 0;
+    let childClosed = 0;
+    const child: AgentAdapter = {
+      capabilities,
+      execute: async () => ({ value: "child" }),
+      close: async () => {
+        childClosed += 1;
+      },
+      captureCheckpoint: async () => "child-checkpoint",
+      fork: async () => child,
+    };
+    const parent: AgentAdapter = {
+      capabilities,
+      execute: async () => ({ value: "parent" }),
+      close: async () => {
+        parentClosed += 1;
+      },
+      captureCheckpoint: async () => "parent-checkpoint",
+      fork: async () => child,
+    };
+    const adapterRegistry = createRuntimeAdapterRegistry([
+      {
+        identity: "opencode",
+        resolveCapabilities: () => capabilities,
+        prepare: async () => ({}),
+        create: () => ({ createAdapter: () => parent }),
+      },
+    ]);
+    const execution = await resolveRuntimeProfile(
+      { id: "http://adapter.test", workspace: process.cwd() },
+      tasks,
+      new AbortController().signal,
+      null,
+      undefined,
+      {
+        adapterConfiguration: {
+          adapter: "opencode",
+          url: "http://adapter.test",
+        },
+        adapterRegistry,
+        runId: "run-fork-cleanup",
+      },
+    );
+    const session = await execution.sessionResolver.resolve({
+      invocationId: "invocation:source",
+      task: source,
+    });
+    await session.executor.execute({
+      invocationId: "invocation:source",
+      observability: {},
+      taskId: source.id,
+      executor: "agent",
+      input: null,
+      signal: new AbortController().signal,
+    });
+    const checkpoint = await session.checkpoint?.();
+    if (checkpoint === undefined || session.fork === undefined) {
+      throw new Error("test adapter did not expose checkpoint and fork");
+    }
+    await session.fork({
+      checkpoint,
+      invocationId: "invocation:branch",
+      task: source,
+    });
+
+    await execution.close?.();
+    expect(parentClosed).toBe(1);
+    expect(childClosed).toBe(1);
   });
 
   it("validates the adapter instance only when its session is created", async () => {
