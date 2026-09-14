@@ -78,10 +78,11 @@ The sealed selected work denominator is a typed set of manifest items:
 ManifestItem =
   | {
       kind: "path"
-      itemId: "path:<validated-relative-path>"
+      itemId: "<evidence-form>:<validated-relative-path>:0"
       path: validated relative path
       batchOrdinal: positive integer
-      evidenceForm: "path"
+      evidenceForm: "pr-patch" | "change-evidence"
+      evidenceDigest: lowercase SHA-256
       hunkOrdinal: 0
     }
   | {
@@ -90,13 +91,28 @@ ManifestItem =
       path: validated relative path
       batchOrdinal: positive integer
       evidenceForm: "pr-patch" | "change-evidence"
+      evidenceDigest: lowercase SHA-256
       hunkOrdinal: positive integer
     }
 ```
 
-The selector emits a path item only when that evidence form has no hunks; it
-emits one hunk item for every expected hunk otherwise. `itemId` is unique
-within one manifest. The union of item paths must equal the sealed selected
+For each required evidence form and selected path, the selector emits a path
+item when that form has zero hunks, or one hunk item per expected hunk otherwise.
+`pr-patch` identifies `P(B,H)` evidence; `change-evidence` identifies `D(C,H)`
+evidence and is absent for a baseline. The collector computes `evidenceDigest`
+over canonical evidence containing the form, source revisions, path, tree-entry
+metadata (including absent sides), and exact patch bytes. Zero-hunk evidence
+therefore preserves binary, mode-only, and absent-path information; it is not
+an invented empty successful patch. Missing required evidence fails collection.
+
+Hunk ordinals start at one within each complete path/form patch before batching;
+they never restart in another batch. Each `(path, evidenceForm, hunkOrdinal)`
+tuple and its derived `itemId` must be unique across the entire manifest and
+assigned to exactly one batch. A path/form cannot contain both ordinal zero
+and positive ordinals. Sealing rejects duplicate tuples across batches, missing
+ordinals, or mismatches against the collector's complete evidence inventory.
+Collection, outcome validation, and reuse use this same identity and digest.
+The union of item paths must equal the sealed selected
 path set `R`, and each item must identify its exact batch, evidence form, and
 hunk. The manifest stores exactly one terminal outcome for each item:
 `completed`, `reused`, `failed`, or `waived`.
@@ -108,24 +124,73 @@ blocks publication. A `waived` item requires a deterministic reason and
 authorizing policy; it also makes coverage incomplete, blocks publication, and
 blocks automation admission. Neither outcome can be treated as completed.
 
-### requirement-reuse-proof
+### requirement-terminal-outcomes
 
-Terminal outcomes are a strict discriminated union. A `completed` outcome
-contains the item ID, validated result and evidence references, and their
-canonical SHA-256 digests. A `reused` outcome contains these required fields:
+Every terminal outcome has a required `itemId` matching exactly one sealed item.
+The strict union rejects unknown fields and requires the following payloads:
+
+```text
+ItemOutcome = { itemId } & (
+  | {
+      outcome: "completed"
+      result: { reference, digest: lowercase SHA-256 }
+      evidence: nonempty array of { reference, digest: lowercase SHA-256 }
+    }
+  | {
+      outcome: "reused"
+      source: {
+        manifestReference: ManifestReference
+        itemId
+        outcomeDigest: lowercase SHA-256
+      }
+      compatibilityInputHash: lowercase SHA-256
+    }
+  | {
+      outcome: "failed"
+      failureClass: "provider" | "timeout" | "cancelled" | "configuration"
+                  | "input" | "budget" | "panic" | "unknown"
+      origin: "execution" | "finalization"
+      reason: nonempty sanitized string, at most 2,000 characters
+    }
+  | {
+      outcome: "waived"
+      reason: nonempty sanitized string, at most 2,000 characters
+      authorization: {
+        policyId: nonempty trusted rule identifier
+        ruleSetHash: lowercase SHA-256
+      }
+    }
+)
+```
+
+Result and evidence references must resolve to validated, bounded records under
+the artifact trust boundary; digests cover their canonical content. Evidence
+must match the sealed item's form, revisions, and `evidenceDigest`. The manifest
+adapter validates every variant before evaluating coverage. Invalid outcomes
+cannot count as settled work or bypass the missing-outcome backstop.
+
+Only the trusted adapter records failures and waivers. A waiver requires an
+explicit rule in the frozen trusted rule set that authorizes that item; its
+policy ID and hash must match the recorded provenance. Agent output, PR text,
+or an arbitrary policy name cannot authorize a waiver. A waiver remains
+incomplete coverage even when authorized.
+
+For an item still missing an outcome, the finalizer creates this failed variant:
 
 ```text
 {
-  outcome: "reused"
-  itemId
-  source: {
-    manifestReference: ManifestReference
-    itemId
-    outcomeDigest: lowercase SHA-256
-  }
-  compatibilityInputHash: lowercase SHA-256
+  itemId: the missing sealed item ID
+  outcome: "failed"
+  failureClass: "unknown"
+  origin: "finalization"
+  reason: "No validated terminal outcome was recorded."
 }
 ```
+
+`unknown` is a failure class, never a fifth outcome. Finalization cannot replace
+an existing terminal outcome; conflicting records fail validation.
+
+### requirement-reuse-proof
 
 `ManifestReference` identifies repository, workflow run and attempt, artifact
 ID, manifest run ID, pull-request number, reviewed revision, `ScopeIdentity`,
@@ -294,6 +359,12 @@ or progress marker is treated as a manifest.
 - Test the typed item union, exact path/batch/evidence/hunk identity, one-to-one
   outcomes, failed and waived coverage, finalization backstop, and conflicting
   transitions.
+- Test zero-hunk evidence for both forms, binary and mode-only changes, absent
+  paths, and digest mismatches. Reject duplicate evidence tuples across batches
+  and hunk ordinals that restart after partitioning.
+- Test every outcome variant with missing, extra, malformed, and oversized
+  fields. Reject unauthorized waivers; record missing outcomes as failed/unknown
+  and preserve the prior checkpoint for all failed or waived work.
 - Test artifact creation, sequence continuity, digest validation, access
   control, redaction, expiry, aggregate per-run/pull-request/repository bounds,
   and safe compaction.

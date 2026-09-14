@@ -86,7 +86,32 @@ prepared
 
 prepared | progress-marked | inline-reconciled | finalizable
   -> stale | cancelled | failed
+
+prepared | progress-marked | inline-reconciled | finalizable
+  -> uncertain(lastConfirmedStage, operation)
+
+uncertain
+  -> confirmed successor stage   [exact write match]
+  -> lastConfirmedStage          [write proven not applied; guards still pass]
+  -> stale                       [publication identity changed]
+  -> uncertain                   [effect remains unknown]
 ```
+
+`uncertain` preserves the durable intent, operation identity, payload digest,
+and last confirmed stage. The successor is the stage reached by that specific
+operation, including `published` for a confirmed final write. An inline write
+may return to `progress-marked` while other inline operations remain pending.
+Retry is permitted only after proving the original write was not applied and
+returning to its prior stage; it reuses the same logical operation identity.
+An absent or mismatched read alone is not proof that an in-flight write failed.
+
+If reconciliation exhausts its budget or the job is cancelled while the effect
+remains unknown, preserve `uncertain` in the journal for later recovery. Cleanup
+may remove an owned progress notice only after proving it will not overwrite
+a final report. It cannot erase the intent, mark publication failed merely
+because a response was lost, or advance a checkpoint. After reconciliation
+restores a nonfinal stage, ordinary failed/cancelled transitions and cleanup are
+legal. Stale attempts preserve their evidence without further publication.
 
 The first summary write is progress-only: it prepends an owning-run notice and
 retains the previous authoritative state block, findings, and checkpoint. It
@@ -534,6 +559,10 @@ input and are never written as the current incremental state.
   incomplete coverage, uncertain final writes, and failed publication.
 - Test journal intent/receipt ordering and crash recovery before and after the
   final GitHub write; sealed execution bytes must remain unchanged.
+- Test uncertain transitions for exact success, proven non-application, changed
+  identity, repeated unknown effects, and cancellation during reconciliation.
+  Retry must retain operation identity; unknown effects cannot advance the
+  checkpoint or permit destructive progress cleanup.
 - Add lifecycle transition and stable-identifier tests.
 - Add current-head fix-verification tests.
 - Add trusted-author and stale-head publication tests.
