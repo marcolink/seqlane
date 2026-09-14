@@ -71,12 +71,6 @@ export interface MastraPlanInputValidationFailureContext {
   readonly error: SeqlaneError;
 }
 
-export interface MastraWorkflowCompletionContext {
-  readonly workId: WorkId;
-  readonly runId: RunId;
-  readonly status: "success" | "failed" | "cancelled";
-}
-
 export interface MastraPlanCompilerOptions {
   /** The Seqlane schemas used to validate workflow input and output. */
   readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
@@ -103,10 +97,6 @@ export interface MastraPlanCompilerOptions {
   /** Reports compiler-level input failures that occur before invocation execution. */
   readonly onInputValidationFailure?: (
     context: MastraPlanInputValidationFailureContext,
-  ) => void;
-  /** Runs after the compiled workflow reaches a terminal result. */
-  readonly onWorkflowComplete?: (
-    context: MastraWorkflowCompletionContext,
   ) => void;
 }
 
@@ -353,55 +343,35 @@ function buildInvocationStep(
           invocationId,
           error,
         });
-        options.onWorkflowComplete?.({
-          workId: resourceId ?? options.workId ?? "unknown-work",
-          runId,
-          status: "failed",
-        });
         throw error;
       }
-      let rawOutput: unknown;
-      try {
-        const execute =
-          node.type === "workflow"
-            ? options.executeWorkflowInvocation
-            : options.executeInvocation;
-        if (execute === undefined) {
-          throw new Error(
-            `No Mastra invocation handler is configured for Plan node "${node.nodeId}"`,
-          );
-        }
-        rawOutput = await execute({
-          node,
-          input: parsedInput,
-          workflowInput,
-          workId: resourceId ?? options.workId ?? "unknown-work",
-          runId,
-          invocationId,
-          ...(resourceId === undefined ? {} : { resourceId }),
-          workflowId,
-          abortSignal,
-          requestContext,
-          observability: { tracing, tracingContext, loggerVNext, metrics },
-          getStepResult,
-        });
-      } catch (cause) {
-        options.onWorkflowComplete?.({
-          workId: resourceId ?? options.workId ?? "unknown-work",
-          runId,
-          status: abortSignal.aborted ? "cancelled" : "failed",
-        });
-        throw cause;
+      const execute =
+        node.type === "workflow"
+          ? options.executeWorkflowInvocation
+          : options.executeInvocation;
+      if (execute === undefined) {
+        throw new Error(
+          `No Mastra invocation handler is configured for Plan node "${node.nodeId}"`,
+        );
       }
+      const rawOutput = await execute({
+        node,
+        input: parsedInput,
+        workflowInput,
+        workId: resourceId ?? options.workId ?? "unknown-work",
+        runId,
+        invocationId,
+        ...(resourceId === undefined ? {} : { resourceId }),
+        workflowId,
+        abortSignal,
+        requestContext,
+        observability: { tracing, tracingContext, loggerVNext, metrics },
+        getStepResult,
+      });
       try {
         return outputSchema?.parse(rawOutput) ?? rawOutput;
       } catch (cause) {
         const error = reportFailure(node, cause, "output", options);
-        options.onWorkflowComplete?.({
-          workId: resourceId ?? options.workId ?? "unknown-work",
-          runId,
-          status: "failed",
-        });
         throw error;
       }
     },
@@ -534,11 +504,6 @@ export function compilePlanToMastra(
           options.workflow?.output?.parse(output) ??
           options.workflowOutputSchema?.parse(output) ??
           output;
-        options.onWorkflowComplete?.({
-          workId: resourceId ?? options.workId ?? "unknown-work",
-          runId,
-          status: "success",
-        });
         return parsedOutput;
       } catch (cause) {
         const error =
@@ -550,11 +515,6 @@ export function compilePlanToMastra(
                 parsedPlan.workflow.id,
                 options,
               );
-        options.onWorkflowComplete?.({
-          workId: resourceId ?? options.workId ?? "unknown-work",
-          runId,
-          status: "failed",
-        });
         throw error;
       }
     },

@@ -5,7 +5,7 @@ import {
 export {
   readCodexVersion,
   versionDiagnostic,
-} from "../libs/codex/src/version-shared.mjs";
+} from "../libs/codex/src/version-shared.mts";
 const TURN_STATUSES = new Set([
   "completed",
   "interrupted",

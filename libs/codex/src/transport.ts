@@ -13,10 +13,12 @@ import {
   parseCodexMessage,
   parseInitializeResult,
 } from "./protocol.js";
+import { withDeadline } from "./deadline.js";
 import { readCodexVersion, versionDiagnostic } from "./version.js";
 
 const MAX_IGNORED_RESPONSE_IDS = 1_024;
 const IGNORED_RESPONSE_TTL_MS = 60_000;
+const DEFAULT_INITIALIZE_TIMEOUT_MS = 5_000;
 const SHUTDOWN_GRACE_MS = 1_000;
 const SHUTDOWN_FORCE_SETTLEMENT_MS = 1_000;
 
@@ -36,6 +38,8 @@ export interface CodexTransport {
 }
 
 export interface CodexTransportOptions {
+  readonly signal?: AbortSignal;
+  readonly initializeTimeoutMs?: number;
   readonly onDiagnostic?: (diagnostic: {
     readonly code: string;
     readonly message: string;
@@ -125,7 +129,17 @@ export async function createCodexStdioTransport(
   const version = await readCodexVersion(
     configuration.executable,
     configuration.workspace,
+    options.signal,
   );
+  if (options.signal?.aborted) {
+    throw (
+      options.signal.reason ??
+      new CodexAdapterError(
+        "cancellation",
+        "Codex transport creation was cancelled",
+      )
+    );
+  }
   const diagnostic = versionDiagnostic(version);
   if (diagnostic !== undefined) {
     options.onDiagnostic?.(diagnostic);
@@ -136,11 +150,47 @@ export async function createCodexStdioTransport(
     ["app-server", "--stdio"],
     configuration.workspace,
   );
-  return createCodexTransportForProcess(child);
+  return createCodexTransportForProcess(child, options);
+}
+
+export async function withCodexTransportDeadline(
+  transportPromise: Promise<CodexTransport>,
+  milliseconds: number,
+  signal?: AbortSignal,
+): Promise<CodexTransport> {
+  let creationSettled = false;
+  void transportPromise.then(
+    () => {
+      creationSettled = true;
+    },
+    () => {
+      creationSettled = true;
+    },
+  );
+  try {
+    return await withDeadline(
+      transportPromise,
+      milliseconds,
+      "transport initialization",
+      signal,
+    );
+  } catch (cause) {
+    if (!creationSettled) {
+      void transportPromise.then(
+        (lateTransport) =>
+          Promise.resolve()
+            .then(() => lateTransport.close())
+            .catch(() => undefined),
+        () => undefined,
+      );
+    }
+    throw cause;
+  }
 }
 
 export async function createCodexTransportForProcess(
   child: ChildProcessWithoutNullStreams,
+  options: Pick<CodexTransportOptions, "signal" | "initializeTimeoutMs"> = {},
 ): Promise<CodexTransport> {
   let nextId = 1;
   let state: "open" | "closing" | "closed" = "open";
@@ -442,13 +492,22 @@ export async function createCodexTransportForProcess(
   // connection until the server has accepted the integration identity.
   try {
     parseInitializeResult(
-      await transport.request("initialize", {
-        clientInfo: {
-          name: "seqlane",
-          title: "Seqlane Codex adapter",
-          version: "0.0.0",
-        },
-      }),
+      await withDeadline(
+        transport.request(
+          "initialize",
+          {
+            clientInfo: {
+              name: "seqlane",
+              title: "Seqlane Codex adapter",
+              version: "0.0.0",
+            },
+          },
+          options.signal,
+        ),
+        options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS,
+        "initialize",
+        options.signal,
+      ),
     );
     writeMessage(child, { jsonrpc: "2.0", method: "initialized", params: {} });
     return transport;

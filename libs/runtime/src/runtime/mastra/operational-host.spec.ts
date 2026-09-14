@@ -14,6 +14,8 @@ import {
   type PlanNode,
 } from "@seqlane/core";
 import type { AgentAdapter } from "@seqlane/agent-adapter";
+import { RequestContext } from "@mastra/core/request-context";
+import type { AnyWorkflow } from "@mastra/core/workflows";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
@@ -129,13 +131,27 @@ function runtimeProfileRegistration(
           id: taskId,
           input,
           output,
-          execute: async () => ({ files: [], rootCause: "fixture" }),
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "complete the fixture task" }),
         },
       ],
     ]),
     adapterConfiguration: options.adapterConfiguration,
     adapterRegistry: options.adapterRegistry,
   });
+}
+
+function runtimeProfileAdapterRegistry(
+  adapter: AgentAdapter,
+): RuntimeAdapterRegistry {
+  return createRuntimeAdapterRegistry([
+    {
+      identity: "acp",
+      resolveCapabilities: () => adapter.capabilities,
+      prepare: async () => ({}),
+      create: () => ({ createAdapter: () => adapter }),
+    },
+  ]);
 }
 
 async function json(response: Response): Promise<Record<string, unknown>> {
@@ -149,6 +165,105 @@ async function mcpJson(response: Response): Promise<Record<string, unknown>> {
     string,
     unknown
   >;
+}
+
+async function openMcpSession(host: {
+  listen(): Promise<string>;
+}): Promise<{ readonly mcpUrl: string; readonly sessionId: string }> {
+  const address = await host.listen();
+  const mcpUrl = `${address}/api/mcp/seqlane-workflows/mcp`;
+  const response = await fetch(mcpUrl, {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "seqlane-test", version: "0.0.0" },
+      },
+    }),
+  });
+  if (response.status !== 200) {
+    throw new Error(
+      `MCP initialize failed with status ${response.status}: ${await response.text()}`,
+    );
+  }
+  const sessionId = response.headers.get("mcp-session-id");
+  if (sessionId === null) throw new Error("MCP session was not created");
+  return { mcpUrl, sessionId };
+}
+
+function mcpToolCall(
+  mcpUrl: string,
+  sessionId: string,
+  id: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return fetch(mcpUrl, {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": sessionId,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method: "tools/call",
+      params: {
+        name: "run_repository:runtime-profile",
+        arguments: { input: { dependency: "runtime-profile" } },
+      },
+    }),
+    ...(signal === undefined ? {} : { signal }),
+  });
+}
+
+function parallelRuntimeProfileRegistration(
+  options: {
+    readonly adapterConfiguration?: unknown;
+    readonly adapterRegistry?: RuntimeAdapterRegistry;
+  } = {},
+) {
+  const taskIds = ["parallel.left", "parallel.right"] as const;
+  const input = z.object({ dependency: z.string() });
+  const output = z.object({ value: z.string() });
+  const nodes: readonly PlanNode[] = taskIds.map((taskId) => ({
+    type: "task",
+    taskId,
+    nodeId: `${taskId}:1`,
+    workspace: "shared",
+    input: { type: "ref", nodeId: "__seqlane_input", path: [] },
+    dependsOn: [],
+  }));
+  return createOperationalWorkflow({
+    key: "repository:parallel-runtime-profile",
+    plan: {
+      workflow: { id: "parallel-runtime-profile" },
+      nodes,
+      output: { type: "ref", nodeId: "parallel.left:1", path: [] },
+    },
+    workflow: { input, output },
+    taskDefinitions: new Map(
+      taskIds.map((taskId) => [
+        taskId,
+        {
+          id: taskId,
+          input,
+          output,
+          execute: async ({ context }) => context.runAgent({ goal: taskId }),
+        },
+      ]),
+    ),
+    adapterConfiguration: options.adapterConfiguration,
+    adapterRegistry: options.adapterRegistry,
+  });
 }
 
 describe("Mastra operational host", () => {
@@ -234,6 +349,7 @@ describe("Mastra operational host", () => {
 
   it("exposes the registered Seqlane MCP server through Mastra HTTP routes", async () => {
     let receivedRuntimeId: string | undefined;
+    let closed = 0;
     const capabilities = {
       execute: true as const,
       modelSelection: false,
@@ -250,6 +366,9 @@ describe("Mastra operational host", () => {
         files: ["package.json"],
         rootCause: `runtime=${receivedRuntimeId}`,
       }),
+      close: async () => {
+        closed += 1;
+      },
     };
     const adapterRegistry = createRuntimeAdapterRegistry([
       {
@@ -378,7 +497,7 @@ describe("Mastra operational host", () => {
           content: [
             {
               type: "text",
-              text: expect.stringContaining('"rootCause":"fixture"'),
+              text: expect.stringContaining('"rootCause":"runtime=opencode"'),
             },
           ],
         },
@@ -412,7 +531,9 @@ describe("Mastra operational host", () => {
           content: [
             {
               type: "text",
-              text: expect.stringContaining('"rootCause":"fixture"'),
+              text: expect.stringContaining(
+                '"rootCause":"Renovate updated a dependency without its peer range"',
+              ),
             },
           ],
         },
@@ -451,6 +572,283 @@ describe("Mastra operational host", () => {
     } finally {
       await host.close();
     }
+    expect(closed).toBe(1);
+  });
+
+  it("closes an operational adapter after invocation failure", async () => {
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    let closed = 0;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async () => {
+        throw new Error("fixture adapter failed");
+      },
+      close: async () => {
+        closed += 1;
+      },
+    };
+    const host = await createOperationalHost({
+      workflows: [
+        runtimeProfileRegistration({
+          adapterConfiguration: {
+            adapter: "acp",
+            configuration: {
+              id: "fixture-agent",
+              description: "Fixture agent",
+              command: "fixture-agent",
+              persistSession: true,
+            },
+          },
+          adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+        }),
+      ],
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+
+    try {
+      const { mcpUrl, sessionId } = await openMcpSession(host);
+      const response = await mcpToolCall(mcpUrl, sessionId, 2);
+      const payload = await mcpJson(response);
+      expect(payload).toMatchObject({
+        result: {
+          content: [{ text: expect.stringContaining('"status":"failed"') }],
+        },
+      });
+      expect(closed).toBe(1);
+    } finally {
+      await host.close();
+    }
+  });
+
+  it("closes an operational adapter when an invocation is cancelled", async () => {
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    let started!: () => void;
+    const executionStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let closed = 0;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async ({ signal }) => {
+        started();
+        await new Promise<never>((resolve, reject) => {
+          const onAbort = () => reject(new Error("fixture adapter aborted"));
+          if (signal.aborted) {
+            onAbort();
+            return;
+          }
+          signal.addEventListener("abort", onAbort, { once: true });
+        });
+      },
+      close: async () => {
+        closed += 1;
+      },
+    };
+    const registration = runtimeProfileRegistration({
+      adapterConfiguration: {
+        adapter: "acp",
+        configuration: {
+          id: "fixture-agent",
+          description: "Fixture agent",
+          command: "fixture-agent",
+          persistSession: true,
+        },
+      },
+      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+    });
+    const workflow = registration.workflow as AnyWorkflow;
+    const run = await workflow.createRun({
+      runId: "run-cancel",
+      resourceId: "work-run-cancel",
+      shouldPersistSnapshot: () => false,
+    });
+
+    const outcome = run.start({
+      inputData: { dependency: "runtime-profile" },
+      requestContext: new RequestContext([
+        ["seqlane.runtimeId", "test-runtime"],
+      ]),
+    });
+    await executionStarted;
+    await run.cancel();
+    await outcome;
+    await registration.terminate?.("run-cancel");
+    expect(closed).toBe(1);
+  });
+
+  it("waits for parallel nodes before terminal adapter cleanup", async () => {
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    let rightStarted!: () => void;
+    const rightExecutionStarted = new Promise<void>((resolve) => {
+      rightStarted = resolve;
+    });
+    let releaseRight!: () => void;
+    const rightExecutionReleased = new Promise<void>((resolve) => {
+      releaseRight = resolve;
+    });
+    let closed = 0;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async ({ task }) => {
+        if (task.id === "parallel.right") {
+          rightStarted();
+          await rightExecutionReleased;
+        }
+        return { value: task.id };
+      },
+      close: async () => {
+        closed += 1;
+      },
+    };
+    const registration = parallelRuntimeProfileRegistration({
+      adapterConfiguration: {
+        adapter: "acp",
+        configuration: {
+          id: "fixture-agent",
+          description: "Fixture agent",
+          command: "fixture-agent",
+          persistSession: true,
+        },
+      },
+      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+    });
+    const workflow = registration.workflow as AnyWorkflow;
+    const run = await workflow.createRun({
+      runId: "run-parallel-cleanup",
+      resourceId: "work-run-parallel-cleanup",
+      shouldPersistSnapshot: () => false,
+    });
+
+    const outcome = run.start({
+      inputData: { dependency: "runtime-profile" },
+      requestContext: new RequestContext([
+        ["seqlane.runtimeId", "test-runtime"],
+      ]),
+    });
+    await rightExecutionStarted;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(closed).toBe(0);
+
+    releaseRight();
+    await outcome;
+    await registration.terminate?.("run-parallel-cleanup");
+    expect(closed).toBe(1);
+  });
+
+  it("keeps a shared adapter open when one parallel node fails", async () => {
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    let rightStarted!: () => void;
+    const rightExecutionStarted = new Promise<void>((resolve) => {
+      rightStarted = resolve;
+    });
+    let releaseRight!: () => void;
+    const rightExecutionReleased = new Promise<void>((resolve) => {
+      releaseRight = resolve;
+    });
+    let leftFailed!: () => void;
+    const leftFailureObserved = new Promise<void>((resolve) => {
+      leftFailed = resolve;
+    });
+    let closed = 0;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async ({ task }) => {
+        if (task.id === "parallel.left") {
+          await rightExecutionStarted;
+          leftFailed();
+          throw new Error("fixture left node failed");
+        }
+        rightStarted();
+        await rightExecutionReleased;
+        return { value: task.id };
+      },
+      close: async () => {
+        closed += 1;
+      },
+    };
+    const registration = parallelRuntimeProfileRegistration({
+      adapterConfiguration: {
+        adapter: "acp",
+        configuration: {
+          id: "fixture-agent",
+          description: "Fixture agent",
+          command: "fixture-agent",
+          persistSession: true,
+        },
+      },
+      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+    });
+    const workflow = registration.workflow as AnyWorkflow;
+    const runId = "run-parallel-failure";
+    const run = await workflow.createRun({
+      runId,
+      resourceId: "work-run-parallel-failure",
+      shouldPersistSnapshot: () => false,
+    });
+    const outcome = run.start({
+      inputData: { dependency: "runtime-profile" },
+      requestContext: new RequestContext([
+        ["seqlane.runtimeId", "test-runtime"],
+      ]),
+    });
+    void outcome.catch(() => undefined);
+    await leftFailureObserved;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(closed).toBe(0);
+
+    let cleanupSettled = false;
+    if (registration.terminate === undefined) {
+      throw new Error("Operational registration must expose terminal cleanup");
+    }
+    const cleanup = registration.terminate(runId).then(() => {
+      cleanupSettled = true;
+    });
+    await Promise.resolve();
+    expect(cleanupSettled).toBe(false);
+    expect(closed).toBe(0);
+
+    releaseRight();
+    expect((await outcome).status).toBe("failed");
+    await cleanup;
+    await registration.terminate(runId);
+    expect(closed).toBe(1);
   });
 
   it("rejects non-loopback startup before opening storage or a listener", async () => {

@@ -78,6 +78,8 @@ export interface AgentAdapterRequest {
 export interface AgentAdapter {
   readonly capabilities: AgentAdapterCapabilities;
   execute(request: AgentAdapterRequest): Promise<unknown>;
+  /** Closes adapter-owned resources at the end of the owning run. */
+  readonly close?: () => Promise<void>;
   readonly captureCheckpoint?: () => Promise<unknown>;
   readonly fork?: (request: {
     readonly checkpoint: unknown;

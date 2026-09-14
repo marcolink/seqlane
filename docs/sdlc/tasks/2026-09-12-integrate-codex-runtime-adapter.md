@@ -1,11 +1,11 @@
 ---
 id: task.integrate-codex-runtime-adapter
 title: Integrate the Codex Runtime Adapter
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-14
 upstream:
   - spec.codex-app-server-adapter
 supersedes: []
@@ -77,13 +77,22 @@ Select the Codex adapter through private runtime configuration and prove end-to-
 
 ## Outcome
 
-Planned. No runtime integration is recorded.
+Registered the private Codex adapter through the existing runtime adapter
+configuration and capability preflight. Codex model discovery is validated
+through a bounded app-server request, runtime workspaces are applied to the
+launch configuration, and network access defaults to disabled. Adapter-owned
+resources now close at direct-run completion and persistent-host run completion
+or host shutdown. Focused runtime and Codex tests cover configuration,
+capability selection, model discovery, and cleanup.
 
 ## Delivery state
 
-No implementation or reachable delivery commit is recorded.
+Implementation is delivered in commit `01ba877` and [pull request
+#110](https://github.com/marcolink/seqlane/pull/110). It is not yet reachable
+from the default branch because the pull request is open.
 
 ## Traceability
 
 - [spec.codex-app-server-adapter](../specs/2026-09-12-codex-app-server-adapter.md)
 - [task.implement-codex-app-server-adapter](./2026-09-12-implement-codex-app-server-adapter.md)
+- [pull request #110](https://github.com/marcolink/seqlane/pull/110)

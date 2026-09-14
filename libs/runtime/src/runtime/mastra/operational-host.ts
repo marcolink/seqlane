@@ -50,6 +50,10 @@ export interface OperationalWorkflowRegistration {
   readonly key: string;
   /** Mastra workflow values stay opaque at this boundary. */
   readonly workflow: unknown;
+  /** Closes adapter resources for one terminal workflow run. */
+  readonly terminate?: (runId: string) => Promise<void>;
+  /** Closes adapter resources owned by active runs for this workflow. */
+  readonly shutdown?: () => Promise<void>;
 }
 
 export interface OperationalEventSink extends SeqlaneEventSink {
@@ -194,9 +198,13 @@ export function createOperationalWorkflow(
     validatorDefinitions: source.validatorDefinitions,
     executeInvocation: invocationHandler.invoke,
     executeWorkflowInvocation: invocationHandler.invoke,
-    onWorkflowComplete: ({ runId }) => invocationHandler.complete(runId),
   });
-  return { key: source.key, workflow: compiled.workflow };
+  return {
+    key: source.key,
+    workflow: compiled.workflow,
+    terminate: invocationHandler.terminate,
+    shutdown: invocationHandler.shutdown,
+  };
 }
 
 const noExecutionEvents: OperationalEventSink = {
@@ -226,11 +234,13 @@ function runtimeProfileFromContext(
 
 interface OperationalInvocationHandler {
   readonly invoke: MastraPlanInvocation;
-  readonly complete: (runId: string) => void;
+  readonly terminate: (runId: string) => Promise<void>;
+  readonly shutdown: () => Promise<void>;
 }
 
 interface PreparedOperationalInvocation {
   readonly invoke: MastraPlanInvocation;
+  readonly close: () => Promise<void>;
 }
 
 function createOperationalInvocationHandler(
@@ -240,8 +250,35 @@ function createOperationalInvocationHandler(
     string,
     Promise<PreparedOperationalInvocation>
   >();
+  const cleanupByRun = new Map<string, Promise<void>>();
+  const activeByRun = new Map<string, Set<Promise<void>>>();
 
-  const invoke: MastraPlanInvocation = async (context) => {
+  const closeRun = (
+    runId: string,
+    pending: Promise<PreparedOperationalInvocation>,
+  ): Promise<void> => {
+    const cleanup = (async () => {
+      await Promise.all(activeByRun.get(runId) ?? []);
+      const { close } = await pending;
+      await close();
+    })().catch(() => undefined);
+    cleanupByRun.set(runId, cleanup);
+    void cleanup.finally(() => {
+      if (cleanupByRun.get(runId) === cleanup) cleanupByRun.delete(runId);
+    });
+    return cleanup;
+  };
+
+  const terminate = (runId: string): Promise<void> => {
+    const pending = preparedByRun.get(runId);
+    if (pending !== undefined) {
+      preparedByRun.delete(runId);
+      return closeRun(runId, pending);
+    }
+    return cleanupByRun.get(runId) ?? Promise.resolve();
+  };
+
+  const invokePrepared: MastraPlanInvocation = async (context) => {
     const pending =
       preparedByRun.get(context.runId) ??
       (async () => {
@@ -253,85 +290,111 @@ function createOperationalInvocationHandler(
           source.eventSink?.({ workId, runId: context.runId }) ??
           noExecutionEvents;
         const profile = runtimeProfileFromContext(context.requestContext);
-        const execution = await resolveRuntimeProfile(
-          profile,
-          source.taskDefinitions,
-          context.abortSignal,
-          context.workflowInput,
-          source.onSessionUiAvailable,
-          {
-            adapterConfiguration: source.adapterConfiguration,
-            adapterRegistry: source.adapterRegistry,
-            requestContext: context.requestContext,
-            runId: context.runId,
-          },
-        );
-        const prepared = new PlanCompiler().compileWorkflow(source.plan, {
-          workId,
-          runId: context.runId,
-          workflowInput: context.workflowInput,
-          createInvocationId: (nodeId) =>
-            `${source.plan.workflow.id}:${nodeId}`,
-          executors: execution.executors,
-          sessionResolver: execution.sessionResolver,
-          workspaceResources: workspaceResourcesForExecution(
-            execution.workspaceResources,
-            source.workflowDefinitions,
-          ),
-          taskDefinitions: execution.taskDefinitions,
-          validatorDefinitions: source.validatorDefinitions,
-          workflowDefinitions: source.workflowDefinitions,
-          events,
-        });
-        preflightCompiledWorkflowSessionCapabilities(prepared);
-        await preflightCompiledWorkflowModels(prepared);
-        await resolveCompiledWorkflowSessions(prepared);
-        if (source.eventSink !== undefined) {
-          events.emitPlan(
-            createSeqlanePlanSnapshot(prepared.plan),
-            workId,
-            context.runId,
+        let closeExecution: (() => Promise<void>) | undefined;
+        try {
+          const execution = await resolveRuntimeProfile(
+            profile,
+            source.taskDefinitions,
+            context.abortSignal,
+            context.workflowInput,
+            source.onSessionUiAvailable,
+            {
+              adapterConfiguration: source.adapterConfiguration,
+              adapterRegistry: source.adapterRegistry,
+              requestContext: context.requestContext,
+              runId: context.runId,
+            },
           );
-        }
-        const invokeWorkflow: MastraPlanInvocation = async (invocation) => {
-          const child = source.workflowDefinitions?.get(invocation.workflowId);
-          if (child === undefined) {
-            throw new Error(
-              `No nested workflow definition registered for "${invocation.workflowId}"`,
-            );
-          }
-          return executeNestedMastraWorkflow({
-            parent: prepared,
-            invocation,
-            child,
+          closeExecution = execution.close;
+          const prepared = new PlanCompiler().compileWorkflow(source.plan, {
+            workId,
+            runId: context.runId,
+            workflowInput: context.workflowInput,
+            createInvocationId: (nodeId) =>
+              `${source.plan.workflow.id}:${nodeId}`,
             executors: execution.executors,
             sessionResolver: execution.sessionResolver,
-            workspaceResources: prepared.context.workspaceResources,
+            workspaceResources: workspaceResourcesForExecution(
+              execution.workspaceResources,
+              source.workflowDefinitions,
+            ),
+            taskDefinitions: execution.taskDefinitions,
+            validatorDefinitions: source.validatorDefinitions,
+            workflowDefinitions: source.workflowDefinitions,
             events,
           });
-        };
-        const invoke = createMastraPlanInvocationHandler(
-          prepared,
-          source.plan,
-          invokeWorkflow,
-        );
-        return { invoke };
+          preflightCompiledWorkflowSessionCapabilities(prepared);
+          await preflightCompiledWorkflowModels(prepared);
+          await resolveCompiledWorkflowSessions(prepared);
+          if (source.eventSink !== undefined) {
+            events.emitPlan(
+              createSeqlanePlanSnapshot(prepared.plan),
+              workId,
+              context.runId,
+            );
+          }
+          const invokeWorkflow: MastraPlanInvocation = async (invocation) => {
+            const child = source.workflowDefinitions?.get(
+              invocation.workflowId,
+            );
+            if (child === undefined) {
+              throw new Error(
+                `No nested workflow definition registered for "${invocation.workflowId}"`,
+              );
+            }
+            return executeNestedMastraWorkflow({
+              parent: prepared,
+              invocation,
+              child,
+              executors: execution.executors,
+              sessionResolver: execution.sessionResolver,
+              workspaceResources: prepared.context.workspaceResources,
+              events,
+            });
+          };
+          const invoke = createMastraPlanInvocationHandler(
+            prepared,
+            source.plan,
+            invokeWorkflow,
+          );
+          return {
+            invoke,
+            close: execution.close ?? (async () => undefined),
+          };
+        } catch (error) {
+          await closeExecution?.().catch(() => undefined);
+          throw error;
+        }
       })();
     preparedByRun.set(context.runId, pending);
-    try {
-      return await (await pending).invoke(context);
-    } catch (error) {
-      if (preparedByRun.get(context.runId) === pending) {
-        preparedByRun.delete(context.runId);
-      }
-      throw error;
-    }
+    return (await pending).invoke(context);
+  };
+
+  const invoke: MastraPlanInvocation = (context) => {
+    const active = activeByRun.get(context.runId) ?? new Set<Promise<void>>();
+    activeByRun.set(context.runId, active);
+    let release!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    active.add(settled);
+    return invokePrepared(context).finally(() => {
+      active.delete(settled);
+      if (active.size === 0) activeByRun.delete(context.runId);
+      release();
+    });
   };
 
   return {
     invoke,
-    complete: (runId) => {
-      preparedByRun.delete(runId);
+    terminate,
+    shutdown: async () => {
+      const pending = [...preparedByRun.entries()];
+      preparedByRun.clear();
+      await Promise.all([
+        ...pending.map(([runId, value]) => closeRun(runId, value)),
+        ...cleanupByRun.values(),
+      ]);
     },
   };
 }
@@ -348,6 +411,7 @@ function asMastraRegistrations(
 
 function registerOperationalMastraServer(
   composition: ReturnType<typeof createMastraComposition>,
+  terminalCleanup: ReadonlyMap<string, (runId: string) => Promise<void>>,
 ): void {
   registerMastraServer(
     composition.mastra,
@@ -398,6 +462,7 @@ function registerOperationalMastraServer(
         return cancelled ? { status: "cancelled" } : result;
       } finally {
         abortSignal.removeEventListener("abort", cancel);
+        await terminalCleanup.get(workflowKey)?.(runId);
       }
     },
     undefined,
@@ -421,7 +486,14 @@ export async function createOperationalHost(
       asMastraRegistrations(options.workflows),
       storage,
     );
-    registerOperationalMastraServer(composition);
+    registerOperationalMastraServer(
+      composition,
+      new Map(
+        options.workflows.flatMap(({ key, terminate }) =>
+          terminate === undefined ? [] : [[key, terminate] as const],
+        ),
+      ),
+    );
     const app = new Hono();
     app.use(cors({ origin: localStudioOrigin, credentials: true }));
     const adapter = new MastraServer({ app, mastra: composition.mastra });
@@ -467,6 +539,11 @@ export async function createOperationalHost(
           });
         });
       } finally {
+        await Promise.all(
+          options.workflows.map(async ({ shutdown }) => {
+            await shutdown?.();
+          }),
+        );
         await composition?.shutdown();
       }
     };

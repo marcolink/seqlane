@@ -20,7 +20,10 @@ import {
 } from "./index-internal.js";
 import { withDeadline, CodexRequestDeadlineError } from "./deadline.js";
 import { sessionDispatcher } from "./session-events.js";
-import { createCodexStdioTransport } from "./transport.js";
+import {
+  createCodexStdioTransport,
+  withCodexTransportDeadline,
+} from "./transport.js";
 import {
   createTurnTracker,
   type CompletedTurn,
@@ -41,6 +44,8 @@ export interface CodexAdapterOptions {
   readonly createTransport?: (
     configuration: CodexLaunchConfiguration,
     options: {
+      readonly signal?: AbortSignal;
+      readonly initializeTimeoutMs?: number;
       readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
     },
   ) => Promise<CodexTransport>;
@@ -249,7 +254,6 @@ function createAdapterForTransport(
   let queue = Promise.resolve();
   let selectionResolved = false;
   let effectiveSelection: ModelSelection | undefined;
-  let backgroundProcessReported = false;
 
   const closeAfterDeadline = async (cause: unknown): Promise<void> => {
     if (!(cause instanceof CodexRequestDeadlineError)) return;
@@ -460,13 +464,6 @@ function createAdapterForTransport(
         }
         throw cause;
       }
-      if (!backgroundProcessReported) {
-        backgroundProcessReported = true;
-        request.onBackgroundProcess?.({
-          mutatesWorkspace: true,
-          termination: transport.termination,
-        });
-      }
       try {
         let completed: CompletedTurn;
         try {
@@ -544,6 +541,7 @@ function createAdapterForTransport(
 
   const adapter: AgentAdapter = {
     capabilities: CODEX_AGENT_CAPABILITIES,
+    close: () => transport.close(),
     execute,
     captureCheckpoint: async () => {
       if (threadId === undefined || lastTurnId === undefined) {
@@ -614,11 +612,16 @@ export function createCodexAdapter(
   const resolveAdapter = (
     request: AgentAdapterRequest,
   ): Promise<AgentAdapter> =>
-    (adapterPromise ??= (options.createTransport ?? createCodexStdioTransport)(
-      validated,
-      {
-        onDiagnostic: (diagnostic) => reportDiagnostic(request, diagnostic),
-      },
+    (adapterPromise ??= withCodexTransportDeadline(
+      Promise.resolve().then(() =>
+        (options.createTransport ?? createCodexStdioTransport)(validated, {
+          signal: composeSignals(options.signal, request.signal),
+          initializeTimeoutMs: PRE_TURN_REQUEST_TIMEOUT_MS,
+          onDiagnostic: (diagnostic) => reportDiagnostic(request, diagnostic),
+        }),
+      ),
+      PRE_TURN_REQUEST_TIMEOUT_MS,
+      composeSignals(options.signal, request.signal),
     ).then((transport) =>
       createAdapterForTransport(transport, validated, options),
     ));
@@ -641,6 +644,10 @@ export function createCodexAdapter(
     },
     execute: (request) =>
       resolveAdapter(request).then((adapter) => adapter.execute(request)),
+    close: async () => {
+      const adapter = await adapterPromise;
+      await adapter?.close?.();
+    },
     captureCheckpoint: async () => {
       const adapter = await resolveAdapter(lifecycleRequest());
       if (adapter.captureCheckpoint === undefined) {

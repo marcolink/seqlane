@@ -23,6 +23,9 @@
       "path": "../adapter"
     },
     {
+      "path": "../codex"
+    },
+    {
       "path": "../acp"
     },
     {

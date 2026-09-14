@@ -17,10 +17,21 @@ export async function withDeadline<T>(
   promise: Promise<T>,
   milliseconds: number,
   operation: string,
+  signal?: AbortSignal,
 ): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   try {
-    return await Promise.race([
+    if (signal?.aborted) {
+      throw (
+        signal.reason ??
+        new CodexAdapterError(
+          "cancellation",
+          `Codex ${operation} was cancelled`,
+        )
+      );
+    }
+    const races: Promise<T>[] = [
       promise,
       new Promise<T>((_, reject) => {
         timeout = setTimeout(
@@ -28,8 +39,27 @@ export async function withDeadline<T>(
           milliseconds,
         );
       }),
-    ]);
+    ];
+    if (signal !== undefined) {
+      races.push(
+        new Promise<T>((_, reject) => {
+          onAbort = () =>
+            reject(
+              signal.reason ??
+                new CodexAdapterError(
+                  "cancellation",
+                  `Codex ${operation} was cancelled`,
+                ),
+            );
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      );
+    }
+    return await Promise.race(races);
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
+    if (signal !== undefined && onAbort !== undefined) {
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 }

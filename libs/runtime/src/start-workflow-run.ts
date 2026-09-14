@@ -22,6 +22,7 @@ import {
 import { resolveRuntimeProfile } from "./runner/profile/runtime-profile.js";
 import type { RuntimeSessionUiNotifier } from "./runner/profile/runtime-profile.js";
 import type { RuntimeSessionUiAvailable } from "./runner/runtime-session-ui.js";
+import type { RuntimeExecution } from "./runner/profile/runtime-profile.js";
 
 export interface StartWorkflowRunRequest<Input = unknown, Output = unknown> {
   readonly workflow: BuiltWorkflow<Input, Output>;
@@ -78,6 +79,7 @@ export function startWorkflowRun<Input, Output>(
   else request.signal?.addEventListener("abort", onAbort, { once: true });
 
   const outcome = (async (): Promise<SeqlaneRunOutcome> => {
+    let execution: RuntimeExecution | undefined;
     const emitCancelled = (): SeqlaneRunOutcome => {
       request.events.emit({ type: "run.cancelled", workId, runId });
       return { status: "cancelled" };
@@ -90,7 +92,7 @@ export function startWorkflowRun<Input, Output>(
       );
       const notifier: RuntimeSessionUiNotifier | undefined =
         request.onRuntimeSessionUi;
-      const execution = await resolveRuntimeProfile(
+      execution = await resolveRuntimeProfile(
         request.runtime,
         request.workflow.taskDefinitions,
         abortController.signal,
@@ -160,6 +162,9 @@ export function startWorkflowRun<Input, Output>(
       }
       return { status: "failed", error };
     } finally {
+      if (execution?.close !== undefined) {
+        await execution.close().catch(() => undefined);
+      }
       request.signal?.removeEventListener("abort", onAbort);
     }
   })();

@@ -28,6 +28,11 @@ const acpConfiguration = {
   },
 };
 
+const codexConfiguration = {
+  adapter: "codex" as const,
+  executable: "/opt/codex",
+};
+
 function adapter(): AgentAdapter {
   return {
     capabilities: {
@@ -62,6 +67,50 @@ function factory(
 }
 
 describe("private runtime adapter selection", () => {
+  it("accepts explicit Codex configuration and applies the runtime workspace", () => {
+    expect(parseRuntimeAdapterConfiguration(codexConfiguration)).toEqual({
+      ...codexConfiguration,
+      networkAccess: false,
+    });
+    expect(
+      configurationWithWorkspace(codexConfiguration, "/workspace"),
+    ).toEqual({
+      ...codexConfiguration,
+      networkAccess: false,
+      workspace: "/workspace",
+    });
+    expect(
+      createRuntimeAdapterRegistry().resolve(
+        configurationWithWorkspace(codexConfiguration, "/workspace"),
+      ).configuration,
+    ).toEqual({
+      ...codexConfiguration,
+      networkAccess: false,
+      workspace: "/workspace",
+    });
+    expect(() =>
+      parseRuntimeAdapterConfiguration({
+        ...codexConfiguration,
+        executable: "codex",
+      }),
+    ).toThrow(RuntimeAdapterConfigurationError);
+  });
+
+  it("selects Codex with its native capabilities", () => {
+    const selected = createRuntimeAdapterRegistry().resolve(codexConfiguration);
+    expect(selected.identity).toBe("codex");
+    expect(selected.capabilities).toEqual({
+      execute: true,
+      modelSelection: true,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: true,
+      fork: true,
+      activity: true,
+      sessionUi: false,
+    });
+  });
+
   it.each([
     [undefined, "missing"],
     [{}, "missing identity"],

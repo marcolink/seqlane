@@ -99,5 +99,21 @@ inspects or changes runtime permission configuration. An unsupported runtime
 interaction during a non-interactive Run becomes a deterministic executor
 failure; Seqlane never approves it.
 
+Codex app-server is selected only through the private
+`SEQLANE_RUNTIME_ADAPTER_CONFIG` environment value. Its strict configuration
+uses an absolute executable path and optional `networkAccess` boolean:
+
+```json
+{
+  "adapter": "codex",
+  "executable": "/absolute/path/to/codex",
+  "networkAccess": false
+}
+```
+
+The runtime supplies the workspace, validates Codex models before task work,
+and closes each run-owned app-server process at run completion. Codex is not
+available through workflow source, Plans, or public CLI flags.
+
 Seqlane coordinates only sessions and processes it starts or tracks. It does
 not roll back mutations or guarantee behavior of unmanaged external processes.
