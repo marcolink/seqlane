@@ -118,13 +118,11 @@ mutually exclusive:
 
 Only `absent` and `legacy` select baseline mode. `invalid-current` must never
 be relabeled as `absent` or `legacy`. Reuse this classifier without variation
-in scope selection, migration, publication, and marker cleanup.
+in scope selection, migration, and publication.
 
-A publication progress marker or pending publication record is not an
-authoritative report. Scope selection must ignore its candidate findings and
-checkpoint and continue from the last completed trusted state. A progress-only
-summary must retain that old state; it cannot expose a new checkpoint before
-the publisher confirms its final guarded write.
+A legacy v3 publication progress marker is not a v5 checkpoint. Scope
+selection ignores that notice and uses the last completed trusted state.
+The v5 path writes no progress marker or pending report.
 
 Baseline mode uses the complete current PR diff:
 
@@ -206,64 +204,80 @@ The gate applies after synthesis and before lifecycle reconciliation. It must
 validate paths against the exact `R` calculated for that run, not a
 model-supplied list. Agent output cannot widen the scope or assign final IDs.
 
-Every proposed finding must include bounded evidence from the supplied patch or
-current-head file, together with an evidence side (`old`, `new`, or `context`)
-when applicable. The local positioning step derives a line range by searching
-the frozen evidence. A finding may remain `unlocated` or `ambiguous` when no
-safe position exists; it must remain visible with a limitation instead of
-receiving an invented line. Finding identity is separate from presentation
-location: line numbers, ranges, and formatting are not part of the semantic
-identity used for deduplication or cross-run comparison.
-
-Before stable-ID allocation, the local finalizer must construct a strict
-`review.finding-identity/v1` representation from frozen repository evidence:
+Every proposed new finding must have bounded evidence from a sealed
+ManifestItem. The trusted finalizer, not the agent, validates this strict model
+and persists it in both the sealed manifest and bounded trusted report state:
 
 ```text
-FindingIdentity = {
-  schema: "review.finding-identity/v1"
-  normalizerVersion
-  language
-  defectKind: member of the trusted reviewer taxonomy
-  cause: { enclosingDeclaration, tokenDigest }
-  occurrence: ordered list of {
+FindingEvidence = {
+  itemId: sealed ManifestItem ID
+  evidenceForm: "pr-patch" | "change-evidence"
+  itemEvidenceDigest: lowercase SHA-256 matching that item
+  sourceRevision: full Git commit SHA
+  path: validated relative path matching that item
+  side: "old" | "new" | "context"
+  sourceDigest: lowercase SHA-256 of frozen source bytes
+  excerpt: nonempty UTF-8 string, at most 500 bytes
+  excerptDigest: lowercase SHA-256 of exact excerpt bytes
+  supportingEvidence: array of at most 4 {
     role: "cause" | "source" | "sink" | "guard"
-    enclosingDeclaration
-    tokenDigest
+    path: validated relative path
+    sourceRevision: full Git commit SHA
+    sourceDigest: lowercase SHA-256
+    excerpt: nonempty UTF-8 string, at most 500 bytes
+    excerptDigest: lowercase SHA-256
   }
 }
+
+LocationStatus =
+  | { kind: "located"; side: "old" | "new";
+      startLine: positive integer; endLine: integer >= startLine }
+  | { kind: "unlocated"; reason: bounded nonempty string }
+  | { kind: "ambiguous"; reason: bounded nonempty string;
+      candidateCount: positive integer }
 ```
 
-The local normalizer parses supported source evidence, resolves declarations,
-and hashes canonical token-kind/value sequences. It omits comments and trivia,
-but preserves identifier and literal values. Enclosing declarations use typed
-symbol signatures, not line numbers or file paths. Occurrence anchors retain
-causal order, so distinct source-to-sink paths remain distinct. A candidate's
-defect kind and anchor claims are untrusted: the local validator must verify
-them against the pinned taxonomy and supplied evidence before accepting them.
-Unsupported evidence or an unprovable relation yields a visible limitation,
-not a guessed identity or a prose-derived fallback.
+The finalizer verifies the item, path, form, revision, side, excerpt bytes,
+and digests against the frozen patch or source blob at the named revision.
+The manifest records the source digest for every referenced blob. A new
+finding's primary path must be in R; supporting context may come from other
+readable files but cannot widen R. The finalizer derives a range by searching
+the frozen evidence and refuses a model-supplied range it cannot reproduce.
+A located range must be on the named side and revision; context-only evidence
+cannot claim a located PR line. If no unique safe range exists, the finding
+remains visible as unlocated or ambiguous with a limitation. Invalid or
+missing evidence makes finding validation fail.
 
-`identityKey` is lowercase SHA-256 of canonical JSON containing schema,
-normalizer version, language, defect kind, and cause. `occurrenceKey` is
-lowercase SHA-256 of canonical JSON `{identityKey, occurrence}`. Canonical JSON
-sorts object keys, preserves array order, and uses UTF-8 without changing token
-values. Summary, recommendation, severity, axis labels, evidence side, paths,
-and lines are mutable presentation or verification metadata; none enters
-either key. Persist the typed identity with its keys so a reader can validate
-the derivation. Pin the same normalizer for candidate deduplication, retained
-comparison, and resume reuse; a version change cannot silently rekey history.
+Finding identity is a matching aid, separate from presentation location and
+the publisher-assigned public ID. The finalizer computes a versioned
+identityKey from the trusted defect kind and a whitespace-normalized,
+evidence-verified cause excerpt. It computes occurrenceKey from identityKey,
+the verified path, and ordered digests of validated supporting evidence.
+Line numbers, severity, summary, and recommendation are excluded. The trusted
+finalizer validates every input to these hashes. No AST parser, language-specific
+declaration resolver, or claimed data-flow proof is required in this
+iteration. Identical prose alone never merges findings.
 
-Equal keys are duplicates only when local evidence also resolves to the same
-occurrence. Identical code in distinct declarations or ambiguous anchors must
-not merge independent findings. Ambiguity is a visible limitation with no new
-stable ID; retained findings keep their independent IDs and dispositions.
-For an unambiguous match, rewording, recommendation changes, and path or line
-movement preserve the public ID, dispositions, and verification history.
-If changed source produces new keys, retaining an old ID requires a locally
-verified one-to-one occurrence match against prior and current evidence. Model
-claims alone cannot establish that match. This contract promises continuity
-for verified matches, not automatic recognition of arbitrary semantic rewrites.
-The finalizer owns stable-ID allocation and lifecycle changes.
+The identityKey is SHA-256 of canonical JSON containing schema
+review.finding-identity/v1, the trusted defect kind, and SHA-256 of the cause
+excerpt after trimming and collapsing ASCII whitespace runs to one space.
+The occurrenceKey is SHA-256 of canonical JSON containing identityKey, the
+validated primary path, and the ordered supporting-evidence roles, paths,
+source digests, and excerpt digests. Canonical JSON sorts object keys and
+preserves array order. The finalizer persists both keys and their typed
+inputs so a later reader can validate the derivation.
+
+Equal keys permit deduplication only when local evidence yields one
+unambiguous occurrence. Different supporting contexts or paths remain
+separate, including similar security defects. An agent may cite a retained
+public ID, but the finalizer accepts continuity only after a one-to-one
+evidence match against the retained finding. A verified one-to-one match may
+preserve that ID across path or line movement, rewording, or changed
+recommendations even when occurrenceKey changes. An ambiguous or unsupported
+match cannot silently merge findings or claim resolution; it is visible as
+a limitation and receives no new stable ID until evidence is sufficient.
+Normalizer versions are pinned for one generation, and a version change
+cannot silently rekey retained history.
 
 ### requirement-existing-findings
 
@@ -319,7 +333,7 @@ lifecycle. Only current-head verification can establish `resolved` or
 ### requirement-run-manifest-and-lifecycle
 
 Manifest schema, item identity, terminal outcomes, persistence, bounds,
-integrity, resume reuse, and provenance are defined by the canonical
+integrity, and provenance are defined by the canonical
 [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md).
 This scope contract requires the manifest to carry the same immutable
 `ScopeIdentity`, selected paths, exclusions, and evidence-batch plan used here.
@@ -381,7 +395,7 @@ The schema-evolution matrix is canonical:
 | --- | --- | --- | --- |
 | v3 | Existing lifecycle state, v3 metadata marker, numeric finding IDs. | Current v3 reader. | Accepted as legacy when the scope feature is enabled; replaced by a new baseline. |
 | v4 | Transitional mechanical-disposition state: v3 fields plus monotonic state revision and writer identity; v4 marker. It has no scope checkpoint and is never an incremental checkpoint for this feature. | v4 disposition reader and the scope reader as legacy. | If published before v5, v3 migrates to v4 for disposition work. The first scope-capable publication replaces v4 with a fresh v5 baseline and discards v4 findings, dispositions, metrics, and checkpoint. |
-| v5 | Unified current state: v4 disposition fields plus `scopeCheckpoint`, generation-qualified finding IDs, typed identities and comparisons, strict run status, required sealed manifest and publication intent references with digests, and the v5 marker. | v5 reader only for current operation; older readers reject it. | v3 or v4 is legacy and is replaced by a fresh v5 baseline. Invalid v5 state, including a missing manifest reference, is `invalid-current` and fails closed. |
+| v5 | Unified current state: v4 disposition fields plus `scopeCheckpoint`, generation-qualified finding IDs, typed identities and comparisons, strict run status, required sealed manifest and final-operation references with digests, and the v5 marker. | v5 reader only for current operation; older readers reject it. | v3 or v4 is legacy and is replaced by a fresh v5 baseline. Invalid v5 state, including a missing manifest reference, is `invalid-current` and fails closed. |
 
 The v5 schema is the only target for the incremental scope implementation.
 If incremental scope lands before mechanical dispositions, it still writes v5
@@ -539,7 +553,7 @@ ceiling also fails without publication or checkpoint advancement.
 
 If complete evidence cannot fit or a required batch fails, the review fails
 without publishing new findings or a new checkpoint. The workflow removes only
-its own progress marker and leaves the previous authoritative report intact.
+no v5 report and leaves the previous authoritative report intact.
 It must expose a clear failure reason in the Action result. It must not compact
 away coverage metadata or silently fall back to a broader baseline.
 
@@ -595,9 +609,9 @@ requires an absent authoritative report; a legacy replacement requires the
 captured old report ID and marker. A mismatch is stale and requires a new scope
 calculation. Only a successful final authoritative report can establish the
 next checkpoint `C`. The
-[publisher-owned state machine and coordinator](./2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-state-machine)
-define write ordering, conditional coordination, journal transitions,
-reconciliation, fallback, and cleanup.
+[publisher-owned final write and shared queue](./2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-state-machine)
+define write ordering, stale guards, uncertain-result readback, and the
+one authoritative checkpoint update.
 
 ## Detailed design or contracts
 
@@ -708,22 +722,24 @@ force-push, retargeting, model change, or state parse failure.
   changed-checkpoint runs. Assert that their authoritative checkpoint does not
   advance.
 - Test manifest sealing, idempotent and conflicting transitions, finalization
-  backstop failures, per-item versus run-level failure classes, strict resume
-  identity, deterministic ordering, and independent coverage, finding,
+  backstop failures, per-item versus run-level failure classes, complete
+  batch-and-lane membership, deterministic ordering, and independent coverage, finding,
   publication, and admission statuses.
 - Test evidence-backed positioning, unlocated and ambiguous findings,
   location-independent deduplication, and `new`, `persisting`, `resolved`, and
   `not_reviewed` comparison outcomes.
 - Test reworded summaries, changed recommendations, and moved source with the
   same verified occurrence: retain keys, public IDs, dispositions, and history.
-  Distinct exploit paths stay separate; ambiguous or unsupported evidence
-  cannot receive a guessed key. Reject model-supplied keys and normalizer drift.
+  Distinct supporting contexts stay separate; ambiguous or unsupported
+  evidence cannot receive a guessed key. Reject model-supplied keys and
+  normalizer drift without requiring a language-specific source parser.
 - Test v5 missing or malformed manifest references as `invalid-current`, without
-  automatic baseline replacement. Expired artifacts disable reuse only.
-- Test rule precedence, exclusion explanations, provenance hashes, uncertain
-  publication reconciliation, and visible fallback for unpublishable findings.
-- Test that the progress marker cannot be parsed as a published checkpoint and
-  that failed legacy replacement restores the old report.
+  automatic baseline replacement. Expired artifacts leave a valid Git
+  checkpoint intact but disable old audit reads.
+- Test rule precedence, exclusion explanations, provenance hashes, the
+  single bounded summary, uncertain-write readback, and failed upload.
+- Test that a legacy v3 progress marker cannot be parsed as a v5 checkpoint
+  and that failed legacy replacement preserves the old report.
 - Run the repository test-mapping check before focused tests. Run focused
   Action-library integration tests, schema compatibility and malformed-input
   tests, workflow admission checks, documentation checks, and `git diff
@@ -757,7 +773,7 @@ force-push, retargeting, model change, or state parse failure.
   discovery.
 - Every selected item has one explicit outcome in an immutable versioned
   manifest, and missing outcomes become visible failures.
-- Findings retain bounded evidence, safe location status, and semantic identity
+- Findings retain typed bounded evidence, safe location status, and identity
   independent of line location.
 - Comparisons preserve `not_reviewed`, and coverage, finding, publication, and
   admission statuses cannot collapse into one completion flag.

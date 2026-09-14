@@ -55,7 +55,8 @@ without changing trusted-comment or run-metrics ownership here.
 The incremental-scope specification owns `E`, `X`, `R`, and checkpoint
 semantics. [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md)
 owns manifest schema, persistence, coverage, and provenance. This specification
-owns trusted state, the publication state machine, and its publication journal.
+owns trusted state and final report publication. No external coordinator or
+publication journal is required for the v5 review path.
 
 ## Requirements
 
@@ -75,206 +76,70 @@ report revision.
 
 The Action-library publisher is the sole owner of publication state. The
 scope selector and review lanes produce data; they do not write GitHub state.
-Publication follows one canonical state machine:
+For v5, publication has one GitHub write: create or update the authoritative
+summary after execution and manifest sealing. The final body contains all
+admitted and retained findings, limitations, run metrics, status, and the new
+checkpoint. There are no pre-publication progress writes or inline finding
+writes in this iteration. The workflow job and step summary show progress
+without changing the authoritative comment. The existing v3 owning-run notice
+remains legacy behavior until the v5 path is delivered.
 
-```text
-prepared
-  -> progress-marked
-  -> inline-reconciled
-  -> finalizable
-  -> published
+The publisher records publication as not-started before the final write and
+published only after an exact response or readback confirms it. A changed live
+head, target, report, or checkpoint is stale; a known failed write is failed.
+An ambiguous API result is uncertain: the publisher re-reads the trusted
+comment and accepts only an exact operation identity and payload match. It
+does not issue a second write while the first may still complete. An
+unconfirmed run cannot claim success. A later run reads the live trusted report
+before selecting scope.
 
-prepared | progress-marked | inline-reconciled | finalizable
-  -> stale | cancelled | failed
+Every authoritative-comment writer stores an operation identity with writer
+kind, pull request, monotonic state revision, source identity, and a SHA-256
+digest of the canonical final body with that operation identity omitted.
+For a full review, source identity is ScopeIdentity, run ID, and attempt. For a
+mechanical disposition, it is the digest of the validated command ledger and
+writer identity defined by the disposition contract. The mechanical writer
+preserves the review's manifest and checkpoint while computing its own new
+body digest.
+An exact readback match for the current writer is idempotent evidence of its
+write; a mismatch cannot be treated as success. The report itself is the
+durable publication record. No separate intent or receipt store is required.
 
-prepared | progress-marked | inline-reconciled | finalizable
-  -> uncertain(lastConfirmedStage, operation)
+### requirement-serialized-publication
 
-uncertain
-  -> confirmed successor stage   [exact write match]
-  -> lastConfirmedStage          [write proven not applied; guards still pass]
-  -> stale                       [publication identity changed]
-  -> uncertain                   [effect remains unknown]
-```
+All authoritative-comment writers, including the future mechanical-disposition
+path, use the same per-pull-request GitHub Actions publication queue. This is
+the queue in
+[spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md#requirement-serialized-publication),
+not a second dispatcher. Review computation may retain its existing
+cancel-on-new-review group; the final publisher enters a separate shared group
+after computation. The publication group uses queue: max without
+cancel-in-progress. GitHub admits at most 100 pending jobs to that group and
+orders them by when they start waiting, not webhook dispatch time. Queue
+overflow is a visible cancelled run; it cannot claim publication. The trusted
+publisher and disposition paths must use the same group key for one PR.
 
-`uncertain` preserves the durable intent, operation identity, payload digest,
-and last confirmed stage. The successor is the stage reached by that specific
-operation, including `published` for a confirmed final write. An inline write
-may return to `progress-marked` while other inline operations remain pending.
-Retry is permitted only after proving the original write was not applied and
-returning to its prior stage; it reuses the same logical operation identity.
-An absent or mismatched read alone is not proof that an in-flight write failed.
+After queue admission, the publisher re-reads the live PR and trusted report,
+then compares them with the captured ScopeIdentity. A new baseline requires
+no authoritative report. Legacy replacement requires the captured report ID
+and marker digest. Incremental and no-change modes require the captured
+report ID, state digest, and checkpoint. Any mismatch is stale and makes no
+write. For an existing report, the final update must use the same trusted
+comment ID; it never deletes historical comments. For an absent report, the
+queued publisher creates at most one authoritative comment. The mechanical
+publisher reconciles the latest authorized command ledger before it writes.
+A full review publisher also reconciles decisions that arrived during
+computation.
 
-If reconciliation exhausts its budget or the job is cancelled while the effect
-remains unknown, preserve `uncertain` in the journal for later recovery. Cleanup
-may remove an owned progress notice only after proving it will not overwrite
-a final report. It cannot erase the intent, mark publication failed merely
-because a response was lost, or advance a checkpoint. After reconciliation
-restores a nonfinal stage, ordinary failed/cancelled transitions and cleanup are
-legal. Stale attempts preserve their evidence without further publication.
-
-The first summary write is progress-only: it prepends an owning-run notice and
-retains the previous authoritative state block, findings, and checkpoint. It
-must not expose candidate findings or a new checkpoint. Scope selection ignores
-that notice and any pending publication record. Inline comments emitted before
-the final write carry the owning run and a `pending` marker; they are secondary,
-non-authoritative projections. The final summary write is the only commit point
-that exposes the new findings, scope checkpoint, and complete human projection.
-It records publication counters, limitations, fallback findings, and terminal
-statuses. If that write fails, the old state remains authoritative and pending
-projections cannot advance the checkpoint.
-
-Every publication operation carries a typed identity containing the pull request,
-scope identity, run ID, attempt, stage, and canonical payload digest:
-
-```text
-PublicationOperation = {
-  pullRequestNumber
-  scopeIdentity
-  runId
-  attempt
-  stage: "progress-summary" | "inline-finding" | "final-summary"
-  payloadDigest: lowercase SHA-256
-}
-```
-
-To avoid self-referential hashes, `payloadDigest` hashes the canonical report or
-inline payload with only its operation marker and journal-intent reference
-omitted. It still covers findings, statuses, checkpoint, execution reference,
-and human projection. Readback uses this same projection and separately verifies
-the omitted identity fields against the durable intent.
-
-An inline finding additionally includes its finding ID and evidence-head
-revision. The publisher persists stage transitions in the publication journal.
-It accepts an idempotent retry only when the stage and payload digest match.
-Before retrying an uncertain write, it re-reads the live summary or inline comment and
-treats an exact operation identity and content match as success. It never
-creates a duplicate or deletes historical comments. A changed head, target,
-checkpoint, report identity, or scope identity transitions the operation to
-`stale`.
-
-### requirement-publication-coordinator
-
-All writes by the review bot for one pull request, including progress, inline
-findings, final summary, and cleanup, require one Action-owned publication
-lease. The coordinator is a DynamoDB table in one region; it stores only bounded
-lease, journal-head, and capacity metadata, never findings or patches. A
-conditional `PutItem` creates the per-PR lease row when absent. Conditional
-`UpdateItem` compares its revision and owner before acquisition or release.
-The lease owner is the trusted workflow run ID, attempt, and a unique fencing
-nonce. The workflow gives coordinator permission only to the trusted Action
-adapter and publisher; review-target code and model work receive none.
-
-The lease does not expire into another active writer. A takeover requires the
-previous GitHub workflow run to be verifiably terminal, followed by a
-conditional owner/revision update. An unverifiable owner blocks publication.
-Before every GitHub write, the publisher checks its lease and re-reads the live
-PR and trusted report under that lease. Every allowed bot publication path must
-use this coordinator; a bypass is a configuration failure. The publisher keeps
-the lease through write reconciliation and the durable journal receipt. A
-lost lease or failed coordinator read stops new writes and leaves an uncertain
-write for recovery. A runner cannot continue writing after another owner takes
-over because takeover waits for its verified termination.
-
-The live report precondition is a strict union:
-
-```text
-ReportPrecondition =
-  | { kind: "absent"; pullRequestNumber; scopeIdentity; runId; attempt }
-  | { kind: "present"; reportId; markerDigest; stateDigest;
-      pullRequestNumber; scopeIdentity; runId; attempt }
-```
-
-For a new baseline, acquire the lease, confirm `absent` in a fresh trusted
-comment read, and durably journal an intent with that exact precondition before
-creating the summary. This is the create-if-absent operation: the lease makes
-the absence check and creation exclusive among authorized bot writers. An
-already present authoritative comment produces `stale`; the publisher must
-not create a second one. An uncertain create is reconciled by exact operation
-identity and payload before retry. For existing reports, `present` guards every
-summary update and cleanup against the current report ID and content digest.
-After each confirmed summary write, replace the local precondition with the
-validated returned ID and digest. Inline writes do not alter that report
-precondition, but their own comment IDs and payload digests are reconciled and
-the live report is re-read before the next write. Re-read and validate the
-current report immediately before final publication. A mismatch is `stale`;
-an unknown write effect is `uncertain`. Journal the precondition and each
-confirmed successor so retries do not reuse a token from before a progress
-write. No progress marker or inline operation can advance the checkpoint.
-
-GitHub's issue-comment endpoints do not document conditional `POST` or `PATCH`
-writes. This contract therefore uses an exclusive trusted writer, not a
-fictional GitHub ETag precondition. Its guarantee covers the configured review
-bot. A writer using the bot credential outside the coordinator violates the
-trust boundary and cannot be made atomic by read-before-write checks. The
-workflow must withhold that credential from bypass paths and fail deployment
-checks if any bot writer is not routed through this lease.
-
-Publication is complete only when coverage is complete, finding validation is
-complete, the authoritative summary is written, and every admitted finding is
-either inline-published or represented in the final summary fallback. An
-unresolved inline write, missing fallback, or failed final summary update makes
-publication incomplete (`uncertain` or `failed`) and blocks checkpoint advancement.
-The scope checkpoint, retained findings, visible limitations, and publication status are one final
-authoritative write. Checkpoint advancement is allowed only from `published`.
-
-### requirement-publication-journal
-
-The publisher owns an append-only `review.publication-journal/v1` journal.
-The Action artifact adapter persists immutable journal snapshots under the
-manifest's trusted repository, workflow, access, redaction, and retention
-boundary. Each entry contains journal run ID and attempt, monotonic sequence,
-previous-entry digest (null only at sequence zero), `PublicationOperation`,
-publication stage, `ManifestReference`, and an outcome of `intent`, `confirmed`,
-`unknown`, or `failed`. Confirmed writes also record the GitHub comment ID and
-validated payload digest. Each entry carries `RunStatus`, validated against its
-execution snapshot and the transition rules below. A journal reference contains
-repository, workflow run and attempt, artifact ID, journal run ID, schema version,
-sequence, and SHA-256 digest. Missing entries, invalid transitions, or digest
-mismatches fail closed. Each snapshot has a canonical SHA-256 digest.
-
-The lease also serializes each journal's append. Its coordinator row stores the
-active journal ID, head sequence, head digest, and owner nonce. To append, the
-publisher first uploads a uniquely named immutable candidate snapshot and
-verifies its artifact ID, bytes, digest, and previous head. It then atomically
-updates the row only if owner, journal ID, head sequence, and head digest still
-match. This conditional update is the commit of the next sequence. A conflict
-must re-read the row and artifacts: an exact already committed candidate is
-idempotent; another digest or missing artifact is a fork/integrity failure.
-Do not send an external write until its intent is the committed head. An
-uncommitted candidate is an orphan, never evidence of an operation.
-
-After a crash or uncertain receipt, a new verified lease owner starts a new
-journal attempt with a `parentJournalReference` to the last validated head.
-It cannot append to or rewrite the old attempt. It first reconciles any
-committed external-write intent against live GitHub state. If a receipt append
-conflicts after an external write, preserve the committed intent and stop;
-recovery in the new attempt can record the exact confirmed result. Unknown
-effects never become success by advancing a journal pointer. The publisher
-keeps capacity for intent, receipt, and recovery before starting a write.
-
-Persist an intent before a GitHub write; append its confirmed receipt or bounded
-failure afterward. Journal entries reference execution snapshot digests in one
-direction. Early progress entries may reference the initial execution snapshot;
-inline and final entries must reference the final sealed execution snapshot.
-They cannot change execution items, findings, statuses, or manifest digests.
-Reserve journal capacity before writes within the manifest's existing aggregate
-limits. A journal snapshot is limited to 256 entries and 512 KiB uncompressed;
-reserve room for uncertain-write reconciliation and the terminal receipt.
-Capacity exhaustion stops further writes and leaves the attempt unconfirmed.
-
-The final comment binds the sealed execution reference and the durable journal
-intent reference. It cannot embed its own receipt digest: the receipt follows
-the GitHub commit point. On a crash or failed receipt write, recovery reads the
-live comment and verifies the exact operation identity, references, and payload.
-An exact match permits appending the missing receipt without another GitHub
-write. A mismatch remains uncertain or stale under the publication guard;
-it cannot be called successful. Losing a receipt does not undo a confirmed
-authoritative write or manufacture a second checkpoint advancement.
-
-The audit result joins the sealed execution digest with the latest verified
-journal digest. Neither digest requires mutation of the other artifact. The
-journal cannot replace the publication lease and live-report guards above.
+GitHub issue-comment POST and PATCH have no general conditional-write
+guarantee. The queue serializes configured bot writers, while the live read
+rejects stale work. It cannot protect a writer that bypasses the queue or
+guarantee that an ambiguous HTTP request has stopped on job termination. Bot
+write credentials must be unavailable to bypass paths and review-target code.
+No DynamoDB, external lease, capacity table, or IAM role is part of this
+contract. Publication is complete only when the one bounded summary contains
+all admitted findings and the final write is confirmed. The checkpoint,
+findings, limitations, and publication status change in that one body.
 
 ### requirement-run-status-gates
 
@@ -299,38 +164,33 @@ evidence, identity, history, disposition, and cumulative-verdict validation.
 Incomplete validation becomes `invalid`, never an implicit success. These
 dimensions cannot change after sealing.
 
-The publisher owns `publication` in the journal. `prepared` maps to
-`not-started`; `progress-marked`, `inline-reconciled`, and `finalizable` map to
-`in-progress`. The matching terminal stages map to `published`, `failed`,
-`cancelled`, or `stale`. A write with unknown effect maps to `uncertain` and
-retains its last confirmed stage. Only exact reconciliation can restore that
-stage or confirm the next one; no later write may bypass uncertainty. A failed,
-cancelled, or stale attempt cannot restart; retry uses a new attempt identity.
-The same execution reference may be reused only if all publication guards hold.
+The publisher owns publication. Before its one final GitHub write it is
+not-started. A confirmed exact write or readback makes it published. A known
+failed write is failed; a live-identity mismatch is stale; an ambiguous
+response without exact readback is uncertain. Cancellation before publication
+is cancelled. A terminal attempt cannot restart; a later retry is a new run
+attempt that reads the current trusted report. A v5 report contains only
+published, not an in-progress or uncertain checkpoint.
 
-The publisher derives `admission` mechanically from the following matrix.
-`admissible` means consumers may accept the completed review result. It does
-not mean merge approval: a valid review can still request changes.
-All final-publication rows also require execution outcome `complete` and live
-publication guards. Any other execution outcome blocks final publication and
-admission, even if its individual coverage and finding dimensions succeeded.
+The publisher derives admission mechanically. Admissible means consumers may
+accept the completed review result, not that the pull request has merge
+approval. A final write is permitted only for a sealed execution outcome of
+complete, complete coverage, valid findings, all findings represented in the
+bounded summary, and passing live publication guards. All other combinations
+are blocked.
 
 | Execution and publication state | Permitted action | Checkpoint | Admission |
 | --- | --- | --- | --- |
-| Execution pending; guards pass | Progress notice retaining prior authoritative state | Preserve | `blocked` |
-| Sealed `complete` / `valid`; `not-started` or `in-progress`; guards pass | Progress and inline reconciliation; final write only at `finalizable` | Preserve until final write succeeds | `blocked` |
-| Sealed `complete` / `valid`; final write confirmed, all findings inline or fallback | Record `published` and accept final state | Advance atomically with final comment | `admissible` |
-| Either execution dimension incomplete, invalid, or pending at finalization | Failure reporting or progress cleanup only | Preserve | `blocked` |
-| Any `uncertain`, `failed`, `cancelled`, or `stale` publication | Reconciliation or cleanup only | No new advancement | `blocked` |
+| Execution pending or incomplete, findings invalid, or summary over budget | Report failure in the Action; no v5 comment write | Preserve | blocked |
+| Sealed complete and valid; publication not-started; live guards pass | One final summary create or update | Advance only when confirmed | blocked until confirmed |
+| Exact final write or readback confirmed | Accept published report | New checkpoint in that report | admissible |
+| Publication uncertain, failed, cancelled, or stale | No further write by that attempt | Read live report on next run | blocked |
 
-The final payload carries `published` / `admissible` as the postcondition of its
-successful guarded write. Constructing that payload is not publication success.
-There is no requirement to be published before attempting the final write.
-After an uncertain final write, the previous checkpoint remains the last locally
-confirmed checkpoint until exact readback establishes which state is live.
-The final write is the only authority transition; a later journal receipt
-confirms that event. Prior published results remain historical evidence when a
-new attempt starts with `not-started` / `blocked`.
+The final body carries published and admissible as the postcondition of its
+successful guarded write. Constructing that body is not proof of publication.
+The single final comment mutation is the only authority transition. If the
+response is uncertain, the next run classifies the actual trusted comment;
+it never infers success from a local intent.
 
 ### requirement-state-contract
 
@@ -350,9 +210,9 @@ The state must contain these fields:
 - review limitations;
 - comparison outcomes for retained findings;
 - the strict joined `RunStatus`;
-- the required final sealed `ManifestReference`, including artifact identity,
-  snapshot sequence, and SHA-256 digest;
-- the required publication journal intent reference and digest.
+- the required final sealed `ManifestReference`, including artifact identity
+  and SHA-256 digest;
+- the latest publication operation identity and payload digest.
 
 The current state contract is version 5. Its strict envelope and marker must
 agree on `schemaVersion: 5` and must contain the scope checkpoint, generation-
@@ -366,17 +226,17 @@ checkpoint.
 A v5 reference must match the report's repository, pull request, reviewed
 revision, run, and scope identity. Missing or malformed manifest references or
 digests classify the report as `invalid-current` and fail closed. They never
-select legacy replacement or an automatic baseline. Artifact expiry disables
-resume reuse, as defined by the manifest specification; it does not erase a
-structurally valid reference or reset the published Git checkpoint.
+select legacy replacement or an automatic baseline. Artifact expiry does not
+erase a structurally valid reference or reset the published Git checkpoint.
+A later run records that old audit evidence is unavailable and performs fresh
+work.
 
 ### requirement-run-status-and-metrics
 
-When a new eligible review starts and a trusted authoritative comment already
-exists, the workflow must prepend a prominent, machine-detectable in-progress
-notice to that comment. The notice must be removed after the new report is
-published. Cleanup must also remove it when execution fails or is cancelled so
-an interrupted run cannot leave a stale status.
+The v3 implementation prepends an owning-run in-progress notice and removes
+it after publication or terminal failure. This is legacy behavior. The v5
+path performs no progress write or cleanup; Action job status is its progress
+signal. A v3 notice is never a v5 checkpoint.
 
 The publisher must mechanically derive one metrics object for each completed
 review run from the serialized execution events. Each task entry must include
@@ -516,13 +376,16 @@ history when the projection reaches its limit.
 
 The state and human projection must have explicit size and item limits. The
 retention policy must keep active blockers before non-blocking or inactive
-findings.
+findings. The v5 state admits at most 40 retained findings, matching the
+review-output bound. If older history cannot fit, it adds a visible truncation
+limitation; it never silently drops an active blocker or publishes a clean
+verdict from incomplete retained state. If active blockers alone exceed the
+bound, publication fails and preserves the previous checkpoint. The human
+projection may show 20,
+while the state retains the complete bounded set.
 
 The publisher must reject an oversized final comment. Snapshot decompression
 must stop at the configured output limit.
-
-If the publisher compacts state, it must add the compaction limitation to the
-persisted state and the human projection in the same publication.
 
 The workflow must pass bounded review input through a file. It must not place
 the complete comment history in one command-line argument.
@@ -545,17 +408,20 @@ and `OWNER`, `MEMBER`, or `COLLABORATOR` authors whose current or previous body
 contains the recognized `/seqlane review`, `/seqlane fixed`, `/seqlane wont-fix`,
 or `/seqlane downgrade` command under the existing command-matching rules.
 
-Only admitted review jobs may use the `seqlane-code-review-<pull-request>`
-concurrency group with `cancel-in-progress: true`. An irrelevant or
+Only admitted review computation jobs may use the
+`seqlane-code-review-<pull-request>` concurrency group with
+`cancel-in-progress: true`. An irrelevant or
 unrecognized comment must not enter that group, cancel an active review, or
 queue behind one. A closed `pull_request_target` event must run a separate
 no-op cancellation job in the same group so it interrupts active review work
-without starting review or publisher steps.
+without starting review or publisher steps. The v5 final publisher uses the
+separate non-cancelling group defined by requirement-serialized-publication.
 
 ## Detailed design or contracts
 
-The state block uses schema version 3. The publisher places the state in a
-collapsed Markdown details element after the human projection.
+The following v3 transport description is legacy input only. The v5
+publisher places its strict version 5 state block in a collapsed Markdown
+details element after the human projection.
 
 The state payload uses compact JSON. The publisher can use a bounded
 `gzip+base64` wrapper when direct JSON exceeds the state budget.
@@ -586,13 +452,13 @@ the ledger and are not migrated.
 Run timestamps and identifiers are audit data. They do not decide publication
 order across revisions. The live pull-request head and full Git revisions
 decide eligibility. For the same reviewed revision, the GitHub run ID and
-attempt prevent an older run from replacing a newer publication. Admitted
-review jobs cancel older runs for one pull request so only the latest run can
-publish. A closed pull-request event uses a separate no-op job in that same
+attempt prevent an older run from replacing a newer publication. Admitted review computation jobs cancel older computation for one pull
+request; the v5 final publisher separately revalidates scope under its
+non-cancelling queue. A closed pull-request event uses a separate no-op job in that same
 group to interrupt active review work without starting review steps.
-Progress-marker cleanup is scoped to the owning run so an older cancelled run
-cannot remove a newer run's notice. Irrelevant comments do not enter the
-concurrency group.
+Legacy v3 progress-marker cleanup is scoped to the owning run. The v5 path
+does not create a progress marker. Irrelevant comments do not enter either
+review computation or publication.
 
 The human status and severity labels are deterministic projections of the
 validated state. Model output cannot select the final verdict or active
@@ -628,18 +494,14 @@ input and are never written as the current incremental state.
   that failure from artifact expiry with a valid published checkpoint.
 - Test every run-status gate, including valid request-changes results,
   incomplete coverage, uncertain final writes, and failed publication.
-- Test journal intent/receipt ordering and crash recovery before and after the
-  final GitHub write; sealed execution bytes must remain unchanged.
-- Test absent-report lease acquisition by two baseline runs, progress-to-final
-  precondition refresh, changed report content, and lost lease. Exactly one
-  authoritative bot comment may be created; conflicts keep the old checkpoint.
-- Test concurrent journal append candidates, owner takeover only after run
-  termination, orphan artifacts, head conflicts before and after a GitHub
-  write, and exact recovery from a committed intent.
-- Test uncertain transitions for exact success, proven non-application, changed
-  identity, repeated unknown effects, and cancellation during reconciliation.
-  Retry must retain operation identity; unknown effects cannot advance the
-  checkpoint or permit destructive progress cleanup.
+- Test two baseline publishers and two updates in the same shared queue.
+  Exactly one trusted summary may be created; stale work preserves the prior
+  checkpoint and authorized dispositions.
+- Test an ambiguous final response followed by exact and mismatched readback.
+  No second write occurs while the first effect is unknown; a later run uses
+  the live trusted state. Sealed manifest bytes remain unchanged.
+- Test queue overflow and cancellation semantics, including coexistence with
+  the review computation group and mechanical-disposition writers.
 - Add lifecycle transition and stable-identifier tests.
 - Add current-head fix-verification tests.
 - Add trusted-author and stale-head publication tests.
@@ -669,7 +531,7 @@ input and are never written as the current incremental state.
 - Source proposal: [Seqlane review template](https://github.com/marcolink/seqlane/issues/45)
 - Review scope: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Execution evidence: [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md)
-- Coordinator guarantees: [DynamoDB conditional writes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.ConditionExpressions.html) and [transactions](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html); [GitHub REST conditional-request limits](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
+- Publication queue: [GitHub Actions concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency); [GitHub REST conditional-request limits](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
 - Delivery: [task.publish-versioned-pull-request-review-comments](../tasks/2026-09-05-publish-versioned-pull-request-review-comments.md)
 - Delivery: [task.prevent-comment-triggered-review-cancellation](../tasks/2026-09-05-prevent-comment-triggered-review-cancellation.md)
 - Delivery: [task.consolidate-pull-request-review-run-metrics](../tasks/2026-09-06-consolidate-pull-request-review-run-metrics.md)

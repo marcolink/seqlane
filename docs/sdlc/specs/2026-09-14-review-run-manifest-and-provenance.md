@@ -15,60 +15,58 @@ supersedes: []
 
 ## Summary
 
-This specification defines the machine-readable manifest for one admitted
-pull-request review. It makes selected work, per-item outcomes, provenance,
-limitations, resume reuse, and terminal status auditable without placing the
-complete execution trace in the trusted pull-request comment.
+This specification defines one machine-readable execution manifest per
+admitted pull-request review. It records the frozen scope, configured review
+lanes, explicit outcomes, finding evidence, provenance, and limitations.
+The manifest is assembled in the trusted Action job and uploaded once, after
+finalization, as one immutable GitHub Actions artifact. It is audit evidence,
+not a cross-run checkpoint or an operational store.
 
 The [incremental review scope specification](./2026-09-13-incremental-pull-request-review-scope.md)
-owns `P(B,H)`, `D(C,H)`, `E`, `X`, `R`, and checkpoint semantics. The
+owns path selection and checkpoint semantics. The
 [versioned comment specification](./2026-09-05-versioned-pull-request-review-comments.md)
-owns the trusted summary, lifecycle state, and publication state machine. This
-specification owns the manifest contract and its Action-owned persistence.
+owns the trusted report and publication. No external database, lease service,
+journal, or artifact compaction is required.
 
 ## Goals
 
-- Make the selected denominator and every terminal outcome explicit.
-- Preserve enough bounded provenance to explain selection, rules, retries, and
-  failures.
-- Permit strict, narrow item-level resume reuse without trusting model output.
-- Bound manifest size, retention, and write amplification before model work.
-- Make incomplete coverage or invalid integrity visible and non-admissible.
+- Freeze reviewed input and configured lanes before model work.
+- Account for each selected item and every expected lane result.
+- Preserve bounded evidence and provenance for a completed run.
+- Make incomplete or invalid work visible and non-admissible.
+- Bound artifact size before upload and preserve the prior checkpoint on failure.
 
 ## Non-goals
 
-- Replacing the trusted pull-request comment as the cross-run checkpoint.
+- Cross-run item reuse or resume in this revision.
 - Storing complete patches, prompts, credentials, or provider logs.
-- Defining pull-request scope, finding lifecycle, or publication ownership.
+- Repository-wide artifact quotas, compaction, or a separate publication journal.
 
 ## Terminology
 
-- **Manifest snapshot**: one immutable canonical serialization of manifest
-  state, identified by a sequence number and SHA-256 digest.
-- **Selected path set**: the sealed `R` supplied by the scope selector.
-- **Manifest item**: the smallest path, evidence-form, and hunk unit whose
-  outcome can be accounted for exactly once.
-- **Settled checkpoint**: an item outcome that is complete and validated and is
-  eligible for compatible reuse.
-- **Provenance**: immutable input, rule, runtime, reviewer, and model identity
-  recorded as hashes or bounded values.
+- **Selected path set**: the sealed R supplied by the scope selector.
+- **Manifest item**: one path, evidence form, and hunk unit assigned to a batch.
+- **Expected lanes**: the frozen configured discovery lanes for a selected
+  batch; empty when there is no discovery scope.
+- **Provenance**: bounded input, rule, reviewer, and model identities.
 
 ## Requirements
 
 ### requirement-versioned-manifest
 
-Every admitted run must create a strict manifest with schema identifier
-`review.run-manifest/v1` before model work. Its identity and frozen input must
-include the run ID, optional parent run ID, pull-request number, mode, target
-and head revisions, checkpoint revision when applicable, source artifact or
-diff hash, and the exact `ScopeIdentity` from the scope specification.
+Every admitted run creates a strict review.run-manifest/v1 value before model
+work. Its frozen input includes run ID, pull-request number, review mode,
+target, base, head, checkpoint when applicable, exact ScopeIdentity, selected
+paths and evidence digests, configured lanes, rule-set hash, reviewer version,
+provider and model identity, and relevant runtime-configuration hashes.
+No model output can change this input or the selected denominator.
 
-The manifest stores execution statuses `coverage` and `finding`. The publisher
-joins these with `publication` and derived `admission` in the strict
+The manifest stores execution statuses coverage and finding. The publisher
+joins them with publication and derived admission under the
 [run status contract](./2026-09-05-versioned-pull-request-review-comments.md#requirement-run-status-gates).
-Publication evidence belongs to the publisher's journal, never to a sealed
-execution snapshot. Empty collections use `[]`; canonical ordering is defined
-below and is mandatory for storage, digest calculation, and reuse reads.
+Empty collections use []; canonical ordering is mandatory for artifact bytes
+and digest validation. Publication evidence belongs to the trusted report,
+never to the sealed execution manifest.
 
 ### requirement-canonical-manifest-bytes
 
@@ -94,6 +92,7 @@ order, locale collation, or worker completion order.
 | Selected and excluded paths | Raw relative-path UTF-8 bytes. |
 | Manifest items | `batchOrdinal`, path bytes, evidence-form rank, numeric `hunkOrdinal`, item-ID bytes. |
 | Item outcomes | Item-ID bytes; exactly one outcome per sealed item. |
+| Expected lanes and lane results | Batch ordinal, then lane-ID bytes; each pair is unique. |
 | Failure records | Run-level before item-level, then item-ID bytes (empty for run), failure-class bytes, numeric attempt, reason bytes. Exact duplicates are rejected. |
 | Retry records | Item-ID bytes, numeric attempt, invocation-ID bytes. The tuple is unique. |
 | Retained findings | Parsed generation bytes, numeric finding index; unallocated candidates are excluded from this array. |
@@ -103,267 +102,160 @@ Failure records must contain their level, optional sealed item ID, failure
 class, attempt, and bounded sanitized reason. Retry records must contain item
 ID, attempt, and locally allocated invocation ID. Limitations must contain a
 typed code, optional related item ID, bounded explanation, and positive
-occurrence count. The same canonicalizer is used when sealing, replaying,
-recomputing a digest, and validating a reuse source. Permuting otherwise equal
-input records must produce identical bytes and digests.
+occurrence count. The same canonicalizer is used when sealing, reading, and
+recomputing a digest. Permuting otherwise equal input records must produce
+identical bytes and digests.
 
 ### requirement-manifest-items
 
-The sealed selected work denominator is a typed set of manifest items:
+The selector seals a typed denominator before dispatch. Each ManifestItem has
+one validated relative path, batch ordinal, evidence form (pr-patch or
+change-evidence), hunk ordinal, evidence digest, and deterministic item ID.
+A zero-hunk path uses ordinal zero and retains tree-entry metadata so binary,
+mode-only, or absent-path evidence is not mistaken for an empty patch. Hunk
+ordinals begin at one within each complete path and evidence form and never
+restart at a batch boundary. Each tuple is globally unique, belongs to one
+batch, and matches the collector's complete evidence inventory. The union of
+item paths equals the selected set R. Missing required evidence fails before
+model work.
 
-```text
-ManifestItem =
-  | {
-      kind: "path"
-      itemId: "<evidence-form>:<validated-relative-path>:0"
-      path: validated relative path
-      batchOrdinal: positive integer
-      evidenceForm: "pr-patch" | "change-evidence"
-      evidenceDigest: lowercase SHA-256
-      hunkOrdinal: 0
-    }
-  | {
-      kind: "hunk"
-      itemId: "<evidence-form>:<validated-relative-path>:<hunk-ordinal>"
-      path: validated relative path
-      batchOrdinal: positive integer
-      evidenceForm: "pr-patch" | "change-evidence"
-      evidenceDigest: lowercase SHA-256
-      hunkOrdinal: positive integer
-    }
-```
+The manifest also seals the configured lane IDs for every batch. Each batch
+has one result for each expected lane, with a bounded result reference,
+digest, evidence references, retry count, and final attempt identity. Each
+completed item refers to the validated lane results for its assigned batch.
+No duplicate, unknown, missing, malformed, or failed lane result lets an item
+in that batch count as completed. A retry consumes its normal model budget;
+only the final successful attempt can satisfy the lane. Historical-finding
+verification is recorded separately and must complete when retained findings
+require it. For no-change scope, there are no discovery items or expected
+discovery lanes; retained-finding verification still gates finding validity.
 
-For each required evidence form and selected path, the selector emits a path
-item when that form has zero hunks, or one hunk item per expected hunk otherwise.
-`pr-patch` identifies `P(B,H)` evidence; `change-evidence` identifies `D(C,H)`
-evidence and is absent for a baseline. The collector computes `evidenceDigest`
-over canonical evidence containing the form, source revisions, path, tree-entry
-metadata (including absent sides), and exact patch bytes. Zero-hunk evidence
-therefore preserves binary, mode-only, and absent-path information; it is not
-an invented empty successful patch. Missing required evidence fails collection.
-
-Hunk ordinals start at one within each complete path/form patch before batching;
-they never restart in another batch. Each `(path, evidenceForm, hunkOrdinal)`
-tuple and its derived `itemId` must be unique across the entire manifest and
-assigned to exactly one batch. A path/form cannot contain both ordinal zero
-and positive ordinals. Sealing rejects duplicate tuples across batches, missing
-ordinals, or mismatches against the collector's complete evidence inventory.
-Collection, outcome validation, and reuse use this same identity and digest.
-The union of item paths must equal the sealed selected
-path set `R`, and each item must identify its exact batch, evidence form, and
-hunk. The manifest stores exactly one terminal outcome for each item:
-`completed`, `reused`, `failed`, or `waived`.
-
-Coverage is complete only when every item is `completed` or a validated
-`reused` checkpoint, every expected batch and hunk is accounted for, and no
-required evidence is missing. A `failed` item makes coverage incomplete and
-blocks publication. A `waived` item requires a deterministic reason and
-authorizing policy; it also makes coverage incomplete, blocks publication, and
-blocks automation admission. Neither outcome can be treated as completed.
+The strict batch-lane result contains batch ordinal, configured lane ID,
+terminal attempt ID, retry count, result reference and SHA-256 digest, and
+bounded evidence references. It rejects unknown fields. The result reference
+resolves inside the same artifact and must cover the planned batch paths and
+evidence form. No model-supplied lane ID can enlarge the expected set.
 
 ### requirement-terminal-outcomes
 
-Every terminal outcome has a required `itemId` matching exactly one sealed item.
-The strict union rejects unknown fields and requires the following payloads:
+The trusted finalizer records exactly one terminal outcome for each sealed
+item: completed, failed, or waived. A completed outcome references the
+validated batch-lane results and item evidence above. A failed outcome records
+a bounded sanitized reason and one failure class: provider, timeout, cancelled,
+configuration, input, budget, panic, or unknown. A waived outcome requires a
+deterministic reason and an authorizing policy ID and hash from the frozen
+trusted rule set. Waived work is incomplete even when authorized. Model output
+cannot mark work complete, authorize a waiver, or change an item ID.
 
 ```text
-ItemOutcome = { itemId } & (
-  | {
-      outcome: "completed"
-      result: { reference, digest: lowercase SHA-256 }
-      evidence: nonempty array of { reference, digest: lowercase SHA-256 }
-    }
-  | {
-      outcome: "reused"
-      source: {
-        manifestReference: ManifestReference
-        itemId
-        outcomeDigest: lowercase SHA-256
-      }
-      compatibilityInputHash: lowercase SHA-256
-    }
-  | {
-      outcome: "failed"
-      failureClass: "provider" | "timeout" | "cancelled" | "configuration"
-                  | "input" | "budget" | "panic" | "unknown"
-      origin: "execution" | "finalization"
-      reason: nonempty sanitized string, at most 2,000 characters
-    }
-  | {
-      outcome: "waived"
-      reason: nonempty sanitized string, at most 2,000 characters
-      authorization: {
-        policyId: nonempty trusted rule identifier
-        ruleSetHash: lowercase SHA-256
-      }
-    }
+ItemOutcome = { itemId: sealed item ID } & (
+  | { outcome: "completed";
+      laneResultKeys: exact configured batch-lane keys;
+      evidenceDigest: lowercase SHA-256 matching the item }
+  | { outcome: "failed";
+      failureClass: "provider" | "timeout" | "cancelled" |
+        "configuration" | "input" | "budget" | "panic" | "unknown";
+      origin: "execution" | "finalization";
+      reason: nonempty sanitized string, at most 2,000 bytes }
+  | { outcome: "waived";
+      reason: nonempty sanitized string, at most 2,000 bytes;
+      authorization: { policyId: trusted rule ID;
+        ruleSetHash: lowercase SHA-256 } }
 )
 ```
 
-Result and evidence references must resolve to validated, bounded records under
-the artifact trust boundary; digests cover their canonical content. Evidence
-must match the sealed item's form, revisions, and `evidenceDigest`. The manifest
-adapter validates every variant before evaluating coverage. Invalid outcomes
-cannot count as settled work or bypass the missing-outcome backstop.
+Finalization replaces a missing item outcome with failed/unknown and the
+reason "No validated terminal outcome was recorded." It never replaces an
+existing terminal outcome. Conflicting transitions fail validation; repeated
+identical transitions are idempotent. Coverage is complete only when every
+sealed item is completed with every expected lane result validated, all
+expected batches are accounted for, and no required evidence is missing.
+Failed and waived items make coverage incomplete and block final publication.
+A lane or verification failure cannot be hidden behind a successful result
+from another lane.
 
-Only the trusted adapter records failures and waivers. A waiver requires an
-explicit rule in the frozen trusted rule set that authorizes that item; its
-policy ID and hash must match the recorded provenance. Agent output, PR text,
-or an arbitrary policy name cannot authorize a waiver. A waiver remains
-incomplete coverage even when authorized.
+### requirement-finding-evidence
 
-For an item still missing an outcome, the finalizer creates this failed variant:
-
-```text
-{
-  itemId: the missing sealed item ID
-  outcome: "failed"
-  failureClass: "unknown"
-  origin: "finalization"
-  reason: "No validated terminal outcome was recorded."
-}
-```
-
-`unknown` is a failure class, never a fifth outcome. Finalization cannot replace
-an existing terminal outcome; conflicting records fail validation.
-
-### requirement-reuse-proof
-
-`ManifestReference` identifies repository, workflow run and attempt, artifact
-ID, manifest run ID, pull-request number, reviewed revision, `ScopeIdentity`,
-schema version, snapshot sequence, and canonical snapshot SHA-256. IDs must be
-nonempty and sequences nonnegative integers. Retrieval
-for reuse or final publication must establish that the referenced snapshot is
-sealed and belongs to the trusted repository and workflow. A progress notice
-may reference the initial snapshot but cannot present it as final evidence.
-
-Before recording `reused`, the adapter must retrieve and verify the source
-snapshot, its item, outcome digest, and referenced result and evidence. The
-source outcome must be `completed`; reuse chains must reference their original
-completed source directly. The source item must match the destination's exact
-path, batch, evidence form, hunk, and frozen evidence digest.
-
-The adapter computes `compatibilityInputHash` locally from canonical schema and
-normalizer versions, mode, `ScopeIdentity`, frozen input, selected item and lane
-plan, rules, filters, provider, model, reviewer, and runtime configuration.
-Frozen input includes retained finding and disposition state supplied to lanes.
-Both source and destination hashes must equal this value. Model output cannot
-provide proof or select a reusable outcome. Missing evidence, a mismatched
-digest, or incompatible input requires fresh execution within the remaining
-budget; until then the item cannot count toward complete coverage.
+The manifest retains each admitted finding's typed FindingEvidence and
+LocationStatus from the
+[scope contract](./2026-09-13-incremental-pull-request-review-scope.md#requirement-new-finding-admission).
+The finding references one sealed item and its evidence digest. The trusted
+finalizer verifies the bounded excerpt or range against that frozen evidence,
+or records a typed unlocated or ambiguous status with a visible limitation.
+A finding without valid evidence is invalid; a safe but unlocated finding
+remains visible in the summary. The trusted comment persists the same bounded
+finding fields so later runs do not depend on an expired artifact for finding
+continuity.
 
 ### requirement-manifest-lifecycle
 
-The manifest seals the selected denominator before concurrency or resume reuse
-starts. Repeated identical transitions are idempotent; conflicting transitions
-fail. Finalization rejects later mutation and converts every selected item
-without an outcome into a typed `unknown` failure. Failure is recorded at the
-narrowest known level using one of `provider`, `timeout`, `cancelled`,
-`configuration`, `input`, `budget`, `panic`, or `unknown`. An item failure does
-not by itself determine the run-level terminal state.
+The selected denominator, lane set, immutable revisions, and rule identity
+are sealed before model work. The trusted job accumulates validated outcomes
+in memory. Finalization records missing outcomes as failed/unknown, derives
+coverage and finding status, and then seals the manifest. No writer can append
+to or revise a sealed manifest. Failure is recorded at the narrowest known
+level; a failed item does not by itself determine the run-level outcome.
 
-The manifest records an execution outcome of `complete`, `partial`, `failed`,
-`cancelled`, or `stale`. `complete` requires complete coverage and valid finding
-output. `stale`, then `cancelled`, take precedence when observed before sealing;
-otherwise incomplete execution is `partial` if any item succeeded, or `failed`.
-Execution completion does not mean publication succeeded or automation admitted
-the result. Later publication failures are recorded only in the journal.
+The execution outcome is complete, partial, failed, cancelled, or stale.
+Complete requires complete coverage and valid findings. Stale and cancelled
+take precedence when observed before sealing; otherwise incomplete execution
+is partial if any item succeeded, or failed. Execution completion does not
+mean the final GitHub comment was published.
 
 ### requirement-manifest-persistence
 
-The Action-owned manifest adapter is the sole persistence owner. It writes a
-validated canonical snapshot to an immutable GitHub Actions artifact scoped to
-the trusted repository and workflow run. The initial snapshot contains the
-sealed denominator and provenance before model work. Later snapshots use
-monotonic append-only sequence numbers; each snapshot has its own SHA-256
-digest. The final snapshot is explicitly sealed before inline or final report
-publication; an early progress notice may reference the initial snapshot. A sealed
-snapshot cannot be mutated or replaced under the same identity.
+The Action-owned adapter serializes the sealed manifest once and uploads one
+immutable GitHub Actions artifact for the trusted workflow run and attempt.
+There is no initial artifact, append sequence, journal artifact, or cross-run
+resume. The adapter validates schema, canonical bytes, artifact ID, repository,
+workflow run and attempt, ScopeIdentity, and SHA-256 digest before passing a
+ManifestReference to the final publisher. The publisher downloads that same
+artifact and repeats these checks before it enters the publication queue;
+an invalid artifact prevents publication. The reference contains those
+identities plus manifest run ID, reviewed revision, schema version, artifact
+ID, uncompressed byte count, and digest. It has no snapshot sequence.
 
-Retries may retrieve only artifacts from the same trusted workflow and
-repository. Retrieval must verify artifact identity, schema version,
-`ScopeIdentity`, sequence continuity, canonical serialization, and digest before
-reuse. The trusted v5 report must store a complete `ManifestReference` to the
-final sealed snapshot plus a bounded manifest summary. Missing or malformed
-references are `invalid-current` state and fail closed, never legacy input.
-Missing, expired, unauthorized, or integrity-failing artifacts disable reuse
-and require a fresh bounded run; they never permit
-partial recovery or a fabricated audit trail.
+The v5 trusted report stores the final ManifestReference and a bounded
+manifest summary. A missing or malformed reference makes current state
+invalid; it never triggers legacy baseline replacement. Artifact expiry later
+does not erase an otherwise valid published Git checkpoint or retained
+findings. The next run performs fresh bounded work and states that old audit
+evidence is unavailable. A missing artifact cannot be treated as reusable
+work or as proof of a previous run's coverage.
 
-Artifact expiry does not remove the reference from a published report or
-invalidate its otherwise valid Git checkpoint. A subsequent run uses that
-checkpoint with fresh execution evidence and records that prior audit evidence
-is unavailable. It cannot claim resumed work from an unavailable artifact.
-
-Manifest artifacts are inaccessible to pull-request code and are written with
-the workflow's trusted token. Persisted data must redact credentials, raw
-endpoints, prompts, and unbounded provider errors. Failure reasons are bounded
-and sanitized before persistence.
+The artifact is written only by the trusted Action job. Pull-request code and
+model subprocesses receive neither artifact write credentials nor access to
+the manifest adapter. Persisted values exclude credentials, raw endpoints,
+prompts, full patches, and unbounded provider errors. Failure reasons are
+sanitized and bounded before serialization.
 
 ### requirement-manifest-bounds
 
-The manifest has these per-snapshot limits: 512 KiB compressed, 2 MiB
-uncompressed, 2,048 items, 200 selected paths, 64 failure records, 32 retry
-records, and 20 limitations. Paths are at most 512 bytes; other persisted
-strings are at most 2,000 bytes. Evidence bodies and repeated explanations use
-SHA-256 hashes plus bounded references instead of duplication.
+One artifact is allowed per admitted run attempt. The final manifest is at
+most 512 KiB compressed, 2 MiB uncompressed, 2,048 items, 200 selected paths,
+64 failure records, 32 retry records, and 20 limitations. Paths are at most
+512 bytes; retained findings are at most 40; other persisted strings are at
+most 2,000 bytes. Evidence excerpts
+obey the tighter FindingEvidence bound. Before model work, the planner
+checks item, path, lane, and maximum-result bounds against these limits.
+Immediately before upload, the adapter measures actual canonical bytes and
+compressed bytes. A breach fails without upload or final comment write and
+preserves the prior checkpoint. An uncertain upload is not a valid
+ManifestReference until the artifact identity and digest are verified.
 
-Aggregate storage and write amplification are also bounded: at most 16 live
-snapshots and 32 MiB per run, 128 snapshots and 256 MiB per pull request in a
-30-day retention window, and 1,024 snapshots and 1 GiB per repository in that
-window. The Action-owned adapter is the retention and deletion owner. It uses
-the same trusted DynamoDB coordinator as publication for per-run, per-PR, and
-repository capacity records. A single-region `TransactWriteItems` operation
-conditionally reserves all three counters before model work or an artifact
-upload. Concurrent runs cannot both spend the same remaining capacity. A
-reservation stays charged after an uncertain upload or deletion until exact
-artifact reconciliation; TTL alone never releases it. A capacity breach or
-unknown size fails closed without publication.
-
-Capacity tracks both live artifacts and cumulative uploads in the window.
-Deleting an artifact releases live count and bytes only; it does not refund
-upload count or written bytes. The same numeric limits above apply to both
-sets of counters. Admission reserves one overlap slot and its maximum bytes
-for a future compaction checkpoint, so compaction can publish a replacement
-while the old chain still exists. If that headroom is unavailable, fail before
-model work. Compaction reclaims storage and live snapshot count, but cannot
-hide write amplification or extend a spent upload budget.
-
-Compaction writes a new immutable checkpoint artifact with the complete current
-state and a bounded canonical event log sufficient to replay every retained
-snapshot transition. The log includes each prior sequence, previous digest,
-event payload, and result digest. Replay must reproduce the exact canonical
-bytes and SHA-256 of each predecessor, including a final sealed state when
-present; a list of old digests alone is not sufficient. The new checkpoint
-has a new sequence and digest and references the verified chain head. If the
-event log cannot fit the per-snapshot limits, compaction fails closed and does
-not discard events or raise a limit.
-
-The adapter uploads and verifies the checkpoint while the old chain remains
-readable. It conditionally advances the run's active checkpoint reference in
-the coordinator from the old sequence/digest to the new one. A conflict leaves
-the old checkpoint authoritative and the candidate an orphan. After a
-successful switch, the adapter may delete superseded artifacts only when no
-live report, journal, resume source, or in-flight reader pins their artifact
-IDs. The initial and final artifacts remain pinned while referenced. Before
-deletion, it verifies the compacted checkpoint can replay the full chain;
-after deletion, it verifies absence and transactionally releases charged
-capacity. If deletion is uncertain, capacity remains charged until readback.
-
-Recovery enumerates the coordinator's active reference and verifies its
-artifact and replayable chain. A crash before the switch keeps the old chain;
-a crash after the switch keeps the new checkpoint. Orphans are deleted after
-reference checks. An absent active artifact or ambiguous branch of the chain
-fails closed. Expired artifacts disable reuse as specified above; retention
-does not silently turn a missing proof into successful work.
+Set an explicit bounded GitHub Actions artifact retention period, no longer
+than 30 days. Normal GitHub expiration owns deletion. The first release does
+not claim per-PR or repository-wide storage reservations or artifact
+compaction. Platform quota or upload failure blocks publication and is
+visible in the Action result; it never silently reduces the denominator.
 
 ### requirement-provenance-and-rule-trust
 
 Provenance must include reviewer version, provider and model identity,
 configured concurrency, runtime configuration hash, resolved rule-set hash,
 and background-context hash when that context can affect the result. Hashes are
-computed from canonical serialized values before model work and are required
-for resume admission.
+computed from canonical serialized values before model work and recorded in
+the sealed manifest.
 
 Rule resolution is deterministic and ordered: per-run, project, global, then
 embedded system rules. Per-run rules are accepted only from Action-owned,
@@ -377,107 +269,83 @@ changed rule source fails closed.
 The manifest records the winning rule layer and bounded selection explanation
 for each reviewed or excluded path. It also records bounded retry and
 limitation explanations so consumers can reconstruct why an item was reviewed,
-skipped, reused, or failed.
-
-### requirement-strict-resume
-
-Resume reuse requires exact equality of mode, `ScopeIdentity`, frozen input,
-rules, filters, provider, model, reviewer version, and runtime configuration.
-Only item checkpoints with a validated reuse proof may be reused. Validate
-source proofs before creating the destination manifest or entering model work.
-Missing, invalid, unverified, or stale items require fresh work in that
-destination under the remaining budget. A retry of a sealed run creates a new
-manifest run ID with the source as parent; it cannot append outcomes to the
-sealed manifest. Uncertain configuration identity never narrows scope.
+skipped, completed, or failed.
 
 ## Detailed design or contracts
 
 The trusted sequence is:
 
-1. Resolve and validate immutable scope and trusted configuration.
-2. Create the manifest with provenance, sealed selected paths, typed item
-   denominator, zeroed budgets, and sequence `0`.
-3. Reserve capacity, execute evidence collection and model work, and append
-   validated item outcomes and bounded failure or retry records.
-4. Reconcile findings and dispositions, derive the verdict, finalize execution
-   statuses, and seal the final snapshot and digest.
-5. Pass the sealed manifest reference to the publisher, which records subsequent
-   transitions in its append-only journal. Publication may advance
-   the pull-request checkpoint only when its own canonical publication state
-   reaches `published`.
+1. Resolve immutable scope, trusted rules, configured lanes, and complete
+   evidence inventory; seal the denominator before model work.
+2. Execute bounded batches and lanes; record validated results, retries,
+   failures, and finding evidence in the run-local manifest.
+3. Finalize missing outcomes, reconcile findings and dispositions, derive
+   execution statuses, and seal canonical bytes.
+4. Verify the final artifact size, upload it once, and verify its identity and
+   digest. If any check fails, publish no v5 report.
+5. Pass the verified ManifestReference to the queued final publisher. Only its
+   confirmed single comment write can advance the PR checkpoint.
 
 The manifest is execution evidence, not a second finding or checkpoint store.
-Its item IDs and outcome keys are deterministic and never allocated by an
-agent. A model cannot widen the selected path set, alter provenance, mark an
-item reused, or raise any bound.
+A model cannot widen scope, alter provenance, mark an item complete without
+the expected lane results, or raise a bound.
 
 ## Failure and edge cases
 
 | Case | Required result |
 | --- | --- |
-| Selected item has no outcome at finalization | Add typed `unknown` failure; coverage incomplete; block publication. |
-| Failed or waived item | Preserve reason; do not render complete or automation-admissible. |
-| Artifact missing or digest mismatch | Disable reuse; start a fresh bounded run. |
-| Aggregate snapshot or byte limit reached | Fail closed; preserve prior checkpoint. |
-| Rule source is supplied by PR text, head content, or agent | Reject it and fail closed. |
-| Resume identity differs in any field | Reuse no items; recompute bounded work. |
-| Provider emits an unbounded error | Sanitize and persist only a bounded failure class and reason. |
+| Selected item or lane lacks a validated outcome | Mark the item failed; coverage incomplete; block publication. |
+| Failed or waived item | Preserve reason; do not render complete or admissible. |
+| Artifact exceeds a bound or upload fails | Publish no v5 report; preserve prior checkpoint. |
+| Uploaded artifact identity or digest is uncertain | Do not use its reference or claim publication. |
+| Rule source comes from PR text, head content, or agent | Reject it and fail closed. |
+| Provider emits an unbounded error | Persist only a sanitized bounded failure class and reason. |
 
 ## Migration
 
-Existing runs without a manifest are not resumable through this contract. The
-first scope-capable publication creates a new `review.run-manifest/v1` artifact
-and records its digest in the trusted state. No legacy comment, metrics ledger,
-or progress marker is treated as a manifest.
+Existing runs without a manifest are not reusable under this contract. The
+first scope-capable publication uploads one review.run-manifest/v1 artifact
+and records its verified reference in v5 state. No legacy comment, metrics
+ledger, or progress marker is treated as a manifest.
 
 ## Verification
 
 - Test strict schema parsing, canonical serialization, deterministic ordering,
-  empty-array encoding, and malformed or oversized snapshots.
-- Permute each manifest array and object-key insertion order; assert identical
-  canonical bytes and digests. Reject duplicate sort identities, ambiguous
-  numeric encodings, invalid UTF-8, and locale-dependent path ordering.
-- Test the typed item union, exact path/batch/evidence/hunk identity, one-to-one
-  outcomes, failed and waived coverage, finalization backstop, and conflicting
-  transitions.
-- Test zero-hunk evidence for both forms, binary and mode-only changes, absent
-  paths, and digest mismatches. Reject duplicate evidence tuples across batches
-  and hunk ordinals that restart after partitioning.
-- Test every outcome variant with missing, extra, malformed, and oversized
-  fields. Reject unauthorized waivers; record missing outcomes as failed/unknown
-  and preserve the prior checkpoint for all failed or waived work.
-- Test artifact creation, sequence continuity, digest validation, access
-  control, redaction, expiry, aggregate per-run/pull-request/repository bounds,
-  and safe compaction.
-- Test concurrent capacity reservations, upload and deletion uncertainty,
-  compaction replay, pinned references, failed checkpoint switch, crashes on
-  both sides of the switch, and measured reclamation of unpinned artifacts.
-- Test exact resume identity, narrow item reuse, missing checkpoints, rule
-  precedence, trusted-source rejection, and provenance hash changes.
-- Reject forged source IDs, altered outcome digests, missing source evidence,
-  reuse chains, and changed compatibility inputs before counting coverage.
-- Test a sealed execution snapshot followed by successful, failed, and uncertain
-  publication. Its bytes and digest must remain unchanged in every case.
-- Test mandatory v5 references separately from expired artifacts: malformed
-  references fail closed; expiry disables reuse without resetting Git scope.
-- Test independent coverage, finding, publication, and admission statuses and
-  checkpoint blocking for every incomplete or stale state.
-- Run the repository test-mapping check, `pnpm docs:index`,
-  `pnpm docs:validate`, and `git diff --check`.
+  duplicate identities, and malformed or oversized values.
+- Test exact path, batch, evidence-form, hunk, and lane membership. Reject
+  missing or duplicate lane results, failed retries, and successful lanes
+  masking a failed required lane.
+- Test zero-hunk evidence for both forms, binary and mode-only changes,
+  absent paths, duplicate tuples, and hunk ordinals across batches.
+- Test completed, failed, and authorized waived outcomes; missing outcomes
+  become failed/unknown and cannot advance the checkpoint.
+- Test finding evidence digest binding and located, unlocated, and ambiguous
+  status against frozen evidence.
+- Test one final upload per run, pre-upload size rejection, upload/readback
+  uncertainty, access control, redaction, retention, expiry, and platform
+  quota failures.
+- Test trusted rule precedence and provenance hash changes. A sealed
+  manifest's bytes and digest remain unchanged after publication outcomes.
+- Test independent coverage, finding, publication, and admission statuses
+  and checkpoint blocking for every incomplete or stale state.
+- Run the repository test-mapping check, documentation checks, and
+  git diff --check.
 
 ## Acceptance criteria
 
-- Every admitted run has one versioned, integrity-checked manifest with a sealed
-  denominator and exactly one outcome per selected item.
+- Every run that reaches finalization has a versioned, integrity-checked
+  run-local manifest with a sealed denominator and one terminal outcome per
+  selected item. Upload or quota failure leaves the Action failed and the
+  previous checkpoint intact.
+- Every configured lane for each selected item has a validated result before
+  that item counts as complete.
 - Missing, failed, waived, stale, or unverified work is visible and cannot
-  appear as complete or advance the checkpoint.
-- Manifest artifacts have explicit per-snapshot and aggregate bounds and a
-  bounded retention policy.
-- Resume reuse validates all frozen input, rule, runtime, reviewer, and model
-  identity before creating state.
-- Rule sources are trusted, typed, hashed, and explainable; agent and PR content
-  cannot alter them.
-- The manifest reference and digest are carried into trusted publication while
+  advance the checkpoint.
+- The final artifact has explicit per-run bounds and bounded retention; no
+  external coordinator or cross-run resume is required.
+- Trusted, typed, hashed rule sources and bounded finding evidence are
+  recorded without accepting rules from PR content or agents.
+- The verified manifest reference is carried into the trusted report, while
   the versioned-comment contract remains the sole checkpoint owner.
 
 ## Delivery state
@@ -488,5 +356,5 @@ This specification defines intended behavior. Implementation is pending.
 
 - Scope and checkpoint: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Trusted state and publication: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
-- Capacity and deletion guarantees: [DynamoDB transactions](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html) and [GitHub artifact deletion](https://docs.github.com/en/rest/actions/artifacts)
+- Artifact retention: [GitHub Actions artifacts](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflow-artifacts)
 - Delivery: [task.incremental-pull-request-review-scope](../tasks/2026-09-13-incremental-pull-request-review-scope.md)
