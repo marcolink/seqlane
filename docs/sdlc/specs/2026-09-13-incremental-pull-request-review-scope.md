@@ -8,6 +8,7 @@ created: 2026-09-13
 updated: 2026-09-14
 upstream:
   - spec.versioned-pull-request-review-comments
+  - spec.review-run-manifest-and-provenance
 supersedes: []
 ---
 
@@ -119,6 +120,12 @@ Only `absent` and `legacy` select baseline mode. `invalid-current` must never
 be relabeled as `absent` or `legacy`. Reuse this classifier without variation
 in scope selection, migration, publication, and marker cleanup.
 
+A publication progress marker or pending publication record is not an
+authoritative report. Scope selection must ignore its candidate findings and
+checkpoint and continue from the last completed trusted state. A progress-only
+summary must retain that old state; it cannot expose a new checkpoint before
+the publication state machine reaches its final conditional write.
+
 Baseline mode uses the complete current PR diff:
 
 ```text
@@ -212,11 +219,17 @@ Before stable-ID allocation, every candidate must carry one canonical,
 location-independent `identityKey`. The key is the lowercase SHA-256 of the
 canonical JSON object `{axis, summary, recommendation}` after Unicode NFC
 normalization, trimming, and collapsing internal whitespace in each field.
-Path, line, evidence side, and code excerpts are excluded from this key. The
-same normalizer and key algorithm must be used for candidate deduplication,
-retained-finding comparison, and resume reuse. A missing or ambiguous key is
-retained as a limitation and cannot receive a new stable ID. The finalizer
-still owns the immutable public finding ID.
+Path, line, evidence side, and code excerpts are excluded from this key. Each
+candidate must also carry an `occurrenceKey`, the lowercase SHA-256 of canonical
+JSON `{identityKey, semanticEvidenceFingerprint}`. The fingerprint is derived
+locally from normalized evidence plus its enclosing symbol or data-flow anchor;
+it excludes path and line but distinguishes independent exploit paths or code
+occurrences with similar prose. Candidates with the same pair are duplicates;
+distinct occurrence keys remain separate findings with independent evidence and
+lifecycle state. The same normalizer and key algorithms must be used for
+candidate deduplication, retained-finding comparison, and resume reuse. A
+missing or ambiguous key is retained as a limitation and cannot receive a new
+stable ID. The finalizer still owns the immutable public finding ID.
 
 ### requirement-existing-findings
 
@@ -271,114 +284,18 @@ lifecycle. Only current-head verification can establish `resolved` or
 
 ### requirement-run-manifest-and-lifecycle
 
-Every admitted run must create one strict, versioned manifest before model work.
-Its identity and frozen input must include the run ID, optional parent run ID,
-pull-request number, mode, target and head revisions, checkpoint revision when
-applicable, source artifact or diff hash, and the trusted scope identity. Its
-execution provenance must include reviewer version, provider and model
-identity, rule and runtime configuration hashes, configured concurrency, and
-background context hash when background context can affect the result. Do not
-persist credentials, raw endpoints, or unbounded provider errors.
-
-The manifest must seal the selected denominator before concurrency or resume
-reuse begins. For every selected path or evidence item, exactly one terminal
-outcome is required: `completed`, `reused`, `failed`, or `waived`. Repeated
-identical transitions are idempotent; conflicting transitions fail. Finalize
-must reject later mutation and must convert any selected item without an
-outcome into a typed failure. Failure classes are fixed and recorded at the
-narrowest known level (`provider`, `timeout`, `cancelled`, `configuration`,
-`input`, `budget`, `panic`, or `unknown`). A per-item failure does not imply a
-run-level failure.
-
-The selected work denominator is a set of typed manifest items. Its canonical
-shape is:
-
-```text
-ManifestItem =
-  | {
-      kind: "path"
-      itemId: "path:<validated-relative-path>"
-      path: validated relative path
-      batchOrdinal: positive integer
-      evidenceForm: "path"
-      hunkOrdinal: 0
-    }
-  | {
-      kind: "hunk"
-      itemId: "<evidence-form>:<validated-relative-path>:<hunk-ordinal>"
-      path: validated relative path
-      batchOrdinal: positive integer
-      evidenceForm: "pr-patch" | "change-evidence"
-      hunkOrdinal: positive integer
-    }
-```
-
-The selector emits a path item only when that evidence form has no hunks. It
-emits one hunk item for every expected hunk otherwise. `itemId` is unique within
-the manifest and is the key for exactly one terminal outcome. The manifest also
-records the sealed selected path set; the union of item paths must equal that
-set, and every item must name its exact batch, evidence form, and hunk identity.
-Failed items make coverage incomplete and block publication. A waived item is
-allowed only with a deterministic reason and authorizing policy; it also makes
-coverage incomplete, blocks publication, and blocks automation admission.
-Neither outcome may be silently treated as completed.
-
-The manifest must expose separate statuses for coverage, finding validation,
-publication, and automation admission. A run with complete coverage but failed
-publication is not publication-complete or automation-admissible. A run with
-partial coverage cannot be rendered as clean. Empty collections are encoded as
-`[]`, and all paths, outcomes, findings, limitations, and retry records are
-sorted deterministically.
-
-The manifest has explicit bounds: at most 512 KiB compressed and 2 MiB
-uncompressed, 2,048 items, 200 selected paths, 64 failure records, 32 retry
-records, and 20 limitations. Individual paths are at most 512 bytes and other
-persisted strings are at most 2,000 bytes. Evidence bodies and repeated
-explanations are stored as SHA-256 hashes plus bounded references, not copied
-into the manifest. The orchestrator reserves this capacity before model work;
-an exceeded or unknown bound fails closed without publication.
-
-The Action-owned manifest adapter persists each manifest snapshot as an
-immutable, repository-scoped GitHub Actions artifact. It writes a validated
-canonical snapshot, records its SHA-256 digest and artifact identity, and seals
-the final snapshot before publication. Updates use append-only sequence numbers
-and a new validated snapshot; a sealed digest cannot be mutated. Retries may
-retrieve only artifacts from the same trusted workflow and repository, and must
-verify schema version,
-scope identity, sequence, and digest before reuse. The final trusted report
-stores the artifact identity and digest plus the bounded manifest summary.
-Artifacts are retained for at most 30 days and are inaccessible to untrusted
-pull-request code. Missing, expired, unauthorized, or integrity-failing
-artifacts disable resume reuse and force a fresh bounded run; they never permit
-partial recovery or a fabricated audit trail.
-
-Resume reuse is allowed only after strict run-level validation of mode, frozen
-input, scope identity, rules, filters, provider, model, and runtime
-configuration. Reuse is narrow and item-level: only settled compatible
-checkpoints may be reused; missing or invalid items are rerun under the same
-manifest identity and budget. State must not be created before these admission
-checks pass.
+Manifest schema, item identity, terminal outcomes, persistence, bounds,
+integrity, resume reuse, and provenance are defined by the canonical
+[spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md).
+This scope contract requires the manifest to carry the same immutable
+`ScopeIdentity`, selected paths, exclusions, and evidence-batch plan used here.
 
 ### requirement-provenance-and-explainability
 
-The run must record which rule layer and file-selection decision applied to each
-reviewed or excluded path. Rule resolution is deterministic and ordered:
-per-run rules, project rules, global rules, then embedded system rules. Selection
-and rule resolution remain separate decisions.
-
-Per-run rules are accepted only from Action-owned, strictly typed configuration
-resolved before checkout and model work. This includes workflow inputs or a
-trusted deployment configuration; it excludes pull-request titles, descriptions,
-comments, repository files from the untrusted head, and all agent output. Project
-rules may come only from an allowlisted path at the trusted target revision
-`B`; global rules come from the Action installation; embedded rules are pinned
-to the reviewer version. The resolved canonical rule set is hashed before model
-work and is required for resume admission. A missing, untrusted, malformed, or
-changed rule source fails closed.
-
-The machine-readable result must retain bounded explanations for exclusions,
-selected rules, retries, and limitations so a human or automation consumer can
-reconstruct why an item was reviewed, skipped, or failed.
+Rule trust, precedence, configuration hashing, and bounded explanations are
+defined by [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md).
+Scope selection remains separate from rule resolution; this spec owns `E`, `X`,
+and `R`, while the manifest spec records why each path was selected or excluded.
 
 ### requirement-checkpoint-state
 
@@ -548,11 +465,12 @@ the sum of hunk and byte counts matches the pre-model plan. It must preserve
 limitations in deterministic ordinal order.
 
 After batch aggregation, the orchestrator deduplicates findings by normalized
-stable ID, then by the canonical location-independent `identityKey`. It retains
-the highest severity and deterministic first occurrence for duplicates. Only
-the aggregated result enters synthesis. A missing or ambiguous identity key is
-a limitation and cannot allocate a new stable ID; path and line may be shown
-only as evidence and presentation metadata.
+stable ID, then by the canonical `(identityKey, occurrenceKey)` pair. It retains
+the highest severity and deterministic first occurrence for exact duplicates;
+distinct occurrence keys remain independent. Only the aggregated result enters
+synthesis. A missing or ambiguous identity or occurrence key is a limitation and
+cannot allocate a new stable ID; path and line may be shown only as evidence and
+presentation metadata.
 
 The invocation policy is fixed: run history verification once for the retained
 current-generation findings, run each configured discovery lane once per
@@ -834,6 +752,7 @@ does not gate new findings by a published checkpoint.
 ## Traceability
 
 - State, lifecycle, and publication: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
+- Manifest and provenance: [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md)
 - Action boundary: [spec.direct-runtime-code-review-action](./2026-09-08-direct-runtime-code-review-action.md)
 - Related draft disposition proposal: [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md)
 - Delivery: [task.incremental-pull-request-review-scope](../tasks/2026-09-13-incremental-pull-request-review-scope.md)
