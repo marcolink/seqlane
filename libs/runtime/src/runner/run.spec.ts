@@ -181,6 +181,7 @@ describe("seqlane runner entry point", () => {
     const host = new FakeRunnerHost();
     const control: RunnerRunControl = { cancellationRequested: false };
     let resolvedRunId: string | undefined;
+    let closed = false;
 
     await startRun(
       host,
@@ -198,11 +199,64 @@ describe("seqlane runner entry point", () => {
           taskDefinitions: taskDefinitions!,
           workspaceIdentities: new Map(),
           workspaceResources: new Map(),
+          close: async () => {
+            closed = true;
+          },
         };
       },
     );
 
     expect(resolvedRunId).toBe("run-identity");
+    expect(closed).toBe(true);
+  });
+
+  it("closes a prepared runtime when cancellation arrives before execution", async () => {
+    const moduleSource = `
+      export const workflow = {
+        workflow: { id: "cancel-before-execution" },
+        nodes: [],
+        output: null,
+      };
+    `;
+    const request: RunRequest = {
+      type: "run.start",
+      workflow: {
+        id: "cancel-before-execution",
+        moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+        exportName: "workflow",
+      },
+      input: null,
+      runtime: { id: "test" },
+    };
+    const host = new FakeRunnerHost();
+    const control: RunnerRunControl = { cancellationRequested: false };
+    let closed = 0;
+
+    await startRun(
+      host,
+      request,
+      () => "work-1",
+      () => "run-1",
+      () => undefined,
+      control,
+      async (_profile, taskDefinitions) => {
+        control.cancellationRequested = true;
+        const executor = { execute: async () => null };
+        return {
+          executors: { agent: () => executor },
+          sessionResolver: sharedSessionResolver(executor),
+          taskDefinitions: taskDefinitions!,
+          workspaceIdentities: new Map(),
+          workspaceResources: new Map(),
+          close: async () => {
+            closed += 1;
+          },
+        };
+      },
+    );
+
+    expect(closed).toBe(1);
+    expect(host.events.at(-1)).toMatchObject({ type: "run.cancelled" });
   });
 
   it("emits one Plan event before invocation topology", async () => {

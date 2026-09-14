@@ -16,6 +16,8 @@ const DEFAULT_MODEL_LIST_TIMEOUT_MS = 5_000;
 export interface CodexModelCapabilitiesOptions {
   readonly signal?: AbortSignal;
   readonly requestTimeoutMs?: number;
+  /** Keep a run-owned transport open after model discovery. */
+  readonly closeTransport?: boolean;
   readonly createTransport?: (
     configuration: CodexLaunchConfiguration,
     options?: {
@@ -25,7 +27,7 @@ export interface CodexModelCapabilitiesOptions {
   ) => Promise<CodexTransport>;
 }
 
-/** Resolves Codex models through a short-lived, run-independent app-server. */
+/** Resolves Codex models through an owned or supplied app-server transport. */
 export function createCodexModelCapabilities(
   configuration: CodexLaunchConfiguration,
   options: CodexModelCapabilitiesOptions = {},
@@ -65,7 +67,7 @@ export function createCodexModelCapabilities(
           ),
         );
       } finally {
-        await transport.close();
+        if (options.closeTransport !== false) await transport.close();
       }
     })());
 

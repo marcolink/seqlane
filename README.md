@@ -313,7 +313,8 @@ seqlane run ./examples/local-only.ts \
 
 `run` defaults to the `local` runtime profile. Local-only workflows do not need
 adapter configuration. Agent tasks need a configured runtime adapter and an
-agent runtime profile. The following example uses OpenCode.
+agent runtime profile. The following example uses OpenCode. Codex is also
+supported through the private adapter configuration.
 
 Start OpenCode in one terminal:
 
@@ -325,6 +326,13 @@ Set the adapter configuration in the terminal that runs Seqlane:
 
 ```sh
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
+```
+
+For Codex, use an absolute executable path. The runtime supplies the workspace
+and starts one private app-server process for each run:
+
+```sh
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"codex","executable":"/absolute/path/to/codex","networkAccess":false}'
 ```
 
 Run the workflow in that terminal:
@@ -485,7 +493,7 @@ pnpm exec node apps/cli/bin/run.js run examples/read-context.ts \
 ```
 
 Configure the selected Seqlane runtime, for example with
-`SEQLANE_RUNTIME_ADAPTER_CONFIG` for OpenCode. The workflow explicitly selects
+`SEQLANE_RUNTIME_ADAPTER_CONFIG` for OpenCode or Codex. The workflow explicitly selects
 `openai/gpt-5.6-luna` with medium reasoning. Optional `zg`/zvec-grep and
 `ripwire` failures are reported as uncertainties.
 

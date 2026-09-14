@@ -15,8 +15,8 @@ import {
 } from "@seqlane/opencode-adapter";
 import {
   CODEX_AGENT_CAPABILITIES,
-  createCodexAdapter,
-  createCodexModelCapabilities,
+  createCodexRun,
+  type CodexRun,
 } from "@seqlane/codex-adapter";
 import type { RequestContext } from "@mastra/core/request-context";
 import type { ModelSelection } from "@seqlane/core";
@@ -150,6 +150,7 @@ export function loadRuntimeAdapterConfiguration(
 
 export interface RuntimeAdapterFactoryContext {
   readonly signal: AbortSignal;
+  readonly codexRun?: CodexRun;
   readonly modelSelection?: ModelSelection;
   readonly browserUiUrl?: string;
   /** Existing Mastra invocation context, preserved for adapter integrations. */
@@ -158,6 +159,8 @@ export interface RuntimeAdapterFactoryContext {
 
 export interface RuntimeAdapterPreparation {
   readonly browserUiUrl?: string;
+  readonly codexRun?: CodexRun;
+  readonly close?: () => Promise<void>;
 }
 
 export interface RuntimeAdapterFactoryResult {
@@ -248,7 +251,7 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
         }
         return CODEX_AGENT_CAPABILITIES;
       },
-      async prepare(configuration) {
+      async prepare(configuration, signal) {
         if (configuration.adapter !== "codex") {
           throw new RuntimeAdapterSelectionError(
             'factory "codex" received a different adapter configuration',
@@ -259,7 +262,15 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
             "Codex requires a runtime workspace",
           );
         }
-        return {};
+        const codexRun = createCodexRun(
+          {
+            executable: configuration.executable,
+            workspace: configuration.workspace,
+            networkAccess: configuration.networkAccess,
+          },
+          { signal },
+        );
+        return { codexRun, close: () => codexRun.close() };
       },
       create(configuration, context) {
         if (configuration.adapter !== "codex") {
@@ -267,27 +278,16 @@ function createDefaultFactories(): readonly RuntimeAdapterFactory[] {
             'factory "codex" received a different adapter configuration',
           );
         }
-        if (configuration.workspace === undefined) {
+        const codexRun = context.codexRun;
+        if (codexRun === undefined) {
           throw new RuntimeAdapterSelectionError(
-            "Codex requires a runtime workspace",
+            "Codex run preparation is missing",
           );
         }
-        const launchConfiguration = {
-          executable: configuration.executable,
-          workspace: configuration.workspace,
-          networkAccess: configuration.networkAccess,
-        };
         return {
           createAdapter: () =>
-            createCodexAdapter(launchConfiguration, {
-              signal: context.signal,
-              ...(context.modelSelection === undefined
-                ? {}
-                : { modelSelection: context.modelSelection }),
-            }),
-          modelCapabilities: createCodexModelCapabilities(launchConfiguration, {
-            signal: context.signal,
-          }),
+            codexRun.createAdapter(context.signal, context.modelSelection),
+          modelCapabilities: codexRun.modelCapabilities,
         };
       },
     },
