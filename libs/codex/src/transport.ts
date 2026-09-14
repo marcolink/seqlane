@@ -157,6 +157,7 @@ export async function withCodexTransportDeadline(
   transportPromise: Promise<CodexTransport>,
   milliseconds: number,
   signal?: AbortSignal,
+  closeLateTransport = true,
 ): Promise<CodexTransport> {
   let creationSettled = false;
   void transportPromise.then(
@@ -175,7 +176,7 @@ export async function withCodexTransportDeadline(
       signal,
     );
   } catch (cause) {
-    if (!creationSettled) {
+    if (closeLateTransport && !creationSettled) {
       void transportPromise.then(
         (lateTransport) =>
           Promise.resolve()

@@ -64,6 +64,7 @@ class FakeTransport implements CodexTransport {
   emitBeforeTurnResponse = false;
   emitMultipleAgentMessages = false;
   delayTurnStart = false;
+  failInterrupt = false;
   private pendingTurnStart?: () => void;
 
   resolveTurnStart(): void {
@@ -88,6 +89,7 @@ class FakeTransport implements CodexTransport {
     if (method === "thread/start") return { thread: { id: "thread-1" } };
     if (method === "thread/fork") return { thread: { id: "thread-child" } };
     if (method === "turn/interrupt") {
+      if (this.failInterrupt) throw new Error("interrupt was refused");
       const turnId = String((params as { readonly turnId: string }).turnId);
       setTimeout(
         () =>
@@ -282,6 +284,7 @@ describe("Codex AgentAdapter", () => {
     const transport = new FakeTransport();
     const activities: AgentActivity[] = [];
     const metrics: unknown[] = [];
+    const backgroundProcesses: unknown[] = [];
     const adapter = createCodexAdapterForTransport(transport, configuration, {
       modelSelection: selection,
     });
@@ -291,9 +294,11 @@ describe("Codex AgentAdapter", () => {
         request({
           onActivity: (value) => activities.push(value),
           onMetrics: (value) => metrics.push(value),
+          onBackgroundProcess: (value) => backgroundProcesses.push(value),
         }),
       ),
     ).resolves.toEqual({ result: "done" });
+    expect(backgroundProcesses).toEqual([]);
     const checkpoint = await adapter.captureCheckpoint!();
     const child = await adapter.fork!({
       checkpoint,
@@ -376,6 +381,36 @@ describe("Codex AgentAdapter", () => {
     expect(
       transport.requests.some((value) => value.method === "turn/interrupt"),
     ).toBe(true);
+  });
+
+  it("rejects checkpoint and fork reuse after an unconfirmed interruption", async () => {
+    const transport = new FakeTransport();
+    const adapter = createCodexAdapterForTransport(transport, configuration);
+    await expect(adapter.execute(request())).resolves.toEqual({
+      result: "done",
+    });
+    const checkpoint = await adapter.captureCheckpoint!();
+
+    transport.emitCompletion = false;
+    transport.failInterrupt = true;
+    const controller = new AbortController();
+    const execution = adapter.execute(request({ signal: controller.signal }));
+    for (
+      let index = 0;
+      index < 20 &&
+      transport.requests.filter(({ method }) => method === "turn/start")
+        .length < 2;
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    controller.abort();
+    await expect(execution).rejects.toMatchObject({ code: "cancellation" });
+    await expect(adapter.captureCheckpoint!()).rejects.toThrow("invalidated");
+    await expect(adapter.fork!({ checkpoint })).rejects.toThrow("invalidated");
+    expect(
+      transport.requests.filter(({ method }) => method === "thread/fork"),
+    ).toHaveLength(0);
   });
 
   it("cancels adapter creation and closes a transport that resolves late", async () => {

@@ -108,6 +108,7 @@ export async function startRun(
   const events = createExecutionEventBridge((event) => sendEvent(host, event));
 
   events.emit({ type: "run.started", workId, runId });
+  let execution: RuntimeExecution | undefined;
 
   try {
     // The loaded workflow and Plan remain reachable only from this child.
@@ -133,7 +134,7 @@ export async function startRun(
       return;
     }
 
-    const execution = await resolveExecution(
+    execution = await resolveExecution(
       request.runtime,
       loadedWorkflow.taskDefinitions,
       abortController.signal,
@@ -179,6 +180,8 @@ export async function startRun(
     );
 
     if (control.cancellationRequested) {
+      await execution.close?.();
+      execution = undefined;
       events.emit({ type: "run.cancelled", workId, runId });
       await events.flush();
       host.exit(0);
@@ -194,6 +197,8 @@ export async function startRun(
     control.activeRun = activeRun;
     if (control.cancellationRequested) await activeRun.cancel();
     const outcome = await activeRun.outcome;
+    await execution.close?.();
+    execution = undefined;
     if (outcome.status === "succeeded") {
       events.emit({
         type: "run.succeeded",
@@ -210,6 +215,7 @@ export async function startRun(
     control.activeRun = undefined;
     host.exit(0);
   } catch (cause) {
+    await execution?.close?.().catch(() => undefined);
     if (control.cancellationRequested && control.activeRun === undefined) {
       events.emit({ type: "run.cancelled", workId, runId });
       await events.flush();

@@ -630,6 +630,60 @@ describe("Mastra operational host", () => {
     }
   });
 
+  it("does not retry a failed operational cleanup", async () => {
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    let closeAttempts = 0;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async () => {
+        throw new Error("fixture adapter failed");
+      },
+      close: async () => {
+        closeAttempts += 1;
+        throw new Error("fixture cleanup failed");
+      },
+    };
+    const registration = runtimeProfileRegistration({
+      adapterConfiguration: {
+        adapter: "acp",
+        configuration: {
+          id: "fixture-agent",
+          description: "Fixture agent",
+          command: "fixture-agent",
+          persistSession: true,
+        },
+      },
+      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+    });
+    const workflow = registration.workflow as AnyWorkflow;
+    const runId = "run-failed-cleanup";
+    const run = await workflow.createRun({
+      runId,
+      resourceId: "work-run-failed-cleanup",
+      shouldPersistSnapshot: () => false,
+    });
+
+    const outcome = await run.start({
+      inputData: { dependency: "runtime-profile" },
+      requestContext: new RequestContext([
+        ["seqlane.runtimeId", "test-runtime"],
+      ]),
+    });
+    expect(outcome.status).toBe("failed");
+    await registration.terminate?.(runId);
+    await registration.terminate?.(runId);
+    expect(closeAttempts).toBe(1);
+  });
+
   it("closes an operational adapter when an invocation is cancelled", async () => {
     const capabilities = {
       execute: true as const,

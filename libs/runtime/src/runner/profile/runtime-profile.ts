@@ -380,11 +380,15 @@ export async function resolveRuntimeProfile(
   const close = async (): Promise<void> => {
     const adapters = [...ownedAdapters];
     ownedAdapters.clear();
-    await Promise.all(
-      adapters.map(async (adapter) => {
-        await adapter.close?.();
-      }),
-    );
+    try {
+      await Promise.all(
+        adapters.map(async (adapter) => {
+          await adapter.close?.();
+        }),
+      );
+    } finally {
+      await preparation.close?.();
+    }
   };
   const workspaceIdentities = await resolveTaskWorkspaceIdentities(
     taskDefinitions,

@@ -3,7 +3,7 @@
 Private Codex app-server adapter for Seqlane. It owns the local Codex app-server
 process, validates its JSONL protocol, and translates completed turns into the
 private `AgentAdapter` contract. The runtime selects it through private
-configuration and owns its process for each run.
+`SEQLANE_RUNTIME_ADAPTER_CONFIG` and owns its process for each run.
 
 The tested-version list is advisory. An unconfirmed CLI version emits a
 diagnostic and continues; malformed or incompatible protocol messages fail the
@@ -14,9 +14,12 @@ drains child stderr, handles split UTF-8 output, bounds outbound and inbound
 JSONL, and confirms child-process termination with forced shutdown escalation.
 Turn events are correlated by thread and turn, buffered across the `turn/start`
 response, reduced into activity lifecycle events, and bounded by item and
-payload limits. Cancellation and request/turn deadlines interrupt the turn and
+payload limits. Turn cancellation and deadlines attempt interruption and
 require terminal confirmation. Unsupported server requests receive typed JSON-
 RPC errors.
+If interruption cannot be confirmed, the run closes its shared connection and
+rejects further session work, checkpoints, and forks. A timed-out model probe
+leaves a run-owned connection for the run to close.
 
 ## Protocol compatibility probe
 

@@ -88,12 +88,9 @@ by the dependent integration task.
 
 ## Delivery state
 
-The implementation is present on the delivery branch and covered by focused
-transport, protocol, activity, and adapter tests. Runtime registration is
-covered by the dependent integration task and [pull request
-#110](https://github.com/marcolink/seqlane/pull/110). The commit and pull
-request are not yet reachable from the default branch because the pull request
-is open.
+The adapter and runtime registration are present on the target branch through
+[pull request #110](https://github.com/marcolink/seqlane/pull/110). Live protocol
+confirmation is recorded by the completed protocol-proof task.
 
 ## Traceability
 

@@ -81,15 +81,16 @@ Registered the private Codex adapter through the existing runtime adapter
 configuration and capability preflight. Codex model discovery is validated
 through a bounded app-server request, runtime workspaces are applied to the
 launch configuration, and network access defaults to disabled. Adapter-owned
-resources now close at direct-run completion and persistent-host run completion
+resources close at direct-run completion and persistent-host run completion
 or host shutdown. Focused runtime and Codex tests cover configuration,
 capability selection, model discovery, and cleanup.
 
 ## Delivery state
 
-Implementation is delivered in commit `01ba877` and [pull request
-#110](https://github.com/marcolink/seqlane/pull/110). It is not yet reachable
-from the default branch because the pull request is open.
+Implementation is on the target branch through [pull request
+#110](https://github.com/marcolink/seqlane/pull/110). This follow-up branch
+consolidates app-server transport ownership across sessions in each run. No
+public workflow, Plan, CLI result, or IPC contract changes.
 
 ## Traceability
 

@@ -41,6 +41,13 @@ const MAX_PROMPT_BYTES = 4_000_000;
 export interface CodexAdapterOptions {
   readonly signal?: AbortSignal;
   readonly modelSelection?: ModelSelection;
+  /** Set false when the transport is owned by a Codex run. */
+  readonly closeTransport?: boolean;
+  /** Closes the owning run when an active turn may still be running. */
+  readonly onUnconfirmedTermination?: () => Promise<void>;
+  readonly isRunClosed?: () => boolean;
+  /** Delivers diagnostics buffered before this session was created. */
+  readonly drainDiagnostics?: () => readonly AgentDiagnostic[];
   readonly createTransport?: (
     configuration: CodexLaunchConfiguration,
     options: {
@@ -212,6 +219,7 @@ async function raceWithAbort<T>(
   signal: AbortSignal,
 ): Promise<T> {
   if (signal.aborted) {
+    void promise.catch(() => undefined);
     throw (
       signal.reason ??
       new CodexAdapterError("cancellation", "Codex task was cancelled")
@@ -255,10 +263,35 @@ function createAdapterForTransport(
   let selectionResolved = false;
   let effectiveSelection: ModelSelection | undefined;
 
+  const closeTransport = async (): Promise<void> => {
+    if (options.closeTransport === false) return;
+    await transport.close();
+  };
+
+  const assertUsable = (): void => {
+    if (invalidated || options.isRunClosed?.()) {
+      throw new CodexAdapterError("execution", "Codex session is invalidated");
+    }
+  };
+
+  const invalidateUnconfirmedTurn = async (
+    request: AgentAdapterRequest,
+  ): Promise<void> => {
+    if (invalidated) return;
+    invalidated = true;
+    await (options.onUnconfirmedTermination?.() ?? closeTransport()).catch(
+      () => undefined,
+    );
+    request.onUncertainActivity?.({
+      reason: "timeout",
+      termination: transport.termination,
+    });
+  };
+
   const closeAfterDeadline = async (cause: unknown): Promise<void> => {
     if (!(cause instanceof CodexRequestDeadlineError)) return;
     invalidated = true;
-    await transport.close().catch(() => undefined);
+    await closeTransport().catch(() => undefined);
   };
 
   const selectionFor = (
@@ -338,8 +371,7 @@ function createAdapterForTransport(
     signal: AbortSignal,
     selection: ModelSelection | undefined,
   ): Promise<string> => {
-    if (invalidated)
-      throw new CodexAdapterError("execution", "Codex session is invalidated");
+    assertUsable();
     if (threadId !== undefined) return threadId;
     return (threadPromise ??= (async () => {
       const params = {
@@ -369,6 +401,7 @@ function createAdapterForTransport(
     tracker: TurnTracker,
     request: AgentAdapterRequest,
   ): Promise<void> => {
+    void tracker.completion.catch(() => undefined);
     try {
       await withTimeout(
         transport.request("turn/interrupt", { threadId, turnId: id }),
@@ -376,12 +409,7 @@ function createAdapterForTransport(
       );
       await withTimeout(tracker.completion, TURN_TIMEOUT_MS);
     } catch (cause) {
-      invalidated = true;
-      await transport.close().catch(() => undefined);
-      request.onUncertainActivity?.({
-        reason: "timeout",
-        termination: transport.termination,
-      });
+      await invalidateUnconfirmedTurn(request);
       throw new CodexAdapterError(
         "cancellation",
         "Codex turn termination was not confirmed",
@@ -391,7 +419,12 @@ function createAdapterForTransport(
   };
 
   const execute = async (request: AgentAdapterRequest): Promise<unknown> => {
+    assertUsable();
+    for (const diagnostic of options.drainDiagnostics?.() ?? []) {
+      reportDiagnostic(request, diagnostic);
+    }
     const operation = queue.then(async () => {
+      assertUsable();
       const startedAt = Date.now();
       const signal = composeSignals(options.signal, request.signal);
       const requestedSelection = selectionFor(request);
@@ -416,7 +449,9 @@ function createAdapterForTransport(
         PRE_TURN_REQUEST_TIMEOUT_MS,
         "turn/start",
       ).catch(async (cause) => {
-        await closeAfterDeadline(cause);
+        if (cause instanceof CodexRequestDeadlineError) {
+          await invalidateUnconfirmedTurn(request);
+        }
         throw cause;
       });
       let turn: ReturnType<typeof parseTurnStartResult>;
@@ -449,8 +484,7 @@ function createAdapterForTransport(
             await interruptAndConfirm(turn.id, tracker, request);
           } catch (confirmationCause) {
             registration.cancel();
-            invalidated = true;
-            await transport.close().catch(() => undefined);
+            await invalidateUnconfirmedTurn(request);
             throw new CodexAdapterError(
               "cancellation",
               "Codex turn start could not be terminated safely",
@@ -541,9 +575,10 @@ function createAdapterForTransport(
 
   const adapter: AgentAdapter = {
     capabilities: CODEX_AGENT_CAPABILITIES,
-    close: () => transport.close(),
+    close: closeTransport,
     execute,
     captureCheckpoint: async () => {
+      assertUsable();
       if (threadId === undefined || lastTurnId === undefined) {
         throw new CodexAdapterError(
           "execution",
@@ -558,6 +593,7 @@ function createAdapterForTransport(
       } satisfies Checkpoint;
     },
     fork: async ({ checkpoint, modelSelection }) => {
+      assertUsable();
       const parsed = z
         .object({
           kind: z.literal("codex-checkpoint"),
@@ -622,6 +658,7 @@ export function createCodexAdapter(
       ),
       PRE_TURN_REQUEST_TIMEOUT_MS,
       composeSignals(options.signal, request.signal),
+      options.closeTransport !== false,
     ).then((transport) =>
       createAdapterForTransport(transport, validated, options),
     ));

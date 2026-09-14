@@ -2,6 +2,19 @@ import { promisify } from "node:util";
 import testedVersions from "../tested-versions.json" with { type: "json" };
 
 const VERSION_PATTERN = /codex-cli\s+([0-9]+\.[0-9]+\.[0-9]+(?:[-+][^\s]+)?)/i;
+const MAX_DIAGNOSTIC_LENGTH = 512;
+
+function removeControlCharacters(value: string): string {
+  return Array.from(value)
+    .filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return !(
+        (codePoint >= 0 && codePoint <= 0x1f) ||
+        (codePoint >= 0x7f && codePoint <= 0x9f)
+      );
+    })
+    .join("");
+}
 
 export const TESTED_CODEX_VERSIONS = testedVersions;
 
@@ -41,11 +54,23 @@ export function versionDiagnostic(
 ): CodexVersionDiagnostic | undefined {
   if (version !== undefined && TESTED_CODEX_VERSIONS.includes(version))
     return undefined;
-  const label = version === undefined ? "unknown" : version;
+  const safeVersion =
+    version === undefined ? undefined : removeControlCharacters(version);
+  const boundedVersion =
+    safeVersion === undefined || safeVersion.length === 0
+      ? undefined
+      : safeVersion.length > MAX_DIAGNOSTIC_LENGTH
+        ? `${safeVersion.slice(0, MAX_DIAGNOSTIC_LENGTH - 1)}…`
+        : safeVersion;
+  const label = boundedVersion ?? "unknown";
+  const message = `Codex CLI version ${label} is not in the tested version list; continuing with advisory compatibility only`;
   return {
     code: "codex-version-unconfirmed",
-    message: `Codex CLI version ${label} is not in the tested version list; continuing with advisory compatibility only`,
-    ...(version === undefined ? {} : { version }),
+    message:
+      message.length > MAX_DIAGNOSTIC_LENGTH
+        ? `${message.slice(0, MAX_DIAGNOSTIC_LENGTH - 1)}…`
+        : message,
+    ...(boundedVersion === undefined ? {} : { version: boundedVersion }),
     testedVersions: TESTED_CODEX_VERSIONS,
   };
 }

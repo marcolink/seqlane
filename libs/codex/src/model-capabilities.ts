@@ -1,3 +1,4 @@
+import type { AgentDiagnostic } from "@seqlane/agent-adapter";
 import type { ModelRef, ModelSelection } from "@seqlane/core";
 import { CodexAdapterError } from "./errors.js";
 import {
@@ -16,16 +17,20 @@ const DEFAULT_MODEL_LIST_TIMEOUT_MS = 5_000;
 export interface CodexModelCapabilitiesOptions {
   readonly signal?: AbortSignal;
   readonly requestTimeoutMs?: number;
+  readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
+  /** Keep a run-owned transport open after model discovery. */
+  readonly closeTransport?: boolean;
   readonly createTransport?: (
     configuration: CodexLaunchConfiguration,
     options?: {
       readonly signal?: AbortSignal;
       readonly initializeTimeoutMs?: number;
+      readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
     },
   ) => Promise<CodexTransport>;
 }
 
-/** Resolves Codex models through a short-lived, run-independent app-server. */
+/** Resolves Codex models through an owned or supplied app-server transport. */
 export function createCodexModelCapabilities(
   configuration: CodexLaunchConfiguration,
   options: CodexModelCapabilitiesOptions = {},
@@ -48,12 +53,14 @@ export function createCodexModelCapabilities(
         createTransport(configuration, {
           signal: options.signal,
           initializeTimeoutMs: timeoutMs,
+          onDiagnostic: options.onDiagnostic,
         }),
       );
       const transport = await withCodexTransportDeadline(
         transportPromise,
         timeoutMs,
         options.signal,
+        options.closeTransport !== false,
       );
       try {
         return parseModelListResult(
@@ -65,7 +72,7 @@ export function createCodexModelCapabilities(
           ),
         );
       } finally {
-        await transport.close();
+        if (options.closeTransport !== false) await transport.close();
       }
     })());
 
