@@ -420,16 +420,26 @@ describe("private Mastra runtime spine", () => {
       events
         .filter(
           (event) =>
-            (event.type === "invocation.created" ||
-              event.type === "invocation.started" ||
-              event.type === "invocation.succeeded") &&
+            [
+              "invocation.created",
+              "invocation.started",
+              "invocation.progress",
+              "invocation.output",
+              "invocation.result",
+              "invocation.succeeded",
+            ].includes(event.type) &&
+            "invocationId" in event &&
             event.invocationId === "repeat:1",
         )
         .map((event) => event.type),
     ).toEqual([
       "invocation.created",
       "invocation.started",
+      "invocation.progress",
+      "invocation.output",
+      "invocation.result",
       "invocation.succeeded",
+      "invocation.output",
     ]);
   });
 
@@ -497,6 +507,26 @@ describe("private Mastra runtime spine", () => {
           event.iteration !== undefined,
       ),
     ).toHaveLength(1);
+    expect(
+      events
+        .filter(
+          (event) =>
+            "invocationId" in event &&
+            event.invocationId === "repeat:1" &&
+            [
+              "invocation.started",
+              "invocation.progress",
+              "invocation.output",
+              "invocation.cancelled",
+            ].includes(event.type),
+        )
+        .map((event) => event.type),
+    ).toEqual([
+      "invocation.started",
+      "invocation.progress",
+      "invocation.output",
+      "invocation.cancelled",
+    ]);
   });
 
   it("shares the repeat execution budget across nested child workflows", async () => {
@@ -804,6 +834,13 @@ describe("private Mastra runtime spine", () => {
 
     expect(outcome.status).toBe("failed");
     expect(executions).toBe(1);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "invocation.failed" &&
+          event.invocationId === "repeat:1",
+      ),
+    ).toBe(true);
   });
 
   it("runs repeat task output validation on every successful attempt", async () => {

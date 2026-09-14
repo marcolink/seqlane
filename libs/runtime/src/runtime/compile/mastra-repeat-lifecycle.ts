@@ -2,6 +2,8 @@ import type { AnyWorkflow } from "@mastra/core/workflows";
 import type { ObservabilityContext } from "@mastra/core/observability";
 import { SeqlaneError } from "@seqlane/core";
 import type { InvocationId, PlanNode } from "@seqlane/core";
+import { summarizeSeqlaneOutput } from "../execution/output-summary.js";
+import { toSeqlaneDisplayValue } from "../execution/display-value.js";
 import { taskIdCompatibility } from "../invocation/invocation-support.js";
 import {
   invocationKind as planInvocationKind,
@@ -87,16 +89,35 @@ export async function runRepeatWorkflow(options: {
     subject,
     ...taskIdCompatibility(subject),
   });
-  const run = await loop.createRun({
-    runId: `${runContext.runId}:${node.nodeId}`,
-    resourceId: runContext.resourceId,
+  runContext.events.emit({
+    type: "invocation.progress",
+    workId: runContext.workId,
+    runId: runContext.runId,
+    invocationId,
+    state: "active",
+    phase: "execute",
+    message: "Executing repeat",
   });
+  runContext.events.emit({
+    type: "invocation.output",
+    workId: runContext.workId,
+    runId: runContext.runId,
+    invocationId,
+    policy: "transient",
+    channel: "task",
+    content: "Executing repeat",
+  });
+  let run: Awaited<ReturnType<typeof loop.createRun>> | undefined;
   const cancel = (): void => {
-    void run.cancel().catch(() => undefined);
+    if (run !== undefined) void run.cancel().catch(() => undefined);
   };
   if (abortSignal.aborted) cancel();
   else abortSignal.addEventListener("abort", cancel, { once: true });
   try {
+    run = await loop.createRun({
+      runId: `${runContext.runId}:${node.nodeId}`,
+      resourceId: runContext.resourceId,
+    });
     const result = await run.start({
       inputData: envelope,
       requestContext: runContext.requestContext,
@@ -115,10 +136,27 @@ export async function runRepeatWorkflow(options: {
     });
     if (result.status === "success") {
       runContext.events.emit({
+        type: "invocation.result",
+        workId: runContext.workId,
+        runId: runContext.runId,
+        invocationId,
+        result: toSeqlaneDisplayValue(result.result, undefined),
+      });
+      runContext.events.emit({
         type: "invocation.succeeded",
         workId: runContext.workId,
         runId: runContext.runId,
         invocationId,
+      });
+      runContext.events.emit({
+        type: "invocation.output",
+        workId: runContext.workId,
+        runId: runContext.runId,
+        invocationId,
+        policy: "persistent",
+        channel: "task",
+        content: "Repeat completed",
+        summary: summarizeSeqlaneOutput(result.result),
       });
       return result.result;
     }
