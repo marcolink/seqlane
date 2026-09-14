@@ -50,9 +50,10 @@ or change finding status or severity.
 
 Review-scope selection and checkpoint advancement are defined in
 [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md).
-The version 4 state below describes the current transport and lifecycle
-contract. A new strict state revision must add that spec's scope checkpoint
-without changing the trusted-comment or run-metrics ownership here.
+The version 4 state describes the current command-free transport and lifecycle
+contract. The incremental-scope target is a new strict v5 revision, which adds
+that spec's scope checkpoint without changing trusted-comment or run-metrics
+ownership here.
 The incremental-scope specification owns manifest schema, persistence, and
 coverage evidence. This specification owns the publication state machine and
 the trusted summary projection.
@@ -79,29 +80,54 @@ Publication follows one canonical state machine:
 
 ```text
 prepared
-  -> summary-published
+  -> progress-marked
   -> inline-reconciled
   -> finalizable
   -> published
 
-prepared | summary-published | inline-reconciled | finalizable
+prepared | progress-marked | inline-reconciled | finalizable
   -> stale | cancelled | failed
 ```
 
-The authoritative projection is one trusted bot summary comment containing the
-validated human projection, state block, and metrics ledger. Inline comments
-are secondary projections and are never the checkpoint. The summary is written
-before inline comments; the final summary update records publication counters,
-limitations, fallback findings, and terminal statuses.
+The first summary write is progress-only: it prepends an owning-run notice and
+retains the previous authoritative state block, findings, and checkpoint. It
+must not expose candidate findings or a new checkpoint. Scope selection ignores
+that notice and any pending publication record. Inline comments emitted before
+the final write carry the owning run and a `pending` marker; they are secondary,
+non-authoritative projections. The final summary write is the only commit point
+that exposes the new findings, scope checkpoint, and complete human projection.
+It records publication counters, limitations, fallback findings, and terminal
+statuses. If that write fails, the old state remains authoritative and pending
+projections cannot advance the checkpoint.
 
-Every publication operation carries one idempotency key
-`(pullRequestNumber, scopeIdentity, runId, attempt)`. Each inline finding also
-uses `(pullRequestNumber, findingId, evidenceHeadRevision, contentDigest)`.
-Before retrying an uncertain write, the publisher re-reads the live summary or
-inline comment and treats an exact key and content match as success. It never
+Every publication operation carries a typed identity containing the pull request,
+scope identity, run ID, attempt, stage, and canonical payload digest:
+
+```text
+PublicationOperation = {
+  pullRequestNumber
+  scopeIdentity
+  runId
+  attempt
+  stage: "progress-summary" | "inline-finding" | "final-summary"
+  payloadDigest: lowercase SHA-256
+}
+```
+
+An inline finding additionally includes its finding ID and evidence-head
+revision. The publisher persists stage transitions in the manifest and accepts
+an idempotent retry only when the stage and payload digest match. Before
+retrying an uncertain write, it re-reads the live summary or inline comment and
+treats an exact operation identity and content match as success. It never
 creates a duplicate or deletes historical comments. A changed head, target,
 checkpoint, report identity, or scope identity transitions the operation to
 `stale`.
+
+The final summary update must use a conditional write with the ETag (or
+equivalent compare-and-swap token) captured from the trusted report read. A
+precondition conflict is `stale` and cannot overwrite the report. Read-before-
+write checks or workflow concurrency alone are not sufficient. Inline creates
+and updates use the same conditional or idempotent reconciliation policy.
 
 Publication is complete only when coverage is complete, finding validation is
 complete, the authoritative summary is written, and every admitted finding is
@@ -124,12 +150,22 @@ The state must contain these fields:
 - base and reviewed revisions;
 - comparable predecessor revision, when available;
 - the next finding index;
-- retained findings and lifecycle metadata;
+- retained findings, canonical `identityKey` and `occurrenceKey`, and lifecycle
+  metadata;
 - review limitations;
 - comparison outcomes for retained findings;
 - publication and automation-admission status;
 - the bounded manifest artifact identity and SHA-256 digest, when a manifest
   was produced.
+
+The current state contract is version 5. Its strict envelope and marker must
+agree on `schemaVersion: 5` and must contain the scope checkpoint, generation-
+qualified finding IDs, typed comparison outcomes, publication status, and
+manifest reference defined by the linked specifications. The v3 state and
+numeric finding IDs described below are legacy input only; they are never
+written as the current state after scope-capable delivery. V4 is a
+disposition-only transitional state and is also never an incremental
+checkpoint.
 
 ### requirement-run-status-and-metrics
 
@@ -177,6 +213,11 @@ format `SEQ-PR{number}-{index}` with a three-digit minimum index.
 The finalizer must not reuse an index. A retained or reopened finding keeps its
 identifier. Review agents can reference prior identifiers but cannot allocate
 new final identifiers.
+
+Each retained finding stores its canonical location-independent `identityKey`
+and semantic `occurrenceKey`. Exact pairs identify duplicates; distinct
+occurrences retain independent evidence, lifecycle status, and comparison
+outcomes even when their summaries are similar.
 
 The finalizer must collapse duplicate temporary identifiers before it assigns
 stable identifiers. Previously published identifiers remain stable only when
@@ -347,6 +388,10 @@ import v1 or v2 snapshots, disposition-bearing v3 state, or embedded run history
 If the existing trusted report has unsupported state, the next review starts
 a new finding baseline in that same bot comment. Valid run metrics remain
 independent of finding state.
+
+The first scope-capable publication writes a unified v5 state and a fresh
+baseline. It classifies older v1 through v4 reports only to replace them; it
+does not migrate old findings, IDs, metrics, or checkpoints.
 
 ## Verification
 
