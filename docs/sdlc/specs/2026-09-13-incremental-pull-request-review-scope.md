@@ -208,11 +208,15 @@ receiving an invented line. Finding identity is separate from presentation
 location: line numbers, ranges, and formatting are not part of the semantic
 identity used for deduplication or cross-run comparison.
 
-Before stable-ID allocation, duplicate candidates are collapsed by a
-deterministic identity key that excludes location and normalizes bounded
-whitespace. A missing or ambiguous identity key is retained as a limitation and
-cannot receive a new stable ID. The finalizer still owns the immutable public
-finding ID.
+Before stable-ID allocation, every candidate must carry one canonical,
+location-independent `identityKey`. The key is the lowercase SHA-256 of the
+canonical JSON object `{axis, summary, recommendation}` after Unicode NFC
+normalization, trimming, and collapsing internal whitespace in each field.
+Path, line, evidence side, and code excerpts are excluded from this key. The
+same normalizer and key algorithm must be used for candidate deduplication,
+retained-finding comparison, and resume reuse. A missing or ambiguous key is
+retained as a limitation and cannot receive a new stable ID. The finalizer
+still owns the immutable public finding ID.
 
 ### requirement-existing-findings
 
@@ -251,10 +255,19 @@ depends. Rebase can change that range without changing the defect. Current
 validity is established by current-head evidence, not range membership.
 
 Comparison must produce four disjoint outcomes: `new`, `persisting`, `resolved`,
-and `not_reviewed`. A finding can be `resolved` only after the later run
-reviewed the relevant path and current-head verification supports that result.
-An incremental run that did not select a path must preserve the finding as
-`not_reviewed` and carry its lifecycle forward.
+and `not_reviewed`. `comparisonOutcome` is a separate typed field from lifecycle
+status, severity, and disposition. A finding can be `resolved` only after the
+later run reviewed the relevant path and current-head verification supports that
+result. An incremental run that did not select a path must preserve the finding
+as `not_reviewed` and carry its lifecycle forward.
+
+The report state and machine-readable manifest must persist the outcome for each
+retained finding. The human projection must render `not_reviewed` distinctly
+from `resolved`, including the omitted scope. Verification and authorized
+dispositions have precedence over comparison presentation: a disposition can
+keep a finding addressed or dismissed, while `not_reviewed` cannot alter its
+lifecycle. Only current-head verification can establish `resolved` or
+`reopened`.
 
 ### requirement-run-manifest-and-lifecycle
 
@@ -277,12 +290,67 @@ narrowest known level (`provider`, `timeout`, `cancelled`, `configuration`,
 `input`, `budget`, `panic`, or `unknown`). A per-item failure does not imply a
 run-level failure.
 
+The selected work denominator is a set of typed manifest items. Its canonical
+shape is:
+
+```text
+ManifestItem =
+  | {
+      kind: "path"
+      itemId: "path:<validated-relative-path>"
+      path: validated relative path
+      batchOrdinal: positive integer
+      evidenceForm: "path"
+      hunkOrdinal: 0
+    }
+  | {
+      kind: "hunk"
+      itemId: "<evidence-form>:<validated-relative-path>:<hunk-ordinal>"
+      path: validated relative path
+      batchOrdinal: positive integer
+      evidenceForm: "pr-patch" | "change-evidence"
+      hunkOrdinal: positive integer
+    }
+```
+
+The selector emits a path item only when that evidence form has no hunks. It
+emits one hunk item for every expected hunk otherwise. `itemId` is unique within
+the manifest and is the key for exactly one terminal outcome. The manifest also
+records the sealed selected path set; the union of item paths must equal that
+set, and every item must name its exact batch, evidence form, and hunk identity.
+Failed items make coverage incomplete and block publication. A waived item is
+allowed only with a deterministic reason and authorizing policy; it also makes
+coverage incomplete, blocks publication, and blocks automation admission.
+Neither outcome may be silently treated as completed.
+
 The manifest must expose separate statuses for coverage, finding validation,
 publication, and automation admission. A run with complete coverage but failed
 publication is not publication-complete or automation-admissible. A run with
 partial coverage cannot be rendered as clean. Empty collections are encoded as
 `[]`, and all paths, outcomes, findings, limitations, and retry records are
 sorted deterministically.
+
+The manifest has explicit bounds: at most 512 KiB compressed and 2 MiB
+uncompressed, 2,048 items, 200 selected paths, 64 failure records, 32 retry
+records, and 20 limitations. Individual paths are at most 512 bytes and other
+persisted strings are at most 2,000 bytes. Evidence bodies and repeated
+explanations are stored as SHA-256 hashes plus bounded references, not copied
+into the manifest. The orchestrator reserves this capacity before model work;
+an exceeded or unknown bound fails closed without publication.
+
+The Action-owned manifest adapter persists each manifest snapshot as an
+immutable, repository-scoped GitHub Actions artifact. It writes a validated
+canonical snapshot, records its SHA-256 digest and artifact identity, and seals
+the final snapshot before publication. Updates use append-only sequence numbers
+and a new validated snapshot; a sealed digest cannot be mutated. Retries may
+retrieve only artifacts from the same trusted workflow and repository, and must
+verify schema version,
+scope identity, sequence, and digest before reuse. The final trusted report
+stores the artifact identity and digest plus the bounded manifest summary.
+Artifacts are retained for at most 30 days and are inaccessible to untrusted
+pull-request code. Missing, expired, unauthorized, or integrity-failing
+artifacts disable resume reuse and force a fresh bounded run; they never permit
+partial recovery or a fabricated audit trail.
 
 Resume reuse is allowed only after strict run-level validation of mode, frozen
 input, scope identity, rules, filters, provider, model, and runtime
@@ -296,10 +364,21 @@ checks pass.
 The run must record which rule layer and file-selection decision applied to each
 reviewed or excluded path. Rule resolution is deterministic and ordered:
 per-run rules, project rules, global rules, then embedded system rules. Selection
-and rule resolution remain separate decisions. The machine-readable result must
-retain bounded explanations for exclusions, selected rules, retries, and
-limitations so a human or automation consumer can reconstruct why an item was
-reviewed, skipped, or failed.
+and rule resolution remain separate decisions.
+
+Per-run rules are accepted only from Action-owned, strictly typed configuration
+resolved before checkout and model work. This includes workflow inputs or a
+trusted deployment configuration; it excludes pull-request titles, descriptions,
+comments, repository files from the untrusted head, and all agent output. Project
+rules may come only from an allowlisted path at the trusted target revision
+`B`; global rules come from the Action installation; embedded rules are pinned
+to the reviewer version. The resolved canonical rule set is hashed before model
+work and is required for resume admission. A missing, untrusted, malformed, or
+changed rule source fails closed.
+
+The machine-readable result must retain bounded explanations for exclusions,
+selected rules, retries, and limitations so a human or automation consumer can
+reconstruct why an item was reviewed, skipped, or failed.
 
 ### requirement-checkpoint-state
 
@@ -469,11 +548,11 @@ the sum of hunk and byte counts matches the pre-model plan. It must preserve
 limitations in deterministic ordinal order.
 
 After batch aggregation, the orchestrator deduplicates findings by normalized
-stable ID, then by the existing finding identity key and finally by exact
-`path`, `line`, `axis`, and normalized summary when no ID exists. It retains
+stable ID, then by the canonical location-independent `identityKey`. It retains
 the highest severity and deterministic first occurrence for duplicates. Only
-the aggregated result enters synthesis. A missing or ambiguous deduplication
-key is a limitation and cannot allocate a new stable ID.
+the aggregated result enters synthesis. A missing or ambiguous identity key is
+a limitation and cannot allocate a new stable ID; path and line may be shown
+only as evidence and presentation metadata.
 
 The invocation policy is fixed: run history verification once for the retained
 current-generation findings, run each configured discovery lane once per

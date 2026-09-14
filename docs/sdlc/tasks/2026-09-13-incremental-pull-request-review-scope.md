@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-09-14
 upstream:
   - spec.incremental-pull-request-review-scope
 supersedes: []
@@ -36,6 +36,13 @@ Preserve the state, lifecycle, trust, and publication rules in
   and hard cumulative batch, model, and time limits.
 - Restrict review lanes to the selected scope and gate new findings locally
   before stable-ID allocation.
+- Require canonical location-independent candidate identity and bounded
+  evidence-backed positioning.
+- Persist a bounded, integrity-checked run manifest as a trusted workflow
+  artifact with explicit item outcomes, provenance, and independent status
+  dimensions.
+- Define typed comparison outcomes and the canonical publication state machine,
+  including idempotent retries and visible fallback for unpublishable findings.
 - Preserve retained finding lifecycle, dispositions, and cumulative verdict.
 - Publish the report and checkpoint together only after the live target branch,
   base revision, head, and previous-checkpoint guards pass.
@@ -63,14 +70,22 @@ Preserve the state, lifecycle, trust, and publication rules in
    pre-model and model resource accounting.
 4. Pass scope and prior current-generation findings to history verification,
    review lanes, and synthesis. Add the deterministic new-finding path gate
-   and first-observed revision.
+   and first-observed revision. Add canonical location-independent identity,
+   evidence-backed positioning, and typed comparison outcomes.
 5. Preserve prior findings and compute a cumulative verdict in finalization.
    Skip discovery lanes for empty scope.
-6. Thread one typed scope identity through evidence, lanes, finalization, and
+6. Add the Action-owned bounded manifest artifact, sealing and integrity checks,
+   typed item outcomes, provenance and rule-source validation, strict resume
+   reuse, and independent coverage, finding, publication, and admission
+   statuses.
+7. Implement the canonical publication state machine. Reconcile uncertain
+   summary and inline writes, route unpublishable findings to a visible
+   fallback, and advance the checkpoint only after final publication.
+8. Thread one typed scope identity through evidence, lanes, finalization, and
    publication. Re-read checkpoint and live target branch, base revision, and
    head at publication. Write the new checkpoint only with the completed
    report.
-7. Update documentation and run focused, contract, and hosted workflow checks.
+9. Update documentation and run focused, contract, and hosted workflow checks.
 
 ## Affected areas
 
@@ -93,8 +108,9 @@ Preserve the state, lifecycle, trust, and publication rules in
   the specification.
 - Run old-version replacement, malformed-input, schema-matrix, literal
   pathspec, exact-object, exclusion, typed-batch, aggregation, cumulative
-  budget, publication-identity, finding-ID isolation, and workflow admission
-  tests.
+  budget, publication-identity, finding-ID isolation, manifest lifecycle,
+  evidence positioning, comparison outcome, rule-source, and workflow
+  admission tests.
 - Run `pnpm docs:index`, `pnpm docs:validate`, formatting, and `git diff
   --check`.
 - Run the hosted workflow on an open PR for a baseline, a changed-file
