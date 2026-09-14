@@ -87,10 +87,12 @@ capability selection, model discovery, and cleanup.
 
 ## Delivery state
 
-Implementation is present on the delivery branch. The commit and pull request
-are not yet reachable from the default branch.
+Implementation is delivered in commit `01ba877` and [pull request
+#110](https://github.com/marcolink/seqlane/pull/110). It is not yet reachable
+from the default branch because the pull request is open.
 
 ## Traceability
 
 - [spec.codex-app-server-adapter](../specs/2026-09-12-codex-app-server-adapter.md)
 - [task.implement-codex-app-server-adapter](./2026-09-12-implement-codex-app-server-adapter.md)
+- [pull request #110](https://github.com/marcolink/seqlane/pull/110)

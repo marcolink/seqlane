@@ -90,10 +90,13 @@ by the dependent integration task.
 
 The implementation is present on the delivery branch and covered by focused
 transport, protocol, activity, and adapter tests. Runtime registration is
-covered by the dependent integration task. The commit and pull request are not
-yet reachable from the default branch.
+covered by the dependent integration task and [pull request
+#110](https://github.com/marcolink/seqlane/pull/110). The commit and pull
+request are not yet reachable from the default branch because the pull request
+is open.
 
 ## Traceability
 
 - [spec.codex-app-server-adapter](../specs/2026-09-12-codex-app-server-adapter.md)
 - [task.prove-codex-app-server-protocol](./2026-09-12-prove-codex-app-server-protocol.md)
+- [pull request #110](https://github.com/marcolink/seqlane/pull/110)
