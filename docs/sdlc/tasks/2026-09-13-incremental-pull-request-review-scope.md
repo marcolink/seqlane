@@ -71,16 +71,19 @@ Preserve the state, lifecycle, trust, and publication rules in
 4. Pass scope and prior current-generation findings to history verification,
    review lanes, and synthesis. Add the deterministic new-finding path gate
    and first-observed revision. Add canonical location-independent identity,
-   evidence-backed positioning, and typed comparison outcomes.
+   versioned local evidence identities, evidence-backed positioning, and typed
+   comparison outcomes. Verify continuity across presentation changes.
 5. Preserve prior findings and compute a cumulative verdict in finalization.
    Skip discovery lanes for empty scope.
 6. Add the Action-owned bounded manifest artifact, sealing and integrity checks,
-   typed item outcomes, provenance and rule-source validation, strict resume
-   reuse, and independent coverage, finding, publication, and admission
-   statuses.
+   typed item outcomes with source reuse proofs, provenance and rule-source
+   validation, and strict resume reuse. Require the sealed manifest reference
+   in v5 state and implement the independent status enums and gate matrix.
 7. Implement the canonical publication state machine. Reconcile uncertain
    summary and inline writes, route unpublishable findings to a visible
-   fallback, and advance the checkpoint only after final publication.
+   fallback, and advance the checkpoint only after final publication. Persist
+   publication intents and receipts in the separate publisher-owned journal;
+   test crash recovery without mutating sealed execution snapshots.
 8. Thread one typed scope identity through evidence, lanes, finalization, and
    publication. Re-read checkpoint and live target branch, base revision, and
    head at publication. Write the new checkpoint only with the completed
