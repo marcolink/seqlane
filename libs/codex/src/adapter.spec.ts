@@ -6,7 +6,7 @@ import type {
 } from "@seqlane/agent-adapter";
 import type { ModelSelection, TaskDefinition } from "@seqlane/core";
 import { InteractionRequiredError } from "@seqlane/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   createCodexAdapter,
@@ -280,6 +280,46 @@ class FakeTransport implements CodexTransport {
 }
 
 describe("Codex AgentAdapter", () => {
+  it("uses the shared 15-second startup and model preflight deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = new FakeTransport();
+      const originalRequest = transport.request.bind(transport);
+      transport.request = (method, params) =>
+        method === "model/list"
+          ? new Promise<never>(() => undefined)
+          : originalRequest(method, params);
+      let initializeTimeoutMs: number | undefined;
+      const adapter = createCodexAdapter(configuration, {
+        createTransport: async (_configuration, options) => {
+          initializeTimeoutMs = options.initializeTimeoutMs;
+          return transport;
+        },
+      });
+      let settled = false;
+      const execution = adapter.execute(request());
+      void execution.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(initializeTimeoutMs).toBe(15_000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(9_999);
+      await expect(execution).rejects.toMatchObject({
+        operation: "model/list",
+        message: expect.stringContaining("15000ms"),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("executes typed output, reports activity and metrics, and forks exactly", async () => {
     const transport = new FakeTransport();
     const activities: AgentActivity[] = [];

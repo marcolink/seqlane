@@ -5,14 +5,12 @@ import {
   parseModelListResult,
   type CodexLaunchConfiguration,
 } from "./protocol.js";
-import { withDeadline } from "./deadline.js";
+import { CODEX_PREFLIGHT_TIMEOUT_MS, withDeadline } from "./deadline.js";
 import {
   createCodexStdioTransport,
   type CodexTransport,
   withCodexTransportDeadline,
 } from "./transport.js";
-
-const DEFAULT_MODEL_LIST_TIMEOUT_MS = 15_000;
 
 export interface CodexModelCapabilitiesOptions {
   readonly signal?: AbortSignal;
@@ -43,8 +41,7 @@ export function createCodexModelCapabilities(
   let modelsPromise: Promise<readonly CodexModel[]> | undefined;
   const resolveModels = async () =>
     (modelsPromise ??= (async () => {
-      const timeoutMs =
-        options.requestTimeoutMs ?? DEFAULT_MODEL_LIST_TIMEOUT_MS;
+      const timeoutMs = options.requestTimeoutMs ?? CODEX_PREFLIGHT_TIMEOUT_MS;
       const createTransport =
         options.createTransport ??
         ((value: CodexLaunchConfiguration, transportOptions) =>

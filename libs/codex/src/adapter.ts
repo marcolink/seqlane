@@ -18,7 +18,11 @@ import {
   type CodexTokenUsage,
   type CodexTransport,
 } from "./index-internal.js";
-import { withDeadline, CodexRequestDeadlineError } from "./deadline.js";
+import {
+  CODEX_PREFLIGHT_TIMEOUT_MS,
+  withDeadline,
+  CodexRequestDeadlineError,
+} from "./deadline.js";
 import { sessionDispatcher } from "./session-events.js";
 import {
   createCodexStdioTransport,
@@ -320,7 +324,7 @@ function createAdapterForTransport(
     try {
       result = await withDeadline(
         transport.request("model/list", {}, signal),
-        PRE_TURN_REQUEST_TIMEOUT_MS,
+        CODEX_PREFLIGHT_TIMEOUT_MS,
         "model/list",
       );
     } catch (cause) {
@@ -653,11 +657,11 @@ export function createCodexAdapter(
       Promise.resolve().then(() =>
         (options.createTransport ?? createCodexStdioTransport)(validated, {
           signal: composeSignals(options.signal, request.signal),
-          initializeTimeoutMs: PRE_TURN_REQUEST_TIMEOUT_MS,
+          initializeTimeoutMs: CODEX_PREFLIGHT_TIMEOUT_MS,
           onDiagnostic: (diagnostic) => reportDiagnostic(request, diagnostic),
         }),
       ),
-      PRE_TURN_REQUEST_TIMEOUT_MS,
+      CODEX_PREFLIGHT_TIMEOUT_MS,
       composeSignals(options.signal, request.signal),
       options.closeTransport !== false,
     ).then((transport) =>
