@@ -98,6 +98,10 @@ export interface RepeatNode {
   readonly maximumIterations: number;
   /** The single task or child workflow executed for each attempt. */
   readonly attempt: TaskNode | WorkflowNode;
+  /** Optional validator applied to each attempt output before the condition. */
+  readonly validation?: {
+    readonly source: ValidationSource;
+  };
   /** A boolean reference evaluated after each successful attempt. */
   readonly until: ValueRefData;
   /** Optional binding for the next attempt's input. */
@@ -180,6 +184,7 @@ export const repeatNodeSchema = z.strictObject({
     .min(1)
     .max(MAX_REPEAT_BODY_EXECUTIONS),
   attempt: z.discriminatedUnion("type", [taskNodeSchema, workflowNodeSchema]),
+  validation: z.strictObject({ source: validationSourceSchema }).optional(),
   until: valueRefSchema,
   nextInput: valueBindingSchema.optional(),
 });

@@ -20,7 +20,8 @@ events, and retains results until their final consumer completes.
 The Mastra compiler lowers `.task().until()` to a native post-condition loop.
 It checks the condition after each attempt and enforces both the declared
 iteration limit and the shared run repeat budget. Repeat attempts can invoke
-tasks or child workflows.
+tasks or child workflows. The budget, invocation identities, and emitted events
+belong to each run, including runs of a reusable operational workflow.
 
 Each private Mastra runtime accepts one workflow run. Reusable workflow
 registrations expose MCP through fresh per-invocation runtimes. A compiled

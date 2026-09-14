@@ -294,6 +294,11 @@ function createUntilDeclaration<Input>(
           ? {}
           : { workspace: pending.options.workspace }),
         ...(session === undefined ? {} : { session }),
+        ...(pending.options === undefined ||
+        !("validateOutput" in pending.options) ||
+        pending.options.validateOutput === undefined
+          ? {}
+          : { validateOutput: pending.options.validateOutput }),
       });
     },
   };

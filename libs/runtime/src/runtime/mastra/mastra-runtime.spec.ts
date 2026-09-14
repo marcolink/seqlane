@@ -12,12 +12,14 @@ import type {
   TaskDefinition,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
+  ValidationResult,
   WorkflowDefinitionRegistry,
 } from "@seqlane/core";
 import {
   buildWorkflow,
   createFlow,
   defineTask,
+  defineValidator,
   ExecutorError,
   InputValidationError,
   OutputValidationError,
@@ -29,6 +31,7 @@ import { RequestContext } from "@mastra/core/request-context";
 import { z } from "zod";
 import { mastraRuntimeSpineWorkflow } from "../../../fixtures/mastra-runtime-spine-workflow.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
+import { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
 import { createMastraPlanExecution } from "./mastra-execution.js";
 import { emitMastraInvocationTopology } from "./mastra-execution.js";
 import { createMastraRuntime, type MastraRuntime } from "./mastra-runtime.js";
@@ -361,10 +364,73 @@ describe("private Mastra runtime spine", () => {
     );
     expect(attemptEvents).toHaveLength(2);
     expect(attemptEvents[1]).toMatchObject({
-      invocationId: "repeat:1:attempt:2",
-      dependencyIds: ["repeat:1:attempt:1"],
+      invocationId: "fixture-run:repeat:1:attempt:2",
+      dependencyIds: ["fixture-run:repeat:1:attempt:1"],
       iteration: 2,
     });
+  });
+
+  it("runs repeats when Mastra persists workflow snapshots", async () => {
+    const task = defineTask({
+      id: "persisted-repeat-task",
+      input: z.object({ attempt: z.number() }),
+      output: z.object({ attempt: z.number(), done: z.boolean() }),
+      execute: async ({ input }) => ({
+        attempt: input.attempt + 1,
+        done: input.attempt >= 1,
+      }),
+    });
+    const workflow = createFlow({
+      id: "persisted-repeat-workflow",
+      input: z.object({ attempt: z.number() }),
+      output: z.object({ attempt: z.number(), done: z.boolean() }),
+    })
+      .task("attempt", task, ({ input }) => input)
+      .until(({ result }) => result.done, {
+        maxIterations: 2,
+        nextInput: ({ result }) => ({ attempt: result.attempt }),
+      })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+    const events: SeqlaneEvent[] = [];
+
+    await expect(
+      runMastraPlan({
+        plan: built.plan,
+        workflow: built.workflow,
+        workflowInput: { attempt: 0 },
+        taskDefinitions: built.taskDefinitions,
+        validatorDefinitions: built.validatorDefinitions,
+        workflowDefinitions: built.workflowDefinitions,
+        events,
+      }),
+    ).resolves.toMatchObject({
+      status: "succeeded",
+      result: { attempt: 2, done: true },
+    });
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "invocation.created" &&
+          event.planNodeId === "repeat:1:attempt",
+      ),
+    ).toHaveLength(2);
+    expect(
+      events
+        .filter(
+          (event) =>
+            (event.type === "invocation.created" ||
+              event.type === "invocation.started" ||
+              event.type === "invocation.succeeded") &&
+            event.invocationId === "repeat:1",
+        )
+        .map((event) => event.type),
+    ).toEqual([
+      "invocation.created",
+      "invocation.started",
+      "invocation.succeeded",
+    ]);
   });
 
   it("cancels a repeated child workflow before a later attempt starts", async () => {
@@ -570,8 +636,8 @@ describe("private Mastra runtime spine", () => {
     });
     expect(executions).toBe(2);
     expect(resolvedSessionInvocationIds).toEqual([
-      "repeat:1:attempt:1",
-      "repeat:1:attempt:2",
+      "fixture-run:repeat:1:attempt:1",
+      "fixture-run:repeat:1:attempt:2",
     ]);
     expect(
       events.filter(
@@ -579,9 +645,325 @@ describe("private Mastra runtime spine", () => {
           event.type === "invocation.progress" &&
           event.phase === "workspace_admitted" &&
           event.workspace === "shared" &&
-          event.invocationId.startsWith("repeat:1:attempt:"),
+          event.invocationId.startsWith("fixture-run:repeat:1:attempt:"),
       ),
     ).toHaveLength(2);
+  });
+
+  it("admits all resources for repeated child-workflow attempts", async () => {
+    const inputSchema = z.object({ done: z.boolean() });
+    const firstStarted = vi.fn();
+    let releaseFirst!: () => void;
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const first = defineTask({
+      id: "until-multi-resource-first",
+      input: inputSchema,
+      output: inputSchema,
+      execute: async ({ input }) => {
+        firstStarted();
+        await firstReleased;
+        return input;
+      },
+    });
+    const second = defineTask({
+      id: "until-multi-resource-second",
+      input: inputSchema,
+      output: inputSchema,
+      execute: async () => ({ done: true }),
+    });
+    const child = createFlow({
+      id: "until-multi-resource-child",
+      input: inputSchema,
+      output: inputSchema,
+    })
+      .task("first", first, ({ input }) => input)
+      .task("second", second, ({ tasks }) => tasks.first.output)
+      .output(({ tasks }) => tasks.second.output)
+      .define();
+    const parent = createFlow({
+      id: "until-multi-resource-parent",
+      input: inputSchema,
+      output: inputSchema,
+    })
+      .task("attempt", child, ({ input }) => input)
+      .until(({ result }) => result.done, { maxIterations: 1 })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(parent);
+    const workspaceLocks = new WorkspaceLockRegistry();
+    const resources = new Map([
+      [first.id, { key: "/resource-a" }],
+      [second.id, { key: "/resource-b" }],
+    ]);
+    const start = (runId: string) => {
+      const events: SeqlaneEvent[] = [];
+      const execution = createMastraPlanExecution({
+        plan: built.plan,
+        workflow: built.workflow,
+        workflowInput: { done: false },
+        workId: `work-${runId}`,
+        runId,
+        createInvocationId: (nodeId) => `${runId}:${nodeId}`,
+        executors: { agent: () => ({ execute: async () => ({}) }) },
+        sessionResolver: {
+          resolve: async () => ({
+            key: Symbol(runId),
+            executor: { execute: async () => ({}) },
+          }),
+        },
+        workspaceResources: resources,
+        workspaceLocks,
+        taskDefinitions: built.taskDefinitions,
+        validatorDefinitions: built.validatorDefinitions,
+        workflowDefinitions: built.workflowDefinitions,
+        events: { emit: (event) => events.push(event) },
+      });
+      emitMastraInvocationTopology(execution.compiled, execution.prepared, {
+        emit: (event) => events.push(event),
+      });
+      return {
+        events,
+        active: execution.runtime.start({
+          workflowKey: execution.compiled.key,
+          input: { done: false },
+          workId: `work-${runId}`,
+          runId,
+        }),
+      };
+    };
+
+    const firstRun = start("run-1");
+    while (firstStarted.mock.calls.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(
+      workspaceLocks.tryAcquire(
+        { key: "/resource-b" },
+        "exclusive",
+        undefined,
+        "competing-resource-b",
+      ),
+    ).toBeUndefined();
+    const secondRun = start("run-2");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(firstStarted).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    await expect(firstRun.active.outcome).resolves.toMatchObject({
+      status: "succeeded",
+    });
+    await expect(secondRun.active.outcome).resolves.toMatchObject({
+      status: "succeeded",
+    });
+    expect(firstStarted).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies repeat task output validation before the until condition", async () => {
+    let executions = 0;
+    const attempt = defineTask({
+      id: "until-output-validation-attempt",
+      input: z.object({ done: z.boolean() }),
+      output: z.object({ done: z.boolean() }),
+      execute: async () => {
+        executions += 1;
+        return { done: false };
+      },
+    });
+    const validator = defineValidator({
+      id: "until-output-validation-failure",
+      input: z.object({ done: z.boolean() }),
+      validate: () => ({
+        success: false as const,
+        issues: [{ code: "rejected", message: "attempt rejected" }],
+      }),
+    });
+    const workflow = createFlow({
+      id: "until-output-validation-failure-workflow",
+      input: z.object({ done: z.boolean() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("attempt", attempt, ({ input }) => input, {
+        validateOutput: validator,
+      })
+      .until(({ result }) => result.done, { maxIterations: 2 })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+    const events: SeqlaneEvent[] = [];
+
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { done: false },
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+    });
+
+    expect(outcome.status).toBe("failed");
+    expect(executions).toBe(1);
+  });
+
+  it("runs repeat task output validation on every successful attempt", async () => {
+    let executions = 0;
+    let validations = 0;
+    const attempt = defineTask({
+      id: "until-output-validation-success-attempt",
+      input: z.object({ done: z.boolean() }),
+      output: z.object({ done: z.boolean() }),
+      execute: async () => {
+        executions += 1;
+        return { done: executions >= 2 };
+      },
+    });
+    const validator = defineValidator({
+      id: "until-output-validation-success",
+      input: z.object({ done: z.boolean() }),
+      validate: () => {
+        validations += 1;
+        return { success: true as const };
+      },
+    });
+    const workflow = createFlow({
+      id: "until-output-validation-success-workflow",
+      input: z.object({ done: z.boolean() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("attempt", attempt, ({ input }) => input, {
+        validateOutput: validator,
+      })
+      .until(({ result }) => result.done, { maxIterations: 2 })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+    const events: SeqlaneEvent[] = [];
+
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { done: false },
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+    });
+
+    expect(outcome).toMatchObject({
+      status: "succeeded",
+      result: { done: true },
+    });
+    expect(executions).toBe(2);
+    expect(validations).toBe(2);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "invocation.started" &&
+          event.invocationId.includes(":repeat:1:attempt:") &&
+          event.subject.type === "task" &&
+          event.subject.taskId === "until-output-validation-success-attempt" &&
+          event.iteration !== undefined,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("runs a task validator through the normal repeat validation path", async () => {
+    let validations = 0;
+    const attempt = defineTask({
+      id: "until-task-validator-attempt",
+      input: z.object({ done: z.boolean() }),
+      output: z.object({ done: z.boolean() }),
+      execute: async () => ({ done: true }),
+    });
+    const validator = defineTask<{ readonly done: boolean }, ValidationResult>({
+      id: "until-task-validator",
+      input: z.object({ done: z.boolean() }),
+      output: z.custom<ValidationResult>(() => true),
+      execute: async (): Promise<ValidationResult> => {
+        validations += 1;
+        return { success: true as const };
+      },
+    });
+    const workflow = createFlow({
+      id: "until-task-validator-workflow",
+      input: z.object({ done: z.boolean() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("attempt", attempt, ({ input }) => input, {
+        validateOutput: validator,
+      })
+      .until(({ result }) => result.done, { maxIterations: 1 })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { done: false },
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+    });
+
+    expect(outcome).toMatchObject({
+      status: "succeeded",
+      result: { done: true },
+    });
+    expect(validations).toBe(1);
+  });
+
+  it("skips the repeat validation gate when its check errors", async () => {
+    const events: SeqlaneEvent[] = [];
+    const attempt = defineTask({
+      id: "until-invalid-validator-attempt",
+      input: z.object({ done: z.boolean() }),
+      output: z.object({ done: z.boolean() }),
+      execute: async () => ({ done: true }),
+    });
+    const validator = defineTask<{ readonly done: boolean }, ValidationResult>({
+      id: "until-invalid-validator",
+      input: z.object({ done: z.boolean() }),
+      output: z.custom<ValidationResult>(() => true),
+      execute: async (): Promise<ValidationResult> =>
+        ({ invalid: true }) as unknown as ValidationResult,
+    });
+    const workflow = createFlow({
+      id: "until-invalid-validator-workflow",
+      input: z.object({ done: z.boolean() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("attempt", attempt, ({ input }) => input, {
+        validateOutput: validator,
+      })
+      .until(({ result }) => result.done, { maxIterations: 1 })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+
+    await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { done: false },
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+    });
+
+    expect(
+      events.find(
+        (event) =>
+          event.type === "invocation.skipped" &&
+          event.invocationId.includes(":validation:gate") &&
+          event.iteration === 1,
+      ),
+    ).toMatchObject({
+      type: "invocation.skipped",
+      reason: "Validation check failed before gate execution",
+      dependencyIds: [expect.stringContaining(":validation:check")],
+    });
   });
 
   it("normalizes nested workflow failures", async () => {

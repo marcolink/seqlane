@@ -111,6 +111,29 @@ interface RepeatConstructionContext {
   readonly workflowDefinitions: Map<string, BuiltWorkflow<unknown, unknown>>;
 }
 
+function registerRepeatValidation<TaskOutput>(
+  validator: import("./contracts.js").Validator<TaskOutput> | undefined,
+  context: RepeatConstructionContext,
+): RepeatNode["validation"] | undefined {
+  if (validator === undefined) return undefined;
+  if ("validate" in validator) {
+    const existing = context.validatorDefinitions.get(validator.id);
+    if (existing !== undefined && existing !== validator) {
+      throw new Error(`Duplicate validator definition "${validator.id}"`);
+    }
+    context.validatorDefinitions.set(validator.id, validator);
+    return { source: { type: "mechanical", validatorId: validator.id } };
+  }
+  registerTaskDefinition(context.taskDefinitions, validator);
+  return {
+    source: {
+      type: "task",
+      taskId: validator.id,
+      workspace: "exclusive",
+    },
+  };
+}
+
 function registerNestedDefinitions(
   nested: BuiltWorkflow<unknown, unknown>,
   context: RepeatConstructionContext,
@@ -214,6 +237,7 @@ function buildRepeatNode<TaskInput, TaskOutput>(
   const result = createValueRef<TaskOutput>(attemptNodeId, ["output"]);
   const until = options.until({ result });
   const nextInput = options.nextInput?.({ input: attemptInput, result });
+  const validation = registerRepeatValidation(options.validateOutput, context);
   const repeatBindingDependencies = new Set<string>();
   collectDependencies(until, repeatBindingDependencies);
   if (nextInput !== undefined) {
@@ -232,6 +256,7 @@ function buildRepeatNode<TaskInput, TaskOutput>(
     maximumIterations: options.maxIterations,
     attempt,
     until: serializeBinding(until) as ValueRef<boolean>,
+    ...(validation === undefined ? {} : { validation }),
     ...(nextInput === undefined
       ? {}
       : { nextInput: serializeBinding(nextInput) }),

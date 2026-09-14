@@ -8,6 +8,7 @@ import type {
   Plan,
   PlanNode,
   PlanNodeId,
+  RepeatNode,
   RunId,
   SeqlaneSchema,
   SeqlaneEventSink,
@@ -46,6 +47,7 @@ import {
   type RepeatCompilerDependencies,
   type RepeatExecutionBudget,
 } from "./mastra-repeat-compiler.js";
+import { resolveMastraPlanRunContext } from "./mastra-run-context.js";
 
 export type { RepeatExecutionBudget } from "./mastra-repeat-compiler.js";
 
@@ -58,6 +60,9 @@ export interface MastraPlanInvocationContext {
   readonly workId: WorkId;
   readonly runId: string;
   readonly invocationId: InvocationId;
+  readonly iteration?: number;
+  /** Validation attached to a repeat body, applied before its condition. */
+  readonly repeatValidation?: RepeatNode["validation"];
   readonly resourceId?: string;
   readonly workflowId: string;
   readonly abortSignal: AbortSignal;
@@ -342,6 +347,14 @@ function buildInvocationStep(
       loggerVNext,
       metrics,
     }) => {
+      const runContext = resolveMastraPlanRunContext({
+        runId,
+        resourceId,
+        requestContext,
+        workId: options.workId,
+        events: options.events,
+        repeatBudget: options.repeatBudget,
+      });
       const workflowInput = getInitData<unknown>();
       const resolvedInput = resolveStepInput(
         node,
@@ -355,8 +368,8 @@ function buildInvocationStep(
         const error = reportFailure(node, cause, "input", options);
         options.onInputValidationFailure?.({
           node,
-          workId: resourceId ?? options.workId ?? "unknown-work",
-          runId,
+          workId: runContext.workId,
+          runId: runContext.runId,
           invocationId,
           error,
         });
@@ -375,22 +388,22 @@ function buildInvocationStep(
         node,
         input: parsedInput,
         workflowInput,
-        workId: resourceId ?? options.workId ?? "unknown-work",
-        runId,
+        workId: runContext.workId,
+        runId: runContext.runId,
         invocationId,
-        ...(resourceId === undefined ? {} : { resourceId }),
+        ...(runContext.resourceId === undefined
+          ? {}
+          : { resourceId: runContext.resourceId }),
         workflowId,
         abortSignal,
         requestContext,
         observability: { tracing, tracingContext, loggerVNext, metrics },
         getStepResult,
       });
-      try {
-        return outputSchema?.parse(rawOutput) ?? rawOutput;
-      } catch (cause) {
-        const error = reportFailure(node, cause, "output", options);
-        throw error;
-      }
+      // Mastra validates the declared step output after the dispatcher
+      // returns. The dispatcher already validates task output, so parsing it
+      // again here only changes error ownership and can parse twice.
+      return rawOutput;
     },
   });
 
@@ -451,7 +464,9 @@ export function compilePlanToMastra(
   );
   const loweredPlan = withLoweredPlanNodes(parsedPlan, orderedNodes);
   const invocationIds = new Map<PlanNodeId, InvocationId>();
-  for (const node of orderedNodes) {
+  const siblingOrders = new Map<PlanNodeId, number>();
+  for (const [siblingOrder, node] of orderedNodes.entries()) {
+    siblingOrders.set(node.nodeId, siblingOrder);
     invocationIds.set(
       node.nodeId,
       options.createInvocationId?.(node.nodeId) ??
@@ -466,6 +481,7 @@ export function compilePlanToMastra(
     resolveStepInput,
     reportFailure,
     invocationIdForNode: (nodeId) => invocationIds.get(nodeId),
+    siblingOrderForNode: (nodeId) => siblingOrders.get(nodeId),
   };
   const invocationSteps = orderedNodes.map((node) => {
     const invocationId = invocationIds.get(node.nodeId);

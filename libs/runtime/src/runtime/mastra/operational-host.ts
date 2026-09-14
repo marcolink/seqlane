@@ -25,6 +25,11 @@ import {
   compilePlanToMastra,
   type MastraPlanInvocation,
 } from "../compile/mastra-plan-compiler.js";
+import {
+  OPERATIONAL_EVENT_SINK_CONTEXT_KEY,
+  OPERATIONAL_REPEAT_BUDGET_CONTEXT_KEY,
+  type RepeatExecutionBudget,
+} from "../compile/mastra-run-context.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import { resolveRuntimeProfile } from "../../runner/profile/runtime-profile.js";
@@ -37,8 +42,9 @@ import {
 import {
   createMastraPlanInvocationHandler,
   executeNestedMastraWorkflow,
-  workspaceResourcesForExecution,
 } from "./mastra-execution.js";
+import { instrumentOperationalWorkflow } from "./operational-run-lifecycle.js";
+import { workspaceResourcesForExecution } from "./workspace-resources.js";
 import {
   createMastraComposition,
   type MastraWorkflowRegistration,
@@ -54,6 +60,12 @@ export interface OperationalWorkflowRegistration {
   readonly terminate?: (runId: string) => Promise<void>;
   /** Closes adapter resources owned by active runs for this workflow. */
   readonly shutdown?: () => Promise<void>;
+  /** Seeds private run-local context before Mastra starts a workflow run. */
+  readonly prepareRunContext?: (
+    requestContext: RequestContext,
+    workId: string,
+    runId: string,
+  ) => void;
 }
 
 export interface OperationalEventSink extends SeqlaneEventSink {
@@ -190,7 +202,21 @@ function storageFromUrl(url: string): MastraCompositeStore {
 export function createOperationalWorkflow(
   source: OperationalWorkflowSource,
 ): OperationalWorkflowRegistration {
-  const invocationHandler = createOperationalInvocationHandler(source);
+  const runStates = new Map<string, OperationalRunState>();
+  const events: SeqlaneEventSink = {
+    emit: (event) => {
+      operationalRunState(
+        source,
+        runStates,
+        event.workId,
+        event.runId,
+      ).events.emit(event);
+    },
+  };
+  const invocationHandler = createOperationalInvocationHandler(
+    source,
+    runStates,
+  );
   const compiled = compilePlanToMastra(source.plan, {
     workflow: source.workflow,
     workflowDefinitions: source.workflowDefinitions,
@@ -198,13 +224,74 @@ export function createOperationalWorkflow(
     validatorDefinitions: source.validatorDefinitions,
     executeInvocation: invocationHandler.invoke,
     executeWorkflowInvocation: invocationHandler.invoke,
+    events,
   });
+  const prepareRunContext = (
+    requestContext: RequestContext,
+    workId: string,
+    runId: string,
+  ): void => {
+    setOperationalRunContext(
+      requestContext,
+      operationalRunState(source, runStates, workId, runId),
+    );
+  };
   return {
     key: source.key,
-    workflow: compiled.workflow,
+    workflow: instrumentOperationalWorkflow(
+      compiled.workflow,
+      prepareRunContext,
+      invocationHandler.terminate,
+    ),
     terminate: invocationHandler.terminate,
     shutdown: invocationHandler.shutdown,
+    prepareRunContext,
   };
+}
+
+interface OperationalRunState {
+  readonly workId: string;
+  readonly runId: string;
+  readonly events: OperationalEventSink;
+  readonly repeatBudget: RepeatExecutionBudget;
+}
+
+function operationalRunState(
+  source: OperationalWorkflowSource,
+  states: Map<string, OperationalRunState>,
+  workId: string,
+  runId: string,
+): OperationalRunState {
+  const current = states.get(runId);
+  if (current !== undefined) {
+    if (current.workId !== workId) {
+      throw new TypeError(
+        `Operational run "${runId}" was already bound to work "${current.workId}"`,
+      );
+    }
+    return current;
+  }
+  const state: OperationalRunState = {
+    workId,
+    runId,
+    events: source.eventSink?.({ workId, runId }) ?? noExecutionEvents,
+    repeatBudget: { executed: 0 },
+  };
+  states.set(runId, state);
+  return state;
+}
+
+function setOperationalRunContext(
+  requestContext: RequestContext | undefined,
+  state: OperationalRunState,
+): void {
+  requestContext?.setRaw(WORK_ID_CONTEXT_KEY, state.workId);
+  requestContext?.setRaw(RUN_ID_CONTEXT_KEY, state.runId);
+  requestContext?.setRaw(OPERATIONAL_EVENT_SINK_CONTEXT_KEY, state.events);
+  requestContext?.setRaw(
+    OPERATIONAL_REPEAT_BUDGET_CONTEXT_KEY,
+    state.repeatBudget,
+  );
 }
 
 const noExecutionEvents: OperationalEventSink = {
@@ -245,6 +332,7 @@ interface PreparedOperationalInvocation {
 
 function createOperationalInvocationHandler(
   source: OperationalWorkflowSource,
+  runStates: Map<string, OperationalRunState>,
 ): OperationalInvocationHandler {
   const preparedByRun = new Map<
     string,
@@ -265,6 +353,7 @@ function createOperationalInvocationHandler(
     cleanupByRun.set(runId, cleanup);
     void cleanup.finally(() => {
       if (cleanupByRun.get(runId) === cleanup) cleanupByRun.delete(runId);
+      runStates.delete(runId);
     });
     return cleanup;
   };
@@ -275,7 +364,10 @@ function createOperationalInvocationHandler(
       preparedByRun.delete(runId);
       return closeRun(runId, pending);
     }
-    return cleanupByRun.get(runId) ?? Promise.resolve();
+    const cleanup = cleanupByRun.get(runId);
+    if (cleanup !== undefined) return cleanup;
+    runStates.delete(runId);
+    return Promise.resolve();
   };
 
   const invokePrepared: MastraPlanInvocation = async (context) => {
@@ -285,10 +377,23 @@ function createOperationalInvocationHandler(
         if (!isJsonValue(context.workflowInput)) {
           throw new TypeError("Operational workflow input must be JSON");
         }
-        const workId = context.resourceId ?? "unknown-work";
-        const events: OperationalEventSink =
-          source.eventSink?.({ workId, runId: context.runId }) ??
-          noExecutionEvents;
+        const contextWorkId = requestContextValue(
+          context.requestContext,
+          WORK_ID_CONTEXT_KEY,
+        );
+        const workId =
+          context.resourceId ??
+          (typeof contextWorkId === "string" && contextWorkId.length > 0
+            ? contextWorkId
+            : "unknown-work");
+        const state = operationalRunState(
+          source,
+          runStates,
+          workId,
+          context.runId,
+        );
+        setOperationalRunContext(context.requestContext, state);
+        const events = state.events;
         const profile = runtimeProfileFromContext(context.requestContext);
         let closeExecution: (() => Promise<void>) | undefined;
         let closeExecutionPromise: Promise<void> | undefined;
@@ -401,6 +506,7 @@ function createOperationalInvocationHandler(
         ...pending.map(([runId, value]) => closeRun(runId, value)),
         ...cleanupByRun.values(),
       ]);
+      runStates.clear();
     },
   };
 }
@@ -417,7 +523,10 @@ function asMastraRegistrations(
 
 function registerOperationalMastraServer(
   composition: ReturnType<typeof createMastraComposition>,
-  terminalCleanup: ReadonlyMap<string, (runId: string) => Promise<void>>,
+  registrations: ReadonlyMap<
+    string,
+    Pick<OperationalWorkflowRegistration, "terminate" | "prepareRunContext">
+  >,
 ): void {
   registerMastraServer(
     composition.mastra,
@@ -430,6 +539,7 @@ function registerOperationalMastraServer(
 
       const workId = `mcp-work-${randomUUID()}`;
       const runId = `mcp-run-${randomUUID()}`;
+      const registration = registrations.get(workflowKey);
       const run = await workflow.createRun({
         runId,
         resourceId: workId,
@@ -453,6 +563,7 @@ function registerOperationalMastraServer(
       if (runtime?.workspace !== undefined) {
         runContext.setRaw("seqlane.workspace", runtime.workspace);
       }
+      registration?.prepareRunContext?.(runContext, workId, runId);
       try {
         if (cancelled) return { status: "cancelled" };
         const result = await run.start({
@@ -468,7 +579,7 @@ function registerOperationalMastraServer(
         return cancelled ? { status: "cancelled" } : result;
       } finally {
         abortSignal.removeEventListener("abort", cancel);
-        await terminalCleanup.get(workflowKey)?.(runId);
+        await registration?.terminate?.(runId);
       }
     },
     undefined,
@@ -495,8 +606,8 @@ export async function createOperationalHost(
     registerOperationalMastraServer(
       composition,
       new Map(
-        options.workflows.flatMap(({ key, terminate }) =>
-          terminate === undefined ? [] : [[key, terminate] as const],
+        options.workflows.map(
+          (registration) => [registration.key, registration] as const,
         ),
       ),
     );

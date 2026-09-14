@@ -175,6 +175,8 @@ the condition reads its result after each attempt. `nextInput` supplies the
 next attempt's input when the condition is false. Child workflow tasks support
 the same form. Omit `nextInput` to reuse the initial input for every attempt.
 Both callbacks can read handles from earlier tasks through `tasks`.
+If `.task()` has `validateOutput`, Seqlane validates every repeat attempt
+before it checks `until`. A failed validation stops the repeat.
 
 Workflows are runnables. Pass a child workflow to `.task()` to create a typed
 nested workflow invocation. Its input and output schemas stay distinct from

@@ -30,6 +30,8 @@ export interface RepeatBuildOptions<TaskInput, TaskOutput> {
   readonly dependsOn?: readonly { readonly nodeId: string }[];
   readonly workspace?: WorkspacePolicy;
   readonly session?: import("./contracts.js").SessionPolicy;
+  /** Optional output validator applied after every repeat attempt. */
+  readonly validateOutput?: Validator<TaskOutput>;
 }
 
 export interface WorkflowBuildContext<Input = unknown> {

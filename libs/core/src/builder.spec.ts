@@ -8,6 +8,7 @@ import {
   createFlow,
   defineAgentTask,
   defineTask,
+  defineValidator,
   isolated,
   reuse,
 } from "./dsl.js";
@@ -181,6 +182,43 @@ describe("buildWorkflow", () => {
         },
       },
     });
+  });
+
+  it("carries task output validation into every repeated attempt", () => {
+    const task = defineTask({
+      id: "repeat-validated-task",
+      input: schema<{ readonly done: boolean }>(),
+      output: schema<{ readonly done: boolean }>(),
+      execute: async ({ input }) => input,
+    });
+    const validator = defineValidator({
+      id: "repeat-output-validator",
+      input: schema<{ readonly done: boolean }>(),
+      validate: () => ({ success: true as const }),
+    });
+    const workflow = createFlow({
+      id: "repeat-validated-workflow",
+      input: schema<{ readonly done: boolean }>(),
+      output: schema<{ readonly done: boolean }>(),
+    })
+      .task("loop", task, ({ input }) => input, {
+        validateOutput: validator,
+      })
+      .until(({ result }) => result.done, { maxIterations: 1 })
+      .output(({ tasks }) => tasks.loop.output)
+      .define();
+
+    const built = buildWorkflow(workflow);
+    expect(built.plan.nodes[0]).toMatchObject({
+      type: "repeat",
+      validation: {
+        source: {
+          type: "mechanical",
+          validatorId: validator.id,
+        },
+      },
+    });
+    expect(built.validatorDefinitions.get(validator.id)).toBe(validator);
   });
 
   it("carries explicit and session dependencies into the attempt node", () => {
