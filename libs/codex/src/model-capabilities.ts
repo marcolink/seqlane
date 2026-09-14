@@ -5,7 +5,11 @@ import {
   type CodexLaunchConfiguration,
 } from "./protocol.js";
 import { withDeadline } from "./deadline.js";
-import { createCodexStdioTransport, type CodexTransport } from "./transport.js";
+import {
+  createCodexStdioTransport,
+  type CodexTransport,
+  withCodexTransportDeadline,
+} from "./transport.js";
 
 const DEFAULT_MODEL_LIST_TIMEOUT_MS = 5_000;
 
@@ -40,38 +44,17 @@ export function createCodexModelCapabilities(
         options.createTransport ??
         ((value: CodexLaunchConfiguration, transportOptions) =>
           createCodexStdioTransport(value, transportOptions));
-      let creationSettled = false;
       const transportPromise = Promise.resolve().then(() =>
         createTransport(configuration, {
           signal: options.signal,
           initializeTimeoutMs: timeoutMs,
         }),
       );
-      void transportPromise.then(
-        () => {
-          creationSettled = true;
-        },
-        () => {
-          creationSettled = true;
-        },
+      const transport = await withCodexTransportDeadline(
+        transportPromise,
+        timeoutMs,
+        options.signal,
       );
-      let transport: CodexTransport;
-      try {
-        transport = await withDeadline(
-          transportPromise,
-          timeoutMs,
-          "transport initialization",
-          options.signal,
-        );
-      } catch (cause) {
-        if (!creationSettled) {
-          void transportPromise.then(
-            (lateTransport) => lateTransport.close().catch(() => undefined),
-            () => undefined,
-          );
-        }
-        throw cause;
-      }
       try {
         return parseModelListResult(
           await withDeadline(

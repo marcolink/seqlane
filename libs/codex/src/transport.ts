@@ -129,6 +129,7 @@ export async function createCodexStdioTransport(
   const version = await readCodexVersion(
     configuration.executable,
     configuration.workspace,
+    options.signal,
   );
   if (options.signal?.aborted) {
     throw (
@@ -150,6 +151,41 @@ export async function createCodexStdioTransport(
     configuration.workspace,
   );
   return createCodexTransportForProcess(child, options);
+}
+
+export async function withCodexTransportDeadline(
+  transportPromise: Promise<CodexTransport>,
+  milliseconds: number,
+  signal?: AbortSignal,
+): Promise<CodexTransport> {
+  let creationSettled = false;
+  void transportPromise.then(
+    () => {
+      creationSettled = true;
+    },
+    () => {
+      creationSettled = true;
+    },
+  );
+  try {
+    return await withDeadline(
+      transportPromise,
+      milliseconds,
+      "transport initialization",
+      signal,
+    );
+  } catch (cause) {
+    if (!creationSettled) {
+      void transportPromise.then(
+        (lateTransport) =>
+          Promise.resolve()
+            .then(() => lateTransport.close())
+            .catch(() => undefined),
+        () => undefined,
+      );
+    }
+    throw cause;
+  }
 }
 
 export async function createCodexTransportForProcess(

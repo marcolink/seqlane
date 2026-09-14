@@ -8,7 +8,10 @@ import type { ModelSelection, TaskDefinition } from "@seqlane/core";
 import { InteractionRequiredError } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createCodexAdapterForTransport } from "./adapter.js";
+import {
+  createCodexAdapter,
+  createCodexAdapterForTransport,
+} from "./adapter.js";
 import type {
   CodexInboundMessage,
   CodexLaunchConfiguration,
@@ -373,6 +376,36 @@ describe("Codex AgentAdapter", () => {
     expect(
       transport.requests.some((value) => value.method === "turn/interrupt"),
     ).toBe(true);
+  });
+
+  it("cancels adapter creation and closes a transport that resolves late", async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    let resolveTransport!: (transport: CodexTransport) => void;
+    let closed = 0;
+    const adapter = createCodexAdapter(configuration, {
+      createTransport: (_configuration, options) => {
+        receivedSignal = options.signal;
+        return new Promise<CodexTransport>((resolve) => {
+          resolveTransport = resolve;
+        });
+      },
+    });
+
+    const execution = adapter.execute(request({ signal: controller.signal }));
+    controller.abort(new Error("fixture adapter creation cancelled"));
+    await expect(execution).rejects.toThrow(
+      "fixture adapter creation cancelled",
+    );
+    expect(receivedSignal).toBe(controller.signal);
+
+    const transport = new FakeTransport();
+    transport.close = async () => {
+      closed += 1;
+    };
+    resolveTransport(transport);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(closed).toBe(1);
   });
 
   it("rejects unsupported providers before task execution", async () => {

@@ -225,6 +225,47 @@ function mcpToolCall(
   });
 }
 
+function parallelRuntimeProfileRegistration(
+  options: {
+    readonly adapterConfiguration?: unknown;
+    readonly adapterRegistry?: RuntimeAdapterRegistry;
+  } = {},
+) {
+  const taskIds = ["parallel.left", "parallel.right"] as const;
+  const input = z.object({ dependency: z.string() });
+  const output = z.object({ value: z.string() });
+  const nodes: readonly PlanNode[] = taskIds.map((taskId) => ({
+    type: "task",
+    taskId,
+    nodeId: `${taskId}:1`,
+    workspace: "shared",
+    input: { type: "ref", nodeId: "__seqlane_input", path: [] },
+    dependsOn: [],
+  }));
+  return createOperationalWorkflow({
+    key: "repository:parallel-runtime-profile",
+    plan: {
+      workflow: { id: "parallel-runtime-profile" },
+      nodes,
+      output: { type: "ref", nodeId: "parallel.left:1", path: [] },
+    },
+    workflow: { input, output },
+    taskDefinitions: new Map(
+      taskIds.map((taskId) => [
+        taskId,
+        {
+          id: taskId,
+          input,
+          output,
+          execute: async ({ context }) => context.runAgent({ goal: taskId }),
+        },
+      ]),
+    ),
+    adapterConfiguration: options.adapterConfiguration,
+    adapterRegistry: options.adapterRegistry,
+  });
+}
+
 describe("Mastra operational host", () => {
   it("registers workflows and becomes ready only after listening", async () => {
     const host = await createOperationalHost({
@@ -650,9 +691,75 @@ describe("Mastra operational host", () => {
     await executionStarted;
     await run.cancel();
     await outcome;
-    for (let attempt = 0; closed === 0 && attempt < 20; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
+    await registration.terminate?.("run-cancel");
+    expect(closed).toBe(1);
+  });
+
+  it("waits for parallel nodes before terminal adapter cleanup", async () => {
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    let rightStarted!: () => void;
+    const rightExecutionStarted = new Promise<void>((resolve) => {
+      rightStarted = resolve;
+    });
+    let releaseRight!: () => void;
+    const rightExecutionReleased = new Promise<void>((resolve) => {
+      releaseRight = resolve;
+    });
+    let closed = 0;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async ({ task }) => {
+        if (task.id === "parallel.right") {
+          rightStarted();
+          await rightExecutionReleased;
+        }
+        return { value: task.id };
+      },
+      close: async () => {
+        closed += 1;
+      },
+    };
+    const registration = parallelRuntimeProfileRegistration({
+      adapterConfiguration: {
+        adapter: "acp",
+        configuration: {
+          id: "fixture-agent",
+          description: "Fixture agent",
+          command: "fixture-agent",
+          persistSession: true,
+        },
+      },
+      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+    });
+    const workflow = registration.workflow as AnyWorkflow;
+    const run = await workflow.createRun({
+      runId: "run-parallel-cleanup",
+      resourceId: "work-run-parallel-cleanup",
+      shouldPersistSnapshot: () => false,
+    });
+
+    const outcome = run.start({
+      inputData: { dependency: "runtime-profile" },
+      requestContext: new RequestContext([
+        ["seqlane.runtimeId", "test-runtime"],
+      ]),
+    });
+    await rightExecutionStarted;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(closed).toBe(0);
+
+    releaseRight();
+    await outcome;
+    await registration.terminate?.("run-parallel-cleanup");
     expect(closed).toBe(1);
   });
 

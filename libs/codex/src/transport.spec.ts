@@ -117,6 +117,28 @@ describe("Codex app-server transport", () => {
     expect(closed).toBe(true);
   });
 
+  it("cancels an unresponsive initialize handshake and terminates the child", async () => {
+    const child = spawnServer(`
+      if (message.method === "initialize") {
+        // Keep the handshake unresolved.
+      }
+    `);
+    const controller = new AbortController();
+    let closed = false;
+    child.once("close", () => {
+      closed = true;
+    });
+
+    const creation = createCodexTransportForProcess(child, {
+      signal: controller.signal,
+      initializeTimeoutMs: 1_000,
+    });
+    controller.abort(new Error("fixture initialization cancelled"));
+
+    await expect(creation).rejects.toThrow("fixture initialization cancelled");
+    expect(closed).toBe(true);
+  });
+
   it("resolves close and termination only after the child closes", async () => {
     const { child, transport } = await createTransport(`
       if (message.method === "initialize") {

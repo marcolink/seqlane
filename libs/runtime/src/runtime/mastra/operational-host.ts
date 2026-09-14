@@ -198,9 +198,6 @@ export function createOperationalWorkflow(
     validatorDefinitions: source.validatorDefinitions,
     executeInvocation: invocationHandler.invoke,
     executeWorkflowInvocation: invocationHandler.invoke,
-    onWorkflowComplete: ({ runId }) => {
-      void invocationHandler.terminate(runId);
-    },
   });
   return {
     key: source.key,

@@ -12,6 +12,7 @@ export function parseCodexVersion(output: string): string | undefined {
 export async function readCodexVersion(
   executable: string,
   cwd: string,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
   try {
     const { execFile } = await import("node:child_process");
@@ -20,6 +21,7 @@ export async function readCodexVersion(
       cwd,
       timeout: 3_000,
       maxBuffer: 16_384,
+      ...(signal === undefined ? {} : { signal }),
     });
     return parseCodexVersion(`${result.stdout}\n${result.stderr}`);
   } catch {
