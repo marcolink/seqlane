@@ -197,6 +197,8 @@ async function startMastraPlan(options: {
 describe("private Mastra runtime spine", () => {
   it("executes nested workflows through the private compiler", async () => {
     const resolvedSessionInvocationIds: string[] = [];
+    const workspaceLocks = new WorkspaceLockRegistry();
+    const graphAdmissions = vi.spyOn(workspaceLocks, "acquire");
     const childTask = defineTask({
       id: "nested-runtime-task",
       input: z.object({ value: z.number() }),
@@ -241,12 +243,17 @@ describe("private Mastra runtime spine", () => {
         },
       },
       workspaceResources: new Map(),
+      workspaceLocks,
       taskDefinitions: built.taskDefinitions,
       validatorDefinitions: built.validatorDefinitions,
       workflowDefinitions: built.workflowDefinitions,
       workflow: built.workflow,
       events: { emit: (event) => events.push(event) },
     });
+    const dynamicAdmissions = vi.spyOn(
+      execution.prepared.context.jointAdmissions,
+      "acquire",
+    );
     emitMastraInvocationTopology(execution.compiled, execution.prepared, {
       emit: (event) => events.push(event),
     });
@@ -304,6 +311,8 @@ describe("private Mastra runtime spine", () => {
           event.phase === "workspace_admitted",
       ),
     ).toMatchObject({ workspace: "shared" });
+    expect(graphAdmissions).toHaveBeenCalled();
+    expect(dynamicAdmissions).not.toHaveBeenCalled();
   });
 
   it("repeats a child workflow with typed next input and inspectable attempts", async () => {
@@ -755,6 +764,10 @@ describe("private Mastra runtime spine", () => {
       });
       return {
         events,
+        dynamicAdmissions: vi.spyOn(
+          execution.prepared.context.jointAdmissions,
+          "acquire",
+        ),
         active: execution.runtime.start({
           workflowKey: execution.compiled.key,
           input: { done: false },
@@ -768,6 +781,11 @@ describe("private Mastra runtime spine", () => {
     while (firstStarted.mock.calls.length === 0) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
+    expect(
+      firstRun.dynamicAdmissions.mock.calls.map(
+        ([request]) => request.workspace.key,
+      ),
+    ).toEqual(expect.arrayContaining(["/resource-a", "/resource-b"]));
     expect(
       workspaceLocks.tryAcquire(
         { key: "/resource-b" },

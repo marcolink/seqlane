@@ -415,7 +415,7 @@ function createOperationalInvocationHandler(
             },
           );
           closeExecution = execution.close;
-          const prepared = new PlanCompiler().compileWorkflow(source.plan, {
+          const prepared = new PlanCompiler().prepareWorkflow(source.plan, {
             workId,
             runId: context.runId,
             workflowInput: context.workflowInput,

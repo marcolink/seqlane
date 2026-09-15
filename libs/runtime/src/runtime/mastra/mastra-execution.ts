@@ -648,7 +648,8 @@ export function createMastraPlanExecution(
           // Repeat attempts are admitted at runtime. Their child workflow can
           // have several resources, and the set is not represented by the
           // parent graph's static edge for each new attempt.
-          workspaceAdmission: "dynamic",
+          workspaceAdmission:
+            invocation.iteration === undefined ? "graph" : "dynamic",
           execute: async () => {
             const childExecution = createMastraPlanExecution({
               plan: child.plan,
