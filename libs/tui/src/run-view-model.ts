@@ -781,7 +781,10 @@ function materializePlanPlaceholder(
         ? placeholders.filter((node) => node.taskId === subject.taskId)
             .length === 1
           ? placeholders.find((node) => node.taskId === subject.taskId)
-          : undefined
+          : placeholders.filter((node) => node.kind === "validation").length ===
+              1
+            ? placeholders.find((node) => node.kind === "validation")
+            : undefined
         : placeholders.filter((node) => node.taskId === subject.validatorId)
               .length === 1
           ? placeholders.find((node) => node.taskId === subject.validatorId)

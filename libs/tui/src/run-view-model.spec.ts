@@ -257,6 +257,40 @@ describe("human execution view model", () => {
     expect(view.nodes.get("runtime-task")?.state).toBe("succeeded");
   });
 
+  it("reconciles a validation placeholder after its source task completed", () => {
+    const plan = {
+      workflow: { id: "example" },
+      nodes: [
+        {
+          planNodeId: "task",
+          type: "task" as const,
+          taskId: "task",
+          label: "Task",
+          dependsOn: [],
+          siblingOrder: 0,
+        },
+        {
+          planNodeId: "validation",
+          type: "validation.check" as const,
+          label: "Validation",
+          dependsOn: ["task"],
+          siblingOrder: 1,
+        },
+      ],
+    };
+    const view = reduceRunEvents([
+      { type: "run.plan", ...run, plan },
+      created("task-runtime", "task", 0),
+      started("task-runtime", "task"),
+      terminal("task-runtime", "invocation.succeeded"),
+      started("validation-runtime", "task"),
+      terminal("validation-runtime", "invocation.succeeded"),
+    ]);
+
+    expect(view.nodes.has("plan:validation")).toBe(false);
+    expect(view.nodes.get("validation-runtime")?.state).toBe("succeeded");
+  });
+
   it("keeps nested containment separate from dependencies", () => {
     const view = reduceRunEvents([
       created("root", "Root", 0, { kind: "workflow" }),
