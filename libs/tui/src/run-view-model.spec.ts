@@ -202,6 +202,61 @@ describe("human execution view model", () => {
     expect(view.nodes.get("plan:task")?.parentInvocationId).toBe("plan:root");
   });
 
+  it("reconciles a lowered invocation with its unique planned task", () => {
+    const view = reduceRunEvents([
+      {
+        type: "run.plan",
+        ...run,
+        plan: {
+          workflow: { id: "example" },
+          nodes: [
+            {
+              planNodeId: "planned-task",
+              type: "task",
+              taskId: "task",
+              label: "Task",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+          ],
+        },
+      },
+      created("lowered-task", "task", 0),
+      started("lowered-task", "task"),
+      terminal("lowered-task", "invocation.succeeded"),
+    ]);
+
+    expect(view.nodes.has("plan:planned-task")).toBe(false);
+    expect(view.nodes.get("lowered-task")?.state).toBe("succeeded");
+  });
+
+  it("updates a unique planned task when lifecycle events arrive first", () => {
+    const view = reduceRunEvents([
+      {
+        type: "run.plan",
+        ...run,
+        plan: {
+          workflow: { id: "example" },
+          nodes: [
+            {
+              planNodeId: "planned-task",
+              type: "task",
+              taskId: "task",
+              label: "Task",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+          ],
+        },
+      },
+      started("runtime-task", "task"),
+      terminal("runtime-task", "invocation.succeeded"),
+    ]);
+
+    expect(view.nodes.has("plan:planned-task")).toBe(false);
+    expect(view.nodes.get("runtime-task")?.state).toBe("succeeded");
+  });
+
   it("keeps nested containment separate from dependencies", () => {
     const view = reduceRunEvents([
       created("root", "Root", 0, { kind: "workflow" }),

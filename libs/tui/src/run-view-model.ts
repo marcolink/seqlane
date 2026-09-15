@@ -604,11 +604,18 @@ function reduceCreated(
   view: RunViewModel,
   event: Extract<OutputEvent, { type: "invocation.created" }>,
 ): RunViewModel {
-  const placeholderId = [...view.nodes.values()].find(
-    (node) =>
-      node.planNodeId === event.planNodeId &&
-      node.invocationId.startsWith("plan:"),
-  )?.invocationId;
+  const placeholders = [...view.nodes.values()].filter((node) =>
+    node.invocationId.startsWith("plan:"),
+  );
+  const placeholderId =
+    placeholders.find((node) => node.planNodeId === event.planNodeId)
+      ?.invocationId ??
+    (event.taskId === undefined
+      ? undefined
+      : placeholders.filter((node) => node.taskId === event.taskId).length === 1
+        ? placeholders.find((node) => node.taskId === event.taskId)
+            ?.invocationId
+        : undefined);
   if (placeholderId !== undefined) {
     const nodes = new Map(view.nodes);
     nodes.delete(placeholderId);
@@ -758,6 +765,51 @@ function collapseSuccessfulBranch(
   return { ...view, presentation };
 }
 
+function materializePlanPlaceholder(
+  view: RunViewModel,
+  invocationId: string,
+  subject: Extract<OutputEvent, { type: "invocation.started" }>["subject"],
+): RunViewModel {
+  if (view.nodes.has(invocationId)) return view;
+  const placeholders = [...view.nodes.values()].filter((node) =>
+    node.invocationId.startsWith("plan:"),
+  );
+  const placeholder =
+    subject.type === "validation-gate"
+      ? placeholders.find((node) => node.planNodeId === subject.planNodeId)
+      : subject.type === "task"
+        ? placeholders.filter((node) => node.taskId === subject.taskId)
+            .length === 1
+          ? placeholders.find((node) => node.taskId === subject.taskId)
+          : undefined
+        : placeholders.filter((node) => node.taskId === subject.validatorId)
+              .length === 1
+          ? placeholders.find((node) => node.taskId === subject.validatorId)
+          : undefined;
+  if (placeholder === undefined) return view;
+  const oldId = placeholder.invocationId;
+  const nodes = new Map(
+    [...view.nodes.values()].map((node) => [
+      node.invocationId === oldId ? invocationId : node.invocationId,
+      {
+        ...node,
+        ...(node.invocationId === oldId ? { invocationId } : {}),
+        ...(node.parentInvocationId === oldId
+          ? { parentInvocationId: invocationId }
+          : {}),
+        dependencyIds: node.dependencyIds.map((id) =>
+          id === oldId ? invocationId : id,
+        ),
+      },
+    ]),
+  );
+  const presentation = new Map(view.presentation);
+  const state = presentation.get(oldId);
+  presentation.delete(oldId);
+  if (state !== undefined) presentation.set(invocationId, state);
+  return rebuildTopology({ ...view, presentation }, nodes);
+}
+
 export function reduceRunViewModel(
   view: RunViewModel,
   event: OutputEvent,
@@ -777,16 +829,20 @@ export function reduceRunViewModel(
     case "invocation.created":
       return setRunState(reduceCreated(next, event), "active", event);
     case "invocation.started": {
-      const started = updateNode(next, event.invocationId, (node) => ({
-        ...withState(node, "active", timestamp),
-        taskId:
-          event.taskId ??
-          (event.subject.type === "task"
-            ? event.subject.taskId
-            : event.subject.type === "validator"
-              ? event.subject.validatorId
-              : event.subject.planNodeId),
-      }));
+      const started = updateNode(
+        materializePlanPlaceholder(next, event.invocationId, event.subject),
+        event.invocationId,
+        (node) => ({
+          ...withState(node, "active", timestamp),
+          taskId:
+            event.taskId ??
+            (event.subject.type === "task"
+              ? event.subject.taskId
+              : event.subject.type === "validator"
+                ? event.subject.validatorId
+                : event.subject.planNodeId),
+        }),
+      );
       return focusedInvocationId(started) === undefined
         ? setRunNodeFocused(started, event.invocationId)
         : started;
