@@ -240,9 +240,10 @@
 | [task.code-review-skill-policy](./2026-09-10-code-review-skill-policy.md) | Enable Safe Repository Skills in Pull-Request Review | completed | 2026-09-10 | core |
 | [task.nested-workflow-workspace-admission](./2026-09-11-nested-workflow-workspace-admission.md) | Make Nested Workflow Workspace Admission Safe | planned | 2026-09-11 | core |
 | [task.migrate-to-runner-built-action-bundles](./2026-09-11-migrate-to-runner-built-action-bundles.md) | Migrate to Runner-Built Action Bundles | in-progress | 2026-09-11 | core |
-| [task.reject-nested-workflows-in-repeats](./2026-09-11-reject-nested-workflows-in-repeats.md) | Reject Nested Workflows in Repeat Bodies | planned | 2026-09-11 | core |
+| [task.reject-nested-workflows-in-repeats](./2026-09-11-reject-nested-workflows-in-repeats.md) | Reject Nested Workflows in Repeat Bodies | cancelled | 2026-09-11 | core |
 | [task.nested-workflow-compilation-lifecycle](./2026-09-11-nested-workflow-compilation-lifecycle.md) | Simplify Nested Workflow Compilation and Lifecycle | planned | 2026-09-11 | core |
 | [task.implement-codex-app-server-adapter](./2026-09-12-implement-codex-app-server-adapter.md) | Implement the Codex App-Server Adapter | completed | 2026-09-12 | core |
 | [task.integrate-codex-runtime-adapter](./2026-09-12-integrate-codex-runtime-adapter.md) | Integrate the Codex Runtime Adapter | completed | 2026-09-12 | core |
 | [task.prove-codex-app-server-protocol](./2026-09-12-prove-codex-app-server-protocol.md) | Prove the Codex App-Server Protocol | completed | 2026-09-12 | core |
 | [task.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md) | Implement Incremental Pull Request Review Scope | planned | 2026-09-13 | core |
+| [task.deliver-fluent-task-until-repeats](./2026-09-14-deliver-fluent-task-until-repeats.md) | Deliver Fluent Task-Until Repeats | in-progress | 2026-09-14 | core |

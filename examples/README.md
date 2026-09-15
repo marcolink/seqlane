@@ -17,9 +17,8 @@ Direct file references load the module's default export. Use
 `path/to/workflow.ts#namedExport` only when a module intentionally exports a
 named workflow. The CLI supports `.ts`, `.mts`, `.js`, and `.mjs` files.
 
-The minimal workflow explicitly selects `openai/gpt-5.6-luna` with `high`
-reasoning for its `prepare` session and `openai/gpt-5.6-terra` for its `finish`
-session.
+The minimal workflow explicitly selects `openai/gpt-5.6-luna` for both
+sessions, with `high` reasoning for `prepare`.
 
 `local-git-status.ts` runs a direct `git status --porcelain=v1` task, then
 passes its typed result to an agent task:
@@ -36,6 +35,13 @@ seqlane run examples/local-git-status.ts \
 ```sh
 seqlane run examples/local-only.ts \
   --input '{"value":"local"}'
+```
+
+`until-workflow.ts` repeats one deterministic task until its result is ready:
+
+```sh
+seqlane run examples/until-workflow.ts \
+  --input '{"remaining":3,"attempts":0}'
 ```
 
 The repository's `workflow-read-context` workflow is defined in `examples/read-context.ts`. It
@@ -252,8 +258,9 @@ merge conflicts, the merge strategy stops without a commit.
 
 If conflicts exist, the local `resolve-merge-conflicts` Action receives the
 exact conflict paths and both immutable revisions. Its exclusive agent task
-runs in a fresh, non-Git staging workspace that contains only regular conflict
-files. The OpenCode policy denies shell commands, external paths, and project
+uses `openai/gpt-5.6-luna` with high reasoning. The task runs in a fresh,
+non-Git staging workspace that contains only regular conflict files. The
+OpenCode policy denies shell commands, external paths, and project
 configuration. The Action rejects symlinks and copies back only the supplied
 conflict files.
 
@@ -293,8 +300,9 @@ shared and exclusive workspaces, isolated/reused/branched sessions, explicit
 dependencies, whole/nested/literal bindings, references, Studio observability
 selections, fan-out/fan-in, mechanical gates, and one validated polish step.
 The two branch lanes can run concurrently, so the example stays small and
-fast. It currently omits repeat nodes because the Mastra Plan compiler does
-not support them.
+fast. It omits repeat nodes because this feature tour does not need them. The
+validation fixture demonstrates the
+fluent `.task(...).until(...)` repeat shape.
 
 ```sh
 seqlane run examples/all-features.ts \

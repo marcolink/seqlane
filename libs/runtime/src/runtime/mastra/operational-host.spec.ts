@@ -1,4 +1,5 @@
 // @test-scope ./operational-host.ts
+// @test-scope ./operational-run-lifecycle.ts
 // @test-scope ./mastra-composition.ts
 // @test-scope ./mastra-server.ts
 // @test-scope ../compile/mastra-plan-compiler.ts
@@ -12,6 +13,7 @@ import {
   defineTask,
   type Plan,
   type PlanNode,
+  type SeqlaneEvent,
 } from "@seqlane/core";
 import type { AgentAdapter } from "@seqlane/agent-adapter";
 import { RequestContext } from "@mastra/core/request-context";
@@ -630,6 +632,59 @@ describe("Mastra operational host", () => {
     }
   });
 
+  it("closes an operational adapter after a direct run reaches a terminal state", async () => {
+    const capabilities = {
+      execute: true as const,
+      modelSelection: false,
+      structuredOutput: true,
+      sessionReuse: true,
+      checkpoint: false,
+      fork: false,
+      activity: false,
+      sessionUi: false,
+    };
+    let closed = 0;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async () => ({
+        files: ["package.json"],
+        rootCause: "direct-run",
+      }),
+      close: async () => {
+        closed += 1;
+      },
+    };
+    const registration = runtimeProfileRegistration({
+      adapterConfiguration: {
+        adapter: "acp",
+        configuration: {
+          id: "fixture-agent",
+          description: "Fixture agent",
+          command: "fixture-agent",
+          persistSession: true,
+        },
+      },
+      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+    });
+    const workflow = registration.workflow as AnyWorkflow;
+    const runId = "direct-run-cleanup";
+    const run = await workflow.createRun({
+      runId,
+      resourceId: "direct-work-cleanup",
+      shouldPersistSnapshot: () => false,
+    });
+
+    await expect(
+      run.start({
+        inputData: { dependency: "runtime-profile" },
+        requestContext: new RequestContext([
+          ["seqlane.runtimeId", "test-runtime"],
+        ]),
+      }),
+    ).resolves.toMatchObject({ status: "success" });
+    expect(closed).toBe(1);
+  });
+
   it("does not retry a failed operational cleanup", async () => {
     const capabilities = {
       execute: true as const,
@@ -745,7 +800,6 @@ describe("Mastra operational host", () => {
     await executionStarted;
     await run.cancel();
     await outcome;
-    await registration.terminate?.("run-cancel");
     expect(closed).toBe(1);
   });
 
@@ -1006,6 +1060,191 @@ describe("Mastra operational host", () => {
     } finally {
       await host.close();
     }
+  });
+
+  it("executes a deterministic task-until workflow through the owned host", async () => {
+    const state = z.object({
+      remaining: z.number().int().nonnegative(),
+      attempts: z.number().int().nonnegative(),
+      done: z.boolean(),
+    });
+    const attemptTask = defineTask({
+      id: "operational-until-attempt",
+      input: state,
+      output: state,
+      execute: async ({ input }) => ({
+        remaining: input.remaining - 1,
+        attempts: input.attempts + 1,
+        done: input.remaining === 1,
+      }),
+    });
+    const workflow = createFlow({
+      id: "operational-until",
+      input: state,
+      output: state,
+    })
+      .task("attempt", attemptTask, ({ input }) => input)
+      .until(({ result }) => result.done, {
+        maxIterations: 5,
+        nextInput: ({ result }) => result,
+      })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+    const host = await createOperationalHost({
+      workflows: [
+        createOperationalWorkflow({
+          key: "repository:operational-until",
+          plan: built.plan,
+          workflow: built.workflow,
+          taskDefinitions: built.taskDefinitions,
+          validatorDefinitions: built.validatorDefinitions,
+          workflowDefinitions: built.workflowDefinitions,
+        }),
+      ],
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+
+    try {
+      const response = await host.fetch(
+        new Request(
+          "http://host/api/workflows/repository%3Aoperational-until/start-async?runId=run-operational-until",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              resourceId: "work-operational-until",
+              inputData: { remaining: 3, attempts: 0, done: false },
+              requestContext: { "seqlane.runtimeId": "local" },
+            }),
+          },
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      await expect(json(response)).resolves.toMatchObject({
+        status: "success",
+        result: { remaining: 0, attempts: 3, done: true },
+      });
+    } finally {
+      await host.close();
+    }
+  });
+
+  it("keeps repeat identity, events, and budgets isolated for concurrent runs", async () => {
+    const state = z.object({
+      remaining: z.number().int().nonnegative(),
+      attempts: z.number().int().nonnegative(),
+      done: z.boolean(),
+    });
+    const attemptTask = defineTask({
+      id: "operational-concurrent-until-attempt",
+      input: state,
+      output: state,
+      execute: async ({ input }) => ({
+        remaining: input.remaining - 1,
+        attempts: input.attempts + 1,
+        done: input.remaining === 1,
+      }),
+    });
+    const workflow = createFlow({
+      id: "operational-concurrent-until",
+      input: state,
+      output: state,
+    })
+      .task("attempt", attemptTask, ({ input }) => input)
+      .until(({ result }) => result.done, {
+        maxIterations: 501,
+        nextInput: ({ result }) => result,
+      })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+    const built = buildWorkflow(workflow);
+    const eventsByRun = new Map<string, SeqlaneEvent[]>();
+    const registration = createOperationalWorkflow({
+      key: "repository:operational-concurrent-until",
+      plan: built.plan,
+      workflow: built.workflow,
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      eventSink: ({ runId }) => ({
+        emit: (event) => {
+          const events = eventsByRun.get(runId) ?? [];
+          events.push(event);
+          eventsByRun.set(runId, events);
+        },
+        emitPlan: () => undefined,
+      }),
+    });
+    const ownedWorkflow = registration.workflow as AnyWorkflow;
+    const start = async (runId: string, workId: string) => {
+      const run = await ownedWorkflow.createRun({
+        runId,
+        resourceId: workId,
+        shouldPersistSnapshot: () => false,
+      });
+      const requestContext = new RequestContext<unknown>([
+        ["seqlane.runtimeId", "local"],
+      ]);
+      registration.prepareRunContext?.(requestContext, workId, runId);
+      return run.start({
+        inputData: { remaining: 501, attempts: 0, done: false },
+        requestContext,
+      });
+    };
+
+    const [first, second] = await Promise.all([
+      start("operational-run-1", "operational-work-1"),
+      start("operational-run-2", "operational-work-2"),
+    ]);
+    expect(first).toMatchObject({
+      status: "success",
+      result: { remaining: 0, attempts: 501, done: true },
+    });
+    expect(second).toMatchObject({
+      status: "success",
+      result: { remaining: 0, attempts: 501, done: true },
+    });
+
+    for (const [runId, workId] of [
+      ["operational-run-1", "operational-work-1"],
+      ["operational-run-2", "operational-work-2"],
+    ] as const) {
+      const attemptEvents = (eventsByRun.get(runId) ?? []).filter(
+        (event) =>
+          event.type === "invocation.created" &&
+          event.planNodeId === "repeat:1:attempt",
+      );
+      expect(attemptEvents).toHaveLength(501);
+      expect(new Set(attemptEvents.map((event) => event.runId))).toEqual(
+        new Set([runId]),
+      );
+      expect(new Set(attemptEvents.map((event) => event.workId))).toEqual(
+        new Set([workId]),
+      );
+      expect(
+        (eventsByRun.get(runId) ?? [])
+          .filter(
+            (event) =>
+              "invocationId" in event &&
+              event.invocationId === "operational-concurrent-until:repeat:1" &&
+              [
+                "invocation.created",
+                "invocation.started",
+                "invocation.succeeded",
+              ].includes(event.type),
+          )
+          .map((event) => event.type),
+      ).toEqual([
+        "invocation.created",
+        "invocation.started",
+        "invocation.succeeded",
+      ]);
+    }
+    await registration.terminate?.("operational-run-1");
+    await registration.terminate?.("operational-run-2");
   });
 
   it("executes nested workflows through the owned Mastra host", async () => {

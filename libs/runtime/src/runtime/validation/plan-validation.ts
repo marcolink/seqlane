@@ -56,14 +56,16 @@ export type PlanValidationIssueCode =
   | "empty-repeat-body"
   | "invalid-repeat-condition"
   | "invalid-repeat-body-reference"
+  | "invalid-repeat-reference"
   | "repeat-body-cycle"
+  | "repeat-postcondition-outside-body"
+  | "repeat-postcondition-not-final"
+  | "repeat-postcondition-check-out-of-scope"
+  | "invalid-repeat-postcondition"
   | "invalid-validation-source"
   | "invalid-validation-policy"
   | "unknown-validation-check"
   | "validation-check-not-dependency"
-  | "repeat-postcondition-outside-body"
-  | "repeat-postcondition-not-final"
-  | "repeat-postcondition-check-out-of-scope"
   | "invalid-repeat-postcondition"
   | "invalid-workspace-policy"
   | "invalid-session-policy"
@@ -586,10 +588,99 @@ function describeCycle(
     .join("; ");
 }
 
+function validateRepeatScopedReferences(
+  binding: ValueBinding,
+  repeatNodeId: string,
+  allowedNodeIds: ReadonlySet<string>,
+  issues: PlanValidationIssue[],
+  attemptNodeId?: string,
+  outerNodes?: ReadonlyMap<string, PlanNode>,
+  declaredOuterDependencies?: ReadonlySet<string>,
+): void {
+  const reference = valueRefSchema.safeParse(binding);
+  if (reference.success) {
+    if (
+      outerNodes?.has(reference.data.nodeId) === true &&
+      reference.data.nodeId !== attemptNodeId &&
+      !declaredOuterDependencies?.has(reference.data.nodeId)
+    ) {
+      addIssue(
+        issues,
+        "missing-value-ref-dependency",
+        `Repeat "${repeatNodeId}" must list prior task dependency "${reference.data.nodeId}"`,
+        repeatNodeId,
+      );
+    }
+    if (
+      !allowedNodeIds.has(reference.data.nodeId) ||
+      (attemptNodeId !== undefined &&
+        reference.data.nodeId === attemptNodeId &&
+        reference.data.path[0] !== "output") ||
+      (outerNodes?.has(reference.data.nodeId) === true &&
+        reference.data.nodeId !== attemptNodeId &&
+        !isValidRepeatOuterReference(
+          outerNodes.get(reference.data.nodeId),
+          reference.data.path,
+        ))
+    ) {
+      addIssue(
+        issues,
+        "invalid-repeat-reference",
+        `Repeat "${repeatNodeId}" contains an out-of-scope reference to "${reference.data.nodeId}"`,
+        repeatNodeId,
+      );
+    }
+    return;
+  }
+  if (Array.isArray(binding)) {
+    for (const item of binding) {
+      validateRepeatScopedReferences(
+        item,
+        repeatNodeId,
+        allowedNodeIds,
+        issues,
+        attemptNodeId,
+        outerNodes,
+        declaredOuterDependencies,
+      );
+    }
+    return;
+  }
+  if (typeof binding === "object" && binding !== null) {
+    for (const item of Object.values(binding)) {
+      validateRepeatScopedReferences(
+        item,
+        repeatNodeId,
+        allowedNodeIds,
+        issues,
+        attemptNodeId,
+        outerNodes,
+        declaredOuterDependencies,
+      );
+    }
+  }
+}
+
+function isValidRepeatOuterReference(
+  node: PlanNode | undefined,
+  path: readonly string[],
+): boolean {
+  const segment = path[0];
+  if (node?.type === "validation.gate") {
+    return segment === "value" || segment === "validation";
+  }
+  return (
+    (node?.type === "task" ||
+      node?.type === "workflow" ||
+      node?.type === "repeat") &&
+    segment === "output"
+  );
+}
+
 function validateRepeat(
   node: RepeatNode,
   issues: PlanValidationIssue[],
-  outerNodeIds: ReadonlySet<string>,
+  outerNodes: ReadonlyMap<string, PlanNode>,
   taskDefinitions: TaskDefinitionRegistry | undefined,
   workflowDefinitions: WorkflowDefinitionRegistry | undefined,
   validateDefinitions: boolean,
@@ -607,237 +698,179 @@ function validateRepeat(
       node.nodeId,
     );
   }
-  if (node.body.nodes.length === 0) {
+
+  const attempt = node.attempt;
+  const attemptInputNodeId = `${node.nodeId}:input`;
+  const allowedAttemptReferences = new Set([
+    attemptInputNodeId,
+    attempt.nodeId,
+  ]);
+  const outerNodeIds = [...outerNodes.keys()];
+  const currentIndex = outerNodeIds.indexOf(node.nodeId);
+  const priorOuterReferences = new Set(
+    currentIndex < 0 ? [] : outerNodeIds.slice(0, currentIndex),
+  );
+  if (attempt.nodeId.length === 0 || outerNodes.has(attempt.nodeId)) {
     addIssue(
       issues,
-      "empty-repeat-body",
-      `Repeat "${node.nodeId}" must contain a body task`,
+      "duplicate-node-id",
+      `Repeat attempt node ID "${attempt.nodeId}" is not unique`,
       node.nodeId,
     );
   }
-  const bodyById = new Map<string, PlanNode>();
-  for (const bodyNode of node.body.nodes) {
-    if (bodyNode.nodeId.length === 0) {
+
+  const dependencies = new Set<string>();
+  for (const dependency of attempt.dependsOn) {
+    if (dependencies.has(dependency)) {
       addIssue(
         issues,
-        "empty-node-id",
-        `Repeat body of "${node.nodeId}" contains a node with an empty ID`,
+        "duplicate-dependency",
+        `Duplicate dependency "${dependency}" in repeat attempt "${attempt.nodeId}"`,
+        attempt.nodeId,
+      );
+    }
+    dependencies.add(dependency);
+    if (dependency === attempt.nodeId) {
+      addIssue(
+        issues,
+        "self-dependency",
+        `Repeat attempt "${attempt.nodeId}" has a self-dependency`,
+        attempt.nodeId,
+      );
+    } else if (!outerNodes.has(dependency)) {
+      addIssue(
+        issues,
+        "invalid-repeat-reference",
+        `Repeat attempt "${attempt.nodeId}" has an out-of-scope dependency "${dependency}"`,
+        attempt.nodeId,
+      );
+    } else if (!node.dependsOn.includes(dependency)) {
+      addIssue(
+        issues,
+        "missing-value-ref-dependency",
+        `Repeat "${node.nodeId}" must list attempt dependency "${dependency}"`,
         node.nodeId,
       );
-    } else if (
-      bodyById.has(bodyNode.nodeId) ||
-      outerNodeIds.has(bodyNode.nodeId)
-    ) {
-      addIssue(
-        issues,
-        "duplicate-node-id",
-        `Duplicate repeat body node ID "${bodyNode.nodeId}"`,
-        bodyNode.nodeId,
-      );
-    } else {
-      bodyById.set(bodyNode.nodeId, bodyNode);
-    }
-  }
-  const bodyNodeIds = new Set(bodyById.keys());
-  const bodyScope = new Set([node.body.inputNodeId]);
-  for (const bodyNodeId of bodyNodeIds) bodyScope.add(bodyNodeId);
-
-  for (const bodyNode of node.body.nodes) {
-    const dependencies = new Set<string>();
-    for (const dependency of bodyNode.dependsOn) {
-      if (dependencies.has(dependency)) {
-        addIssue(
-          issues,
-          "duplicate-dependency",
-          `Duplicate dependency "${dependency}" in "${bodyNode.nodeId}"`,
-          bodyNode.nodeId,
-        );
-      }
-      dependencies.add(dependency);
-      if (dependency === bodyNode.nodeId) {
-        addIssue(
-          issues,
-          "self-dependency",
-          `Node "${bodyNode.nodeId}" has a self-dependency`,
-          bodyNode.nodeId,
-        );
-      } else if (
-        dependency !== node.body.inputNodeId &&
-        !bodyNodeIds.has(dependency)
-      ) {
-        addIssue(
-          issues,
-          "invalid-repeat-body-reference",
-          `Repeat body "${node.nodeId}" has an out-of-scope dependency "${dependency}"`,
-          node.nodeId,
-        );
-      }
-    }
-
-    validateReferences(
-      bodyNode.input,
-      bodyNode,
-      bodyById,
-      issues,
-      new Set([node.body.inputNodeId]),
-      false,
-      "invalid-repeat-body-reference",
-    );
-    if (bodyNode.type === "task") {
-      validateTaskWorkspace(bodyNode, issues);
-      validateTaskDefinition(
-        bodyNode,
-        taskDefinitions,
-        issues,
-        validateDefinitions,
-      );
-    }
-    if (bodyNode.type === "workflow") {
-      validateWorkflowNode(
-        bodyNode,
-        workflowDefinitions,
-        issues,
-        validateDefinitions,
-      );
-    }
-    if (
-      bodyNode.type === "validation.check" ||
-      bodyNode.type === "validation.gate"
-    ) {
-      validateValidationNode(
-        bodyNode,
-        bodyById,
-        issues,
-        true,
-        bodyNodeIds,
-        taskDefinitions,
-        validateDefinitions,
-      );
     }
   }
 
-  resolveSessionSelections(node.body.nodes, bodyById, issues);
-
-  validateReferences(
-    node.body.output,
-    undefined,
-    bodyById,
+  validateRepeatScopedReferences(
+    attempt.input,
+    node.nodeId,
+    new Set([attemptInputNodeId]),
     issues,
-    bodyScope,
-    false,
-    "invalid-repeat-body-reference",
   );
-
-  const postconditionGates = node.body.nodes.filter(
-    (
-      bodyNode,
-    ): bodyNode is Extract<ValidationNode, { type: "validation.gate" }> =>
-      bodyNode.type === "validation.gate" &&
-      bodyNode.policy === "repeat-postcondition",
-  );
-  for (const gate of postconditionGates) {
-    if (node.body.nodes[node.body.nodes.length - 1]?.nodeId !== gate.nodeId) {
-      addIssue(
-        issues,
-        "repeat-postcondition-not-final",
-        `Repeat-postcondition gate "${gate.nodeId}" must be the final body node`,
-        gate.nodeId,
-      );
-    }
-  }
-  if (postconditionGates.length > 1) {
+  const attemptInput = valueRefSchema.safeParse(attempt.input);
+  if (
+    !attemptInput.success ||
+    attemptInput.data.nodeId !== attemptInputNodeId ||
+    attemptInput.data.path.length !== 0
+  ) {
     addIssue(
       issues,
-      "invalid-repeat-postcondition",
-      `Repeat "${node.nodeId}" must have exactly one repeat-postcondition gate`,
-      node.nodeId,
+      "invalid-repeat-reference",
+      `Repeat attempt "${attempt.nodeId}" must read its reserved attempt input`,
+      attempt.nodeId,
     );
   }
 
-  const until = node.body.until;
-  const untilResult = valueRefSchema.safeParse(until);
-  const untilNodeIdResult = untilResult.success
-    ? valueRefNodeIdSchema.safeParse(untilResult.data.nodeId)
-    : undefined;
-  const untilPathResult = untilResult.success
-    ? valueRefPathSchema.safeParse(untilResult.data.path)
-    : undefined;
-  const untilTarget = untilNodeIdResult?.success
-    ? bodyById.get(untilNodeIdResult.data)
-    : undefined;
+  if (attempt.type === "task") {
+    validateTaskWorkspace(attempt, issues);
+    validateTaskDefinition(
+      attempt,
+      taskDefinitions,
+      issues,
+      validateDefinitions,
+    );
+  } else {
+    validateWorkflowNode(
+      attempt,
+      workflowDefinitions,
+      issues,
+      validateDefinitions,
+    );
+  }
+
+  if (attempt.type === "task" && attempt.session !== undefined) {
+    const session = planSessionPolicySchema.safeParse(attempt.session);
+    if (!session.success) {
+      addIssue(
+        issues,
+        "invalid-session-policy",
+        `Repeat attempt "${attempt.nodeId}" must declare a valid session policy`,
+        attempt.nodeId,
+      );
+    } else if (session.data.type !== "isolated") {
+      const source = outerNodes.get(session.data.from);
+      if (source?.type !== "task") {
+        addIssue(
+          issues,
+          "invalid-session-source",
+          `Repeat attempt "${attempt.nodeId}" session source "${session.data.from}" must be an agent task`,
+          attempt.nodeId,
+        );
+      }
+      if (!attempt.dependsOn.includes(session.data.from)) {
+        addIssue(
+          issues,
+          "missing-session-dependency",
+          `Repeat attempt "${attempt.nodeId}" must depend on session source "${session.data.from}"`,
+          attempt.nodeId,
+        );
+      }
+    }
+    const selections = new Map<string, PlanNode>(outerNodes);
+    selections.set(attempt.nodeId, attempt);
+    resolveSessionSelections([attempt], selections, issues);
+  }
+
+  const condition = valueRefSchema.safeParse(node.until);
+  const conditionIsAttemptResult =
+    condition.success &&
+    condition.data.nodeId === attempt.nodeId &&
+    condition.data.path.length > 0 &&
+    condition.data.path[0] === "output";
   if (
-    !untilResult.success ||
-    !untilNodeIdResult?.success ||
-    !untilPathResult?.success ||
-    untilTarget === undefined ||
-    untilPathResult.data.length === 0
+    condition.success &&
+    priorOuterReferences.has(condition.data.nodeId) &&
+    !node.dependsOn.includes(condition.data.nodeId)
+  ) {
+    addIssue(
+      issues,
+      "missing-value-ref-dependency",
+      `Repeat "${node.nodeId}" must list prior task dependency "${condition.data.nodeId}"`,
+      node.nodeId,
+    );
+  }
+  const conditionIsPriorOutput =
+    condition.success &&
+    priorOuterReferences.has(condition.data.nodeId) &&
+    node.dependsOn.includes(condition.data.nodeId) &&
+    isValidRepeatOuterReference(
+      outerNodes.get(condition.data.nodeId),
+      condition.data.path,
+    );
+  if (
+    !condition.success ||
+    (!conditionIsAttemptResult && !conditionIsPriorOutput)
   ) {
     addIssue(
       issues,
       "invalid-repeat-condition",
-      `Repeat "${node.nodeId}" condition must reference a body result`,
-      node.nodeId,
-    );
-  } else if (untilTarget.type === "validation.gate") {
-    if (untilTarget.policy !== "repeat-postcondition") {
-      addIssue(
-        issues,
-        "invalid-repeat-postcondition",
-        `Repeat "${node.nodeId}" cannot use a fail validation gate as its condition`,
-        node.nodeId,
-      );
-    } else if (
-      untilPathResult.data.length !== 2 ||
-      untilPathResult.data[0] !== "validation" ||
-      untilPathResult.data[1] !== "success"
-    ) {
-      addIssue(
-        issues,
-        "invalid-repeat-postcondition",
-        `Repeat "${node.nodeId}" postcondition must reference validation.success`,
-        node.nodeId,
-      );
-    }
-    if (
-      postconditionGates.length !== 1 ||
-      postconditionGates[0] !== untilTarget
-    ) {
-      addIssue(
-        issues,
-        "invalid-repeat-postcondition",
-        `Repeat "${node.nodeId}" condition must reference its repeat-postcondition gate`,
-        node.nodeId,
-      );
-    }
-  } else if (untilTarget.type === "validation.check") {
-    addIssue(
-      issues,
-      "invalid-repeat-condition",
-      `Repeat "${node.nodeId}" condition must reference a validation gate, not a check`,
-      node.nodeId,
-    );
-  }
-  if (
-    postconditionGates.length === 1 &&
-    (!untilResult.success ||
-      !untilNodeIdResult?.success ||
-      untilNodeIdResult.data !== postconditionGates[0]?.nodeId)
-  ) {
-    addIssue(
-      issues,
-      "invalid-repeat-postcondition",
-      `Repeat "${node.nodeId}" condition must reference its repeat-postcondition gate`,
+      `Repeat "${node.nodeId}" condition must reference its attempt or a prior task output`,
       node.nodeId,
     );
   }
 
-  const cycle = dependencyCycle(node.body.nodes, bodyById);
-  if (cycle !== undefined) {
-    addIssue(
-      issues,
-      "repeat-body-cycle",
-      `Repeat body "${node.nodeId}" contains a dependency cycle: ${describeCycle(bodyById, cycle)}`,
+  if (node.nextInput !== undefined) {
+    validateRepeatScopedReferences(
+      node.nextInput,
       node.nodeId,
+      new Set([...allowedAttemptReferences, ...priorOuterReferences]),
+      issues,
+      attempt.nodeId,
+      outerNodes,
+      new Set(node.dependsOn),
     );
   }
 }
@@ -862,9 +895,7 @@ function isSemanticallyTraversableNode(value: unknown): boolean {
 
   if (value.type !== "repeat") return true;
   return (
-    isRecord(value.body) &&
-    Array.isArray(value.body.nodes) &&
-    value.body.nodes.every(isSemanticallyTraversableNode)
+    isRecord(value.attempt) && isSemanticallyTraversableNode(value.attempt)
   );
 }
 
@@ -970,7 +1001,7 @@ function validatePlanWithCanonicalIssues(
       validateRepeat(
         node,
         issues,
-        new Set(nodesById.keys()),
+        nodesById,
         taskDefinitions,
         workflowDefinitions,
         validateDefinitions,

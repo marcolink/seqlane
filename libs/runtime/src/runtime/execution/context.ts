@@ -35,8 +35,6 @@ export interface ExecutionContext {
   readonly createInvocationId: (nodeId: PlanNodeId) => InvocationId;
   readonly workflowInput: unknown;
   readonly results: Map<string, unknown>;
-  /** Number of repeat-body executions admitted in this run. */
-  repeatBodyExecutions: number;
   readonly remainingConsumers: Map<string, number>;
   readonly executors: ExecutorRegistry;
   readonly resolvedSessions: Map<InvocationId, ResolvedExecutorSession>;
@@ -90,7 +88,6 @@ export function createExecutionContext(
     createInvocationId: options.createInvocationId,
     workflowInput: options.workflowInput,
     results: new Map(),
-    repeatBodyExecutions: 0,
     remainingConsumers: new Map(options.remainingConsumers),
     executors: options.executors,
     resolvedSessions: new Map(),

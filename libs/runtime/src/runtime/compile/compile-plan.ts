@@ -41,7 +41,6 @@ import {
   addBindingConsumers,
   consumeBindingReferences,
 } from "../invocation/invocation-support.js";
-import { executeRepeatNode } from "../invocation/repeat-execution.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import type { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
@@ -102,10 +101,7 @@ function assertValidationRegistries(
   taskDefinitions: TaskDefinitionRegistry | undefined,
   validatorDefinitions: ValidatorDefinitionRegistry | undefined,
 ): void {
-  const checkNodes = plan.nodes.flatMap((node) => {
-    if (node.type === "repeat") return node.body.nodes;
-    return [node];
-  });
+  const checkNodes = plan.nodes;
   for (const node of checkNodes) {
     if (node.type !== "validation.check") continue;
     if (node.source.type === "mechanical") {
@@ -225,10 +221,6 @@ export class PlanCompiler {
     } = this.prepareWorkflow(plan, options);
     const checkNodes = new Map(
       loweredPlan.nodes
-        .flatMap((node) => {
-          if (node.type === "repeat") return node.body.nodes;
-          return [node];
-        })
         .filter(
           (node): node is ValidationCheckNode =>
             node.type === "validation.check",
@@ -243,8 +235,9 @@ export class PlanCompiler {
         dependsOn: node.dependsOn,
         execute: async ({ abortSignal }) => {
           if (node.type === "repeat") {
-            await executeRepeatNode(context, node, abortSignal);
-            return { nodeId: node.nodeId };
+            throw new Error(
+              `Sequential Plan compiler does not support repeat node "${node.nodeId}"`,
+            );
           }
           if (node.type === "task") {
             await executeTaskNode(context, node, abortSignal, {

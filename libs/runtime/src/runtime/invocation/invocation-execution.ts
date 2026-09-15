@@ -540,19 +540,25 @@ export async function executeWorkflowNode(
         throw cause;
       }
     } else {
-      const resource = resources[0];
-      if (resource === undefined) throw new Error("No workspace resource");
-      const admission = await context.jointAdmissions.acquire({
-        signal: abortSignal,
-        session: undefined,
-        workspace: resource,
-        workspacePolicy: node.workspace,
-        invocationId,
-        creationOrdinal,
-        onWorkspaceWaiting: reportWaiting,
-        onSessionWaiting: () => undefined,
-      });
-      workspaceLeases.push(admission.workspaceLease);
+      if (resources.length === 0) throw new Error("No workspace resource");
+      // Child workflows may span several resources. Acquire every resource
+      // in stable key order so concurrent multi-resource requests cannot
+      // deadlock, and use JointAdmission for abort-aware waiting. Leases are
+      // released together in finally below when execution ends or aborts.
+      for (const resource of resources) {
+        const admission = await context.jointAdmissions.acquire({
+          signal: abortSignal,
+          session: undefined,
+          workspace: resource,
+          workspacePolicy: node.workspace,
+          invocationId,
+          ownerId: context.workspaceOwnerId ?? invocationId,
+          creationOrdinal,
+          onWorkspaceWaiting: reportWaiting,
+          onSessionWaiting: () => undefined,
+        });
+        workspaceLeases.push(admission.workspaceLease);
+      }
     }
     workspaceAdmitted = true;
     context.events.emit({

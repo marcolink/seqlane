@@ -28,7 +28,7 @@ function task(
   dependsOn: readonly string[] = [],
   input: ValueBinding = {},
   workspace: "shared" | "exclusive" = "shared",
-): PlanNode {
+): Extract<PlanNode, { type: "task" }> {
   return {
     type: "task",
     taskId: nodeId,
@@ -36,7 +36,7 @@ function task(
     workspace,
     input,
     dependsOn,
-  } as PlanNode;
+  };
 }
 
 function validationCheck(
@@ -89,7 +89,7 @@ function generatedTaskDefinitions(
   const collect = (node: PlanNode): void => {
     nodes.push(node);
     if (node.type === "repeat") {
-      for (const bodyNode of node.body.nodes) collect(bodyNode);
+      collect(node.attempt);
     }
   };
   for (const node of source.nodes) collect(node);
@@ -362,51 +362,6 @@ describe("PlanCompiler plan preparation", () => {
     expect(() => validatePlan(source)).toThrow(/permission configuration/i);
   });
 
-  it("rejects an invalid repeat-body task workspace policy", () => {
-    const bodyTask: Extract<PlanNode, { type: "task" }> = {
-      type: "task",
-      taskId: "task",
-      nodeId: "repeat:1/task:1",
-      workspace: "shared",
-      input: {
-        type: "ref",
-        nodeId: "repeat:1:input",
-        path: [],
-      },
-      dependsOn: ["repeat:1:input"],
-    };
-    const source: Plan = {
-      workflow: { id: "invalid-repeat-workspace" },
-      nodes: [
-        {
-          type: "repeat",
-          nodeId: "repeat:1",
-          input: { complete: false },
-          dependsOn: [],
-          maximumIterations: 1,
-          body: {
-            inputNodeId: "repeat:1:input",
-            nodes: [bodyTask],
-            output: {
-              type: "ref",
-              nodeId: "repeat:1/task:1",
-              path: ["output"],
-            },
-            until: {
-              type: "ref",
-              nodeId: "repeat:1/task:1",
-              path: ["output", "complete"],
-            },
-          },
-        },
-      ],
-      output: { type: "ref", nodeId: "repeat:1", path: ["output"] },
-    };
-    Reflect.set(bodyTask, "workspace", "filesystem");
-
-    expect(() => validatePlan(source)).toThrow(/workspace policy/i);
-  });
-
   it("rejects dependency cycles", () => {
     const source = plan([task("a", ["b"]), task("b", ["a"])]);
 
@@ -661,7 +616,7 @@ describe("PlanCompiler plan preparation", () => {
     }
   });
 
-  it("validates bounded repeat bodies and conditions", () => {
+  it("validates bounded repeat attempts and conditions", () => {
     const valid: Plan = {
       workflow: { id: "repeat" },
       nodes: [
@@ -671,25 +626,20 @@ describe("PlanCompiler plan preparation", () => {
           input: { passed: false },
           dependsOn: [],
           maximumIterations: 2,
-          body: {
-            inputNodeId: "repeat:1:input",
-            nodes: [
-              task("repeat:1/repair:1", ["repeat:1:input"], {
-                type: "ref",
-                nodeId: "repeat:1:input",
-                path: [],
-              }) as Extract<PlanNode, { type: "task" }>,
-            ],
-            output: {
-              type: "ref",
-              nodeId: "repeat:1/repair:1",
-              path: ["output"],
-            },
-            until: {
-              type: "ref",
-              nodeId: "repeat:1/repair:1",
-              path: ["output", "passed"],
-            },
+          attempt: task("repeat:1:attempt", [], {
+            type: "ref",
+            nodeId: "repeat:1:input",
+            path: [],
+          }),
+          until: {
+            type: "ref",
+            nodeId: "repeat:1:attempt",
+            path: ["output", "passed"],
+          },
+          nextInput: {
+            type: "ref",
+            nodeId: "repeat:1:attempt",
+            path: ["output"],
           },
         },
       ],
@@ -708,58 +658,6 @@ describe("PlanCompiler plan preparation", () => {
         ],
       }),
     ).toThrow(/positive integer/i);
-  });
-
-  it("accepts a body-local repeat postcondition gate in final position", () => {
-    const inputNodeId = "repeat:1:input";
-    const taskNodeId = "repeat:1/repair:1";
-    const checkNodeId = "repeat:1/check:1";
-    const gateNodeId = "repeat:1/gate:1";
-    const valid: Plan = {
-      workflow: { id: "validated-repeat" },
-      nodes: [
-        {
-          type: "repeat",
-          nodeId: "repeat:1",
-          input: { passed: false },
-          dependsOn: [],
-          maximumIterations: 2,
-          body: {
-            inputNodeId,
-            nodes: [
-              task(taskNodeId, [inputNodeId], {
-                state: { type: "ref", nodeId: inputNodeId, path: [] },
-              }) as Extract<PlanNode, { type: "task" }>,
-              {
-                ...validationCheck(checkNodeId),
-                input: {
-                  type: "ref",
-                  nodeId: taskNodeId,
-                  path: ["output"],
-                },
-                dependsOn: [taskNodeId],
-              } as Extract<ValidationNode, { type: "validation.check" }>,
-              validationGate(
-                gateNodeId,
-                checkNodeId,
-                "repeat-postcondition",
-                [taskNodeId, checkNodeId],
-                { type: "ref", nodeId: taskNodeId, path: ["output"] },
-              ),
-            ],
-            output: { type: "ref", nodeId: gateNodeId, path: ["value"] },
-            until: {
-              type: "ref",
-              nodeId: gateNodeId,
-              path: ["validation", "success"],
-            },
-          },
-        },
-      ],
-      output: { type: "ref", nodeId: "repeat:1", path: ["output"] },
-    };
-
-    expect(() => validatePlan(valid)).not.toThrow();
   });
 
   it.each([
@@ -781,86 +679,6 @@ describe("PlanCompiler plan preparation", () => {
     ],
   ])("rejects %s", (_description, source, message) => {
     expect(() => validatePlan(source as Plan)).toThrow(message);
-  });
-
-  it("rejects a non-final repeat postcondition gate and out-of-scope check", () => {
-    const repeat: Plan = {
-      workflow: { id: "invalid-validated-repeat" },
-      nodes: [
-        validationCheck("outer-check"),
-        {
-          type: "repeat",
-          nodeId: "repeat:1",
-          input: {},
-          dependsOn: [],
-          maximumIterations: 2,
-          body: {
-            inputNodeId: "repeat:1:input",
-            nodes: [
-              validationGate(
-                "repeat:1/gate:1",
-                "outer-check",
-                "repeat-postcondition",
-                ["outer-check"],
-              ),
-              task("repeat:1/after:1", ["repeat:1/gate:1"], {
-                value: {
-                  type: "ref",
-                  nodeId: "repeat:1/gate:1",
-                  path: ["value"],
-                },
-              }) as Extract<PlanNode, { type: "task" }>,
-            ],
-            output: {
-              type: "ref",
-              nodeId: "repeat:1/after:1",
-              path: ["output"],
-            },
-            until: {
-              type: "ref",
-              nodeId: "repeat:1/gate:1",
-              path: ["validation", "success"],
-            },
-          },
-        },
-      ],
-      output: { type: "ref", nodeId: "repeat:1", path: ["output"] },
-    };
-
-    expect(() => validatePlan(repeat)).toThrow(/repeat body|final|scope/i);
-  });
-
-  it("rejects a fail gate used as a repeat condition", () => {
-    const checkNodeId = "repeat:1/check:1";
-    const gateNodeId = "repeat:1/gate:1";
-    const source: Plan = {
-      workflow: { id: "invalid-policy" },
-      nodes: [
-        {
-          type: "repeat",
-          nodeId: "repeat:1",
-          input: {},
-          dependsOn: [],
-          maximumIterations: 1,
-          body: {
-            inputNodeId: "repeat:1:input",
-            nodes: [
-              validationCheck(checkNodeId),
-              validationGate(gateNodeId, checkNodeId, "fail", [checkNodeId]),
-            ],
-            output: { type: "ref", nodeId: gateNodeId, path: ["value"] },
-            until: {
-              type: "ref",
-              nodeId: gateNodeId,
-              path: ["validation", "success"],
-            },
-          },
-        },
-      ],
-      output: { type: "ref", nodeId: "repeat:1", path: ["output"] },
-    };
-
-    expect(() => validatePlan(source)).toThrow(/repeat.*postcondition|gate/i);
   });
 
   it.each([

@@ -17,8 +17,11 @@ declarations, `require` calls, and dynamic imports of `ee/` paths. The runtime
 validates task inputs and outputs, resolves bindings, emits bounded consumer
 events, and retains results until their final consumer completes.
 
-The Mastra compiler currently rejects repeat nodes until a dedicated
-Mastra-native repeat lowering is added.
+The Mastra compiler lowers `.task().until()` to a native post-condition loop.
+It checks the condition after each attempt and enforces both the declared
+iteration limit and the shared run repeat budget. Repeat attempts can invoke
+tasks or child workflows. The budget, invocation identities, and emitted events
+belong to each run, including runs of a reusable operational workflow.
 
 Each private Mastra runtime accepts one workflow run. Reusable workflow
 registrations expose MCP through fresh per-invocation runtimes. A compiled
@@ -65,7 +68,7 @@ network, MCP, skill, or custom-tool access.
 
 Top-level Plan tasks rely on graph dependencies for statically known workspace
 constraints and do not acquire a redundant runtime workspace lease. Dynamically
-created work, including repeat-body tasks and direct invocation calls, still
+created work, including repeat attempts and direct invocation calls, still
 uses atomic session and workspace admission. A waiting dynamic invocation
 retains neither resource. Seqlane holds its leases through executor requests,
 tracked children, processes, cancellation, and cleanup. Queue order uses

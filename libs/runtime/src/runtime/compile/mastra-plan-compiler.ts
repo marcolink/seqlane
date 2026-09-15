@@ -8,8 +8,10 @@ import type {
   Plan,
   PlanNode,
   PlanNodeId,
+  RepeatNode,
   RunId,
   SeqlaneSchema,
+  SeqlaneEventSink,
   TaskId,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
@@ -40,10 +42,17 @@ import {
   toSeqlaneInvocationError,
   type SeqlaneFailurePhase,
 } from "../execution/errors.js";
+import {
+  buildRepeatStep,
+  type RepeatCompilerDependencies,
+  type RepeatExecutionBudget,
+} from "./mastra-repeat-compiler.js";
+import { resolveMastraPlanRunContext } from "./mastra-run-context.js";
+
+export type { RepeatExecutionBudget } from "./mastra-repeat-compiler.js";
 
 const RESULT_STEP_ID = "__seqlane_result";
 const RESERVED_NODE_IDS = new Set([WORKFLOW_INPUT_NODE_ID, RESULT_STEP_ID]);
-
 export interface MastraPlanInvocationContext {
   readonly node: PlanNode;
   readonly input: unknown;
@@ -51,6 +60,9 @@ export interface MastraPlanInvocationContext {
   readonly workId: WorkId;
   readonly runId: string;
   readonly invocationId: InvocationId;
+  readonly iteration?: number;
+  /** Validation attached to a repeat body, applied before its condition. */
+  readonly repeatValidation?: RepeatNode["validation"];
   readonly resourceId?: string;
   readonly workflowId: string;
   readonly abortSignal: AbortSignal;
@@ -98,6 +110,10 @@ export interface MastraPlanCompilerOptions {
   readonly onInputValidationFailure?: (
     context: MastraPlanInputValidationFailureContext,
   ) => void;
+  /** Shared run budget for repeat attempts. */
+  readonly repeatBudget?: RepeatExecutionBudget;
+  readonly events?: SeqlaneEventSink;
+  readonly workflowId?: string;
 }
 
 export interface MastraPlanStep {
@@ -129,6 +145,9 @@ function schemaForNodeInput(
   node: PlanNode,
   options: MastraPlanCompilerOptions,
 ): SeqlaneSchema | undefined {
+  if (node.type === "repeat") {
+    return schemaForNodeInput(node.attempt, options);
+  }
   if (node.type === "task") {
     return getTaskSchema(
       options.taskSchemas,
@@ -159,6 +178,9 @@ function schemaForNodeOutput(
   node: PlanNode,
   options: MastraPlanCompilerOptions,
 ): SeqlaneSchema | undefined {
+  if (node.type === "repeat") {
+    return schemaForNodeOutput(node.attempt, options);
+  }
   if (node.type === "task") {
     return getTaskSchema(
       options.taskSchemas,
@@ -325,6 +347,14 @@ function buildInvocationStep(
       loggerVNext,
       metrics,
     }) => {
+      const runContext = resolveMastraPlanRunContext({
+        runId,
+        resourceId,
+        requestContext,
+        workId: options.workId,
+        events: options.events,
+        repeatBudget: options.repeatBudget,
+      });
       const workflowInput = getInitData<unknown>();
       const resolvedInput = resolveStepInput(
         node,
@@ -338,8 +368,8 @@ function buildInvocationStep(
         const error = reportFailure(node, cause, "input", options);
         options.onInputValidationFailure?.({
           node,
-          workId: resourceId ?? options.workId ?? "unknown-work",
-          runId,
+          workId: runContext.workId,
+          runId: runContext.runId,
           invocationId,
           error,
         });
@@ -358,22 +388,22 @@ function buildInvocationStep(
         node,
         input: parsedInput,
         workflowInput,
-        workId: resourceId ?? options.workId ?? "unknown-work",
-        runId,
+        workId: runContext.workId,
+        runId: runContext.runId,
         invocationId,
-        ...(resourceId === undefined ? {} : { resourceId }),
+        ...(runContext.resourceId === undefined
+          ? {}
+          : { resourceId: runContext.resourceId }),
         workflowId,
         abortSignal,
         requestContext,
         observability: { tracing, tracingContext, loggerVNext, metrics },
         getStepResult,
       });
-      try {
-        return outputSchema?.parse(rawOutput) ?? rawOutput;
-      } catch (cause) {
-        const error = reportFailure(node, cause, "output", options);
-        throw error;
-      }
+      // Mastra validates the declared step output after the dispatcher
+      // returns. The dispatcher already validates task output, so parsing it
+      // again here only changes error ownership and can parse twice.
+      return rawOutput;
     },
   });
 
@@ -387,13 +417,6 @@ function assertMastraSupportedPlan(plan: Plan): void {
         `Mastra Plan compiler does not support reserved node ID "${node.nodeId}"`,
       );
     }
-  }
-
-  const repeat = plan.nodes.find((node) => node.type === "repeat");
-  if (repeat?.type === "repeat") {
-    throw new Error(
-      `Mastra Plan compiler does not support repeat node "${repeat.nodeId}"`,
-    );
   }
 }
 
@@ -441,19 +464,46 @@ export function compilePlanToMastra(
   );
   const loweredPlan = withLoweredPlanNodes(parsedPlan, orderedNodes);
   const invocationIds = new Map<PlanNodeId, InvocationId>();
-  for (const node of orderedNodes) {
+  const siblingOrders = new Map<PlanNodeId, number>();
+  for (const [siblingOrder, node] of orderedNodes.entries()) {
+    siblingOrders.set(node.nodeId, siblingOrder);
     invocationIds.set(
       node.nodeId,
       options.createInvocationId?.(node.nodeId) ??
         `${parsedPlan.workflow.id}:${node.nodeId}`,
     );
   }
+  const repeatBudget = options.repeatBudget ?? { executed: 0 };
+  const repeatCompilerDependencies: RepeatCompilerDependencies = {
+    schemaForMastra,
+    schemaForNodeInput,
+    schemaForNodeOutput,
+    resolveStepInput,
+    reportFailure,
+    invocationIdForNode: (nodeId) => invocationIds.get(nodeId),
+    siblingOrderForNode: (nodeId) => siblingOrders.get(nodeId),
+  };
   const invocationSteps = orderedNodes.map((node) => {
     const invocationId = invocationIds.get(node.nodeId);
     if (invocationId === undefined) {
       throw new Error(
         `No Invocation ID allocated for Plan node "${node.nodeId}"`,
       );
+    }
+    if (node.type === "repeat") {
+      return {
+        nodeId: node.nodeId,
+        step: buildRepeatStep(
+          node,
+          {
+            ...options,
+            repeatBudget,
+            workflowId: parsedPlan.workflow.id,
+          },
+          invocationId,
+          repeatCompilerDependencies,
+        ),
+      };
     }
     return {
       nodeId: node.nodeId,
@@ -488,7 +538,7 @@ export function compilePlanToMastra(
         dependsOn: [...orderedNodes.map(({ nodeId }) => nodeId)],
       },
     },
-    execute: async ({ getInitData, getStepResult, runId, resourceId }) => {
+    execute: async ({ getInitData, getStepResult }) => {
       try {
         const workflowInput = getInitData<unknown>();
         const results = new Map<string, unknown>();

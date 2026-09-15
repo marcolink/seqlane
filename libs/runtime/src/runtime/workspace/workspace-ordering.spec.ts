@@ -18,19 +18,15 @@ function task(
   };
 }
 
-function repeat(nodeId: string, body: RepeatNode["body"]["nodes"]): RepeatNode {
+function repeat(nodeId: string, attempt: RepeatNode["attempt"]): RepeatNode {
   return {
     type: "repeat",
     nodeId,
     input: {},
     dependsOn: [],
     maximumIterations: 2,
-    body: {
-      inputNodeId: `${nodeId}:input`,
-      nodes: body,
-      output: {},
-      until: { type: "ref", nodeId: `${nodeId}:condition`, path: [] },
-    },
+    attempt,
+    until: { type: "ref", nodeId: attempt.nodeId, path: ["output", "done"] },
   };
 }
 
@@ -91,7 +87,7 @@ describe("workspace graph ordering", () => {
   it("serializes a repeat against conflicting top-level workspace access", () => {
     const nodes = lowerWorkspaceOrdering(
       [
-        repeat("repair", [task("repair-task", "exclusive")]),
+        repeat("repair", task("repair-task", "exclusive")),
         task("reader", "shared"),
       ],
       new Map([
@@ -103,17 +99,13 @@ describe("workspace graph ordering", () => {
     expect(nodes.map((node) => node.dependsOn)).toEqual([[], ["repair"]]);
   });
 
-  it("promotes a repeat resource to exclusive when any body task writes", () => {
+  it("uses the repeat attempt workspace policy", () => {
     const nodes = lowerWorkspaceOrdering(
       [
-        repeat("repair", [
-          task("repair-reader", "shared"),
-          task("repair-writer", "exclusive"),
-        ]),
+        repeat("repair", task("repair-writer", "exclusive")),
         task("reader", "shared"),
       ],
       new Map([
-        ["repair-reader", { key: "/checkout" }],
         ["repair-writer", { key: "/checkout" }],
         ["reader", { key: "/checkout" }],
       ]),

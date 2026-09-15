@@ -4,7 +4,6 @@ import type {
   SessionCheckpointRef,
   TaskInvocation,
   ValueRef,
-  ValidationInvocation,
 } from "./bindings.js";
 import type { ModelSelection } from "./models/model-ref.js";
 import { z } from "zod";
@@ -285,20 +284,26 @@ export interface FlowBuilder<Input, Output, Handles> {
     definition: TaskDefinition<TaskInput, TaskOutput>,
     binding: FlowBinding<Input, Handles, TaskInput>,
     options?: Options,
-  ): FlowBuilder<
+  ): FlowBuilderWithUntil<
     Input,
     Output,
-    Handles & Record<Name, FlowHandle<TaskOutput, Options["session"]>>
+    Handles & Record<Name, FlowHandle<TaskOutput, Options["session"]>>,
+    Handles,
+    TaskInput,
+    TaskOutput
   >;
   task<Name extends string, WorkflowInput, WorkflowOutput>(
     name: LiteralUnusedFlowName<Name, Handles>,
     definition: AuthoredWorkflow<WorkflowInput, WorkflowOutput>,
     binding: FlowBinding<Input, Handles, WorkflowInput>,
     options?: FlowWorkflowOptions<Handles>,
-  ): FlowBuilder<
+  ): FlowBuilderWithUntil<
     Input,
     Output,
-    Handles & Record<Name, FlowHandle<WorkflowOutput>>
+    Handles & Record<Name, FlowHandle<WorkflowOutput>>,
+    Handles,
+    WorkflowInput,
+    WorkflowOutput
   >;
   validate<Name extends string, Candidate>(
     name: LiteralUnusedFlowName<Name, Handles>,
@@ -310,13 +315,52 @@ export interface FlowBuilder<Input, Output, Handles> {
     Output,
     Handles & Record<Name, FlowValidationHandle<Candidate>>
   >;
-  repeat<Name extends string, State>(
-    name: LiteralUnusedFlowName<Name, Handles>,
-    options: RepeatOptions<Input, Handles, State>,
-  ): FlowBuilder<Input, Output, Handles & Record<Name, FlowHandle<State>>>;
   output(
     binding: FlowBinding<Input, Handles, Output>,
   ): CompletedFlow<Input, Output>;
+}
+
+export interface UntilContext<TaskOutput, Handles = Record<never, never>> {
+  readonly result: ValueRef<TaskOutput>;
+  readonly tasks: Handles;
+}
+
+export interface NextInputContext<
+  TaskInput,
+  TaskOutput,
+  Handles = Record<never, never>,
+> {
+  readonly input: ValueRef<TaskInput>;
+  readonly result: ValueRef<TaskOutput>;
+  readonly tasks: Handles;
+}
+
+export interface UntilOptions<
+  TaskInput,
+  TaskOutput,
+  Handles = Record<never, never>,
+> {
+  readonly maxIterations: number;
+  readonly nextInput?: (
+    context: NextInputContext<TaskInput, TaskOutput, Handles>,
+  ) => InputBinding<TaskInput>;
+}
+
+/** Flow builder state after a task declaration, before optional until chaining. */
+export interface FlowBuilderWithUntil<
+  Input,
+  Output,
+  CurrentHandles,
+  PriorHandles,
+  TaskInput,
+  TaskOutput,
+> extends FlowBuilder<Input, Output, CurrentHandles> {
+  until(
+    condition: (
+      context: UntilContext<TaskOutput, PriorHandles>,
+    ) => ValueRef<boolean>,
+    options: UntilOptions<TaskInput, TaskOutput, PriorHandles>,
+  ): FlowBuilder<Input, Output, CurrentHandles>;
 }
 
 export interface CompletedFlow<Input, Output> {
@@ -327,47 +371,6 @@ export interface CreateFlowOptions<Input, Output> {
   readonly id: string;
   readonly input: SeqlaneSchema<Input>;
   readonly output: SeqlaneSchema<Output>;
-}
-
-export interface RepeatBodyContext<State> {
-  readonly input: ValueRef<State>;
-  readonly task: {
-    <
-      TaskInput,
-      TaskOutput,
-      Options extends TaskInvocationOptions<TaskInput, TaskOutput>,
-    >(
-      definition: TaskDefinition<TaskInput, TaskOutput>,
-      options: Omit<Options, "validateOutput">,
-    ): TaskInvocation<TaskOutput, Options["session"]>;
-  };
-  readonly validate: <Candidate>(
-    validator: Validator<Candidate>,
-    options: ValidationInvocationOptions<Candidate>,
-  ) => ValidationInvocation<Candidate>;
-}
-
-export interface ValidatedRepeatCondition<State> {
-  readonly type: "validated";
-  readonly validator: Validator<State>;
-}
-
-export interface RepeatOptions<OuterInput, OuterHandles, State> {
-  readonly initial: FlowBinding<OuterInput, OuterHandles, State>;
-  readonly body: (context: RepeatBodyContext<State>) => ValueRef<State>;
-  readonly until:
-    | ((context: { readonly output: ValueRef<State> }) => ValueRef<boolean>)
-    | ValidatedRepeatCondition<State>;
-  readonly maximumIterations: number;
-}
-
-export interface RepeatBuildOptions<State> {
-  readonly initial: InputBinding<State>;
-  readonly body: (context: RepeatBodyContext<State>) => ValueRef<State>;
-  readonly until:
-    | ((context: { readonly output: ValueRef<State> }) => ValueRef<boolean>)
-    | ValidatedRepeatCondition<State>;
-  readonly maximumIterations: number;
 }
 
 export type InteractionRequirement =

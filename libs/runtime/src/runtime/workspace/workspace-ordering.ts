@@ -125,24 +125,15 @@ function workspaceAccessesForRepeat(
   workspaceResources: WorkspaceResourceRegistry | undefined,
 ): readonly ResolvedWorkspaceAccess[] {
   const accesses = new Map<string, WorkspaceAccess>();
-  for (const bodyNode of node.body.nodes) {
+  for (const bodyNode of [node.attempt]) {
     const access =
       bodyNode.type === "task"
         ? taskWorkspace(bodyNode.taskId, bodyNode.workspace, workspaceResources)
-        : bodyNode.type === "workflow"
-          ? workflowWorkspace(
-              bodyNode.workflowId,
-              bodyNode.workspace,
-              workspaceResources,
-            )
-          : bodyNode.type === "validation.check" &&
-              bodyNode.source.type === "task"
-            ? taskWorkspace(
-                bodyNode.source.taskId,
-                bodyNode.source.workspace,
-                workspaceResources,
-              )
-            : undefined;
+        : workflowWorkspace(
+            bodyNode.workflowId,
+            bodyNode.workspace,
+            workspaceResources,
+          );
     if (access === undefined) continue;
     const previous = accesses.get(access.resourceKey);
     accesses.set(access.resourceKey, {

@@ -80,6 +80,111 @@ describe("seqlane core", () => {
     });
   });
 
+  it("lowers a child workflow as a repeated attempt", () => {
+    const childTask = defineTask({
+      id: "until-child-task",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+      execute: async ({ input }) => ({ done: input.value > 0 }),
+    });
+    const child = createFlow({
+      id: "until-child",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("run", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.run.output)
+      .define();
+    const parent = createFlow({
+      id: "until-parent",
+      input: z.object({ value: z.number() }),
+      output: z.object({ done: z.boolean() }),
+    })
+      .task("attempt", child, ({ input }) => input)
+      .until(({ result }) => result.done, { maxIterations: 2 })
+      .output(({ tasks }) => tasks.attempt.output)
+      .define();
+
+    const built = buildWorkflow(parent);
+    expect(built.plan.nodes[0]).toMatchObject({
+      type: "repeat",
+      attempt: {
+        type: "workflow",
+        workflowId: "until-child",
+        nodeId: "repeat:1:attempt",
+      },
+      until: {
+        type: "ref",
+        nodeId: "repeat:1:attempt",
+        path: ["output", "done"],
+      },
+    });
+    expect(built.workflowDefinitions.has("until-child")).toBe(true);
+
+    if (useType<boolean>()) {
+      const flow = createFlow({
+        id: "until-type-contract",
+        input: z.object({ value: z.number() }),
+        output: z.object({ done: z.boolean() }),
+      });
+      // @ts-expect-error until is available only after a task declaration.
+      flow.until(({ result }) => result.done, { maxIterations: 2 });
+      const attempt = flow.task("attempt", child, ({ input }) => input);
+      // @ts-expect-error the stop condition must be a boolean reference.
+      attempt.until(({ result }) => result, { maxIterations: 2 });
+      attempt.until(({ result }) => result.done, {
+        maxIterations: 2,
+        // @ts-expect-error nextInput must match the child workflow input.
+        nextInput: () => ({ value: "invalid" }),
+      });
+
+      const prior = defineTask({
+        id: "until-prior-handle",
+        input: z.object({ value: z.boolean() }),
+        output: z.object({ done: z.boolean() }),
+        execute: async () => ({ done: true }),
+      });
+      const repeated = defineTask({
+        id: "until-repeated-handle",
+        input: z.object({ value: z.boolean() }),
+        output: z.object({ done: z.boolean() }),
+        execute: async () => ({ done: true }),
+      });
+      const handles = createFlow({
+        id: "until-handle-context",
+        input: z.object({ value: z.boolean() }),
+        output: z.object({ done: z.boolean() }),
+      })
+        .task("prior", prior, ({ input }) => input)
+        .task("attempt", repeated, ({ input }) => input)
+        .until(
+          ({ result, tasks }) => {
+            void tasks.prior.output;
+            // @ts-expect-error The repeated task handle is not in scope.
+            void tasks.attempt.output;
+            // @ts-expect-error Later task handles are not in scope.
+            void tasks.later.output;
+            void result.done;
+            return tasks.prior.output.done;
+          },
+          {
+            maxIterations: 2,
+            nextInput: ({ input, result, tasks }) => {
+              void input.value;
+              void result.done;
+              void tasks.prior.output;
+              // @ts-expect-error The repeated task handle is not in scope.
+              void tasks.attempt.output;
+              // @ts-expect-error Later task handles are not in scope.
+              void tasks.later.output;
+              return { value: tasks.prior.output.done };
+            },
+          },
+        );
+      handles.output(({ tasks }) => tasks.attempt.output);
+    }
+  });
+
   it("defines an agent task through the unified task contract", () => {
     const task = defineAgentTask({
       id: "agent-task",
@@ -656,7 +761,7 @@ describe("seqlane core", () => {
     expect(JSON.stringify(plan)).not.toContain("integrationHandle");
   });
 
-  it("builds a bounded Repeat Plan node with deterministic body addresses", () => {
+  it("builds a bounded task-until Plan node with scoped bindings", () => {
     const repair = defineAgentTask({
       id: "repair",
       input: schema<{ readonly passed: boolean }>(),
@@ -669,11 +774,12 @@ describe("seqlane core", () => {
         input: schema<{ readonly passed: boolean }>(),
         output: schema<{ readonly passed: boolean }>(),
       })
-        .repeat("repairLoop", {
-          initial: ({ input }) => input,
-          body: ({ input, task }) => task(repair, { input }).output,
-          until: ({ output }) => output.passed,
-          maximumIterations: 3,
+        .task("repairLoop", repair, ({ input }) => input)
+        .until(({ result }) => result.passed, {
+          maxIterations: 3,
+          nextInput: ({ result }) => ({
+            passed: result.passed,
+          }),
         })
         .output(({ tasks }) => tasks.repairLoop.output)
         .define(),
@@ -684,14 +790,19 @@ describe("seqlane core", () => {
         type: "repeat",
         nodeId: "repeat:1",
         maximumIterations: 3,
-        body: {
-          inputNodeId: "repeat:1:input",
-          nodes: [{ nodeId: "repeat:1/repair:1" }],
-          until: {
+        attempt: {
+          nodeId: "repeat:1:attempt",
+          taskId: "repair",
+          input: {
             type: "ref",
-            nodeId: "repeat:1/repair:1",
-            path: ["output", "passed"],
+            nodeId: "repeat:1:input",
+            path: [],
           },
+        },
+        until: {
+          type: "ref",
+          nodeId: "repeat:1:attempt",
+          path: ["output", "passed"],
         },
       },
     ]);

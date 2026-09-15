@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-13
+updated: 2026-09-14
 upstream:
   - adr.mastra-backed-seqlane-workflows
   - adr.separate-seqlane-protocol-package
@@ -404,6 +404,9 @@ normative:
 - `workflow` and `task` values share the runnable boundary.
 - `defineWorkflow({ build })` is not supported.
 - Invocation policy remains Seqlane-owned and explicit at the flow boundary.
+- A bounded repeat is authored by chaining `.until(...)` immediately after
+  `.task(...)`. The task can invoke a task definition or child workflow.
+  Ordinary `.task(...)` still invokes its runnable once.
 
 ### Plan node and registry boundary
 
@@ -485,16 +488,25 @@ identity into the child invocation.
 
 ### Bounded repeats
 
-The Plan contains a conceptual `BoundedRepeatNode` with a body and a
-`maximumIterations` field. `maximumIterations` is a finite integer from 1
-through 1,000. The runtime increments a run-wide repeat-body counter before
-each body execution. It rejects or stops before execution 1,001.
+The Plan contains a conceptual `BoundedRepeatNode` with one task or child
+workflow attempt, an initial input binding, a boolean result reference, an
+optional next-input binding, and a `maximumIterations` field. Authors use
+`.task(...).until(...)`; the former `.repeat(...)` body builder is superseded
+by [the fluent task-until contract](./2026-09-14-fluent-task-until-repeats.md).
+The attempt runs before Seqlane checks the condition. `maximumIterations` is a
+finite integer from 1 through 1,000. The runtime increments a run-wide
+attempt counter before each execution and rejects execution 1,001.
 
 Per-node exhaustion returns the existing typed `LoopLimitExceededError`. Run-
 wide exhaustion returns a Seqlane-owned typed run-limit error. Nested workflows
 and nested repeats add to the same run-wide counter. The implementation must
 test malformed limits, per-node exhaustion, run-wide exhaustion, nested
 accumulation, and exact-boundary execution at 1,000.
+
+The private compiler uses Mastra post-condition loop control flow. Every
+attempt retains normal invocation identity, input and output validation,
+admission, cancellation, and observability. A repeated child workflow keeps
+the same admission and internal policies as an ordinary child invocation.
 
 ### Observability and runner notification migration
 
@@ -615,6 +627,7 @@ The Mastra cutover and final event deletion also run `pnpm run test`,
 - [spec.studio-vite-development-and-isolated-replay: Studio Vite Development and Isolated Replay](./2026-09-02-studio-vite-development-and-isolated-replay.md)
 - [spec.effect-runtime-integration: Effect Runtime Integration](./2026-09-02-effect-runtime-integration.md)
 - [spec.fluent-seqlane-flow-dsl: Fluent Seqlane Flow DSL and Conditioned Repeat](./2026-09-02-fluent-seqlane-flow-dsl.md)
+- [spec.fluent-task-until-repeats: Fluent Task-Until Repeats](./2026-09-14-fluent-task-until-repeats.md)
 - [spec.executor-neutral-workflow-authoring: Executor-Neutral Workflow Authoring](./2026-09-02-executor-neutral-workflow-authoring.md)
 - [spec.seqlane-plan-ir-typed-dataflow: Seqlane Plan IR and Typed Dataflow](./2026-09-02-seqlane-plan-ir-typed-dataflow.md)
 - [spec.consumer-agnostic-seqlane-execution-events: Consumer-Agnostic Seqlane Execution Events](./2026-09-02-consumer-agnostic-seqlane-execution-events.md)

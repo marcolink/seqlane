@@ -87,10 +87,8 @@ function modelPreflightNodes(
 
   return plan.nodes.flatMap((node) => {
     if (node.type === "repeat") {
-      return node.body.nodes.flatMap((bodyNode) => {
-        const preflightNode = nodeForPlanNode(bodyNode, true);
-        return preflightNode === undefined ? [] : [preflightNode];
-      });
+      const preflightNode = nodeForPlanNode(node.attempt, true);
+      return preflightNode === undefined ? [] : [preflightNode];
     }
     const preflightNode = nodeForPlanNode(node, false);
     return preflightNode === undefined ? [] : [preflightNode];

@@ -111,7 +111,7 @@ describe("all-features workflow example", () => {
     });
   });
 
-  it("compiles through the Mastra adapter without repeat nodes", () => {
+  it("compiles the feature tour through the Mastra adapter", () => {
     const built = buildWorkflow(allFeaturesWorkflow);
 
     expect(() =>

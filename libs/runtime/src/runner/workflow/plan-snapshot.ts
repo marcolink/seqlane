@@ -107,7 +107,7 @@ export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
   const collectNodes = (nodes: readonly PlanNode[]): void => {
     for (const node of nodes) {
       allNodes.push(node);
-      if (node.type === "repeat") collectNodes(node.body.nodes);
+      if (node.type === "repeat") collectNodes([node.attempt]);
     }
   };
   collectNodes(topLevelNodes);
@@ -159,7 +159,7 @@ export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
     }
 
     for (const node of orderedNodes) {
-      if (node.type === "repeat") appendNodes(node.body.nodes, node.nodeId);
+      if (node.type === "repeat") appendNodes([node.attempt], node.nodeId);
     }
   };
 

@@ -60,7 +60,7 @@ export default createFlow({
   .task("finish", finishTask, ({ tasks }) => tasks.prepare.output, {
     workspace: "shared",
     session: isolated({
-      model: openai("gpt-5.6-terra"),
+      model: openai("gpt-5.6-luna"),
     }),
   })
   .output(({ tasks }) => tasks.finish.output)

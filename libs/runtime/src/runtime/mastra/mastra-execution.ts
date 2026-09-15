@@ -9,6 +9,7 @@ import type {
   WorkId,
   RunId,
   InvocationId,
+  RepeatNode,
   WorkflowDefinition,
   WorkflowDefinitionRegistry,
 } from "@seqlane/core";
@@ -19,6 +20,7 @@ import {
   type CompiledMastraPlan,
   type MastraPlanInvocation,
   type MastraPlanInvocationContext,
+  type RepeatExecutionBudget,
 } from "../compile/mastra-plan-compiler.js";
 import {
   PlanCompiler,
@@ -30,13 +32,15 @@ import {
   executeValidationCheckNode,
   executeValidationGateNode,
 } from "../invocation/invocation-execution.js";
-import { executeRepeatNode } from "../invocation/repeat-execution.js";
 import {
   invocationKind,
   invocationSubject,
   invocationTaskId,
 } from "../execution/workflow-run.js";
-import { invocationIdForNode } from "../execution/context.js";
+import {
+  invocationIdForNode,
+  type ExecutionContext,
+} from "../execution/context.js";
 import {
   referencedNodeIds,
   WORKFLOW_INPUT_NODE_ID,
@@ -49,16 +53,16 @@ import {
 import { taskIdCompatibility } from "../invocation/invocation-support.js";
 import type { ExecutorResolvers } from "../execution/executor.js";
 import type { SessionResolver } from "../session/session-resolution.js";
-import type {
-  WorkspaceResource,
-  WorkspaceResourceRegistry,
-} from "../workspace/workspace-resource.js";
+import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import type { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import {
   preflightCompiledWorkflowSessionCapabilities,
   resolveCompiledWorkflowSessions,
 } from "../session/session-preflight.js";
+import { resolveTaskSession } from "../session/session-resolution.js";
+import { validateRepeatOutput } from "./repeat-validation.js";
+import { workspaceResourcesForExecution } from "./workspace-resources.js";
 
 export interface MastraPlanExecutionOptions {
   readonly plan: Plan;
@@ -76,6 +80,7 @@ export interface MastraPlanExecutionOptions {
   readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
   readonly events: SeqlaneEventSink;
+  readonly repeatBudget?: RepeatExecutionBudget;
 }
 
 export interface MastraPlanExecution {
@@ -84,57 +89,9 @@ export interface MastraPlanExecution {
   readonly runtime: MastraRuntime;
 }
 
-export function workspaceResourcesForExecution(
-  resources: WorkspaceResourceRegistry,
-  workflows: WorkflowDefinitionRegistry | undefined,
-): WorkspaceResourceRegistry {
-  if (workflows === undefined || workflows.size === 0) return resources;
-  const extended = new Map(resources);
-  const aggregate = (
-    workflowId: string,
-    workflow: BuiltWorkflow<unknown, unknown>,
-    visiting: ReadonlySet<string>,
-  ): readonly WorkspaceResource[] => {
-    if (visiting.has(workflowId)) return [];
-    const nextVisiting = new Set(visiting).add(workflowId);
-    const found = new Map<string, WorkspaceResource>();
-    for (const node of workflow.plan.nodes) {
-      const id =
-        node.type === "task"
-          ? node.taskId
-          : node.type === "workflow"
-            ? node.workflowId
-            : node.type === "validation.check" && node.source.type === "task"
-              ? node.source.taskId
-              : undefined;
-      if (id === undefined) continue;
-      const nested = node.type === "workflow" ? workflows.get(id) : undefined;
-      const resource =
-        nested === undefined
-          ? [extended.get(id)]
-          : aggregate(id, nested, nextVisiting);
-      for (const candidate of resource) {
-        if (candidate !== undefined) found.set(candidate.key, candidate);
-      }
-    }
-    return [...found.values()];
-  };
-  for (const [workflowId, workflow] of workflows) {
-    const childResources = aggregate(workflowId, workflow, new Set());
-    if (childResources.length > 0) {
-      extended.set(workflowId, {
-        key: childResources.map(({ key }) => key).join("|") || workflowId,
-        resources: childResources,
-      });
-    }
-  }
-  return extended;
-}
-
 function checkNodes(plan: Plan): Map<string, ValidationCheckNode> {
   return new Map(
     plan.nodes
-      .flatMap((node) => (node.type === "repeat" ? node.body.nodes : [node]))
       .filter(
         (node): node is ValidationCheckNode => node.type === "validation.check",
       )
@@ -290,12 +247,146 @@ function emitMastraNonTerminalInvocations(
   }
 }
 
+interface InvocationDispatchOptions {
+  readonly context: ExecutionContext;
+  readonly node: PlanNode;
+  readonly input: unknown;
+  readonly workflowInput: unknown;
+  readonly workId: WorkId;
+  readonly runId: RunId;
+  readonly resourceId?: string;
+  readonly requestContext: RequestContext | undefined;
+  readonly getStepResult: (nodeId: string) => unknown;
+  readonly abortSignal: AbortSignal;
+  readonly invocationId: InvocationId;
+  readonly observability: MastraPlanInvocationContext["observability"];
+  readonly iteration?: number;
+  readonly repeatValidation?: RepeatNode["validation"];
+}
+
+async function validateInvocationOutput(
+  options: InvocationDispatchOptions,
+  output: unknown,
+): Promise<void> {
+  if (
+    options.repeatValidation === undefined ||
+    options.iteration === undefined
+  ) {
+    return;
+  }
+  await validateRepeatOutput(
+    options.context,
+    options.node,
+    output,
+    options.repeatValidation,
+    options.abortSignal,
+    {
+      invocationId: options.invocationId,
+      observability: options.observability,
+      iteration: options.iteration,
+    },
+  );
+}
+
+async function executeTaskInvocation(
+  options: InvocationDispatchOptions,
+  repeatAttemptNodeIds: ReadonlySet<string>,
+): Promise<unknown> {
+  if (options.node.type !== "task") {
+    throw new Error("Task handler received a non-task Plan node");
+  }
+  if (
+    options.node.session !== undefined &&
+    repeatAttemptNodeIds.has(options.node.nodeId)
+  ) {
+    await resolveTaskSession(
+      options.context.resolvedSessions,
+      options.context.sessionResolver,
+      options.context.taskDefinitions,
+      options.invocationId,
+      options.node.taskId,
+      options.context.effectiveModelSelectionsByNode.get(options.node.nodeId),
+    );
+  }
+  const output = await executeTaskNode(
+    options.context,
+    options.node,
+    options.abortSignal,
+    {
+      invocationId: options.invocationId,
+      observability: options.observability,
+      results: options.context.results,
+      remainingConsumers: options.context.remainingConsumers,
+      subject: { type: "task", taskId: options.node.taskId },
+      iteration: options.iteration,
+    },
+  );
+  await validateInvocationOutput(options, output);
+  return output;
+}
+
+async function executeWorkflowInvocationNode(
+  options: InvocationDispatchOptions,
+  executeWorkflowInvocation: MastraPlanInvocation | undefined,
+): Promise<unknown> {
+  if (options.node.type !== "workflow") {
+    throw new Error("Workflow handler received a non-workflow Plan node");
+  }
+  const workflowId = options.node.workflowId;
+  const getStepResult = options.getStepResult as <Output = unknown>(
+    nodeId: string,
+  ) => Output;
+  const output = await executeWorkflowNode(
+    options.context,
+    options.node,
+    options.abortSignal,
+    {
+      invocationId: options.invocationId,
+      observability: options.observability,
+      results: options.context.results,
+      remainingConsumers: options.context.remainingConsumers,
+      workspaceAdmission: options.iteration === undefined ? "graph" : "dynamic",
+      execute: async () =>
+        executeWorkflowInvocation?.({
+          node: options.node,
+          input: options.input,
+          workflowInput: options.workflowInput,
+          workId: options.workId,
+          runId: options.runId,
+          invocationId: options.invocationId,
+          ...(options.resourceId === undefined
+            ? {}
+            : { resourceId: options.resourceId }),
+          workflowId,
+          abortSignal: options.abortSignal,
+          requestContext: options.requestContext,
+          observability: options.observability,
+          iteration: options.iteration,
+          repeatValidation: options.repeatValidation,
+          getStepResult,
+        }) ??
+        Promise.reject(
+          new Error(
+            `Nested workflow "${workflowId}" requires a Mastra workflow handler`,
+          ),
+        ),
+    },
+  );
+  await validateInvocationOutput(options, output);
+  return output;
+}
+
 export function createMastraPlanInvocationHandler(
   prepared: PreparedPlanExecution,
   plan: Plan,
   executeWorkflowInvocation?: MastraPlanInvocation,
 ): MastraPlanInvocation {
   const checks = checkNodes(plan);
+  const repeatAttemptNodeIds = new Set(
+    plan.nodes.flatMap((entry) =>
+      entry.type === "repeat" ? [entry.attempt.nodeId] : [],
+    ),
+  );
   return async ({
     node,
     input,
@@ -308,6 +399,8 @@ export function createMastraPlanInvocationHandler(
     abortSignal,
     invocationId,
     observability,
+    iteration,
+    repeatValidation,
   }) => {
     const results = dependencyResults(node, getStepResult);
     const context = {
@@ -317,13 +410,24 @@ export function createMastraPlanInvocationHandler(
       failure: undefined,
     };
     if (node.type === "task") {
-      return executeTaskNode(context, node, abortSignal, {
-        invocationId,
-        observability,
-        results,
-        remainingConsumers: context.remainingConsumers,
-        subject: { type: "task", taskId: node.taskId },
-      });
+      return executeTaskInvocation(
+        {
+          context,
+          node,
+          input,
+          workflowInput,
+          workId,
+          runId,
+          requestContext,
+          getStepResult,
+          abortSignal,
+          invocationId,
+          observability,
+          iteration,
+          repeatValidation,
+        },
+        repeatAttemptNodeIds,
+      );
     }
     if (node.type === "validation.check") {
       return executeValidationCheckNode(context, node, abortSignal, {
@@ -346,35 +450,29 @@ export function createMastraPlanInvocationHandler(
       });
     }
     if (node.type === "workflow") {
-      return executeWorkflowNode(context, node, abortSignal, {
-        invocationId,
-        observability,
-        results,
-        remainingConsumers: prepared.context.remainingConsumers,
-        workspaceAdmission: "graph",
-        execute: async () =>
-          executeWorkflowInvocation?.({
-            node,
-            input,
-            workflowInput,
-            workId,
-            runId,
-            invocationId,
-            ...(resourceId === undefined ? {} : { resourceId }),
-            workflowId: node.workflowId,
-            abortSignal,
-            requestContext,
-            observability,
-            getStepResult,
-          }) ??
-          Promise.reject(
-            new Error(
-              `Nested workflow "${node.workflowId}" requires a Mastra workflow handler`,
-            ),
-          ),
-      });
+      return executeWorkflowInvocationNode(
+        {
+          context,
+          node,
+          input,
+          workflowInput,
+          workId,
+          runId,
+          resourceId,
+          requestContext,
+          getStepResult,
+          abortSignal,
+          invocationId,
+          observability,
+          iteration,
+          repeatValidation,
+        },
+        executeWorkflowInvocation,
+      );
     }
-    return executeRepeatNode(context, node, abortSignal, observability);
+    throw new Error(
+      `Repeat node "${node.nodeId}" must be lowered through Mastra dountil`,
+    );
   };
 }
 
@@ -387,6 +485,7 @@ export async function executeNestedMastraWorkflow(options: {
   readonly workspaceResources: WorkspaceResourceRegistry;
   readonly events: SeqlaneEventSink;
   readonly onFailure?: (failure: SeqlaneError) => void;
+  readonly repeatBudget?: RepeatExecutionBudget;
 }): Promise<unknown> {
   const { invocation, child } = options;
   const childExecution = createMastraPlanExecution({
@@ -405,6 +504,7 @@ export async function executeNestedMastraWorkflow(options: {
     workflowDefinitions: child.workflowDefinitions,
     workflow: child.workflow,
     events: options.events,
+    repeatBudget: options.repeatBudget,
   });
   preflightCompiledWorkflowSessionCapabilities(childExecution.prepared);
   await preflightCompiledWorkflowModels(childExecution.prepared);
@@ -451,6 +551,7 @@ export async function executeNestedMastraWorkflow(options: {
 export function createMastraPlanExecution(
   options: MastraPlanExecutionOptions,
 ): MastraPlanExecution {
+  const repeatBudget = options.repeatBudget ?? { executed: 0 };
   let typedFailure: SeqlaneError | undefined;
   const captureFailure = (failure: SeqlaneError): void => {
     typedFailure ??= failure;
@@ -493,6 +594,8 @@ export function createMastraPlanExecution(
     workflowDefinitions: options.workflowDefinitions,
     workspaceResources,
     workflow: options.workflow,
+    repeatBudget,
+    events: options.events,
     onFailure: captureFailure,
     onInputValidationFailure: ({
       node,
@@ -542,7 +645,11 @@ export function createMastraPlanExecution(
           observability: invocation.observability,
           results: prepared.context.results,
           remainingConsumers: prepared.context.remainingConsumers,
-          workspaceAdmission: "graph",
+          // Repeat attempts are admitted at runtime. Their child workflow can
+          // have several resources, and the set is not represented by the
+          // parent graph's static edge for each new attempt.
+          workspaceAdmission:
+            invocation.iteration === undefined ? "graph" : "dynamic",
           execute: async () => {
             const childExecution = createMastraPlanExecution({
               plan: child.plan,
@@ -561,6 +668,7 @@ export function createMastraPlanExecution(
               workflowDefinitions: child.workflowDefinitions,
               workflow: child.workflow,
               events: options.events,
+              repeatBudget,
             });
             preflightCompiledWorkflowSessionCapabilities(
               childExecution.prepared,
