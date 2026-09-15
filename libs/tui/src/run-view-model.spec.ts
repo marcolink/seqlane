@@ -140,6 +140,7 @@ describe("human execution view model", () => {
     expect(focused.presentation.get("workflow")).toEqual({
       isExpanded: false,
       isFocused: false,
+      isManuallyExpanded: true,
     });
     expect(focused.presentation.get("task")).toEqual({
       isExpanded: false,

@@ -388,12 +388,12 @@ export class HumanTTYRenderer implements ExecutionRenderer {
         if (!this.finished) this.requestFrame();
       }, options.retryTickMs ?? 1000);
     }
-    if ((options.spinnerTickMs ?? 120) > 0) {
+    if ((options.spinnerTickMs ?? 100) > 0) {
       this.spinnerTimer = setInterval(() => {
         if (this.finished || !this.hasActiveTask()) return;
         this.spinnerFrame += 1;
         this.requestFrame();
-      }, options.spinnerTickMs ?? 120);
+      }, options.spinnerTickMs ?? 100);
     }
   }
 

@@ -76,6 +76,8 @@ export interface RunFailureState {
 export interface RunPresentationState {
   readonly isExpanded: boolean;
   readonly isFocused: boolean;
+  /** User choices outrank automatic active/successful branch presentation. */
+  readonly isManuallyExpanded?: boolean;
 }
 
 export interface RunNode {
@@ -665,6 +667,27 @@ function reduceCreated(
   );
 }
 
+function collapseSuccessfulBranch(
+  view: RunViewModel,
+  invocationId: string,
+): RunViewModel {
+  const node = view.nodes.get(invocationId);
+  const state = view.presentation.get(invocationId);
+  if (
+    node === undefined ||
+    (node.kind !== "workflow" && node.kind !== "loop") ||
+    state?.isManuallyExpanded
+  ) {
+    return view;
+  }
+  const presentation = new Map(view.presentation);
+  presentation.set(invocationId, {
+    isExpanded: false,
+    isFocused: state?.isFocused ?? false,
+  });
+  return { ...view, presentation };
+}
+
 export function reduceRunViewModel(
   view: RunViewModel,
   event: OutputEvent,
@@ -821,30 +844,36 @@ export function reduceRunViewModel(
         failure: undefined,
       }));
     case "invocation.succeeded":
-      return updateNode(next, event.invocationId, (node) =>
-        withState(node, "succeeded", timestamp),
+      return collapseSuccessfulBranch(
+        updateNode(next, event.invocationId, (node) =>
+          withState(node, "succeeded", timestamp),
+        ),
+        event.invocationId,
       );
     case "invocation.failed":
-      return updateNode(next, event.invocationId, (node) => ({
-        ...withState(node, "failed", timestamp),
-        ...(event.error.validation === undefined
-          ? {}
-          : {
-              validation: projectValidationFailure(
-                node.validation,
-                event.error.validation,
-              ),
-            }),
-        failure: {
-          category: event.error.category,
-          message: event.error.message,
-          disposition: event.disposition,
-        },
-        continuationReason:
-          event.disposition === "continue_siblings"
-            ? "Execution continued after this failure"
-            : undefined,
-      }));
+      return revealAncestors(
+        updateNode(next, event.invocationId, (node) => ({
+          ...withState(node, "failed", timestamp),
+          ...(event.error.validation === undefined
+            ? {}
+            : {
+                validation: projectValidationFailure(
+                  node.validation,
+                  event.error.validation,
+                ),
+              }),
+          failure: {
+            category: event.error.category,
+            message: event.error.message,
+            disposition: event.disposition,
+          },
+          continuationReason:
+            event.disposition === "continue_siblings"
+              ? "Execution continued after this failure"
+              : undefined,
+        })),
+        event.invocationId,
+      );
     case "invocation.skipped":
       return updateNode(next, event.invocationId, (node) => ({
         ...withState(node, "skipped", timestamp),
@@ -985,7 +1014,11 @@ export function setRunNodeExpanded(
     isExpanded: false,
     isFocused: false,
   };
-  presentation.set(invocationId, { ...current, isExpanded });
+  presentation.set(invocationId, {
+    ...current,
+    isExpanded,
+    isManuallyExpanded: true,
+  });
   return { ...view, presentation };
 }
 
