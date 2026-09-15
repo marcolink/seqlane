@@ -46,8 +46,7 @@ describe("CLI output mode selection", () => {
     ).toBe("ci");
   });
 
-  it("honors explicit JSON and CI modes", () => {
-    expect(createCliRenderer("json", capabilities).mode).toBe("json");
+  it("honors explicit CI mode", () => {
     expect(createCliRenderer("ci", capabilities).mode).toBe("ci");
   });
 
@@ -75,14 +74,13 @@ describe("CLI output mode selection", () => {
   });
 
   it("parses supported modes and preserves the CLI error for invalid values", () => {
-    expect(["auto", "human", "ci", "json"].map(parseOutputMode)).toEqual([
+    expect(["auto", "human", "ci"].map(parseOutputMode)).toEqual([
       "auto",
       "human",
       "ci",
-      "json",
     ]);
     expect(() => parseOutputMode("invalid")).toThrow(
-      "--output must be auto, human, ci, or json",
+      "--output must be auto, human, or ci",
     );
   });
 });

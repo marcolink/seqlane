@@ -1,13 +1,14 @@
 export type * from "./contracts.js";
 
 export {
-  isJsonValue,
   isSeqlaneExecutionEvent,
-  isValidationIssue,
+  seqlaneErrorMetadataSchema,
+  serializedSeqlaneErrorSchema,
   seqlanePlanSnapshotSchema,
   seqlaneExecutionEventSchema,
 } from "./validation.js";
-export { serializeSeqlaneError } from "./errors.js";
+export { isJsonValue } from "@seqlane/core";
+export { safeErrorMessage, serializeSeqlaneError } from "./errors.js";
 export {
   decodeSeqlaneExecutionEvent,
   encodeSeqlaneExecutionEvent,

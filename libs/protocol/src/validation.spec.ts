@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { isJsonValue } from "@seqlane/core";
 import type { SeqlaneExecutionEvent } from "./contracts.js";
 import {
-  isJsonValue,
   isSeqlaneExecutionEvent,
   type ReadonlySchemaOutput,
   seqlaneExecutionEventSchema,
@@ -33,7 +33,27 @@ describe("event validation schemas", () => {
     const sparse: unknown[] = [];
     sparse.length = 2;
     sparse[1] = "value";
-    expect(isJsonValue(sparse)).toBe(true);
+    expect(isJsonValue(sparse)).toBe(false);
+    expect(
+      isSeqlaneExecutionEvent({
+        type: "run.succeeded",
+        metadata,
+        workId: "work-1",
+        runId: "run-1",
+        output: sparse,
+      }),
+    ).toBe(false);
+    expect(
+      isSeqlaneExecutionEvent({
+        type: "invocation.skipped",
+        metadata,
+        workId: "work-1",
+        runId: "run-1",
+        invocationId: "invocation-1",
+        reason: "dependency failed",
+        dependencyIds: sparse,
+      }),
+    ).toBe(false);
     expect(isJsonValue(Number.NaN)).toBe(false);
     expect(isJsonValue(Number.POSITIVE_INFINITY)).toBe(false);
 

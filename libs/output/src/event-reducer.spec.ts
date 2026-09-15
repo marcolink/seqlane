@@ -461,6 +461,37 @@ describe("human execution view model", () => {
     });
   });
 
+  it.each([
+    { success: false, issues: [] },
+    { success: false, issues: [{ code: 42, message: "not a string" }] },
+  ])("ignores malformed validation results", (value) => {
+    const view = reduceHumanEvents([
+      {
+        type: "invocation.created",
+        ...run,
+        invocationId: "validation-gate",
+        planNodeId: "validation.gate:1",
+        subject: { type: "validation-gate", planNodeId: "validation.gate:1" },
+        kind: "validation",
+        label: "Validate result",
+        siblingOrder: 0,
+        dependencyIds: [],
+      },
+      {
+        type: "invocation.result",
+        ...run,
+        invocationId: "validation-gate",
+        result: { state: "present", value },
+      } as never,
+    ]);
+
+    expect(view.nodes.get("validation-gate")?.validation).toMatchObject({
+      verdict: "unknown",
+      issues: [],
+      continued: false,
+    });
+  });
+
   it("projects normal gate failure details and bounded evidence", () => {
     const view = reduceHumanEvents([
       {

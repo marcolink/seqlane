@@ -415,8 +415,9 @@ serialization, and cleanup errors. Inspect stdout, stderr, and exit status.
 
 ## Delivery state
 
-Not delivered. The current CLI still uses JSON as an execution-event renderer
-mode and does not implement this result union.
+Implementation is present in the current worktree and is being validated
+against this active contract. Target-branch delivery still requires a
+reachable commit or merged pull request.
 
 ## Traceability
 

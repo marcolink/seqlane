@@ -1,5 +1,9 @@
 // @test-scope ./commands/run.ts
+// @test-scope ./run-operational-host.ts
+// @test-scope ./run-result.ts
+// @test-scope ./run-lifecycle.ts
 // @test-scope ./commands/replay.ts
+// @test-scope ./replay.ts
 // @test-scope ./runner-client.ts
 // @test-scope ./event-dispatcher.ts
 // @test-scope ./output.ts
@@ -9,12 +13,18 @@
 // @test-scope ./commands/plan.ts
 // @test-scope ./commands/serve.ts
 // @test-scope ./cli-contracts.ts
+// @test-scope ./command.ts
 // @test-scope ../../../examples/minimal-workflow.ts
 // @test-scope ../../../examples/local-only.ts
 // @test-scope ../../../examples/until-workflow.ts
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { createServer, type Server, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import { once } from "node:events";
 import {
   mkdirSync,
@@ -29,7 +39,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   encodeSeqlaneExecutionEvent,
-  seqlaneExecutionEventSchema,
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import {
@@ -58,6 +67,13 @@ interface CliResult {
   readonly code: number | null;
   readonly stdout: string;
   readonly stderr: string;
+}
+
+const nodeTypeStrippingWarning =
+  /\(node:\d+\) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time\r?\n\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)\r?\n?/g;
+
+function withoutNodeExperimentalWarnings(stderr: string): string {
+  return stderr.replace(nodeTypeStrippingWarning, "");
 }
 
 interface FakeOpenCodeServer {
@@ -222,6 +238,7 @@ function runCli(
   onStarted?: (child: ChildProcess) => void,
   startMarker = "started task=investigate-renovate-failure",
   environment: NodeJS.ProcessEnv = {},
+  onSpawn?: (child: ChildProcess) => void,
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(entry, args, {
@@ -229,6 +246,7 @@ function runCli(
       env: { ...process.env, FORCE_COLOR: "0", ...environment },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    onSpawn?.(child);
     let stdout = "";
     let stderr = "";
     let signalSent = false;
@@ -244,8 +262,18 @@ function runCli(
       stderr += chunk.toString();
     });
     child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    child.on("close", (code) =>
+      resolve({
+        code,
+        stdout,
+        stderr: withoutNodeExperimentalWarnings(stderr),
+      }),
+    );
   });
+}
+
+function expectNoSeqlaneDiagnostics(stderr: string): void {
+  expect(stderr).not.toMatch(/\bseqlane\b/i);
 }
 
 function runArgs(
@@ -254,7 +282,7 @@ function runArgs(
   runtime = "http://127.0.0.1:1234",
   output = "ci",
 ): string[] {
-  return [
+  const args = [
     "run",
     workflow,
     "--input",
@@ -263,14 +291,228 @@ function runArgs(
     runtime,
     "--workspace",
     repositoryRoot,
-    "--output",
-    output,
   ];
+  return output === "json"
+    ? [...args, "--json"]
+    : [...args, "--output", output];
 }
 
 function writeJson(response: ServerResponse, value: unknown): void {
   response.writeHead(200, { "content-type": "application/json" });
   response.end(JSON.stringify(value));
+}
+
+interface FakeOpenCodeRouteState {
+  readonly requests: string[];
+  readonly pendingPrompts: ServerResponse[];
+  readonly mode: "success" | "interaction" | "hold";
+  readonly workflow: "renovate" | "example";
+  promptCount: number;
+}
+
+function fakeProviderCatalog(): object {
+  return {
+    all: [
+      {
+        id: "openai",
+        models: {
+          "gpt-5.6-luna": { id: "gpt-5.6-luna" },
+          "gpt-5.6-terra": { id: "gpt-5.6-terra" },
+        },
+      },
+      { id: "fake-provider", models: { "fake-model": { id: "fake-model" } } },
+    ],
+    default: { openai: "gpt-5.6-luna" },
+    connected: ["openai", "fake-provider"],
+  };
+}
+
+function fakeProviderConfig(): object {
+  const catalog = fakeProviderCatalog();
+  const all = (catalog as { all: object[] }).all;
+  return { providers: all, default: { openai: "gpt-5.6-luna" } };
+}
+
+function fakeSession(): object {
+  return {
+    id: "session-1",
+    projectID: "project-1",
+    directory: repositoryRoot,
+    title: "Seqlane CLI",
+    version: "1",
+    time: { created: 1, updated: 1 },
+  };
+}
+
+function fakePermissionFailure(): object {
+  return {
+    info: {
+      id: "message-1",
+      sessionID: "session-1",
+      role: "assistant",
+      time: { created: 1, completed: 2 },
+      parentID: "message-0",
+      modelID: "fake-model",
+      providerID: "fake-provider",
+      mode: "build",
+      agent: "build",
+      path: { cwd: repositoryRoot, root: repositoryRoot },
+      cost: 0,
+      tokens: {
+        total: 0,
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+      error: {
+        name: "PermissionRequired",
+        data: { prompt: "private approval request" },
+      },
+    },
+    parts: [],
+  };
+}
+
+function fakeAbortMessage(message: string): object {
+  return {
+    info: { error: { name: "MessageAbortedError", data: { message } } },
+    parts: [],
+  };
+}
+
+function fakeStructuredOutput(
+  workflow: "renovate" | "example",
+  promptCount: number,
+): object | undefined {
+  return workflow === "example"
+    ? [
+        { draft: "A short Seqlane draft." },
+        { answer: "A polished Seqlane answer." },
+      ][promptCount - 1]
+    : [
+        {
+          files: ["package.json", "pnpm-lock.yaml"],
+          rootCause: "Renovate updated a dependency without its peer range",
+        },
+        {
+          steps: ["update peer range", "refresh lockfile"],
+          summary: "Apply the dependency and lockfile remediation",
+        },
+        {
+          changedFiles: ["package.json", "pnpm-lock.yaml"],
+          summary: "Dependency update and lockfile repaired",
+        },
+        { passed: true, summary: "Install and targeted tests pass" },
+      ][promptCount - 1];
+}
+
+function fakeAssistantMessage(
+  workflow: "renovate" | "example",
+  promptCount: number,
+): object {
+  return {
+    info: {
+      structured: fakeStructuredOutput(workflow, promptCount),
+      id: `message-${promptCount}`,
+      sessionID: "session-1",
+      role: "assistant",
+      time: { created: promptCount, completed: promptCount + 1 },
+      parentID: "message-0",
+      modelID: "fake-model",
+      providerID: "fake-provider",
+      mode: "build",
+      agent: "build",
+      path: { cwd: repositoryRoot, root: repositoryRoot },
+      cost: 0,
+      tokens: {
+        total: 0,
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+    },
+    parts: [],
+  };
+}
+
+async function handleFakeOpenCodeRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  state: FakeOpenCodeRouteState,
+): Promise<void> {
+  request.on("aborted", () => response.end());
+  for await (const chunk of request) void chunk;
+  const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+  state.requests.push(path);
+
+  if (request.method === "GET" && path === "/") {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end();
+    return;
+  }
+  if (request.method === "GET" && path === "/provider") {
+    writeJson(response, fakeProviderCatalog());
+    return;
+  }
+  if (request.method === "GET" && path === "/config/providers") {
+    writeJson(response, fakeProviderConfig());
+    return;
+  }
+  if (request.method === "POST" && path === "/session") {
+    writeJson(response, fakeSession());
+    return;
+  }
+  if (request.method === "POST" && path === "/session/session-1/message") {
+    if (state.mode === "hold") {
+      state.pendingPrompts.push(response);
+      setTimeout(() => {
+        if (!response.writableEnded)
+          writeJson(response, fakeAbortMessage("test timeout"));
+      }, 1_000);
+      return;
+    }
+    if (state.mode === "interaction") {
+      writeJson(response, fakePermissionFailure());
+      return;
+    }
+    state.promptCount += 1;
+    writeJson(
+      response,
+      fakeAssistantMessage(state.workflow, state.promptCount),
+    );
+    return;
+  }
+  if (request.method === "GET" && path === "/session/session-1/message") {
+    writeJson(response, []);
+    return;
+  }
+  if (request.method === "GET" && path === "/global/health") {
+    writeJson(response, { healthy: true, version: "1.14.19" });
+    return;
+  }
+  if (request.method === "GET" && path === "/event") {
+    response.writeHead(200, {
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "content-type": "text/event-stream",
+    });
+    return;
+  }
+  if (request.method === "GET" && path === "/permission") {
+    writeJson(response, []);
+    return;
+  }
+  if (request.method === "POST" && path === "/session/session-1/abort") {
+    for (const pending of state.pendingPrompts.splice(0)) {
+      writeJson(pending, fakeAbortMessage("aborted"));
+    }
+    writeJson(response, true);
+    return;
+  }
+  response.writeHead(404);
+  response.end();
 }
 
 async function startFakeOpenCodeServer(
@@ -284,205 +526,16 @@ async function startFakeOpenCodeServer(
   const acpPath = join(acpDirectory, "opencode");
   writeFileSync(acpPath, fakeAcpAgent, { mode: 0o755 });
   writeFileSync(acpEventsPath, "");
-  let promptCount = 0;
-  const server = createServer(async (request, response) => {
-    request.on("aborted", () => response.end());
-    for await (const chunk of request) void chunk;
-    const requestUrl = request.url ?? "/";
-    const path = new URL(requestUrl, "http://127.0.0.1").pathname;
-    requests.push(path);
-
-    if (request.method === "GET" && path === "/") {
-      response.writeHead(200, { "content-type": "text/html" });
-      response.end();
-      return;
-    }
-
-    if (request.method === "GET" && path === "/provider") {
-      writeJson(response, {
-        all: [
-          {
-            id: "openai",
-            models: {
-              "gpt-5.6-luna": { id: "gpt-5.6-luna" },
-              "gpt-5.6-terra": { id: "gpt-5.6-terra" },
-            },
-          },
-          {
-            id: "fake-provider",
-            models: { "fake-model": { id: "fake-model" } },
-          },
-        ],
-        default: { openai: "gpt-5.6-luna" },
-        connected: ["openai", "fake-provider"],
-      });
-      return;
-    }
-
-    if (request.method === "GET" && path === "/config/providers") {
-      writeJson(response, {
-        providers: [
-          {
-            id: "openai",
-            models: {
-              "gpt-5.6-luna": { id: "gpt-5.6-luna" },
-              "gpt-5.6-terra": { id: "gpt-5.6-terra" },
-            },
-          },
-          {
-            id: "fake-provider",
-            models: { "fake-model": { id: "fake-model" } },
-          },
-        ],
-        default: { openai: "gpt-5.6-luna" },
-      });
-      return;
-    }
-
-    if (request.method === "POST" && path === "/session") {
-      writeJson(response, {
-        id: "session-1",
-        projectID: "project-1",
-        directory: repositoryRoot,
-        title: "Seqlane CLI",
-        version: "1",
-        time: { created: 1, updated: 1 },
-      });
-      return;
-    }
-
-    if (request.method === "POST" && path === "/session/session-1/message") {
-      if (mode === "hold") {
-        pendingPrompts.push(response);
-        setTimeout(() => {
-          if (!response.writableEnded) {
-            writeJson(response, {
-              info: {
-                error: {
-                  name: "MessageAbortedError",
-                  data: { message: "test timeout" },
-                },
-              },
-              parts: [],
-            });
-          }
-        }, 1_000);
-        return;
-      }
-      if (mode === "interaction") {
-        writeJson(response, {
-          info: {
-            id: "message-1",
-            sessionID: "session-1",
-            role: "assistant",
-            time: { created: 1, completed: 2 },
-            parentID: "message-0",
-            modelID: "fake-model",
-            providerID: "fake-provider",
-            mode: "build",
-            agent: "build",
-            path: { cwd: repositoryRoot, root: repositoryRoot },
-            cost: 0,
-            tokens: {
-              total: 0,
-              input: 0,
-              output: 0,
-              reasoning: 0,
-              cache: { read: 0, write: 0 },
-            },
-            error: {
-              name: "PermissionRequired",
-              data: { prompt: "private approval request" },
-            },
-          },
-          parts: [],
-        });
-        return;
-      }
-
-      promptCount += 1;
-      const structured =
-        workflow === "example"
-          ? [
-              { draft: "A short Seqlane draft." },
-              { answer: "A polished Seqlane answer." },
-            ][promptCount - 1]
-          : [
-              {
-                files: ["package.json", "pnpm-lock.yaml"],
-                rootCause:
-                  "Renovate updated a dependency without its peer range",
-              },
-              {
-                steps: ["update peer range", "refresh lockfile"],
-                summary: "Apply the dependency and lockfile remediation",
-              },
-              {
-                changedFiles: ["package.json", "pnpm-lock.yaml"],
-                summary: "Dependency update and lockfile repaired",
-              },
-              { passed: true, summary: "Install and targeted tests pass" },
-            ][promptCount - 1];
-      writeJson(response, {
-        info: {
-          structured,
-          id: `message-${promptCount}`,
-          sessionID: "session-1",
-          role: "assistant",
-          time: { created: promptCount, completed: promptCount + 1 },
-          parentID: "message-0",
-          modelID: "fake-model",
-          providerID: "fake-provider",
-          mode: "build",
-          agent: "build",
-          path: { cwd: repositoryRoot, root: repositoryRoot },
-          cost: 0,
-          tokens: {
-            total: 0,
-            input: 0,
-            output: 0,
-            reasoning: 0,
-            cache: { read: 0, write: 0 },
-          },
-        },
-        parts: [],
-      });
-      return;
-    }
-
-    if (request.method === "GET" && path === "/event") {
-      response.writeHead(200, {
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-        "content-type": "text/event-stream",
-      });
-      return;
-    }
-
-    if (request.method === "GET" && path === "/permission") {
-      writeJson(response, []);
-      return;
-    }
-
-    if (request.method === "POST" && path === "/session/session-1/abort") {
-      for (const pending of pendingPrompts.splice(0)) {
-        writeJson(pending, {
-          info: {
-            error: {
-              name: "MessageAbortedError",
-              data: { message: "aborted" },
-            },
-          },
-          parts: [],
-        });
-      }
-      writeJson(response, true);
-      return;
-    }
-
-    response.writeHead(404);
-    response.end();
-  });
+  const routeState: FakeOpenCodeRouteState = {
+    requests,
+    pendingPrompts,
+    mode,
+    workflow,
+    promptCount: 0,
+  };
+  const server = createServer((request, response) =>
+    handleFakeOpenCodeRequest(request, response, routeState),
+  );
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
@@ -518,6 +571,10 @@ function fakeAcpEnvironment(
   const pathSeparator = process.platform === "win32" ? ";" : ":";
   return {
     PATH: `${fake.acpDirectory}${pathSeparator}${process.env.PATH ?? ""}`,
+    SEQLANE_RUNTIME_ADAPTER_CONFIG: JSON.stringify({
+      adapter: "opencode",
+      url: fake.url,
+    }),
     SEQLANE_FAKE_ACP_MODE: mode,
     SEQLANE_FAKE_ACP_WORKFLOW: workflow,
     SEQLANE_FAKE_ACP_EVENTS: fake.acpEventsPath,
@@ -530,6 +587,7 @@ function runFakeCli(
   args: readonly string[],
   onStarted?: (child: ChildProcess) => void,
   startMarker = "started task=investigate-renovate-failure",
+  onSpawn?: (child: ChildProcess) => void,
 ): Promise<CliResult> {
   return runCli(
     entry,
@@ -537,6 +595,7 @@ function runFakeCli(
     onStarted,
     startMarker,
     fakeAcpEnvironment(fake, fake.acpMode, fake.acpWorkflow),
+    onSpawn,
   );
 }
 
@@ -709,8 +768,7 @@ describe("seqlane CLI entrypoints", () => {
         "repository:discovered-local-only",
         "--input",
         '{"value":"local"}',
-        "--output",
-        "json",
+        "--json",
         "--repository-root",
         fixture.repositoryRoot,
         "--user-root",
@@ -718,25 +776,13 @@ describe("seqlane CLI entrypoints", () => {
       ]);
 
       expect(result.code).toBe(0);
-      const events = result.stdout
-        .trimEnd()
-        .split("\n")
-        .map((line) => seqlaneExecutionEventSchema.parse(JSON.parse(line)));
-      const planEvent = events.find((event) => event.type === "run.plan");
-      if (planEvent?.type !== "run.plan") {
-        throw new Error("Discovered local-only run did not emit a Plan event");
-      }
-
-      expect(planEvent.plan.nodes).toEqual([
-        expect.objectContaining({
-          execution: "local",
-        }),
-      ]);
-      expect(
-        planEvent.plan.nodes.every((node) => node.session === undefined),
-      ).toBe(true);
-      expect(events.at(-1)?.type).toBe("run.succeeded");
-      expect(result.stderr).toBe("");
+      const run = JSON.parse(result.stdout) as {
+        status: string;
+        output: unknown;
+      };
+      expect(run.status).toBe("succeeded");
+      expect(run.output).toEqual({ value: "local" });
+      expectNoSeqlaneDiagnostics(result.stderr);
     } finally {
       rmSync(fixture.directory, { recursive: true, force: true });
     }
@@ -752,13 +798,33 @@ describe("seqlane CLI entrypoints", () => {
       );
 
       expect(result.code).toBe(0);
-      const records = result.stdout
-        .trimEnd()
-        .split("\n")
-        .map((line) => JSON.parse(line) as { type: string });
-      expect(records.at(-1)?.type).toBe("run.succeeded");
+      const record = JSON.parse(result.stdout) as { status: string };
+      expect(record.status).toBe("succeeded");
       expect(result.stdout).not.toContain("run=run-");
-      expect(result.stderr).toContain(`Seqlane session UI: ${fake.url}`);
+      expectNoSeqlaneDiagnostics(result.stderr);
+    } finally {
+      await closeFakeOpenCodeServer(fake);
+    }
+  });
+
+  it("returns one execution-failure result in native JSON mode", async () => {
+    const fake = await startFakeOpenCodeServer("interaction");
+    try {
+      const result = await runFakeCli(
+        fake,
+        productionEntry,
+        runArgs(input, workflowReference, fake.url, "json"),
+      );
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        schemaVersion: 1,
+        status: "failed",
+        phase: "execution",
+        workflow: { reference: workflowReference },
+      });
+      expect(result.stdout).not.toContain('"type":"run.');
     } finally {
       await closeFakeOpenCodeServer(fake);
     }
@@ -807,6 +873,22 @@ describe("seqlane CLI entrypoints", () => {
     expect(result.stderr).toBe("");
   });
 
+  it("rejects native JSON mode for the dry-run Plan path", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      exampleWorkflowReference,
+      "--input",
+      builtinInput,
+      "--dry",
+      "--json",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "--json cannot be combined with --dry",
+    );
+  });
+
   it("reads workflow input from a JSON file", async () => {
     const directory = mkdtempSync(join(tmpdir(), "seqlane-input-cli-"));
     const path = join(directory, "input.json");
@@ -845,7 +927,7 @@ describe("seqlane CLI entrypoints", () => {
         "--dry",
       ]);
 
-      expect(result.code).toBe(2);
+      expect(result.code).toBe(1);
       expect(`${result.stdout}${result.stderr}`).toContain(
         "--input-file could not be read: file exceeds the 1048576-byte limit",
       );
@@ -861,7 +943,7 @@ describe("seqlane CLI entrypoints", () => {
       "--dry",
     ]);
 
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toContain(
       "specify exactly one of --input or --input-file",
     );
@@ -877,7 +959,7 @@ describe("seqlane CLI entrypoints", () => {
 
     expect(result.code).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toMatch(
-      /runtime profile.*not configured/i,
+      /runtime profile.*not configured|model capabilities are unavailable/i,
     );
   });
 
@@ -887,12 +969,11 @@ describe("seqlane CLI entrypoints", () => {
       localOnlyWorkflowReference,
       "--input",
       '{"value":"local"}',
-      "--output",
-      "json",
+      "--json",
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('"type":"run.succeeded"');
+    expect(JSON.parse(result.stdout)).toMatchObject({ status: "succeeded" });
   });
 
   it("runs a deterministic task-until workflow through the CLI", async () => {
@@ -901,14 +982,65 @@ describe("seqlane CLI entrypoints", () => {
       untilWorkflowReference,
       "--input",
       '{"remaining":3,"attempts":0}',
-      "--output",
-      "json",
+      "--json",
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('"type":"run.succeeded"');
-    expect(result.stdout).toContain('"remaining":0');
-    expect(result.stdout).toContain('"attempts":3');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "succeeded",
+      output: { remaining: 0, attempts: 3 },
+    });
+  });
+
+  it("wraps a non-JSON workflow result as a result-serialization failure", async () => {
+    const directory = mkdtempSync(
+      join(repositoryRoot, ".tmp-seqlane-non-json-cli-"),
+    );
+    const workflowPath = join(directory, "non-json.ts");
+    writeFileSync(
+      workflowPath,
+      `import { createFlow, defineTask } from "@seqlane/core";
+import { z } from "zod";
+
+const input = z.object({});
+const output = z.any();
+const task = defineTask({
+  id: "non-json.value",
+  input,
+  output,
+  execute: async () => undefined,
+});
+
+export default createFlow({ id: "non-json", input, output })
+  .task("value", task, () => ({}))
+  .output(({ tasks }) => tasks.value.output)
+  .define();
+`,
+    );
+
+    try {
+      const result = await runCli(productionEntry, [
+        "run",
+        workflowPath,
+        "--input",
+        "{}",
+        "--json",
+        "--workspace",
+        repositoryRoot,
+      ]);
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        schemaVersion: 1,
+        status: "failed",
+        phase: "result-serialization",
+        error: { message: "Workflow result is not JSON serializable" },
+      });
+      expect(result.stdout).not.toContain('"type":"run.');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("runs a TypeScript workflow file through its default export", async () => {
@@ -921,7 +1053,7 @@ describe("seqlane CLI entrypoints", () => {
       );
 
       expect(result.code).toBe(0);
-      expect(result.stdout).toContain('"type":"run.succeeded"');
+      expect(JSON.parse(result.stdout)).toMatchObject({ status: "succeeded" });
     } finally {
       await closeFakeOpenCodeServer(fake);
     }
@@ -949,6 +1081,39 @@ describe("seqlane CLI entrypoints", () => {
         workflowId: exampleWorkflowReference,
       });
       expect(lines.map((line) => line.type)).toContain("run.plan");
+    } finally {
+      await closeFakeOpenCodeServer(fake);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps JSON result stdout separate from recorded event output", async () => {
+    const fake = await startFakeOpenCodeServer("success", "example");
+    const directory = mkdtempSync(
+      join(tmpdir(), "seqlane-recording-json-cli-"),
+    );
+    const path = join(directory, "run.jsonl");
+    try {
+      const result = await runFakeCli(fake, productionEntry, [
+        ...runArgs(builtinInput, exampleWorkflowReference, fake.url, "json"),
+        "--record",
+        path,
+      ]);
+
+      expect(result.code).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({ status: "succeeded" });
+      expect(result.stdout).not.toContain('"type":"run.');
+      expect(result.stderr).toContain("execution data is written to disk");
+
+      const records = readFileSync(path, "utf8")
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { type?: string });
+      expect(records[0]).toMatchObject({
+        type: "seqlane.recording",
+        workflowId: exampleWorkflowReference,
+      });
+      expect(records.map((record) => record.type)).toContain("run.succeeded");
     } finally {
       await closeFakeOpenCodeServer(fake);
       rmSync(directory, { recursive: true, force: true });
@@ -1000,8 +1165,8 @@ describe("seqlane CLI entrypoints", () => {
       const result = await runCli(productionEntry, [
         "replay",
         path,
-        "--output",
-        "json",
+        "--events",
+        "ndjson",
       ]);
 
       expect(result.code).toBe(0);
@@ -1011,6 +1176,28 @@ describe("seqlane CLI entrypoints", () => {
         .map((line) => JSON.parse(line) as { type: string })
         .map((event) => event.type);
       expect(eventTypes).toEqual(["run.started", "run.plan"]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("prints one concise contextual error for a malformed recording", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "seqlane-replay-error-cli-"));
+    const path = join(directory, "invalid.jsonl");
+    writeFileSync(path, "not-json\n");
+    try {
+      const result = await runCli(productionEntry, [
+        "replay",
+        path,
+        "--output",
+        "human",
+      ]);
+
+      expect(result.code).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Could not read recording:");
+      expect(result.stderr).toContain("Invalid recording header JSON");
+      expect(result.stderr).not.toContain("Caused by:");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -1047,6 +1234,34 @@ describe("seqlane CLI entrypoints", () => {
 
     expect(result.code).toBe(130);
     expect(result.stdout).toContain("cancelled");
+  });
+
+  it("returns a cancellation result with status 130 in native JSON mode", async () => {
+    const fake = await startFakeOpenCodeServer("hold");
+    try {
+      const result = await runFakeCli(
+        fake,
+        productionEntry,
+        runArgs(input, workflowReference, fake.url, "json"),
+        undefined,
+        "never emitted in JSON mode",
+        (child) => {
+          setTimeout(() => child.kill("SIGINT"), 1_500);
+        },
+      );
+
+      expect(result.code, JSON.stringify(result)).toBe(130);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        schemaVersion: 1,
+        status: "cancelled",
+        cancellation: { code: "signal" },
+        workflow: { reference: workflowReference },
+      });
+      expect(result.stdout).not.toContain('"type":"run.');
+    } finally {
+      await closeFakeOpenCodeServer(fake);
+    }
   });
 
   it("rejects invalid input before starting a runner", async () => {

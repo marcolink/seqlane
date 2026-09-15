@@ -226,8 +226,9 @@ seqlane run ./examples/minimal-workflow.ts \
 ```
 
 CI output does not print invocation input, transient output, or routine tool
-activity. Use `--record` with `replay --output json` when a complete
-machine-readable event stream is needed in addition to the visible CI log.
+activity. Use `run --json` for one final machine-readable result, or use
+`--record` with `replay --events ndjson` for the complete canonical event
+stream.
 
 ## File-accessing workflows
 
@@ -247,8 +248,8 @@ Runs use isolated executor sessions by default. Independent tasks can overlap
 only when their session, DAG, global capacity, and workspace policies permit it.
 
 When the configured OpenCode runtime also serves its browser UI, human terminal
-output adds a per-task `Session UI` link. CI and JSON output print the URL to
-stderr so their stdout remains machine-readable.
+output adds a per-task `Session UI` link. CI output prints the URL to stderr so
+its stdout remains machine-readable. Final JSON results contain no progress.
 
 ## Recording and replay
 
@@ -273,6 +274,14 @@ executes a workflow:
 ```sh
 seqlane replay ./seqlane-recording.jsonl --output human
 ```
+
+Use the explicit event mode to write one canonical event per line:
+
+```sh
+seqlane replay ./seqlane-recording.jsonl --events ndjson
+```
+
+`--events ndjson` cannot be combined with `--output`.
 
 ## Development
 

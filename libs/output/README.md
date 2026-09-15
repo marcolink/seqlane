@@ -2,21 +2,21 @@
 
 Private renderers for Seqlane execution events.
 
-The package converts canonical `SeqlaneExecutionEvent` values into human
-terminal, continuous-integration, or JSON output. It does not execute
-workflows and it does not depend on a runtime adapter or executor.
+The package converts canonical `SeqlaneExecutionEvent` values into human or
+continuous-integration terminal output. It does not execute workflows and it
+does not depend on a runtime adapter or executor.
 
 ## Renderer modes
 
 - `human` shows a terminal-friendly execution tree.
 - `ci` writes concise, append-only status and failure output for automation.
-- `json` writes one canonical execution event per line.
 
-The CLI selects these modes with `--output auto|human|ci|json`.
+The CLI selects these modes with `--output auto|human|ci`. Final run results
+use Oclif's native `run --json` contract, and event streams use recording or
+replay `--events ndjson`.
 
 Validation invocations retain their identity, verdict, issues, and bounded
-evidence in human and CI output. JSON mode preserves the same redacted
-execution events for machine consumers.
+evidence in human and CI output.
 
 CI mode consumes the complete event stream but renders only meaningful state
 changes, retries, waits, skips, persistent output, failures, heartbeats, and

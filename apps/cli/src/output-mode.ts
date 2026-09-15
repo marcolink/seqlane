@@ -1,13 +1,15 @@
-import type { OutputMode } from "@seqlane/output";
+import { z } from "zod";
+
+export const outputModeSchema = z.enum(["auto", "human", "ci"]);
+export type OutputMode = z.infer<typeof outputModeSchema>;
+
+export const outputModeOptions = outputModeSchema.options;
 
 export function parseOutputMode(value: string): OutputMode {
-  if (
-    value === "auto" ||
-    value === "human" ||
-    value === "ci" ||
-    value === "json"
-  ) {
-    return value;
-  }
-  throw new Error("--output must be auto, human, ci, or json");
+  const result = outputModeSchema.safeParse(value);
+  if (result.success) return result.data;
+  const lastOption = outputModeOptions[outputModeOptions.length - 1];
+  throw new Error(
+    `--output must be ${outputModeOptions.slice(0, -1).join(", ")}, or ${lastOption}`,
+  );
 }

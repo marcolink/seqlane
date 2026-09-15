@@ -20,10 +20,28 @@ import {
   runCompiledWorkflow,
   startCompiledWorkflow,
 } from "../../index.js";
+import { parseValidationResult } from "./validation-results.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 
 const schema = <T>(): SeqlaneSchema<T> => z.any() as SeqlaneSchema<T>;
+
+describe("validation result error classification", () => {
+  it("classifies malformed evidence by stable issue code and path", () => {
+    expect(() =>
+      parseValidationResult({
+        success: true,
+        evidence: new Date(),
+      }),
+    ).toThrow("Validation evidence must be JSON-safe");
+  });
+
+  it("classifies an empty failed issue list by its stable issues path", () => {
+    expect(() => parseValidationResult({ success: false, issues: [] })).toThrow(
+      "A failed validation result must contain at least one issue",
+    );
+  });
+});
 
 function task(
   nodeId: string,

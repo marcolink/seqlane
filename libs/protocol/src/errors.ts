@@ -4,13 +4,41 @@ import type {
   SerializedValidationFailure,
   SerializeSeqlaneErrorOptions,
 } from "./contracts.js";
-import {
-  hasNonEmptyString,
-  isSeqlaneErrorCategory,
-  isValidationIssue,
-} from "./validation.js";
+import { seqlaneErrorMetadataSchema } from "./validation.js";
+import { z } from "zod";
 
-function safeErrorMessage(value: unknown): string {
+function validationMetadata(
+  category: SeqlaneErrorCategory,
+  metadata: z.output<typeof seqlaneErrorMetadataSchema>,
+  options: SerializeSeqlaneErrorOptions,
+): SerializedValidationFailure | undefined {
+  if (
+    category !== "ValidationError" ||
+    metadata.nodeId === undefined ||
+    metadata.sourceId === undefined ||
+    metadata.issues === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    validationNodeId: metadata.nodeId,
+    sourceId: metadata.sourceId,
+    issues: metadata.issues,
+    ...(options.validationEvidence === undefined
+      ? {}
+      : { evidence: options.validationEvidence }),
+  };
+}
+
+/** Return a stable message for an arbitrary thrown value. */
+export function safeErrorMessage(value: unknown): string {
+  if (value instanceof Error) {
+    try {
+      return safeErrorMessage(value.message);
+    } catch {
+      return "Unknown Seqlane error";
+    }
+  }
   if (typeof value === "string") return value;
   try {
     return String(value);
@@ -31,30 +59,11 @@ export function serializeSeqlaneError(
   try {
     if (cause instanceof Error) {
       message = safeErrorMessage(cause.message);
-      const error = cause as Error & {
-        readonly category?: unknown;
-        readonly taskId?: unknown;
-        readonly nodeId?: unknown;
-        readonly sourceId?: unknown;
-        readonly issues?: unknown;
-      };
-      if (isSeqlaneErrorCategory(error.category)) category = error.category;
-      if (hasNonEmptyString(error.taskId)) taskId = error.taskId;
-      if (
-        category === "ValidationError" &&
-        hasNonEmptyString(error.nodeId) &&
-        hasNonEmptyString(error.sourceId) &&
-        Array.isArray(error.issues) &&
-        error.issues.every(isValidationIssue)
-      ) {
-        validation = {
-          validationNodeId: error.nodeId,
-          sourceId: error.sourceId,
-          issues: error.issues,
-          ...(options.validationEvidence === undefined
-            ? {}
-            : { evidence: options.validationEvidence }),
-        };
+      const metadata = seqlaneErrorMetadataSchema.safeParse(cause);
+      if (metadata.success) {
+        category = metadata.data.category ?? category;
+        taskId = metadata.data.taskId;
+        validation = validationMetadata(category, metadata.data, options);
       }
     } else {
       message = safeErrorMessage(cause);

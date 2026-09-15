@@ -1,4 +1,4 @@
-import { isPlainRecord } from "@seqlane/core";
+import { validationResultSchema } from "@seqlane/core";
 import type {
   SeqlaneFailureDisposition,
   SeqlaneDisplayValue,
@@ -10,7 +10,6 @@ import type {
   SerializedSeqlaneError,
   SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
-import { isValidationIssue } from "@seqlane/protocol";
 
 export type OutputEvent = SeqlaneExecutionEvent;
 
@@ -235,27 +234,22 @@ function projectValidationResult(
   display: SeqlaneDisplayValue,
   current: HumanValidationState,
 ): HumanValidationState {
-  if (display.state !== "present" || !isPlainRecord(display.value)) {
+  if (display.state !== "present") {
     return { ...current, verdict: "unknown", issues: [], evidence: undefined };
   }
-  const success = display.value.success;
-  const issues = display.value.issues;
-  if (
-    typeof success !== "boolean" ||
-    (success === false &&
-      (!Array.isArray(issues) || !issues.every(isValidationIssue)))
-  ) {
+  const parsed = validationResultSchema.safeParse(display.value);
+  if (!parsed.success) {
     return { ...current, verdict: "unknown", issues: [], evidence: undefined };
   }
-  const evidence = display.value.evidence;
+  const { data } = parsed;
   return {
     ...current,
-    verdict: success ? "passed" : "failed",
-    issues: success ? [] : (issues as HumanValidationState["issues"]),
-    ...(evidence === undefined
+    verdict: data.success ? "passed" : "failed",
+    issues: data.success ? [] : data.issues,
+    ...(data.evidence === undefined
       ? { evidence: undefined }
-      : { evidence: { state: "present", value: evidence } }),
-    continued: !success && current.sourceType === "validation-gate",
+      : { evidence: { state: "present", value: data.evidence } }),
+    continued: !data.success && current.sourceType === "validation-gate",
   };
 }
 

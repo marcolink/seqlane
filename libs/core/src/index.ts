@@ -24,6 +24,10 @@ export * from "./builder.js";
 export * from "./errors.js";
 export * from "./events.js";
 export * from "./json.js";
+export {
+  validationIssueSchema,
+  validationResultSchema,
+} from "./validation-results.js";
 export * from "./workflow-descriptor.js";
 export { isAuthoredWorkflow } from "./workflow-internal.js";
 export { modelSelectionSchema } from "./models/model-ref.js";
