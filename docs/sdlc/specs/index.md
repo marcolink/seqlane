@@ -16,7 +16,7 @@
 | [spec.opencode-executor-integration](./2026-09-02-opencode-executor-integration.md) | OpenCode Executor Integration | superseded | 2026-09-02 | core |
 | [spec.runtime-resolved-execution-profiles](./2026-09-02-runtime-resolved-execution-profiles.md) | Runtime-Resolved Agent Profiles | draft | 2026-09-02 | core |
 | [spec.semantic-validation-gates](./2026-09-02-semantic-validation-gates.md) | Semantic Validation Gates and Evaluators | active | 2026-09-02 | core |
-| [spec.seqlane-execution-output-package](./2026-09-02-seqlane-execution-output-package.md) | Seqlane Execution Output Package | active | 2026-09-02 | core |
+| [spec.seqlane-execution-output-package](./2026-09-02-seqlane-execution-output-package.md) | Seqlane Execution Output Package | superseded | 2026-09-02 | core |
 | [spec.seqlane-plan-ir-typed-dataflow](./2026-09-02-seqlane-plan-ir-typed-dataflow.md) | Seqlane Plan IR and Typed Dataflow | superseded | 2026-09-02 | core |
 | [spec.session-checkpoint-reuse-and-branching](./2026-09-02-session-checkpoint-reuse-and-branching.md) | Session Checkpoint Reuse and Branching | active | 2026-09-02 | core |
 | [spec.studio-vite-development-and-isolated-replay](./2026-09-02-studio-vite-development-and-isolated-replay.md) | Studio Vite Development and Isolated Replay | superseded | 2026-09-02 | core |
@@ -40,3 +40,5 @@
 | [spec.codex-app-server-adapter](./2026-09-12-codex-app-server-adapter.md) | Codex App-Server Adapter | draft | 2026-09-12 | core |
 | [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md) | Incremental Pull Request Review Scope | active | 2026-09-13 | core |
 | [spec.fluent-task-until-repeats](./2026-09-14-fluent-task-until-repeats.md) | Fluent Task-Until Repeats | active | 2026-09-14 | core |
+| [spec.run-machine-output](./2026-09-15-run-machine-output.md) | Run Machine Output and Command Errors | active | 2026-09-15 | core |
+| [spec.run-terminal-rendering](./2026-09-15-run-terminal-rendering.md) | Run Terminal Rendering | active | 2026-09-15 | core |

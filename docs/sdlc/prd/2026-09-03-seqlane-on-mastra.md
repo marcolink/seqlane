@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-15
 upstream:
   - brd.seqlane
 supersedes:
@@ -113,9 +113,32 @@ Migration verification uses representative agent and deterministic-task fixtures
 ### Operator experience
 
 - The Seqlane CLI remains the stable entry point for discovery, planning, execution, progress, cancellation, and final results.
+- An interactive `seqlane run` shows live nested workflow progress, details for
+  the selected work, and the total run elapsed time.
+- A CI `seqlane run` writes permanent progress lines and does not require a
+  terminal input device.
+- A final-result `seqlane run` writes one machine-readable result. It writes no
+  progress output.
+- Users can select a run output mode explicitly. The CLI selects a safe default
+  from the terminal and CI environment.
 - `seqlane studio` launches the standard Mastra Community Studio against the Seqlane/Mastra runtime.
 - Seqlane does not maintain a dedicated Studio application.
 - Logs, traces, and persisted run state should be inspectable through Mastra's supported surfaces without making Mastra concepts necessary for ordinary workflow authoring.
+
+#### requirement-run-output-quality
+
+The run view is a primary product surface. A user must understand these facts
+without reading raw logs:
+
+- which workflow is running
+- how long the complete run has taken
+- which work is active, complete, waiting, retrying, failed, or skipped
+- where selected work exists in nested workflow containment
+- why work waits, retries, fails, or stops
+- what final result the workflow returned
+
+Parallel activity and deep nesting must remain easy to scan. Color and motion
+can add meaning, but the interface must remain clear without either feature.
 
 ### Migration and compatibility
 
@@ -157,6 +180,7 @@ Migration verification uses representative agent and deterministic-task fixtures
 | Session variants | Isolated, shared, branch; no merge |
 | Workspace authority | Ordering/compatibility policy, not tool permissions |
 | Operational UI | Upstream Mastra Community Studio |
+| Run output | Interactive terminal, append-only CI, or final machine result |
 | Dedicated Seqlane Studio | Delete |
 | Enterprise/hosted dependency | None |
 | Migration bias | Delete over adapt |

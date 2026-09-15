@@ -5,9 +5,9 @@ status: proposed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-09-15
 upstream:
-  - prd.seqlane
+  - prd.seqlane-on-mastra
 supersedes: []
 ---
 
@@ -246,17 +246,20 @@ There are no events that require a human response such as permission approval, u
 CLI output is a projection of structured Seqlane events. Terminal output must
 never become the canonical debugging model.
 
-The private `@seqlane/output` package owns event reduction and the
-human, CI, and JSON/NDJSON renderers. It consumes only validated Seqlane
-events and depends on `seqlane-core`; it does not own runner transport,
-execution, or process status.
+The private `@seqlane/tui` package owns event reduction and terminal
+presentation. It provides an interactive human renderer and an append-only CI
+renderer. It consumes only validated Seqlane events. It does not own runner
+transport, execution, process status, final-result serialization, or event
+recording.
 
-The CLI selects the renderer with `--output auto|human|ci|json`. Auto mode uses
-human output only for an interactive non-CI TTY; CI output is the fallback for
-CI and non-TTY execution. Human output may redraw through a TTY, while CI
-output is append-only and uses only bold ANSI styling for task lifecycle lines.
-It emits no carriage-return control sequences.
-JSON mode reserves stdout for one machine-readable event record per line.
+The CLI selects `--output auto|human|ci`. Auto mode uses human output only for
+an interactive non-CI terminal. CI output is the fallback for CI and non-TTY
+execution. Human output can redraw and accept navigation input. CI output is
+append-only and accepts no terminal input.
+
+The native `--json` flag bypasses terminal rendering. It reserves stdout for
+one final, validated run result. Canonical event recording remains a separate
+`--record` function. A JSON event stream is not a final run result.
 
 The CLI supplies terminal capabilities, output sinks, optional
 `GITHUB_STEP_SUMMARY` integration, and resize updates. Renderer write or
@@ -330,7 +333,7 @@ Seqlane observability contracts and source workflows must not depend on them.
 
 ## 24. MVP Boundary
 
-The adr.dedicated-seqlane-output-package output implementation uses a validated runner event subset sufficient
+The adr.run-terminal-presentation-boundary implementation uses a validated runner event subset sufficient
 for topology-aware CLI progress and failure reporting:
 
 ```ts
@@ -353,11 +356,14 @@ type RunnerEvent =
 
 Runner-emitted events carry schema version, event ID, sequence, and UTC
 timestamp metadata. Output activity is bounded and redacted before it crosses
-the runner boundary. `@seqlane/output` consumes this stream; the
-CLI remains responsible for selecting a renderer and preserving exit status.
+the runner boundary. `@seqlane/tui` consumes this stream for terminal output.
+The CLI owns final-result serialization, renderer selection, and exit status.
 
 The MVP does not require persistent RunRecord, local visual inspector, OTEL export, timeline UI, replay, diff, persistent artifacts, or full OpenCode event capture.
 
 ## Traceability
 
-- [prd.seqlane: Seqlane](../prd/2026-09-02-seqlane.md)
+- [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
+- [adr.run-terminal-presentation-boundary: Separate Run Terminal Presentation from Machine Results](../adrs/2026-09-15-run-terminal-presentation-boundary.md)
+- [spec.run-terminal-rendering: Run Terminal Rendering](../specs/2026-09-15-run-terminal-rendering.md)
+- [spec.run-machine-output: Run Machine Output and Command Errors](../specs/2026-09-15-run-machine-output.md)

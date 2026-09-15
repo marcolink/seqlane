@@ -1,17 +1,21 @@
 ---
 id: spec.seqlane-execution-output-package
 title: Seqlane Execution Output Package
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-13
+updated: 2026-09-15
 upstream:
   - adr.dedicated-seqlane-output-package
 supersedes: []
 ---
 
 # Seqlane Execution Output Package
+
+> Superseded by
+> [spec.run-terminal-rendering](./2026-09-15-run-terminal-rendering.md) and
+> [spec.run-machine-output](./2026-09-15-run-machine-output.md).
 
 > Migrated from legacy technical specification `TS-011`.
 

@@ -9,7 +9,7 @@
 | [adr.work-run-invocation-identity-model](./2026-09-02-work-run-invocation-identity-model.md) | Distinguish Work, Run, and Invocation Identity | accepted | 2026-09-02 | core |
 | [adr.dedicated-runner-process](./2026-09-02-dedicated-runner-process.md) | Execute Each Seqlane Run in a Dedicated Node Process | superseded | 2026-09-02 | core |
 | [adr.opencode-executor-integration](./2026-09-02-opencode-executor-integration.md) | Integrate OpenCode Through a Seqlane-Owned Executor Boundary | accepted | 2026-09-02 | core |
-| [adr.dedicated-seqlane-output-package](./2026-09-02-dedicated-seqlane-output-package.md) | Isolate Seqlane Execution Output in a Dedicated Package | accepted | 2026-09-02 | core |
+| [adr.dedicated-seqlane-output-package](./2026-09-02-dedicated-seqlane-output-package.md) | Isolate Seqlane Execution Output in a Dedicated Package | superseded | 2026-09-02 | core |
 | [adr.executor-neutral-workflow-authoring](./2026-09-02-executor-neutral-workflow-authoring.md) | Keep Workflow Authoring and Plans Executor-Neutral | superseded | 2026-09-02 | core |
 | [adr.studio-vite-development-and-isolated-replay](./2026-09-02-studio-vite-development-and-isolated-replay.md) | Make Studio a Vite React App with Isolated Replay | superseded | 2026-09-02 | core |
 | [adr.autonomous-non-interactive-execution](./2026-09-02-autonomous-non-interactive-execution.md) | Make V1 Workflow Execution Autonomous and Non-Interactive | accepted | 2026-09-02 | core |
@@ -34,3 +34,4 @@
 | [adr.runner-built-action-bundles](./2026-09-11-runner-built-action-bundles.md) | Build Repository-Local GitHub Actions on the Runner | accepted | 2026-09-11 | core |
 | [adr.use-runner-local-nx-cache](./2026-09-11-use-runner-local-nx-cache.md) | Use Runner-Local Nx Cache | accepted | 2026-09-11 | core |
 | [adr.separate-seqlane-protocol-package](./2026-09-13-separate-seqlane-protocol-package.md) | Separate Seqlane Protocol Contracts from Core Authoring | accepted | 2026-09-13 | core |
+| [adr.run-terminal-presentation-boundary](./2026-09-15-run-terminal-presentation-boundary.md) | Separate Run Terminal Presentation from Machine Results | accepted | 2026-09-15 | core |

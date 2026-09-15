@@ -1,17 +1,20 @@
 ---
 id: adr.dedicated-seqlane-output-package
 title: Isolate Seqlane Execution Output in a Dedicated Package
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-09-15
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
 ---
 
 # Isolate Seqlane Execution Output in a Dedicated Package
+
+> Superseded by
+> [adr.run-terminal-presentation-boundary](./2026-09-15-run-terminal-presentation-boundary.md).
 
 ## Context
 
