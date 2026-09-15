@@ -1,10 +1,11 @@
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import {
-  getHumanVisibleRows,
-  reduceHumanEvents,
-  setHumanNodeExpanded,
-} from "./event-reducer.js";
+  getRunVisibleRows,
+  reduceRunEvents,
+  setRunNodeExpanded,
+  setRunNodeFocused,
+} from "./run-view-model.js";
 
 const run = {
   workId: "work-1",
@@ -66,8 +67,35 @@ function terminal(
 }
 
 describe("human execution view model", () => {
+  it("keeps presentation state separate from execution nodes", () => {
+    const view = reduceRunEvents([
+      created("workflow", "Workflow", 0, { kind: "workflow" }),
+      created("task", "Task", 0, { parentInvocationId: "workflow" }),
+    ]);
+    const executionNode = view.nodes.get("workflow");
+
+    expect(executionNode).toBeDefined();
+    expect(executionNode).not.toHaveProperty("presentation");
+    expect(view.presentation.get("workflow")).toEqual({
+      isExpanded: true,
+      isFocused: false,
+    });
+
+    const collapsed = setRunNodeExpanded(view, "workflow", false);
+    const focused = setRunNodeFocused(collapsed, "task");
+    expect(focused.nodes.get("workflow")).toBe(executionNode);
+    expect(focused.presentation.get("workflow")).toEqual({
+      isExpanded: false,
+      isFocused: false,
+    });
+    expect(focused.presentation.get("task")).toEqual({
+      isExpanded: false,
+      isFocused: true,
+    });
+  });
+
   it("creates stable rows before execution starts", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("root", "Root", 0, { kind: "workflow" }),
       created("child", "Child", 0, {
         kind: "workflow",
@@ -77,7 +105,7 @@ describe("human execution view model", () => {
     ]);
 
     expect([...view.nodes.keys()]).toEqual(["root", "child", "task-a"]);
-    expect(getHumanVisibleRows(view).map(({ node }) => node.label)).toEqual([
+    expect(getRunVisibleRows(view).map(({ node }) => node.label)).toEqual([
       "Root",
       "Child",
       "Task A",
@@ -85,7 +113,7 @@ describe("human execution view model", () => {
   });
 
   it("keeps nested containment separate from dependencies", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("root", "Root", 0, { kind: "workflow" }),
       created("left", "Left", 0, { parentInvocationId: "root" }),
       created("right", "Right", 1, {
@@ -94,7 +122,7 @@ describe("human execution view model", () => {
       }),
     ]);
 
-    const rows = getHumanVisibleRows(view);
+    const rows = getRunVisibleRows(view);
     expect(rows.map(({ node, depth }) => [node.invocationId, depth])).toEqual([
       ["root", 0],
       ["left", 1],
@@ -105,7 +133,7 @@ describe("human execution view model", () => {
   });
 
   it("preserves sibling order when parallel events arrive interleaved", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("a", "A", 0),
       created("b", "B", 1),
       started("b", "B"),
@@ -113,14 +141,14 @@ describe("human execution view model", () => {
     ]);
 
     expect(
-      getHumanVisibleRows(view).map(({ node }) => node.invocationId),
+      getRunVisibleRows(view).map(({ node }) => node.invocationId),
     ).toEqual(["a", "b"]);
     expect(view.nodes.get("a")?.state).toBe("active");
     expect(view.nodes.get("b")?.state).toBe("active");
   });
 
   it("keeps loop children grouped by iteration in stable order", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("loop", "repeat:1", 0, { kind: "loop" }),
       created("iteration-2-b", "Body B", 3, {
         kind: "task",
@@ -142,7 +170,7 @@ describe("human execution view model", () => {
     ]);
 
     expect(
-      getHumanVisibleRows(view).map(({ node }) => node.invocationId),
+      getRunVisibleRows(view).map(({ node }) => node.invocationId),
     ).toEqual([
       "loop",
       "iteration-1-a",
@@ -157,7 +185,7 @@ describe("human execution view model", () => {
   });
 
   it("explains dependency waiting with labels", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("a", "Prepare", 0),
       created("b", "Build", 1, { dependencyIds: ["a", "missing"] }),
       {
@@ -179,7 +207,7 @@ describe("human execution view model", () => {
   });
 
   it("aggregates completed descendants and supports collapse", () => {
-    const expanded = reduceHumanEvents([
+    const expanded = reduceRunEvents([
       created("workflow", "Workflow", 0, { kind: "workflow" }),
       created("a", "A", 0, { parentInvocationId: "workflow" }),
       created("b", "B", 1, { parentInvocationId: "workflow" }),
@@ -195,14 +223,14 @@ describe("human execution view model", () => {
       failed: 0,
     });
 
-    const collapsed = setHumanNodeExpanded(expanded, "workflow", false);
-    expect(
-      getHumanVisibleRows(collapsed).map(({ node }) => node.label),
-    ).toEqual(["Workflow"]);
+    const collapsed = setRunNodeExpanded(expanded, "workflow", false);
+    expect(getRunVisibleRows(collapsed).map(({ node }) => node.label)).toEqual([
+      "Workflow",
+    ]);
   });
 
   it("keeps an invocation succeeded after workspace release progress", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("task", "Task", 0),
       started("task", "Task"),
       terminal("task", "invocation.succeeded"),
@@ -220,7 +248,7 @@ describe("human execution view model", () => {
   });
 
   it("keeps sibling state unchanged when one task fails", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("a", "A", 0),
       created("b", "B", 1),
       started("a", "A"),
@@ -246,7 +274,7 @@ describe("human execution view model", () => {
   });
 
   it("retains retry state and persistent output", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("a", "A", 0),
       started("a", "A"),
       {
@@ -289,7 +317,7 @@ describe("human execution view model", () => {
   });
 
   it("retains output summaries and execution metrics", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("a", "A", 0),
       {
         type: "invocation.output",
@@ -323,7 +351,7 @@ describe("human execution view model", () => {
   });
 
   it("preserves skip and cancellation reasons", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("a", "A", 0),
       created("b", "B", 1),
       {
@@ -352,7 +380,7 @@ describe("human execution view model", () => {
   });
 
   it("updates labels without changing row identity or order", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("a", "Initial label", 0),
       created("b", "Second", 1),
       {
@@ -367,12 +395,12 @@ describe("human execution view model", () => {
 
     expect(view.nodes.get("a")?.label).toBe("Updated label");
     expect(
-      getHumanVisibleRows(view).map(({ node }) => node.invocationId),
+      getRunVisibleRows(view).map(({ node }) => node.invocationId),
     ).toEqual(["a", "b"]);
   });
 
   it("uses event timestamps for deterministic elapsed time", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       {
         ...created("a", "A", 0),
         metadata: {
@@ -406,7 +434,7 @@ describe("human execution view model", () => {
   });
 
   it("projects a failed repeat postcondition without failing its invocation", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       {
         type: "invocation.created",
         ...run,
@@ -465,7 +493,7 @@ describe("human execution view model", () => {
     { success: false, issues: [] },
     { success: false, issues: [{ code: 42, message: "not a string" }] },
   ])("ignores malformed validation results", (value) => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       {
         type: "invocation.created",
         ...run,
@@ -493,7 +521,7 @@ describe("human execution view model", () => {
   });
 
   it("projects normal gate failure details and bounded evidence", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       {
         type: "invocation.created",
         ...run,
@@ -536,7 +564,7 @@ describe("human execution view model", () => {
   });
 
   it("shows the latest tool activity on its invocation row", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("a", "A", 0),
       {
         type: "invocation.activity",
@@ -568,7 +596,7 @@ describe("human execution view model", () => {
   });
 
   it("keeps skill usage separate from tool usage", () => {
-    const view = reduceHumanEvents([
+    const view = reduceRunEvents([
       created("a", "A", 0),
       {
         type: "invocation.activity",

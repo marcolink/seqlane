@@ -239,15 +239,15 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:../../libs/core
-      '@seqlane/output':
-        specifier: workspace:*
-        version: link:../../libs/output
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../../libs/protocol
       '@seqlane/runtime':
         specifier: workspace:*
         version: link:../../libs/runtime
+      '@seqlane/tui':
+        specifier: workspace:*
+        version: link:../../libs/tui
       mastra:
         specifier: 1.27.3
         version: 1.27.3(@hono/node-server@2.1.1(hono@4.13.5))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4)
@@ -360,15 +360,6 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
 
-  libs/output:
-    dependencies:
-      '@seqlane/core':
-        specifier: workspace:*
-        version: link:../core
-      '@seqlane/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-
   libs/protocol:
     dependencies:
       '@seqlane/core':
@@ -438,6 +429,15 @@ importers:
       '@seqlane/fixtures':
         specifier: workspace:*
         version: link:../fixtures
+
+  libs/tui:
+    dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../core
+      '@seqlane/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
 packages:
 

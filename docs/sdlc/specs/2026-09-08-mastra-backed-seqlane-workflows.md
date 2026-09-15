@@ -578,7 +578,7 @@ mapped, focused Nx targets.
 
 Every implementation slice starts with `pnpm test:mapping`. Focused checks use
 the existing Nx targets, including `core`, `protocol`,
-`seqlane-runtime`, `seqlane-output`, `seqlane-opencode`, `seqlane-cli`, and
+`seqlane-runtime`, `tui`, `seqlane-opencode`, `seqlane-cli`, and
 `seqlane-studio`.
 
 The Mastra cutover and final event deletion also run `pnpm run test`,

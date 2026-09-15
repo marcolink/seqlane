@@ -1,13 +1,13 @@
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
-  createHumanViewModel,
-  getHumanVisibleRows,
-  reduceHumanViewModel,
-  setHumanNodeExpanded,
-  type HumanExecutionViewModel,
-  type HumanNodeState,
-  type HumanVisibleRow,
-} from "./event-reducer.js";
+  createRunViewModel,
+  getRunVisibleRows,
+  reduceRunViewModel,
+  setRunNodeExpanded,
+  type RunViewModel,
+  type RunNodeState,
+  type RunVisibleRow,
+} from "./run-view-model.js";
 import type {
   ExecutionRenderer,
   OutputCapabilities,
@@ -41,7 +41,7 @@ function clearStaleLines(lineCount: number): string {
 }
 
 function statusSymbol(
-  state: HumanNodeState,
+  state: RunNodeState,
   supportsUnicode: boolean,
   spinnerFrame: number,
 ): string {
@@ -86,7 +86,7 @@ function statusSymbol(
   }
 }
 
-function statusColor(state: HumanNodeState): string {
+function statusColor(state: RunNodeState): string {
   if (state === "succeeded") return "\u001b[32m";
   if (state === "failed" || state === "cancelled") return "\u001b[31m";
   if (state === "active") return "\u001b[36m";
@@ -142,7 +142,7 @@ function formatSessionUi(
 }
 
 function renderRow(
-  row: HumanVisibleRow,
+  row: RunVisibleRow,
   width: number,
   supportsUnicode: boolean,
   supportsAnsi: boolean,
@@ -150,11 +150,11 @@ function renderRow(
   spinnerFrame: number,
   sessionUiByInvocation: ReadonlyMap<string, string>,
 ): string[] {
-  const { node, depth, hasChildren } = row;
+  const { node, depth, hasChildren, isExpanded } = row;
   const indentation = "  ".repeat(depth);
   const disclosure =
     hasChildren && (node.kind === "workflow" || node.kind === "loop")
-      ? node.presentation.isExpanded
+      ? isExpanded
         ? "▼ "
         : "▶ "
       : "";
@@ -314,7 +314,7 @@ function renderRow(
 }
 
 function humanFrameLines(
-  view: HumanExecutionViewModel,
+  view: RunViewModel,
   capabilities: Pick<
     OutputCapabilities,
     "supportsAnsi" | "supportsUnicode" | "width"
@@ -323,7 +323,7 @@ function humanFrameLines(
   spinnerFrame: number,
   sessionUiByInvocation: ReadonlyMap<string, string>,
 ): string[] {
-  const lines = getHumanVisibleRows(view).flatMap((row) =>
+  const lines = getRunVisibleRows(view).flatMap((row) =>
     renderRow(
       row,
       Math.max(1, capabilities.width),
@@ -351,7 +351,7 @@ function humanFrameLines(
 }
 
 export function renderHumanFrame(
-  view: HumanExecutionViewModel,
+  view: RunViewModel,
   capabilities: Pick<
     OutputCapabilities,
     "supportsAnsi" | "supportsUnicode" | "width"
@@ -384,7 +384,7 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   readonly mode = "human" as const;
   private capabilities: OutputCapabilities;
   private readonly options: HumanTTYRendererOptions;
-  private view: HumanExecutionViewModel;
+  private view: RunViewModel;
   private retryTimer: ReturnType<typeof setInterval> | undefined;
   private previousFrameLineCount = 0;
   private spinnerFrame = 0;
@@ -401,7 +401,7 @@ export class HumanTTYRenderer implements ExecutionRenderer {
     }
     this.capabilities = capabilities;
     this.options = options;
-    this.view = createHumanViewModel({ now: options.now });
+    this.view = createRunViewModel({ now: options.now });
     if ((options.retryTickMs ?? 1000) > 0) {
       this.retryTimer = setInterval(() => {
         if (!this.finished) this.render();
@@ -416,13 +416,13 @@ export class HumanTTYRenderer implements ExecutionRenderer {
     }
   }
 
-  get currentView(): HumanExecutionViewModel {
+  get currentView(): RunViewModel {
     return this.view;
   }
 
   handle(event: SeqlaneExecutionEvent): void {
     if (this.finished) return;
-    this.view = reduceHumanViewModel(this.view, event);
+    this.view = reduceRunViewModel(this.view, event);
     if (event.type === "invocation.output" && event.channel === "run") {
       this.writeDiagnostic("[" + event.invocationId + "] " + event.content);
     }
@@ -439,7 +439,7 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   }
 
   setExpanded(invocationId: string, isExpanded: boolean): void {
-    this.view = setHumanNodeExpanded(this.view, invocationId, isExpanded);
+    this.view = setRunNodeExpanded(this.view, invocationId, isExpanded);
     this.render();
   }
 

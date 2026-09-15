@@ -1,14 +1,14 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "output",
+  "name": "tui",
   "projectType": "library",
-  "sourceRoot": "libs/output/src",
+  "sourceRoot": "libs/tui/src",
   "targets": {
     "typecheck": {
       "dependsOn": ["^build"],
       "executor": "nx:run-commands",
       "options": {
-        "cwd": "libs/output",
+        "cwd": "libs/tui",
         "command": "tsc --build tsconfig.json --emitDeclarationOnly"
       }
     },
@@ -16,7 +16,7 @@
       "dependsOn": ["^build"],
       "executor": "nx:run-commands",
       "options": {
-        "cwd": "libs/output",
+        "cwd": "libs/tui",
         "command": "tsc --build tsconfig.json"
       },
       "outputs": ["{projectRoot}/dist"]
@@ -24,7 +24,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "cwd": "libs/output",
+        "cwd": "libs/tui",
         "command": "vitest run"
       }
     }

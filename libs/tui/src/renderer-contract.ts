@@ -50,14 +50,6 @@ export type ExecutionRendererFactory = (
   capabilities: OutputCapabilities,
 ) => ExecutionRenderer;
 
-export function createNoopRenderer(mode: RendererMode): ExecutionRenderer {
-  return {
-    mode,
-    handle: () => undefined,
-    finish: async () => undefined,
-  };
-}
-
 export function createExecutionRenderer(
   mode: RendererMode,
   capabilities: OutputCapabilities,

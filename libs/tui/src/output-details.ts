@@ -3,7 +3,7 @@ import type {
   SeqlaneInvocationMetrics,
   SeqlaneOutputSummary,
 } from "@seqlane/core";
-import type { HumanValidationState } from "./event-reducer.js";
+import type { RunValidationState } from "./run-view-model.js";
 
 const ANSI_ESCAPE_PATTERN = new RegExp(
   String.raw`\u001B(?:\][^\u0007]*(?:\u0007|\u001B\\)|\[[0-?]*[ -/]*[@-~])`,
@@ -38,7 +38,7 @@ function formatEvidence(value: SeqlaneDisplayValue): string {
   }
 }
 
-function formatIssues(validation: HumanValidationState): string {
+function formatIssues(validation: RunValidationState): string {
   if (validation.issues.length === 0) return "none";
   return validation.issues
     .map(
@@ -52,7 +52,7 @@ function formatIssues(validation: HumanValidationState): string {
 }
 
 export function formatHumanValidationDetails(
-  validation: HumanValidationState,
+  validation: RunValidationState,
 ): readonly string[] {
   const identity =
     "validation " +
@@ -73,7 +73,7 @@ export function formatHumanValidationDetails(
 }
 
 export function formatCIValidationDetails(
-  validation: HumanValidationState,
+  validation: RunValidationState,
 ): string {
   const evidence =
     validation.evidence === undefined

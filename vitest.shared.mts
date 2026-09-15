@@ -65,8 +65,8 @@ export const workspaceAliases = [
     replacement: resolve(workspaceRoot, "libs/opencode/src/index.ts"),
   },
   {
-    find: "@seqlane/output",
-    replacement: resolve(workspaceRoot, "libs/output/src/index.ts"),
+    find: "@seqlane/tui",
+    replacement: resolve(workspaceRoot, "libs/tui/src/index.ts"),
   },
   {
     find: "@seqlane/runtime/workflows/resolve-merge-conflicts",

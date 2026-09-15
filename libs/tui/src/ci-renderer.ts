@@ -4,12 +4,12 @@ import type {
   SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import {
-  createHumanViewModel,
-  reduceHumanViewModel,
-  type HumanAggregate,
-  type HumanExecutionNode,
-  type HumanExecutionViewModel,
-} from "./event-reducer.js";
+  createRunViewModel,
+  reduceRunViewModel,
+  type RunAggregate,
+  type RunNode,
+  type RunViewModel,
+} from "./run-view-model.js";
 import type {
   ExecutionRenderer,
   OutputCapabilities,
@@ -32,10 +32,10 @@ export interface CIRendererOptions {
 
 export interface CISummary {
   readonly runId?: string;
-  readonly outcome: HumanExecutionViewModel["runState"];
+  readonly outcome: RunViewModel["runState"];
   readonly durationMs?: number;
   readonly totalCost: number;
-  readonly counts: HumanAggregate;
+  readonly counts: RunAggregate;
   readonly runError?: {
     readonly category: string;
     readonly message: string;
@@ -43,7 +43,7 @@ export interface CISummary {
   readonly taskDurations: readonly {
     readonly invocationId: string;
     readonly label: string;
-    readonly state: HumanExecutionNode["state"];
+    readonly state: RunNode["state"];
     readonly durationMs: number;
     readonly cost?: number;
   }[];
@@ -56,7 +56,7 @@ export interface CISummary {
   }[];
 }
 
-const EMPTY_AGGREGATE: HumanAggregate = {
+const EMPTY_AGGREGATE: RunAggregate = {
   total: 0,
   queued: 0,
   waiting: 0,
@@ -83,7 +83,7 @@ function eventTime(event: SeqlaneExecutionEvent, now: () => Date): string {
   return event.metadata?.occurredAt ?? now().toISOString();
 }
 
-function aggregateView(view: HumanExecutionViewModel): HumanAggregate {
+function aggregateView(view: RunViewModel): RunAggregate {
   return [...view.nodes.values()].reduce(
     (aggregate, node) => ({
       total: aggregate.total + 1,
@@ -204,7 +204,7 @@ function annotationLevel(disposition: string): "error" | "warning" {
     : "error";
 }
 
-function isTerminalNode(node: HumanExecutionNode | undefined): boolean {
+function isTerminalNode(node: RunNode | undefined): boolean {
   return (
     node?.state === "succeeded" ||
     node?.state === "failed" ||
@@ -218,7 +218,7 @@ export class CIRenderer implements ExecutionRenderer {
   private readonly capabilities: OutputCapabilities;
   private readonly options: CIRendererOptions;
   private readonly now: () => Date;
-  private view: HumanExecutionViewModel;
+  private view: RunViewModel;
   private runStartedAt: string | undefined;
   private runFinishedAt: string | undefined;
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
@@ -237,7 +237,7 @@ export class CIRenderer implements ExecutionRenderer {
       redactions: options.redactions ?? capabilities.redactions ?? [],
     };
     this.now = options.now ?? (() => new Date());
-    this.view = createHumanViewModel({ now: this.now });
+    this.view = createRunViewModel({ now: this.now });
   }
 
   get lastError(): unknown {
@@ -252,7 +252,7 @@ export class CIRenderer implements ExecutionRenderer {
     if (this.finished) return;
     const timestamp = eventTime(event, this.now);
     const previousView = this.view;
-    this.view = reduceHumanViewModel(this.view, event);
+    this.view = reduceRunViewModel(this.view, event);
     if (event.type === "run.started") {
       this.runStartedAt = timestamp;
       this.startHeartbeat();
@@ -345,8 +345,8 @@ export class CIRenderer implements ExecutionRenderer {
 
   private lineFor(
     event: SeqlaneExecutionEvent,
-    previousView: HumanExecutionViewModel,
-    view: HumanExecutionViewModel,
+    previousView: RunViewModel,
+    view: RunViewModel,
   ): string {
     switch (event.type) {
       case "run.started":
@@ -612,7 +612,7 @@ export class CIRenderer implements ExecutionRenderer {
   private invocationReasonLine(
     runId: string,
     invocationId: string,
-    view: HumanExecutionViewModel,
+    view: RunViewModel,
     state: "skipped" | "cancelled",
     reason: string | undefined,
   ): string {
@@ -631,7 +631,7 @@ export class CIRenderer implements ExecutionRenderer {
     );
   }
 
-  private invocationEndDetails(node: HumanExecutionNode | undefined): string {
+  private invocationEndDetails(node: RunNode | undefined): string {
     const details =
       node?.elapsedMs === undefined
         ? []
@@ -773,7 +773,7 @@ export class CIRenderer implements ExecutionRenderer {
 
   private writeAnnotation(
     event: SeqlaneExecutionEvent,
-    view: HumanExecutionViewModel,
+    view: RunViewModel,
   ): void {
     const sink = this.capabilities.githubActions?.annotations;
     if (sink === undefined) return;
