@@ -1,6 +1,9 @@
-import { Box } from "ink";
+import { Box, Text } from "ink";
 import type { RunViewModel } from "../run-view-model.js";
-import { getRunVisibleRows } from "../run-view-model.js";
+import {
+  getRunProjectionLimitNotice,
+  getRunVisibleRows,
+} from "../run-view-model.js";
 import type { HumanDisplayCapabilities } from "./format.js";
 import { HumanTreeRow } from "./tree-row.js";
 
@@ -15,6 +18,7 @@ export function HumanTree({
   capabilities,
   spinnerFrame,
 }: HumanTreeProps): React.JSX.Element {
+  const limitNotice = getRunProjectionLimitNotice(view);
   return (
     <Box flexDirection="column">
       {getRunVisibleRows(view).map((row) => (
@@ -28,6 +32,9 @@ export function HumanTree({
           }
         />
       ))}
+      {limitNotice === undefined ? null : (
+        <Text color="yellow">{limitNotice}</Text>
+      )}
     </Box>
   );
 }

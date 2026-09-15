@@ -4,6 +4,7 @@ import {
   collapseOrFocusParent,
   expandOrFocusChild,
   focusNextFailedRunNode,
+  getRunProjectionLimitNotice,
   getRunVisibleRows,
   moveRunNodeFocus,
   reduceRunEvents,
@@ -71,6 +72,39 @@ function terminal(
 }
 
 describe("human execution view model", () => {
+  it("bounds nodes, dependency edges, and detail text with visible markers", () => {
+    const events = [
+      created("root", "Root", 0, {
+        kind: "workflow",
+        dependencyIds: ["a", "b"],
+      }),
+      created("omitted", "Omitted", 1),
+      {
+        type: "invocation.output" as const,
+        ...run,
+        invocationId: "root",
+        policy: "persistent" as const,
+        channel: "task" as const,
+        content: "😀 a payload that cannot fit",
+      },
+    ];
+    const view = reduceRunEvents(events, {
+      limits: {
+        nodes: 1,
+        dependencyEdges: 1,
+        nodeDetailBytes: 8,
+        runDetailBytes: 8,
+      },
+    });
+
+    expect(view.nodes.size).toBe(1);
+    expect(view.nodes.get("root")?.dependencyIds).toEqual(["a"]);
+    expect(getRunProjectionLimitNotice(view)).toContain("nodes=1 edges=1");
+    expect(view.nodes.get("root")?.output.persistent[0]).toContain(
+      "[truncated original_bytes=",
+    );
+  });
+
   it("keeps presentation state separate from execution nodes", () => {
     const view = reduceRunEvents([
       created("workflow", "Workflow", 0, { kind: "workflow" }),

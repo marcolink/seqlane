@@ -172,7 +172,7 @@ export async function renderReplayRecording(options: {
   readonly capabilities: OutputCapabilities;
   readonly terminal: Pick<
     NodeJS.WriteStream,
-    "on" | "removeListener" | "columns"
+    "on" | "removeListener" | "columns" | "rows"
   >;
 }): Promise<void> {
   const { recording, renderer, capabilities, terminal } = options;

@@ -242,7 +242,12 @@ export default class RunCommand extends SeqlaneCommand {
       });
     }
 
-    const capabilities = createOutputCapabilities();
+    let runnerClient: import("../runner-client.js").RunnerClient | undefined;
+    const baseCapabilities = createOutputCapabilities();
+    const capabilities = {
+      ...baseCapabilities,
+      onCancellationIntent: () => runnerClient?.cancel(),
+    };
     if (
       !jsonMode &&
       !flags.dry &&
@@ -258,7 +263,6 @@ export default class RunCommand extends SeqlaneCommand {
     let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
     let disconnectResize: () => void = () => undefined;
     let dispatcher: ReturnType<typeof createEventDispatcher> | undefined;
-    let runnerClient: import("../runner-client.js").RunnerClient | undefined;
     let operationalHostOwnsResources = false;
 
     try {

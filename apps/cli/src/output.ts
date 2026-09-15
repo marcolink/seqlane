@@ -9,6 +9,7 @@ import {
 import { appendFileSync } from "node:fs";
 
 export interface CliOutputStreams {
+  readonly stdin?: NodeJS.ReadStream;
   readonly stdout: NodeJS.WriteStream;
   readonly stderr: NodeJS.WriteStream;
   readonly env?: NodeJS.ProcessEnv;
@@ -79,8 +80,14 @@ export function createOutputCapabilities(
     supportsAnsi,
     supportsUnicode,
     width: Math.max(1, streams.stdout.columns ?? 80),
+    height: Math.max(1, streams.stdout.rows ?? 24),
     stdout: streamSink(streams.stdout),
     stderr: streamSink(streams.stderr),
+    terminal: {
+      stdin: streams.stdin ?? process.stdin,
+      stdout: streams.stdout,
+      stderr: streams.stderr,
+    },
     redactions: configuredRedactions(env),
     ...(summaryPath === undefined ? {} : { summary: summarySink(summaryPath) }),
     ...(isCIEnvironment(env)
@@ -103,7 +110,10 @@ export function createCliRenderer(
 
 export function connectTerminalResize(
   renderer: ExecutionRenderer,
-  streams: Pick<NodeJS.WriteStream, "on" | "removeListener" | "columns">,
+  streams: Pick<
+    NodeJS.WriteStream,
+    "on" | "removeListener" | "columns" | "rows"
+  >,
 ): () => void {
   if (
     renderer.mode !== "human" ||
@@ -114,12 +124,13 @@ export function connectTerminalResize(
   }
 
   const resizable = renderer as ExecutionRenderer & {
-    updateTerminal?: (update: { width?: number }) => void;
+    updateTerminal?: (update: { width?: number; height?: number }) => void;
   };
   if (resizable.updateTerminal === undefined) return () => undefined;
   const onResize = (): void => {
     resizable.updateTerminal?.({
       width: Math.max(1, streams.columns ?? 80),
+      height: Math.max(1, streams.rows ?? 24),
     });
   };
   streams.on("resize", onResize);

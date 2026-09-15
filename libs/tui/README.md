@@ -8,7 +8,9 @@ does not depend on a runtime adapter or executor.
 
 ## Renderer modes
 
-- `human` shows a terminal-friendly execution tree.
+- `human` shows an inline interactive execution tree. It supports keyboard
+  focus, expansion, failure navigation, bounded details, resize, no-color,
+  and ASCII terminal capabilities.
 - `ci` writes concise, append-only status and failure output for automation.
 
 The CLI selects these modes with `--output auto|human|ci`. Final run results
@@ -41,6 +43,10 @@ import { createExecutionRenderer, type OutputCapabilities } from "@seqlane/tui";
 Pass a renderer a declared `OutputCapabilities` value, call `handle` for each
 canonical execution event, and call `finish` after the run ends. Renderers
 accept only `@seqlane/protocol` values.
+
+Human renderers receive a cancellation intent only. The CLI supplies the
+existing cancellation operation; the terminal package does not call runtime
+APIs.
 
 The package root exposes the renderer factory and its consumer types. Concrete
 renderers and run-projection types stay private.

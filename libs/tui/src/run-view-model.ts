@@ -126,16 +126,37 @@ export interface RunViewModel {
   readonly skillUsage: ReadonlyMap<string, number>;
   readonly lastHeartbeatAt?: string;
   readonly lastEventSequence: number;
+  readonly limits: RunProjectionLimits;
+  readonly omittedNodeCount: number;
+  readonly omittedDependencyEdgeCount: number;
+  readonly retainedDetailBytes: number;
   readonly now: () => Date;
 }
 
+export interface RunProjectionLimits {
+  readonly nodes: number;
+  readonly dependencyEdges: number;
+  readonly nodeDetailBytes: number;
+  readonly runDetailBytes: number;
+}
+
+export const DEFAULT_RUN_PROJECTION_LIMITS: RunProjectionLimits = {
+  nodes: 10_000,
+  dependencyEdges: 50_000,
+  nodeDetailBytes: 32 * 1024,
+  runDetailBytes: 16 * 1024 * 1024,
+};
+
 export interface RunViewModelOptions {
   readonly now?: () => Date;
+  readonly limits?: Partial<RunProjectionLimits>;
 }
 
 export interface RunVisibleRow {
   readonly node: RunNode;
   readonly depth: number;
+  /** True for each ancestor whose following siblings continue the rail. */
+  readonly ancestorRails: readonly boolean[];
   readonly hasChildren: boolean;
   readonly isExpanded: boolean;
 }
@@ -151,6 +172,31 @@ const EMPTY_AGGREGATE: RunAggregate = {
   skipped: 0,
   cancelled: 0,
 };
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+/** Keep a UTF-8 prefix and report exactly what was omitted. */
+function truncateDetailText(value: string, limit: number): string {
+  const originalBytes = byteLength(value);
+  if (originalBytes <= limit) return value;
+  const marker = `[truncated original_bytes=${originalBytes}]`;
+  // A visible truncation marker is more important than an impossible tiny
+  // storage budget. This still retains no raw event payload.
+  if (limit <= marker.length) return marker;
+  const prefixBytes = limit - byteLength(marker);
+  let end = value.length;
+  while (byteLength(value.slice(0, end)) > prefixBytes) end -= 1;
+  return value.slice(0, end) + marker;
+}
+
+function boundedDependencies(
+  dependencies: readonly string[],
+  remaining: number,
+): readonly string[] {
+  return dependencies.slice(0, Math.max(0, remaining));
+}
 
 function eventTimestamp(
   metadata: SeqlaneExecutionEvent["metadata"],
@@ -179,6 +225,7 @@ function elapsedBetween(
 function emptyNode(
   event: Extract<SeqlaneExecutionEvent, { type: "invocation.created" }>,
   createdSequence: number,
+  dependencyIds: readonly string[],
 ): RunNode {
   const taskId =
     event.taskId ??
@@ -197,7 +244,7 @@ function emptyNode(
       : { parentInvocationId: event.parentInvocationId }),
     ...(event.iteration === undefined ? {} : { iteration: event.iteration }),
     siblingOrder: event.siblingOrder,
-    dependencyIds: [...event.dependencyIds],
+    dependencyIds,
     waitingDependencyLabels: [],
     state: "queued",
     toolUsage: new Map(),
@@ -483,6 +530,10 @@ export function createRunViewModel(
     toolUsage: new Map(),
     skillUsage: new Map(),
     lastEventSequence: 0,
+    limits: { ...DEFAULT_RUN_PROJECTION_LIMITS, ...options.limits },
+    omittedNodeCount: 0,
+    omittedDependencyEdgeCount: 0,
+    retainedDetailBytes: 0,
     now: options.now ?? (() => new Date()),
   };
   return rebuildTopology(view, view.nodes);
@@ -549,6 +600,17 @@ function reduceCreated(
   view: RunViewModel,
   event: Extract<OutputEvent, { type: "invocation.created" }>,
 ): RunViewModel {
+  const remainingEdges =
+    view.limits.dependencyEdges -
+    [...view.nodes.values()].reduce(
+      (count, node) => count + node.dependencyIds.length,
+      0,
+    );
+  const dependencyIds = boundedDependencies(
+    event.dependencyIds,
+    remainingEdges,
+  );
+  const omittedEdges = event.dependencyIds.length - dependencyIds.length;
   const existing = view.nodes.get(event.invocationId);
   if (existing !== undefined) {
     const nodes = new Map(view.nodes);
@@ -561,12 +623,27 @@ function reduceCreated(
         ? { iteration: undefined }
         : { iteration: event.iteration }),
       siblingOrder: event.siblingOrder,
-      dependencyIds: [...event.dependencyIds],
+      dependencyIds,
     });
-    return rebuildTopology(view, nodes);
+    return rebuildTopology(
+      {
+        ...view,
+        omittedDependencyEdgeCount:
+          view.omittedDependencyEdgeCount + omittedEdges,
+      },
+      nodes,
+    );
+  }
+  if (view.nodes.size >= view.limits.nodes) {
+    return {
+      ...view,
+      omittedNodeCount: view.omittedNodeCount + 1,
+      omittedDependencyEdgeCount:
+        view.omittedDependencyEdgeCount + event.dependencyIds.length,
+    };
   }
   const nodes = new Map(view.nodes);
-  const node = emptyNode(event, view.lastEventSequence);
+  const node = emptyNode(event, view.lastEventSequence, dependencyIds);
   nodes.set(event.invocationId, node);
   const presentation = new Map(view.presentation);
   presentation.set(event.invocationId, {
@@ -579,6 +656,7 @@ function reduceCreated(
     childrenByParent: addChildToTopology(view.childrenByParent, nodes, node),
     rootInvocationIds: rootInvocationIds(nodes),
     presentation,
+    omittedDependencyEdgeCount: view.omittedDependencyEdgeCount + omittedEdges,
   };
   return applyAncestorAggregateDelta(
     next,
@@ -605,8 +683,8 @@ export function reduceRunViewModel(
       return next;
     case "invocation.created":
       return setRunState(reduceCreated(next, event), "active", event);
-    case "invocation.started":
-      return updateNode(next, event.invocationId, (node) => ({
+    case "invocation.started": {
+      const started = updateNode(next, event.invocationId, (node) => ({
         ...withState(node, "active", timestamp),
         taskId:
           event.taskId ??
@@ -616,6 +694,10 @@ export function reduceRunViewModel(
               ? event.subject.validatorId
               : event.subject.planNodeId),
       }));
+      return focusedInvocationId(started) === undefined
+        ? setRunNodeFocused(started, event.invocationId)
+        : started;
+    }
     case "invocation.progress":
       return updateNode(next, event.invocationId, (node) => ({
         ...(isTerminalNodeState(node.state)
@@ -652,14 +734,38 @@ export function reduceRunViewModel(
         };
       });
     }
-    case "invocation.output":
-      return updateNode(next, event.invocationId, (node) => ({
+    case "invocation.output": {
+      const node = next.nodes.get(event.invocationId);
+      if (node === undefined) return next;
+      const priorNodeBytes =
+        (node.output.transient === undefined
+          ? 0
+          : byteLength(node.output.transient)) +
+        node.output.persistent.reduce(
+          (total, output) => total + byteLength(output),
+          0,
+        );
+      const replacedTransientBytes =
+        event.policy === "transient" && node.output.transient !== undefined
+          ? byteLength(node.output.transient)
+          : 0;
+      const available = Math.max(
+        0,
+        Math.min(
+          next.limits.nodeDetailBytes - priorNodeBytes,
+          next.limits.runDetailBytes -
+            (next.retainedDetailBytes - replacedTransientBytes),
+        ),
+      );
+      const content = truncateDetailText(event.content, available);
+      const retainedBytes = byteLength(content);
+      const updated = updateNode(next, event.invocationId, (node) => ({
         ...node,
         output:
           event.policy === "persistent"
             ? {
                 transient: node.output.transient,
-                persistent: [...node.output.persistent, event.content],
+                persistent: [...node.output.persistent, content],
                 ...(event.metrics === undefined
                   ? node.output.metrics === undefined
                     ? {}
@@ -673,7 +779,7 @@ export function reduceRunViewModel(
               }
             : {
                 ...node.output,
-                transient: event.content,
+                transient: content,
                 ...(event.metrics === undefined
                   ? {}
                   : { metrics: event.metrics }),
@@ -682,6 +788,12 @@ export function reduceRunViewModel(
                   : { summary: event.summary }),
               },
       }));
+      return {
+        ...updated,
+        retainedDetailBytes:
+          next.retainedDetailBytes - replacedTransientBytes + retainedBytes,
+      };
+    }
     case "invocation.input":
       return next;
     case "invocation.result":
@@ -789,9 +901,13 @@ export function getRunVisibleRows(
 ): readonly RunVisibleRow[] {
   const rows: RunVisibleRow[] = [];
   const pending = view.rootInvocationIds
-    .slice()
-    .reverse()
-    .map((invocationId) => ({ invocationId, depth: 0 }));
+    .map((invocationId, index, roots) => ({
+      invocationId,
+      depth: 0,
+      ancestorRails: [] as readonly boolean[],
+      hasNextSibling: index < roots.length - 1,
+    }))
+    .reverse();
   while (pending.length > 0) {
     const current = pending.pop();
     if (current === undefined) continue;
@@ -803,6 +919,7 @@ export function getRunVisibleRows(
     rows.push({
       node,
       depth: current.depth,
+      ancestorRails: current.ancestorRails,
       hasChildren: children.length > 0,
       isExpanded,
     });
@@ -810,11 +927,32 @@ export function getRunVisibleRows(
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const invocationId = children[index];
       if (invocationId !== undefined) {
-        pending.push({ invocationId, depth: current.depth + 1 });
+        pending.push({
+          invocationId,
+          depth: current.depth + 1,
+          ancestorRails: [...current.ancestorRails, current.hasNextSibling],
+          hasNextSibling: index < children.length - 1,
+        });
       }
     }
   }
   return rows;
+}
+
+/** One explicit row prevents bounded projection from looking like a complete run. */
+export function getRunProjectionLimitNotice(
+  view: RunViewModel,
+): string | undefined {
+  if (view.omittedNodeCount === 0 && view.omittedDependencyEdgeCount === 0) {
+    return undefined;
+  }
+  return (
+    "[projection limit: omitted nodes=" +
+    view.omittedNodeCount +
+    " edges=" +
+    view.omittedDependencyEdgeCount +
+    "]"
+  );
 }
 
 export function setRunNodeExpanded(

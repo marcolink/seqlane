@@ -3,6 +3,8 @@ import type { RunNodeState, RunVisibleRow } from "../run-view-model.js";
 export interface HumanDisplayCapabilities {
   readonly supportsAnsi: boolean;
   readonly supportsUnicode: boolean;
+  readonly width?: number;
+  readonly height?: number;
 }
 
 const UNICODE_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -86,7 +88,16 @@ export function treePrefix(
           ? "▶"
           : ">"
       : " ";
-  return "  ".repeat(row.depth) + disclosure;
+  const rail = capabilities.supportsUnicode ? "│ " : "| ";
+  const space = "  ";
+  const visibleRails = row.ancestorRails.slice(-32);
+  const omitted = row.ancestorRails.length - visibleRails.length;
+  const marker = omitted > 0 ? `+${omitted} ` : "";
+  return (
+    marker +
+    visibleRails.map((continues) => (continues ? rail : space)).join("") +
+    disclosure
+  );
 }
 
 export function formatDuration(milliseconds: number | undefined): string {
@@ -96,4 +107,16 @@ export function formatDuration(milliseconds: number | undefined): string {
   return `${Math.floor(milliseconds / 60_000)}m ${Math.floor(
     (milliseconds % 60_000) / 1_000,
   )}s`;
+}
+
+export function truncateTerminalText(
+  value: string,
+  width: number,
+  supportsUnicode: boolean,
+): string {
+  if (width <= 0) return "";
+  if (value.length <= width) return value;
+  const suffix = supportsUnicode ? "…" : "...";
+  if (width <= suffix.length) return suffix.slice(0, width);
+  return suffix + value.slice(-(width - suffix.length));
 }

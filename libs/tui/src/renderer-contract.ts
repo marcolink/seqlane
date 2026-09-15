@@ -16,8 +16,17 @@ export interface OutputCapabilities {
   readonly supportsAnsi: boolean;
   readonly supportsUnicode: boolean;
   readonly width: number;
+  readonly height?: number;
   readonly stdout: OutputSink;
   readonly stderr: OutputSink;
+  /** Presentation intent; the CLI owns the actual cancellation operation. */
+  readonly onCancellationIntent?: () => void;
+  /** Native streams used only by the interactive terminal renderer. */
+  readonly terminal?: {
+    readonly stdin: NodeJS.ReadStream;
+    readonly stdout: NodeJS.WriteStream;
+    readonly stderr: NodeJS.WriteStream;
+  };
   readonly summary?: OutputSink;
   /** Secret values that must not appear in rendered output. */
   readonly redactions?: readonly string[];

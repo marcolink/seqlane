@@ -1,7 +1,11 @@
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
+  collapseOrFocusParent,
   createRunViewModel,
+  expandOrFocusChild,
+  focusNextFailedRunNode,
   getRunVisibleRows,
+  moveRunNodeFocus,
   reduceRunViewModel,
   setRunNodeExpanded,
   type RunViewModel,
@@ -17,7 +21,13 @@ import {
   formatHumanOutputDetails,
   formatHumanValidationDetails,
 } from "./output-details.js";
+import type {
+  HumanAppProps,
+  HumanInputAction,
+  MountedHumanApp,
+} from "./human/app.js";
 import { statusSymbol } from "./human/format.js";
+import { FrameScheduler } from "./human/frame-scheduler.js";
 
 export interface HumanTTYRendererOptions {
   readonly now?: () => Date;
@@ -27,6 +37,7 @@ export interface HumanTTYRendererOptions {
 
 export interface HumanTerminalUpdate {
   readonly width?: number;
+  readonly height?: number;
   readonly supportsAnsi?: boolean;
   readonly supportsUnicode?: boolean;
 }
@@ -342,6 +353,10 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   private previousFrameLineCount = 0;
   private spinnerFrame = 0;
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
+  private inkApp: Promise<MountedHumanApp> | undefined;
+  private frameScheduler: FrameScheduler | undefined;
+  private detailsVisible = false;
+  private helpVisible = false;
   private readonly sessionUiByInvocation = new Map<string, string>();
   private finished = false;
 
@@ -355,16 +370,29 @@ export class HumanTTYRenderer implements ExecutionRenderer {
     this.capabilities = capabilities;
     this.options = options;
     this.view = createRunViewModel({ now: options.now });
+    if (capabilities.terminal !== undefined) {
+      this.inkApp = import("./human/app.js").then(({ mountHumanApp }) =>
+        mountHumanApp(this.appProps(), capabilities.terminal!),
+      );
+      this.frameScheduler = new FrameScheduler(() => this.render(), {
+        clock: { now: () => (this.options.now ?? this.view.now)().getTime() },
+        timers: {
+          schedule: (callback, delayMs) => setTimeout(callback, delayMs),
+          cancel: (handle) =>
+            clearTimeout(handle as ReturnType<typeof setTimeout>),
+        },
+      });
+    }
     if ((options.retryTickMs ?? 1000) > 0) {
       this.retryTimer = setInterval(() => {
-        if (!this.finished) this.render();
+        if (!this.finished) this.requestFrame();
       }, options.retryTickMs ?? 1000);
     }
     if ((options.spinnerTickMs ?? 120) > 0) {
       this.spinnerTimer = setInterval(() => {
         if (this.finished || !this.hasActiveTask()) return;
         this.spinnerFrame += 1;
-        this.render();
+        this.requestFrame();
       }, options.spinnerTickMs ?? 120);
     }
   }
@@ -379,7 +407,7 @@ export class HumanTTYRenderer implements ExecutionRenderer {
     if (event.type === "invocation.output" && event.channel === "run") {
       this.writeDiagnostic("[" + event.invocationId + "] " + event.content);
     }
-    this.render();
+    this.requestFrame(this.isTerminalEvent(event));
   }
 
   handleRuntimeSessionUi(notification: RuntimeSessionUi): void {
@@ -388,18 +416,19 @@ export class HumanTTYRenderer implements ExecutionRenderer {
       notification.invocationId,
       notification.browserUrl,
     );
-    if (this.view.nodes.has(notification.invocationId)) this.render();
+    if (this.view.nodes.has(notification.invocationId)) this.requestFrame();
   }
 
   setExpanded(invocationId: string, isExpanded: boolean): void {
     this.view = setRunNodeExpanded(this.view, invocationId, isExpanded);
-    this.render();
+    this.requestFrame(true);
   }
 
   updateTerminal(update: HumanTerminalUpdate): void {
     this.capabilities = {
       ...this.capabilities,
       ...(update.width === undefined ? {} : { width: update.width }),
+      ...(update.height === undefined ? {} : { height: update.height }),
       ...(update.supportsAnsi === undefined
         ? {}
         : { supportsAnsi: update.supportsAnsi }),
@@ -407,7 +436,7 @@ export class HumanTTYRenderer implements ExecutionRenderer {
         ? {}
         : { supportsUnicode: update.supportsUnicode }),
     };
-    this.render();
+    this.requestFrame(true);
   }
 
   writeDiagnostic(value: string): void {
@@ -419,6 +448,13 @@ export class HumanTTYRenderer implements ExecutionRenderer {
     this.finished = true;
     if (this.retryTimer !== undefined) clearInterval(this.retryTimer);
     if (this.spinnerTimer !== undefined) clearInterval(this.spinnerTimer);
+    this.frameScheduler?.requestImmediate();
+    this.frameScheduler?.stop();
+    if (this.inkApp !== undefined) {
+      const app = await this.inkApp;
+      app.rerender(this.appProps());
+      await app.finish();
+    }
     this.writeToolUsage();
     await this.capabilities.stdout.flush?.();
     await this.capabilities.stderr.flush?.();
@@ -443,6 +479,10 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   }
 
   private render(): void {
+    if (this.inkApp !== undefined) {
+      void this.inkApp.then((app) => app.rerender(this.appProps()));
+      return;
+    }
     const now = (this.options.now ?? this.view.now)();
     const frame = renderHumanFrame(
       this.view,
@@ -470,6 +510,66 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   private hasActiveTask(): boolean {
     return [...this.view.nodes.values()].some(
       (node) => node.state === "active",
+    );
+  }
+
+  private appProps(): HumanAppProps {
+    return {
+      view: this.view,
+      capabilities: this.capabilities,
+      spinnerFrame: this.spinnerFrame,
+      detailsVisible: this.detailsVisible,
+      helpVisible: this.helpVisible,
+      onInput: (action) => this.handleInput(action),
+    };
+  }
+
+  private handleInput(action: HumanInputAction): void {
+    if (this.finished) return;
+    switch (action) {
+      case "previous":
+        this.view = moveRunNodeFocus(this.view, -1);
+        break;
+      case "next":
+        this.view = moveRunNodeFocus(this.view, 1);
+        break;
+      case "collapse":
+        this.view = collapseOrFocusParent(this.view);
+        break;
+      case "expand":
+        this.view = expandOrFocusChild(this.view);
+        break;
+      case "toggle-details":
+        this.detailsVisible = !this.detailsVisible;
+        break;
+      case "next-failure":
+        this.view = focusNextFailedRunNode(this.view);
+        break;
+      case "toggle-help":
+        this.helpVisible = !this.helpVisible;
+        break;
+      case "cancel":
+        this.capabilities.onCancellationIntent?.();
+        this.writeDiagnostic("Cancellation requested");
+        break;
+    }
+    this.requestFrame(true);
+  }
+
+  private requestFrame(immediate = false): void {
+    if (this.inkApp === undefined) {
+      this.render();
+      return;
+    }
+    if (immediate) this.frameScheduler?.requestImmediate();
+    else this.frameScheduler?.request();
+  }
+
+  private isTerminalEvent(event: SeqlaneExecutionEvent): boolean {
+    return (
+      event.type === "run.succeeded" ||
+      event.type === "run.failed" ||
+      event.type === "run.cancelled"
     );
   }
 }
