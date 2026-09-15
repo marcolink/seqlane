@@ -11,11 +11,39 @@ import {
   ValidationFailedError,
   type ValidationResult,
 } from "./index.js";
+import { validationResultSchema } from "./validation-results.js";
 import { z } from "zod";
 
 const schema = <T>() => z.custom<T>(() => true);
 
 describe("semantic validation core contracts", () => {
+  it("safely rejects throwing evidence getters and proxies", () => {
+    const throwingGetter = {};
+    Object.defineProperty(throwingGetter, "evidence", {
+      enumerable: true,
+      get: () => {
+        throw new Error("evidence getter should not run");
+      },
+    });
+    const throwingProxy = new Proxy(
+      { success: true },
+      {
+        getOwnPropertyDescriptor() {
+          throw new Error("descriptor trap should not escape");
+        },
+      },
+    );
+
+    expect(() =>
+      validationResultSchema.safeParse(throwingGetter),
+    ).not.toThrow();
+    expect(() => validationResultSchema.safeParse(throwingProxy)).not.toThrow();
+    expect(validationResultSchema.safeParse(throwingGetter).success).toBe(
+      false,
+    );
+    expect(validationResultSchema.safeParse(throwingProxy).success).toBe(false);
+  });
+
   it("keeps validation results JSON-safe and uses success as the verdict", () => {
     const result: ValidationResult = {
       success: false,

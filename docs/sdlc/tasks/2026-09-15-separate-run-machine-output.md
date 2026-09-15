@@ -1,7 +1,7 @@
 ---
 id: task.separate-run-machine-output
 title: Separate Final Run Results from Event Output
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-15
@@ -82,7 +82,8 @@ Make sure that all acquired resources close and the primary error remains.
 ## Completion criteria
 
 - `seqlane run --json` returns one validated final result.
-- Run JSON mode writes no progress, heartbeats, ANSI data, or event records.
+- Run JSON mode writes no progress, heartbeats, or ANSI data. With `--record`,
+  canonical event records go only to the requested event file.
 - `--output` accepts only `auto`, `human`, and `ci`.
 - Replay uses the exact `--events ndjson` contract.
 - Human and JSON errors use the typed Oclif boundary.
@@ -91,11 +92,37 @@ Make sure that all acquired resources close and the primary error remains.
 
 ## Outcome
 
-Not delivered.
+Implemented the CLI-owned `RunCommandResult` union and native Oclif JSON
+result path. Run JSON mode bypasses terminal renderers and resize handling,
+preserves false-like workflow outputs, and can record canonical events
+independently. Renderer JSON mode was removed. Replay now exposes
+`--events ndjson` with incremental validation and prefix preservation through a
+dedicated replay-output helper. Shared Oclif error normalization reuses the
+protocol's safe error formatter, typed JSON failure envelopes, resource
+cleanup, and human terminal capability checks are implemented.
+
+Focused verification passed:
+
+- `pnpm test:mapping`
+- `pnpm exec tsc --build apps/cli/tsconfig.json --pretty false`
+- CLI contract, output, and recording Vitest suites (19 tests)
+- protocol index and validation Vitest suites (16 tests)
+- compiled CLI entrypoint suite (36 tests)
+- `pnpm docs:index` and `pnpm docs:validate`
+
+Invalid replay records preserve earlier complete lines and report both the
+event record and physical line.
+
+The scoped quality delta still reports the existing cross-layer
+`writeDiagnostic` clone and short-horizon churn from this shared worktree. The
+replay extraction reduced its verbosity delta to a minor finding; these
+quality-lens rows do not indicate a replay behavior regression.
 
 ## Delivery state
 
-Planned. No implementation or delivery evidence exists.
+Implementation complete in current working-tree change; default-branch delivery
+pending commit/merge (status completed is task-document state, not delivery
+proof).
 
 ## Traceability
 

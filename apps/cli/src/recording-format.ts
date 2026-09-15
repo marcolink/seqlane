@@ -1,30 +1,40 @@
 import {
-  decodeSeqlaneExecutionEvent,
   encodeSeqlaneExecutionEvent,
-  type SeqlaneExecutionEvent,
+  seqlaneExecutionEventSchema,
 } from "@seqlane/protocol";
+import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { z } from "zod";
 
 export const MAX_RECORDING_BYTES = 10 * 1024 * 1024;
 export const MAX_RECORDING_EVENTS = 10_000;
 const MAX_WORKFLOW_ID_LENGTH = 256;
 
-const recordingHeaderSchema = z.strictObject({
+export const recordingHeaderSchema = z.strictObject({
   type: z.literal("seqlane.recording"),
   version: z.literal(1),
   workflowId: z.string().min(1).max(MAX_WORKFLOW_ID_LENGTH),
 });
 
-export interface SeqlaneRecordingHeader {
-  readonly type: "seqlane.recording";
-  readonly version: 1;
-  readonly workflowId: string;
-}
+const positiveSafeIntegerSchema = z.number().int().positive().safe();
 
-export interface SeqlaneRecording {
-  readonly header: SeqlaneRecordingHeader;
-  readonly events: readonly SeqlaneExecutionEvent[];
-}
+/** Canonical options for bounded recording writes. */
+export const recordingOptionsSchema = z.strictObject({
+  maxBytes: positiveSafeIntegerSchema.optional(),
+  maxEvents: positiveSafeIntegerSchema.optional(),
+});
+
+export const seqlaneRecordingSchema = z.strictObject({
+  header: recordingHeaderSchema,
+  events: z.array(seqlaneExecutionEventSchema).readonly(),
+});
+
+export type SeqlaneRecordingHeader = z.output<typeof recordingHeaderSchema>;
+/** Readonly producer input; schema parsing below normalizes it for encoding. */
+export type RecordingEventInput = SeqlaneExecutionEvent;
+export type RecordingOptions = z.output<typeof recordingOptionsSchema>;
+export type RecordingEvent = z.output<typeof seqlaneExecutionEventSchema>;
+
+export type SeqlaneRecording = z.output<typeof seqlaneRecordingSchema>;
 
 export function createRecordingHeader(
   workflowId: string,
@@ -44,8 +54,11 @@ export function encodeRecordingHeader(header: SeqlaneRecordingHeader): string {
   return JSON.stringify(header) + "\n";
 }
 
-export function encodeRecordingEvent(event: SeqlaneExecutionEvent): string {
-  return encodeSeqlaneExecutionEvent(event) + "\n";
+export function encodeRecordingEvent(event: RecordingEventInput): string {
+  // Parse at the schema boundary so readonly producer events are accepted
+  // without mutating them or relying on an unsafe cast.
+  const parsed = seqlaneExecutionEventSchema.parse(event);
+  return encodeSeqlaneExecutionEvent(parsed) + "\n";
 }
 
 function parseJson(line: string, label: string): unknown {
@@ -65,16 +78,22 @@ export function parseRecordingHeader(line: string): SeqlaneRecordingHeader {
 export function parseRecordingEvent(
   line: string,
   lineNumber: number,
-): SeqlaneExecutionEvent {
+): RecordingEvent {
   try {
-    return decodeSeqlaneExecutionEvent(line.replace(/\r$/, ""));
+    const result = seqlaneExecutionEventSchema.safeParse(
+      parseJson(line.replace(/\r$/, ""), "event"),
+    );
+    if (result.success) return result.data;
   } catch {
-    throw new Error(`Invalid recording event JSON at line ${lineNumber}`);
+    // Normalize JSON parser and schema failures below with record context.
   }
+  throw new Error(
+    `Invalid recording event JSON at record ${lineNumber - 1} (line ${lineNumber})`,
+  );
 }
 
 export interface RecordingEventValidator {
-  validate(event: SeqlaneExecutionEvent): () => void;
+  validate(event: RecordingEventInput): () => void;
 }
 
 export function createRecordingEventValidator(): RecordingEventValidator {
@@ -84,25 +103,26 @@ export function createRecordingEventValidator(): RecordingEventValidator {
   const eventIds = new Set<string>();
 
   return {
-    validate(event) {
-      if (event.metadata.sequence !== lastSequence + 1) {
+    validate(event: RecordingEventInput) {
+      const parsed = seqlaneExecutionEventSchema.parse(event);
+      if (parsed.metadata.sequence !== lastSequence + 1) {
         throw new Error("Recording event sequence is missing or out of order");
       }
-      if (eventIds.has(event.metadata.eventId)) {
+      if (eventIds.has(parsed.metadata.eventId)) {
         throw new Error("Recording event identity is duplicated");
       }
       if (workId === undefined) {
-        workId = event.workId;
-        runId = event.runId;
-        if (event.type !== "run.started") {
+        workId = parsed.workId;
+        runId = parsed.runId;
+        if (parsed.type !== "run.started") {
           throw new Error("Recording must start with run.started");
         }
-      } else if (event.workId !== workId || event.runId !== runId) {
+      } else if (parsed.workId !== workId || parsed.runId !== runId) {
         throw new Error("Recording event identity does not match the run");
       }
       return () => {
-        lastSequence = event.metadata.sequence;
-        eventIds.add(event.metadata.eventId);
+        lastSequence = parsed.metadata.sequence;
+        eventIds.add(parsed.metadata.eventId);
       };
     },
   };
@@ -122,7 +142,7 @@ export function decodeSeqlaneRecording(content: string): SeqlaneRecording {
     throw new Error("Recording event limit exceeded");
   }
 
-  const events: SeqlaneExecutionEvent[] = [];
+  const events: RecordingEvent[] = [];
   const eventValidator = createRecordingEventValidator();
   for (const [index, line] of lines.slice(1).entries()) {
     const event = parseRecordingEvent(line, index + 2);
@@ -131,5 +151,5 @@ export function decodeSeqlaneRecording(content: string): SeqlaneRecording {
     commitEvent();
   }
   if (events.length === 0) throw new Error("Recording contains no events");
-  return { header, events };
+  return seqlaneRecordingSchema.parse({ header, events });
 }

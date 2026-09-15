@@ -6,7 +6,13 @@ import type {
   ValueRef,
 } from "./bindings.js";
 import type { ModelSelection } from "./models/model-ref.js";
+import type { ValidationResult } from "./validation-results.js";
 import { z } from "zod";
+
+export type {
+  ValidationIssue,
+  ValidationResult,
+} from "./validation-results.js";
 
 export type WorkId = string;
 export type RunId = string;
@@ -127,25 +133,6 @@ export interface ValidationInvocationOptions<Input> {
   readonly input: InputBinding<Input>;
   readonly workspace?: WorkspacePolicy;
 }
-
-export interface ValidationIssue {
-  readonly code: string;
-  readonly message: string;
-  readonly path?: SeqlaneJsonPointer;
-}
-
-export interface ValidationPassed {
-  readonly success: true;
-  readonly evidence?: JsonValue;
-}
-
-export interface ValidationFailed {
-  readonly success: false;
-  readonly issues: readonly [ValidationIssue, ...ValidationIssue[]];
-  readonly evidence?: JsonValue;
-}
-
-export type ValidationResult = ValidationPassed | ValidationFailed;
 
 export interface ValidatorDefinition<Input = unknown> {
   readonly id: string;

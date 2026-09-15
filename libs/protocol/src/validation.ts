@@ -1,18 +1,10 @@
 import {
-  acyclicValueSchema,
+  jsonValueSchema,
   isPlainRecord,
   modelSelectionSchema,
-} from "@seqlane/core";
-import type {
-  JsonValue,
-  SeqlaneErrorCategory,
-  ValidationIssue,
+  plainRecordSchema,
 } from "@seqlane/core";
 import { z } from "zod";
-
-const plainRecordSchema = z.custom<Record<string, unknown>>((value) =>
-  isPlainRecord(value),
-);
 
 function strictRecord<T extends z.ZodRawShape>(shape: T) {
   const objectSchema = z.strictObject(shape);
@@ -38,36 +30,11 @@ function arrayOf<T>(
   itemSchema: z.ZodType<T>,
   options: { readonly minimum?: number; readonly maximum?: number } = {},
 ) {
-  return z.custom<readonly T[]>((value) => {
-    if (!Array.isArray(value)) return false;
-    if (options.minimum !== undefined && value.length < options.minimum) {
-      return false;
-    }
-    if (options.maximum !== undefined && value.length > options.maximum) {
-      return false;
-    }
-    return value.every((item) => {
-      try {
-        return itemSchema.safeParse(item).success;
-      } catch {
-        return false;
-      }
-    });
-  });
+  let schema = z.array(itemSchema);
+  if (options.minimum !== undefined) schema = schema.min(options.minimum);
+  if (options.maximum !== undefined) schema = schema.max(options.maximum);
+  return schema;
 }
-
-const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
-  acyclicValueSchema.pipe(
-    z.union([
-      z.string(),
-      z.number(),
-      z.boolean(),
-      z.null(),
-      arrayOf(jsonValueSchema),
-      plainRecordSchema.pipe(z.record(z.string(), jsonValueSchema)),
-    ]),
-  ),
-);
 
 const isoUtcTimestampSchema = z.iso.datetime({ precision: 3 });
 
@@ -152,11 +119,13 @@ const metricsSchema = strictRecord({
   tokens: invocationTokensSchema.optional(),
 });
 
-const validationIssueSchema = strictRecord({
+export const validationIssueSchema = strictRecord({
   code: z.string(),
   message: z.string(),
   path: z.string().optional(),
 });
+
+export type ValidationIssue = z.output<typeof validationIssueSchema>;
 
 const seqlaneErrorCategorySchema = z.enum([
   "InputValidationError",
@@ -166,6 +135,18 @@ const seqlaneErrorCategorySchema = z.enum([
   "RuntimeError",
 ]);
 
+const optionalMetadataField = <T>(schema: z.ZodType<T>) =>
+  z.union([schema, z.unknown().transform(() => undefined)]).optional();
+
+/** Safely projects known fields from an Error without trusting its shape. */
+export const seqlaneErrorMetadataSchema = z.looseObject({
+  category: optionalMetadataField(seqlaneErrorCategorySchema),
+  taskId: optionalMetadataField(nonEmptyStringSchema),
+  nodeId: optionalMetadataField(nonEmptyStringSchema),
+  sourceId: optionalMetadataField(nonEmptyStringSchema),
+  issues: optionalMetadataField(z.array(validationIssueSchema).nonempty()),
+});
+
 const serializedValidationFailureSchema = strictRecord({
   validationNodeId: nonEmptyStringSchema,
   sourceId: nonEmptyStringSchema,
@@ -173,7 +154,7 @@ const serializedValidationFailureSchema = strictRecord({
   evidence: displayValueSchema.optional(),
 });
 
-const serializedSeqlaneErrorSchema = strictRecord({
+export const serializedSeqlaneErrorSchema = strictRecord({
   category: seqlaneErrorCategorySchema,
   message: z.string(),
   taskId: nonEmptyStringSchema.optional(),
@@ -560,35 +541,10 @@ export type RunSucceededEvent = EventOf<"run.succeeded">;
 export type RunFailedEvent = EventOf<"run.failed">;
 export type RunCancelledEvent = EventOf<"run.cancelled">;
 
-export function hasNonEmptyString(value: unknown): value is string {
-  try {
-    return nonEmptyStringSchema.safeParse(value).success;
-  } catch {
-    return false;
-  }
-}
-
-export function isJsonValue(value: unknown): value is JsonValue {
-  try {
-    return jsonValueSchema.safeParse(value).success;
-  } catch {
-    return false;
-  }
-}
-
+/** Schema-backed compatibility guard for consumers of the protocol package. */
 export function isValidationIssue(value: unknown): value is ValidationIssue {
   try {
     return validationIssueSchema.safeParse(value).success;
-  } catch {
-    return false;
-  }
-}
-
-export function isSeqlaneErrorCategory(
-  value: unknown,
-): value is SeqlaneErrorCategory {
-  try {
-    return seqlaneErrorCategorySchema.safeParse(value).success;
   } catch {
     return false;
   }

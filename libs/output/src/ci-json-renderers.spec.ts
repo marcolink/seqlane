@@ -1,11 +1,9 @@
 // @test-scope ./ci-renderer.ts
-// @test-scope ./json-renderer.ts
 // @test-scope ./output-details.ts
 
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CIRenderer, isCIOutput } from "./ci-renderer.js";
-import { JSONRenderer } from "./json-renderer.js";
 import type { OutputCapabilities, OutputSink } from "./renderer-contract.js";
 
 class RecordingSink implements OutputSink {
@@ -562,61 +560,5 @@ describe("CI renderer", () => {
     expect(annotations.writes.join("")).toContain(
       "::error title=Seqlane runner failed::",
     );
-  });
-});
-
-describe("JSON renderer", () => {
-  it("writes one undecorated JSON record per line", async () => {
-    const stdout = new RecordingSink();
-    const renderer = new JSONRenderer(capabilities(stdout));
-    const event: SeqlaneExecutionEvent = {
-      type: "invocation.output",
-      ...run,
-      invocationId: "a",
-      policy: "persistent",
-      channel: "task",
-      content: "redacted output",
-      iteration: 2,
-    };
-
-    renderer.handle(event);
-    renderer.handle({ type: "run.succeeded", ...run, output: null });
-    await renderer.finish();
-
-    const lines = stdout.writes.join("").trimEnd().split("\n");
-    expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[0]!)).toEqual(event);
-    expect(JSON.parse(lines[1]!)).toMatchObject({ type: "run.succeeded" });
-    expect(lines.every((line) => !line.includes("✓"))).toBe(true);
-  });
-
-  it("isolates JSON sink failures", () => {
-    const renderer = new JSONRenderer(capabilities(new RecordingSink(true)));
-
-    expect(() =>
-      renderer.handle({ type: "run.started", ...run }),
-    ).not.toThrow();
-    expect(renderer.lastError).toBeInstanceOf(Error);
-  });
-
-  it("redacts configured values from replayed JSON", () => {
-    const stdout = new RecordingSink();
-    const renderer = new JSONRenderer({
-      ...capabilities(stdout),
-      redactions: ["top-secret-value"],
-    });
-
-    renderer.handle({
-      type: "invocation.output",
-      ...run,
-      invocationId: "a",
-      policy: "persistent",
-      channel: "task",
-      content: "top-secret-value",
-    });
-
-    const output = stdout.writes.join("");
-    expect(output).not.toContain("top-secret-value");
-    expect(JSON.parse(output)).toMatchObject({ content: "***" });
   });
 });

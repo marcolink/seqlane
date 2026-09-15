@@ -152,4 +152,27 @@ describe("Seqlane runner command protocol", () => {
     expect(isRunRequest(command)).toBe(false);
     expect(isRunnerCommand(command)).toBe(false);
   });
+
+  it("rejects sparse JSON input arrays", () => {
+    const input: unknown[] = [];
+    input.length = 2;
+    input[1] = "value";
+
+    const command = {
+      type: "run.start",
+      workflow: {
+        id: "workflow-1",
+        moduleSpecifier: "./workflow.js",
+        exportName: "default",
+      },
+      input,
+      runtime: { id: "local" },
+    };
+
+    expect(isRunRequest(command)).toBe(false);
+    expect(isRunnerCommand(command)).toBe(false);
+    expect(() => encodeRunnerCommand(command as never)).toThrow(
+      "Invalid runner command",
+    );
+  });
 });

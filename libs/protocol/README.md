@@ -4,7 +4,8 @@ Public, executor-neutral contracts for serialized Seqlane execution and runner
 protocol messages.
 
 The package owns the canonical `SeqlaneExecutionEvent` union, runner commands,
-event metadata, JSON guards and encoding, and sanitized Plan snapshots. Plan
+event metadata, JSON encoding, and sanitized Plan snapshots. It reuses the
+core-owned JSON schemas and guard for JSON values. Plan
 snapshots preserve model selections under isolated and branch session policies;
 reuse policies remain model-free. Public protocol types are derived from
 package-owned canonical Zod schemas so each wire contract has one authoritative

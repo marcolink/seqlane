@@ -14,6 +14,7 @@ import {
 } from "@seqlane/protocol";
 import {
   createRecordingConsumer,
+  iterateSeqlaneRecording,
   MAX_RECORDING_BYTES,
   readSeqlaneRecording,
 } from "./recording.js";
@@ -130,6 +131,16 @@ describe("Seqlane recording", () => {
     await byteBound.close();
   });
 
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN])(
+    "rejects an invalid recording bound %j",
+    async (maxBytes) => {
+      const path = recordingPath();
+      expect(() =>
+        createRecordingConsumer(path, "workflow-1", { maxBytes }),
+      ).toThrow("Recording bounds must be positive safe integers");
+    },
+  );
+
   it("rejects malformed JSON, malformed headers, and invalid canonical events", () => {
     const malformedJson = recordingPath();
     writeFileSync(malformedJson, "{\n");
@@ -150,6 +161,13 @@ describe("Seqlane recording", () => {
       `${JSON.stringify({ type: "seqlane.recording", version: 1, workflowId: "workflow-1" })}\nnot-json\n`,
     );
     expect(() => readSeqlaneRecording(malformedEvent)).toThrow(/event JSON/i);
+
+    const invalidEvent = recordingPath();
+    writeFileSync(
+      invalidEvent,
+      `${JSON.stringify({ type: "seqlane.recording", version: 1, workflowId: "workflow-1" })}\n${JSON.stringify({ type: "run.started" })}\n`,
+    );
+    expect(() => readSeqlaneRecording(invalidEvent)).toThrow(/event JSON/i);
 
     const oversized = recordingPath();
     writeFileSync(oversized, Buffer.alloc(MAX_RECORDING_BYTES + 1));
@@ -198,5 +216,20 @@ describe("Seqlane recording", () => {
       type: "run.plan",
       plan: { nodes: [{ planNodeId: "task:one" }] },
     });
+  });
+
+  it("yields valid replay events before a malformed later record", () => {
+    const path = recordingPath();
+    writeFileSync(
+      path,
+      `${JSON.stringify({ type: "seqlane.recording", version: 1, workflowId: "workflow-1" })}\n${encodeSeqlaneExecutionEvent(started())}\n${encodeSeqlaneExecutionEvent(plan())}\nnot-json\n`,
+    );
+
+    const received: string[] = [];
+    const replay = iterateSeqlaneRecording(path);
+    expect(() => {
+      for (const event of replay) received.push(event.type);
+    }).toThrow(/record 3.*line 4/i);
+    expect(received).toEqual(["run.started", "run.plan"]);
   });
 });
