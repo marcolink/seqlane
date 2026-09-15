@@ -22,6 +22,7 @@ nesting, navigation, details, scrolling, and root elapsed time.
 ## Upstream requirements
 
 - [requirement-run-projection](../specs/2026-09-15-run-terminal-rendering.md#requirement-run-projection)
+- [requirement-projection-bounds](../specs/2026-09-15-run-terminal-rendering.md#requirement-projection-bounds)
 - [requirement-root-elapsed-time](../specs/2026-09-15-run-terminal-rendering.md#requirement-root-elapsed-time)
 - [requirement-human-interaction](../specs/2026-09-15-run-terminal-rendering.md#requirement-human-interaction)
 - [requirement-human-details](../specs/2026-09-15-run-terminal-rendering.md#requirement-human-details)
@@ -30,6 +31,7 @@ nesting, navigation, details, scrolling, and root elapsed time.
 - [requirement-responsive-layout](../specs/2026-09-15-run-terminal-rendering.md#requirement-responsive-layout)
 - [requirement-interaction-state](../specs/2026-09-15-run-terminal-rendering.md#requirement-interaction-state)
 - [requirement-motion-and-update-quality](../specs/2026-09-15-run-terminal-rendering.md#requirement-motion-and-update-quality)
+- [requirement-terminal-field-encoding](../specs/2026-09-15-run-terminal-rendering.md#requirement-terminal-field-encoding)
 - [requirement-renderer-lifecycle](../specs/2026-09-15-run-terminal-rendering.md#requirement-renderer-lifecycle)
 
 ## Scope
@@ -37,6 +39,8 @@ nesting, navigation, details, scrolling, and root elapsed time.
 - Add pinned Ink and React dependencies after the dependency audit.
 - Add pure selectors for deep-tree rails, visible rows, focus, and viewport.
 - Add root and per-node elapsed-time projection with an injected clock.
+- Add injected tickers and frame scheduling with deterministic shutdown.
+- Add node, edge, detail-text, total-text, indentation, and frame limits.
 - Build inline header, tree, details, and key-guide components.
 - Add focus movement, expansion, details, failure navigation, and scrolling.
 - Implement the specified status vocabulary, information hierarchy, and key
@@ -59,10 +63,11 @@ nesting, navigation, details, scrolling, and root elapsed time.
 
 1. Add pure projection actions and visible-row selectors.
 2. Add elapsed-time and tree-rail behavior with deterministic tests.
-3. Add Ink components without runtime or CLI imports.
-4. Add input intent and viewport behavior.
-5. Add terminal lifecycle cleanup and final-frame behavior.
-6. Remove the old human renderer after behavior parity.
+3. Add projection limits, iterative traversal, and incremental aggregates.
+4. Add Ink components without runtime or CLI imports.
+5. Add input intent and viewport behavior.
+6. Add terminal lifecycle cleanup and final-frame behavior.
+7. Remove the old human renderer after behavior parity.
 
 ## Affected areas
 
@@ -81,6 +86,10 @@ and no-color output. Test terminal cleanup after success, error, cancellation,
 startup error, and render error. Make sure that parallel children do not inflate
 root elapsed time.
 
+Use injected clocks and schedulers. Prove that no callback runs after shutdown.
+Exercise every projection limit with small injected values. Make sure that each
+overflow has a visible marker and that the reducer retains no raw-event backlog.
+
 Capture active, compact, failed, succeeded, and cancelled terminal frames.
 Compare active, compact, and failed captures with the normative specification.
 Review snapshot changes as user-interface changes, not mechanical updates.
@@ -94,6 +103,8 @@ Review snapshot changes as user-interface changes, not mechanical updates.
 - Golden PTY captures match the normative hierarchy, symbols, spacing, and
   responsive rules.
 - Progress updates do not cause unrelated rows to jump or flicker.
+- Projection overflow remains bounded and visible.
+- Clocks and scheduled callbacks are deterministic and stop during cleanup.
 - The old custom human renderer is removed.
 - Terminal resources are restored after every termination path.
 
@@ -107,5 +118,5 @@ Planned. This task starts after `task.rename-output-package-to-tui`.
 
 ## Traceability
 
-- [spec.run-terminal-rendering: Run Terminal Rendering and Final Results](../specs/2026-09-15-run-terminal-rendering.md)
+- [spec.run-terminal-rendering: Run Terminal Rendering](../specs/2026-09-15-run-terminal-rendering.md)
 - [task.rename-output-package-to-tui: Rename the Output Package to TUI](./2026-09-15-rename-output-package-to-tui.md)

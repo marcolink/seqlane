@@ -7,7 +7,7 @@ owners:
 created: 2026-09-15
 updated: 2026-09-15
 upstream:
-  - spec.run-terminal-rendering
+  - spec.run-machine-output
 supersedes: []
 ---
 
@@ -20,9 +20,12 @@ the renderer modes and preserve event recording as a separate function.
 
 ## Upstream requirements
 
-- [requirement-three-run-consumers](../specs/2026-09-15-run-terminal-rendering.md#requirement-three-run-consumers)
-- [requirement-final-json-result](../specs/2026-09-15-run-terminal-rendering.md#requirement-final-json-result)
-- [requirement-event-recording-separation](../specs/2026-09-15-run-terminal-rendering.md#requirement-event-recording-separation)
+- [requirement-three-run-consumers](../specs/2026-09-15-run-machine-output.md#requirement-three-run-consumers)
+- [requirement-run-command-result-schema](../specs/2026-09-15-run-machine-output.md#requirement-run-command-result-schema)
+- [requirement-result-serialization](../specs/2026-09-15-run-machine-output.md#requirement-result-serialization)
+- [requirement-graceful-command-errors](../specs/2026-09-15-run-machine-output.md#requirement-graceful-command-errors)
+- [requirement-event-recording](../specs/2026-09-15-run-machine-output.md#requirement-event-recording)
+- [requirement-replay-event-output](../specs/2026-09-15-run-machine-output.md#requirement-replay-event-output)
 
 ## Scope
 
@@ -34,7 +37,9 @@ the renderer modes and preserve event recording as a separate function.
 - Remove the JSON event renderer from the rendering package.
 - Preserve `--record` as the canonical execution-event file.
 - Give replay machine-event output an explicit NDJSON event option.
-- Preserve current exit-status and cancellation behavior.
+- Add a shared Oclif command error boundary with typed human and JSON errors.
+- Put all run-resource acquisition and cleanup under `try` and `finally`.
+- Implement the specified exit-status and serialization precedence.
 
 ## Out of scope
 
@@ -48,7 +53,8 @@ the renderer modes and preserve event recording as a separate function.
 2. Return that result through the native Oclif JSON path.
 3. Bypass renderer creation and progress output in JSON mode.
 4. Remove the JSON renderer and migrate replay event output.
-5. Update CLI help and entrypoint tests.
+5. Add the shared Oclif error normalization and cleanup lifecycle.
+6. Update CLI help and entrypoint tests.
 
 ## Affected areas
 
@@ -65,13 +71,23 @@ Make sure that stdout contains one JSON value and no progress. Test `null`,
 `false`, and `0` results. Make sure that JSON mode never creates a renderer.
 Make sure that `--record` still writes valid event records.
 
+Make sure that normal JSON results leave stderr empty. Make sure that human and
+CI command errors leave stdout empty. Test result validation and failure-envelope
+serialization as different errors.
+
+Inject errors during parse, setup, recording, host startup, execution,
+serialization, and cleanup. Make sure that default output contains no stack.
+Make sure that all acquired resources close and the primary error remains.
+
 ## Completion criteria
 
 - `seqlane run --json` returns one validated final result.
 - Run JSON mode writes no progress, heartbeats, ANSI data, or event records.
 - `--output` accepts only `auto`, `human`, and `ci`.
-- Replay event output has an explicit event-stream name.
-- Existing run exit statuses remain stable.
+- Replay uses the exact `--events ndjson` contract.
+- Human and JSON errors use the typed Oclif boundary.
+- Default errors contain no stack trace.
+- Exit-status precedence matches the active specification.
 
 ## Outcome
 
@@ -83,4 +99,4 @@ Planned. No implementation or delivery evidence exists.
 
 ## Traceability
 
-- [spec.run-terminal-rendering: Run Terminal Rendering and Final Results](../specs/2026-09-15-run-terminal-rendering.md)
+- [spec.run-machine-output: Run Machine Output and Command Errors](../specs/2026-09-15-run-machine-output.md)

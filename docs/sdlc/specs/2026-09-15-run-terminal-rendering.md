@@ -1,6 +1,6 @@
 ---
 id: spec.run-terminal-rendering
-title: Run Terminal Rendering and Final Results
+title: Run Terminal Rendering
 status: active
 owners:
   - core
@@ -14,17 +14,15 @@ supersedes:
   - spec.seqlane-execution-output-package
 ---
 
-# Run Terminal Rendering and Final Results
+# Run Terminal Rendering
 
 ## Summary
 
-`seqlane run` supports three consumer modes. Human mode is an interactive live
-terminal tree. CI mode is an append-only progress log. JSON mode writes one
-final machine result without progress.
+Human mode is an interactive live terminal tree. CI mode is an append-only
+progress log. Both modes consume the same validated execution events.
 
-`@seqlane/tui` owns terminal projection and rendering. The CLI owns mode
-selection, final-result serialization, event recording, cancellation wiring,
-and exit status.
+`@seqlane/tui` owns terminal projection and rendering. The CLI owns consumer
+selection, cancellation wiring, final results, event recording, and exit status.
 
 ## Goals
 
@@ -32,7 +30,6 @@ and exit status.
 - Let a user select, expand, collapse, and inspect visible work.
 - Show total wall-clock elapsed time on the root workflow.
 - Keep CI output useful without terminal input or cursor control.
-- Return one exact final result for scripts and pipes.
 - Keep one pure run projection behind both terminal renderers.
 - Keep terminal dependencies out of core, protocol, and runtime packages.
 
@@ -40,7 +37,7 @@ and exit status.
 
 - A persistent run inspector, alternate-screen dashboard, or replacement for
   Mastra Studio.
-- Runtime scheduling, event persistence, replay execution, or result storage.
+- Runtime scheduling, event persistence, machine output, or result storage.
 - A public renderer plugin API.
 - Token-level executor transcripts or unrestricted task output.
 - Percentage completion for workflows that can discover work dynamically.
@@ -49,35 +46,12 @@ and exit status.
 
 - **Human mode:** an interactive renderer for a capable terminal.
 - **CI mode:** a non-interactive, append-only terminal renderer.
-- **Final-result mode:** native Oclif JSON output from the authoritative run
-  outcome.
 - **Run projection:** derived presentation data built from validated events.
 - **Presentation state:** focus, expansion, viewport, and detail visibility.
 - **Root elapsed time:** wall-clock time from `run.started` to now or the run
   terminal event.
 
 ## Requirements
-
-### requirement-three-run-consumers
-
-`seqlane run` must support human, CI, and final-result consumers. Human and CI
-modes consume validated execution events. Final-result mode consumes the
-authoritative run outcome.
-
-The CLI accepts `--output auto|human|ci`. Native `--json` selects final-result
-mode. `--json` and `--output` are mutually exclusive.
-
-### requirement-mode-selection
-
-The CLI resolves the mode in this order:
-
-1. `--json` selects final-result mode.
-2. An explicit `--output` value selects that terminal mode.
-3. An interactive non-CI terminal selects human mode.
-4. All other environments select CI mode.
-
-Explicit human mode requires a usable TTY input and output. The CLI returns a
-typed usage error when these capabilities are absent.
 
 ### requirement-terminal-package-boundary
 
@@ -103,13 +77,30 @@ type RunRendererConfig =
   | {
       readonly mode: "human";
       readonly terminal: InteractiveTerminalPort;
+      readonly clock: Clock;
+      readonly ticker: Ticker;
+      readonly frameScheduler: FrameScheduler;
       readonly onIntent: (intent: RunRendererIntent) => void;
     }
   | {
       readonly mode: "ci";
       readonly output: OutputSink;
+      readonly clock: Clock;
+      readonly ticker: Ticker;
       readonly heartbeatIntervalMs: number;
     };
+
+interface Clock {
+  nowMs(): number;
+}
+
+interface FrameScheduler {
+  schedule(render: () => void): CancelScheduledFrame;
+}
+
+interface Ticker {
+  start(intervalMs: number, tick: () => void): StopTicker;
+}
 
 interface RunRenderer {
   handle(event: SeqlaneExecutionEvent): void;
@@ -122,8 +113,18 @@ declare function createRunRenderer(
 ```
 
 The discriminated configuration must prevent invalid capability combinations.
-The factory loads the human implementation dynamically. CI and JSON execution
-must not load Ink or React.
+The factory loads the human implementation dynamically. CI execution must not
+load Ink or React.
+
+`Clock.nowMs()` returns non-decreasing Unix epoch milliseconds. The clock is
+the only source for elapsed time. Each ticker starts after
+`run.started`. It stops after a terminal run event or `finish()`, whichever
+occurs first. It cannot call the renderer after it stops. Human ticks update
+elapsed time and spinner state. CI ticks evaluate heartbeat emission.
+
+The frame scheduler keeps at most one pending frame. A later update replaces
+the requested non-terminal frame. Terminal transitions and input request an
+immediate frame. `finish()` cancels pending work before it returns.
 
 ### requirement-run-projection
 
@@ -145,6 +146,35 @@ dependency:  invocation A -> invocation B
 The visible-row selector supports any containment depth. It computes depth,
 ancestor continuation rails, branch position, expansion, focus, and viewport
 position without modifying execution data.
+
+### requirement-projection-bounds
+
+The default projection limits are:
+
+| Resource | Limit |
+| --- | ---: |
+| retained nodes | 10,000 |
+| retained dependency edges | 50,000 |
+| retained detail text for one node | 32 KiB |
+| retained detail text for one run | 16 MiB |
+| pending render frames | 1 |
+| retained raw-event backlog | 0 |
+
+The reducer applies each event synchronously. It retains derived state instead
+of raw events. Aggregate counters update from the changed node and its
+ancestors. A normal frame does not scan all retained nodes.
+
+Tree traversal is iterative. Actual containment depth does not consume the
+JavaScript call stack. Visual indentation stops growing after 32 levels. A
+depth marker preserves the omitted ancestor count.
+
+After a topology limit, human mode keeps known nodes and root aggregate state.
+It shows one synthetic limit row with cumulative omitted node and edge counts.
+CI mode continues to show safe incoming lifecycle lines.
+
+After a text limit, the renderer keeps a UTF-8 boundary-safe prefix and adds
+`[truncated original_bytes=<count>]`. The renderer never removes information
+without a visible count or marker. Tests can inject smaller limits.
 
 ### requirement-root-elapsed-time
 
@@ -308,6 +338,14 @@ The renderer batches event updates into one frame. It redraws immediately for
 terminal lifecycle events and user input. Other updates render at most 12
 frames each second. The elapsed-time display updates at most once each second.
 
+Human mode requests one motion tick every 100 ms while a run is active. It
+does not catch up missed ticks. The frame scheduler still coalesces pending
+frames.
+
+CI heartbeat defaults to 30 seconds. A durable lifecycle line resets the
+heartbeat deadline. A late tick emits at most one heartbeat and sets a new
+deadline from the current clock value. Tests can inject shorter intervals.
+
 The spinner is the only continuous animation. It stops after terminal state.
 Rows keep stable vertical positions unless containment, expansion, or viewport
 movement requires a change. Progress text must not cause unrelated rows to
@@ -324,9 +362,10 @@ CI mode writes permanent lines for meaningful transitions and periodic
 heartbeats. It never reads terminal input. It emits no cursor movement,
 carriage-return redraw, or interactive control sequence.
 
-Each line contains enough run and invocation identity to remain understandable
-after parallel output interleaves. The final summary contains the outcome,
-root elapsed time, and aggregate counts.
+Every line contains `run=<full-run-id>`. Invocation lines also contain
+`invocation=<full-invocation-id>`. Labels and paths add context but do not
+replace identity. The final summary contains the outcome, root elapsed time,
+and aggregate counts.
 
 ANSI styling is disabled unless the CLI explicitly reports support. GitHub
 Actions annotations and step-summary output require explicit sinks.
@@ -334,34 +373,59 @@ Actions annotations and step-summary output require explicit sinks.
 Each CI line follows this grammar:
 
 ```text
-[elapsed] KIND identity message key=value...
+[elapsed] KIND run=<run-id> [invocation=<invocation-id>] message key=value...
 ```
 
 `KIND` is one of `RUN`, `TASK`, `FLOW`, `PASS`, `RETRY`, `WAIT`, `FAIL`,
 `SKIP`, `CANCEL`, `LIVE`, or `DONE`. Values with whitespace use JSON string
 encoding. Fields use stable order. Unknown optional fields are omitted.
 
-### requirement-final-json-result
+Fields use this order:
 
-The CLI owns a Zod schema for `RunCommandResult`. The schema represents success,
-failure, and cancellation. It preserves the exact validated workflow result,
-including `null`, `false`, and `0`.
+1. elapsed time
+2. kind
+3. full run ID
+4. full invocation ID, when applicable
+5. label
+6. lifecycle action
+7. path
+8. attempt and delay
+9. duration
+10. aggregate counts
+11. metrics
+12. reason
+13. error
 
-With `--json`, stdout contains exactly one JSON value. Progress, heartbeats,
-terminal diagnostics, ANSI sequences, and event records do not appear on
-stdout. The CLI creates no renderer.
+### requirement-terminal-field-encoding
 
-The process exit status remains consistent with the authoritative run outcome.
-A renderer or serialization error must not replace that outcome silently.
+The terminal package uses one canonical encoder for each dynamic CI field.
+Protocol redaction occurs before this encoder.
 
-### requirement-event-recording-separation
+The encoder:
 
-`--record <path>` records validated canonical events independently of terminal
-mode. The event file is not the final command result.
+- removes complete ANSI and ECMA-48 control sequences
+- represents a remaining escape character as `\\u001b`
+- represents tab, carriage return, and newline as `\\t`, `\\r`, and `\\n`
+- represents other C0, DEL, and C1 controls as `\\u00xx`
+- JSON-quotes values that contain whitespace or delimiters
+- limits each encoded field to 1,024 UTF-8 bytes
+- preserves a valid UTF-8 boundary during truncation
+- adds `[truncated original_bytes=<count>]` after truncated data
 
-The run command removes `json` from `--output`. Replay exposes machine events
-through an explicit event-stream option such as `--events ndjson`. It does not
-reuse the run final-result flag for event output.
+The original byte count is measured after protocol redaction and before
+terminal encoding. The 1,024-byte limit includes quotes and the truncation
+marker. The encoder truncates enough prefix data to keep the marker complete.
+
+The encoder applies to labels, paths, reasons, errors, output summaries,
+commands, model names, provider names, and other event-derived values.
+
+GitHub Actions commands use a separate encoder. Command data escapes `%`, CR,
+and LF as `%25`, `%0D`, and `%0A`. Command properties also escape `:` and `,`
+as `%3A` and `%2C`. Dynamic values cannot create a new workflow command.
+
+GitHub step-summary values escape HTML metacharacters and Markdown table pipes.
+Newlines become `<br>`. Dynamic values cannot add raw HTML, headings, links, or
+table structure.
 
 ### requirement-renderer-lifecycle
 
@@ -489,52 +553,16 @@ duration: 01:09 · command: pnpm test runtime
 ### CI frame
 
 ```text
-[00:00] RUN  7f2c1a repository:review started runtime=codex
-[00:13] TASK inspect-boundaries started path=review-changes/runtime-package/inspect-boundaries
-[00:22] PASS inspect-boundaries duration=8.7s
-[00:23] TASK integration-tests started attempt=1/3
-[00:42] RETRY integration-tests attempt=1/3 delay=5s error="runner disconnected before terminal event"
-[00:47] TASK integration-tests started attempt=2/3
-[01:17] LIVE 7f2c1a elapsed=01:17 complete=5/12 active=2 waiting=2 retrying=1
-[01:42] PASS runtime-package tasks=3/3 duration=01:29 tokens=18.4k cost=$0.21
-[02:18] DONE 7f2c1a status=succeeded tasks=12/12 retries=1 total=02:18
+[00:00] RUN run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 repository:review started runtime=codex
+[00:13] TASK run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=05a55f55-bf46-43cf-8212-c71137f53df6 inspect-boundaries started path=review-changes/runtime-package/inspect-boundaries
+[00:22] PASS run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=05a55f55-bf46-43cf-8212-c71137f53df6 inspect-boundaries duration=8.7s
+[00:23] TASK run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=4f0d927e-6a04-4d29-9404-1632c0d9f01b integration-tests started attempt=1/3
+[00:42] RETRY run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=4f0d927e-6a04-4d29-9404-1632c0d9f01b integration-tests attempt=1/3 delay=5s error="runner disconnected before terminal event"
+[00:47] TASK run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=4f0d927e-6a04-4d29-9404-1632c0d9f01b integration-tests started attempt=2/3
+[01:17] LIVE run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 elapsed=01:17 complete=5/12 active=2 waiting=2 retrying=1
+[01:42] PASS run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=6ec1a42e-b7d9-458b-b17c-4477f0faf19b runtime-package tasks=3/3 duration=01:29 tokens=18.4k cost=$0.21
+[02:18] DONE run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 status=succeeded tasks=12/12 retries=1 total=02:18
 ```
-
-### Final JSON frame
-
-```json
-{
-  "schemaVersion": 1,
-  "status": "succeeded",
-  "workflow": {
-    "id": "repository:review",
-    "reference": "repository:review"
-  },
-  "workId": "019f2e9d-c2f1-7b44-a7a3-1c27e9b81130",
-  "runId": "7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3",
-  "startedAt": "2026-09-15T09:14:22.184Z",
-  "finishedAt": "2026-09-15T09:16:40.492Z",
-  "durationMs": 138308,
-  "output": {
-    "verdict": "approve",
-    "summary": "Runtime boundaries remain intact.",
-    "findings": [],
-    "changedFiles": 7
-  },
-  "metrics": {
-    "invocations": 12,
-    "retries": 1,
-    "inputTokens": 16420,
-    "outputTokens": 1984,
-    "costUsd": 0.21
-  }
-}
-```
-
-All result variants share `schemaVersion`, `status`, `workflow`, identity,
-timestamps, duration, and available metrics. A success has `output`. A failure
-has a typed `error`. A cancellation has a typed `cancellation` reason. These
-three fields are mutually exclusive.
 
 Golden fixtures can replace identifiers and timing values with deterministic
 tokens. They must preserve all spacing, glyphs, field order, and layout rules
@@ -552,17 +580,20 @@ shown here.
 - A terminal loss during a run triggers cleanup and a typed renderer error.
 - Concurrent diagnostic output cannot corrupt the interactive frame.
 - Dynamic children keep stable plan order and do not reset manual expansion.
+- Control characters in dynamic fields cannot create terminal or GitHub
+  commands.
+- Projection overflow remains visible and does not retain raw event history.
 
 ## Migration
 
-1. Add final-result JSON to the CLI while `@seqlane/output` still exists.
-2. Remove the JSON event renderer from the renderer contract.
-3. Rename `libs/output` to `libs/tui` without a compatibility package.
-4. Rename human-specific projection types to neutral run types.
+1. Complete `spec.run-machine-output` result and event separation.
+2. Rename `libs/output` to `libs/tui` without a compatibility package.
+3. Rename human-specific projection types to neutral run types.
+4. Add clock, scheduling, bounds, and field-encoding contracts.
 5. Add navigation, viewport, deep-tree, and elapsed-time selectors.
 6. Replace the custom human renderer with the lazy Ink renderer.
-7. Wire run modes, cancellation intent, cleanup, and replay event output.
-8. Remove old paths, exports, flags, tests, and documentation.
+7. Wire terminal modes, cancellation intent, and cleanup.
+8. Remove old paths, exports, tests, and documentation.
 
 Each migration step must leave the repository buildable. A temporary internal
 bridge must be removed before this specification is complete.
@@ -573,6 +604,8 @@ Tests must prove:
 
 - four or more containment levels render with correct branch rails
 - stable sibling order survives interleaved parallel events
+- clocks, tickers, and frame schedulers start and stop deterministically
+- no ticker or frame callback runs after renderer finalization
 - manual expansion, active expansion, and failure reveal have defined priority
 - root elapsed time uses wall-clock bounds and does not sum child durations
 - focus, scrolling, details, resize, ASCII, no-color, and narrow widths work
@@ -580,20 +613,24 @@ Tests must prove:
   consistent
 - human golden frames match the normative active, compact, and failed frames
 - CI golden lines match the normative kind, spacing, and field order
-- final JSON matches the normative envelope and variant rules
+- every CI line has full run identity
+- every invocation CI line has full invocation identity
+- ANSI, C0, C1, CR, LF, `%`, `::`, HTML, Markdown pipes, long text, and invalid
+  UTF-8 boundary cases use the required encoding
+- truncation always includes the original byte count
+- node, edge, per-node text, and total-text limits produce visible diagnostics
+- deep trees use iterative traversal and bounded indentation
+- the reducer retains no raw-event backlog
+- aggregate updates do not scan the complete projection on each frame
 - unrelated rows do not jump during progress and spinner updates
 - renderer updates stay within the specified frame-rate limits
 - terminal state is restored after every renderer termination path
 - CI output contains no input reads, cursor movement, or carriage returns
 - CI heartbeats and final root elapsed time use an injected clock
-- `--json` writes one value and no progress for all terminal outcomes
-- `null`, `false`, and `0` workflow results remain unchanged
-- JSON mode never constructs a renderer or loads Ink
-- event recording remains independent of all output modes
 - renderer errors do not replace the run outcome or exit status
 - no Mastra, OpenCode, Ink, or React types cross prohibited boundaries
-- the compiled CLI passes representative human, CI, JSON, cancellation, and
-  recording smoke tests.
+- the compiled CLI passes representative human, CI, and cancellation smoke
+  tests.
 
 Run the test-mapping check before focused tests. Then run package tests,
 typechecks, builds, lint checks, and the complete CLI entrypoint tests.
@@ -604,9 +641,9 @@ typechecks, builds, lint checks, and the complete CLI entrypoint tests.
 - `@seqlane/output` and its compatibility paths do not remain.
 - Human mode provides the specified interactive nested view.
 - CI mode remains append-only and independent of terminal input.
-- Final-result mode writes one validated result without progress.
 - The root workflow shows accurate total elapsed time in human and CI modes.
-- Event recording remains an explicit, separate function.
+- CI fields cannot inject terminal or GitHub control data.
+- Projection memory and traversal obey the defined limits.
 - All required tests and workspace quality gates pass.
 
 ## Delivery state
@@ -619,4 +656,5 @@ current implementation remains under `@seqlane/output`.
 - [prd.seqlane-on-mastra requirement-run-output-quality](../prd/2026-09-03-seqlane-on-mastra.md#requirement-run-output-quality)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)
 - [adr.run-terminal-presentation-boundary: Separate Run Terminal Presentation from Machine Results](../adrs/2026-09-15-run-terminal-presentation-boundary.md)
-- Supersedes [spec.seqlane-execution-output-package: Seqlane Execution Output Package](./2026-09-02-seqlane-execution-output-package.md).
+- [spec.run-machine-output: Run Machine Output and Command Errors](./2026-09-15-run-machine-output.md)
+- Jointly supersedes [spec.seqlane-execution-output-package: Seqlane Execution Output Package](./2026-09-02-seqlane-execution-output-package.md).

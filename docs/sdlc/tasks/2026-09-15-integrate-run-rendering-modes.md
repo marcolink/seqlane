@@ -8,6 +8,7 @@ created: 2026-09-15
 updated: 2026-09-15
 upstream:
   - spec.run-terminal-rendering
+  - spec.run-machine-output
   - task.separate-run-machine-output
   - task.build-interactive-run-tui
 supersedes: []
@@ -22,10 +23,12 @@ behavior through the compiled CLI and remove migration artifacts.
 
 ## Upstream requirements
 
-- [requirement-mode-selection](../specs/2026-09-15-run-terminal-rendering.md#requirement-mode-selection)
+- [requirement-mode-selection](../specs/2026-09-15-run-machine-output.md#requirement-mode-selection)
 - [requirement-renderer-contract](../specs/2026-09-15-run-terminal-rendering.md#requirement-renderer-contract)
 - [requirement-ci-output](../specs/2026-09-15-run-terminal-rendering.md#requirement-ci-output)
-- [requirement-final-json-result](../specs/2026-09-15-run-terminal-rendering.md#requirement-final-json-result)
+- [requirement-terminal-field-encoding](../specs/2026-09-15-run-terminal-rendering.md#requirement-terminal-field-encoding)
+- [requirement-run-command-result-schema](../specs/2026-09-15-run-machine-output.md#requirement-run-command-result-schema)
+- [requirement-graceful-command-errors](../specs/2026-09-15-run-machine-output.md#requirement-graceful-command-errors)
 - [requirement-visual-language](../specs/2026-09-15-run-terminal-rendering.md#requirement-visual-language)
 - [requirement-responsive-layout](../specs/2026-09-15-run-terminal-rendering.md#requirement-responsive-layout)
 - [requirement-renderer-lifecycle](../specs/2026-09-15-run-terminal-rendering.md#requirement-renderer-lifecycle)
@@ -36,6 +39,9 @@ behavior through the compiled CLI and remove migration artifacts.
 - Supply terminal input, output, dimensions, capabilities, and cancellation
   intent to human mode.
 - Keep CI mode append-only, non-interactive, and independent of Ink.
+- Include full run identity on every CI line and full invocation identity on
+  each invocation line.
+- Apply the canonical terminal, GitHub command, and summary encoders.
 - Finalize renderers before the command returns.
 - Preserve authoritative outcome and exit-status behavior after renderer errors.
 - Update help, examples, package documentation, and CLI behavior tests.
@@ -62,6 +68,7 @@ behavior through the compiled CLI and remove migration artifacts.
 
 - `apps/cli` run command, output adapter, help, and entrypoint tests.
 - `libs/tui` CI integration and lifecycle contract.
+- The shared CLI command error boundary and run cleanup lifecycle.
 - CLI and TUI README files.
 - Workspace dependency and boundary checks.
 
@@ -75,6 +82,10 @@ Use the compiled CLI for interactive TTY, redirected output, CI, JSON success,
 JSON failure, cancellation, and event-recording smoke tests. Inspect raw output
 for ANSI or progress leakage. Make sure that CI and JSON do not load Ink.
 
+Use adversarial CI values that contain ANSI, controls, newlines, GitHub command
+syntax, HTML, Markdown pipes, long text, and multi-byte Unicode. Make sure that
+the output remains one safe attributable line.
+
 Review human PTY captures at every specified width and height band. Compare CI
 field order and final JSON envelopes with the normative frames. Do not approve
 unexplained golden-fixture changes.
@@ -84,6 +95,7 @@ unexplained golden-fixture changes.
 - Automatic and explicit mode selection match the active specification.
 - Human mode accepts input and restores the terminal.
 - CI mode needs no TTY and writes only permanent lines.
+- Every CI line has the required stable identity and safe field encoding.
 - JSON mode writes one final result and no progress.
 - Recording works independently in all compatible modes.
 - Human, CI, and JSON golden evidence matches the normative reference.
@@ -100,6 +112,7 @@ Planned. This task completes the run-rendering delivery sequence.
 
 ## Traceability
 
-- [spec.run-terminal-rendering: Run Terminal Rendering and Final Results](../specs/2026-09-15-run-terminal-rendering.md)
+- [spec.run-terminal-rendering: Run Terminal Rendering](../specs/2026-09-15-run-terminal-rendering.md)
+- [spec.run-machine-output: Run Machine Output and Command Errors](../specs/2026-09-15-run-machine-output.md)
 - [task.separate-run-machine-output: Separate Final Run Results from Event Output](./2026-09-15-separate-run-machine-output.md)
 - [task.build-interactive-run-tui: Build the Interactive Run TUI](./2026-09-15-build-interactive-run-tui.md)

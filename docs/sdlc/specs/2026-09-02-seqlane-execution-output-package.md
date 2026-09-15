@@ -14,7 +14,8 @@ supersedes: []
 # Seqlane Execution Output Package
 
 > Superseded by
-> [spec.run-terminal-rendering](./2026-09-15-run-terminal-rendering.md).
+> [spec.run-terminal-rendering](./2026-09-15-run-terminal-rendering.md) and
+> [spec.run-machine-output](./2026-09-15-run-machine-output.md).
 
 > Migrated from legacy technical specification `TS-011`.
 

@@ -40,4 +40,5 @@
 | [spec.codex-app-server-adapter](./2026-09-12-codex-app-server-adapter.md) | Codex App-Server Adapter | draft | 2026-09-12 | core |
 | [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md) | Incremental Pull Request Review Scope | active | 2026-09-13 | core |
 | [spec.fluent-task-until-repeats](./2026-09-14-fluent-task-until-repeats.md) | Fluent Task-Until Repeats | active | 2026-09-14 | core |
-| [spec.run-terminal-rendering](./2026-09-15-run-terminal-rendering.md) | Run Terminal Rendering and Final Results | active | 2026-09-15 | core |
+| [spec.run-machine-output](./2026-09-15-run-machine-output.md) | Run Machine Output and Command Errors | active | 2026-09-15 | core |
+| [spec.run-terminal-rendering](./2026-09-15-run-terminal-rendering.md) | Run Terminal Rendering | active | 2026-09-15 | core |
