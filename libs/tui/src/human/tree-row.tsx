@@ -14,6 +14,7 @@ export interface HumanTreeRowProps {
   readonly capabilities: HumanDisplayCapabilities;
   readonly focused: boolean;
   readonly spinnerFrame: number;
+  readonly sessionUiUrl?: string;
 }
 
 export function HumanTreeRow({
@@ -21,6 +22,7 @@ export function HumanTreeRow({
   capabilities,
   focused,
   spinnerFrame,
+  sessionUiUrl,
 }: HumanTreeRowProps): React.JSX.Element {
   const focusMarker = focused && !capabilities.supportsAnsi ? ">" : " ";
   const width = Math.max(1, capabilities.width ?? 80);
@@ -42,27 +44,32 @@ export function HumanTreeRow({
     capabilities.supportsUnicode,
   );
   return (
-    <Box width={width}>
-      <Text
-        inverse={focused && capabilities.supportsAnsi}
-        color={
-          capabilities.supportsAnsi ? statusColor(row.node.state) : undefined
-        }
-      >
-        {focusMarker +
-          statusSymbol(
-            row.node.state,
-            capabilities.supportsUnicode,
-            spinnerFrame,
-          )}
-      </Text>
-      <Text inverse={focused && capabilities.supportsAnsi}>
-        {" " + prefix + " " + label}
-      </Text>
-      {facts === "" ? null : (
-        <Box flexGrow={1} justifyContent="flex-end">
-          <Text dimColor={!focused}>{facts}</Text>
-        </Box>
+    <Box flexDirection="column">
+      <Box width={width}>
+        <Text
+          inverse={focused && capabilities.supportsAnsi}
+          color={
+            capabilities.supportsAnsi ? statusColor(row.node.state) : undefined
+          }
+        >
+          {focusMarker +
+            statusSymbol(
+              row.node.state,
+              capabilities.supportsUnicode,
+              spinnerFrame,
+            )}
+        </Text>
+        <Text inverse={focused && capabilities.supportsAnsi}>
+          {" " + prefix + " " + label}
+        </Text>
+        {facts === "" ? null : (
+          <Box flexGrow={1} justifyContent="flex-end">
+            <Text dimColor={!focused}>{facts}</Text>
+          </Box>
+        )}
+      </Box>
+      {sessionUiUrl === undefined ? null : (
+        <Text dimColor>{"    Session UI: " + sessionUiUrl}</Text>
       )}
     </Box>
   );

@@ -12,12 +12,14 @@ export interface HumanTreeProps {
   readonly view: RunViewModel;
   readonly capabilities: HumanDisplayCapabilities;
   readonly spinnerFrame: number;
+  readonly sessionUiByInvocation: ReadonlyMap<string, string>;
 }
 
 export function HumanTree({
   view,
   capabilities,
   spinnerFrame,
+  sessionUiByInvocation,
 }: HumanTreeProps): React.JSX.Element {
   const limitNotice = getRunProjectionLimitNotice(view);
   const rows = getRunViewportRows(
@@ -34,6 +36,7 @@ export function HumanTree({
           row={row}
           capabilities={capabilities}
           spinnerFrame={spinnerFrame}
+          sessionUiUrl={sessionUiByInvocation.get(row.node.invocationId)}
           focused={
             view.presentation.get(row.node.invocationId)?.isFocused ?? false
           }

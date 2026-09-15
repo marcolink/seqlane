@@ -22,6 +22,7 @@ export interface HumanAppProps {
   readonly spinnerFrame: number;
   readonly detailsVisible: boolean;
   readonly helpVisible: boolean;
+  readonly sessionUiByInvocation: ReadonlyMap<string, string>;
   readonly onInput: (action: HumanInputAction) => void;
 }
 
@@ -62,6 +63,7 @@ export function HumanApp({
   spinnerFrame,
   detailsVisible,
   helpVisible,
+  sessionUiByInvocation,
   onInput,
 }: HumanAppProps): React.JSX.Element {
   const width = capabilities.width ?? 80;
@@ -88,6 +90,7 @@ export function HumanApp({
           view={view}
           capabilities={capabilities}
           spinnerFrame={spinnerFrame}
+          sessionUiByInvocation={sessionUiByInvocation}
         />
       </Box>
       {showDetails ? <HumanDetails view={view} maxLines={detailLines} /> : null}

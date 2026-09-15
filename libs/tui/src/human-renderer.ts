@@ -520,6 +520,7 @@ export class HumanTTYRenderer implements ExecutionRenderer {
       spinnerFrame: this.spinnerFrame,
       detailsVisible: this.detailsVisible,
       helpVisible: this.helpVisible,
+      sessionUiByInvocation: this.sessionUiByInvocation,
       onInput: (action) => this.handleInput(action),
     };
   }

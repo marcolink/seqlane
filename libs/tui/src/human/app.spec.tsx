@@ -46,6 +46,9 @@ describe("HumanApp", () => {
         spinnerFrame={0}
         detailsVisible
         helpVisible
+        sessionUiByInvocation={
+          new Map([["task-1", "http://127.0.0.1:4096/session/session-1"]])
+        }
         onInput={() => undefined}
       />,
       { columns: 100 },
@@ -53,6 +56,9 @@ describe("HumanApp", () => {
 
     expect(output).toContain("Build release active");
     expect(output).toContain("Build release");
+    expect(output).toContain(
+      "Session UI: http://127.0.0.1:4096/session/session-1",
+    );
     expect(output).toContain("help");
   });
 
@@ -85,6 +91,7 @@ describe("HumanApp", () => {
         spinnerFrame={0}
         detailsVisible
         helpVisible={false}
+        sessionUiByInvocation={new Map()}
         onInput={() => undefined}
       />,
       { columns: 40, rows: 12 },
