@@ -247,6 +247,9 @@
 | [task.prove-codex-app-server-protocol](./2026-09-12-prove-codex-app-server-protocol.md) | Prove the Codex App-Server Protocol | completed | 2026-09-12 | core |
 | [task.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md) | Implement Incremental Pull Request Review Scope | planned | 2026-09-13 | core |
 | [task.deliver-fluent-task-until-repeats](./2026-09-14-deliver-fluent-task-until-repeats.md) | Deliver Fluent Task-Until Repeats | in-progress | 2026-09-14 | core |
+| [task.persist-code-review-run-artifacts](./2026-09-14-persist-code-review-run-artifacts.md) | Persist Bounded Published Review Artifacts | planned | 2026-09-14 | core |
+| [task.serialize-code-review-publication](./2026-09-14-serialize-code-review-publication.md) | Serialize Final Code Review Publication | planned | 2026-09-14 | core |
+| [task.unify-code-review-comment-state](./2026-09-14-unify-code-review-comment-state.md) | Unify Code Review Comment State and Cost Projection | planned | 2026-09-14 | core |
 | [task.build-interactive-run-tui](./2026-09-15-build-interactive-run-tui.md) | Build the Interactive Run TUI | planned | 2026-09-15 | core |
 | [task.integrate-run-rendering-modes](./2026-09-15-integrate-run-rendering-modes.md) | Integrate and Verify Run Rendering Modes | planned | 2026-09-15 | core |
 | [task.rename-output-package-to-tui](./2026-09-15-rename-output-package-to-tui.md) | Rename the Output Package to TUI | planned | 2026-09-15 | core |
