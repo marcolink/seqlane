@@ -166,6 +166,42 @@ describe("human execution view model", () => {
     ]);
   });
 
+  it("projects plan topology before runtime invocation setup", () => {
+    const view = reduceRunEvents([
+      {
+        type: "run.plan",
+        ...run,
+        plan: {
+          workflow: { id: "example" },
+          nodes: [
+            {
+              planNodeId: "root",
+              type: "workflow",
+              label: "Root workflow",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+            {
+              planNodeId: "task",
+              type: "task",
+              taskId: "task",
+              label: "Task",
+              dependsOn: [],
+              parentPlanNodeId: "root",
+              siblingOrder: 0,
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(getRunVisibleRows(view).map((row) => row.node.label)).toEqual([
+      "Root workflow",
+      "Task",
+    ]);
+    expect(view.nodes.get("plan:task")?.parentInvocationId).toBe("plan:root");
+  });
+
   it("keeps nested containment separate from dependencies", () => {
     const view = reduceRunEvents([
       created("root", "Root", 0, { kind: "workflow" }),

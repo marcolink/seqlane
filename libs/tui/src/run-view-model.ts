@@ -82,6 +82,7 @@ export interface RunPresentationState {
 
 export interface RunNode {
   readonly invocationId: string;
+  readonly planNodeId: string;
   readonly taskId: string;
   readonly kind: SeqlaneInvocationKind;
   readonly label: string;
@@ -238,6 +239,7 @@ function emptyNode(
         : event.subject.planNodeId);
   return {
     invocationId: event.invocationId,
+    planNodeId: event.planNodeId,
     taskId,
     kind: event.kind,
     label: event.label,
@@ -602,6 +604,21 @@ function reduceCreated(
   view: RunViewModel,
   event: Extract<OutputEvent, { type: "invocation.created" }>,
 ): RunViewModel {
+  const placeholderId = [...view.nodes.values()].find(
+    (node) =>
+      node.planNodeId === event.planNodeId &&
+      node.invocationId.startsWith("plan:"),
+  )?.invocationId;
+  if (placeholderId !== undefined) {
+    const nodes = new Map(view.nodes);
+    nodes.delete(placeholderId);
+    const presentation = new Map(view.presentation);
+    presentation.delete(placeholderId);
+    return reduceCreated(
+      rebuildTopology({ ...view, presentation }, nodes),
+      event,
+    );
+  }
   const remainingEdges =
     view.limits.dependencyEdges -
     [...view.nodes.values()].reduce(
@@ -667,6 +684,59 @@ function reduceCreated(
   );
 }
 
+function planNodeKind(
+  node: Extract<OutputEvent, { type: "run.plan" }>["plan"]["nodes"][number],
+): RunNode["kind"] {
+  if (node.type === "workflow") return "workflow";
+  if (node.type === "repeat") return "loop";
+  if (node.type.startsWith("validation.")) return "validation";
+  return "task";
+}
+
+function planNodeSubject(
+  node: Extract<OutputEvent, { type: "run.plan" }>["plan"]["nodes"][number],
+): Extract<OutputEvent, { type: "invocation.created" }>["subject"] {
+  if (node.type === "task" && node.taskId !== undefined) {
+    return { type: "task", taskId: node.taskId };
+  }
+  return { type: "validation-gate", planNodeId: node.planNodeId };
+}
+
+function reducePlan(
+  view: RunViewModel,
+  event: Extract<OutputEvent, { type: "run.plan" }>,
+): RunViewModel {
+  let projected = view;
+  for (const node of event.plan.nodes) {
+    if (
+      [...projected.nodes.values()].some(
+        (current) => current.planNodeId === node.planNodeId,
+      )
+    ) {
+      continue;
+    }
+    const created: Extract<OutputEvent, { type: "invocation.created" }> = {
+      type: "invocation.created",
+      metadata: event.metadata,
+      workId: event.workId,
+      runId: event.runId,
+      invocationId: `plan:${node.planNodeId}`,
+      planNodeId: node.planNodeId,
+      subject: planNodeSubject(node),
+      ...(node.taskId === undefined ? {} : { taskId: node.taskId }),
+      kind: planNodeKind(node),
+      label: node.label,
+      ...(node.parentPlanNodeId === undefined
+        ? {}
+        : { parentInvocationId: `plan:${node.parentPlanNodeId}` }),
+      siblingOrder: node.siblingOrder,
+      dependencyIds: node.dependsOn.map((id) => `plan:${id}`),
+    };
+    projected = reduceCreated(projected, created);
+  }
+  return setRunState(projected, "active", event);
+}
+
 function collapseSuccessfulBranch(
   view: RunViewModel,
   invocationId: string,
@@ -703,7 +773,7 @@ export function reduceRunViewModel(
     case "run.started":
       return { ...setRunState(next, "active", event), runError: undefined };
     case "run.plan":
-      return next;
+      return reducePlan(next, event);
     case "invocation.created":
       return setRunState(reduceCreated(next, event), "active", event);
     case "invocation.started": {
