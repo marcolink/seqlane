@@ -939,6 +939,25 @@ export function getRunVisibleRows(
   return rows;
 }
 
+/**
+ * Select a stable window which always contains the focused row. The viewport
+ * is derived, so resize never mutates focus or the user's expansion choices.
+ */
+export function getRunViewportRows(
+  view: RunViewModel,
+  maxRows: number,
+): readonly RunVisibleRow[] {
+  const rows = getRunVisibleRows(view);
+  if (maxRows <= 0 || rows.length <= maxRows) return rows;
+  const focused = focusedInvocationId(view);
+  const focusedIndex = rows.findIndex(
+    (row) => row.node.invocationId === focused,
+  );
+  const centeredStart = Math.max(0, focusedIndex - Math.floor(maxRows / 2));
+  const start = Math.min(centeredStart, rows.length - maxRows);
+  return rows.slice(start, start + maxRows);
+}
+
 /** One explicit row prevents bounded projection from looking like a complete run. */
 export function getRunProjectionLimitNotice(
   view: RunViewModel,

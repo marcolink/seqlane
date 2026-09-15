@@ -5,6 +5,7 @@ import {
   expandOrFocusChild,
   focusNextFailedRunNode,
   getRunProjectionLimitNotice,
+  getRunViewportRows,
   getRunVisibleRows,
   moveRunNodeFocus,
   reduceRunEvents,
@@ -72,6 +73,20 @@ function terminal(
 }
 
 describe("human execution view model", () => {
+  it("keeps the focused row in a derived viewport without changing focus", () => {
+    let view = reduceRunEvents(
+      Array.from({ length: 8 }, (_, index) =>
+        created(`task-${index}`, `Task ${index}`, index),
+      ),
+    );
+    view = setRunNodeFocused(view, "task-6");
+
+    expect(
+      getRunViewportRows(view, 3).map((row) => row.node.invocationId),
+    ).toContain("task-6");
+    expect(view.presentation.get("task-6")?.isFocused).toBe(true);
+  });
+
   it("bounds nodes, dependency edges, and detail text with visible markers", () => {
     const events = [
       created("root", "Root", 0, {

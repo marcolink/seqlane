@@ -3,6 +3,7 @@ import type { RunViewModel } from "../run-view-model.js";
 import {
   getRunProjectionLimitNotice,
   getRunVisibleRows,
+  getRunViewportRows,
 } from "../run-view-model.js";
 import type { HumanDisplayCapabilities } from "./format.js";
 import { HumanTreeRow } from "./tree-row.js";
@@ -19,9 +20,15 @@ export function HumanTree({
   spinnerFrame,
 }: HumanTreeProps): React.JSX.Element {
   const limitNotice = getRunProjectionLimitNotice(view);
+  const rows = getRunViewportRows(
+    view,
+    Math.max(1, (capabilities.height ?? 24) - 5),
+  );
+  const hasHiddenRows = rows.length < getRunVisibleRows(view).length;
   return (
     <Box flexDirection="column">
-      {getRunVisibleRows(view).map((row) => (
+      {hasHiddenRows ? <Text dimColor>… scroll with ↑↓ …</Text> : null}
+      {rows.map((row) => (
         <HumanTreeRow
           key={row.node.invocationId}
           row={row}
