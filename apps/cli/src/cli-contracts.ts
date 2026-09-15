@@ -103,8 +103,13 @@ export type CommandErrorMetadata = z.output<typeof commandErrorMetadataSchema>;
 export function parseCommandErrorMetadata(
   value: unknown,
 ): CommandErrorMetadata | undefined {
-  const result = commandErrorMetadataSchema.safeParse(value);
-  return result.success ? result.data : undefined;
+  try {
+    const result = commandErrorMetadataSchema.safeParse(value);
+    return result.success ? result.data : undefined;
+  } catch {
+    // Error handling must remain non-throwing for hostile getters and proxies.
+    return undefined;
+  }
 }
 
 export function copyCommandErrorMetadata(target: Error, source: unknown): void {

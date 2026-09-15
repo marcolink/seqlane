@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decodeSeqlaneExecutionEvent,
   encodeSeqlaneExecutionEvent,
+  isValidationIssue,
   isSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
 } from "./index.js";
@@ -23,6 +24,15 @@ const started: SeqlaneExecutionEvent = {
 };
 
 describe("@seqlane/protocol", () => {
+  it("keeps the schema-backed validation issue compatibility export", () => {
+    expect(
+      isValidationIssue({ code: "invalid_type", message: "Expected string" }),
+    ).toBe(true);
+    expect(isValidationIssue({ code: "invalid_type", message: 42 })).toBe(
+      false,
+    );
+  });
+
   it("round-trips a canonical event with metadata", () => {
     const encoded = encodeSeqlaneExecutionEvent(started);
 

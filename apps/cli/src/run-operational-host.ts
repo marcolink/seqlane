@@ -17,7 +17,7 @@ import {
   remoteError,
   type RunIdentity,
 } from "./run-result.js";
-import { errorMessage, writeDiagnostic } from "./command.js";
+import { writeDiagnostic } from "./command.js";
 import type { WorkflowRoots } from "./workflow-discovery.js";
 import { randomUUID } from "node:crypto";
 
@@ -101,11 +101,13 @@ export async function executeOperationalHostRun(
   let ownedHost:
     Awaited<ReturnType<typeof startOwnedOperationalHost>> | undefined;
   let cancellationRequested = false;
+  let cancellationSignal: "SIGINT" | "SIGTERM" | undefined;
   let cancellationPromise: Promise<void> | undefined;
   let cancellationError: unknown;
   const observationController = new AbortController();
-  const requestCancellation = (): void => {
+  const requestCancellation = (signal?: "SIGINT" | "SIGTERM"): void => {
     cancellationRequested = true;
+    cancellationSignal ??= signal;
     if (client === undefined || cancellationPromise !== undefined) return;
     cancellationPromise = cancelOperationalRun(
       client,
@@ -120,9 +122,10 @@ export async function executeOperationalHostRun(
   let exitStatus: 0 | 1 | 130 = 1;
   let commandResult: import("./cli-contracts.js").RunCommandResult | undefined;
   let cleanupErrors: readonly unknown[] = [];
-  const onSignal = (): void => requestCancellation();
-  process.once("SIGINT", onSignal);
-  process.once("SIGTERM", onSignal);
+  const onSigint = (): void => requestCancellation("SIGINT");
+  const onSigterm = (): void => requestCancellation("SIGTERM");
+  process.once("SIGINT", onSigint);
+  process.once("SIGTERM", onSigterm);
 
   try {
     ownedHost =
@@ -184,7 +187,7 @@ export async function executeOperationalHostRun(
         identity,
         cancellationRequested ? "signal" : "runtime_cancelled",
         cancellationRequested
-          ? "Run cancelled after signal"
+          ? `Run cancelled after ${cancellationSignal ?? "signal"}`
           : "Run cancelled by the runtime",
       );
     } else if (result.status === "success" && isJsonValue(result.result)) {
@@ -259,7 +262,7 @@ export async function executeOperationalHostRun(
         sourceWorkflowReference,
         identity,
         "signal",
-        "Run cancelled after signal",
+        `Run cancelled after ${cancellationSignal ?? "signal"}`,
       );
     } else {
       events.emit({
@@ -288,16 +291,9 @@ export async function executeOperationalHostRun(
         ? disconnectResize
         : undefined,
       beforeCleanup: () => {
-        process.removeListener("SIGINT", onSignal);
-        process.removeListener("SIGTERM", onSignal);
+        process.removeListener("SIGINT", onSigint);
+        process.removeListener("SIGTERM", onSigterm);
       },
-      onRendererError: managePresentationResources
-        ? (error) =>
-            writeDiagnostic(
-              capabilities.stderr,
-              "seqlane output error: " + errorMessage(error),
-            )
-        : undefined,
     });
   }
   if (commandResult === undefined) {

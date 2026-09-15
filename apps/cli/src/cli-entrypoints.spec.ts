@@ -1236,33 +1236,39 @@ export default createFlow({ id: "non-json", input, output })
     expect(result.stdout).toContain("cancelled");
   });
 
-  it("returns a cancellation result with status 130 in native JSON mode", async () => {
-    const fake = await startFakeOpenCodeServer("hold");
-    try {
-      const result = await runFakeCli(
-        fake,
-        productionEntry,
-        runArgs(input, workflowReference, fake.url, "json"),
-        undefined,
-        "never emitted in JSON mode",
-        (child) => {
-          setTimeout(() => child.kill("SIGINT"), 1_500);
-        },
-      );
+  it.each(["SIGINT", "SIGTERM"] as const)(
+    "returns a cancellation result with status 130 after %s in native JSON mode",
+    async (signal) => {
+      const fake = await startFakeOpenCodeServer("hold");
+      try {
+        const result = await runFakeCli(
+          fake,
+          productionEntry,
+          runArgs(input, workflowReference, fake.url, "json"),
+          undefined,
+          "never emitted in JSON mode",
+          (child) => {
+            setTimeout(() => child.kill(signal), 1_500);
+          },
+        );
 
-      expect(result.code, JSON.stringify(result)).toBe(130);
-      expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        schemaVersion: 1,
-        status: "cancelled",
-        cancellation: { code: "signal" },
-        workflow: { reference: workflowReference },
-      });
-      expect(result.stdout).not.toContain('"type":"run.');
-    } finally {
-      await closeFakeOpenCodeServer(fake);
-    }
-  });
+        expect(result.code, JSON.stringify(result)).toBe(130);
+        expect(result.stderr).toBe("");
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          schemaVersion: 1,
+          status: "cancelled",
+          cancellation: {
+            code: "signal",
+            message: `Run cancelled after ${signal}`,
+          },
+          workflow: { reference: workflowReference },
+        });
+        expect(result.stdout).not.toContain('"type":"run.');
+      } finally {
+        await closeFakeOpenCodeServer(fake);
+      }
+    },
+  );
 
   it("rejects invalid input before starting a runner", async () => {
     const result = await runCli(productionEntry, runArgs("{"));

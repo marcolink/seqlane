@@ -119,11 +119,13 @@ const metricsSchema = strictRecord({
   tokens: invocationTokensSchema.optional(),
 });
 
-const validationIssueSchema = strictRecord({
+export const validationIssueSchema = strictRecord({
   code: z.string(),
   message: z.string(),
   path: z.string().optional(),
 });
+
+export type ValidationIssue = z.output<typeof validationIssueSchema>;
 
 const seqlaneErrorCategorySchema = z.enum([
   "InputValidationError",
@@ -538,6 +540,15 @@ export type RunHeartbeatEvent = EventOf<"run.heartbeat">;
 export type RunSucceededEvent = EventOf<"run.succeeded">;
 export type RunFailedEvent = EventOf<"run.failed">;
 export type RunCancelledEvent = EventOf<"run.cancelled">;
+
+/** Schema-backed compatibility guard for consumers of the protocol package. */
+export function isValidationIssue(value: unknown): value is ValidationIssue {
+  try {
+    return validationIssueSchema.safeParse(value).success;
+  } catch {
+    return false;
+  }
+}
 
 export function isSeqlaneExecutionEvent(
   value: unknown,

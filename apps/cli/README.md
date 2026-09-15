@@ -250,6 +250,8 @@ only when their session, DAG, global capacity, and workspace policies permit it.
 When the configured OpenCode runtime also serves its browser UI, human terminal
 output adds a per-task `Session UI` link. CI output prints the URL to stderr so
 its stdout remains machine-readable. Final JSON results contain no progress.
+Signal cancellation results preserve the received signal, for example
+`Run cancelled after SIGINT` or `Run cancelled after SIGTERM`.
 
 ## Recording and replay
 
@@ -281,7 +283,10 @@ Use the explicit event mode to write one canonical event per line:
 seqlane replay ./seqlane-recording.jsonl --events ndjson
 ```
 
-`--events ndjson` cannot be combined with `--output`.
+`--events ndjson` cannot be combined with `--output`. Replay applies the same
+configured secret redactions as terminal output before writing event lines.
+Configured values include `OPENAI_API_KEY`, `GITHUB_TOKEN`, and the
+newline-delimited `SEQLANE_REDACT_VALUES` setting.
 
 ## Development
 

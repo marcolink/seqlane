@@ -14,7 +14,6 @@ export interface RunLifecycleOptions {
   readonly finishRenderer?: () => void | Promise<void>;
   readonly disconnectResize?: () => void;
   readonly beforeCleanup?: () => void;
-  readonly onRendererError?: (error: unknown) => void;
 }
 
 /** Close run resources in dependency order, retaining every cleanup failure. */
@@ -50,13 +49,6 @@ export async function closeRunResources(
       await options.finishRenderer();
     } catch (error) {
       errors.push(error);
-      if (options.onRendererError !== undefined) {
-        try {
-          options.onRendererError(error);
-        } catch (diagnosticError) {
-          errors.push(diagnosticError);
-        }
-      }
     }
   }
   await attempt(options.disconnectResize);

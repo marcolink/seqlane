@@ -40,7 +40,6 @@ describe("closeRunResources", () => {
       dispatcherFlush: new Error("dispatcher flush failed"),
       dispatcherClose: new Error("dispatcher close failed"),
       renderer: new Error("renderer finish failed"),
-      rendererDiagnostic: new Error("renderer diagnostic failed"),
       resize: new Error("resize disconnect failed"),
     };
     events.flush.mockRejectedValue(errors.dispatcherFlush);
@@ -66,9 +65,6 @@ describe("closeRunResources", () => {
       beforeCleanup: () => {
         throw errors.before;
       },
-      onRendererError: () => {
-        throw errors.rendererDiagnostic;
-      },
     });
 
     expect(result).toEqual([
@@ -79,31 +75,24 @@ describe("closeRunResources", () => {
       errors.dispatcherFlush,
       errors.dispatcherClose,
       errors.renderer,
-      errors.rendererDiagnostic,
       errors.resize,
     ]);
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
   });
 
-  it("retains the primary operation result when diagnostics fail", async () => {
+  it("returns each renderer cleanup failure once for the caller to report", async () => {
     const events = dispatcher();
     const rendererError = new Error("renderer finish failed");
-    const diagnosticError = new Error("diagnostic failed");
-    const onRendererError = vi.fn(() => {
-      throw diagnosticError;
-    });
 
     const result = await closeRunResources({
       dispatcher: events,
       finishRenderer: async () => {
         throw rendererError;
       },
-      onRendererError,
       disconnectResize: vi.fn(),
     });
 
-    expect(result).toEqual([rendererError, diagnosticError]);
-    expect(onRendererError).toHaveBeenCalledWith(rendererError);
+    expect(result).toEqual([rendererError]);
   });
 });

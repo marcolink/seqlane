@@ -396,11 +396,6 @@ export default class RunCommand extends SeqlaneCommand {
         closeClient: () => runnerClient?.close(),
         finishRenderer: () => renderer?.finish(),
         disconnectResize,
-        onRendererError: (error) =>
-          writeDiagnostic(
-            capabilities.stderr,
-            "seqlane output error: " + errorMessage(error),
-          ),
       });
       for (const error of cleanupErrors) {
         writeDiagnostic(

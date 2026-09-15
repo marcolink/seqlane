@@ -2,7 +2,10 @@
 // @test-scope ./command.ts
 
 import { describe, expect, it } from "vitest";
-import { runCommandResultSchema } from "./cli-contracts.js";
+import {
+  parseCommandErrorMetadata,
+  runCommandResultSchema,
+} from "./cli-contracts.js";
 import { contextualizeCommandError, serializeCommandError } from "./command.js";
 import { remoteError, runTiming } from "./run-result.js";
 
@@ -106,5 +109,28 @@ describe("RunCommandResult", () => {
     expect(malformed.message).toBe("remote failure");
     expect("category" in malformed).toBe(false);
     expect("suggestions" in malformed).toBe(false);
+  });
+
+  it("fails closed for error metadata with hostile property access", () => {
+    const throwingGetter = {};
+    Object.defineProperty(throwingGetter, "category", {
+      get: () => {
+        throw new Error("getter trap");
+      },
+    });
+    const throwingProxy = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error("proxy trap");
+        },
+        ownKeys: () => {
+          throw new Error("proxy keys trap");
+        },
+      },
+    );
+
+    expect(parseCommandErrorMetadata(throwingGetter)).toBeUndefined();
+    expect(parseCommandErrorMetadata(throwingProxy)).toBeUndefined();
   });
 });

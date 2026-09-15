@@ -49,7 +49,11 @@ export default class ReplayCommand extends SeqlaneCommand {
 
     if (flags.events === "ndjson") {
       try {
-        writeReplayEvents(args.recording, process.stdout);
+        writeReplayEvents(
+          args.recording,
+          process.stdout,
+          createOutputCapabilities().redactions,
+        );
       } catch (error) {
         this.error(
           contextualizeCommandError(
