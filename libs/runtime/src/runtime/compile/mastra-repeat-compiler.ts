@@ -13,6 +13,7 @@ import type { MastraPlanCompilerOptions } from "./mastra-plan-compiler.js";
 import {
   buildInitialRepeatEnvelope,
   repeatEnvelopeSchema,
+  repeatWorkflowStateSchema,
 } from "./mastra-repeat-envelope.js";
 import { buildRepeatAttemptStep } from "./mastra-repeat-attempt.js";
 import { runRepeatWorkflow } from "./mastra-repeat-lifecycle.js";
@@ -91,12 +92,16 @@ function buildRepeatResultStep(
     description: `Resolve result for Seqlane repeat ${node.nodeId}`,
     inputSchema: z.unknown(),
     outputSchema: dependencies.schemaForMastra(outputSchema),
-    execute: async ({ inputData }) => {
+    execute: async ({ inputData, state }) => {
       const envelope = repeatEnvelopeSchema.safeParse(inputData);
       if (!envelope.success) {
         throw new Error(`Repeat "${node.nodeId}" produced an invalid envelope`);
       }
-      return envelope.data.result;
+      const repeatState = repeatWorkflowStateSchema.safeParse(state);
+      if (!repeatState.success) {
+        throw new Error(`Repeat "${node.nodeId}" has invalid durable state`);
+      }
+      return repeatState.data.result;
     },
   });
 }
@@ -119,6 +124,7 @@ function buildRepeatWorkflow(
     description: `Runs Seqlane repeat ${node.nodeId}.`,
     inputSchema: z.unknown(),
     outputSchema: z.unknown(),
+    stateSchema: repeatWorkflowStateSchema,
   }) as AnyWorkflow;
   const boundedCondition = buildRepeatCondition(node, options, attemptStepId);
   const extract = buildRepeatResultStep(
@@ -176,7 +182,8 @@ export function buildRepeatStep(
       return runRepeatWorkflow({
         node,
         loop,
-        envelope,
+        envelope: envelope.envelope,
+        initialState: envelope.state,
         runContext,
         compilerOptions: options,
         dependencies,

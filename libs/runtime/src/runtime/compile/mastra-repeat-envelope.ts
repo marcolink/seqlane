@@ -12,14 +12,11 @@ import type { RepeatCompilerDependencies } from "./mastra-repeat-compiler.js";
 
 export const repeatEnvelopeSchema = z.strictObject({
   __seqlaneRepeatEnvelope: z.literal(true),
-  initialInput: z.unknown(),
-  currentInput: z.unknown(),
-  workflowInput: z.unknown(),
-  dependencyResults: z.custom<ReadonlyMap<string, unknown>>(
-    (value) => value instanceof Map,
-  ),
+  stateRef: z.strictObject({
+    workflowId: z.string(),
+    runId: z.string(),
+  }),
   attemptNumber: z.number().int().positive(),
-  result: z.unknown().optional(),
   until: z.boolean().optional(),
   runContext: z.strictObject({
     workId: z.string(),
@@ -30,6 +27,40 @@ export const repeatEnvelopeSchema = z.strictObject({
 });
 
 export type RepeatEnvelope = z.infer<typeof repeatEnvelopeSchema>;
+
+/** Control envelopes stay bounded because Mastra persists one per attempt. */
+export const MAX_REPEAT_ENVELOPE_BYTES = 16 * 1024;
+
+export function assertRepeatEnvelopeSize(
+  envelope: RepeatEnvelope,
+): RepeatEnvelope {
+  const serialized = JSON.stringify(envelope);
+  const bytes =
+    serialized === undefined
+      ? 0
+      : new TextEncoder().encode(serialized).byteLength;
+  if (serialized === undefined || bytes > MAX_REPEAT_ENVELOPE_BYTES) {
+    throw new Error(
+      `Repeat persistence envelope exceeds ${MAX_REPEAT_ENVELOPE_BYTES} bytes`,
+    );
+  }
+  return envelope;
+}
+
+/**
+ * Values needed by every repeat iteration live in Mastra workflow state.
+ * Keeping them out of the loop step output prevents the same dependency and
+ * input payloads from being copied into every persisted envelope.
+ */
+export const repeatWorkflowStateSchema = z.strictObject({
+  initialInput: z.unknown(),
+  currentInput: z.unknown(),
+  workflowInput: z.unknown(),
+  dependencyResults: z.array(z.tuple([z.string(), z.unknown()])),
+  result: z.unknown().optional(),
+});
+
+export type RepeatWorkflowState = z.infer<typeof repeatWorkflowStateSchema>;
 
 export function repeatInputStepId(
   node: Extract<PlanNode, { type: "repeat" }>,
@@ -42,11 +73,11 @@ export function repeatEnvelopeFromInput(
   inputStepId: string,
 ): RepeatEnvelope {
   const direct = repeatEnvelopeSchema.safeParse(input);
-  if (direct.success) return direct.data;
+  if (direct.success) return assertRepeatEnvelopeSize(direct.data);
   const wrapped = z.record(z.string(), z.unknown()).safeParse(input);
   if (wrapped.success) {
     const candidate = repeatEnvelopeSchema.safeParse(wrapped.data[inputStepId]);
-    if (candidate.success) return candidate.data;
+    if (candidate.success) return assertRepeatEnvelopeSize(candidate.data);
   }
   throw new Error(
     `Repeat input step "${inputStepId}" did not produce an envelope`,
@@ -57,7 +88,7 @@ export function repeatScopedResults(
   node: Extract<PlanNode, { type: "repeat" }>,
   input: unknown,
   result: unknown,
-  dependencyResults: ReadonlyMap<string, unknown>,
+  dependencyResults: ReadonlyArray<readonly [string, unknown]>,
 ): Map<string, unknown> {
   return new Map([
     ...dependencyResults,
@@ -72,13 +103,13 @@ export function buildInitialRepeatEnvelope(
   getStepResult: <Output = unknown>(nodeId: string) => Output,
   dependencies: RepeatCompilerDependencies,
   runContext: MastraPlanRunContext,
-): RepeatEnvelope {
+): { envelope: RepeatEnvelope; state: RepeatWorkflowState } {
   const initialInput = dependencies.resolveStepInput(
     node,
     workflowInput,
     getStepResult,
   );
-  const dependencyResults = new Map<string, unknown>();
+  const dependencyResults: Array<[string, unknown]> = [];
   for (const dependency of new Set([
     ...referencedNodeIds(node.input),
     ...referencedNodeIds(node.until),
@@ -90,15 +121,15 @@ export function buildInitialRepeatEnvelope(
       dependency !== `${node.nodeId}:input` &&
       dependency !== node.attempt.nodeId
     ) {
-      dependencyResults.set(dependency, getStepResult(dependency));
+      dependencyResults.push([dependency, getStepResult(dependency)]);
     }
   }
-  return {
+  const envelope: RepeatEnvelope = {
     __seqlaneRepeatEnvelope: true,
-    initialInput,
-    currentInput: initialInput,
-    workflowInput,
-    dependencyResults,
+    stateRef: {
+      workflowId: `${node.nodeId}:loop`,
+      runId: `${runContext.runId}:${node.nodeId}`,
+    },
     attemptNumber: 1,
     runContext: {
       workId: runContext.workId,
@@ -108,5 +139,14 @@ export function buildInitialRepeatEnvelope(
         : { resourceId: runContext.resourceId }),
     } satisfies MastraPlanRunIdentity,
     repeatExecutions: runContext.repeatBudget.executed,
+  };
+  return {
+    envelope: assertRepeatEnvelopeSize(envelope),
+    state: {
+      initialInput,
+      currentInput: initialInput,
+      workflowInput,
+      dependencyResults,
+    },
   };
 }

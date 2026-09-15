@@ -11,7 +11,10 @@ import {
   invocationSubject as planInvocationSubject,
 } from "../execution/workflow-run.js";
 import type { MastraPlanCompilerOptions } from "./mastra-plan-compiler.js";
-import type { RepeatEnvelope } from "./mastra-repeat-envelope.js";
+import type {
+  RepeatEnvelope,
+  RepeatWorkflowState,
+} from "./mastra-repeat-envelope.js";
 import type { RepeatCompilerDependencies } from "./mastra-repeat-compiler.js";
 import type { MastraPlanRunContext } from "./mastra-run-context.js";
 
@@ -42,6 +45,7 @@ export async function runRepeatWorkflow(options: {
   readonly node: Extract<PlanNode, { type: "repeat" }>;
   readonly loop: AnyWorkflow;
   readonly envelope: RepeatEnvelope;
+  readonly initialState: RepeatWorkflowState;
   readonly runContext: MastraPlanRunContext;
   readonly compilerOptions: MastraPlanCompilerOptions;
   readonly dependencies: RepeatCompilerDependencies;
@@ -120,6 +124,7 @@ export async function runRepeatWorkflow(options: {
     });
     const result = await run.start({
       inputData: envelope,
+      initialState: options.initialState,
       requestContext: runContext.requestContext,
       ...(observability.tracing === undefined
         ? {}

@@ -19,6 +19,10 @@ export function buildRepeatAttemptStep(
     outputSchema: z.unknown(),
     execute: async ({
       inputData,
+      state,
+      setState,
+      workflowId,
+      runId,
       requestContext,
       abortSignal,
       tracing,
@@ -28,6 +32,10 @@ export function buildRepeatAttemptStep(
     }) =>
       executeRepeatAttempt({
         inputData,
+        state,
+        setState,
+        workflowId,
+        runId,
         requestContext,
         abortSignal,
         observability: { tracing, tracingContext, loggerVNext, metrics },

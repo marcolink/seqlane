@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-15
 upstream:
   - spec.fluent-task-until-repeats
   - spec.mastra-backed-seqlane-workflows
@@ -49,6 +49,9 @@ runtime. Support a task or child workflow as the repeated attempt.
 - Lower the repeat through Mastra-native loop control flow. Preserve one
   inspectable invocation per attempt and nested task, current session and
   workspace admission, cancellation, typed outcomes, and observability.
+- Store repeat inputs, dependency results, and latest result in Mastra-owned
+  loop state. Persist only a JSON-safe bounded control envelope per attempt;
+  reload that state and resume through the same attempt boundary.
 - Enforce the per-node and run-wide 1,000-attempt limits. Normalize exhaustion
   to the existing typed Seqlane errors.
 - Replace old repeat examples and fixtures. Update public authoring and
@@ -89,6 +92,8 @@ chains, then run core Plan-validation tests and real-Mastra runtime tests for
 first-attempt success, later success, exact-boundary success, both exhaustion
 limits, distinct input/result schemas, task and child-workflow attempts,
 cancellation, admission, initial-input reuse, and earlier-task references.
+Include JSON snapshot serialization, reload/resume, durable dependency results,
+and oversized-envelope rejection.
 Test the normal CLI and operational-host paths.
 Check public declarations for Mastra types and source for forbidden `/ee/`
 imports.
@@ -115,7 +120,9 @@ repeat shape, and the cancelled plan to reject child workflows in repeats.
 Their completed statuses remain historical records.
 Review fixes isolate run identity, repeat budgets, and events; preserve task
 output validation; admit all child workflow resources; and split repeat
-compilation by concern. The full test suite and typecheck pass.
+compilation by concern. Mastra loop state now holds durable repeat values, and
+bounded JSON-safe envelopes reference that state. The full test suite and
+typecheck pass.
 
 ## Delivery state
 

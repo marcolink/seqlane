@@ -19,7 +19,10 @@ import {
 } from "./mastra-run-context.js";
 import {
   repeatEnvelopeFromInput,
+  assertRepeatEnvelopeSize,
   repeatScopedResults,
+  repeatWorkflowStateSchema,
+  type RepeatWorkflowState,
   type RepeatEnvelope,
 } from "./mastra-repeat-envelope.js";
 import type { RepeatCompilerDependencies } from "./mastra-repeat-compiler.js";
@@ -61,6 +64,9 @@ async function dispatchRepeatAttempt(options: {
   readonly node: Extract<PlanNode, { type: "repeat" }>;
   readonly attemptNode: TaskNode | WorkflowNode;
   readonly envelope: RepeatEnvelope;
+  readonly currentInput: unknown;
+  readonly workflowInput: unknown;
+  readonly dependencyResults: ReadonlyArray<readonly [string, unknown]>;
   readonly runContext: ReturnType<typeof resolveMastraPlanRunContext>;
   readonly invocationId: string;
   readonly compilerOptions: MastraPlanCompilerOptions;
@@ -72,6 +78,9 @@ async function dispatchRepeatAttempt(options: {
     node,
     attemptNode,
     envelope,
+    currentInput,
+    workflowInput,
+    dependencyResults,
     runContext,
     invocationId,
     compilerOptions,
@@ -93,6 +102,7 @@ async function dispatchRepeatAttempt(options: {
     invocationId,
     envelope.attemptNumber,
   );
+  const dependencyResultMap = new Map(dependencyResults);
   const subject = planInvocationSubject(attemptNode);
   runContext.events.emit({
     type: "invocation.created",
@@ -117,8 +127,8 @@ async function dispatchRepeatAttempt(options: {
   });
   return invoke({
     node: attemptNode,
-    input: envelope.currentInput,
-    workflowInput: envelope.workflowInput,
+    input: currentInput,
+    workflowInput,
     workId: runContext.workId,
     runId: runContext.runId,
     invocationId: attemptInvocationId,
@@ -131,15 +141,100 @@ async function dispatchRepeatAttempt(options: {
     observability,
     getStepResult: <Output = unknown>(nodeId: string): Output =>
       (nodeId === `${node.nodeId}:attempt-input`
-        ? envelope.currentInput
-        : envelope.dependencyResults.get(nodeId)) as Output,
+        ? currentInput
+        : dependencyResultMap.get(nodeId)) as Output,
     iteration: envelope.attemptNumber,
     repeatValidation: node.validation,
   });
 }
 
+function loadRepeatAttemptState(options: {
+  readonly inputData: unknown;
+  readonly state: unknown;
+  readonly workflowId: string;
+  readonly runId: string;
+  readonly node: Extract<PlanNode, { type: "repeat" }>;
+}): { envelope: RepeatEnvelope; state: RepeatWorkflowState } {
+  const envelope = repeatEnvelopeFromInput(
+    options.inputData,
+    `${options.node.nodeId}:input`,
+  );
+  const stateResult = repeatWorkflowStateSchema.safeParse(options.state);
+  if (!stateResult.success) {
+    throw new Error(
+      `Repeat "${options.node.nodeId}" has invalid durable state`,
+    );
+  }
+  if (
+    envelope.stateRef.workflowId !== options.workflowId ||
+    envelope.stateRef.runId !== options.runId
+  ) {
+    throw new Error(
+      `Repeat "${options.node.nodeId}" resumed under the wrong Mastra run`,
+    );
+  }
+  return { envelope, state: stateResult.data };
+}
+
+async function persistRepeatAttemptState(options: {
+  readonly node: Extract<PlanNode, { type: "repeat" }>;
+  readonly state: RepeatWorkflowState;
+  readonly result: unknown;
+  readonly setState: (state: unknown) => Promise<void>;
+}): Promise<boolean> {
+  const scoped = repeatScopedResults(
+    options.node,
+    options.state.currentInput,
+    options.result,
+    options.state.dependencyResults,
+  );
+  const until = resolveBinding(
+    options.node.until,
+    options.state.workflowInput,
+    scoped,
+  );
+  if (typeof until !== "boolean") {
+    throw new Error(
+      `Repeat "${options.node.nodeId}" condition did not resolve to a boolean`,
+    );
+  }
+  const nextInput =
+    !until && options.node.nextInput !== undefined
+      ? resolveBinding(
+          options.node.nextInput,
+          options.state.workflowInput,
+          scoped,
+        )
+      : options.state.initialInput;
+  await options.setState({
+    ...options.state,
+    currentInput: nextInput,
+    result: options.result,
+  });
+  return until;
+}
+
+function nextRepeatEnvelope(
+  envelope: RepeatEnvelope,
+  until: boolean,
+  repeatExecutions: number,
+): RepeatEnvelope {
+  return assertRepeatEnvelopeSize({
+    __seqlaneRepeatEnvelope: true,
+    stateRef: envelope.stateRef,
+    attemptNumber: envelope.attemptNumber + 1,
+    until,
+    runContext: envelope.runContext,
+    repeatExecutions,
+  });
+}
+
 export async function executeRepeatAttempt(options: {
   readonly inputData: unknown;
+  readonly state: unknown;
+  readonly setState: (state: unknown) => Promise<void>;
+  readonly workflowId: string;
+  readonly runId: string;
   readonly requestContext?: RequestContext;
   readonly abortSignal: AbortSignal;
   readonly observability: Partial<ObservabilityContext>;
@@ -156,10 +251,7 @@ export async function executeRepeatAttempt(options: {
     abortSignal,
     observability,
   } = options;
-  const envelope = repeatEnvelopeFromInput(
-    options.inputData,
-    `${node.nodeId}:input`,
-  );
+  const { envelope, state } = loadRepeatAttemptState(options);
   const runContext = resolveMastraPlanRunContext({
     ...envelope.runContext,
     requestContext: options.requestContext,
@@ -178,6 +270,9 @@ export async function executeRepeatAttempt(options: {
     node,
     attemptNode: attemptNodeFor(node),
     envelope,
+    currentInput: state.currentInput,
+    workflowInput: state.workflowInput,
+    dependencyResults: state.dependencyResults,
     runContext,
     invocationId,
     compilerOptions,
@@ -185,32 +280,11 @@ export async function executeRepeatAttempt(options: {
     abortSignal,
     observability,
   });
-  const scoped = repeatScopedResults(
+  const until = await persistRepeatAttemptState({
     node,
-    envelope.currentInput,
+    state,
     result,
-    envelope.dependencyResults,
-  );
-  const until = resolveBinding(node.until, envelope.workflowInput, scoped);
-  if (typeof until !== "boolean") {
-    throw new Error(
-      `Repeat "${node.nodeId}" condition did not resolve to a boolean`,
-    );
-  }
-  const nextInput =
-    !until && node.nextInput !== undefined
-      ? resolveBinding(node.nextInput, envelope.workflowInput, scoped)
-      : envelope.initialInput;
-  return {
-    __seqlaneRepeatEnvelope: true,
-    initialInput: envelope.initialInput,
-    currentInput: nextInput,
-    workflowInput: envelope.workflowInput,
-    dependencyResults: envelope.dependencyResults,
-    attemptNumber: envelope.attemptNumber + 1,
-    result,
-    until,
-    runContext: envelope.runContext,
-    repeatExecutions: runContext.repeatBudget.executed,
-  };
+    setState: options.setState,
+  });
+  return nextRepeatEnvelope(envelope, until, runContext.repeatBudget.executed);
 }
