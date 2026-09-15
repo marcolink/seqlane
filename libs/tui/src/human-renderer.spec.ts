@@ -633,7 +633,7 @@ describe("human TTY renderer", () => {
     });
 
     const frame = latest(output.stdout as RecordingSink);
-    expect(frame).toContain("[ok]");
+    expect(frame).toContain("+ Task");
     expect(frame).not.toContain("\u001b");
     expect(frame).not.toContain("✓");
   });

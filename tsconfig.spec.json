@@ -12,7 +12,9 @@
   },
   "include": [
     "apps/*/src/**/*.spec.ts",
+    "apps/*/src/**/*.spec.tsx",
     "libs/*/src/**/*.spec.ts",
+    "libs/*/src/**/*.spec.tsx",
     "examples/**/*.ts"
   ],
   "exclude": ["**/dist/**", "**/node_modules/**"]

@@ -113,8 +113,12 @@ export interface RunViewModel {
   readonly workId?: string;
   readonly runId?: string;
   readonly runState: RunState;
+  readonly startedAt?: string;
+  readonly finishedAt?: string;
   readonly runError?: SerializedSeqlaneError;
   readonly nodes: ReadonlyMap<string, RunNode>;
+  /** Stable containment index. Normal event updates do not rebuild it. */
+  readonly childrenByParent: ReadonlyMap<string, readonly string[]>;
   /** User-controlled state kept separate from the event-derived execution nodes. */
   readonly presentation: ReadonlyMap<string, RunPresentationState>;
   readonly rootInvocationIds: readonly string[];
@@ -273,9 +277,26 @@ function updateNode(
 ): RunViewModel {
   const current = view.nodes.get(invocationId);
   if (current === undefined) return view;
+  const updated = update(current);
   const nodes = new Map(view.nodes);
-  nodes.set(invocationId, update(current));
-  return derive(view, nodes);
+  const waitingDependencyLabels = updated.dependencyIds
+    .map((dependencyId) => nodes.get(dependencyId)?.label)
+    .filter((label): label is string => label !== undefined);
+  nodes.set(
+    invocationId,
+    updated.kind === "workflow" || updated.kind === "loop"
+      ? { ...updated, waitingDependencyLabels }
+      : {
+          ...updated,
+          waitingDependencyLabels,
+          aggregate: aggregateForNode(updated),
+        },
+  );
+  return applyAncestorAggregateDelta(
+    { ...view, nodes },
+    aggregateDelta(aggregateForNode(updated), aggregateForNode(current)),
+    updated.parentInvocationId,
+  );
 }
 
 function withState(
@@ -311,19 +332,6 @@ function isTerminalNodeState(state: RunNodeState): boolean {
   );
 }
 
-function descendants(
-  nodes: ReadonlyMap<string, RunNode>,
-  parentInvocationId: string,
-): RunNode[] {
-  const children = [...nodes.values()]
-    .filter((node) => node.parentInvocationId === parentInvocationId)
-    .sort(compareNodes);
-  return children.flatMap((child) => [
-    child,
-    ...descendants(nodes, child.invocationId),
-  ]);
-}
-
 function compareNodes(left: RunNode, right: RunNode): number {
   return (
     left.siblingOrder - right.siblingOrder ||
@@ -332,34 +340,100 @@ function compareNodes(left: RunNode, right: RunNode): number {
   );
 }
 
-function aggregateFor(
-  node: RunNode,
-  nodes: ReadonlyMap<string, RunNode>,
-): RunAggregate {
-  const members =
-    node.kind === "workflow" || node.kind === "loop"
-      ? descendants(nodes, node.invocationId)
-      : [node];
-  return members.reduce(
-    (aggregate, member) => ({
-      total: aggregate.total + 1,
-      queued: aggregate.queued + (member.state === "queued" ? 1 : 0),
-      waiting: aggregate.waiting + (member.state === "waiting" ? 1 : 0),
-      active: aggregate.active + (member.state === "active" ? 1 : 0),
-      retrying: aggregate.retrying + (member.state === "retrying" ? 1 : 0),
-      succeeded: aggregate.succeeded + (member.state === "succeeded" ? 1 : 0),
-      failed: aggregate.failed + (member.state === "failed" ? 1 : 0),
-      skipped: aggregate.skipped + (member.state === "skipped" ? 1 : 0),
-      cancelled: aggregate.cancelled + (member.state === "cancelled" ? 1 : 0),
-    }),
-    EMPTY_AGGREGATE,
-  );
+function aggregateForNode(node: Pick<RunNode, "state">): RunAggregate {
+  return {
+    total: 1,
+    queued: node.state === "queued" ? 1 : 0,
+    waiting: node.state === "waiting" ? 1 : 0,
+    active: node.state === "active" ? 1 : 0,
+    retrying: node.state === "retrying" ? 1 : 0,
+    succeeded: node.state === "succeeded" ? 1 : 0,
+    failed: node.state === "failed" ? 1 : 0,
+    skipped: node.state === "skipped" ? 1 : 0,
+    cancelled: node.state === "cancelled" ? 1 : 0,
+  };
 }
 
-function derive(
+function aggregateDelta(
+  next: RunAggregate,
+  previous: RunAggregate,
+): RunAggregate {
+  return {
+    total: next.total - previous.total,
+    queued: next.queued - previous.queued,
+    waiting: next.waiting - previous.waiting,
+    active: next.active - previous.active,
+    retrying: next.retrying - previous.retrying,
+    succeeded: next.succeeded - previous.succeeded,
+    failed: next.failed - previous.failed,
+    skipped: next.skipped - previous.skipped,
+    cancelled: next.cancelled - previous.cancelled,
+  };
+}
+
+function addAggregate(
+  aggregate: RunAggregate,
+  delta: RunAggregate,
+): RunAggregate {
+  return {
+    total: aggregate.total + delta.total,
+    queued: aggregate.queued + delta.queued,
+    waiting: aggregate.waiting + delta.waiting,
+    active: aggregate.active + delta.active,
+    retrying: aggregate.retrying + delta.retrying,
+    succeeded: aggregate.succeeded + delta.succeeded,
+    failed: aggregate.failed + delta.failed,
+    skipped: aggregate.skipped + delta.skipped,
+    cancelled: aggregate.cancelled + delta.cancelled,
+  };
+}
+
+function isEmptyAggregate(aggregate: RunAggregate): boolean {
+  return Object.values(aggregate).every((value) => value === 0);
+}
+
+function applyAncestorAggregateDelta(
+  view: RunViewModel,
+  delta: RunAggregate,
+  parentInvocationId: string | undefined,
+): RunViewModel {
+  if (parentInvocationId === undefined || isEmptyAggregate(delta)) return view;
+  const nodes = new Map(view.nodes);
+  let parentId: string | undefined = parentInvocationId;
+  while (parentId !== undefined) {
+    const parent = nodes.get(parentId);
+    if (parent === undefined) break;
+    if (parent.kind === "workflow" || parent.kind === "loop") {
+      nodes.set(parentId, {
+        ...parent,
+        aggregate: addAggregate(parent.aggregate, delta),
+      });
+    }
+    parentId = parent.parentInvocationId;
+  }
+  return { ...view, nodes };
+}
+
+function rebuildTopology(
   view: RunViewModel,
   sourceNodes: ReadonlyMap<string, RunNode>,
 ): RunViewModel {
+  const childrenByParent = new Map<string, string[]>();
+  for (const node of sourceNodes.values()) {
+    if (node.parentInvocationId === undefined) continue;
+    const children = childrenByParent.get(node.parentInvocationId) ?? [];
+    children.push(node.invocationId);
+    childrenByParent.set(node.parentInvocationId, children);
+  }
+  for (const children of childrenByParent.values()) {
+    children.sort((leftId, rightId) => {
+      const left = sourceNodes.get(leftId);
+      const right = sourceNodes.get(rightId);
+      return left === undefined || right === undefined
+        ? 0
+        : compareNodes(left, right);
+    });
+  }
   const nodes = new Map<string, RunNode>();
   for (const node of sourceNodes.values()) {
     nodes.set(node.invocationId, {
@@ -367,7 +441,10 @@ function derive(
       waitingDependencyLabels: node.dependencyIds
         .map((dependencyId) => sourceNodes.get(dependencyId)?.label)
         .filter((label): label is string => label !== undefined),
-      aggregate: aggregateFor(node, sourceNodes),
+      aggregate:
+        node.kind === "workflow" || node.kind === "loop"
+          ? EMPTY_AGGREGATE
+          : aggregateForNode(node),
     });
   }
   const rootInvocationIds = [...nodes.values()]
@@ -378,7 +455,20 @@ function derive(
     )
     .sort(compareNodes)
     .map(({ invocationId }) => invocationId);
-  return { ...view, nodes, rootInvocationIds };
+  let rebuilt: RunViewModel = {
+    ...view,
+    nodes,
+    childrenByParent,
+    rootInvocationIds,
+  };
+  for (const node of nodes.values()) {
+    rebuilt = applyAncestorAggregateDelta(
+      rebuilt,
+      aggregateForNode(node),
+      node.parentInvocationId,
+    );
+  }
+  return rebuilt;
 }
 
 export function createRunViewModel(
@@ -387,6 +477,7 @@ export function createRunViewModel(
   const view: RunViewModel = {
     runState: "idle",
     nodes: new Map(),
+    childrenByParent: new Map(),
     presentation: new Map(),
     rootInvocationIds: [],
     toolUsage: new Map(),
@@ -394,7 +485,7 @@ export function createRunViewModel(
     lastEventSequence: 0,
     now: options.now ?? (() => new Date()),
   };
-  return derive(view, view.nodes);
+  return rebuildTopology(view, view.nodes);
 }
 
 function setRunState(
@@ -402,12 +493,56 @@ function setRunState(
   runState: RunState,
   event: OutputEvent,
 ): RunViewModel {
+  const timestamp = eventTimestamp(event.metadata, view.now);
+  const terminal =
+    runState === "succeeded" ||
+    runState === "failed" ||
+    runState === "cancelled";
   return {
     ...view,
     workId: "workId" in event ? event.workId : view.workId,
     runId: "runId" in event ? event.runId : view.runId,
     runState,
+    ...(runState === "active" && view.startedAt === undefined
+      ? { startedAt: timestamp }
+      : {}),
+    ...(terminal ? { finishedAt: timestamp } : {}),
   };
+}
+
+function addChildToTopology(
+  childrenByParent: ReadonlyMap<string, readonly string[]>,
+  nodes: ReadonlyMap<string, RunNode>,
+  node: RunNode,
+): ReadonlyMap<string, readonly string[]> {
+  if (node.parentInvocationId === undefined) return childrenByParent;
+  const next = new Map(childrenByParent);
+  const children = [
+    ...(next.get(node.parentInvocationId) ?? []),
+    node.invocationId,
+  ];
+  children.sort((leftId, rightId) => {
+    const left = nodes.get(leftId);
+    const right = nodes.get(rightId);
+    return left === undefined || right === undefined
+      ? 0
+      : compareNodes(left, right);
+  });
+  next.set(node.parentInvocationId, children);
+  return next;
+}
+
+function rootInvocationIds(
+  nodes: ReadonlyMap<string, RunNode>,
+): readonly string[] {
+  return [...nodes.values()]
+    .filter(
+      (node) =>
+        node.parentInvocationId === undefined ||
+        !nodes.has(node.parentInvocationId),
+    )
+    .sort(compareNodes)
+    .map(({ invocationId }) => invocationId);
 }
 
 function reduceCreated(
@@ -428,16 +563,28 @@ function reduceCreated(
       siblingOrder: event.siblingOrder,
       dependencyIds: [...event.dependencyIds],
     });
-    return derive(view, nodes);
+    return rebuildTopology(view, nodes);
   }
   const nodes = new Map(view.nodes);
-  nodes.set(event.invocationId, emptyNode(event, view.lastEventSequence));
+  const node = emptyNode(event, view.lastEventSequence);
+  nodes.set(event.invocationId, node);
   const presentation = new Map(view.presentation);
   presentation.set(event.invocationId, {
     isExpanded: event.kind === "workflow" || event.kind === "loop",
     isFocused: false,
   });
-  return derive({ ...view, presentation }, nodes);
+  const next = {
+    ...view,
+    nodes,
+    childrenByParent: addChildToTopology(view.childrenByParent, nodes, node),
+    rootInvocationIds: rootInvocationIds(nodes),
+    presentation,
+  };
+  return applyAncestorAggregateDelta(
+    next,
+    aggregateForNode(node),
+    node.parentInvocationId,
+  );
 }
 
 export function reduceRunViewModel(
@@ -624,28 +771,48 @@ export function reduceRunEvents(
   return events.reduce(reduceRunViewModel, createRunViewModel(options));
 }
 
-function childrenOf(view: RunViewModel, parentInvocationId: string): RunNode[] {
-  return [...view.nodes.values()]
-    .filter((node) => node.parentInvocationId === parentInvocationId)
-    .sort(compareNodes);
+/** Root wall-clock duration. Child durations are intentionally never summed. */
+export function getRootRunElapsedMs(
+  view: RunViewModel,
+  now: Date = view.now(),
+): number | undefined {
+  const started = timestampMs(view.startedAt);
+  if (started === undefined) return undefined;
+  const finished = timestampMs(view.finishedAt) ?? now.getTime();
+  return Number.isFinite(finished)
+    ? Math.max(0, finished - started)
+    : undefined;
 }
 
 export function getRunVisibleRows(
   view: RunViewModel,
 ): readonly RunVisibleRow[] {
   const rows: RunVisibleRow[] = [];
-  const visit = (invocationId: string, depth: number): void => {
-    const node = view.nodes.get(invocationId);
-    if (node === undefined) return;
-    const children = childrenOf(view, invocationId);
+  const pending = view.rootInvocationIds
+    .slice()
+    .reverse()
+    .map((invocationId) => ({ invocationId, depth: 0 }));
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) continue;
+    const node = view.nodes.get(current.invocationId);
+    if (node === undefined) continue;
+    const children = view.childrenByParent.get(node.invocationId) ?? [];
     const isExpanded =
       view.presentation.get(node.invocationId)?.isExpanded ?? false;
-    rows.push({ node, depth, hasChildren: children.length > 0, isExpanded });
-    if (!isExpanded) return;
-    for (const child of children) visit(child.invocationId, depth + 1);
-  };
-  for (const rootInvocationId of view.rootInvocationIds) {
-    visit(rootInvocationId, 0);
+    rows.push({
+      node,
+      depth: current.depth,
+      hasChildren: children.length > 0,
+      isExpanded,
+    });
+    if (!isExpanded) continue;
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const invocationId = children[index];
+      if (invocationId !== undefined) {
+        pending.push({ invocationId, depth: current.depth + 1 });
+      }
+    }
   }
   return rows;
 }
@@ -681,4 +848,87 @@ export function setRunNodeFocused(
     });
   }
   return { ...view, presentation };
+}
+
+function focusedInvocationId(view: RunViewModel): string | undefined {
+  for (const [invocationId, presentation] of view.presentation) {
+    if (presentation.isFocused && view.nodes.has(invocationId)) {
+      return invocationId;
+    }
+  }
+  return undefined;
+}
+
+function revealAncestors(
+  view: RunViewModel,
+  invocationId: string,
+): RunViewModel {
+  const presentation = new Map(view.presentation);
+  let node = view.nodes.get(invocationId);
+  while (node?.parentInvocationId !== undefined) {
+    const parent = view.nodes.get(node.parentInvocationId);
+    if (parent === undefined) break;
+    const current = presentation.get(parent.invocationId) ?? {
+      isExpanded: false,
+      isFocused: false,
+    };
+    presentation.set(parent.invocationId, { ...current, isExpanded: true });
+    node = parent;
+  }
+  return { ...view, presentation };
+}
+
+/** Move focus by a visible-row offset without modifying execution state. */
+export function moveRunNodeFocus(
+  view: RunViewModel,
+  direction: -1 | 1,
+): RunViewModel {
+  const rows = getRunVisibleRows(view);
+  if (rows.length === 0) return view;
+  const current = focusedInvocationId(view);
+  const index = rows.findIndex(({ node }) => node.invocationId === current);
+  const nextIndex = Math.max(0, Math.min(rows.length - 1, index + direction));
+  return setRunNodeFocused(view, rows[nextIndex]?.node.invocationId);
+}
+
+/** Collapse the focused branch, or focus its parent when already collapsed. */
+export function collapseOrFocusParent(view: RunViewModel): RunViewModel {
+  const focused = focusedInvocationId(view);
+  if (focused === undefined) return view;
+  const node = view.nodes.get(focused);
+  if (node === undefined) return view;
+  const children = view.childrenByParent.get(focused) ?? [];
+  const expanded = view.presentation.get(focused)?.isExpanded ?? false;
+  if (children.length > 0 && expanded)
+    return setRunNodeExpanded(view, focused, false);
+  return setRunNodeFocused(view, node.parentInvocationId);
+}
+
+/** Expand the focused branch, or focus its first child when already expanded. */
+export function expandOrFocusChild(view: RunViewModel): RunViewModel {
+  const focused = focusedInvocationId(view);
+  if (focused === undefined) return view;
+  const children = view.childrenByParent.get(focused) ?? [];
+  if (children.length === 0) return view;
+  const expanded = view.presentation.get(focused)?.isExpanded ?? false;
+  if (!expanded) return setRunNodeExpanded(view, focused, true);
+  return setRunNodeFocused(view, children[0]);
+}
+
+/** Focus the next failed row and reveal the containment path that leads to it. */
+export function focusNextFailedRunNode(view: RunViewModel): RunViewModel {
+  const failures = [...view.nodes.values()]
+    .filter((node) => node.state === "failed")
+    .sort(compareNodes);
+  if (failures.length === 0) return view;
+  const focused = focusedInvocationId(view);
+  const currentIndex = failures.findIndex(
+    (node) => node.invocationId === focused,
+  );
+  const next = failures[(currentIndex + 1) % failures.length];
+  if (next === undefined) return view;
+  return setRunNodeFocused(
+    revealAncestors(view, next.invocationId),
+    next.invocationId,
+  );
 }

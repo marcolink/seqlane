@@ -17,6 +17,7 @@ import {
   formatHumanOutputDetails,
   formatHumanValidationDetails,
 } from "./output-details.js";
+import { statusSymbol } from "./human/format.js";
 
 export interface HumanTTYRendererOptions {
   readonly now?: () => Date;
@@ -31,59 +32,11 @@ export interface HumanTerminalUpdate {
 }
 
 const ANSI_CLEAR_LINE = "\u001b[2K\r";
-const UNICODE_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const ASCII_SPINNER = ["|", "/", "-", "\\"];
 
 function clearStaleLines(lineCount: number): string {
   return Array.from({ length: lineCount }, () => ANSI_CLEAR_LINE + "\n").join(
     "",
   );
-}
-
-function statusSymbol(
-  state: RunNodeState,
-  supportsUnicode: boolean,
-  spinnerFrame: number,
-): string {
-  if (!supportsUnicode) {
-    switch (state) {
-      case "succeeded":
-        return "[ok]";
-      case "failed":
-        return "[!!]";
-      case "active":
-        return "[" + ASCII_SPINNER[spinnerFrame % ASCII_SPINNER.length] + " ]";
-      case "waiting":
-        return "[..]";
-      case "retrying":
-        return "[R ]";
-      case "skipped":
-        return "[--]";
-      case "cancelled":
-        return "[! ]";
-      case "queued":
-        return "[  ]";
-    }
-  }
-
-  switch (state) {
-    case "succeeded":
-      return "✓";
-    case "failed":
-      return "✗";
-    case "active":
-      return UNICODE_SPINNER[spinnerFrame % UNICODE_SPINNER.length] ?? "⠋";
-    case "waiting":
-      return "◌";
-    case "retrying":
-      return "↻";
-    case "skipped":
-      return "↷";
-    case "cancelled":
-      return "!";
-    case "queued":
-      return "○";
-  }
 }
 
 function statusColor(state: RunNodeState): string {

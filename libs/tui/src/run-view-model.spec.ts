@@ -1,7 +1,11 @@
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  collapseOrFocusParent,
+  expandOrFocusChild,
+  focusNextFailedRunNode,
   getRunVisibleRows,
+  moveRunNodeFocus,
   reduceRunEvents,
   setRunNodeExpanded,
   setRunNodeFocused,
@@ -145,6 +149,56 @@ describe("human execution view model", () => {
     ).toEqual(["a", "b"]);
     expect(view.nodes.get("a")?.state).toBe("active");
     expect(view.nodes.get("b")?.state).toBe("active");
+  });
+
+  it("projects a deep visible tree without consuming the call stack", () => {
+    const events: SeqlaneExecutionEvent[] = [];
+    for (let index = 0; index < 1_200; index += 1) {
+      events.push(
+        created(`node-${index}`, `Node ${index}`, 0, {
+          kind: "workflow",
+          ...(index === 0 ? {} : { parentInvocationId: `node-${index - 1}` }),
+        }),
+      );
+    }
+
+    const rows = getRunVisibleRows(reduceRunEvents(events));
+    expect(rows).toHaveLength(1_200);
+    expect(rows.at(-1)?.depth).toBe(1_199);
+  });
+
+  it("navigates visible rows and reveals a failed branch", () => {
+    const view = reduceRunEvents([
+      created("root", "Root", 0, { kind: "workflow" }),
+      created("left", "Left", 0, { parentInvocationId: "root" }),
+      created("right", "Right", 1, { parentInvocationId: "root" }),
+      {
+        type: "invocation.failed",
+        ...run,
+        invocationId: "right",
+        disposition: "fail_run",
+        error: { category: "ExecutorError", message: "failed" },
+      },
+    ]);
+
+    const focused = setRunNodeFocused(view, "root");
+    expect(
+      moveRunNodeFocus(focused, 1).presentation.get("left")?.isFocused,
+    ).toBe(true);
+    expect(
+      collapseOrFocusParent(focused).presentation.get("root")?.isExpanded,
+    ).toBe(false);
+    expect(
+      expandOrFocusChild(collapseOrFocusParent(focused)).presentation.get(
+        "root",
+      )?.isExpanded,
+    ).toBe(true);
+
+    const failed = focusNextFailedRunNode(
+      setRunNodeExpanded(focused, "root", false),
+    );
+    expect(failed.presentation.get("root")?.isExpanded).toBe(true);
+    expect(failed.presentation.get("right")?.isFocused).toBe(true);
   });
 
   it("keeps loop children grouped by iteration in stable order", () => {
