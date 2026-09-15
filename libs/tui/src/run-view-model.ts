@@ -765,6 +765,49 @@ function collapseSuccessfulBranch(
   return { ...view, presentation };
 }
 
+function uniquePlanPlaceholder(
+  placeholders: readonly RunNode[],
+  matches: (node: RunNode) => boolean,
+): RunNode | undefined {
+  const candidates = placeholders.filter(matches);
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+function planPlaceholderForSubject(
+  placeholders: readonly RunNode[],
+  subject: Extract<OutputEvent, { type: "invocation.started" }>["subject"],
+): RunNode | undefined {
+  switch (subject.type) {
+    case "validation-gate":
+      return placeholders.find(
+        (node) => node.planNodeId === subject.planNodeId,
+      );
+    case "task":
+      return (
+        uniquePlanPlaceholder(
+          placeholders,
+          (node) => node.taskId === subject.taskId,
+        ) ??
+        uniquePlanPlaceholder(
+          placeholders,
+          (node) => node.kind === "validation",
+        )
+      );
+    case "validator":
+      return (
+        uniquePlanPlaceholder(
+          placeholders,
+          (node) => node.taskId === subject.validatorId,
+        ) ??
+        uniquePlanPlaceholder(
+          placeholders,
+          (node) =>
+            node.kind === "validation" && node.label === subject.validatorId,
+        )
+      );
+  }
+}
+
 function materializePlanPlaceholder(
   view: RunViewModel,
   invocationId: string,
@@ -774,21 +817,7 @@ function materializePlanPlaceholder(
   const placeholders = [...view.nodes.values()].filter((node) =>
     node.invocationId.startsWith("plan:"),
   );
-  const placeholder =
-    subject.type === "validation-gate"
-      ? placeholders.find((node) => node.planNodeId === subject.planNodeId)
-      : subject.type === "task"
-        ? placeholders.filter((node) => node.taskId === subject.taskId)
-            .length === 1
-          ? placeholders.find((node) => node.taskId === subject.taskId)
-          : placeholders.filter((node) => node.kind === "validation").length ===
-              1
-            ? placeholders.find((node) => node.kind === "validation")
-            : undefined
-        : placeholders.filter((node) => node.taskId === subject.validatorId)
-              .length === 1
-          ? placeholders.find((node) => node.taskId === subject.validatorId)
-          : undefined;
+  const placeholder = planPlaceholderForSubject(placeholders, subject);
   if (placeholder === undefined) return view;
   const oldId = placeholder.invocationId;
   const nodes = new Map(

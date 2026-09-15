@@ -291,6 +291,53 @@ describe("human execution view model", () => {
     expect(view.nodes.get("validation-runtime")?.state).toBe("succeeded");
   });
 
+  it("reconciles a planned validator by its validator identity", () => {
+    const view = reduceRunEvents([
+      {
+        type: "run.plan",
+        ...run,
+        plan: {
+          workflow: { id: "example" },
+          nodes: [
+            {
+              planNodeId: "task",
+              type: "task" as const,
+              taskId: "task",
+              label: "Task",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+            {
+              planNodeId: "semantic-check",
+              type: "validation.check" as const,
+              label: "semantic-validator",
+              dependsOn: ["task"],
+              siblingOrder: 1,
+            },
+            {
+              planNodeId: "validation.gate:1",
+              type: "validation.gate" as const,
+              label: "Validation gate",
+              dependsOn: ["semantic-check"],
+              siblingOrder: 2,
+            },
+          ],
+        },
+      },
+      {
+        type: "invocation.started",
+        ...run,
+        invocationId: "semantic-runtime",
+        subject: { type: "validator", validatorId: "semantic-validator" },
+      },
+      terminal("semantic-runtime", "invocation.succeeded"),
+    ]);
+
+    expect(view.nodes.has("plan:semantic-check")).toBe(false);
+    expect(view.nodes.get("semantic-runtime")?.state).toBe("succeeded");
+    expect(view.nodes.has("plan:validation.gate:1")).toBe(true);
+  });
+
   it("keeps nested containment separate from dependencies", () => {
     const view = reduceRunEvents([
       created("root", "Root", 0, { kind: "workflow" }),
