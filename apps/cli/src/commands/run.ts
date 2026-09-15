@@ -259,6 +259,7 @@ export default class RunCommand extends SeqlaneCommand {
     let disconnectResize: () => void = () => undefined;
     let dispatcher: ReturnType<typeof createEventDispatcher> | undefined;
     let runnerClient: import("../runner-client.js").RunnerClient | undefined;
+    let operationalHostOwnsResources = false;
 
     try {
       if (flags.record !== undefined) {
@@ -365,6 +366,10 @@ export default class RunCommand extends SeqlaneCommand {
         return;
       }
 
+      // Transfer ownership before entering the operational host. From this
+      // point, its finally block closes every acquired run resource exactly
+      // once, including setup and cancellation failures.
+      operationalHostOwnsResources = true;
       const run = await executeOperationalHostRun({
         request,
         sourceWorkflowReference,
@@ -379,7 +384,6 @@ export default class RunCommand extends SeqlaneCommand {
         capabilities,
         dispatcher,
         disconnectResize,
-        managePresentationResources: false,
       });
       for (const error of run.cleanupErrors) {
         writeDiagnostic(
@@ -390,18 +394,20 @@ export default class RunCommand extends SeqlaneCommand {
       process.exitCode = run.exitStatus;
       return jsonMode ? run.commandResult : undefined;
     } finally {
-      const cleanupErrors = await closeRunResources({
-        dispatcher,
-        recordingConsumer,
-        closeClient: () => runnerClient?.close(),
-        finishRenderer: () => renderer?.finish(),
-        disconnectResize,
-      });
-      for (const error of cleanupErrors) {
-        writeDiagnostic(
-          capabilities.stderr,
-          "seqlane cleanup error: " + errorMessage(error),
-        );
+      if (!operationalHostOwnsResources) {
+        const cleanupErrors = await closeRunResources({
+          dispatcher,
+          recordingConsumer,
+          closeClient: () => runnerClient?.close(),
+          finishRenderer: () => renderer?.finish(),
+          disconnectResize,
+        });
+        for (const error of cleanupErrors) {
+          writeDiagnostic(
+            capabilities.stderr,
+            "seqlane cleanup error: " + errorMessage(error),
+          );
+        }
       }
     }
   }

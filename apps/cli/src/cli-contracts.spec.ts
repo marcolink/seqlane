@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseCommandErrorMetadata,
+  runCommandErrorSchema,
   runCommandResultSchema,
 } from "./cli-contracts.js";
 import { contextualizeCommandError, serializeCommandError } from "./command.js";
@@ -96,6 +97,46 @@ describe("RunCommandResult", () => {
       category: error.category,
       validation: error.validation,
     });
+  });
+
+  it("accepts canonical error fields with CLI metadata together", () => {
+    expect(
+      runCommandErrorSchema.parse({
+        category: "ValidationError",
+        message: "output is invalid",
+        taskId: "task-output",
+        validation: {
+          validationNodeId: "check-output",
+          sourceId: "task-output",
+          issues: [
+            {
+              code: "invalid_type",
+              message: "Expected string",
+              path: "answer",
+            },
+          ],
+        },
+        code: "E_OUTPUT",
+        suggestions: ["Check the workflow output schema"],
+        ref: "https://docs.example.test/errors/E_OUTPUT",
+      }),
+    ).toMatchObject({
+      category: "ValidationError",
+      taskId: "task-output",
+      code: "E_OUTPUT",
+      suggestions: ["Check the workflow output schema"],
+      ref: "https://docs.example.test/errors/E_OUTPUT",
+    });
+  });
+
+  it("rejects unknown fields on the combined command error schema", () => {
+    expect(() =>
+      runCommandErrorSchema.parse({
+        category: "RuntimeError",
+        message: "failed",
+        unknown: true,
+      }),
+    ).toThrow();
   });
 
   it("rejects malformed runtime timing and error metadata", () => {

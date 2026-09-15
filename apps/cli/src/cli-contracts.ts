@@ -2,6 +2,7 @@ import {
   seqlaneErrorMetadataSchema,
   seqlanePlanSnapshotSchema,
   serializedSeqlaneErrorSchema,
+  type SerializedSeqlaneError,
 } from "@seqlane/protocol";
 import { jsonValueSchema } from "@seqlane/core";
 import { z } from "zod";
@@ -53,14 +54,32 @@ const runResultMetricsSchema = z.strictObject({
   costUsd: z.number().finite().nonnegative().optional(),
 });
 
-export const runCommandErrorSchema = z.intersection(
-  serializedSeqlaneErrorSchema,
-  z.strictObject({
-    code: z.string().min(1).optional(),
-    suggestions: z.array(z.string().min(1)).readonly().optional(),
-    ref: z.string().min(1).optional(),
-  }),
-);
+const runCommandErrorFieldsSchema = z.strictObject({
+  category: z.custom<SerializedSeqlaneError["category"]>(),
+  message: z.string(),
+  taskId: z.custom<SerializedSeqlaneError["taskId"]>().optional(),
+  validation: z.custom<SerializedSeqlaneError["validation"]>().optional(),
+  code: z.string().min(1).optional(),
+  suggestions: z.array(z.string().min(1)).readonly().optional(),
+  ref: z.string().min(1).optional(),
+});
+
+export const runCommandErrorSchema = z.preprocess((value) => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  if (!("category" in record) || !("message" in record)) return value;
+  serializedSeqlaneErrorSchema.parse({
+    category: record.category,
+    message: record.message,
+    ...(record.taskId === undefined ? {} : { taskId: record.taskId }),
+    ...(record.validation === undefined
+      ? {}
+      : { validation: record.validation }),
+  });
+  return value;
+}, runCommandErrorFieldsSchema);
 
 export const runTimingSchema = z.strictObject({
   startedAt: z.iso.datetime({ precision: 3 }),

@@ -35,12 +35,6 @@ export interface RunOperationalHostOptions {
   readonly capabilities: OutputCapabilities;
   readonly dispatcher: EventDispatcher;
   readonly disconnectResize: () => void;
-  /**
-   * The top-level run command owns presentation resources while it acquires
-   * the renderer, dispatcher, and runner. Direct callers keep the historical
-   * self-contained cleanup behavior by default.
-   */
-  readonly managePresentationResources?: boolean;
 }
 
 export interface RunOperationalHostResult {
@@ -87,7 +81,6 @@ export async function executeOperationalHostRun(
     capabilities,
     dispatcher,
     disconnectResize,
-    managePresentationResources = true,
   } = options;
   const identity: RunIdentity = {
     workId: randomUUID(),
@@ -281,15 +274,11 @@ export async function executeOperationalHostRun(
     }
   } finally {
     cleanupErrors = await closeRunResources({
-      dispatcher: managePresentationResources ? dispatcher : undefined,
+      dispatcher,
       flushEvents: () => events.flush(),
       closeHost: () => ownedHost?.close(),
-      finishRenderer: managePresentationResources
-        ? () => renderer?.finish()
-        : undefined,
-      disconnectResize: managePresentationResources
-        ? disconnectResize
-        : undefined,
+      finishRenderer: () => renderer?.finish(),
+      disconnectResize,
       beforeCleanup: () => {
         process.removeListener("SIGINT", onSigint);
         process.removeListener("SIGTERM", onSigterm);

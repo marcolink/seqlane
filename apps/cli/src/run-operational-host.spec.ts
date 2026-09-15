@@ -1,13 +1,14 @@
 // @test-scope ./run-operational-host.ts
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OutputCapabilities } from "@seqlane/output";
+import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/output";
 import type { RunRequest } from "@seqlane/protocol";
 
 const mocks = vi.hoisted(() => ({
   client: {
     startRun: vi.fn(),
   },
+  startOwnedOperationalHost: vi.fn(),
 }));
 
 vi.mock("./operational-client.js", () => ({
@@ -24,6 +25,10 @@ vi.mock("./operational-client.js", () => ({
       this.status = options.status;
     }
   },
+}));
+
+vi.mock("./operational-command-host.js", () => ({
+  startOwnedOperationalHost: mocks.startOwnedOperationalHost,
 }));
 
 import { executeOperationalHostRun } from "./run-operational-host.js";
@@ -51,9 +56,18 @@ function dispatcher() {
   };
 }
 
+function renderer(): ExecutionRenderer {
+  return {
+    mode: "ci",
+    handle: vi.fn(),
+    finish: vi.fn(async () => undefined),
+  };
+}
+
 describe("executeOperationalHostRun", () => {
   beforeEach(() => {
     mocks.client.startRun.mockReset();
+    mocks.startOwnedOperationalHost.mockReset();
   });
 
   it("preserves a canonical serialized remote error in the run result", async () => {
@@ -79,6 +93,8 @@ describe("executeOperationalHostRun", () => {
       error: remoteError,
     });
     const events = dispatcher();
+    const rendererInstance = renderer();
+    const disconnectResize = vi.fn();
 
     const result = await executeOperationalHostRun({
       request,
@@ -92,7 +108,8 @@ describe("executeOperationalHostRun", () => {
       jsonMode: true,
       capabilities,
       dispatcher: events,
-      disconnectResize: vi.fn(),
+      disconnectResize,
+      renderer: rendererInstance,
     });
 
     expect(result.exitStatus).toBe(1);
@@ -101,14 +118,20 @@ describe("executeOperationalHostRun", () => {
       phase: "execution",
       error: remoteError,
     });
+    expect(events.flush).toHaveBeenCalledOnce();
+    expect(events.close).toHaveBeenCalledOnce();
+    expect(rendererInstance.finish).toHaveBeenCalledOnce();
+    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 
-  it("can leave presentation resources to the outer command lifecycle", async () => {
+  it("owns presentation cleanup exactly once", async () => {
     mocks.client.startRun.mockResolvedValue({
       status: "success",
       result: { value: 1 },
     });
     const events = dispatcher();
+    const rendererInstance = renderer();
+    const disconnectResize = vi.fn();
 
     await executeOperationalHostRun({
       request,
@@ -122,11 +145,76 @@ describe("executeOperationalHostRun", () => {
       jsonMode: true,
       capabilities,
       dispatcher: events,
-      disconnectResize: vi.fn(),
-      managePresentationResources: false,
+      renderer: rendererInstance,
+      disconnectResize,
     });
 
-    expect(events.flush).not.toHaveBeenCalled();
-    expect(events.close).not.toHaveBeenCalled();
+    expect(events.flush).toHaveBeenCalledOnce();
+    expect(events.close).toHaveBeenCalledOnce();
+    expect(rendererInstance.finish).toHaveBeenCalledOnce();
+    expect(disconnectResize).toHaveBeenCalledOnce();
+  });
+
+  it("closes every resource when owned-host setup fails", async () => {
+    const setupError = new Error("host setup failed");
+    mocks.startOwnedOperationalHost.mockRejectedValue(setupError);
+    const events = dispatcher();
+    const rendererInstance = renderer();
+    const disconnectResize = vi.fn();
+
+    const result = await executeOperationalHostRun({
+      request,
+      sourceWorkflowReference: "repository:remote",
+      roots: { repository: "/repo", user: "/user" },
+      hostname: "127.0.0.1",
+      port: 0,
+      storageUrl: "file::memory:",
+      adapterConfiguration: undefined,
+      jsonMode: true,
+      capabilities,
+      dispatcher: events,
+      renderer: rendererInstance,
+      disconnectResize,
+    });
+
+    expect(result.commandResult).toMatchObject({
+      status: "failed",
+      phase: "execution",
+      error: { message: setupError.message },
+    });
+    expect(events.flush).toHaveBeenCalledOnce();
+    expect(events.close).toHaveBeenCalledOnce();
+    expect(rendererInstance.finish).toHaveBeenCalledOnce();
+    expect(disconnectResize).toHaveBeenCalledOnce();
+  });
+
+  it("closes every resource for runtime cancellation", async () => {
+    mocks.client.startRun.mockResolvedValue({ status: "cancelled" });
+    const events = dispatcher();
+    const rendererInstance = renderer();
+    const disconnectResize = vi.fn();
+
+    const result = await executeOperationalHostRun({
+      request,
+      sourceWorkflowReference: "repository:remote",
+      roots: { repository: "/repo", user: "/user" },
+      serverUrl: "http://127.0.0.1:4111",
+      hostname: "127.0.0.1",
+      port: 0,
+      storageUrl: "file::memory:",
+      adapterConfiguration: undefined,
+      jsonMode: true,
+      capabilities,
+      dispatcher: events,
+      renderer: rendererInstance,
+      disconnectResize,
+    });
+
+    expect(result.exitStatus).toBe(130);
+    expect(result.commandResult.status).toBe("cancelled");
+    expect(events.flush).toHaveBeenCalledOnce();
+    expect(events.close).toHaveBeenCalledOnce();
+    expect(rendererInstance.finish).toHaveBeenCalledOnce();
+    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 });
