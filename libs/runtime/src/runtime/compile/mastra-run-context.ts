@@ -1,4 +1,5 @@
 import { RequestContext } from "@mastra/core/request-context";
+import type { Mastra } from "@mastra/core/mastra";
 import type {
   InvocationId,
   RunId,
@@ -17,6 +18,7 @@ export interface MastraPlanRunContext {
   readonly runId: RunId;
   readonly resourceId?: string;
   readonly requestContext?: RequestContext;
+  readonly mastra?: Mastra;
   readonly events: SeqlaneEventSink;
   readonly repeatBudget: RepeatExecutionBudget;
 }
@@ -32,6 +34,7 @@ export interface MastraPlanRunContextInput {
   readonly runId: RunId;
   readonly resourceId?: string;
   readonly requestContext?: RequestContext;
+  readonly mastra?: Mastra;
   readonly workId?: WorkId;
   readonly events?: SeqlaneEventSink;
   readonly repeatBudget?: RepeatExecutionBudget;
@@ -101,6 +104,7 @@ export function resolveMastraPlanRunContext(
     runId: input.runId,
     ...(input.resourceId === undefined ? {} : { resourceId: input.resourceId }),
     requestContext: activeRequestContext,
+    ...(input.mastra === undefined ? {} : { mastra: input.mastra }),
     events,
     repeatBudget: budget,
   };

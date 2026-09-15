@@ -3,7 +3,9 @@
 import { describe, expect, it } from "vitest";
 import {
   assertRepeatEnvelopeSize,
+  assertRepeatWorkflowStateSize,
   MAX_REPEAT_ENVELOPE_BYTES,
+  MAX_REPEAT_WORKFLOW_STATE_BYTES,
   repeatEnvelopeSchema,
   repeatWorkflowStateSchema,
 } from "./mastra-repeat-envelope.js";
@@ -52,17 +54,43 @@ describe("Mastra repeat persistence envelope", () => {
 
   it("round-trips durable repeat state separately from the envelope", () => {
     const state = {
-      initialInput: { value: 1 },
-      currentInput: { value: 2 },
-      workflowInput: { seed: "fixture" },
-      dependencyResults: [["upstream", { ready: true }]] as Array<
-        [string, unknown]
-      >,
-      result: { done: false },
+      currentInput: { kind: "inline", value: { value: 2 } },
+      workflowInput: { kind: "inline", value: { seed: "fixture" } },
+      dependencyResults: [
+        ["upstream", { kind: "inline", value: { ready: true } }],
+      ],
+      result: { kind: "inline", value: { done: false } },
     };
 
     expect(
       repeatWorkflowStateSchema.parse(JSON.parse(JSON.stringify(state))),
     ).toEqual(state);
+  });
+
+  it("rejects oversized inline workflow state before persistence", () => {
+    const state = repeatWorkflowStateSchema.parse({
+      currentInput: {
+        kind: "inline",
+        value: "x".repeat(MAX_REPEAT_WORKFLOW_STATE_BYTES),
+      },
+      workflowInput: { kind: "inline", value: 1 },
+      dependencyResults: [],
+    });
+
+    expect(() => assertRepeatWorkflowStateSize(state)).toThrow(
+      /workflow state exceeds 262144 bytes/,
+    );
+  });
+
+  it("rejects workflow state that JSON persistence would change", () => {
+    const state = repeatWorkflowStateSchema.parse({
+      currentInput: { kind: "inline", value: undefined },
+      workflowInput: { kind: "inline", value: 1 },
+      dependencyResults: [],
+    });
+
+    expect(() => assertRepeatWorkflowStateSize(state)).toThrow(
+      /workflow state must be JSON-safe/,
+    );
   });
 });

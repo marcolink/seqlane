@@ -7,6 +7,7 @@ import type { MastraPlanCompilerOptions } from "./mastra-plan-compiler.js";
 import type { RepeatCompilerDependencies } from "./mastra-repeat-compiler.js";
 import { executeRepeatAttempt } from "./mastra-repeat-attempt-runtime.js";
 import {
+  MAX_REPEAT_WORKFLOW_STATE_BYTES,
   repeatEnvelopeSchema,
   repeatWorkflowStateSchema,
 } from "./mastra-repeat-envelope.js";
@@ -42,7 +43,9 @@ describe("Mastra repeat attempt persistence", () => {
     let executions = 0;
     const executeInvocation = vi.fn(async ({ input }: { input: unknown }) => {
       executions += 1;
-      const value = (input as { value: number }).value + 1;
+      const current =
+        typeof input === "number" ? input : (input as { value: number }).value;
+      const value = current + 1;
       return { value, done: executions === 2 };
     });
     const compilerOptions: MastraPlanCompilerOptions = {
@@ -66,10 +69,11 @@ describe("Mastra repeat attempt persistence", () => {
       repeatExecutions: 0,
     });
     const initialState = repeatWorkflowStateSchema.parse({
-      initialInput: { value: 1 },
-      currentInput: { value: 1 },
-      workflowInput: { seed: true },
-      dependencyResults: [["__proto__", { safe: true }]],
+      currentInput: { kind: "initial" },
+      workflowInput: { kind: "inline", value: { seed: true } },
+      dependencyResults: [
+        ["__proto__", { kind: "inline", value: { safe: true } }],
+      ],
     });
     let state: unknown = initialState;
     const setState = async (next: unknown): Promise<void> => {
@@ -105,7 +109,79 @@ describe("Mastra repeat attempt persistence", () => {
     expect(resumedEnvelope.attemptNumber).toBe(3);
     expect(resumedEnvelope.until).toBe(true);
     expect(new Map(reloadedState.dependencyResults).get("__proto__")).toEqual({
-      safe: true,
+      kind: "inline",
+      value: { safe: true },
     });
+  });
+
+  it("keeps durable state bounded across 1,000 attempts", async () => {
+    const executeInvocation = vi.fn(async () => ({ done: false }));
+    const compilerOptions: MastraPlanCompilerOptions = {
+      executeInvocation,
+    };
+    const dependencies: RepeatCompilerDependencies = {
+      schemaForMastra: () => z.unknown(),
+      schemaForNodeInput: () => undefined,
+      schemaForNodeOutput: () => undefined,
+      resolveStepInput: () => ({ value: 1 }),
+      reportFailure: () => {
+        throw new Error("unexpected failure");
+      },
+      invocationIdForNode: () => undefined,
+    };
+    const node = { ...repeatNode, nextInput: undefined };
+    const envelope = repeatEnvelopeSchema.parse({
+      __seqlaneRepeatEnvelope: true,
+      stateRef: { workflowId: "repeat:1:loop", runId: "run:repeat:1" },
+      attemptNumber: 1,
+      runContext: { workId: "work", runId: "run" },
+      repeatExecutions: 0,
+    });
+    const initialState = repeatWorkflowStateSchema.parse({
+      currentInput: { kind: "initial" },
+      workflowInput: { kind: "inline", value: {} },
+      dependencyResults: [],
+    });
+    let state: unknown = initialState;
+    const setState = async (next: unknown): Promise<void> => {
+      state = next;
+    };
+    let currentEnvelope = envelope;
+    for (let attempt = 0; attempt < 1000; attempt += 1) {
+      currentEnvelope = await executeRepeatAttempt({
+        inputData: currentEnvelope,
+        state,
+        setState,
+        workflowId: "repeat:1:loop",
+        runId: "run:repeat:1",
+        abortSignal: new AbortController().signal,
+        observability: {},
+        node,
+        invocationId: "repeat:1",
+        compilerOptions,
+        dependencies,
+      });
+    }
+
+    expect(currentEnvelope.attemptNumber).toBe(1001);
+    expect(
+      new TextEncoder().encode(JSON.stringify(state)).byteLength,
+    ).toBeLessThan(MAX_REPEAT_WORKFLOW_STATE_BYTES);
+    await expect(
+      executeRepeatAttempt({
+        inputData: currentEnvelope,
+        state,
+        setState,
+        workflowId: "repeat:1:loop",
+        runId: "run:repeat:1",
+        abortSignal: new AbortController().signal,
+        observability: {},
+        node,
+        invocationId: "repeat:1",
+        compilerOptions,
+        dependencies,
+      }),
+    ).rejects.toThrow(/repeat-body execution budget of 1000/);
+    expect(executeInvocation).toHaveBeenCalledTimes(1000);
   });
 });

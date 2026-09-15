@@ -49,9 +49,13 @@ runtime. Support a task or child workflow as the repeated attempt.
 - Lower the repeat through Mastra-native loop control flow. Preserve one
   inspectable invocation per attempt and nested task, current session and
   workspace admission, cancellation, typed outcomes, and observability.
-- Store repeat inputs, dependency results, and latest result in Mastra-owned
-  loop state. Persist only a JSON-safe bounded control envelope per attempt;
-  reload that state and resume through the same attempt boundary.
+- Store mutable repeat values in bounded Mastra-owned loop state. Reference
+  immutable workflow input and dependency outputs from the parent Mastra run
+  snapshot when storage is available. Use bounded inline values without
+  storage. Reject state above 256 KiB before persistence.
+- Persist only a JSON-safe bounded control envelope per attempt. Reload the
+  envelope and state through the same attempt boundary. Prove the state stays
+  bounded for 1,000 attempts and rejects a large payload.
 - Enforce the per-node and run-wide 1,000-attempt limits. Normalize exhaustion
   to the existing typed Seqlane errors.
 - Replace old repeat examples and fixtures. Update public authoring and
@@ -120,9 +124,9 @@ repeat shape, and the cancelled plan to reject child workflows in repeats.
 Their completed statuses remain historical records.
 Review fixes isolate run identity, repeat budgets, and events; preserve task
 output validation; admit all child workflow resources; and split repeat
-compilation by concern. Mastra loop state now holds durable repeat values, and
-bounded JSON-safe envelopes reference that state. The full test suite and
-typecheck pass.
+compilation by concern. Bounded Mastra loop state references immutable parent
+snapshot values and holds mutable repeat values inline. Bounded JSON-safe
+envelopes reference that state. The full test suite and typecheck pass.
 
 ## Delivery state
 

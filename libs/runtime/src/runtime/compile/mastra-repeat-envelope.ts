@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { PlanNode } from "@seqlane/core";
+import type { Mastra } from "@mastra/core/mastra";
+import { isJsonValue, type PlanNode } from "@seqlane/core";
 import {
   referencedNodeIds,
   WORKFLOW_INPUT_NODE_ID,
@@ -30,21 +31,96 @@ export type RepeatEnvelope = z.infer<typeof repeatEnvelopeSchema>;
 
 /** Control envelopes stay bounded because Mastra persists one per attempt. */
 export const MAX_REPEAT_ENVELOPE_BYTES = 16 * 1024;
+export const MAX_REPEAT_WORKFLOW_STATE_BYTES = 256 * 1024;
 
-export function assertRepeatEnvelopeSize(
-  envelope: RepeatEnvelope,
-): RepeatEnvelope {
-  const serialized = JSON.stringify(envelope);
+function assertSerializedSize(
+  value: unknown,
+  maximumBytes: number,
+  label: string,
+): void {
+  const serialized = JSON.stringify(value);
   const bytes =
     serialized === undefined
       ? 0
       : new TextEncoder().encode(serialized).byteLength;
-  if (serialized === undefined || bytes > MAX_REPEAT_ENVELOPE_BYTES) {
-    throw new Error(
-      `Repeat persistence envelope exceeds ${MAX_REPEAT_ENVELOPE_BYTES} bytes`,
-    );
+  if (serialized === undefined || bytes > maximumBytes) {
+    throw new Error(`${label} exceeds ${maximumBytes} bytes`);
   }
+}
+
+export function assertRepeatEnvelopeSize(
+  envelope: RepeatEnvelope,
+): RepeatEnvelope {
+  assertSerializedSize(
+    envelope,
+    MAX_REPEAT_ENVELOPE_BYTES,
+    "Repeat persistence envelope",
+  );
   return envelope;
+}
+
+const repeatStateReferenceSchema = z.union([
+  z.strictObject({
+    kind: z.literal("mastra-snapshot"),
+    workflowId: z.string().min(1),
+    runId: z.string().min(1),
+    path: z.tuple([z.literal("input")]),
+  }),
+  z.strictObject({
+    kind: z.literal("mastra-snapshot"),
+    workflowId: z.string().min(1),
+    runId: z.string().min(1),
+    path: z.tuple([z.literal("step"), z.string().min(1)]),
+  }),
+]);
+
+const inlineRepeatStateValueSchema = z.strictObject({
+  kind: z.literal("inline"),
+  value: z.unknown(),
+});
+const repeatStateValueSchema = z.union([
+  inlineRepeatStateValueSchema,
+  repeatStateReferenceSchema,
+]);
+
+export type RepeatStateValue = z.infer<typeof repeatStateValueSchema>;
+type InlineRepeatStateValue = z.infer<typeof inlineRepeatStateValueSchema>;
+
+export function inlineRepeatStateValue(value: unknown): InlineRepeatStateValue {
+  return { kind: "inline", value };
+}
+
+export function initialRepeatStateValue(): { readonly kind: "initial" } {
+  return { kind: "initial" };
+}
+
+function repeatSnapshotReference(
+  workflowId: string,
+  runId: string,
+  path: ["input"] | ["step", string],
+): RepeatStateValue {
+  return path[0] === "input"
+    ? { kind: "mastra-snapshot", workflowId, runId, path: ["input"] }
+    : {
+        kind: "mastra-snapshot",
+        workflowId,
+        runId,
+        path: ["step", path[1]],
+      };
+}
+
+export function assertRepeatWorkflowStateSize(
+  state: RepeatWorkflowState,
+): RepeatWorkflowState {
+  if (!isJsonValue(state)) {
+    throw new Error("Repeat workflow state must be JSON-safe");
+  }
+  assertSerializedSize(
+    state,
+    MAX_REPEAT_WORKFLOW_STATE_BYTES,
+    "Repeat workflow state",
+  );
+  return state;
 }
 
 /**
@@ -53,11 +129,13 @@ export function assertRepeatEnvelopeSize(
  * input payloads from being copied into every persisted envelope.
  */
 export const repeatWorkflowStateSchema = z.strictObject({
-  initialInput: z.unknown(),
-  currentInput: z.unknown(),
-  workflowInput: z.unknown(),
-  dependencyResults: z.array(z.tuple([z.string(), z.unknown()])),
-  result: z.unknown().optional(),
+  currentInput: z.union([
+    z.strictObject({ kind: z.literal("initial") }),
+    inlineRepeatStateValueSchema,
+  ]),
+  workflowInput: repeatStateValueSchema,
+  dependencyResults: z.array(z.tuple([z.string(), repeatStateValueSchema])),
+  result: inlineRepeatStateValueSchema.optional(),
 });
 
 export type RepeatWorkflowState = z.infer<typeof repeatWorkflowStateSchema>;
@@ -97,33 +175,54 @@ export function repeatScopedResults(
   ]);
 }
 
+function repeatDependencyResults(
+  node: Extract<PlanNode, { type: "repeat" }>,
+  getStepResult: <Output = unknown>(nodeId: string) => Output,
+  snapshot: { readonly workflowId: string; readonly runId: string } | undefined,
+): Array<[string, RepeatStateValue]> {
+  const results: Array<[string, RepeatStateValue]> = [];
+  const references = new Set([
+    ...referencedNodeIds(node.input),
+    ...referencedNodeIds(node.until),
+    ...(node.nextInput === undefined ? [] : referencedNodeIds(node.nextInput)),
+    ...node.attempt.dependsOn,
+  ]);
+  for (const dependency of references) {
+    if (
+      dependency === WORKFLOW_INPUT_NODE_ID ||
+      dependency === `${node.nodeId}:input` ||
+      dependency === node.attempt.nodeId
+    ) {
+      continue;
+    }
+    const value =
+      snapshot === undefined
+        ? inlineRepeatStateValue(getStepResult(dependency))
+        : repeatSnapshotReference(snapshot.workflowId, snapshot.runId, [
+            "step",
+            dependency,
+          ]);
+    results.push([dependency, value]);
+  }
+  return results;
+}
+
 export function buildInitialRepeatEnvelope(
   node: Extract<PlanNode, { type: "repeat" }>,
   workflowInput: unknown,
   getStepResult: <Output = unknown>(nodeId: string) => Output,
   dependencies: RepeatCompilerDependencies,
-  runContext: MastraPlanRunContext,
+  options: {
+    readonly runContext: MastraPlanRunContext;
+    readonly workflowId: string;
+    readonly mastra?: Mastra;
+  },
 ): { envelope: RepeatEnvelope; state: RepeatWorkflowState } {
-  const initialInput = dependencies.resolveStepInput(
-    node,
-    workflowInput,
-    getStepResult,
-  );
-  const dependencyResults: Array<[string, unknown]> = [];
-  for (const dependency of new Set([
-    ...referencedNodeIds(node.input),
-    ...referencedNodeIds(node.until),
-    ...(node.nextInput === undefined ? [] : referencedNodeIds(node.nextInput)),
-    ...node.attempt.dependsOn,
-  ])) {
-    if (
-      dependency !== WORKFLOW_INPUT_NODE_ID &&
-      dependency !== `${node.nodeId}:input` &&
-      dependency !== node.attempt.nodeId
-    ) {
-      dependencyResults.push([dependency, getStepResult(dependency)]);
-    }
-  }
+  const { runContext } = options;
+  const snapshot =
+    options.mastra?.getStorage() === undefined
+      ? undefined
+      : { workflowId: options.workflowId, runId: runContext.runId };
   const envelope: RepeatEnvelope = {
     __seqlaneRepeatEnvelope: true,
     stateRef: {
@@ -140,13 +239,18 @@ export function buildInitialRepeatEnvelope(
     } satisfies MastraPlanRunIdentity,
     repeatExecutions: runContext.repeatBudget.executed,
   };
+  const state: RepeatWorkflowState = {
+    currentInput: initialRepeatStateValue(),
+    workflowInput:
+      snapshot === undefined
+        ? inlineRepeatStateValue(workflowInput)
+        : repeatSnapshotReference(snapshot.workflowId, snapshot.runId, [
+            "input",
+          ]),
+    dependencyResults: repeatDependencyResults(node, getStepResult, snapshot),
+  };
   return {
     envelope: assertRepeatEnvelopeSize(envelope),
-    state: {
-      initialInput,
-      currentInput: initialInput,
-      workflowInput,
-      dependencyResults,
-    },
+    state: assertRepeatWorkflowStateSize(state),
   };
 }

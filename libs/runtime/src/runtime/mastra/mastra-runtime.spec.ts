@@ -30,6 +30,7 @@ import { createStep, createWorkflow } from "@mastra/core/workflows";
 import { RequestContext } from "@mastra/core/request-context";
 import { z } from "zod";
 import { mastraRuntimeSpineWorkflow } from "../../../fixtures/mastra-runtime-spine-workflow.js";
+import { MAX_REPEAT_WORKFLOW_STATE_BYTES } from "../compile/mastra-repeat-envelope.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
 import { createMastraPlanExecution } from "./mastra-execution.js";
@@ -379,7 +380,7 @@ describe("private Mastra runtime spine", () => {
     });
   });
 
-  it("runs repeats when Mastra persists workflow snapshots", async () => {
+  it("references large workflow inputs from persisted Mastra snapshots", async () => {
     const task = defineTask({
       id: "persisted-repeat-task",
       input: z.object({ attempt: z.number() }),
@@ -391,10 +392,10 @@ describe("private Mastra runtime spine", () => {
     });
     const workflow = createFlow({
       id: "persisted-repeat-workflow",
-      input: z.object({ attempt: z.number() }),
+      input: z.object({ attempt: z.number(), payload: z.string() }),
       output: z.object({ attempt: z.number(), done: z.boolean() }),
     })
-      .task("attempt", task, ({ input }) => input)
+      .task("attempt", task, ({ input }) => ({ attempt: input.attempt }))
       .until(({ result }) => result.done, {
         maxIterations: 2,
         nextInput: ({ result }) => ({ attempt: result.attempt }),
@@ -408,7 +409,10 @@ describe("private Mastra runtime spine", () => {
       runMastraPlan({
         plan: built.plan,
         workflow: built.workflow,
-        workflowInput: { attempt: 0 },
+        workflowInput: {
+          attempt: 0,
+          payload: "x".repeat(MAX_REPEAT_WORKFLOW_STATE_BYTES + 1),
+        },
         taskDefinitions: built.taskDefinitions,
         validatorDefinitions: built.validatorDefinitions,
         workflowDefinitions: built.workflowDefinitions,

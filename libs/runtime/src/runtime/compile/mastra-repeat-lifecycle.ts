@@ -118,6 +118,9 @@ export async function runRepeatWorkflow(options: {
   if (abortSignal.aborted) cancel();
   else abortSignal.addEventListener("abort", cancel, { once: true });
   try {
+    if (runContext.mastra !== undefined) {
+      loop.__registerMastra(runContext.mastra);
+    }
     run = await loop.createRun({
       runId: `${runContext.runId}:${node.nodeId}`,
       resourceId: runContext.resourceId,

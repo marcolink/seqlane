@@ -155,15 +155,20 @@ current attempt input and result have separate types. The return from
 `nextInput` must validate against the runnable's input schema before another
 attempt starts.
 
-The private Mastra lowering stores repeat data in the loop workflow's native
-`stateSchema`. Initial input, current input, workflow input, dependency
-results, and the latest result are stored once in that Mastra-owned state.
-Each persisted attempt envelope contains only JSON-safe control data: the
-attempt number, stop flag, run identity, repeat budget, and an explicit loop
-workflow/run reference. The envelope is bounded to 16 KiB and is validated
-before persistence. If Mastra resumes the internal loop, it restores both the
-envelope and state through the same attempt boundary. This design does not add
-a public Seqlane suspend or resume API, or a second result store.
+The private Mastra lowering stores mutable repeat data in the loop workflow's
+native `stateSchema`. The current input and latest result use typed inline
+values. The runtime derives the initial input from immutable source values for
+each attempt that reuses it. When Mastra storage is available, the workflow
+input and immutable dependency outputs use typed references to the parent
+Mastra run snapshot. A workflow without storage uses bounded inline values.
+
+The complete loop state must be JSON-safe and no larger than 256 KiB. The
+runtime checks this limit before initial persistence and each state update.
+Each attempt envelope contains only JSON-safe control data: the attempt number,
+stop flag, run identity, repeat budget, and loop workflow/run reference. The
+envelope is bounded to 16 KiB. If Mastra resumes the internal loop, it restores
+the envelope and state through the same attempt boundary. This design does not
+add a public Seqlane suspend or resume API, or a second result store.
 
 The type-level contract is:
 

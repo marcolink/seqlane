@@ -101,7 +101,7 @@ function buildRepeatResultStep(
       if (!repeatState.success) {
         throw new Error(`Repeat "${node.nodeId}" has invalid durable state`);
       }
-      return repeatState.data.result;
+      return repeatState.data.result?.value;
     },
   });
 }
@@ -163,6 +163,7 @@ export function buildRepeatStep(
       tracingContext,
       loggerVNext,
       metrics,
+      mastra,
     }) => {
       const runContext = resolveMastraPlanRunContext({
         runId,
@@ -171,13 +172,18 @@ export function buildRepeatStep(
         workId: options.workId,
         events: options.events,
         repeatBudget: options.repeatBudget,
+        mastra,
       });
       const envelope = buildInitialRepeatEnvelope(
         node,
         getInitData<unknown>(),
         getStepResult,
         dependencies,
-        runContext,
+        {
+          runContext,
+          workflowId: options.workflowId ?? node.nodeId,
+          mastra,
+        },
       );
       return runRepeatWorkflow({
         node,
