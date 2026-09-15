@@ -164,10 +164,9 @@ export async function startRun(
       events,
       createInvocationId,
     });
-    preflightCompiledWorkflowSessionCapabilities(mastraExecution.prepared);
-    await preflightCompiledWorkflowModels(mastraExecution.prepared);
-    await resolveCompiledWorkflowSessions(mastraExecution.prepared);
-
+    // Topology is already compiled and does not depend on model/session
+    // preflight. Emit it now so the interactive TUI is useful while a slow
+    // executor setup is still in progress.
     events.emitPlan(
       createSeqlanePlanSnapshot(mastraExecution.compiled.plan),
       workId,
@@ -178,6 +177,9 @@ export async function startRun(
       mastraExecution.prepared,
       events,
     );
+    preflightCompiledWorkflowSessionCapabilities(mastraExecution.prepared);
+    await preflightCompiledWorkflowModels(mastraExecution.prepared);
+    await resolveCompiledWorkflowSessions(mastraExecution.prepared);
 
     if (control.cancellationRequested) {
       await execution.close?.();
