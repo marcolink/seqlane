@@ -1,7 +1,7 @@
 ---
 id: task.rename-output-package-to-tui
 title: Rename the Output Package to TUI
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-15
@@ -52,7 +52,7 @@ package. Keep the existing human and CI behavior during this migration.
 
 ## Affected areas
 
-- `libs/output`, which becomes `libs/tui`.
+- `libs/tui`, formerly `libs/output`.
 - `apps/cli` package dependencies and renderer adapter.
 - Root TypeScript, Vitest, Nx, and pnpm configuration.
 - Package README files and SDLC references.
@@ -76,11 +76,23 @@ Make sure that package consumers use declared exports only.
 
 ## Outcome
 
-Not delivered.
+Renamed the private terminal package from `@seqlane/output` to
+`@seqlane/tui`, including the `libs/tui` project path, workspace references,
+package metadata, lockfile importer, and CLI imports. Renamed the shared
+human-specific projection types to neutral run-view-model types and kept the
+concrete renderers and projection internals private behind the package-root
+renderer factory. The migrated human and CI renderer tests and the CLI output
+contract tests remain in the new package paths.
+
+`pnpm test:mapping` passes with 286 mappings. The TUI suite passes with 64
+tests. The CLI suite passes with 133 tests. The compiled CLI suite passes with
+37 tests. TUI and CLI typechecks pass.
 
 ## Delivery state
 
-Planned. This task starts after `task.separate-run-machine-output`.
+Implementation is complete on a feature branch stacked on the head of
+`task.separate-run-machine-output` in pull request #117. Default-branch delivery
+still requires a reachable commit or merged pull request.
 
 ## Traceability
 

@@ -3,10 +3,10 @@ import {
   seqlaneExecutionEventSchema,
 } from "@seqlane/protocol";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
-import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/output";
-import { redactOutput } from "@seqlane/output";
+import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/tui";
 import { connectTerminalResize } from "./output.js";
 import { errorMessage, writeDiagnostic } from "./command.js";
+import { redactReplayOutput } from "./redaction.js";
 import { iterateSeqlaneRecording, type SeqlaneRecording } from "./recording.js";
 
 type RedactionMode =
@@ -122,7 +122,7 @@ function redactReplayValue(
   eventType?: SeqlaneExecutionEvent["type"],
 ): unknown {
   if (typeof value === "string") {
-    return mode === "dynamic" ? redactOutput(value, redactions) : value;
+    return mode === "dynamic" ? redactReplayOutput(value, redactions) : value;
   }
   if (Array.isArray(value)) {
     return value.map((item) =>

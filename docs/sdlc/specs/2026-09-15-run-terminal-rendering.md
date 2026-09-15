@@ -648,8 +648,14 @@ typechecks, builds, lint checks, and the complete CLI entrypoint tests.
 
 ## Delivery state
 
-Not delivered. This active specification defines the target contract. The
-current implementation remains under `@seqlane/output`.
+Partially delivered on the current feature branch. Migration steps 1 through 3
+are present: run machine output is separated by pull request #117, the
+terminal package is now `libs/tui` and `@seqlane/tui`, and the shared
+human-specific projection types use neutral run names. The remaining active
+contract work includes the complete clock, scheduling, bounds, encoding,
+interaction, Ink renderer, terminal wiring, and final migration verification
+steps. Default-branch delivery still requires reachable commits or merged pull
+requests for the completed sequence.
 
 ## Traceability
 

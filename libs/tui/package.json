@@ -1,5 +1,5 @@
 {
-  "name": "@seqlane/output",
+  "name": "@seqlane/tui",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -30,7 +30,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/marcolink/seqlane.git",
-    "directory": "libs/output"
+    "directory": "libs/tui"
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {

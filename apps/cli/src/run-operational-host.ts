@@ -1,7 +1,7 @@
 import { isJsonValue, RuntimeError } from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
 import { createExecutionEventBridge } from "@seqlane/runtime";
-import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/output";
+import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/tui";
 import {
   OperationalClient,
   OperationalClientError,

@@ -3,7 +3,7 @@ import { workspaceAliases } from "../../vitest.shared.mts";
 
 export default defineConfig({
   test: {
-    name: "output",
+    name: "tui",
     environment: "node",
     include: ["src/**/*.spec.ts"],
   },

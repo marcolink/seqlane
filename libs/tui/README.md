@@ -1,6 +1,6 @@
-# @seqlane/output
+# @seqlane/tui
 
-Private renderers for Seqlane execution events.
+Private terminal renderers for Seqlane execution events.
 
 The package converts canonical `SeqlaneExecutionEvent` values into human or
 continuous-integration terminal output. It does not execute workflows and it
@@ -35,12 +35,12 @@ outcomes before finalization.
 ## Use the package
 
 ```ts
-import {
-  createExecutionRenderer,
-  type OutputCapabilities,
-} from "@seqlane/output";
+import { createExecutionRenderer, type OutputCapabilities } from "@seqlane/tui";
 ```
 
 Pass a renderer a declared `OutputCapabilities` value, call `handle` for each
 canonical execution event, and call `finish` after the run ends. Renderers
 accept only `@seqlane/protocol` values.
+
+The package root exposes the renderer factory and its consumer types. Concrete
+renderers and run-projection types stay private.

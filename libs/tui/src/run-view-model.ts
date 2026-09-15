@@ -13,13 +13,13 @@ import type {
 
 export type OutputEvent = SeqlaneExecutionEvent;
 
-export type HumanValidationVerdict = "passed" | "failed" | "unknown";
+export type RunValidationVerdict = "passed" | "failed" | "unknown";
 
-export interface HumanValidationState {
+export interface RunValidationState {
   readonly validationNodeId: string;
   readonly sourceId: string;
   readonly sourceType: "validator" | "evaluator" | "validation-gate";
-  readonly verdict: HumanValidationVerdict;
+  readonly verdict: RunValidationVerdict;
   readonly issues: readonly {
     readonly code: string;
     readonly message: string;
@@ -30,7 +30,7 @@ export interface HumanValidationState {
   readonly continued: boolean;
 }
 
-export type HumanNodeState =
+export type RunNodeState =
   | "queued"
   | "waiting"
   | "active"
@@ -40,7 +40,7 @@ export type HumanNodeState =
   | "skipped"
   | "cancelled";
 
-export interface HumanAggregate {
+export interface RunAggregate {
   readonly total: number;
   readonly queued: number;
   readonly waiting: number;
@@ -52,14 +52,14 @@ export interface HumanAggregate {
   readonly cancelled: number;
 }
 
-export interface HumanOutputState {
+export interface RunOutputState {
   readonly transient?: string;
   readonly persistent: readonly string[];
   readonly metrics?: SeqlaneInvocationMetrics;
   readonly summary?: SeqlaneOutputSummary;
 }
 
-export interface HumanRetryState {
+export interface RunRetryState {
   readonly attempt: number;
   readonly maximumAttempts?: number;
   readonly delayMs?: number;
@@ -67,18 +67,18 @@ export interface HumanRetryState {
   readonly lastError: SerializedSeqlaneError;
 }
 
-export interface HumanFailureState {
+export interface RunFailureState {
   readonly category: SerializedSeqlaneError["category"];
   readonly message: string;
   readonly disposition: SeqlaneFailureDisposition;
 }
 
-export interface HumanPresentationState {
+export interface RunPresentationState {
   readonly isExpanded: boolean;
   readonly isFocused: boolean;
 }
 
-export interface HumanExecutionNode {
+export interface RunNode {
   readonly invocationId: string;
   readonly taskId: string;
   readonly kind: SeqlaneInvocationKind;
@@ -88,35 +88,35 @@ export interface HumanExecutionNode {
   readonly siblingOrder: number;
   readonly dependencyIds: readonly string[];
   readonly waitingDependencyLabels: readonly string[];
-  readonly state: HumanNodeState;
+  readonly state: RunNodeState;
   readonly toolUsage: ReadonlyMap<string, number>;
   readonly skillUsage: ReadonlyMap<string, number>;
   readonly phase?: string;
   readonly activity?: string;
   readonly waitingReason?: string;
-  readonly aggregate: HumanAggregate;
-  readonly output: HumanOutputState;
-  readonly validation?: HumanValidationState;
-  readonly retry?: HumanRetryState;
-  readonly failure?: HumanFailureState;
+  readonly aggregate: RunAggregate;
+  readonly output: RunOutputState;
+  readonly validation?: RunValidationState;
+  readonly retry?: RunRetryState;
+  readonly failure?: RunFailureState;
   readonly skipReason?: string;
   readonly continuationReason?: string;
   readonly startedAt?: string;
   readonly finishedAt?: string;
   readonly elapsedMs?: number;
-  readonly presentation: HumanPresentationState;
   readonly createdSequence: number;
 }
 
-export type HumanRunState =
-  "idle" | "active" | "succeeded" | "failed" | "cancelled";
+export type RunState = "idle" | "active" | "succeeded" | "failed" | "cancelled";
 
-export interface HumanExecutionViewModel {
+export interface RunViewModel {
   readonly workId?: string;
   readonly runId?: string;
-  readonly runState: HumanRunState;
+  readonly runState: RunState;
   readonly runError?: SerializedSeqlaneError;
-  readonly nodes: ReadonlyMap<string, HumanExecutionNode>;
+  readonly nodes: ReadonlyMap<string, RunNode>;
+  /** User-controlled state kept separate from the event-derived execution nodes. */
+  readonly presentation: ReadonlyMap<string, RunPresentationState>;
   readonly rootInvocationIds: readonly string[];
   readonly toolUsage: ReadonlyMap<string, number>;
   readonly skillUsage: ReadonlyMap<string, number>;
@@ -125,17 +125,18 @@ export interface HumanExecutionViewModel {
   readonly now: () => Date;
 }
 
-export interface HumanViewModelOptions {
+export interface RunViewModelOptions {
   readonly now?: () => Date;
 }
 
-export interface HumanVisibleRow {
-  readonly node: HumanExecutionNode;
+export interface RunVisibleRow {
+  readonly node: RunNode;
   readonly depth: number;
   readonly hasChildren: boolean;
+  readonly isExpanded: boolean;
 }
 
-const EMPTY_AGGREGATE: HumanAggregate = {
+const EMPTY_AGGREGATE: RunAggregate = {
   total: 0,
   queued: 0,
   waiting: 0,
@@ -174,8 +175,7 @@ function elapsedBetween(
 function emptyNode(
   event: Extract<SeqlaneExecutionEvent, { type: "invocation.created" }>,
   createdSequence: number,
-  expandedByDefault: boolean,
-): HumanExecutionNode {
+): RunNode {
   const taskId =
     event.taskId ??
     (event.subject.type === "task"
@@ -222,18 +222,14 @@ function emptyNode(
             continued: false,
           },
         }),
-    presentation: {
-      isExpanded: expandedByDefault,
-      isFocused: false,
-    },
     createdSequence,
   };
 }
 
 function projectValidationResult(
   display: SeqlaneDisplayValue,
-  current: HumanValidationState,
-): HumanValidationState {
+  current: RunValidationState,
+): RunValidationState {
   if (display.state !== "present") {
     return { ...current, verdict: "unknown", issues: [], evidence: undefined };
   }
@@ -254,9 +250,9 @@ function projectValidationResult(
 }
 
 function projectValidationFailure(
-  current: HumanValidationState | undefined,
+  current: RunValidationState | undefined,
   validation: NonNullable<SerializedSeqlaneError["validation"]>,
-): HumanValidationState {
+): RunValidationState {
   return {
     validationNodeId: validation.validationNodeId,
     sourceId: validation.sourceId,
@@ -271,10 +267,10 @@ function projectValidationFailure(
 }
 
 function updateNode(
-  view: HumanExecutionViewModel,
+  view: RunViewModel,
   invocationId: string,
-  update: (node: HumanExecutionNode) => HumanExecutionNode,
-): HumanExecutionViewModel {
+  update: (node: RunNode) => RunNode,
+): RunViewModel {
   const current = view.nodes.get(invocationId);
   if (current === undefined) return view;
   const nodes = new Map(view.nodes);
@@ -283,10 +279,10 @@ function updateNode(
 }
 
 function withState(
-  node: HumanExecutionNode,
-  state: HumanNodeState,
+  node: RunNode,
+  state: RunNodeState,
   timestamp: string,
-): HumanExecutionNode {
+): RunNode {
   const startedAt = node.startedAt ?? timestamp;
   const terminal =
     state === "succeeded" ||
@@ -306,7 +302,7 @@ function withState(
   };
 }
 
-function isTerminalNodeState(state: HumanNodeState): boolean {
+function isTerminalNodeState(state: RunNodeState): boolean {
   return (
     state === "succeeded" ||
     state === "failed" ||
@@ -316,9 +312,9 @@ function isTerminalNodeState(state: HumanNodeState): boolean {
 }
 
 function descendants(
-  nodes: ReadonlyMap<string, HumanExecutionNode>,
+  nodes: ReadonlyMap<string, RunNode>,
   parentInvocationId: string,
-): HumanExecutionNode[] {
+): RunNode[] {
   const children = [...nodes.values()]
     .filter((node) => node.parentInvocationId === parentInvocationId)
     .sort(compareNodes);
@@ -328,10 +324,7 @@ function descendants(
   ]);
 }
 
-function compareNodes(
-  left: HumanExecutionNode,
-  right: HumanExecutionNode,
-): number {
+function compareNodes(left: RunNode, right: RunNode): number {
   return (
     left.siblingOrder - right.siblingOrder ||
     left.createdSequence - right.createdSequence ||
@@ -340,9 +333,9 @@ function compareNodes(
 }
 
 function aggregateFor(
-  node: HumanExecutionNode,
-  nodes: ReadonlyMap<string, HumanExecutionNode>,
-): HumanAggregate {
+  node: RunNode,
+  nodes: ReadonlyMap<string, RunNode>,
+): RunAggregate {
   const members =
     node.kind === "workflow" || node.kind === "loop"
       ? descendants(nodes, node.invocationId)
@@ -364,10 +357,10 @@ function aggregateFor(
 }
 
 function derive(
-  view: HumanExecutionViewModel,
-  sourceNodes: ReadonlyMap<string, HumanExecutionNode>,
-): HumanExecutionViewModel {
-  const nodes = new Map<string, HumanExecutionNode>();
+  view: RunViewModel,
+  sourceNodes: ReadonlyMap<string, RunNode>,
+): RunViewModel {
+  const nodes = new Map<string, RunNode>();
   for (const node of sourceNodes.values()) {
     nodes.set(node.invocationId, {
       ...node,
@@ -388,12 +381,13 @@ function derive(
   return { ...view, nodes, rootInvocationIds };
 }
 
-export function createHumanViewModel(
-  options: HumanViewModelOptions = {},
-): HumanExecutionViewModel {
-  const view: HumanExecutionViewModel = {
+export function createRunViewModel(
+  options: RunViewModelOptions = {},
+): RunViewModel {
+  const view: RunViewModel = {
     runState: "idle",
     nodes: new Map(),
+    presentation: new Map(),
     rootInvocationIds: [],
     toolUsage: new Map(),
     skillUsage: new Map(),
@@ -404,10 +398,10 @@ export function createHumanViewModel(
 }
 
 function setRunState(
-  view: HumanExecutionViewModel,
-  runState: HumanRunState,
+  view: RunViewModel,
+  runState: RunState,
   event: OutputEvent,
-): HumanExecutionViewModel {
+): RunViewModel {
   return {
     ...view,
     workId: "workId" in event ? event.workId : view.workId,
@@ -417,9 +411,9 @@ function setRunState(
 }
 
 function reduceCreated(
-  view: HumanExecutionViewModel,
+  view: RunViewModel,
   event: Extract<OutputEvent, { type: "invocation.created" }>,
-): HumanExecutionViewModel {
+): RunViewModel {
   const existing = view.nodes.get(event.invocationId);
   if (existing !== undefined) {
     const nodes = new Map(view.nodes);
@@ -437,21 +431,19 @@ function reduceCreated(
     return derive(view, nodes);
   }
   const nodes = new Map(view.nodes);
-  nodes.set(
-    event.invocationId,
-    emptyNode(
-      event,
-      view.lastEventSequence,
-      event.kind === "workflow" || event.kind === "loop",
-    ),
-  );
-  return derive(view, nodes);
+  nodes.set(event.invocationId, emptyNode(event, view.lastEventSequence));
+  const presentation = new Map(view.presentation);
+  presentation.set(event.invocationId, {
+    isExpanded: event.kind === "workflow" || event.kind === "loop",
+    isFocused: false,
+  });
+  return derive({ ...view, presentation }, nodes);
 }
 
-export function reduceHumanViewModel(
-  view: HumanExecutionViewModel,
+export function reduceRunViewModel(
+  view: RunViewModel,
   event: OutputEvent,
-): HumanExecutionViewModel {
+): RunViewModel {
   const eventSequence = event.metadata?.sequence ?? view.lastEventSequence + 1;
   const next = {
     ...view,
@@ -625,32 +617,31 @@ export function reduceHumanViewModel(
   return next;
 }
 
-export function reduceHumanEvents(
+export function reduceRunEvents(
   events: readonly OutputEvent[],
-  options: HumanViewModelOptions = {},
-): HumanExecutionViewModel {
-  return events.reduce(reduceHumanViewModel, createHumanViewModel(options));
+  options: RunViewModelOptions = {},
+): RunViewModel {
+  return events.reduce(reduceRunViewModel, createRunViewModel(options));
 }
 
-function childrenOf(
-  view: HumanExecutionViewModel,
-  parentInvocationId: string,
-): HumanExecutionNode[] {
+function childrenOf(view: RunViewModel, parentInvocationId: string): RunNode[] {
   return [...view.nodes.values()]
     .filter((node) => node.parentInvocationId === parentInvocationId)
     .sort(compareNodes);
 }
 
-export function getHumanVisibleRows(
-  view: HumanExecutionViewModel,
-): readonly HumanVisibleRow[] {
-  const rows: HumanVisibleRow[] = [];
+export function getRunVisibleRows(
+  view: RunViewModel,
+): readonly RunVisibleRow[] {
+  const rows: RunVisibleRow[] = [];
   const visit = (invocationId: string, depth: number): void => {
     const node = view.nodes.get(invocationId);
     if (node === undefined) return;
     const children = childrenOf(view, invocationId);
-    rows.push({ node, depth, hasChildren: children.length > 0 });
-    if (!node.presentation.isExpanded) return;
+    const isExpanded =
+      view.presentation.get(node.invocationId)?.isExpanded ?? false;
+    rows.push({ node, depth, hasChildren: children.length > 0, isExpanded });
+    if (!isExpanded) return;
     for (const child of children) visit(child.invocationId, depth + 1);
   };
   for (const rootInvocationId of view.rootInvocationIds) {
@@ -659,30 +650,35 @@ export function getHumanVisibleRows(
   return rows;
 }
 
-export function setHumanNodeExpanded(
-  view: HumanExecutionViewModel,
+export function setRunNodeExpanded(
+  view: RunViewModel,
   invocationId: string,
   isExpanded: boolean,
-): HumanExecutionViewModel {
-  return updateNode(view, invocationId, (node) => ({
-    ...node,
-    presentation: { ...node.presentation, isExpanded },
-  }));
+): RunViewModel {
+  if (!view.nodes.has(invocationId)) return view;
+  const presentation = new Map(view.presentation);
+  const current = presentation.get(invocationId) ?? {
+    isExpanded: false,
+    isFocused: false,
+  };
+  presentation.set(invocationId, { ...current, isExpanded });
+  return { ...view, presentation };
 }
 
-export function setHumanNodeFocused(
-  view: HumanExecutionViewModel,
+export function setRunNodeFocused(
+  view: RunViewModel,
   invocationId: string | undefined,
-): HumanExecutionViewModel {
-  const nodes = new Map<string, HumanExecutionNode>();
+): RunViewModel {
+  const presentation = new Map<string, RunPresentationState>();
   for (const node of view.nodes.values()) {
-    nodes.set(node.invocationId, {
-      ...node,
-      presentation: {
-        ...node.presentation,
-        isFocused: node.invocationId === invocationId,
-      },
+    const current = view.presentation.get(node.invocationId) ?? {
+      isExpanded: false,
+      isFocused: false,
+    };
+    presentation.set(node.invocationId, {
+      ...current,
+      isFocused: node.invocationId === invocationId,
     });
   }
-  return derive(view, nodes);
+  return { ...view, presentation };
 }

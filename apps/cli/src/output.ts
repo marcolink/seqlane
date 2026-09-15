@@ -5,7 +5,7 @@ import {
   type OutputMode,
   type OutputSink,
   type RendererMode,
-} from "@seqlane/output";
+} from "@seqlane/tui";
 import { appendFileSync } from "node:fs";
 
 export interface CliOutputStreams {

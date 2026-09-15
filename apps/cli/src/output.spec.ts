@@ -1,4 +1,4 @@
-import type { OutputCapabilities } from "@seqlane/output";
+import type { OutputCapabilities } from "@seqlane/tui";
 import { describe, expect, it } from "vitest";
 import {
   createCliRenderer,

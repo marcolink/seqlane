@@ -1,7 +1,7 @@
 // @test-scope ./run-operational-host.ts
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/output";
+import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/tui";
 import type { RunRequest } from "@seqlane/protocol";
 
 const mocks = vi.hoisted(() => ({

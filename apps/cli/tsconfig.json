@@ -14,7 +14,7 @@
       "path": "../../libs/runtime"
     },
     {
-      "path": "../../libs/output"
+      "path": "../../libs/tui"
     },
     {
       "path": "../../libs/protocol"
