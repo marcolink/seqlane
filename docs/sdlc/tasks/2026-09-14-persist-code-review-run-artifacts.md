@@ -20,7 +20,7 @@ making artifact availability a prerequisite for an old comment checkpoint.
 
 ## Upstream requirements
 
-Implement `requirement-published-artifact` in
+Implement `requirement-artifact-admission` and `requirement-published-artifact` in
 [spec.github-native-review-publication](../specs/2026-09-14-github-native-review-publication.md).
 Do not implement against this draft alone. PR #112 must first land a canonical
 manifest specification with stable ID and complete item, lane, path, finding,
@@ -29,32 +29,19 @@ and string limits.
 ## Scope
 
 - Build one strict, sealed run-local manifest and bounded structured evidence.
-- In the unqueued producer, upload one immutable artifact with explicit 90-day
-  retention, then validate its identity, schema, compressed and uncompressed
-  size, and digest before dispatching the separate queued publisher.
+- In the unqueued producer, upload and verify the bounded candidate before
+  dispatching the separate queued publisher.
 - Store only the verified direct artifact reference in the final comment.
 - Fetch a referenced artifact by ID for specific audit or future reuse needs;
   expiry and invalid evidence must not reset a valid comment checkpoint.
-- Enforce 2 MiB manifest, 512 KiB compressed manifest, 32 MiB compressed
-  artifact, and 64 MiB uncompressed artifact hard bounds. Stream extraction
-  through cumulative and per-entry limits before parsing or hashing.
-  Report advisory PR and repository usage only when measurable; label estimates.
+- Enforce all artifact, archive-expansion, admission, rate, and retained-usage
+  limits from the specification.
 - Reconcile and delete a proven unpublished candidate after a failed or stale
   final write. Retain unresolved candidates until the write effect is known.
-- Name candidates with PR, run ID, and attempt. Add a default-branch
-  `workflow_run: completed` reconciler that lists artifacts for that run,
-  confirms the publisher outcome and live comment, and deletes only a proven
-  unpublished candidate. Require verified repository, default-branch workflow
-  identity and file/ref, run ID and attempt, allowed event origin, same-repo
-  PR, publisher job, and artifact ownership before any replay or deletion.
-  Exclude PR-branch dispatches and untrusted PR code execution. Separate
-  read-only inspection from a narrowly scoped `actions: write` recovery job;
-  neither receives comment-write permission. Report unresolved candidates
-  and let retention expire those that cannot be proven safe to delete.
-- Persist scheduled scan progress in a strict, 64 KiB recovery-cursor artifact
-  owned by the allowlisted recovery workflow. Limit each sweep to ten pages,
-  1,000 runs, and five minutes. Continue with overlapping time boundaries;
-  bisect overfull time shards; report incomplete coverage or cursor restart.
+- Implement the typed store index, reservation lifecycle, producer-owned
+  artifact link, publisher registration link, and bounded recovery cursor.
+- Add the default-branch reconciler with the provenance and least-privilege
+  boundaries from the specification. Delete only proven unpublished data.
 
 ## Out of scope
 
@@ -66,16 +53,13 @@ and string limits.
 
 1. Add a typed Action-owned artifact adapter for producer sealing and upload,
    bounded publisher readback, direct-ID retrieval, and guarded deletion.
-2. Apply byte and item bounds before upload. Verify the returned artifact
-   reference and canonical digest before allowing final publication.
-3. Wire the adapter to the comment-state reference. Treat expiry as missing
+2. Add serialized reservation, upload, actual-size accounting, publication,
+   and cleanup transitions to the store index.
+3. Register the producer and publisher link before writer-queue admission.
+4. Wire verified artifact references into comment state. Treat expiry as lost
    audit evidence, not an invalid checkpoint.
-4. Add post-run reconciliation after exact final-write readback, including
-   a terminal-run trigger and scheduled sweep for cancelled or overflowed
-   publishers. Replay a proven never-started publisher from its candidate;
-   keep unproven candidates until later safe reconciliation or expiry.
-5. Store and verify the bounded recovery cursor. Continue partial scans across
-   scheduled invocations without skipping overfull time ranges.
+5. Implement event-driven and cursor-based recovery without skipping bounded
+   partial scans or retrying ambiguous writes.
 
 ## Affected areas
 
@@ -87,13 +71,9 @@ and string limits.
 
 ## Verification
 
-- Run test mapping and focused artifact lifecycle, expansion-boundary,
-  archive-path, integrity, expiry, access, and cleanup tests. Cover
-  cancellation before publisher start and uncertainty after a write starts.
-  Reject wrong repository, workflow file/ref, run or artifact owner, fork,
-  PR-branch dispatch, and unauthorized disposition before mutation.
-- Verify cursor paging, time/run budgets, boundary overlap, shard bisection,
-  cursor expiry, and visible incomplete-coverage reporting.
+- Run test mapping and focused artifact, admission, index, producer-link,
+  recovery, provenance, expansion, integrity, expiry, and cleanup tests.
+  Cover every boundary and failure state named by the specification.
 - Verify 90-day retention and direct-ID retrieval in a hosted Action run.
   Run docs validation and `git diff --check`.
 

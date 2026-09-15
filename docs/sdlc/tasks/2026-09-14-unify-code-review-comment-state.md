@@ -21,7 +21,8 @@ checkpoint, human report, and published-run cost.
 ## Upstream requirements
 
 Implement `requirement-comment-authority`, `requirement-hidden-transport`,
-`requirement-cost-projection`, and `requirement-size-warning` in
+`requirement-cost-projection`, `requirement-size-warning`, and
+`requirement-comment-index` in
 [spec.github-native-review-publication](../specs/2026-09-14-github-native-review-publication.md).
 
 ## Scope
@@ -31,9 +32,7 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
   and period start. If a conflicting v5 state has shipped, use a new version.
 - Replace the collapsed machine-data section and visible JSON metrics ledger
   with one bounded base64/gzip HTML comment block.
-- Reject non-canonical base64, more than 20,000 encoded characters, more than
-  15,000 compressed bytes, or more than 512,000 decompressed UTF-8 JSON bytes.
-  Stream gzip into a counted sink and abort at the limit before JSON parsing.
+- Implement the bounded canonical codec and streaming decoder from the spec.
 - Render the visible report solely from validated state. Show known overall
   and last published run cost; mark missing provider cost and new-period start.
 - Define the typed publication operation in hidden state. Hash a deterministic
@@ -42,14 +41,13 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
   rendering the projection or retaining bounded artifact data.
 - Deduplicate GitHub run ID and attempt after recent-run compaction without
   dropping cumulative cost or incompleteness.
-- Measure encoded payload characters and entire UTF-8 comment bytes. Warn
-  visibly at 80%; fail clearly at the hard limits without moving the prior
-  checkpoint. Report every compaction and omission.
+- Implement the specified warning and hard-limit behavior without moving the
+  prior checkpoint or hiding compaction and omissions.
 - Classify legacy states and malformed current states without silently
   migrating a visible ledger into the new cost period.
-- Read all bot comments before state decoding. Permit zero authoritative
-  matches only for initial creation, accept exactly one for update, and fail
-  closed with comment IDs when two or more match.
+- Add the typed authority index and resumable duplicate-reconciliation state.
+- Implement the empty revision-0 baseline for initial creation and authorized
+  legacy replacement.
 
 ## Out of scope
 
@@ -59,13 +57,14 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
 
 ## Implementation plan
 
-1. Define the Zod state and canonical codec. Bound input, decompression, and
-   marker parsing; preserve identity checks.
+1. Define the Zod state, empty baseline, and canonical codec. Bound input,
+   decompression, and marker parsing; preserve identity checks.
 2. Move mechanically derived cost into the state aggregate. Keep detailed
    metrics available to the artifact task without rendering their JSON.
 3. Render the projection and hidden block from one state value. Reserve
    warning space before measuring and enforce both hard caps.
-4. Update state readers, migration, docs, and focused compatibility tests.
+4. Add bounded authority-index lookup and duplicate reconciliation. Update
+   migration, docs, and focused compatibility tests.
 
 ## Affected areas
 
@@ -79,8 +78,7 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
 
 - Run test mapping and focused codec, migration, projection, cost, malformed
   input, operation-digest, hostile Markdown/HTML/URL, and size-bound tests.
-  Include 512,000- and 512,001-byte decoded states, high-expansion gzip,
-  malformed UTF-8, the readback decoder, and zero/one/multiple comment matches.
+  Cover the exact boundaries and lookup states required by the specification.
 - Verify multibyte comment size and a missing-cost run. Run docs validation
   and `git diff --check`.
 

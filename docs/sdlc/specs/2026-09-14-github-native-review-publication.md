@@ -63,15 +63,16 @@ draft alone does not authorize a second active transport or state schema.
 
 ### requirement-comment-authority
 
-The publisher reads all live PR issue comments and selects comments from the
-configured bot that contain the authoritative marker. Zero matches permit
+The publisher uses the `ReviewAuthorityIndex` under
+`requirement-comment-index` to locate and validate the authoritative comment.
+Bounded reconciliation establishes whether zero, one, or multiple comments
+from the configured bot contain the authoritative marker. Zero matches permit
 initial creation only. Exactly one match permits an update. Two or more
 matches fail closed with their comment IDs; no checkpoint is selected or
 written until the ambiguity is reconciled outside publication. Within the
 selected comment, the publisher accepts exactly one metadata marker and one
-hidden state block.
-The scan paginates to completion. If an API or rate budget prevents a complete
-scan, publication fails closed because uniqueness is unproven.
+hidden state block. If index validation or bounded reconciliation cannot prove
+uniqueness, publication fails closed.
 The marker, decoded state, PR number, and full reviewed revision must agree.
 An invalid current-version state fails closed; it must not become a fresh
 baseline. The state is the sole source for the checkpoint, retained findings,
@@ -83,6 +84,15 @@ It does not migrate v1-v4 findings, dispositions, IDs, checkpoints, or visible
 metrics ledger entries. A new version must label the start of its cost period.
 The version number and schema must have one meaning across review and
 mechanical-disposition publishers.
+
+The strict `EmptyReviewState` has `stateRevision: 0`, no checkpoint, no
+findings, no dispositions, no artifact references, no consumed source
+identities, and no accumulated cost. Initial creation reads this state and
+writes revision 1. A single valid legacy bot comment can be replaced from the
+same empty baseline when the migration rules authorize the new state version;
+legacy data is not copied. A malformed current-version comment is not legacy
+and still blocks publication. Creation, legacy replacement, operation digest,
+and readback all use revision 0 as the predecessor.
 
 ### requirement-hidden-transport
 
@@ -153,6 +163,68 @@ single-run increase can reach the hard limit before a prior warning was
 visible; the Action failure is the required signal in that case. It must not
 silently drop retained findings, cost, or evidence references to fit.
 
+### requirement-comment-index
+
+A `ReviewAuthorityIndex` is a typed, non-authoritative lookup artifact for one
+repository and PR. It records the candidate authoritative comment ID, body
+digest, state version and revision, last fully scanned comment boundary,
+scan-completeness state, generation, predecessor index artifact ID, writer
+run identity, and index digest. The comment remains the checkpoint. An index
+can only select a comment for direct validation; it cannot repair or replace
+comment state.
+
+The normal publisher lists one API page by the exact repository-and-PR index
+name, reads at most 1 MiB, and spends at most 10 seconds on index lookup. It
+accepts one verified newest generation whose predecessor chain and trusted
+default-branch workflow provenance are valid. It then reads the indexed
+comment by ID and scans comments created or updated after the saved boundary.
+If the index is missing, ambiguous, stale, or incomplete, the publisher makes
+no comment write and dispatches bounded reconciliation.
+
+Reconciliation reads at most ten comment pages, 10 MiB of response bodies,
+1,000 comments, or 30 seconds per invocation. It persists the next cursor and
+overlapping boundary in a new index generation. It reports the scanned range
+and incomplete coverage. Only a complete scan with zero or one matching bot
+comment can publish a usable index. Two or more matches record their IDs and
+block publication until a separately authorized repair removes the ambiguity.
+No publisher deletes or chooses between duplicate comments.
+
+### requirement-artifact-admission
+
+A strict repository `ReviewStoreIndex` is non-authoritative control state. It
+tracks outstanding candidate reservations and artifacts, their producer and
+source identities, stored bytes, per-PR totals, admission timestamps, and the
+recovery scan cursor. A repository-wide admission mutex serializes configured
+index writers. A canceled or overflowed admission job fails before reservation
+or upload and needs no replay. Each immutable index generation names and
+hashes its predecessor. The updater verifies the newest generation, writes
+and verifies its replacement, then deletes superseded generations. Missing or
+ambiguous index state triggers bounded reconstruction and blocks new uploads
+until inventory is complete.
+
+Before candidate upload, admission reserves the artifact's 32 MiB compressed
+maximum. After verified upload, it replaces that reservation with the actual
+GitHub artifact size. Publication or proven cleanup removes the outstanding
+entry. Admission rejects a candidate before upload when any hard limit would
+be exceeded:
+
+- 20 outstanding candidates or 256 MiB of outstanding stored bytes for one PR;
+- 200 outstanding candidates or 1 GiB of outstanding stored bytes repository-wide;
+- 10 candidate admissions per PR or 200 repository-wide in a rolling hour;
+- two live generations per control-index name, 64 KiB decoded per index, or
+  64 MiB total stored control artifacts.
+
+Reservations count toward candidate and byte limits until reconciled. Review
+candidates, authority indexes, and store indexes have distinct names and
+strict schemas. The recovery cursor is part of the store index. Control
+artifacts never carry checkpoint state or review evidence. A rejected
+admission fails the Action with current counts and bytes, the limiting value,
+and recovery guidance. It preserves the comment checkpoint and does not claim
+a published review. The separate
+256 MiB per-PR and 1 GiB repository thresholds for retained **published**
+evidence remain advisory because those artifacts cannot be deleted merely to
+admit a new review.
+
 ### requirement-published-artifact
 
 Before publisher dispatch, the unqueued producer seals a strict manifest and
@@ -163,8 +235,9 @@ and size. The final comment stores that verified reference. The artifact may
 contain item outcomes, provenance, finding evidence, and detailed usage and
 cost metrics. It excludes secrets, prompts, complete patches, and unbounded
 logs. The first delivery uses one final review-evidence artifact and no review
-artifact journal or append sequence. The bounded recovery-cursor artifact is
-operational metadata and never carries review evidence or checkpoint state.
+artifact journal or append sequence. The bounded authority-index and
+store-index artifacts are operational metadata and never carry review
+evidence or checkpoint state.
 
 The run artifact has a hard 2 MiB uncompressed manifest limit, 512 KiB
 compressed manifest limit, 32 MiB compressed total limit, and 64 MiB total
@@ -172,9 +245,9 @@ uncompressed limit. Retrieval streams each archive entry through per-entry
 and cumulative byte budgets before parsing or hashing. It rejects duplicate
 entries, traversal paths, symlinks, and excess entries. Item, path, finding,
 and string limits must be defined by the canonical manifest specification
-before this draft becomes active. Per-PR 256 MiB and repository 1 GiB over
-90 days are advisory usage thresholds, not atomic reservations. A warning
-based on incomplete inventory must say so. Upload, integrity,
+before this draft becomes active. Retained published evidence has advisory
+usage thresholds of 256 MiB per PR and 1 GiB repository-wide over 90 days.
+A warning based on incomplete inventory must say so. Upload, integrity,
 retention-setting, or hard-size failure blocks
 final publication and preserves the old checkpoint.
 
@@ -200,8 +273,8 @@ GitHub allows up to 100 pending jobs in that group; overflow is cancelled and
 must be visible. Queue admission alone is not durable delivery. A cancelled
 pending publisher is recovered from its GitHub-owned source: the sealed
 candidate artifact for a review, or the authorized issue-comment command
-ledger for a disposition. The default-branch recovery dispatcher handles the
-publisher's `workflow_run: completed` event and sweeps terminal publisher
+ledger for a disposition. The default-branch recovery dispatcher handles
+producer and publisher `workflow_run: completed` events and sweeps terminal
 runs and candidate artifacts on a schedule. It re-dispatches a trusted
 publisher only after proving the earlier attempt did not send a comment
 write. The replay retains the original review run ID and attempt or
@@ -247,7 +320,47 @@ PublicationOperation = {
 }
 ```
 
-`stateRevision` is exactly one greater than the freshly read trusted state.
+The store index also records one typed review publication link:
+
+```text
+ReviewPublicationLink = {
+  schemaVersion: 1,
+  repositoryId: decimal GitHub repository ID,
+  pullRequestNumber: positive integer,
+  sourceIdentityDigest: lowercase SHA-256,
+  producer: {
+    workflowId: decimal GitHub workflow ID,
+    runId: decimal GitHub run ID,
+    attempt: positive integer
+  },
+  candidate: {
+    artifactId: decimal GitHub artifact ID,
+    artifactName: bounded canonical name,
+    manifestDigest: lowercase SHA-256
+  },
+  publisher: null | {
+    workflowId: decimal GitHub workflow ID,
+    runId: decimal GitHub run ID,
+    attempt: positive integer,
+    registrationArtifactId: decimal GitHub artifact ID
+  }
+}
+```
+
+The producer writes the link with `publisher: null` when candidate upload is
+verified. If dispatch is never sent, recovery can enumerate that durable
+entry and inspect the candidate through `producer.runId` and
+`candidate.artifactId`. A publisher registration job runs before its writer
+job enters the per-PR mutex. It verifies the producer-owned candidate, uploads
+a bounded registration artifact in the publisher run, and writes a verified
+replacement store-index generation with the publisher workflow run and
+registration artifact IDs under the repository admission mutex. The queued
+writer accepts only that registered link. A replay retains the source,
+producer, and candidate fields and replaces only the publisher registration
+after proving that no prior write can still complete.
+
+`stateRevision` is exactly one greater than the freshly read trusted state,
+including `EmptyReviewState` revision 0.
 The writer identity and source are validated, never supplied by model output.
 To calculate `payloadDigest`, render the deterministic complete comment with
 only that digest field omitted from the state. Hash those UTF-8 bytes. Then
@@ -267,17 +380,20 @@ result is ambiguous, read the trusted comment and accept only an exact
 operation identity and body match. Do not send another write while the first
 may complete. A known failed write leaves the old checkpoint authoritative.
 Delete a candidate artifact only after proving it was not published. The
-candidate name includes the trusted PR number, run ID, and attempt so a
-recovery job can find it by listing artifacts for that completed workflow run.
+candidate name includes the trusted PR number, producer run ID, and attempt.
+Recovery resolves the producer run and exact artifact ID from the verified
+`ReviewPublicationLink`; it never searches the publisher run for review
+evidence.
 The `workflow_run: completed` event triggers an independent Action-owned
 reconciler from the default branch. Before listing, replaying, or deleting,
-it fetches the run and publisher job through the GitHub API. It requires the
-run and artifact to belong to the current repository; an allowlisted workflow
-ID and file path whose definition commit is reachable from the trusted
-default branch; matching run ID, attempt, PR number, artifact name, and
-artifact owner; an event of `pull_request_target`, `issue_comment`, or
-`workflow_dispatch`; and the allowlisted publisher job belonging to that
-run. It compares the event hint with the fetched run before trusting either.
+it fetches the event run and linked producer or publisher jobs as applicable
+through the GitHub API. It requires the run and artifact to belong to the
+current repository; an allowlisted workflow ID and file path whose definition
+commit is reachable from the trusted default branch; matching run ID, attempt,
+PR number, artifact name, and artifact owner; an event of
+`pull_request_target`, `issue_comment`, or `workflow_dispatch`; and the
+allowlisted publisher job belonging to that run. It compares the event hint
+with the fetched run before trusting either.
 For `pull_request_target` and
 `issue_comment`, it rechecks the live PR, excludes fork-origin reviews, and
 revalidates disposition authors and current command text. A
@@ -291,12 +407,13 @@ PR/issue read access. Only a separate recovery job receives `actions: write`
 for dispatch or deletion. Neither job receives comment-write permission.
 
 The scheduled sweep has fixed limits of ten API pages, 1,000 examined runs,
-and five minutes per invocation. Its strict cursor is at most 64 KiB and
-records the repository ID, allowlisted workflow IDs, current 90-day time
-window, next API page or time shard, and last completed boundary. Each sweep
-loads the newest valid cursor artifact produced by the allowlisted recovery
-workflow, scans with overlap at the saved boundary, and uploads the next
-immutable cursor artifact before deleting older confirmed cursor artifacts.
+and five minutes per invocation. Its strict cursor is part of the
+`ReviewStoreIndex` and records the repository ID, allowlisted workflow IDs,
+current 90-day time window, next API page or time shard, and last completed
+boundary. Each sweep loads the newest valid store-index generation produced
+by the allowlisted recovery workflow, scans with overlap at the saved
+boundary, and writes the next immutable generation before deleting older
+confirmed generations.
 If a time shard exceeds the page budget, it bisects that shard and records
 both remaining halves instead of skipping results. A missing, expired, or
 invalid cursor restarts a bounded 90-day scan and reports reduced coverage.
@@ -304,8 +421,9 @@ The workflow-run trigger remains the primary recovery path. The sweep reports
 its examined range, remaining range, rate-limit state, and whether coverage
 is complete; reaching a budget is continuation, not success or deletion.
 
-The reconciler lists artifacts only for the verified workflow run and checks
-publisher-job status, candidate artifact ID, and the live trusted comment.
+The reconciler lists artifacts only for the verified producer or publisher
+run named by the link and checks publisher-job status, candidate artifact ID,
+registration artifact ID, source identity, and the live trusted comment.
 If the publisher never started, no comment write could have occurred. It
 replays an eligible current source rather than deleting its review candidate.
 An already published source keeps its artifact for 90 days, even if a newer
@@ -334,12 +452,13 @@ visible Markdown projection
 
 The unqueued producer validates the sealed run, uploads and verifies its
 candidate artifact, and dispatches the separate publisher. The publisher
-enters the shared queue, verifies the existing candidate, reads the live PR
-and all bot comments, rejects multiple authoritative matches, reconciles
-authorized decisions, merges the run into the current state, renders the
-projection and hidden state, checks sizes, writes the final comment, and
-reconciles the result. A replay publisher verifies the same candidate instead
-of uploading another artifact. The comment reference makes it published.
+enters the shared queue, verifies the existing candidate, reads the live PR,
+uses the authority index and bounded reconciliation to prove comment
+uniqueness, reconciles authorized decisions, merges the run into the current
+state, renders the projection and hidden state, checks sizes, writes the final
+comment, and reconciles the result. A replay publisher verifies the same
+candidate instead of uploading another artifact. The comment reference makes
+it published.
 
 ## Failure and edge cases
 

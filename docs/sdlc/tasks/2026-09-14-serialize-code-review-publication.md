@@ -34,17 +34,16 @@ The shared queue must satisfy
 
 - Keep cancellable review computation separate from non-cancelling final
   publication. The unqueued producer uploads the candidate and dispatches a
-  separate publisher. Use `queue: max` with the exact key
-  `seqlane-review-publication-<repository-id>-<pr-number>` for all
-  authoritative-comment writers, including mechanical dispositions.
+  separate publisher. Use the specification's writer mutex for review and
+  mechanical-disposition publishers.
 - Remove v5 progress, inline, and cleanup comment writes. Show progress in
   Action job and step status.
 - After queue admission, re-read live PR, trusted comment, and authorized
   command ledger. Merge dispositions made during review computation.
 - Validate head, target, base, scope, report identity, and checkpoint before
   one final create or update.
-- Permit zero authoritative comments only for initial creation. Fail closed
-  when two or more trusted bot comments carry the authoritative marker.
+- Consume the verified authority index and empty-state baseline. Defer
+  incomplete or duplicate comment discovery to reconciliation.
 - Bind final state revision, writer/source identity, and payload digest.
   Reconcile ambiguous responses by matching the exact bot comment ID,
   operation, artifact reference, digest, and body bytes, without duplicate
@@ -53,12 +52,8 @@ The shared queue must satisfy
   final summary. Trigger candidate-artifact cleanup on proven failure.
 - Show queue overflow, cancellation, stale result, uncertain write, and
   artifact cleanup failures in the Action result.
-- Replay overflowed or cancelled-before-write publishers from the sealed
-  candidate or authorized command ledger. Use `workflow_run: completed` and
-  a scheduled sweep so a missed recovery event cannot silently lose a write.
-  Replayed runs retain source identity, recheck live state, and become no-ops
-  when already published or stale. Keep ambiguous candidates until their
-  effect is resolved or they expire.
+- Connect the typed producer and publisher link to source-led replay. Preserve
+  source identity and fail closed on ambiguous writes.
 
 ## Out of scope
 
@@ -73,8 +68,8 @@ The shared queue must satisfy
    merged strict state supplied by the comment-state task.
 3. Write once with an operation identity. Resolve uncertain results by
    readback; fail closed when still unknown.
-4. Connect artifact result handling, replay, and cleanup. Update docs and
-   hosted workflow checks.
+4. Connect artifact registration and source-led replay. Update docs and hosted
+   workflow checks.
 
 ## Affected areas
 
@@ -87,9 +82,8 @@ The shared queue must satisfy
 ## Verification
 
 - Run test mapping and focused Action tests for stale identity, two baseline
-  publishers, concurrent disposition updates, exact readback, queue
-  overflow, producer cancellation around upload, cancelled replay, duplicate
-  recovery, duplicate authoritative comments, and artifact cleanup.
+  publishers, concurrent dispositions, exact readback, writer overflow,
+  producer and publisher registration, replay, and duplicate comments.
 - Run a hosted baseline and follow-up; verify one final summary write and
   no v5 progress or inline comments. Run docs validation and diff checks.
 

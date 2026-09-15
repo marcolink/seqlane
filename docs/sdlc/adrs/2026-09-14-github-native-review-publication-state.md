@@ -45,25 +45,22 @@ The new review path makes one final authoritative-comment write after model
 work. Action job status shows progress; it creates no progress or inline
 comments. An unqueued producer seals and uploads the review candidate before
 it dispatches a separate publisher. Full-review and mechanical-disposition
-publishers use the same non-cancelling, per-PR Actions queue with the exact
-key `seqlane-review-publication-<repository-id>-<pr-number>`. New revisions
-cancel stale review computation, while queued publishers recheck live state.
-At final publication,
+publishers use the same non-cancelling, per-PR Actions writer mutex. New
+revisions cancel stale review computation, while queued publishers recheck
+live state. At final publication,
 the publisher re-reads the live PR, trusted comment, and authorized decisions;
 it merges the completed run into that current state, renders the entire
 comment, and writes it. That summary write is the checkpoint commit point.
 GitHub comment writes do not provide compare-and-swap. No Git ref, extra
 branch, DynamoDB table, or external service is used as a lock.
 
-The Actions queue can cancel a pending writer when its 100-place queue is
-full. A default-branch recovery workflow uses completed-run events and a
-bounded scheduled sweep to replay writes whose comment mutation provably
-never started. It reads a review candidate artifact or the current authorized
-disposition commands. A small recovery-cursor artifact records scan progress
-without an external store. Replayed writers recheck live state and source
-identity inside the same queue. Unknown write effects remain unresolved
-instead of being retried blindly. The recovery workflow does not write
-comments.
+The Actions queue can cancel a pending writer when it is full. A trusted
+default-branch recovery workflow replays sources whose comment mutation
+provably never started. It uses bounded GitHub-native indexes and cursors to
+find review candidates, authoritative comments, and current authorized
+disposition commands. Replayed writers recheck live state and source identity
+inside the same mutex. Unknown write effects remain unresolved instead of
+being retried blindly. The recovery workflow does not write comments.
 
 Upload and verify the run artifact before the final comment write. If the
 write fails or its effect is unknown, read back the exact operation identity
@@ -113,8 +110,10 @@ Rejected.
 - The queue protects only writers that use it. Unknown concurrent writers or
   lost write results require fail-closed reconciliation, not a false atomicity
   claim.
-- Queue overflow needs idempotent replay from GitHub-owned sources; candidate
+- Queue overflow needs idempotent replay from GitHub-owned sources. Candidate
   artifacts can exist temporarily before a review is confirmed published.
+- Bounded GitHub-native control indexes support lookup, recovery, and hard
+  admission without becoming the review checkpoint.
 - Artifact retention limits historical evidence reuse to 90 days, while
   published state and aggregate cost remain in the comment.
 - Hard size caps can stop a new publication. A visible warning gives users
