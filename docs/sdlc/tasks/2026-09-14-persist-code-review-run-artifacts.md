@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-15
 upstream:
   - spec.github-native-review-publication
 supersedes: []
@@ -29,8 +29,9 @@ and string limits.
 ## Scope
 
 - Build one strict, sealed run-local manifest and bounded structured evidence.
-- Upload one immutable artifact with explicit 90-day retention, then validate
-  its identity, schema, compressed and uncompressed size, and digest.
+- In the unqueued producer, upload one immutable artifact with explicit 90-day
+  retention, then validate its identity, schema, compressed and uncompressed
+  size, and digest before dispatching the separate queued publisher.
 - Store only the verified direct artifact reference in the final comment.
 - Fetch a referenced artifact by ID for specific audit or future reuse needs;
   expiry and invalid evidence must not reset a valid comment checkpoint.
@@ -50,6 +51,10 @@ and string limits.
   read-only inspection from a narrowly scoped `actions: write` recovery job;
   neither receives comment-write permission. Report unresolved candidates
   and let retention expire those that cannot be proven safe to delete.
+- Persist scheduled scan progress in a strict, 64 KiB recovery-cursor artifact
+  owned by the allowlisted recovery workflow. Limit each sweep to ten pages,
+  1,000 runs, and five minutes. Continue with overlapping time boundaries;
+  bisect overfull time shards; report incomplete coverage or cursor restart.
 
 ## Out of scope
 
@@ -59,8 +64,8 @@ and string limits.
 
 ## Implementation plan
 
-1. Add a typed Action-owned artifact adapter for sealing, upload, bounded
-   readback, direct-ID retrieval, and guarded deletion.
+1. Add a typed Action-owned artifact adapter for producer sealing and upload,
+   bounded publisher readback, direct-ID retrieval, and guarded deletion.
 2. Apply byte and item bounds before upload. Verify the returned artifact
    reference and canonical digest before allowing final publication.
 3. Wire the adapter to the comment-state reference. Treat expiry as missing
@@ -69,6 +74,8 @@ and string limits.
    a terminal-run trigger and scheduled sweep for cancelled or overflowed
    publishers. Replay a proven never-started publisher from its candidate;
    keep unproven candidates until later safe reconciliation or expiry.
+5. Store and verify the bounded recovery cursor. Continue partial scans across
+   scheduled invocations without skipping overfull time ranges.
 
 ## Affected areas
 
@@ -85,6 +92,8 @@ and string limits.
   cancellation before publisher start and uncertainty after a write starts.
   Reject wrong repository, workflow file/ref, run or artifact owner, fork,
   PR-branch dispatch, and unauthorized disposition before mutation.
+- Verify cursor paging, time/run budgets, boundary overlap, shard bisection,
+  cursor expiry, and visible incomplete-coverage reporting.
 - Verify 90-day retention and direct-ID retrieval in a hosted Action run.
   Run docs validation and `git diff --check`.
 

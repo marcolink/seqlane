@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-15
 upstream:
   - adr.direct-runtime-code-review-action
 supersedes: []
@@ -43,9 +43,12 @@ reviewer rechecks affected work and reports lost evidence detail.
 
 The new review path makes one final authoritative-comment write after model
 work. Action job status shows progress; it creates no progress or inline
-comments. Full-review and mechanical-disposition publishers use the same
-non-cancelling, per-PR Actions queue. New revisions cancel stale review
-computation, while queued publishers recheck live state. At final publication,
+comments. An unqueued producer seals and uploads the review candidate before
+it dispatches a separate publisher. Full-review and mechanical-disposition
+publishers use the same non-cancelling, per-PR Actions queue with the exact
+key `seqlane-review-publication-<repository-id>-<pr-number>`. New revisions
+cancel stale review computation, while queued publishers recheck live state.
+At final publication,
 the publisher re-reads the live PR, trusted comment, and authorized decisions;
 it merges the completed run into that current state, renders the entire
 comment, and writes it. That summary write is the checkpoint commit point.
@@ -54,11 +57,13 @@ branch, DynamoDB table, or external service is used as a lock.
 
 The Actions queue can cancel a pending writer when its 100-place queue is
 full. A default-branch recovery workflow uses completed-run events and a
-scheduled sweep to replay writes whose comment mutation provably never
-started. It reads a review candidate artifact or the current authorized
-disposition commands. Replayed writers recheck live state and source identity
-inside the same queue. Unknown write effects remain unresolved instead of
-being retried blindly. The recovery workflow does not write comments.
+bounded scheduled sweep to replay writes whose comment mutation provably
+never started. It reads a review candidate artifact or the current authorized
+disposition commands. A small recovery-cursor artifact records scan progress
+without an external store. Replayed writers recheck live state and source
+identity inside the same queue. Unknown write effects remain unresolved
+instead of being retried blindly. The recovery workflow does not write
+comments.
 
 Upload and verify the run artifact before the final comment write. If the
 write fails or its effect is unknown, read back the exact operation identity

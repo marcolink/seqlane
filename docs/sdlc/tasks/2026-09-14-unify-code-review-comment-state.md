@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-15
 upstream:
   - spec.github-native-review-publication
 supersedes: []
@@ -47,6 +47,9 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
   checkpoint. Report every compaction and omission.
 - Classify legacy states and malformed current states without silently
   migrating a visible ledger into the new cost period.
+- Read all bot comments before state decoding. Permit zero authoritative
+  matches only for initial creation, accept exactly one for update, and fail
+  closed with comment IDs when two or more match.
 
 ## Out of scope
 
@@ -77,7 +80,7 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
 - Run test mapping and focused codec, migration, projection, cost, malformed
   input, operation-digest, hostile Markdown/HTML/URL, and size-bound tests.
   Include 512,000- and 512,001-byte decoded states, high-expansion gzip,
-  malformed UTF-8, and the readback decoder.
+  malformed UTF-8, the readback decoder, and zero/one/multiple comment matches.
 - Verify multibyte comment size and a missing-cost run. Run docs validation
   and `git diff --check`.
 

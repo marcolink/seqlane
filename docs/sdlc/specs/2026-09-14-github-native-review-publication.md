@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-15
 upstream:
   - adr.github-native-review-publication-state
   - spec.versioned-pull-request-review-comments
@@ -63,8 +63,15 @@ draft alone does not authorize a second active transport or state schema.
 
 ### requirement-comment-authority
 
-The publisher reads the live PR and locates the configured bot's authoritative
-comment. It accepts exactly one metadata marker and one hidden state block.
+The publisher reads all live PR issue comments and selects comments from the
+configured bot that contain the authoritative marker. Zero matches permit
+initial creation only. Exactly one match permits an update. Two or more
+matches fail closed with their comment IDs; no checkpoint is selected or
+written until the ambiguity is reconciled outside publication. Within the
+selected comment, the publisher accepts exactly one metadata marker and one
+hidden state block.
+The scan paginates to completion. If an API or rate budget prevents a complete
+scan, publication fails closed because uniqueness is unproven.
 The marker, decoded state, PR number, and full reviewed revision must agree.
 An invalid current-version state fails closed; it must not become a fresh
 baseline. The state is the sole source for the checkpoint, retained findings,
@@ -148,15 +155,16 @@ silently drop retained findings, cost, or evidence references to fit.
 
 ### requirement-published-artifact
 
-Before final publication, the Action seals a strict manifest and bounded
-structured evidence for the run. It uploads one immutable Actions artifact
+Before publisher dispatch, the unqueued producer seals a strict manifest and
+bounded structured evidence for the run. It uploads one immutable Actions artifact
 with 90-day retention, then verifies artifact ID, repository, trusted
 workflow, GitHub run ID and attempt, schema, canonical uncompressed digest,
 and size. The final comment stores that verified reference. The artifact may
 contain item outcomes, provenance, finding evidence, and detailed usage and
 cost metrics. It excludes secrets, prompts, complete patches, and unbounded
-logs. The first delivery uses one final artifact and no artifact journal or
-append sequence.
+logs. The first delivery uses one final review-evidence artifact and no review
+artifact journal or append sequence. The bounded recovery-cursor artifact is
+operational metadata and never carries review evidence or checkpoint state.
 
 The run artifact has a hard 2 MiB uncompressed manifest limit, 512 KiB
 compressed manifest limit, 32 MiB compressed total limit, and 64 MiB total
@@ -185,7 +193,9 @@ step status show progress. It creates no progress notice or inline finding
 comment. The existing v3 progress path remains legacy until replacement.
 Review computation may be cancelled when a newer revision arrives. Final
 review publication and mechanical dispositions use the **same** non-cancelling
-per-PR Actions queue. It uses `queue: max` without `cancel-in-progress: true`.
+per-PR Actions queue. Every publisher uses the exact case-normalized key
+`seqlane-review-publication-<repository-id>-<pr-number>`. It uses `queue: max`
+without `cancel-in-progress: true`.
 GitHub allows up to 100 pending jobs in that group; overflow is cancelled and
 must be visible. Queue admission alone is not durable delivery. A cancelled
 pending publisher is recovered from its GitHub-owned source: the sealed
@@ -201,6 +211,19 @@ events can dispatch duplicate attempts, but the shared queue and source
 identity check make them idempotent. A cancelled replay is eligible for the
 same recovery. Recovery failure remains visible and retains a review
 candidate until safe replay, cleanup, or expiry; it cannot claim publication.
+
+The review producer is outside the publication queue. After successful model
+work, it seals, uploads, and verifies the candidate artifact, then dispatches
+the publisher with its artifact ID, source run ID and attempt, PR number,
+scope identity digest, and manifest digest. The producer never writes the
+authoritative comment. The queued publisher only consumes and revalidates
+that existing candidate; it never creates a second review artifact. A
+producer cancellation before verified upload has no recoverable publication.
+A cancellation after upload is recoverable from the candidate even if the
+initial dispatch was never sent. A disposition publisher derives its stable
+source identity from the authorized comment ID, effective update time, and
+canonical command digest. The hidden state records consumed source identities,
+so a replay or duplicate dispatch becomes a no-op after publication.
 
 A queued publisher re-reads the live PR, trusted comment,
 and authorized command ledger. It validates the captured
@@ -267,6 +290,20 @@ validates artifact bytes before use. Its inspection job has only Actions and
 PR/issue read access. Only a separate recovery job receives `actions: write`
 for dispatch or deletion. Neither job receives comment-write permission.
 
+The scheduled sweep has fixed limits of ten API pages, 1,000 examined runs,
+and five minutes per invocation. Its strict cursor is at most 64 KiB and
+records the repository ID, allowlisted workflow IDs, current 90-day time
+window, next API page or time shard, and last completed boundary. Each sweep
+loads the newest valid cursor artifact produced by the allowlisted recovery
+workflow, scans with overlap at the saved boundary, and uploads the next
+immutable cursor artifact before deleting older confirmed cursor artifacts.
+If a time shard exceeds the page budget, it bisects that shard and records
+both remaining halves instead of skipping results. A missing, expired, or
+invalid cursor restarts a bounded 90-day scan and reports reduced coverage.
+The workflow-run trigger remains the primary recovery path. The sweep reports
+its examined range, remaining range, rate-limit state, and whether coverage
+is complete; reaching a budget is continuation, not success or deletion.
+
 The reconciler lists artifacts only for the verified workflow run and checks
 publisher-job status, candidate artifact ID, and the live trusted comment.
 If the publisher never started, no comment write could have occurred. It
@@ -295,19 +332,21 @@ visible Markdown projection
 -->
 ```
 
-The first publisher performs these steps in order: validate sealed run,
-upload and verify its artifact, enter the shared queue, read live PR and bot
-comment, reconcile authorized decisions, merge the run into the current
-state, render the projection and hidden state, check sizes, write the final
-comment, and reconcile the result. An artifact uploaded before queue entry
-is only a candidate. A replay publisher verifies the existing candidate
-instead of uploading another artifact. The comment reference makes it
-published.
+The unqueued producer validates the sealed run, uploads and verifies its
+candidate artifact, and dispatches the separate publisher. The publisher
+enters the shared queue, verifies the existing candidate, reads the live PR
+and all bot comments, rejects multiple authoritative matches, reconciles
+authorized decisions, merges the run into the current state, renders the
+projection and hidden state, checks sizes, writes the final comment, and
+reconciles the result. A replay publisher verifies the same candidate instead
+of uploading another artifact. The comment reference makes it published.
 
 ## Failure and edge cases
 
 - An invalid current state blocks publication; an expired artifact does not
   reset a valid checkpoint.
+- Multiple authoritative bot comments block creation and update; publication
+  never guesses which duplicate owns the checkpoint.
 - A stale head, target, base, scope, or report identity makes no comment
   write and leaves a candidate artifact unpublished for cleanup.
 - An uncertain write is resolved by exact readback. Absence during an
@@ -341,13 +380,17 @@ new state version rather than treating two schemas as v5.
 - Verify one sealed artifact, 90-day retention, direct-ID retrieval,
   expiry, integrity failure, hard per-run bounds, and advisory warnings.
 - Test upload-before-comment ordering, exact readback, definite and
-  uncertain failures, and cleanup of a proven unpublished artifact.
+  uncertain failures, producer cancellation before and after upload, and
+  cleanup of a proven unpublished artifact.
 - Test full-review and disposition writers in one queue, decisions arriving
   during computation, stale updates, queue overflow, cancelled replay,
   duplicate recovery dispatch, and one final write.
 - Reject wrong-repository, fork, PR-branch workflow dispatch, untrusted
   workflow file/ref, mismatched run and artifact, unauthorized command, and
   ambiguous in-flight writes before recovery mutation.
+- Verify zero, one, and multiple authoritative comment matches. Exercise
+  recovery cursor pagination, time and page budgets, boundary overlap,
+  overfull-shard bisection, restart after expiry, and incomplete coverage.
 - Run `pnpm run test:mapping`, focused Action tests, documentation validation,
   and a hosted baseline and follow-up workflow.
 
