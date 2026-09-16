@@ -33,6 +33,7 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
+    "@seqlane/action-code-review": "workspace:*",
     "@seqlane/fixtures": "workspace:*"
   },
   "files": [
