@@ -124,7 +124,9 @@ export function invocationCreationOrdinal(
 }
 
 export function invocationIdForNode(
-  context: ExecutionContext,
+  context: {
+    readonly invocationIds: ReadonlyMap<PlanNodeId, InvocationId>;
+  },
   node: PlanNode,
 ): InvocationId {
   const invocationId = context.invocationIds.get(node.nodeId);

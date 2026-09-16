@@ -1062,6 +1062,87 @@ describe("Mastra operational host", () => {
     }
   });
 
+  it("emits static topology for distinct nodes that share one task ID", async () => {
+    const taskId = "shared-task";
+    const nodes: readonly PlanNode[] = [
+      {
+        type: "task",
+        taskId,
+        nodeId: "left:1",
+        workspace: "shared",
+        input: {},
+        dependsOn: [],
+      },
+      {
+        type: "task",
+        taskId,
+        nodeId: "right:1",
+        workspace: "shared",
+        input: {},
+        dependsOn: [],
+      },
+    ];
+    const events: SeqlaneEvent[] = [];
+    const registration = createOperationalWorkflow({
+      key: "repository:repeated-task",
+      plan: {
+        workflow: { id: "repeated-task" },
+        nodes,
+        output: { type: "ref", nodeId: "right:1", path: ["output"] },
+      },
+      taskDefinitions: new Map([
+        [
+          taskId,
+          {
+            id: taskId,
+            input: z.unknown(),
+            output: z.unknown(),
+            execute: async () => ({}),
+          },
+        ],
+      ]),
+      eventSink: () => ({
+        emit: (event) => events.push(event),
+        emitPlan: () => undefined,
+      }),
+    });
+    const run = await (registration.workflow as AnyWorkflow).createRun({
+      runId: "repeated-task-run",
+      resourceId: "repeated-task-work",
+      shouldPersistSnapshot: () => false,
+    });
+    const requestContext = new RequestContext<unknown>([
+      ["seqlane.runtimeId", "local"],
+    ]);
+    registration.prepareRunContext?.(
+      requestContext,
+      "repeated-task-work",
+      "repeated-task-run",
+    );
+
+    await expect(
+      run.start({ inputData: {}, requestContext }),
+    ).resolves.toMatchObject({ status: "success" });
+
+    expect(
+      events
+        .filter(
+          (
+            event,
+          ): event is Extract<SeqlaneEvent, { type: "invocation.created" }> =>
+            event.type === "invocation.created" && event.taskId === taskId,
+        )
+        .map((event) => ({
+          invocationId: event.invocationId,
+          planNodeId: event.planNodeId,
+        })),
+    ).toEqual([
+      { invocationId: "repeated-task:left:1", planNodeId: "left:1" },
+      { invocationId: "repeated-task:right:1", planNodeId: "right:1" },
+    ]);
+    await registration.terminate?.("repeated-task-run");
+  });
+
   it("executes a deterministic task-until workflow through the owned host", async () => {
     const state = z.object({
       remaining: z.number().int().nonnegative(),

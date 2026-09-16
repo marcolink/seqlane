@@ -112,6 +112,8 @@ export interface MastraPlanCompilerOptions {
   ) => void;
   /** Shared run budget for repeat attempts. */
   readonly repeatBudget?: RepeatExecutionBudget;
+  /** Static invocation.created events are emitted before this workflow starts. */
+  readonly staticInvocationTopology?: boolean;
   readonly events?: SeqlaneEventSink;
   readonly workflowId?: string;
 }
