@@ -10,6 +10,7 @@
 - GitHub Action code is CI and platform integration code, not Seqlane application code. New Action-specific libraries must use short, purpose-specific directory names. Do not create a generic Action support library for one Action.
 - Keep runtime-engine types and dependencies out of core, serialized Plans, and public workflow-author APIs.
 - Keep executor implementations, including OpenCode, out of workflow definitions, serialized Plans, public APIs, runner IPC, and documented CLI/configuration. Follow [adr.executor-neutral-workflow-authoring](docs/sdlc/adrs/2026-09-02-executor-neutral-workflow-authoring.md) when changing these boundaries.
+- For standalone CLI runs, `--adapter <id>` is the explicit operator-facing exception. Adapter connection details and implementation types remain private. Follow [adr.standalone-cli-runs](docs/sdlc/adrs/2026-09-16-standalone-cli-runs.md); this decision does not establish runtime delivery.
 - Mastra is the sole generic runtime. Seqlane owns its public DSL, coding-task semantics, session and workspace policy, Work identity and provenance, executor contracts, and CLI experience.
 - Keep Mastra types behind the integration boundary. They must not leak into public DSL types, serialized definitions, executor-independent contracts, or stable CLI results.
 - Read [prd.seqlane-on-mastra](docs/sdlc/prd/2026-09-03-seqlane-on-mastra.md) and [rfc.mastra-runtime-and-operational-foundation](docs/sdlc/rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md) before changing runtime boundaries.

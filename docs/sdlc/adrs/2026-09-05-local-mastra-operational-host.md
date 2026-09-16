@@ -1,11 +1,11 @@
 ---
 id: adr.local-mastra-operational-host
 title: Run Seqlane Through a Local Mastra Operational Host
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-16
 upstream:
   - rfc.mastra-runtime-and-operational-foundation
 supersedes:
@@ -16,6 +16,13 @@ supersedes:
 ---
 
 # Run Seqlane Through a Local Mastra Operational Host
+
+## Supersession
+
+[adr.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md) supersedes this
+record. Standalone `run` no longer requires a host or persistent state. The
+replacement preserves the hosted `serve`, Studio, and loopback decisions.
+The text below records the previous decision, not the new run contract.
 
 ## Context
 

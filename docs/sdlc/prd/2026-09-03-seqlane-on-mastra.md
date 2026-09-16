@@ -101,6 +101,25 @@ Migration verification uses representative agent and deterministic-task fixtures
 - Cancellation must propagate to active agent and process work where the underlying capability permits it.
 - Runtime state and persistence must use Mastra facilities; Seqlane must not maintain a parallel canonical store.
 
+### requirement-standalone-cli-runs
+
+`seqlane run` executes one explicit file or installed package workflow without
+an app, catalog, Seqlane configuration, or operational server. Normal imports
+remain supported as trusted local code.
+
+The operator selects an adapter with `--adapter`. Seqlane manages required
+adapter startup and cleanup. Installed executables and native authentication
+are prerequisites. Adapter configuration remains authoritative for permissions.
+Deterministic workflows need no adapter or model.
+
+The workflow owns model selection. Incompatible models or explicit settings
+fail instead of falling back. Standalone runs retain no Seqlane history, logs,
+recordings, saved results, sessions, or artifacts. Workflow-created outputs and
+adapter-managed storage remain outside this retention guarantee.
+
+Results and progress use terminal streams. Hosted persistence and inspection
+remain separate capabilities. App-based hosting is outside this deliverable.
+
 ### Coding agents, sessions, and workspaces
 
 - Existing repository instructions, `AGENTS.md`, skills, tools, plugins, and MCP configuration remain authoritative in the selected coding harness.
@@ -123,7 +142,7 @@ Migration verification uses representative agent and deterministic-task fixtures
   from the terminal and CI environment.
 - `seqlane studio` launches the standard Mastra Community Studio against the Seqlane/Mastra runtime.
 - Seqlane does not maintain a dedicated Studio application.
-- Logs, traces, and persisted run state should be inspectable through Mastra's supported surfaces without making Mastra concepts necessary for ordinary workflow authoring.
+- Hosted logs, traces, and persisted run state remain inspectable through Mastra surfaces. Standalone runs retain no operational history.
 
 #### requirement-run-output-quality
 
@@ -195,6 +214,9 @@ can add meaning, but the interface must remain clear without either feature.
 
 
 ## Traceability
+
+- [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
+- [spec.standalone-cli-runs](../specs/2026-09-16-standalone-cli-runs.md)
 
 - [brd.seqlane: Seqlane](../brd/2026-09-02-seqlane.md)
 - Supersedes [prd.seqlane: Seqlane](./2026-09-02-seqlane.md).

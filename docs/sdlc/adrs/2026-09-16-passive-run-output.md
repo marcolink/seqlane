@@ -15,6 +15,12 @@ supersedes:
 
 # Use Passive Run Output
 
+## Scope amendment: recording
+
+[adr.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md) removes recording
+from standalone runs. The terminal presentation decision remains in force.
+References to CLI recording below describe the earlier allocation only.
+
 ## Context
 
 The agreed run design is a clean live execution tree. Keyboard navigation,

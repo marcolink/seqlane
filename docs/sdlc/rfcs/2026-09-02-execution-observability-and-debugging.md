@@ -258,11 +258,12 @@ execution. Human output redraws without keyboard input. CI output is
 append-only and accepts no terminal input.
 
 The native `--json` flag bypasses terminal rendering. It reserves stdout for
-one final, validated run result. Canonical event recording remains a separate
-`--record` function. A JSON event stream is not a final run result.
+one final, validated run result. Standalone runs do not record events or retain
+logs. [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md) defers persistence to later work.
+A JSON event stream is not a final run result.
 
-The CLI supplies terminal streams and capabilities, output sinks, and optional
-`GITHUB_STEP_SUMMARY` integration. Ink owns resize subscriptions and layout
+The CLI supplies terminal streams, capabilities, and output sinks. Standalone
+runs do not write `GITHUB_STEP_SUMMARY` or other retained output. Ink owns resize subscriptions and layout
 updates for human output. Renderer write or
 finalization errors are reported diagnostically and do not replace the runner's
 authoritative success, failure, or cancellation status.
@@ -280,7 +281,7 @@ A possible logical on-disk structure is:
   artifacts/
 ```
 
-This is illustrative only. The physical persistence model remains unresolved; SQLite or another local store may be preferable.
+This is illustrative future work. Standalone `run` must not create this layout or any persistent execution record.
 
 Local debugging must not require an external observability service.
 
@@ -363,6 +364,8 @@ The CLI owns final-result serialization, renderer selection, and exit status.
 The MVP does not require persistent RunRecord, local visual inspector, OTEL export, timeline UI, replay, diff, persistent artifacts, or full OpenCode event capture.
 
 ## Traceability
+
+- [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
 
 - [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
 - [adr.run-terminal-presentation-boundary: Separate Run Terminal Presentation from Machine Results](../adrs/2026-09-15-run-terminal-presentation-boundary.md)

@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-12
+updated: 2026-09-16
 upstream:
   - adr.executor-neutral-workflow-authoring
   - adr.opencode-executor-integration
@@ -15,6 +15,18 @@ supersedes:
 ---
 
 # Agent Adapter Boundary and Capability Model
+
+## Standalone CLI integration
+
+[spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md#requirement-adapter-lifecycle)
+adds a no-config startup contract for `run --adapter <id>`. The command resolves
+native configuration and manages required service startup. Private adapter
+connection configuration remains valid internally; users need not supply it.
+
+OpenCode task execution still uses the SDK. Starting its required service does
+not replace SDK task execution with a CLI prompt transport. Native adapter
+permissions and authentication remain authoritative. This integration is
+pending under the standalone delivery task.
 
 ## Summary
 

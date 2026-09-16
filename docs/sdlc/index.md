@@ -21,6 +21,14 @@ and tasks.
 - [Implementation tasks](./tasks/index.md)
 - [Document templates](./templates/)
 
+## Next implementation deliverable
+
+[Deliver Standalone CLI Runs](./tasks/2026-09-16-deliver-standalone-cli-runs.md)
+is the next agreed deliverable. It implements the accepted
+[standalone decision](./adrs/2026-09-16-standalone-cli-runs.md) and active
+[run contract](./specs/2026-09-16-standalone-cli-runs.md).
+App-based hosting and workflow discovery remain separate future work.
+
 ## Authority
 
 - An accepted BRD defines current business intent.

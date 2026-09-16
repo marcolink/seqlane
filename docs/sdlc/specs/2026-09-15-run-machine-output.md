@@ -10,6 +10,7 @@ upstream:
   - prd.seqlane-on-mastra
   - rfc.execution-observability-and-debugging
   - adr.run-terminal-presentation-boundary
+  - adr.standalone-cli-runs
 supersedes:
   - spec.seqlane-execution-output-package
 ---
@@ -19,7 +20,8 @@ supersedes:
 ## Summary
 
 `seqlane run --json` writes one final command result and no progress. Event
-recording and replay NDJSON remain separate contracts.
+replay NDJSON remains a separate contract for existing input files. Standalone
+runs do not create event recordings.
 
 Oclif owns the outer command error boundary. Seqlane normalizes errors before
 Oclif shows human, CI, or JSON output. Command failures do not show a stack
@@ -235,7 +237,7 @@ With `--json`, `toErrorJson()` returns the failure variant from
 
 Run-specific resources use `try` and `finally`. Cleanup includes renderer
 finalization, terminal restoration, signal listeners, event dispatch, event
-recording, and an owned operational host.
+consumers, the direct runtime, and owned adapter resources.
 
 The primary error remains authoritative when cleanup also fails. The CLI adds
 cleanup information as a bounded diagnostic. It does not replace the primary
@@ -243,13 +245,11 @@ message, error code, or exit status.
 
 ### requirement-event-recording
 
-`--record <path>` records validated canonical execution events independently
-of human or CI output. The recorder writes the established bounded event-file
-format. It is not a final command result.
-
-`--json` and `--record` can run together. Stdout contains only the final result.
-The event file contains only canonical event records. Recording diagnostics use
-stderr.
+Standalone `run` does not accept `--record` or create an event file. This
+requirement replaces the previous recording contract under
+[adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md).
+Logging and persistence require a later decision. Replay can still consume
+existing files. Its reader contract does not require a run recording feature.
 
 ### requirement-replay-event-output
 
@@ -279,7 +279,7 @@ Oclif execute
   -> command parse
   -> mode selection
   -> acquire run resources
-  -> execute or observe run
+  -> execute standalone run
   -> build authoritative result
   -> close resources in finally
   -> validate and serialize result
@@ -296,8 +296,8 @@ Such conversion loses typed exit, JSON, help, and suggestion information.
   "schemaVersion": 1,
   "status": "succeeded",
   "workflow": {
-    "id": "repository:review",
-    "reference": "repository:review"
+    "id": "review",
+    "reference": "./review.ts"
   },
   "workId": "019f2e9d-c2f1-7b44-a7a3-1c27e9b81130",
   "runId": "7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3",
@@ -325,8 +325,8 @@ Such conversion loses typed exit, JSON, help, and suggestion information.
     "taskId": "integration-tests"
   },
   "workflow": {
-    "id": "repository:review",
-    "reference": "repository:review"
+    "id": "review",
+    "reference": "./review.ts"
   },
   "workId": "019f2e9d-c2f1-7b44-a7a3-1c27e9b81130",
   "runId": "7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3",
@@ -343,8 +343,8 @@ Such conversion loses typed exit, JSON, help, and suggestion information.
   "schemaVersion": 1,
   "status": "cancelled",
   "workflow": {
-    "id": "repository:review",
-    "reference": "repository:review"
+    "id": "review",
+    "reference": "./review.ts"
   },
   "workId": "019f2e9d-c2f1-7b44-a7a3-1c27e9b81130",
   "runId": "7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3",
@@ -378,7 +378,8 @@ Such conversion loses typed exit, JSON, help, and suggestion information.
 6. Add `replay --events ndjson`.
 7. Remove the former `replay --output json` contract.
 
-No compatibility alias remains after migration.
+No compatibility alias remains after migration. The standalone delivery also
+removes `run --record` and host-backed run resource acquisition.
 
 ## Verification
 
@@ -395,11 +396,11 @@ Tests must prove:
 - Oclif help, usage, suggestions, references, and exit errors remain intact
 - every acquisition phase releases all previously acquired resources
 - cleanup errors do not replace the primary error
-- recording remains independent of terminal and JSON output
+- standalone runs reject recording and create no persistent output files
 - replay NDJSON preserves order and reports the invalid record number
 - `--events` and `--output` cannot be combined
 
-Run compiled CLI tests for parse, setup, renderer, recorder, host, execution,
+Run compiled CLI tests for parse, setup, renderer, adapter, runtime, execution,
 serialization, and cleanup errors. Inspect stdout, stderr, and exit status.
 
 ## Acceptance criteria
@@ -408,18 +409,26 @@ serialization, and cleanup errors. Inspect stdout, stderr, and exit status.
 - Success, failure, and cancellation fixtures match actual output.
 - Default command errors are concise and contain no stack trace.
 - Every run resource closes after success, failure, or cancellation.
-- Event recording remains separate from final results.
+- Standalone runs create no event recordings or saved results.
 - Replay NDJSON uses the exact documented flag and output contract.
 - No JSON renderer remains in `@seqlane/tui`.
 - All required tests and workspace quality gates pass.
 
 ## Delivery state
 
-Delivered to the default branch through pull requests
-[#117](https://github.com/marcolink/seqlane/pull/117) and
+The earlier final-result and error-boundary work reached the default branch
+through pull requests [#117](https://github.com/marcolink/seqlane/pull/117) and
 [#121](https://github.com/marcolink/seqlane/pull/121).
 
+The 2026-09-16 no-recording and standalone lifecycle amendments remain pending
+under `task.deliver-standalone-cli-runs`. Earlier delivery does not establish
+delivery of these amendments; it requires a reachable commit or merged pull
+request and evidence for the amended contract.
+
 ## Traceability
+
+- [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
+- [spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md)
 
 - [prd.seqlane-on-mastra requirement-run-output-quality](../prd/2026-09-03-seqlane-on-mastra.md#requirement-run-output-quality)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)

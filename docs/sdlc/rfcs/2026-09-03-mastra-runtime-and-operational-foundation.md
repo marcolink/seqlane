@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-16
 upstream:
   - prd.seqlane-on-mastra
 supersedes:
@@ -184,9 +184,23 @@ Work identity is carried in Mastra request context or metadata and propagated in
 
 Git commit trailers or other provenance written by workflows may reference Work, Run, and Invocation identities. Provenance formatting remains a Seqlane concern; storage of generic run state does not.
 
+## Standalone CLI execution
+
+[adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md) separates direct CLI execution from hosted operation.
+`run` loads one explicit entrypoint and its dependencies, then uses Mastra
+without a Seqlane server or durable state. Mastra runtime state stays in memory.
+
+`--adapter` selects the private integration. Seqlane manages required adapter
+processes and uses native authentication and permissions. Workflow model choices
+remain authoritative. Adapter-local services are not Seqlane operational hosts.
+
+Host storage, cross-surface inspection, MCP, and Studio requirements below apply
+to hosted runs. Standalone results and progress end with the command lifecycle.
+The exact direct-run contract is [spec.standalone-cli-runs](../specs/2026-09-16-standalone-cli-runs.md).
+
 ## Persistence, retries, cancellation, and errors
 
-- Mastra storage is canonical for runtime state. Do not mirror full run state in Seqlane.
+- Mastra owns canonical runtime state. Hosted runs use Mastra storage; standalone runs keep state in memory. Do not mirror state in Seqlane.
 - If Seqlane exposes retry policy, compile it to Mastra. Do not implement a second retry loop around a Mastra workflow.
 - The default remains no implicit semantic repair loop unless the workflow explicitly declares one.
 - Cancellation flows from CLI/server to the Mastra run and then to active agent/process operations where supported.
@@ -201,7 +215,7 @@ Use Mastra's server and MCP facilities. Seqlane contributes only domain-specific
 
 ### Observability
 
-Mastra tracing and run storage are the implementation source for operational inspection. Seqlane keeps only the small semantic event contract necessary for stable CLI output and external consumers. Do not maintain a parallel trace tree or event database.
+For hosted runs, Mastra tracing and run storage are the implementation source for operational inspection. Seqlane keeps only the small semantic event contract necessary for stable CLI output and external consumers. Do not maintain a parallel trace tree or event database.
 
 ### Studio
 
@@ -297,7 +311,7 @@ Exit: session and workspace semantics pass concurrency tests on the Mastra runti
 - Preserve only the normalized CLI event/result contract.
 - Delete the dedicated Studio and obsolete operational infrastructure.
 
-Exit: CLI, server, MCP, tracing, persistence, and Studio all operate on one Mastra run.
+Exit: hosted CLI operations, server, MCP, tracing, persistence, and Studio share one Mastra run. Standalone execution uses the same engine without persistence.
 
 ### Phase 6 — Architectural cleanup
 
@@ -341,7 +355,7 @@ Exit: no dual runtime or superseded implementation remains.
 ### End-to-end tests
 
 - A representative workflow is executed by OpenCode, verified by deterministic commands, and reported through the CLI. The Renovate workflow is delivered independently.
-- The same run is inspectable through upstream Mastra Community Studio.
+- Hosted runs are inspectable through upstream Mastra Community Studio. Standalone runs do not require or expose that inspection.
 
 ## Completion criteria
 
@@ -387,6 +401,9 @@ Mastra APIs are version-sensitive. Contributors must verify every touched API ag
 
 
 ## Traceability
+
+- [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
+- [spec.standalone-cli-runs](../specs/2026-09-16-standalone-cli-runs.md)
 
 - [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
 - Supersedes [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](./2026-09-02-seqlane-technical-architecture.md).

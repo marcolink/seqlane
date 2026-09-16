@@ -14,6 +14,13 @@ supersedes:
 
 # Keep Workflow Authoring and Plans Executor-Neutral
 
+## Scope amendment: standalone CLI adapter selection
+
+[adr.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md) explicitly permits
+operator selection through `run --adapter <id>`, including `opencode`. This
+amends the CLI-name restriction below. Connection handling and implementation
+types remain private. Authored workflows and Plans remain executor-neutral.
+
 ## Context
 
 OpenCode is a possible Seqlane executor, but it is an implementation detail.

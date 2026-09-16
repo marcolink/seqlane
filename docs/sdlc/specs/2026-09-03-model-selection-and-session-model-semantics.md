@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-16
 upstream:
   - adr.model-selection-and-session-model-semantics
+  - adr.standalone-cli-runs
 supersedes: []
 ---
 
@@ -21,6 +22,15 @@ Add a portable model-selection contract and enforce immutable effective model
 selection across isolated, reused, branched, and child sessions. Resolve and
 validate models before execution, initialize OpenCode forks before their first
 prompt, and record the effective selection on every invocation.
+
+### Standalone run amendment
+
+[spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md#requirement-model-compatibility)
+owns model source and compatibility timing for direct CLI runs. Workflow
+selection replaces executor-default resolution in that scope. Existing pinned
+session inheritance remains mandatory. The remaining executor-default clauses
+apply only outside standalone runs. Availability failures occur before tasks
+start when the adapter can establish availability, otherwise at invocation.
 
 ## 2. Normative Terms
 
@@ -139,6 +149,16 @@ pnpm exec nx sync:check
 git diff --check
 ```
 
+## Delivery state
+
+The standalone model amendment is pending under
+[task.deliver-standalone-cli-runs](../tasks/2026-09-16-deliver-standalone-cli-runs.md).
+This change records the target contract, not delivered runtime behavior.
+
 ## Traceability
+
+- [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
+- [spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md)
+
 
 - [adr.model-selection-and-session-model-semantics](../adrs/2026-09-03-model-selection-and-session-model-semantics.md)
