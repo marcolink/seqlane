@@ -51,7 +51,7 @@ describe("CLI output mode selection", () => {
     expect(
       resolveRendererMode(
         "auto",
-        { isTTY: true, supportsAnsi: false },
+        { isTTY: true, hasTerminalInput: true, supportsAnsi: false },
         { CI: undefined },
       ),
     ).toBe("ci");
