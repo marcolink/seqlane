@@ -1,11 +1,11 @@
 ---
 id: task.migrate-execution-event-consumers
 title: Migrate Execution Event Consumers
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-13
+updated: 2026-09-16
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -110,8 +110,15 @@ Then run:
 
 ## Outcome
 
-Implementation is in progress on `refactor/seqlane-protocol`, with runner,
-CLI, output, recording, and replay consumers migrated to `@seqlane/protocol`.
+Runner, CLI, terminal output, recording, and replay consumers use
+`@seqlane/protocol`. Strict protocol and consumer tests cover malformed data,
+sequence ordering, Plan snapshots, recording, and replay behavior.
+
+## Delivery state
+
+Delivered to the default branch through [pull request
+#107](https://github.com/marcolink/seqlane/pull/107). This pull request
+superseded the closed pull request #104.
 
 ## Traceability
 

@@ -226,12 +226,12 @@
 | [task.configure-generated-file-conflict-handlers](./2026-09-08-configure-generated-file-conflict-handlers.md) | Configure Generated-File Conflict Handlers | completed | 2026-09-08 | core |
 | [task.cut-over-to-mastra-runtime](./2026-09-08-cut-over-to-mastra-runtime.md) | Cut Over to the Mastra Runtime | completed | 2026-09-08 | core |
 | [task.deliver-direct-runtime-code-review-action](./2026-09-08-deliver-direct-runtime-code-review-action.md) | Deliver the Direct-Runtime Code-Review Action | completed | 2026-09-08 | core |
-| [task.migrate-execution-event-consumers](./2026-09-08-migrate-execution-event-consumers.md) | Migrate Execution Event Consumers | in-progress | 2026-09-08 | core |
+| [task.migrate-execution-event-consumers](./2026-09-08-migrate-execution-event-consumers.md) | Migrate Execution Event Consumers | completed | 2026-09-08 | core |
 | [task.project-acp-v1-observations-into-mastra](./2026-09-08-project-acp-v1-observations-into-mastra.md) | Project ACP v1 Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
 | [task.project-opencode-observations-into-mastra](./2026-09-08-project-opencode-observations-into-mastra.md) | Project OpenCode Observations Into Native Mastra Spans | completed | 2026-09-08 | core |
 | [task.propagate-mastra-observability-context](./2026-09-08-propagate-mastra-observability-context.md) | Propagate Per-Invocation Mastra Observability Context | completed | 2026-09-08 | core |
 | [task.publish-live-merge-resolution-progress](./2026-09-08-publish-live-merge-resolution-progress.md) | Publish Live Merge Resolution Progress | completed | 2026-09-08 | core |
-| [task.remove-seqlane-events](./2026-09-08-remove-seqlane-events.md) | Remove Seqlane Events | in-progress | 2026-09-08 | core |
+| [task.remove-seqlane-events](./2026-09-08-remove-seqlane-events.md) | Remove Seqlane Events | completed | 2026-09-08 | core |
 | [task.remove-effect-subprocess-runtime](./2026-09-08-remove-effect-subprocess-runtime.md) | Remove the Effect Subprocess Runtime | completed | 2026-09-08 | core |
 | [task.require-explicit-opencode-server-executable](./2026-09-08-require-explicit-opencode-server-executable.md) | Require an Explicit OpenCode Server Executable | completed | 2026-09-08 | core |
 | [task.unify-flow-authoring-and-minimal-plan](./2026-09-08-unify-flow-authoring-and-minimal-plan.md) | Unify Flow Authoring and the Minimal Plan | completed | 2026-09-08 | core |
@@ -239,14 +239,14 @@
 | [task.correct-mastra-observability-tool-semantics](./2026-09-09-correct-mastra-observability-tool-semantics.md) | Correct Mastra Observability Tool Semantics and Storage Verification | completed | 2026-09-09 | core |
 | [task.code-review-skill-policy](./2026-09-10-code-review-skill-policy.md) | Enable Safe Repository Skills in Pull-Request Review | completed | 2026-09-10 | core |
 | [task.nested-workflow-workspace-admission](./2026-09-11-nested-workflow-workspace-admission.md) | Make Nested Workflow Workspace Admission Safe | planned | 2026-09-11 | core |
-| [task.migrate-to-runner-built-action-bundles](./2026-09-11-migrate-to-runner-built-action-bundles.md) | Migrate to Runner-Built Action Bundles | in-progress | 2026-09-11 | core |
+| [task.migrate-to-runner-built-action-bundles](./2026-09-11-migrate-to-runner-built-action-bundles.md) | Migrate to Runner-Built Action Bundles | completed | 2026-09-11 | core |
 | [task.reject-nested-workflows-in-repeats](./2026-09-11-reject-nested-workflows-in-repeats.md) | Reject Nested Workflows in Repeat Bodies | cancelled | 2026-09-11 | core |
 | [task.nested-workflow-compilation-lifecycle](./2026-09-11-nested-workflow-compilation-lifecycle.md) | Simplify Nested Workflow Compilation and Lifecycle | planned | 2026-09-11 | core |
 | [task.implement-codex-app-server-adapter](./2026-09-12-implement-codex-app-server-adapter.md) | Implement the Codex App-Server Adapter | completed | 2026-09-12 | core |
 | [task.integrate-codex-runtime-adapter](./2026-09-12-integrate-codex-runtime-adapter.md) | Integrate the Codex Runtime Adapter | completed | 2026-09-12 | core |
 | [task.prove-codex-app-server-protocol](./2026-09-12-prove-codex-app-server-protocol.md) | Prove the Codex App-Server Protocol | completed | 2026-09-12 | core |
 | [task.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md) | Implement Incremental Pull Request Review Scope | planned | 2026-09-13 | core |
-| [task.deliver-fluent-task-until-repeats](./2026-09-14-deliver-fluent-task-until-repeats.md) | Deliver Fluent Task-Until Repeats | in-progress | 2026-09-14 | core |
+| [task.deliver-fluent-task-until-repeats](./2026-09-14-deliver-fluent-task-until-repeats.md) | Deliver Fluent Task-Until Repeats | completed | 2026-09-14 | core |
 | [task.persist-code-review-run-artifacts](./2026-09-14-persist-code-review-run-artifacts.md) | Persist Bounded Published Review Artifacts | planned | 2026-09-14 | core |
 | [task.serialize-code-review-publication](./2026-09-14-serialize-code-review-publication.md) | Serialize Final Code Review Publication | planned | 2026-09-14 | core |
 | [task.unify-code-review-comment-state](./2026-09-14-unify-code-review-comment-state.md) | Unify Code Review Comment State and Cost Projection | planned | 2026-09-14 | core |

@@ -1,11 +1,11 @@
 ---
 id: task.migrate-to-runner-built-action-bundles
 title: Migrate to Runner-Built Action Bundles
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-16
 upstream:
   - adr.runner-built-action-bundles
   - adr.use-runner-local-nx-cache
@@ -80,9 +80,9 @@ Implement [adr.runner-built-action-bundles](../adrs/2026-09-11-runner-built-acti
 
 ## Outcome
 
-The implementation branch removes all ten tracked Action entrypoints and the
-committed-bundle drift workflow and verifier. The code-review, resolver, and
-Ripwire smoke jobs now install trusted dependencies and materialize required
+The delivered implementation removes all ten tracked Action entrypoints and
+the committed-bundle drift workflow and verifier. The code-review, resolver,
+and Ripwire smoke jobs install trusted dependencies and materialize required
 Actions before local invocation. Six Action and four transitive library build
 tasks declare cache inputs and outputs.
 
@@ -95,8 +95,8 @@ tests, 85 Ripwire tests, and all Action entrypoint-loading tests. Tooling tests,
 test mapping, SDLC validation, SDLC tests, formatting, and diff checks passed.
 
 GitHub code search found no external `uses: marcolink/seqlane` consumer. Hosted
-run `34584861924` passed before the CI consolidation; verification of the
-consolidated workflow remains pending.
+run `34584861924` passed before the CI consolidation. The merged pull request
+also passed the consolidated quality gates and code-review workflow.
 
 The follow-up CI audit retained all six Actions because each has an active
 internal consumer and a distinct tested contract. Four reusable quality
@@ -113,8 +113,8 @@ remote Nx cache remains deferred.
 
 ## Delivery state
 
-Not delivered on `main`. The implementation is under review in
-[pull request 98](https://github.com/marcolink/seqlane/pull/98).
+Delivered to the default branch through [pull request
+#98](https://github.com/marcolink/seqlane/pull/98).
 
 ## Traceability
 

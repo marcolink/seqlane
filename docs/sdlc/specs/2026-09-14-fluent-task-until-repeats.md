@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-15
+updated: 2026-09-16
 upstream:
   - prd.seqlane-on-mastra
   - spec.mastra-backed-seqlane-workflows
@@ -229,10 +229,9 @@ earlier task references in `until` or `nextInput`.
 
 ## Migration
 
-This is a breaking change to authoring. Remove `.repeat(name, options)` and
-its repeat-body mini-DSL when `.task().until()` is delivered. Do not keep a
-second public repeat API or a legacy runtime path. Update examples, fixtures,
-public declarations, and authoring documentation in the same delivery.
+This is a breaking change to authoring. Pull request #114 removed
+`.repeat(name, options)` and its repeat-body mini-DSL. `.task().until()` is the
+only public repeat API. No legacy runtime path remains.
 
 The active Mastra-backed workflow specification retains the general Plan,
 policy, and repeat limits. Its authoring and repeat clauses reflect this
@@ -271,8 +270,8 @@ remain historical records, not open work for this design.
 
 ## Delivery state
 
-Active contract. The feature branch implements `.task(...).until(...)` through
-Mastra. This status does not claim delivery on the target branch.
+Active contract. Delivered to the default branch through [pull request
+#114](https://github.com/marcolink/seqlane/pull/114).
 
 ## Traceability
 

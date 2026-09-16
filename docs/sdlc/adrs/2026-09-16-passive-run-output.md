@@ -49,8 +49,8 @@ Ink and React remain private dependencies loaded only for human output.
 
 ## Delivery state
 
-Implementation and focused validation are complete on the feature branch.
-This record does not establish default-branch delivery.
+Delivered to the default branch through [pull request
+#120](https://github.com/marcolink/seqlane/pull/120).
 
 ## Traceability
 

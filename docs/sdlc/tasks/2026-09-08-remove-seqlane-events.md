@@ -1,11 +1,11 @@
 ---
 id: task.remove-seqlane-events
 title: Remove Seqlane Events
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-13
+updated: 2026-09-16
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -104,8 +104,16 @@ Then run the full gate:
 
 ## Outcome
 
-Implementation is in progress on `refactor/seqlane-protocol`, with the
-replacement package and consumer migration prepared for review.
+The legacy `@seqlane/events` package, source, project configuration, and
+workspace references are removed. `@seqlane/protocol` owns the replacement
+serialized contracts. Current application and runtime consumers use the
+replacement package.
+
+## Delivery state
+
+Delivered to the default branch through [pull request
+#107](https://github.com/marcolink/seqlane/pull/107). This pull request
+superseded the closed pull request #104.
 
 ## Traceability
 

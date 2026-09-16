@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-16
 upstream:
   - spec.mastra-backed-seqlane-workflows
 supersedes: []
@@ -112,9 +112,10 @@ implementation is documented in the completed [propagation](./2026-09-08-propaga
 projection tasks.
 
 Runtime-level semantic and admission telemetry, including wait measured after
-eligibility, plus the remaining runner and execution-event consumer alignment,
-remain for this umbrella task. Agent tracing is implemented; it is not a
-remaining unbuilt capability.
+eligibility, remains for this umbrella task. Pull request #107 delivered the
+runner and execution-event consumer alignment. Existing invocation progress
+events do not satisfy the Mastra telemetry requirement. Agent tracing is
+implemented and is not remaining work.
 
 ## Traceability
 

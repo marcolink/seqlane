@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-08
+updated: 2026-09-16
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -44,7 +44,7 @@ Run this task after the implementation tasks complete:
 - Run `actionlint` against all workflow files.
 - Run the local Action smoke workflow with `act` when Docker is available.
 - Keep `act` runs free of push credentials and remote mutations.
-- Verify the committed Action bundle.
+- Verify the runner-built Action bundle from the trusted source.
 - Parse and inspect the migrated workflow.
 - Run the manual workflow against a disposable same-repository pull request.
 - Test both `rebase` and `merge` strategies.
@@ -72,7 +72,7 @@ Run this task after the implementation tasks complete:
 3. Run each required temporary repository scenario.
 4. Inspect index state and remote refs after every mutating scenario.
 5. Run the Action bundle build.
-6. Run `git diff --exit-code -- actions/*/dist/`.
+6. Run the Action bundle-loading tests.
 7. Run the hosted production workflow.
 8. Parse the migrated workflow and inspect permissions, checkouts, concurrency,
    and Action invocation.
@@ -103,7 +103,6 @@ pnpm run test:mapping
 pnpm exec nx run action-merge-conflict-resolution:test
 pnpm exec nx run action-resolve-merge-conflicts:typecheck
 pnpm exec nx run action-resolve-merge-conflicts:build
-git diff --exit-code -- actions/*/dist/
 actionlint
 pnpm docs:index
 pnpm docs:validate
@@ -128,7 +127,7 @@ verification.
 - All specification requirements have test evidence.
 - Required Git scenarios pass against real temporary repositories.
 - The local Action runs through `uses`.
-- The Action bundle has no drift.
+- The trusted workflow builds the Action bundle before local invocation.
 - The production workflow has no migrated resolver shell implementation.
 - The manual workflow succeeds for clean and conflicted disposable pull
   requests.
@@ -155,12 +154,10 @@ target checkouts, and the trusted local Action invocation.
 A successful GitHub-hosted workflow run is available at [run
 34163697786](https://github.com/marcolink/seqlane/actions/runs/34163697786).
 
-Completion evidence remains unrecorded for the full manual scenario matrix,
-remote base and head races, and `actionlint` and `act` checks where applicable.
-The task remains in progress until its own completion criteria record those
-results. Local checks and the hosted run do not replace that evidence. The
-repository-wide Nx `test`, `lint`, and `build` commands remain blocked by the
-shared external Nx workspace-data lock path.
+Current temporary-repository tests cover remote base and head races. Hosted
+manual evidence remains unrecorded for clean and conflicted disposable pull
+requests. Evidence for `actionlint` and the applicability of `act` also remains
+unrecorded. The task remains in progress until these results are recorded.
 
 ## Traceability
 

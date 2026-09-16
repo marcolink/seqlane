@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-15
+updated: 2026-09-16
 upstream:
   - prd.seqlane-on-mastra
   - rfc.execution-observability-and-debugging
@@ -415,9 +415,9 @@ serialization, and cleanup errors. Inspect stdout, stderr, and exit status.
 
 ## Delivery state
 
-Implementation is present in the current worktree and is being validated
-against this active contract. Target-branch delivery still requires a
-reachable commit or merged pull request.
+Delivered to the default branch through pull requests
+[#117](https://github.com/marcolink/seqlane/pull/117) and
+[#121](https://github.com/marcolink/seqlane/pull/121).
 
 ## Traceability
 
