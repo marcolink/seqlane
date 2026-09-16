@@ -191,9 +191,9 @@ importers:
       '@seqlane/action-merge-conflict-resolution':
         specifier: workspace:*
         version: link:../../libs/action-merge-conflict-resolution
-      '@seqlane/runtime':
+      '@seqlane/resolve-merge-conflicts-workflow':
         specifier: workspace:*
-        version: link:../../libs/runtime
+        version: link:../../workflows/resolve-merge-conflicts
 
   actions/ripwire-server:
     dependencies:
@@ -306,6 +306,9 @@ importers:
       '@seqlane/opencode-adapter':
         specifier: workspace:*
         version: link:../opencode
+      '@seqlane/resolve-merge-conflicts-workflow':
+        specifier: workspace:*
+        version: link:../../workflows/resolve-merge-conflicts
       '@seqlane/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -425,6 +428,9 @@ importers:
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@seqlane/resolve-merge-conflicts-workflow':
+        specifier: workspace:*
+        version: link:../../workflows/resolve-merge-conflicts
       hono:
         specifier: 4.13.5
         version: 4.13.5
@@ -475,6 +481,15 @@ importers:
       '@seqlane/read-context':
         specifier: workspace:*
         version: link:../../libs/read-context
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
+  workflows/resolve-merge-conflicts:
+    dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../../libs/core
       zod:
         specifier: 4.5.4
         version: 4.5.4

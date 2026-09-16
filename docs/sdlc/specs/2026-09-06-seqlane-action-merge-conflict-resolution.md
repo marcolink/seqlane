@@ -708,10 +708,11 @@ Implement the migration in these stages:
 10. Remove the old helper script after all workflow references are removed.
 11. Update operator documentation and SDLC traceability.
 
-The generic workflow in `examples/resolve-merge-conflicts.ts` remains the
-source of the agent task contract. If the Action bundle needs a compiled
-workflow module, expose it through a declared private package export. Do not
-import the example through a relative path from another package.
+The generic workflow in `workflows/resolve-merge-conflicts` is the source of
+the agent task contract. It is exposed as the private
+`@seqlane/resolve-merge-conflicts-workflow` package. Runtime and Action
+consumers must use that package or their declared compatibility re-export; do
+not duplicate the graph or import the workflow through a relative path.
 
 ## Verification
 

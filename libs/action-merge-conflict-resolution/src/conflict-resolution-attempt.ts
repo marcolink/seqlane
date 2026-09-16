@@ -9,7 +9,7 @@ import {
 } from "./contracts.js";
 import { ActionResolutionError } from "./errors.js";
 import { classifyConflicts } from "./policy.js";
-import type { ResolveMergeConflictsWorkflowOutput } from "@seqlane/runtime/workflows/resolve-merge-conflicts";
+import type { ResolveMergeConflictsWorkflowOutput } from "@seqlane/resolve-merge-conflicts-workflow";
 
 const NO_ATTEMPT_DIAGNOSTICS: ResolutionAttemptDiagnostics = {
   eventCount: 0,

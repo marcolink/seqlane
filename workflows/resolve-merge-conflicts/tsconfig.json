@@ -2,14 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
     "types": ["node"],
     "emitDeclarationOnly": false
   },
-  "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../../libs/action-merge-conflict-resolution" },
-    { "path": "../../workflows/resolve-merge-conflicts" }
-  ]
+  "include": ["workflow.ts"],
+  "references": [{ "path": "../../libs/core" }]
 }

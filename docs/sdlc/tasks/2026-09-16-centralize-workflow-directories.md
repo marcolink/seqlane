@@ -9,6 +9,7 @@ updated: 2026-09-16
 upstream:
   - spec.mastra-backed-seqlane-workflows
   - spec.direct-runtime-code-review-action
+  - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
 ---
 
@@ -23,6 +24,8 @@ smoke-check target; do not change CLI directory invocation.
 ## Scope
 
 - Move runnable examples and portable read-context/code-review graphs.
+- Make the merge-conflict resolver workflow canonical under `workflows/` and
+  re-export it for runtime and Action consumers.
 - Keep fixtures test-only.
 - Keep consumer environment adapters in their consumers.
 - Define local conventions in `workflows/AGENTS.md`.
@@ -45,8 +48,11 @@ smoke-check target; do not change CLI directory invocation.
 Portable workflows now have directory entrypoints and targeted Nx ownership.
 Each workflow documents its local contract. Read-context library regressions
 remain with the library, while its graph has focused workflow coverage.
+The merge-conflict resolver has one canonical private workflow package; runtime
+and Action consumers no longer own divergent graph copies.
 
 ## Traceability
 
 - [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
 - [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-code-review-action.md)
+- [spec.seqlane-action-merge-conflict-resolution](../specs/2026-09-06-seqlane-action-merge-conflict-resolution.md)

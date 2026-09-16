@@ -8,4 +8,6 @@ Input supplies repository, pull-request revisions, strategy, and conflicted
 paths; output supplies a summary, resolved paths, and per-file decisions. It
 requires a prepared conflicted checkout and configured model runtime. A
 consumer owns conflict discovery, checkout, and publishing; this graph edits
-only supplied files.
+only supplied files. Consumers use the private
+`@seqlane/resolve-merge-conflicts-workflow` package; runtime also preserves its
+legacy workflow subpath as a re-export.

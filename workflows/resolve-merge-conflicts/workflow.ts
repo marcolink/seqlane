@@ -7,7 +7,7 @@ const gitRefSchema = z.string().min(1).max(255);
 const repositoryPathSchema = z.string().min(1).max(4_096);
 const conflictPathSchema = z.string().min(1).max(1_024);
 
-const conflictResolutionInputSchema = z.object({
+export const conflictResolutionInputSchema = z.object({
   repository: repositoryPathSchema,
   pullRequestNumber: z.number().int().positive(),
   strategy: z.enum(["merge", "rebase"]),
@@ -23,11 +23,14 @@ const conflictDecisionSchema = z.object({
   decision: z.string().min(1).max(2_000),
 });
 
-const conflictResolutionOutputSchema = z.object({
+export const conflictResolutionOutputSchema = z.strictObject({
   summary: z.string().min(1).max(4_000),
   resolvedFiles: z.array(conflictPathSchema).min(1).max(200),
   decisions: z.array(conflictDecisionSchema).min(1).max(200),
 });
+export type ResolveMergeConflictsWorkflowOutput = z.infer<
+  typeof conflictResolutionOutputSchema
+>;
 
 const conflictResolutionTask = defineAgentTask({
   id: "resolve-merge-conflicts-task",
@@ -63,9 +66,13 @@ export default createFlow({
   .task("resolve", conflictResolutionTask, ({ input }) => input, {
     workspace: "exclusive",
     session: isolated({
-      model: openai("gpt-5.6-luna"),
+      model: openai("gpt-5.6-terra"),
       reasoning: "high",
     }),
   })
   .output(({ tasks }) => tasks.resolve.output)
   .define();
+
+export type ResolveMergeConflictsWorkflowInput = z.infer<
+  typeof conflictResolutionInputSchema
+>;

@@ -1,6 +1,13 @@
 // @test-scope ../../../workflows/resolve-merge-conflicts/workflow.ts
+// @test-scope ../../../libs/runtime/src/workflows/resolve-merge-conflicts.ts
 
 import { buildWorkflow } from "@seqlane/core";
+import canonicalWorkflow, {
+  conflictResolutionOutputSchema,
+} from "@seqlane/resolve-merge-conflicts-workflow";
+import runtimeWorkflow, {
+  conflictResolutionOutputSchema as runtimeConflictResolutionOutputSchema,
+} from "@seqlane/runtime/workflows/resolve-merge-conflicts";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
@@ -22,7 +29,14 @@ const validInput = {
   conflictedFiles: ["src/example.ts"],
 };
 
-describe("merge-conflict resolution example workflow", () => {
+describe("merge-conflict resolution workflow", () => {
+  it("is the runtime compatibility export", () => {
+    expect(runtimeWorkflow).toBe(canonicalWorkflow);
+    expect(runtimeConflictResolutionOutputSchema).toBe(
+      conflictResolutionOutputSchema,
+    );
+  });
+
   it("requires explicit pull-request revisions and conflict files", () => {
     expect(resolveMergeConflictsWorkflow.input.parse(validInput)).toEqual(
       validInput,
@@ -59,7 +73,7 @@ describe("merge-conflict resolution example workflow", () => {
         session: {
           type: "isolated",
           model: {
-            model: { provider: "openai", model: "gpt-5.6-luna" },
+            model: { provider: "openai", model: "gpt-5.6-terra" },
             reasoning: "high",
           },
         },
