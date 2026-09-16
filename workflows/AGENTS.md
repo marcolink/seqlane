@@ -12,8 +12,11 @@ package published by this repository.
 - Keep consumer environment adaptation in the consumer. GitHub event parsing,
   checkouts, concurrency, publication, credentials, and Action lifecycle stay
   under `actions/` or their supporting consumer library.
-- Mark retained examples in their directory names with `-example` and the Nx
-  `workflow-kind:example` tag.
+- Mark retained examples in their directory names with `-example`. Add the
+  `workflow-kind:example` tag only when that workflow is an Nx project.
+- Every workflow directory must contain a `README.md` with its purpose, run
+  command, input/output contract, requirements, and consumer-composition
+  boundary.
 - Do not add workflow unit tests by default. Test reusable task/library logic;
   add a workflow test only for an observable regression or integration seam.
 - Add an Nx `project.json` only when the workflow owns a build, test, lint, or

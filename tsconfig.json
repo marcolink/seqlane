@@ -10,6 +10,9 @@
       "path": "./libs/read-context"
     },
     {
+      "path": "./workflows/read-context"
+    },
+    {
       "path": "./libs/adapter"
     },
     {
@@ -38,6 +41,9 @@
     },
     {
       "path": "./libs/action-code-review"
+    },
+    {
+      "path": "./workflows/code-review"
     },
     {
       "path": "./actions/resolve-merge-conflicts"

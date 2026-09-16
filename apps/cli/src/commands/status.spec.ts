@@ -51,7 +51,7 @@ describe("status command workflow selection", () => {
           id: "./workflows/minimal-example/workflow.ts",
           exportName: "default",
           moduleSpecifier: expect.stringMatching(
-            /^file:\/\/.*\/examples\/minimal-workflow\.ts$/,
+            /^file:\/\/.*\/workflows\/minimal-example\/workflow\.ts$/,
           ),
         },
       }),

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, relative, resolve } from "node:path";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
-const sourceRoots = ["apps", "libs"].map((directory) =>
+const sourceRoots = ["apps", "libs", "workflows"].map((directory) =>
   resolve(repositoryRoot, directory),
 );
 const ignoredDirectories = new Set([

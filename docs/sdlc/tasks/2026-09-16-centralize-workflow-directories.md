@@ -26,6 +26,8 @@ smoke-check target; do not change CLI directory invocation.
 - Keep fixtures test-only.
 - Keep consumer environment adapters in their consumers.
 - Define local conventions in `workflows/AGENTS.md`.
+- Give each workflow a local README that states its executable contract.
+- Include workflow sources and workflow graph tests in existing validation.
 
 ## Out of scope
 
@@ -40,8 +42,9 @@ smoke-check target; do not change CLI directory invocation.
 
 ## Outcome
 
-Portable workflows now have directory entrypoints and Nx ownership. Existing
-read-context regression coverage moved with its graph.
+Portable workflows now have directory entrypoints and targeted Nx ownership.
+Each workflow documents its local contract. Read-context library regressions
+remain with the library, while its graph has focused workflow coverage.
 
 ## Traceability
 
