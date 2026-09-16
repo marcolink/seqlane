@@ -77,7 +77,13 @@ export function rebuildTopology(
   sourceNodes: ReadonlyMap<string, RunNode>,
 ): RunViewModel {
   const childrenByParent = new Map<string, string[]>();
+  const dependentsByDependency = new Map<string, string[]>();
   for (const node of sourceNodes.values()) {
+    for (const dependencyId of node.dependencyIds) {
+      const dependents = dependentsByDependency.get(dependencyId) ?? [];
+      dependents.push(node.invocationId);
+      dependentsByDependency.set(dependencyId, dependents);
+    }
     if (node.parentInvocationId === undefined) continue;
     const children = childrenByParent.get(node.parentInvocationId) ?? [];
     children.push(node.invocationId);
@@ -114,7 +120,13 @@ export function rebuildTopology(
     .sort(compareNodes)
     .map(({ invocationId }) => invocationId);
   rebuildAggregates(nodes, childrenByParent);
-  return { ...view, nodes, childrenByParent, rootInvocationIds };
+  return {
+    ...view,
+    nodes,
+    childrenByParent,
+    dependentsByDependency,
+    rootInvocationIds,
+  };
 }
 
 /** Mutates only the newly built topology map. */

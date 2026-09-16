@@ -29,11 +29,20 @@ export function HumanHeader({
     return {
       total: view.plannedTaskCount ?? tasks.length,
       complete: tasks.filter((node) => node.state === "succeeded").length,
+      incompleteProjection:
+        view.plannedTaskCount !== undefined &&
+        view.plannedTaskCount > tasks.length,
     };
   }, [view.nodes, view.plannedTaskCount]);
   const state = view.runState === "idle" ? "queued" : view.runState;
+  const lowerBound = capabilities.supportsUnicode ? "≥" : ">=";
   const facts =
-    counts.complete + "/" + counts.total + " · " + formatDuration(elapsedMs);
+    (counts.incompleteProjection ? lowerBound : "") +
+    counts.complete +
+    "/" +
+    counts.total +
+    " · " +
+    formatDuration(elapsedMs);
   const width = Math.max(1, capabilities.width ?? 80);
   const disclosure = capabilities.supportsUnicode ? " ▼ " : " v ";
   const color = capabilities.supportsAnsi ? statusColor(state) : undefined;

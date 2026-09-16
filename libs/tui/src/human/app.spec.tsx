@@ -227,8 +227,61 @@ describe("HumanApp", () => {
         spinnerFrame={0}
       />,
     );
-    expect(rendered.lastFrame()).toContain("0/6");
+    expect(rendered.lastFrame()).toContain("≥0/6");
     expect(rendered.lastFrame()).toContain("omitted nodes=4");
+  });
+
+  it("keeps omitted task completion counts as an explicit lower bound", () => {
+    let view = reduceRunEvents(
+      [
+        {
+          type: "run.plan",
+          ...event,
+          plan: {
+            workflow: { id: "bounded" },
+            nodes: ["retained", "omitted"].map((id, index) => ({
+              planNodeId: id,
+              type: "task" as const,
+              taskId: id,
+              label: id,
+              siblingOrder: index,
+              dependsOn: [],
+            })),
+          },
+        },
+      ],
+      { limits: { nodes: 1 } },
+    );
+    view = reduceRunViewModel(view, {
+      type: "invocation.created",
+      ...event,
+      invocationId: "live-omitted",
+      planNodeId: "omitted",
+      subject: { type: "task", taskId: "omitted" },
+      taskId: "omitted",
+      kind: "task",
+      label: "omitted",
+      siblingOrder: 1,
+      dependencyIds: [],
+    });
+    view = reduceRunViewModel(view, {
+      type: "invocation.succeeded",
+      ...event,
+      invocationId: "live-omitted",
+    });
+    const rendered = render(
+      <HumanApp
+        view={view}
+        capabilities={{
+          supportsAnsi: false,
+          supportsUnicode: false,
+          width: 80,
+        }}
+        spinnerFrame={0}
+      />,
+    );
+    expect(rendered.lastFrame()).toContain(">=0/2");
+    expect(rendered.lastFrame()).not.toContain("1/2");
   });
 
   it("updates task completion through React rerender", async () => {

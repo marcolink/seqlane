@@ -3,10 +3,13 @@ import { projectNodeActivity } from "./run-activity.js";
 import { outputBytes, retainOutput } from "./run-output.js";
 import {
   maxEventSequence,
+  indexPlanPlaceholders,
   planNodeKind,
   plannedInvocation,
-  planPlaceholderForSubject,
+  plannedInvocationForCreated,
+  plannedInvocationForSubject,
   reconcileCreatedBatch,
+  reconcilePlanPlaceholder,
 } from "./run-plan.js";
 import {
   EMPTY_AGGREGATE,
@@ -151,6 +154,12 @@ export interface RunViewModel {
   readonly nodes: ReadonlyMap<string, RunNode>;
   /** Stable containment index. Normal event updates do not rebuild it. */
   readonly childrenByParent: ReadonlyMap<string, readonly string[]>;
+  /** Reverse dependency index used for bounded placeholder reconciliation. */
+  readonly dependentsByDependency: ReadonlyMap<string, readonly string[]>;
+  /** Direct lookup for planned invocation placeholders. */
+  readonly plannedInvocationByNodeId: ReadonlyMap<string, string>;
+  /** Task identity lookup; only one candidate can reconcile without ambiguity. */
+  readonly plannedInvocationsByTaskId: ReadonlyMap<string, readonly string[]>;
   /** Automatic expansion state kept separate from execution nodes. */
   readonly presentation: ReadonlyMap<string, RunPresentationState>;
   readonly rootInvocationIds: readonly string[];
@@ -163,6 +172,7 @@ export interface RunViewModel {
   /** Exact task count from the latest plan, including omitted projection nodes. */
   readonly plannedTaskCount?: number;
   readonly omittedDependencyEdgeCount: number;
+  readonly retainedDependencyEdgeCount: number;
   readonly retainedDetailBytes: number;
   readonly omittedDetailBytes: number;
   readonly detailsTruncated?: boolean;
@@ -417,6 +427,9 @@ export function createRunViewModel(
     runState: "idle",
     nodes: new Map(),
     childrenByParent: new Map(),
+    dependentsByDependency: new Map(),
+    plannedInvocationByNodeId: new Map(),
+    plannedInvocationsByTaskId: new Map(),
     presentation: new Map(),
     rootInvocationIds: [],
     toolUsage: new Map(),
@@ -425,6 +438,7 @@ export function createRunViewModel(
     limits: { ...DEFAULT_RUN_PROJECTION_LIMITS, ...options.limits },
     omittedNodeCount: 0,
     omittedDependencyEdgeCount: 0,
+    retainedDependencyEdgeCount: 0,
     retainedDetailBytes: 0,
     omittedDetailBytes: 0,
     now: options.now ?? (() => new Date()),
@@ -455,60 +469,79 @@ function setRunState(
 }
 
 function reduceCreated(
-  view: RunViewModel,
+  initial: RunViewModel,
   event: Extract<OutputEvent, { type: "invocation.created" }>,
 ): RunViewModel {
-  const placeholders = [...view.nodes.values()].filter((node) =>
-    node.invocationId.startsWith("plan:"),
-  );
-  const placeholderId =
-    placeholders.find((node) => node.planNodeId === event.planNodeId)
-      ?.invocationId ??
-    (event.taskId === undefined
-      ? undefined
-      : placeholders.filter((node) => node.taskId === event.taskId).length === 1
-        ? placeholders.find((node) => node.taskId === event.taskId)
-            ?.invocationId
-        : undefined);
+  const placeholderId = plannedInvocationForCreated(initial, event);
+  const view =
+    placeholderId !== undefined && placeholderId !== event.invocationId
+      ? reconcilePlanPlaceholder(initial, placeholderId, event.invocationId)
+      : initial;
+  const existing = view.nodes.get(event.invocationId);
   if (placeholderId !== undefined && placeholderId !== event.invocationId) {
-    return reduceCreated(
-      reconcilePlanPlaceholder(view, placeholderId, event.invocationId),
-      event,
-    );
+    if (existing === undefined) return view;
   }
   const remainingEdges =
     view.limits.dependencyEdges -
-    [...view.nodes.values()].reduce(
-      (count, node) => count + node.dependencyIds.length,
-      0,
-    );
+    view.retainedDependencyEdgeCount +
+    (existing?.dependencyIds.length ?? 0);
   const dependencyIds = boundedDependencies(
-    event.dependencyIds,
+    existing !== undefined &&
+      event.dependencyIds.some((id) => !view.nodes.has(id))
+      ? existing.dependencyIds
+      : event.dependencyIds,
     remainingEdges,
   );
-  const omittedEdges = event.dependencyIds.length - dependencyIds.length;
-  const existing = view.nodes.get(event.invocationId);
+  const omittedEdges = Math.max(
+    0,
+    event.dependencyIds.length - dependencyIds.length,
+  );
   if (existing !== undefined) {
+    const parentInvocationId =
+      event.parentInvocationId !== undefined &&
+      !view.nodes.has(event.parentInvocationId)
+        ? existing.parentInvocationId
+        : event.parentInvocationId;
     const nodes = new Map(view.nodes);
     nodes.set(event.invocationId, {
       ...existing,
       label: event.label,
       kind: event.kind,
-      parentInvocationId: event.parentInvocationId,
+      parentInvocationId,
       ...(event.iteration === undefined
         ? { iteration: undefined }
         : { iteration: event.iteration }),
       siblingOrder: event.siblingOrder,
       dependencyIds,
     });
-    return rebuildTopology(
-      {
-        ...view,
-        omittedDependencyEdgeCount:
-          view.omittedDependencyEdgeCount + omittedEdges,
-      },
+    for (const dependentId of view.dependentsByDependency.get(
+      event.invocationId,
+    ) ?? []) {
+      const dependent = nodes.get(dependentId);
+      if (dependent !== undefined) {
+        nodes.set(dependentId, {
+          ...dependent,
+          waitingDependencyLabels: dependent.dependencyIds
+            .map((dependencyId) => nodes.get(dependencyId)?.label)
+            .filter((label): label is string => label !== undefined),
+        });
+      }
+    }
+    const next = {
+      ...view,
       nodes,
-    );
+      retainedDependencyEdgeCount:
+        view.retainedDependencyEdgeCount -
+        existing.dependencyIds.length +
+        dependencyIds.length,
+      omittedDependencyEdgeCount:
+        view.omittedDependencyEdgeCount + omittedEdges,
+    };
+    const topologyChanged =
+      parentInvocationId !== existing.parentInvocationId ||
+      dependencyIds.length !== existing.dependencyIds.length ||
+      dependencyIds.some((id, index) => id !== existing.dependencyIds[index]);
+    return topologyChanged ? rebuildTopology(next, nodes) : next;
   }
   if (view.nodes.size >= view.limits.nodes) {
     return {
@@ -525,12 +558,22 @@ function reduceCreated(
   presentation.set(event.invocationId, {
     isExpanded: event.kind === "workflow" || event.kind === "loop",
   });
+  const dependentsByDependency = new Map(view.dependentsByDependency);
+  for (const dependencyId of dependencyIds) {
+    dependentsByDependency.set(dependencyId, [
+      ...(dependentsByDependency.get(dependencyId) ?? []),
+      event.invocationId,
+    ]);
+  }
   const next = {
     ...view,
     nodes,
     childrenByParent: addChildToTopology(view.childrenByParent, nodes, node),
+    dependentsByDependency,
     rootInvocationIds: rootInvocationIds(nodes),
     presentation,
+    retainedDependencyEdgeCount:
+      view.retainedDependencyEdgeCount + dependencyIds.length,
     omittedDependencyEdgeCount: view.omittedDependencyEdgeCount + omittedEdges,
   };
   return applyAncestorAggregateDelta(
@@ -587,11 +630,18 @@ function reducePlan(
     });
   }
   const projected = rebuildTopology(
-    { ...view, presentation, omittedNodeCount, omittedDependencyEdgeCount },
+    {
+      ...view,
+      presentation,
+      omittedNodeCount,
+      omittedDependencyEdgeCount,
+      retainedDependencyEdgeCount: view.limits.dependencyEdges - remainingEdges,
+    },
     nodes,
   );
   return {
     ...setRunState(projected, "active", event),
+    ...indexPlanPlaceholders(projected.nodes),
     workflowLabel: event.plan.workflow.id,
     plannedTaskCount: event.plan.nodes.filter(
       (node) => planNodeKind(node) === "task",
@@ -623,40 +673,10 @@ function materializePlanPlaceholder(
   subject: Extract<OutputEvent, { type: "invocation.started" }>["subject"],
 ): RunViewModel {
   if (view.nodes.has(invocationId)) return view;
-  const placeholders = [...view.nodes.values()].filter((node) =>
-    node.invocationId.startsWith("plan:"),
-  );
-  const placeholder = planPlaceholderForSubject(placeholders, subject);
-  if (placeholder === undefined) return view;
-  return reconcilePlanPlaceholder(view, placeholder.invocationId, invocationId);
-}
-
-/** Retain planned context and rebind containment/dependency references together. */
-function reconcilePlanPlaceholder(
-  view: RunViewModel,
-  oldId: string,
-  invocationId: string,
-): RunViewModel {
-  const nodes = new Map(
-    [...view.nodes.values()].map((node) => [
-      node.invocationId === oldId ? invocationId : node.invocationId,
-      {
-        ...node,
-        ...(node.invocationId === oldId ? { invocationId } : {}),
-        ...(node.parentInvocationId === oldId
-          ? { parentInvocationId: invocationId }
-          : {}),
-        dependencyIds: node.dependencyIds.map((id) =>
-          id === oldId ? invocationId : id,
-        ),
-      },
-    ]),
-  );
-  const presentation = new Map(view.presentation);
-  const state = presentation.get(oldId);
-  presentation.delete(oldId);
-  if (state !== undefined) presentation.set(invocationId, state);
-  return rebuildTopology({ ...view, presentation }, nodes);
+  const placeholderId = plannedInvocationForSubject(view, subject);
+  return placeholderId === undefined
+    ? view
+    : reconcilePlanPlaceholder(view, placeholderId, invocationId);
 }
 
 export function reduceRunViewModel(

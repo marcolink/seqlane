@@ -97,6 +97,152 @@ export function planPlaceholderForSubject(
   }
 }
 
+export function indexPlanPlaceholders(
+  nodes: ReadonlyMap<string, RunNode>,
+): Pick<
+  RunViewModel,
+  "plannedInvocationByNodeId" | "plannedInvocationsByTaskId"
+> {
+  const plannedInvocationByNodeId = new Map<string, string>();
+  const plannedInvocationsByTaskId = new Map<string, string[]>();
+  for (const node of nodes.values()) {
+    if (!node.invocationId.startsWith("plan:")) continue;
+    plannedInvocationByNodeId.set(node.planNodeId, node.invocationId);
+    const taskIds = plannedInvocationsByTaskId.get(node.taskId) ?? [];
+    taskIds.push(node.invocationId);
+    plannedInvocationsByTaskId.set(node.taskId, taskIds);
+  }
+  return { plannedInvocationByNodeId, plannedInvocationsByTaskId };
+}
+
+export function plannedInvocationForCreated(
+  view: RunViewModel,
+  event: CreatedEvent,
+): string | undefined {
+  const exact = view.plannedInvocationByNodeId.get(event.planNodeId);
+  if (exact !== undefined) return exact;
+  if (event.taskId === undefined) return undefined;
+  const candidates = view.plannedInvocationsByTaskId.get(event.taskId) ?? [];
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+export function plannedInvocationForSubject(
+  view: RunViewModel,
+  subject: StartedSubject,
+): string | undefined {
+  if (subject.type === "validation-gate") {
+    return view.plannedInvocationByNodeId.get(subject.planNodeId);
+  }
+  const identity =
+    subject.type === "task" ? subject.taskId : subject.validatorId;
+  const candidates = view.plannedInvocationsByTaskId.get(identity) ?? [];
+  if (candidates.length === 1) return candidates[0];
+  const validationCandidates = [...view.plannedInvocationByNodeId.values()]
+    .map((id) => view.nodes.get(id))
+    .filter(
+      (node): node is RunNode =>
+        node !== undefined &&
+        node.kind === "validation" &&
+        (subject.type === "task" || node.label === subject.validatorId),
+    );
+  return validationCandidates.length === 1
+    ? validationCandidates[0]?.invocationId
+    : undefined;
+}
+
+/** Rename one placeholder by updating only its indexed reverse references. */
+export function reconcilePlanPlaceholder(
+  view: RunViewModel,
+  oldId: string,
+  invocationId: string,
+): RunViewModel {
+  const placeholder = view.nodes.get(oldId);
+  if (placeholder === undefined || oldId === invocationId) return view;
+  const nodes = new Map(view.nodes);
+  nodes.delete(oldId);
+  nodes.set(invocationId, { ...placeholder, invocationId });
+
+  const childrenByParent = new Map(view.childrenByParent);
+  const children = childrenByParent.get(oldId);
+  if (children !== undefined) {
+    childrenByParent.delete(oldId);
+    childrenByParent.set(invocationId, children);
+    for (const childId of children) {
+      const child = nodes.get(childId);
+      if (child !== undefined) {
+        nodes.set(childId, { ...child, parentInvocationId: invocationId });
+      }
+    }
+  }
+  if (placeholder.parentInvocationId !== undefined) {
+    const siblings = childrenByParent.get(placeholder.parentInvocationId);
+    if (siblings !== undefined) {
+      childrenByParent.set(
+        placeholder.parentInvocationId,
+        siblings.map((id) => (id === oldId ? invocationId : id)),
+      );
+    }
+  }
+
+  const dependentsByDependency = new Map(view.dependentsByDependency);
+  const dependents = dependentsByDependency.get(oldId);
+  if (dependents !== undefined) {
+    dependentsByDependency.delete(oldId);
+    dependentsByDependency.set(invocationId, dependents);
+    for (const dependentId of dependents) {
+      const dependent = nodes.get(dependentId);
+      if (dependent !== undefined) {
+        nodes.set(dependentId, {
+          ...dependent,
+          dependencyIds: dependent.dependencyIds.map((id) =>
+            id === oldId ? invocationId : id,
+          ),
+        });
+      }
+    }
+  }
+  for (const dependencyId of placeholder.dependencyIds) {
+    const reverse = dependentsByDependency.get(dependencyId);
+    if (reverse !== undefined) {
+      dependentsByDependency.set(
+        dependencyId,
+        reverse.map((id) => (id === oldId ? invocationId : id)),
+      );
+    }
+  }
+
+  const presentation = new Map(view.presentation);
+  const presentationState = presentation.get(oldId);
+  presentation.delete(oldId);
+  if (presentationState !== undefined) {
+    presentation.set(invocationId, presentationState);
+  }
+  const plannedInvocationByNodeId = new Map(view.plannedInvocationByNodeId);
+  plannedInvocationByNodeId.delete(placeholder.planNodeId);
+  const plannedInvocationsByTaskId = new Map(view.plannedInvocationsByTaskId);
+  const taskCandidates = plannedInvocationsByTaskId.get(placeholder.taskId);
+  if (taskCandidates !== undefined) {
+    const remaining = taskCandidates.filter((id) => id !== oldId);
+    if (remaining.length === 0) {
+      plannedInvocationsByTaskId.delete(placeholder.taskId);
+    } else {
+      plannedInvocationsByTaskId.set(placeholder.taskId, remaining);
+    }
+  }
+  return {
+    ...view,
+    nodes,
+    childrenByParent,
+    dependentsByDependency,
+    presentation,
+    rootInvocationIds: view.rootInvocationIds.map((id) =>
+      id === oldId ? invocationId : id,
+    ),
+    plannedInvocationByNodeId,
+    plannedInvocationsByTaskId,
+  };
+}
+
 /** Reconcile a creation burst with one node scan and one topology rebuild. */
 export function reconcileCreatedBatch(
   view: RunViewModel,
@@ -167,8 +313,9 @@ export function reconcileCreatedBatch(
   for (const [id, state] of view.presentation) {
     presentation.set(replace(id), state);
   }
+  const projected = rebuildTopology({ ...view, presentation }, nodes);
   return {
-    view: rebuildTopology({ ...view, presentation }, nodes),
+    view: { ...projected, ...indexPlanPlaceholders(projected.nodes) },
     consumed,
   };
 }
