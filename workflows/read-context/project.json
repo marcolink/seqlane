@@ -1,7 +1,7 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "name": "workflow-read-context",
-  "projectType": "application",
+  "projectType": "library",
   "sourceRoot": "workflows/read-context",
   "targets": {
     "build": {

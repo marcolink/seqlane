@@ -1,7 +1,7 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "name": "workflow-code-review",
-  "projectType": "application",
+  "projectType": "library",
   "sourceRoot": "workflows/code-review",
   "targets": {
     "build": {
