@@ -3,7 +3,6 @@ import { projectNodeActivity } from "./run-activity.js";
 import { outputBytes, retainOutput } from "./run-output.js";
 import { withMapChanges } from "./run-node-map.js";
 import {
-  maxEventSequence,
   indexPlanPlaceholders,
   planNodeKind,
   plannedInvocation,
@@ -11,6 +10,7 @@ import {
   plannedInvocationForSubject,
   reconcileCreatedBatch,
   reconcilePlanPlaceholder,
+  reconcileStartedBatch,
 } from "./run-plan.js";
 import {
   EMPTY_AGGREGATE,
@@ -172,6 +172,10 @@ export interface RunViewModel {
   readonly omittedNodeCount: number;
   /** Exact task count from the latest plan, including omitted projection nodes. */
   readonly plannedTaskCount?: number;
+  /** Planned task identities retained even when their rows exceed projection bounds. */
+  readonly plannedTaskNodeIds: ReadonlySet<string>;
+  /** Runtime task invocations that were not declared by the plan. */
+  readonly dynamicTaskCount: number;
   readonly omittedDependencyEdgeCount: number;
   readonly retainedDependencyEdgeCount: number;
   readonly retainedDetailBytes: number;
@@ -376,6 +380,59 @@ function updateNode(
   return { ...view, nodes: withMapChanges(view.nodes, changes) };
 }
 
+function updateNodeDependencies(
+  view: RunViewModel,
+  invocationId: string,
+  requestedDependencyIds: readonly string[] | undefined,
+  update: (node: RunNode) => RunNode,
+): RunViewModel {
+  const current = view.nodes.get(invocationId);
+  if (current === undefined) return view;
+  if (requestedDependencyIds === undefined) {
+    return updateNode(view, invocationId, update);
+  }
+  const remainingEdges =
+    view.limits.dependencyEdges -
+    view.retainedDependencyEdgeCount +
+    current.dependencyIds.length;
+  const dependencyIds = boundedDependencies(
+    requestedDependencyIds,
+    remainingEdges,
+  );
+  const omittedEdges = requestedDependencyIds.length - dependencyIds.length;
+  const dependenciesChanged =
+    dependencyIds.length !== current.dependencyIds.length ||
+    dependencyIds.some((id, index) => id !== current.dependencyIds[index]);
+  const updated = updateNode(view, invocationId, (node) =>
+    update({ ...node, dependencyIds }),
+  );
+  if (!dependenciesChanged && omittedEdges === 0) return updated;
+
+  const dependentsByDependency = new Map(updated.dependentsByDependency);
+  for (const dependencyId of current.dependencyIds) {
+    const dependents = dependentsByDependency.get(dependencyId);
+    if (dependents === undefined) continue;
+    const remaining = dependents.filter((id) => id !== invocationId);
+    if (remaining.length === 0) dependentsByDependency.delete(dependencyId);
+    else dependentsByDependency.set(dependencyId, remaining);
+  }
+  for (const dependencyId of dependencyIds) {
+    const dependents = dependentsByDependency.get(dependencyId) ?? [];
+    if (!dependents.includes(invocationId)) {
+      dependentsByDependency.set(dependencyId, [...dependents, invocationId]);
+    }
+  }
+  return {
+    ...updated,
+    dependentsByDependency,
+    retainedDependencyEdgeCount:
+      view.retainedDependencyEdgeCount -
+      current.dependencyIds.length +
+      dependencyIds.length,
+    omittedDependencyEdgeCount: view.omittedDependencyEdgeCount + omittedEdges,
+  };
+}
+
 function withState(
   node: RunNode,
   state: RunNodeState,
@@ -448,6 +505,8 @@ export function createRunViewModel(
     lastEventSequence: 0,
     limits: { ...DEFAULT_RUN_PROJECTION_LIMITS, ...options.limits },
     omittedNodeCount: 0,
+    plannedTaskNodeIds: new Set(),
+    dynamicTaskCount: 0,
     omittedDependencyEdgeCount: 0,
     retainedDependencyEdgeCount: 0,
     retainedDetailBytes: 0,
@@ -489,6 +548,13 @@ function reduceCreated(
       ? reconcilePlanPlaceholder(initial, placeholderId, event.invocationId)
       : initial;
   const existing = view.nodes.get(event.invocationId);
+  const dynamicTaskDelta =
+    placeholderId === undefined &&
+    existing === undefined &&
+    event.kind === "task" &&
+    !view.plannedTaskNodeIds.has(event.planNodeId)
+      ? 1
+      : 0;
   if (placeholderId !== undefined && placeholderId !== event.invocationId) {
     if (existing === undefined) return view;
   }
@@ -558,6 +624,7 @@ function reduceCreated(
     return {
       ...view,
       omittedNodeCount: view.omittedNodeCount + 1,
+      dynamicTaskCount: view.dynamicTaskCount + dynamicTaskDelta,
       omittedDependencyEdgeCount:
         view.omittedDependencyEdgeCount + event.dependencyIds.length,
     };
@@ -586,6 +653,7 @@ function reduceCreated(
     retainedDependencyEdgeCount:
       view.retainedDependencyEdgeCount + dependencyIds.length,
     omittedDependencyEdgeCount: view.omittedDependencyEdgeCount + omittedEdges,
+    dynamicTaskCount: view.dynamicTaskCount + dynamicTaskDelta,
   };
   if (
     view.childrenByParent.has(node.invocationId) ||
@@ -663,6 +731,11 @@ function reducePlan(
     plannedTaskCount: event.plan.nodes.filter(
       (node) => planNodeKind(node) === "task",
     ).length,
+    plannedTaskNodeIds: new Set(
+      event.plan.nodes
+        .filter((node) => planNodeKind(node) === "task")
+        .map((node) => node.planNodeId),
+    ),
   };
 }
 
@@ -732,17 +805,21 @@ export function reduceRunViewModel(
       return revealAncestors(started, event.invocationId);
     }
     case "invocation.progress":
-      return updateNode(next, event.invocationId, (node) => ({
-        ...(isTerminalNodeState(node.state)
-          ? node
-          : withState(node, event.state, timestamp)),
-        ...(event.label === undefined ? {} : { label: event.label }),
-        phase: event.phase,
-        workspace: event.workspace ?? node.workspace,
-        activity: event.message,
-        waitingReason: event.waitingReason,
-        dependencyIds: event.dependencyIds ?? node.dependencyIds,
-      }));
+      return updateNodeDependencies(
+        next,
+        event.invocationId,
+        event.dependencyIds,
+        (node) => ({
+          ...(isTerminalNodeState(node.state)
+            ? node
+            : withState(node, event.state, timestamp)),
+          ...(event.label === undefined ? {} : { label: event.label }),
+          phase: event.phase,
+          workspace: event.workspace ?? node.workspace,
+          activity: event.message,
+          waitingReason: event.waitingReason,
+        }),
+      );
     case "invocation.activity": {
       const usage =
         event.kind === "skill"
@@ -846,11 +923,15 @@ export function reduceRunViewModel(
         event.invocationId,
       );
     case "invocation.skipped":
-      return updateNode(next, event.invocationId, (node) => ({
-        ...withState(node, "skipped", timestamp),
-        skipReason: event.reason,
-        dependencyIds: event.dependencyIds ?? node.dependencyIds,
-      }));
+      return updateNodeDependencies(
+        next,
+        event.invocationId,
+        event.dependencyIds,
+        (node) => ({
+          ...withState(node, "skipped", timestamp),
+          skipReason: event.reason,
+        }),
+      );
     case "invocation.cancelled":
       return updateNode(next, event.invocationId, (node) => ({
         ...withState(node, "cancelled", timestamp),
@@ -883,6 +964,86 @@ export function reduceRunEvents(
   return reduceRunEventBatch(createRunViewModel(options), events);
 }
 
+function reduceStartedBatch(
+  initial: RunViewModel,
+  events: readonly Extract<OutputEvent, { type: "invocation.started" }>[],
+): RunViewModel {
+  const view = reconcileStartedBatch(initial, events);
+  const nodes = new Map(view.nodes);
+  const presentation = new Map(view.presentation);
+  let lastEventSequence = view.lastEventSequence;
+  for (const event of events) {
+    const eventSequence = event.metadata?.sequence ?? lastEventSequence + 1;
+    lastEventSequence = Math.max(lastEventSequence, eventSequence);
+    const node = nodes.get(event.invocationId);
+    if (node === undefined) continue;
+    const timestamp = eventTimestamp(event.metadata, view.now);
+    nodes.set(event.invocationId, {
+      ...withState(node, "active", timestamp),
+      taskId:
+        event.taskId ??
+        (event.subject.type === "task"
+          ? event.subject.taskId
+          : event.subject.type === "validator"
+            ? event.subject.validatorId
+            : event.subject.planNodeId),
+    });
+    let parentId = node.parentInvocationId;
+    while (parentId !== undefined) {
+      presentation.set(parentId, { isExpanded: true });
+      parentId = nodes.get(parentId)?.parentInvocationId;
+    }
+  }
+  return rebuildTopology({ ...view, presentation, lastEventSequence }, nodes);
+}
+
+function collectEventBatch<TType extends OutputEvent["type"]>(
+  events: readonly OutputEvent[],
+  startIndex: number,
+  type: TType,
+): {
+  readonly batch: Extract<OutputEvent, { type: TType }>[];
+  readonly nextIndex: number;
+} {
+  const batch: Extract<OutputEvent, { type: TType }>[] = [];
+  let nextIndex = startIndex;
+  while (events[nextIndex]?.type === type) {
+    batch.push(events[nextIndex] as Extract<OutputEvent, { type: TType }>);
+    nextIndex += 1;
+  }
+  return { batch, nextIndex };
+}
+
+function reduceCreatedBatch(
+  view: RunViewModel,
+  created: readonly Extract<OutputEvent, { type: "invocation.created" }>[],
+): RunViewModel {
+  const reconciled = reconcileCreatedBatch(view, created);
+  let next: RunViewModel = {
+    ...reconciled.view,
+    runState: "active" as const,
+    workId: created.at(-1)?.workId ?? view.workId,
+    runId: created.at(-1)?.runId ?? view.runId,
+    startedAt:
+      view.startedAt ??
+      (created[0] === undefined
+        ? undefined
+        : eventTimestamp(created[0].metadata, view.now)),
+  };
+  for (const item of created) {
+    if (!reconciled.consumed.has(item.invocationId)) {
+      next = reduceRunViewModel(next, item);
+      continue;
+    }
+    const eventSequence = item.metadata?.sequence ?? next.lastEventSequence + 1;
+    next = {
+      ...next,
+      lastEventSequence: Math.max(next.lastEventSequence, eventSequence),
+    };
+  }
+  return next;
+}
+
 /** Batch creation bursts so large plans reconcile with one topology rebuild. */
 export function reduceRunEventBatch(
   initial: RunViewModel,
@@ -891,36 +1052,33 @@ export function reduceRunEventBatch(
   let view = initial;
   for (let index = 0; index < events.length;) {
     const event = events[index];
-    if (event?.type !== "invocation.created") {
-      if (event !== undefined) view = reduceRunViewModel(view, event);
-      index += 1;
+    if (event?.type === "invocation.started") {
+      const { batch: started, nextIndex } = collectEventBatch(
+        events,
+        index,
+        "invocation.started",
+      );
+      index = nextIndex;
+      view =
+        started.length === 1 && started[0] !== undefined
+          ? reduceRunViewModel(view, started[0])
+          : reduceStartedBatch(view, started);
       continue;
     }
-    const created: Extract<OutputEvent, { type: "invocation.created" }>[] = [];
-    while (events[index]?.type === "invocation.created") {
-      created.push(
-        events[index] as Extract<OutputEvent, { type: "invocation.created" }>,
+    if (event?.type === "invocation.created") {
+      const { batch: created, nextIndex } = collectEventBatch(
+        events,
+        index,
+        "invocation.created",
       );
-      index += 1;
+      view = reduceCreatedBatch(view, created);
+      index = nextIndex;
+      continue;
     }
-    const reconciled = reconcileCreatedBatch(view, created);
-    view = {
-      ...reconciled.view,
-      runState: "active",
-      workId: created.at(-1)?.workId ?? view.workId,
-      runId: created.at(-1)?.runId ?? view.runId,
-      startedAt:
-        view.startedAt ??
-        (created[0] === undefined
-          ? undefined
-          : eventTimestamp(created[0].metadata, view.now)),
-      lastEventSequence: maxEventSequence(created, view.lastEventSequence),
-    };
-    for (const item of created) {
-      if (!reconciled.consumed.has(item.invocationId)) {
-        view = reduceRunViewModel(view, item);
-      }
+    if (event !== undefined) {
+      view = reduceRunViewModel(view, event);
     }
+    index += 1;
   }
   return view;
 }

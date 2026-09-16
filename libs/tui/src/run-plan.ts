@@ -1,4 +1,3 @@
-import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { rebuildTopology } from "./run-topology.js";
 import type { OutputEvent, RunNode, RunViewModel } from "./run-view-model.js";
 
@@ -7,6 +6,7 @@ type PlanNode = Extract<
   { type: "run.plan" }
 >["plan"]["nodes"][number];
 type CreatedEvent = Extract<OutputEvent, { type: "invocation.created" }>;
+type StartedEvent = Extract<OutputEvent, { type: "invocation.started" }>;
 type StartedSubject = Extract<
   OutputEvent,
   { type: "invocation.started" }
@@ -20,10 +20,13 @@ export function planNodeKind(node: PlanNode): RunNode["kind"] {
 }
 
 function planNodeSubject(node: PlanNode): CreatedEvent["subject"] {
-  if (node.type === "task" && node.taskId !== undefined) {
-    return { type: "task", taskId: node.taskId };
+  if (node.type === "validation.gate") {
+    return { type: "validation-gate", planNodeId: node.planNodeId };
   }
-  return { type: "validation-gate", planNodeId: node.planNodeId };
+  if (node.type === "validation.check" && node.taskId === undefined) {
+    return { type: "validator", validatorId: node.label };
+  }
+  return { type: "task", taskId: node.taskId ?? node.label };
 }
 
 export function plannedInvocation(
@@ -320,13 +323,44 @@ export function reconcileCreatedBatch(
   };
 }
 
-export function maxEventSequence(
-  events: readonly SeqlaneExecutionEvent[],
-  fallback: number,
-): number {
-  return events.reduce(
-    (maximum, event) =>
-      Math.max(maximum, event.metadata?.sequence ?? maximum + 1),
-    fallback,
-  );
+/** Rename a burst of planned placeholders before applying lifecycle updates. */
+export function reconcileStartedBatch(
+  view: RunViewModel,
+  events: readonly StartedEvent[],
+): RunViewModel {
+  if (events.length < 2) return view;
+  const replacements = new Map<string, string>();
+  const replacementIds = new Set<string>();
+  for (const event of events) {
+    if (view.nodes.has(event.invocationId)) continue;
+    const placeholderId = plannedInvocationForSubject(view, event.subject);
+    if (
+      placeholderId === undefined ||
+      replacements.has(placeholderId) ||
+      replacementIds.has(event.invocationId)
+    ) {
+      continue;
+    }
+    replacements.set(placeholderId, event.invocationId);
+    replacementIds.add(event.invocationId);
+  }
+  if (replacements.size === 0) return view;
+  const replace = (id: string): string => replacements.get(id) ?? id;
+  const nodes = new Map<string, RunNode>();
+  for (const [oldId, node] of view.nodes) {
+    nodes.set(replace(oldId), {
+      ...node,
+      invocationId: replace(oldId),
+      ...(node.parentInvocationId === undefined
+        ? {}
+        : { parentInvocationId: replace(node.parentInvocationId) }),
+      dependencyIds: node.dependencyIds.map(replace),
+    });
+  }
+  const presentation = new Map<string, { readonly isExpanded: boolean }>();
+  for (const [id, state] of view.presentation) {
+    presentation.set(replace(id), state);
+  }
+  const projected = rebuildTopology({ ...view, presentation }, nodes);
+  return { ...projected, ...indexPlanPlaceholders(projected.nodes) };
 }

@@ -499,14 +499,17 @@ typechecks, builds, lint checks, and the complete CLI entrypoint tests.
 
 ## Delivery state
 
-Partially delivered on the current feature branch. Migration steps 1 through 3
-are present: run machine output is separated by pull request #117, the
-terminal package is now `libs/tui` and `@seqlane/tui`, and the shared
-human-specific projection types use neutral run names. The remaining active
-contract work includes the complete clock, scheduling, bounds, encoding,
-interaction, Ink renderer, terminal wiring, and final migration verification
-steps. Default-branch delivery still requires reachable commits or merged pull
-requests for the completed sequence.
+Implemented on the current feature branch. The branch includes bounded event
+projection, clock-based elapsed time, safe field encoding, passive Ink
+rendering, CLI wiring, and renderer cleanup.
+
+The review follow-up aligns plan subjects with runtime subjects. It also keeps
+dependency indexes, task totals, event order, secret redaction, and large-plan
+updates correct. Animation updates only the header and active rows.
+
+Pull request #120 remains open. Thus, the current default branch does not
+contain this delivery. The integration task tracks the final cross-mode CLI
+verification.
 
 ## Traceability
 

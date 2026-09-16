@@ -12,6 +12,12 @@ describe("terminal fields", () => {
   it("redacts a secret split by terminal controls", () => {
     expect(encodeTerminalField("sec\u001b[31mret", ["secret"])).toBe("***");
   });
+  it.each(["\n", "\u0085", "\u202e", "\u2066"])(
+    "redacts a secret split by encoded control %j",
+    (control) => {
+      expect(encodeTerminalField(`sec${control}ret`, ["secret"])).toBe("***");
+    },
+  );
   it.each([
     "\r",
     "\n",

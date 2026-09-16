@@ -429,6 +429,62 @@ describe("human execution view model", () => {
     });
   });
 
+  it.each(["invocation.progress", "invocation.skipped"] as const)(
+    "keeps reverse dependency indexes consistent after %s",
+    (type) => {
+      const lifecycle =
+        type === "invocation.progress"
+          ? {
+              type,
+              ...run,
+              invocationId: "dependent",
+              state: "waiting" as const,
+              phase: "dependencies",
+              dependencyIds: ["replacement"],
+            }
+          : {
+              type,
+              ...run,
+              invocationId: "dependent",
+              reason: "dependency changed",
+              dependencyIds: ["replacement"],
+            };
+      const view = reduceRunEvents([
+        created("original", "Original", 0),
+        created("replacement", "Replacement", 1),
+        created("dependent", "Dependent", 2, {
+          dependencyIds: ["original"],
+        }),
+        lifecycle,
+      ]);
+
+      expect(view.nodes.get("dependent")?.dependencyIds).toEqual([
+        "replacement",
+      ]);
+      expect(view.nodes.get("dependent")?.waitingDependencyLabels).toEqual([
+        "Replacement",
+      ]);
+      expect(view.dependentsByDependency.has("original")).toBe(false);
+      expect(view.dependentsByDependency.get("replacement")).toEqual([
+        "dependent",
+      ]);
+      expect(view.retainedDependencyEdgeCount).toBe(1);
+    },
+  );
+
+  it("preserves creation order when equal-order events are reduced in a batch", () => {
+    const first = {
+      ...created("z-first", "First", 0),
+      metadata: { ...run.metadata, sequence: 2 },
+    };
+    const second = {
+      ...created("a-second", "Second", 0),
+      metadata: { ...run.metadata, sequence: 3 },
+    };
+    const view = reduceRunEvents([first, second]);
+    expect(view.rootInvocationIds).toEqual(["z-first", "a-second"]);
+  });
+
   it("aggregates completed descendants and supports collapse", () => {
     const expanded = reduceRunEvents([
       created("workflow", "Workflow", 0, { kind: "workflow" }),

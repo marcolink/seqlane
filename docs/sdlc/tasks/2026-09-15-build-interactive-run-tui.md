@@ -58,6 +58,10 @@ PR review follow-up covers early operational-host plan publication, planned
 metadata reconciliation, batch projection, strict output retention, terminal
 field encoding and redaction, and removal of obsolete interaction/resize code.
 
+The final review fixes planned subject identity, dependency reindexing, dynamic
+task totals, stable event order, control-safe redaction, large-plan scaling,
+and isolated animation updates. Focused regressions cover each correction.
+
 No default-branch delivery claim is made. That requires a merged pull request.
 
 ## Traceability

@@ -12,11 +12,13 @@ export interface HumanTreeProps {
   readonly view: RunViewModel;
   readonly capabilities: HumanDisplayCapabilities;
   readonly spinnerFrame: number;
+  readonly animate?: boolean;
 }
 export function HumanTree({
   view,
   capabilities,
   spinnerFrame,
+  animate = false,
 }: HumanTreeProps): React.JSX.Element {
   const notice = getRunProjectionLimitNotice(view);
   const rows = useMemo(
@@ -36,8 +38,9 @@ export function HumanTree({
             row={row}
             capabilities={capabilities}
             spinnerFrame={spinnerFrame}
+            animate={animate}
             lastSibling={siblings.at(-1) === row.node.invocationId}
-            now={view.now()}
+            now={view.now}
           />
         );
       })}

@@ -3,8 +3,13 @@ import { cleanup, render } from "ink-testing-library";
 import { stripVTControlCharacters } from "node:util";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { reduceRunEvents, reduceRunViewModel } from "../run-view-model.js";
+import {
+  getRunVisibleRows,
+  reduceRunEvents,
+  reduceRunViewModel,
+} from "../run-view-model.js";
 import { HumanApp, LiveHumanApp } from "./app.js";
+import { sameHumanTreeRowProps } from "./tree-row.js";
 
 const event = {
   workId: "work-1",
@@ -16,6 +21,12 @@ const event = {
     occurredAt: "2026-09-15T00:00:00.000Z",
   },
 };
+
+function getOnlyRow(view: ReturnType<typeof reduceRunEvents>) {
+  const row = getRunVisibleRows(view)[0];
+  if (row === undefined) throw new Error("expected one visible row");
+  return row;
+}
 
 describe("HumanApp", () => {
   afterEach(cleanup);
@@ -315,6 +326,98 @@ describe("HumanApp", () => {
     );
     expect(rendered.lastFrame()).toContain(">=0/2");
     expect(rendered.lastFrame()).not.toContain("1/2");
+  });
+
+  it("adds dynamic tasks to planned header totals", () => {
+    let view = reduceRunEvents([
+      {
+        type: "run.plan",
+        ...event,
+        plan: {
+          workflow: { id: "dynamic" },
+          nodes: [
+            {
+              planNodeId: "planned",
+              type: "task",
+              taskId: "planned",
+              label: "Planned",
+              siblingOrder: 0,
+              dependsOn: [],
+            },
+          ],
+        },
+      },
+      {
+        type: "invocation.created",
+        ...event,
+        invocationId: "dynamic",
+        planNodeId: "dynamic",
+        subject: { type: "task", taskId: "dynamic" },
+        taskId: "dynamic",
+        kind: "task",
+        label: "Dynamic",
+        siblingOrder: 1,
+        dependencyIds: [],
+      },
+    ]);
+    view = reduceRunViewModel(view, {
+      type: "invocation.succeeded",
+      ...event,
+      invocationId: "dynamic",
+    });
+    const rendered = render(
+      <HumanApp
+        view={view}
+        capabilities={{ supportsAnsi: false, supportsUnicode: true, width: 80 }}
+        spinnerFrame={0}
+      />,
+    );
+    expect(rendered.lastFrame()).toContain("1/2");
+    expect(rendered.lastFrame()).not.toContain("1/1");
+  });
+
+  it("memoizes stable non-active rows across spinner frames", () => {
+    const view = reduceRunEvents([
+      {
+        type: "invocation.created",
+        ...event,
+        invocationId: "queued",
+        planNodeId: "queued",
+        subject: { type: "task", taskId: "queued" },
+        taskId: "queued",
+        kind: "task",
+        label: "Queued",
+        siblingOrder: 0,
+        dependencyIds: [],
+      },
+    ]);
+    const row = getOnlyRow(view);
+    const common = {
+      row,
+      capabilities: { supportsAnsi: false, supportsUnicode: true },
+      lastSibling: true,
+      now: view.now,
+    };
+    expect(
+      sameHumanTreeRowProps(
+        { ...common, spinnerFrame: 0 },
+        { ...common, spinnerFrame: 1 },
+      ),
+    ).toBe(true);
+
+    const active = reduceRunViewModel(view, {
+      type: "invocation.started",
+      ...event,
+      invocationId: "queued",
+      subject: { type: "task", taskId: "queued" },
+    });
+    const activeRow = getOnlyRow(active);
+    expect(
+      sameHumanTreeRowProps(
+        { ...common, row: activeRow, spinnerFrame: 0 },
+        { ...common, row: activeRow, spinnerFrame: 1 },
+      ),
+    ).toBe(false);
   });
 
   it("updates task completion through React rerender", async () => {

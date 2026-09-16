@@ -82,6 +82,70 @@ it("reconciles created invocations without losing plan context or references", (
   expect(initial.nodes.has("plan:1")).toBe(true);
 });
 
+it("derives planned subjects with the same identities as runtime invocations", () => {
+  const view = reduceRunEvents([
+    {
+      ...identity,
+      type: "run.plan",
+      plan: {
+        workflow: { id: "subjects" },
+        nodes: [
+          {
+            planNodeId: "workflow",
+            type: "workflow",
+            label: "nested-workflow",
+            siblingOrder: 0,
+            dependsOn: [],
+          },
+          {
+            planNodeId: "repeat",
+            type: "repeat",
+            label: "repeat:1",
+            siblingOrder: 1,
+            maximumIterations: 2,
+            dependsOn: [],
+          },
+          {
+            planNodeId: "task-check",
+            type: "validation.check",
+            taskId: "source-task",
+            label: "source-task",
+            siblingOrder: 2,
+            dependsOn: [],
+          },
+          {
+            planNodeId: "validator-check",
+            type: "validation.check",
+            label: "semantic-validator",
+            siblingOrder: 3,
+            dependsOn: [],
+          },
+          {
+            planNodeId: "gate",
+            type: "validation.gate",
+            label: "validation.gate:1",
+            siblingOrder: 4,
+            dependsOn: [],
+          },
+        ],
+      },
+    },
+  ]);
+
+  expect(view.nodes.get("plan:workflow")?.taskId).toBe("nested-workflow");
+  expect(view.nodes.get("plan:repeat")?.taskId).toBe("repeat:1");
+  expect(view.nodes.get("plan:task-check")?.validation?.sourceType).toBe(
+    "evaluator",
+  );
+  expect(view.nodes.get("plan:validator-check")?.validation).toMatchObject({
+    sourceId: "semantic-validator",
+    sourceType: "validator",
+  });
+  expect(view.nodes.get("plan:gate")?.validation?.sourceType).toBe(
+    "validation-gate",
+  );
+});
+
 it("reconciles 10,000 planned invocations in one linear batch", () => {
   const created = Array.from(
     { length: 10_000 },
@@ -106,6 +170,26 @@ it("reconciles 10,000 planned invocations in one linear batch", () => {
   expect(view.nodes.has("plan:9999")).toBe(false);
   expect(view.nodes.get("live:9999")?.dependencyIds).toEqual(["live:9998"]);
   expect(view.childrenByParent.get("live:0")).toHaveLength(9_999);
+});
+
+it("materializes a lifecycle burst without copying the complete plan per event", () => {
+  const initial = reduceRunEvents([plan(10_000)]);
+  const started = Array.from(
+    { length: 10_000 },
+    (_, index): SeqlaneExecutionEvent => ({
+      ...identity,
+      type: "invocation.started",
+      invocationId: `live:${index}`,
+      subject: { type: "task", taskId: String(index) },
+      taskId: String(index),
+    }),
+  );
+  const before = performance.now();
+  const view = reduceRunEventBatch(initial, started);
+  expect(performance.now() - before).toBeLessThan(3000);
+  expect(view.nodes.size).toBe(10_000);
+  expect(view.nodes.get("live:9999")?.state).toBe("active");
+  expect(view.nodes.has("plan:9999")).toBe(false);
 });
 
 it("projects many lifecycle events without per-event full-map copies", () => {

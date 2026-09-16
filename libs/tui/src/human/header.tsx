@@ -1,8 +1,9 @@
-import { Box, Text } from "ink";
+import { Box, Text, useAnimation } from "ink";
 import { useMemo } from "react";
 import { workTone } from "./theme.js";
 import { encodeTerminalField } from "../terminal-field.js";
 import type { RunViewModel } from "../run-view-model.js";
+import { getRootRunElapsedMs } from "../run-view-model.js";
 import {
   formatDuration,
   statusColor,
@@ -12,28 +13,32 @@ import {
 
 export interface HumanHeaderProps {
   readonly view: RunViewModel;
-  readonly elapsedMs?: number;
   readonly capabilities: HumanDisplayCapabilities;
   readonly spinnerFrame: number;
+  readonly animate?: boolean;
 }
 export function HumanHeader({
   view,
-  elapsedMs,
   capabilities,
   spinnerFrame,
+  animate = false,
 }: HumanHeaderProps): React.JSX.Element {
+  const animation = useAnimation({
+    interval: 100,
+    isActive: animate && view.runState === "active",
+  });
+  const frame = animate ? animation.frame : spinnerFrame;
   const counts = useMemo(() => {
     const tasks = [...view.nodes.values()].filter(
       (node) => node.kind === "task",
     );
+    const total = (view.plannedTaskCount ?? 0) + view.dynamicTaskCount;
     return {
-      total: view.plannedTaskCount ?? tasks.length,
+      total,
       complete: tasks.filter((node) => node.state === "succeeded").length,
-      incompleteProjection:
-        view.plannedTaskCount !== undefined &&
-        view.plannedTaskCount > tasks.length,
+      incompleteProjection: total > tasks.length,
     };
-  }, [view.nodes, view.plannedTaskCount]);
+  }, [view.dynamicTaskCount, view.nodes, view.plannedTaskCount]);
   const state = view.runState === "idle" ? "queued" : view.runState;
   const lowerBound = capabilities.supportsUnicode ? "≥" : ">=";
   const facts =
@@ -42,7 +47,7 @@ export function HumanHeader({
     "/" +
     counts.total +
     " · " +
-    formatDuration(elapsedMs);
+    formatDuration(getRootRunElapsedMs(view));
   const width = Math.max(1, capabilities.width ?? 80);
   const disclosure = capabilities.supportsUnicode ? " ▼ " : " v ";
   const color = capabilities.supportsAnsi ? statusColor(state) : undefined;
@@ -52,7 +57,7 @@ export function HumanHeader({
       <Box flexGrow={1} flexShrink={1} minWidth={0}>
         <Text wrap="truncate-end">
           <Text color={color} bold={tone.bold}>
-            {statusSymbol(state, capabilities.supportsUnicode, spinnerFrame)}
+            {statusSymbol(state, capabilities.supportsUnicode, frame)}
           </Text>
           <Text {...tone}>
             {disclosure +

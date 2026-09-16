@@ -1,13 +1,6 @@
-import {
-  Box,
-  render,
-  Text,
-  useAnimation,
-  useWindowSize,
-  type Instance,
-} from "ink";
+import { Box, render, Text, useWindowSize, type Instance } from "ink";
+import { useMemo } from "react";
 import type { RunViewModel } from "../run-view-model.js";
-import { getRootRunElapsedMs } from "../run-view-model.js";
 import type { HumanDisplayCapabilities } from "./format.js";
 import { HumanHeader } from "./header.js";
 import { HumanTree } from "./tree.js";
@@ -17,6 +10,7 @@ export interface HumanAppProps {
   readonly view: RunViewModel;
   readonly capabilities: HumanDisplayCapabilities;
   readonly spinnerFrame: number;
+  readonly animate?: boolean;
 }
 
 export interface MountedHumanApp {
@@ -57,15 +51,11 @@ export function mountHumanApp(
 }
 
 export function LiveHumanApp(props: HumanAppProps): React.JSX.Element {
-  const { frame } = useAnimation({
-    interval: 100,
-    isActive: props.view.runState === "active",
-  });
   const { columns, rows } = useWindowSize();
   return (
     <HumanApp
       {...props}
-      spinnerFrame={frame}
+      animate
       capabilities={{
         ...props.capabilities,
         width: columns,
@@ -79,25 +69,30 @@ export function HumanApp({
   view,
   capabilities,
   spinnerFrame,
+  animate = false,
 }: HumanAppProps): React.JSX.Element {
   // Leave the terminal's final column unused to avoid edge clipping/autowrap.
-  const contentCapabilities = {
-    ...capabilities,
-    width: Math.max(1, (capabilities.width ?? 80) - 1),
-  };
+  const contentCapabilities = useMemo(
+    () => ({
+      ...capabilities,
+      width: Math.max(1, (capabilities.width ?? 80) - 1),
+    }),
+    [capabilities],
+  );
   return (
     <Box flexDirection="column">
       <HumanHeader
         view={view}
-        elapsedMs={getRootRunElapsedMs(view)}
         capabilities={contentCapabilities}
         spinnerFrame={spinnerFrame}
+        animate={animate}
       />
       <Box marginTop={1} flexDirection="column">
         <HumanTree
           view={view}
           capabilities={contentCapabilities}
           spinnerFrame={spinnerFrame}
+          animate={animate}
         />
       </Box>
       {view.runError === undefined ? null : (
