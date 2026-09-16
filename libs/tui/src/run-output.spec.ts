@@ -39,3 +39,21 @@ it("bounds array overhead independently of text bytes", () => {
   expect(outputBytes(output)).toBe(128);
   expect(output.truncated).toBe(true);
 });
+
+it.each([
+  ["abcdef", 3, 6, 3],
+  ["😀ab", 5, 6, 1],
+] as const)(
+  "records original and omitted UTF-8 bytes for %s",
+  (content, budget, originalBytes, omittedBytes) => {
+    const output = retainOutput(
+      { persistent: [] },
+      { ...event, content },
+      budget,
+    );
+    expect(output.originalBytes).toBe(originalBytes);
+    expect(output.omittedBytes).toBe(omittedBytes);
+    expect(outputBytes(output)).toBe(originalBytes - omittedBytes);
+    expect(output.persistent.join("")).not.toContain("�");
+  },
+);

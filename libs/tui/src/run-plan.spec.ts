@@ -1,4 +1,4 @@
-// @test-scope ./run-view-model.ts
+// @test-scope ./run-view-model.ts ./run-plan.ts ./run-topology.ts
 import { expect, it } from "vitest";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { reduceRunEvents, reduceRunViewModel } from "./run-view-model.js";
@@ -76,6 +76,32 @@ it("reconciles created invocations without losing plan context or references", (
   expect(view.nodes.get("plan:2")?.dependencyIds).toEqual(["live"]);
   expect(view.childrenByParent.get("plan:0")).toEqual(["live", "plan:2"]);
   expect(initial.nodes.has("plan:1")).toBe(true);
+});
+
+it("reconciles 10,000 planned invocations in one linear batch", () => {
+  const created = Array.from(
+    { length: 10_000 },
+    (_, index): SeqlaneExecutionEvent => ({
+      ...identity,
+      type: "invocation.created",
+      invocationId: `live:${index}`,
+      planNodeId: String(index),
+      subject: { type: "task", taskId: String(index) },
+      taskId: String(index),
+      kind: index === 0 ? "workflow" : "task",
+      label: `Live ${index}`,
+      siblingOrder: index,
+      parentInvocationId: index === 0 ? undefined : "live:0",
+      dependencyIds: index > 1 ? [`live:${index - 1}`] : [],
+    }),
+  );
+  const started = performance.now();
+  const view = reduceRunEvents([plan(10_000), ...created]);
+  expect(performance.now() - started).toBeLessThan(3000);
+  expect(view.nodes.size).toBe(10_000);
+  expect(view.nodes.has("plan:9999")).toBe(false);
+  expect(view.nodes.get("live:9999")?.dependencyIds).toEqual(["live:9998"]);
+  expect(view.childrenByParent.get("live:0")).toHaveLength(9_999);
 });
 
 it("enforces shared run bytes and releases replaced transient bytes", () => {

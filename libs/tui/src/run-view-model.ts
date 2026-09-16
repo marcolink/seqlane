@@ -1,6 +1,23 @@
 import { validationResultSchema } from "@seqlane/core";
 import { projectNodeActivity } from "./run-activity.js";
 import { outputBytes, retainOutput } from "./run-output.js";
+import {
+  maxEventSequence,
+  planNodeKind,
+  plannedInvocation,
+  planPlaceholderForSubject,
+  reconcileCreatedBatch,
+} from "./run-plan.js";
+import {
+  EMPTY_AGGREGATE,
+  addAggregate,
+  addChildToTopology,
+  aggregateDelta,
+  aggregateForNode,
+  isEmptyAggregate,
+  rebuildTopology,
+  rootInvocationIds,
+} from "./run-topology.js";
 import type {
   SeqlaneFailureDisposition,
   SeqlaneDisplayValue,
@@ -56,6 +73,10 @@ export interface RunAggregate {
 
 export interface RunOutputState {
   readonly retainedBytes?: number;
+  /** Total bytes received before projection limits were applied. */
+  readonly originalBytes?: number;
+  /** Total bytes dropped by projection limits. */
+  readonly omittedBytes?: number;
   readonly truncated?: boolean;
   readonly transient?: string;
   readonly persistent: readonly string[];
@@ -139,8 +160,11 @@ export interface RunViewModel {
   readonly lastEventSequence: number;
   readonly limits: RunProjectionLimits;
   readonly omittedNodeCount: number;
+  /** Exact task count from the latest plan, including omitted projection nodes. */
+  readonly plannedTaskCount?: number;
   readonly omittedDependencyEdgeCount: number;
   readonly retainedDetailBytes: number;
+  readonly omittedDetailBytes: number;
   readonly detailsTruncated?: boolean;
   readonly now: () => Date;
 }
@@ -169,21 +193,11 @@ export interface RunVisibleRow {
   readonly depth: number;
   /** True for each ancestor whose following siblings continue the rail. */
   readonly ancestorRails: readonly boolean[];
+  /** Ancestor rails omitted from the bounded visual representation. */
+  readonly omittedAncestorRailCount: number;
   readonly hasChildren: boolean;
   readonly isExpanded: boolean;
 }
-
-const EMPTY_AGGREGATE: RunAggregate = {
-  total: 0,
-  queued: 0,
-  waiting: 0,
-  active: 0,
-  retrying: 0,
-  succeeded: 0,
-  failed: 0,
-  skipped: 0,
-  cancelled: 0,
-};
 
 function boundedDependencies(
   dependencies: readonly string[],
@@ -374,66 +388,6 @@ function isTerminalNodeState(state: RunNodeState): boolean {
   );
 }
 
-function compareNodes(left: RunNode, right: RunNode): number {
-  return (
-    left.siblingOrder - right.siblingOrder ||
-    left.createdSequence - right.createdSequence ||
-    left.invocationId.localeCompare(right.invocationId)
-  );
-}
-
-function aggregateForNode(node: Pick<RunNode, "state">): RunAggregate {
-  return {
-    total: 1,
-    queued: node.state === "queued" ? 1 : 0,
-    waiting: node.state === "waiting" ? 1 : 0,
-    active: node.state === "active" ? 1 : 0,
-    retrying: node.state === "retrying" ? 1 : 0,
-    succeeded: node.state === "succeeded" ? 1 : 0,
-    failed: node.state === "failed" ? 1 : 0,
-    skipped: node.state === "skipped" ? 1 : 0,
-    cancelled: node.state === "cancelled" ? 1 : 0,
-  };
-}
-
-function aggregateDelta(
-  next: RunAggregate,
-  previous: RunAggregate,
-): RunAggregate {
-  return {
-    total: next.total - previous.total,
-    queued: next.queued - previous.queued,
-    waiting: next.waiting - previous.waiting,
-    active: next.active - previous.active,
-    retrying: next.retrying - previous.retrying,
-    succeeded: next.succeeded - previous.succeeded,
-    failed: next.failed - previous.failed,
-    skipped: next.skipped - previous.skipped,
-    cancelled: next.cancelled - previous.cancelled,
-  };
-}
-
-function addAggregate(
-  aggregate: RunAggregate,
-  delta: RunAggregate,
-): RunAggregate {
-  return {
-    total: aggregate.total + delta.total,
-    queued: aggregate.queued + delta.queued,
-    waiting: aggregate.waiting + delta.waiting,
-    active: aggregate.active + delta.active,
-    retrying: aggregate.retrying + delta.retrying,
-    succeeded: aggregate.succeeded + delta.succeeded,
-    failed: aggregate.failed + delta.failed,
-    skipped: aggregate.skipped + delta.skipped,
-    cancelled: aggregate.cancelled + delta.cancelled,
-  };
-}
-
-function isEmptyAggregate(aggregate: RunAggregate): boolean {
-  return Object.values(aggregate).every((value) => value === 0);
-}
-
 function applyAncestorAggregateDelta(
   view: RunViewModel,
   delta: RunAggregate,
@@ -456,91 +410,6 @@ function applyAncestorAggregateDelta(
   return { ...view, nodes };
 }
 
-function rebuildTopology(
-  view: RunViewModel,
-  sourceNodes: ReadonlyMap<string, RunNode>,
-): RunViewModel {
-  const childrenByParent = new Map<string, string[]>();
-  for (const node of sourceNodes.values()) {
-    if (node.parentInvocationId === undefined) continue;
-    const children = childrenByParent.get(node.parentInvocationId) ?? [];
-    children.push(node.invocationId);
-    childrenByParent.set(node.parentInvocationId, children);
-  }
-  for (const children of childrenByParent.values()) {
-    children.sort((leftId, rightId) => {
-      const left = sourceNodes.get(leftId);
-      const right = sourceNodes.get(rightId);
-      return left === undefined || right === undefined
-        ? 0
-        : compareNodes(left, right);
-    });
-  }
-  const nodes = new Map<string, RunNode>();
-  for (const node of sourceNodes.values()) {
-    nodes.set(node.invocationId, {
-      ...node,
-      waitingDependencyLabels: node.dependencyIds
-        .map((dependencyId) => sourceNodes.get(dependencyId)?.label)
-        .filter((label): label is string => label !== undefined),
-      aggregate:
-        node.kind === "workflow" || node.kind === "loop"
-          ? EMPTY_AGGREGATE
-          : aggregateForNode(node),
-    });
-  }
-  const rootInvocationIds = [...nodes.values()]
-    .filter(
-      (node) =>
-        node.parentInvocationId === undefined ||
-        !nodes.has(node.parentInvocationId),
-    )
-    .sort(compareNodes)
-    .map(({ invocationId }) => invocationId);
-  rebuildAggregates(nodes, childrenByParent);
-  return { ...view, nodes, childrenByParent, rootInvocationIds };
-}
-
-/** Mutates only the new topology map, never a previous projection. */
-function rebuildAggregates(
-  nodes: Map<string, RunNode>,
-  childrenByParent: ReadonlyMap<string, readonly string[]>,
-): void {
-  // Fold each subtree once, leaves first, without cloning the node map per edge.
-  const remaining = new Map(
-    [...nodes.keys()].map((id) => [id, childrenByParent.get(id)?.length ?? 0]),
-  );
-  const totals = new Map(
-    [...nodes.values()].map((node) => [
-      node.invocationId,
-      aggregateForNode(node),
-    ]),
-  );
-  const pending = [...nodes.keys()].filter((id) => remaining.get(id) === 0);
-  for (let index = 0; index < pending.length; index += 1) {
-    const id = pending[index];
-    if (id === undefined) continue;
-    const node = nodes.get(id);
-    if (node === undefined) continue;
-    const total = totals.get(id) ?? EMPTY_AGGREGATE;
-    if (node.kind === "workflow" || node.kind === "loop") {
-      nodes.set(id, {
-        ...node,
-        aggregate: aggregateDelta(total, aggregateForNode(node)),
-      });
-    }
-    const parent = node.parentInvocationId;
-    if (parent === undefined || !nodes.has(parent)) continue;
-    totals.set(
-      parent,
-      addAggregate(totals.get(parent) ?? EMPTY_AGGREGATE, total),
-    );
-    const count = (remaining.get(parent) ?? 1) - 1;
-    remaining.set(parent, count);
-    if (count === 0) pending.push(parent);
-  }
-}
-
 export function createRunViewModel(
   options: RunViewModelOptions = {},
 ): RunViewModel {
@@ -557,6 +426,7 @@ export function createRunViewModel(
     omittedNodeCount: 0,
     omittedDependencyEdgeCount: 0,
     retainedDetailBytes: 0,
+    omittedDetailBytes: 0,
     now: options.now ?? (() => new Date()),
   };
   return rebuildTopology(view, view.nodes);
@@ -582,41 +452,6 @@ function setRunState(
       : {}),
     ...(terminal ? { finishedAt: timestamp } : {}),
   };
-}
-
-function addChildToTopology(
-  childrenByParent: ReadonlyMap<string, readonly string[]>,
-  nodes: ReadonlyMap<string, RunNode>,
-  node: RunNode,
-): ReadonlyMap<string, readonly string[]> {
-  if (node.parentInvocationId === undefined) return childrenByParent;
-  const next = new Map(childrenByParent);
-  const children = [
-    ...(next.get(node.parentInvocationId) ?? []),
-    node.invocationId,
-  ];
-  children.sort((leftId, rightId) => {
-    const left = nodes.get(leftId);
-    const right = nodes.get(rightId);
-    return left === undefined || right === undefined
-      ? 0
-      : compareNodes(left, right);
-  });
-  next.set(node.parentInvocationId, children);
-  return next;
-}
-
-function rootInvocationIds(
-  nodes: ReadonlyMap<string, RunNode>,
-): readonly string[] {
-  return [...nodes.values()]
-    .filter(
-      (node) =>
-        node.parentInvocationId === undefined ||
-        !nodes.has(node.parentInvocationId),
-    )
-    .sort(compareNodes)
-    .map(({ invocationId }) => invocationId);
 }
 
 function reduceCreated(
@@ -705,24 +540,6 @@ function reduceCreated(
   );
 }
 
-function planNodeKind(
-  node: Extract<OutputEvent, { type: "run.plan" }>["plan"]["nodes"][number],
-): RunNode["kind"] {
-  if (node.type === "workflow") return "workflow";
-  if (node.type === "repeat") return "loop";
-  if (node.type.startsWith("validation.")) return "validation";
-  return "task";
-}
-
-function planNodeSubject(
-  node: Extract<OutputEvent, { type: "run.plan" }>["plan"]["nodes"][number],
-): Extract<OutputEvent, { type: "invocation.created" }>["subject"] {
-  if (node.type === "task" && node.taskId !== undefined) {
-    return { type: "task", taskId: node.taskId };
-  }
-  return { type: "validation-gate", planNodeId: node.planNodeId };
-}
-
 function reducePlan(
   view: RunViewModel,
   event: Extract<OutputEvent, { type: "run.plan" }>,
@@ -776,34 +593,9 @@ function reducePlan(
   return {
     ...setRunState(projected, "active", event),
     workflowLabel: event.plan.workflow.id,
-  };
-}
-
-function plannedInvocation(
-  event: Extract<OutputEvent, { type: "run.plan" }>,
-  node: Extract<OutputEvent, { type: "run.plan" }>["plan"]["nodes"][number],
-  identities: ReadonlyMap<string, string>,
-): Extract<OutputEvent, { type: "invocation.created" }> {
-  return {
-    type: "invocation.created",
-    metadata: event.metadata,
-    workId: event.workId,
-    runId: event.runId,
-    invocationId: `plan:${node.planNodeId}`,
-    planNodeId: node.planNodeId,
-    subject: planNodeSubject(node),
-    taskId: node.taskId,
-    kind: planNodeKind(node),
-    label: node.label,
-    parentInvocationId:
-      node.parentPlanNodeId === undefined
-        ? undefined
-        : (identities.get(node.parentPlanNodeId) ??
-          `plan:${node.parentPlanNodeId}`),
-    siblingOrder: node.siblingOrder,
-    dependencyIds: node.dependsOn.map(
-      (id) => identities.get(id) ?? `plan:${id}`,
-    ),
+    plannedTaskCount: event.plan.nodes.filter(
+      (node) => planNodeKind(node) === "task",
+    ).length,
   };
 }
 
@@ -823,49 +615,6 @@ function collapseSuccessfulBranch(
     isExpanded: false,
   });
   return { ...view, presentation };
-}
-
-function uniquePlanPlaceholder(
-  placeholders: readonly RunNode[],
-  matches: (node: RunNode) => boolean,
-): RunNode | undefined {
-  const candidates = placeholders.filter(matches);
-  return candidates.length === 1 ? candidates[0] : undefined;
-}
-
-function planPlaceholderForSubject(
-  placeholders: readonly RunNode[],
-  subject: Extract<OutputEvent, { type: "invocation.started" }>["subject"],
-): RunNode | undefined {
-  switch (subject.type) {
-    case "validation-gate":
-      return placeholders.find(
-        (node) => node.planNodeId === subject.planNodeId,
-      );
-    case "task":
-      return (
-        uniquePlanPlaceholder(
-          placeholders,
-          (node) => node.taskId === subject.taskId,
-        ) ??
-        uniquePlanPlaceholder(
-          placeholders,
-          (node) => node.kind === "validation",
-        )
-      );
-    case "validator":
-      return (
-        uniquePlanPlaceholder(
-          placeholders,
-          (node) => node.taskId === subject.validatorId,
-        ) ??
-        uniquePlanPlaceholder(
-          placeholders,
-          (node) =>
-            node.kind === "validation" && node.label === subject.validatorId,
-        )
-      );
-  }
 }
 
 function materializePlanPlaceholder(
@@ -995,6 +744,10 @@ export function reduceRunViewModel(
         ...updated,
         retainedDetailBytes:
           next.retainedDetailBytes - priorBytes + outputBytes(output),
+        omittedDetailBytes:
+          next.omittedDetailBytes +
+          (output.omittedBytes ?? 0) -
+          (node.output.omittedBytes ?? 0),
         detailsTruncated: next.detailsTruncated || output.truncated,
       };
     }
@@ -1090,7 +843,49 @@ export function reduceRunEvents(
   events: readonly OutputEvent[],
   options: RunViewModelOptions = {},
 ): RunViewModel {
-  return events.reduce(reduceRunViewModel, createRunViewModel(options));
+  return reduceRunEventBatch(createRunViewModel(options), events);
+}
+
+/** Batch creation bursts so large plans reconcile with one topology rebuild. */
+export function reduceRunEventBatch(
+  initial: RunViewModel,
+  events: readonly OutputEvent[],
+): RunViewModel {
+  let view = initial;
+  for (let index = 0; index < events.length;) {
+    const event = events[index];
+    if (event?.type !== "invocation.created") {
+      if (event !== undefined) view = reduceRunViewModel(view, event);
+      index += 1;
+      continue;
+    }
+    const created: Extract<OutputEvent, { type: "invocation.created" }>[] = [];
+    while (events[index]?.type === "invocation.created") {
+      created.push(
+        events[index] as Extract<OutputEvent, { type: "invocation.created" }>,
+      );
+      index += 1;
+    }
+    const reconciled = reconcileCreatedBatch(view, created);
+    view = {
+      ...reconciled.view,
+      runState: "active",
+      workId: created.at(-1)?.workId ?? view.workId,
+      runId: created.at(-1)?.runId ?? view.runId,
+      startedAt:
+        view.startedAt ??
+        (created[0] === undefined
+          ? undefined
+          : eventTimestamp(created[0].metadata, view.now)),
+      lastEventSequence: maxEventSequence(created, view.lastEventSequence),
+    };
+    for (const item of created) {
+      if (!reconciled.consumed.has(item.invocationId)) {
+        view = reduceRunViewModel(view, item);
+      }
+    }
+  }
+  return view;
 }
 
 /** Root wall-clock duration. Child durations are intentionally never summed. */
@@ -1115,6 +910,7 @@ export function getRunVisibleRows(
       invocationId,
       depth: 0,
       ancestorRails: [] as readonly boolean[],
+      omittedAncestorRailCount: 0,
       hasNextSibling: index < roots.length - 1,
     }))
     .reverse();
@@ -1130,6 +926,7 @@ export function getRunVisibleRows(
       node,
       depth: current.depth,
       ancestorRails: current.ancestorRails,
+      omittedAncestorRailCount: current.omittedAncestorRailCount,
       hasChildren: children.length > 0,
       isExpanded,
     });
@@ -1137,10 +934,17 @@ export function getRunVisibleRows(
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const invocationId = children[index];
       if (invocationId !== undefined) {
+        const ancestorRails = [
+          ...current.ancestorRails,
+          current.hasNextSibling,
+        ];
         pending.push({
           invocationId,
           depth: current.depth + 1,
-          ancestorRails: [...current.ancestorRails, current.hasNextSibling],
+          ancestorRails: ancestorRails.slice(-32),
+          omittedAncestorRailCount:
+            current.omittedAncestorRailCount +
+            Math.max(0, ancestorRails.length - 32),
           hasNextSibling: index < children.length - 1,
         });
       }
@@ -1165,7 +969,9 @@ export function getRunProjectionLimitNotice(
     view.omittedNodeCount +
     " edges=" +
     view.omittedDependencyEdgeCount +
-    (view.detailsTruncated ? " details truncated]" : "]")
+    (view.detailsTruncated
+      ? " details truncated omitted_bytes=" + view.omittedDetailBytes + "]"
+      : "]")
   );
 }
 

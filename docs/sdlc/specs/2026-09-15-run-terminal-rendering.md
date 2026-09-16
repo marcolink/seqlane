@@ -333,18 +333,19 @@ libs/tui/src/
   index.ts
   renderer-contract.ts
   run-view-model.ts
-  reducer.ts
-  formatting/
+  run-plan.ts
+  run-topology.ts
+  run-output.ts
+  output-details.ts
+  human-renderer.ts
+  ci-renderer.ts
   human/
-    renderer.tsx
     app.tsx
     tree.tsx
     header.tsx
     tree-row.tsx
     format.ts
-  ci/
-    renderer.ts
-    summary.ts
+    task-details.tsx
 ```
 
 The human tree uses these branch rules:

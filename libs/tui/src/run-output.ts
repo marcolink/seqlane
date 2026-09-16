@@ -44,12 +44,17 @@ export function retainOutput(
       ? Buffer.byteLength(content)
       : Buffer.byteLength(transient ?? "") -
         Buffer.byteLength(output.transient ?? ""));
+  const retainedContentBytes = Buffer.byteLength(content);
+  const omittedBytes =
+    (output.omittedBytes ?? 0) + originalBytes - retainedContentBytes;
   return {
     ...output,
     persistent,
     transient,
     retainedBytes,
-    truncated: output.truncated || originalBytes > budget,
+    originalBytes: (output.originalBytes ?? 0) + originalBytes,
+    omittedBytes,
+    truncated: output.truncated || omittedBytes > 0,
     metrics: event.metrics ?? output.metrics,
     summary: event.summary ?? output.summary,
   };

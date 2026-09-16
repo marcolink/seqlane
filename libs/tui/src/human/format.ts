@@ -84,7 +84,8 @@ export function treePrefix(
     32,
     Math.max(0, Math.floor(((capabilities.width ?? 80) - 24) / 3)),
   );
-  const omitted = Math.max(0, row.ancestorRails.length - limit);
+  const boundedOmitted = Math.max(0, row.ancestorRails.length - limit);
+  const omitted = row.omittedAncestorRailCount + boundedOmitted;
   const rail = capabilities.supportsUnicode ? "│  " : "|  ";
   const branches = capabilities.supportsUnicode
     ? ["├─ ", "└─ "]
@@ -92,7 +93,7 @@ export function treePrefix(
   return (
     (omitted ? "+" + omitted + " " : "") +
     row.ancestorRails
-      .slice(omitted)
+      .slice(boundedOmitted)
       .map((continues) => (continues ? rail : "   "))
       .join("") +
     branches[lastSibling ? 1 : 0]

@@ -4,6 +4,7 @@ import type { HumanDisplayCapabilities } from "./format.js";
 import { workTone } from "./theme.js";
 import { encodeTerminalField } from "../terminal-field.js";
 import { usageSummary } from "./usage.js";
+import { formatCIValidationDetails } from "../output-details.js";
 
 function contextSummary(node: RunNode): string {
   const parts: string[] = [];
@@ -50,7 +51,17 @@ export function HumanTaskDetails({
       ]
     : [];
   if (node.failure) lines.push(node.failure.message);
-  if (node.output.truncated) lines.push("[output truncated]");
+  if (
+    node.validation &&
+    (node.validation.verdict !== "unknown" ||
+      node.validation.issues.length > 0 ||
+      node.validation.evidence !== undefined)
+  )
+    lines.push(formatCIValidationDetails(node.validation));
+  if (node.output.truncated)
+    lines.push(
+      `[output truncated original_bytes=${node.output.originalBytes ?? 0} omitted_bytes=${node.output.omittedBytes ?? 0}]`,
+    );
   const details = lines.filter((line): line is string => Boolean(line));
   if (details.length === 0) return null;
   const limit = Math.min(

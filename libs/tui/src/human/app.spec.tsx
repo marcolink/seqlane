@@ -199,6 +199,38 @@ describe("HumanApp", () => {
     expect(rendered.lastFrame()).toBe(output);
   });
 
+  it("keeps the exact planned task total when projection omits rows", () => {
+    const view = reduceRunEvents(
+      [
+        {
+          type: "run.plan",
+          ...event,
+          plan: {
+            workflow: { id: "large" },
+            nodes: Array.from({ length: 6 }, (_, index) => ({
+              planNodeId: String(index),
+              type: "task" as const,
+              taskId: String(index),
+              label: `Task ${index}`,
+              siblingOrder: index,
+              dependsOn: [],
+            })),
+          },
+        },
+      ],
+      { limits: { nodes: 2 } },
+    );
+    const rendered = render(
+      <HumanApp
+        view={view}
+        capabilities={{ supportsAnsi: false, supportsUnicode: true, width: 80 }}
+        spinnerFrame={0}
+      />,
+    );
+    expect(rendered.lastFrame()).toContain("0/6");
+    expect(rendered.lastFrame()).toContain("omitted nodes=4");
+  });
+
   it("updates task completion through React rerender", async () => {
     const initial = reduceRunEvents([
       { type: "run.started", ...event },

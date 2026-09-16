@@ -261,8 +261,9 @@ The native `--json` flag bypasses terminal rendering. It reserves stdout for
 one final, validated run result. Canonical event recording remains a separate
 `--record` function. A JSON event stream is not a final run result.
 
-The CLI supplies terminal capabilities, output sinks, optional
-`GITHUB_STEP_SUMMARY` integration, and resize updates. Renderer write or
+The CLI supplies terminal streams and capabilities, output sinks, and optional
+`GITHUB_STEP_SUMMARY` integration. Ink owns resize subscriptions and layout
+updates for human output. Renderer write or
 finalization errors are reported diagnostically and do not replace the runner's
 authoritative success, failure, or cancellation status.
 

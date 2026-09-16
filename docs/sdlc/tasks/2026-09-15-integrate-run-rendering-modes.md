@@ -36,8 +36,8 @@ behavior through the compiled CLI and remove migration artifacts.
 ## Scope
 
 - Implement the final mode-resolution order in the run command.
-- Supply terminal input, output, dimensions, capabilities, and cancellation
-  intent to human mode.
+- Supply terminal streams, initial capabilities, and cancellation intent to
+  human mode. Ink owns resize subscriptions and layout updates.
 - Keep CI mode append-only, non-interactive, and independent of Ink.
 - Include full run identity on every CI line and full invocation identity on
   each invocation line.

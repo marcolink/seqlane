@@ -27,10 +27,10 @@ export function HumanHeader({
       (node) => node.kind === "task",
     );
     return {
-      total: tasks.length,
+      total: view.plannedTaskCount ?? tasks.length,
       complete: tasks.filter((node) => node.state === "succeeded").length,
     };
-  }, [view.nodes]);
+  }, [view.nodes, view.plannedTaskCount]);
   const state = view.runState === "idle" ? "queued" : view.runState;
   const facts =
     counts.complete + "/" + counts.total + " · " + formatDuration(elapsedMs);

@@ -1,7 +1,7 @@
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
   createRunViewModel,
-  reduceRunViewModel,
+  reduceRunEventBatch,
   type RunViewModel,
 } from "./run-view-model.js";
 import type {
@@ -18,6 +18,8 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   private readonly app: Promise<MountedHumanApp>;
   private finished = false;
   private renderError: unknown;
+  private pendingEvents: SeqlaneExecutionEvent[] = [];
+  private flushScheduled = false;
 
   constructor(private readonly capabilities: OutputCapabilities) {
     if (!capabilities.isTTY || capabilities.terminal === undefined) {
@@ -36,12 +38,15 @@ export class HumanTTYRenderer implements ExecutionRenderer {
 
   handle(event: SeqlaneExecutionEvent): void {
     if (this.finished) return;
-    this.view = reduceRunViewModel(this.view, event);
-    this.render();
+    this.pendingEvents.push(event);
+    if (this.flushScheduled) return;
+    this.flushScheduled = true;
+    queueMicrotask(() => this.flushEvents());
   }
 
   handleRunnerFailure(failure: RendererFailure): void {
     if (this.finished) return;
+    this.flushEvents();
     this.view = {
       ...this.view,
       runState: "failed",
@@ -53,6 +58,7 @@ export class HumanTTYRenderer implements ExecutionRenderer {
 
   async finish(): Promise<void> {
     if (this.finished) return;
+    this.flushEvents();
     this.finished = true;
     const app = await this.app;
     try {
@@ -81,5 +87,14 @@ export class HumanTTYRenderer implements ExecutionRenderer {
       .catch((cause: unknown) => {
         this.renderError = cause;
       });
+  }
+
+  private flushEvents(): void {
+    this.flushScheduled = false;
+    if (this.pendingEvents.length === 0) return;
+    const events = this.pendingEvents;
+    this.pendingEvents = [];
+    this.view = reduceRunEventBatch(this.view, events);
+    this.render();
   }
 }

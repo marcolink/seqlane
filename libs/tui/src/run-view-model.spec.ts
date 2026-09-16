@@ -96,8 +96,12 @@ describe("human execution view model", () => {
     expect(view.nodes.get("root")?.dependencyIds).toEqual(["a"]);
     expect(getRunProjectionLimitNotice(view)).toContain("nodes=1 edges=1");
     expect(view.nodes.get("root")?.output.truncated).toBe(true);
+    expect(view.nodes.get("root")?.output.originalBytes).toBe(30);
+    expect(view.nodes.get("root")?.output.omittedBytes).toBe(22);
     expect(view.retainedDetailBytes).toBeLessThanOrEqual(8);
-    expect(getRunProjectionLimitNotice(view)).toContain("details truncated");
+    expect(getRunProjectionLimitNotice(view)).toContain(
+      "details truncated omitted_bytes=22",
+    );
   });
 
   it("creates stable rows before execution starts", () => {
@@ -339,6 +343,8 @@ describe("human execution view model", () => {
     const rows = getRunVisibleRows(reduceRunEvents(events));
     expect(rows).toHaveLength(1_200);
     expect(rows.at(-1)?.depth).toBe(1_199);
+    expect(rows.at(-1)?.ancestorRails).toHaveLength(32);
+    expect(rows.at(-1)?.omittedAncestorRailCount).toBe(1_167);
   });
 
   it("keeps loop children grouped by iteration in stable order", () => {

@@ -192,3 +192,89 @@ it("does not invent metrics or workspace context", () => {
     /workspace|session|\$|tool calls|in 12400/,
   );
 });
+
+it("renders failed validation identity, verdict, issues, and evidence", () => {
+  const view = reduceRunEvents([
+    {
+      ...identity,
+      type: "invocation.created",
+      invocationId: "validation",
+      planNodeId: "validation.gate:1",
+      subject: { type: "validation-gate", planNodeId: "validation.gate:1" },
+      kind: "validation",
+      label: "Validate release",
+      siblingOrder: 0,
+      dependencyIds: [],
+    },
+    {
+      ...identity,
+      type: "invocation.failed",
+      invocationId: "validation",
+      disposition: "fail_run",
+      error: {
+        category: "ValidationError",
+        message: "Validation failed",
+        validation: {
+          validationNodeId: "validation.gate:1",
+          sourceId: "release-ready",
+          issues: [
+            { code: "unsafe", message: "Unsafe result", path: "/release" },
+          ],
+          evidence: { state: "redacted" },
+        },
+      },
+    },
+  ]);
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: true, width: 100 }}
+      spinnerFrame={0}
+    />,
+  );
+  const output = app.lastFrame() ?? "";
+  const compactOutput = output.replace(/\s+/g, " ");
+  expect(output).toContain("validation source=release-ready");
+  expect(output).toContain("node=validation.gate:1 verdict=failed");
+  expect(compactOutput).toContain("issues=unsafe: Unsafe result @/release");
+  expect(output).toContain("evidence=redacted");
+});
+
+it("renders node and run truncation byte counts", () => {
+  const view = reduceRunEvents(
+    [
+      {
+        ...identity,
+        type: "invocation.created",
+        invocationId: "task",
+        planNodeId: "task",
+        subject: { type: "task", taskId: "task" },
+        taskId: "task",
+        kind: "task",
+        label: "Bounded task",
+        siblingOrder: 0,
+        dependencyIds: [],
+      },
+      {
+        ...identity,
+        type: "invocation.output",
+        invocationId: "task",
+        policy: "persistent",
+        channel: "task",
+        content: "😀abcdef",
+      },
+    ],
+    { limits: { nodeDetailBytes: 5, runDetailBytes: 5 } },
+  );
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: true, width: 100 }}
+      spinnerFrame={0}
+    />,
+  );
+  expect(app.lastFrame()).toContain(
+    "[output truncated original_bytes=10 omitted_bytes=5]",
+  );
+  expect(app.lastFrame()).toContain("details truncated omitted_bytes=5");
+});
