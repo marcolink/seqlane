@@ -432,9 +432,6 @@ function createOperationalInvocationHandler(
             workflowDefinitions: source.workflowDefinitions,
             events,
           });
-          preflightCompiledWorkflowSessionCapabilities(prepared);
-          await preflightCompiledWorkflowModels(prepared);
-          await resolveCompiledWorkflowSessions(prepared);
           if (source.eventSink !== undefined) {
             events.emitPlan(
               createSeqlanePlanSnapshot(prepared.plan),
@@ -442,6 +439,9 @@ function createOperationalInvocationHandler(
               context.runId,
             );
           }
+          preflightCompiledWorkflowSessionCapabilities(prepared);
+          await preflightCompiledWorkflowModels(prepared);
+          await resolveCompiledWorkflowSessions(prepared);
           const invokeWorkflow: MastraPlanInvocation = async (invocation) => {
             const child = source.workflowDefinitions?.get(
               invocation.workflowId,
