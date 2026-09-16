@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-15
+updated: 2026-09-16
 upstream:
   - spec.run-machine-output
 supersedes: []
@@ -120,9 +120,8 @@ quality-lens rows do not indicate a replay behavior regression.
 
 ## Delivery state
 
-Implementation complete in current working-tree change; default-branch delivery
-pending commit/merge (status completed is task-document state, not delivery
-proof).
+Delivered to the default branch through [pull request
+#117](https://github.com/marcolink/seqlane/pull/117).
 
 ## Traceability
 

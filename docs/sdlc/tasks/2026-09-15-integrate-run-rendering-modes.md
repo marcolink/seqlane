@@ -115,9 +115,8 @@ Delivery pull request: [#121](https://github.com/marcolink/seqlane/pull/121).
 
 ## Delivery state
 
-Completed on `feat/integrate-run-rendering-modes`. Default-branch delivery
-requires [pull request #121](https://github.com/marcolink/seqlane/pull/121) to
-merge.
+Delivered to the default branch through [pull request
+#121](https://github.com/marcolink/seqlane/pull/121).
 
 ## Traceability
 
