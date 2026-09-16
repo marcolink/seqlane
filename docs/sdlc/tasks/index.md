@@ -250,7 +250,7 @@
 | [task.persist-code-review-run-artifacts](./2026-09-14-persist-code-review-run-artifacts.md) | Persist Bounded Published Review Artifacts | planned | 2026-09-14 | core |
 | [task.serialize-code-review-publication](./2026-09-14-serialize-code-review-publication.md) | Serialize Final Code Review Publication | planned | 2026-09-14 | core |
 | [task.unify-code-review-comment-state](./2026-09-14-unify-code-review-comment-state.md) | Unify Code Review Comment State and Cost Projection | planned | 2026-09-14 | core |
-| [task.build-interactive-run-tui](./2026-09-15-build-interactive-run-tui.md) | Build the Interactive Run TUI | planned | 2026-09-15 | core |
+| [task.build-interactive-run-tui](./2026-09-15-build-interactive-run-tui.md) | Build Passive Run Output | completed | 2026-09-15 | core |
 | [task.integrate-run-rendering-modes](./2026-09-15-integrate-run-rendering-modes.md) | Integrate and Verify Run Rendering Modes | planned | 2026-09-15 | core |
 | [task.rename-output-package-to-tui](./2026-09-15-rename-output-package-to-tui.md) | Rename the Output Package to TUI | completed | 2026-09-15 | core |
 | [task.separate-run-machine-output](./2026-09-15-separate-run-machine-output.md) | Separate Final Run Results from Event Output | completed | 2026-09-15 | core |

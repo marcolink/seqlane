@@ -65,6 +65,10 @@ export const workspaceAliases = [
     replacement: resolve(workspaceRoot, "libs/opencode/src/index.ts"),
   },
   {
+    find: "@seqlane/tui/terminal-field",
+    replacement: resolve(workspaceRoot, "libs/tui/src/terminal-field.ts"),
+  },
+  {
     find: "@seqlane/tui",
     replacement: resolve(workspaceRoot, "libs/tui/src/index.ts"),
   },

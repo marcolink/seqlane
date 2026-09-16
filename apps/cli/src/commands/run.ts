@@ -7,11 +7,7 @@ import { closeSync, openSync, readSync } from "node:fs";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import { loadRuntimeAdapterConfiguration } from "@seqlane/runtime/operational-host";
 import { createRecordingConsumer } from "../recording.js";
-import {
-  connectTerminalResize,
-  createCliRenderer,
-  createOutputCapabilities,
-} from "../output.js";
+import { createCliRenderer, createOutputCapabilities } from "../output.js";
 import { outputModeOptions, parseOutputMode } from "../output-mode.js";
 import { workflowRootsFromFlags } from "../workflow-roots.js";
 import {
@@ -33,6 +29,7 @@ import {
   writeDiagnostic,
 } from "../command.js";
 import { createRunFailureResult } from "../run-result.js";
+import { writeSessionUiDiagnostic } from "../session-ui-diagnostic.js";
 import { z } from "zod";
 
 const localRuntimeId = "local";
@@ -242,23 +239,20 @@ export default class RunCommand extends SeqlaneCommand {
       });
     }
 
-    const capabilities = createOutputCapabilities();
+    let runnerClient: import("../runner-client.js").RunnerClient | undefined;
+    const baseCapabilities = createOutputCapabilities();
+    const capabilities = baseCapabilities;
     if (
       !jsonMode &&
       !flags.dry &&
       flags.output === "human" &&
-      (!capabilities.isTTY || process.stdin.isTTY !== true)
+      !capabilities.isTTY
     ) {
-      this.error(
-        "--output human requires an interactive terminal for stdin and stdout",
-        { exit: 1 },
-      );
+      this.error("--output human requires a terminal for stdout", { exit: 1 });
     }
     let recordingConsumer: ExecutionEventConsumer | undefined;
     let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
-    let disconnectResize: () => void = () => undefined;
     let dispatcher: ReturnType<typeof createEventDispatcher> | undefined;
-    let runnerClient: import("../runner-client.js").RunnerClient | undefined;
     let operationalHostOwnsResources = false;
 
     try {
@@ -295,9 +289,6 @@ export default class RunCommand extends SeqlaneCommand {
         });
       }
 
-      if (renderer !== undefined) {
-        disconnectResize = connectTerminalResize(renderer, process.stdout);
-      }
       const outputConsumer: ExecutionEventConsumer = {
         consume: (event) => {
           try {
@@ -341,14 +332,12 @@ export default class RunCommand extends SeqlaneCommand {
         runnerClient = launchRunner(request, {
           onExecutionEvent: (event) => dispatcher?.consume(event),
           onRuntimeSessionUiAvailable: (notification) => {
+            if (renderer?.mode === "human") return;
             if (renderer?.handleRuntimeSessionUi !== undefined) {
               renderer.handleRuntimeSessionUi(notification);
               return;
             }
-            writeDiagnostic(
-              capabilities.stderr,
-              `Seqlane session UI: ${notification.browserUrl}`,
-            );
+            writeSessionUiDiagnostic(capabilities, notification.browserUrl);
           },
         });
         const result = await runnerClient.result;
@@ -383,7 +372,6 @@ export default class RunCommand extends SeqlaneCommand {
         renderer,
         capabilities,
         dispatcher,
-        disconnectResize,
       });
       for (const error of run.cleanupErrors) {
         writeDiagnostic(
@@ -400,7 +388,6 @@ export default class RunCommand extends SeqlaneCommand {
           recordingConsumer,
           closeClient: () => runnerClient?.close(),
           finishRenderer: () => renderer?.finish(),
-          disconnectResize,
         });
         for (const error of cleanupErrors) {
           writeDiagnostic(

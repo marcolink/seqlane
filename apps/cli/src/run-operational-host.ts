@@ -17,7 +17,7 @@ import {
   remoteError,
   type RunIdentity,
 } from "./run-result.js";
-import { writeDiagnostic } from "./command.js";
+import { writeSessionUiDiagnostic } from "./session-ui-diagnostic.js";
 import type { WorkflowRoots } from "./workflow-discovery.js";
 import { randomUUID } from "node:crypto";
 
@@ -34,7 +34,6 @@ export interface RunOperationalHostOptions {
   readonly renderer?: ExecutionRenderer;
   readonly capabilities: OutputCapabilities;
   readonly dispatcher: EventDispatcher;
-  readonly disconnectResize: () => void;
 }
 
 export interface RunOperationalHostResult {
@@ -80,7 +79,6 @@ export async function executeOperationalHostRun(
     renderer,
     capabilities,
     dispatcher,
-    disconnectResize,
   } = options;
   const identity: RunIdentity = {
     workId: randomUUID(),
@@ -133,15 +131,14 @@ export async function executeOperationalHostRun(
             adapterConfiguration,
             eventSink: () => events,
             onSessionUiAvailable: (notification) => {
+              // Out-of-band writes move the cursor underneath Ink's live tree.
+              if (renderer?.mode === "human") return;
               if (renderer?.handleRuntimeSessionUi !== undefined) {
                 renderer.handleRuntimeSessionUi(notification);
                 return;
               }
               if (jsonMode) return;
-              writeDiagnostic(
-                capabilities.stderr,
-                `Seqlane session UI: ${notification.browserUrl}`,
-              );
+              writeSessionUiDiagnostic(capabilities, notification.browserUrl);
             },
           })
         : undefined;
@@ -278,7 +275,6 @@ export async function executeOperationalHostRun(
       flushEvents: () => events.flush(),
       closeHost: () => ownedHost?.close(),
       finishRenderer: () => renderer?.finish(),
-      disconnectResize,
       beforeCleanup: () => {
         process.removeListener("SIGINT", onSigint);
         process.removeListener("SIGTERM", onSigterm);

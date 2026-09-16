@@ -70,6 +70,44 @@ describe("executeOperationalHostRun", () => {
     mocks.startOwnedOperationalHost.mockReset();
   });
 
+  it.each(["human", "ci"] as const)(
+    "keeps session diagnostics out of the human tree (%s mode)",
+    async (mode) => {
+      const browserUrl = "http://127.0.0.1:4096/session/test-session";
+      const stderr = { write: vi.fn() };
+      mocks.startOwnedOperationalHost.mockImplementation(async (options) => {
+        options.onSessionUiAvailable({
+          invocationId: "task-1",
+          browserUrl,
+        });
+        // Stop after exercising the real callback; no operational server needed.
+        throw new Error("stop after notification");
+      });
+
+      await executeOperationalHostRun({
+        request,
+        sourceWorkflowReference: "repository:remote",
+        roots: { repository: "/repo", user: "/user" },
+        hostname: "127.0.0.1",
+        port: 0,
+        storageUrl: "file::memory:",
+        adapterConfiguration: undefined,
+        jsonMode: false,
+        capabilities: { ...capabilities, stderr },
+        dispatcher: dispatcher(),
+        renderer: { ...renderer(), mode },
+      });
+
+      if (mode === "human") {
+        expect(stderr.write).not.toHaveBeenCalled();
+      } else {
+        expect(stderr.write).toHaveBeenCalledWith(
+          `Seqlane session UI: ${browserUrl}\n`,
+        );
+      }
+    },
+  );
+
   it("preserves a canonical serialized remote error in the run result", async () => {
     const remoteError = {
       category: "ValidationError" as const,
@@ -94,7 +132,6 @@ describe("executeOperationalHostRun", () => {
     });
     const events = dispatcher();
     const rendererInstance = renderer();
-    const disconnectResize = vi.fn();
 
     const result = await executeOperationalHostRun({
       request,
@@ -108,7 +145,6 @@ describe("executeOperationalHostRun", () => {
       jsonMode: true,
       capabilities,
       dispatcher: events,
-      disconnectResize,
       renderer: rendererInstance,
     });
 
@@ -121,7 +157,6 @@ describe("executeOperationalHostRun", () => {
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
-    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 
   it("owns presentation cleanup exactly once", async () => {
@@ -131,7 +166,6 @@ describe("executeOperationalHostRun", () => {
     });
     const events = dispatcher();
     const rendererInstance = renderer();
-    const disconnectResize = vi.fn();
 
     await executeOperationalHostRun({
       request,
@@ -146,13 +180,11 @@ describe("executeOperationalHostRun", () => {
       capabilities,
       dispatcher: events,
       renderer: rendererInstance,
-      disconnectResize,
     });
 
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
-    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 
   it("closes every resource when owned-host setup fails", async () => {
@@ -160,7 +192,6 @@ describe("executeOperationalHostRun", () => {
     mocks.startOwnedOperationalHost.mockRejectedValue(setupError);
     const events = dispatcher();
     const rendererInstance = renderer();
-    const disconnectResize = vi.fn();
 
     const result = await executeOperationalHostRun({
       request,
@@ -174,7 +205,6 @@ describe("executeOperationalHostRun", () => {
       capabilities,
       dispatcher: events,
       renderer: rendererInstance,
-      disconnectResize,
     });
 
     expect(result.commandResult).toMatchObject({
@@ -185,14 +215,12 @@ describe("executeOperationalHostRun", () => {
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
-    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 
   it("closes every resource for runtime cancellation", async () => {
     mocks.client.startRun.mockResolvedValue({ status: "cancelled" });
     const events = dispatcher();
     const rendererInstance = renderer();
-    const disconnectResize = vi.fn();
 
     const result = await executeOperationalHostRun({
       request,
@@ -207,7 +235,6 @@ describe("executeOperationalHostRun", () => {
       capabilities,
       dispatcher: events,
       renderer: rendererInstance,
-      disconnectResize,
     });
 
     expect(result.exitStatus).toBe(130);
@@ -215,6 +242,5 @@ describe("executeOperationalHostRun", () => {
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
-    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 });

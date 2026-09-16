@@ -50,6 +50,8 @@ describe("seqlane tui package", () => {
     expect(manifest.dependencies).toEqual({
       "@seqlane/core": "workspace:*",
       "@seqlane/protocol": "workspace:*",
+      ink: "7.1.1",
+      react: "19.3.0",
     });
     expect(manifest.files).toEqual(["dist"]);
     expect(manifest.exports).toMatchObject({

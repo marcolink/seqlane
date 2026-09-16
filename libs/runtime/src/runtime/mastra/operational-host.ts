@@ -23,6 +23,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
   compilePlanToMastra,
+  type CompiledMastraPlan,
   type MastraPlanInvocation,
 } from "../compile/mastra-plan-compiler.js";
 import {
@@ -41,6 +42,7 @@ import {
 } from "../session/session-preflight.js";
 import {
   createMastraPlanInvocationHandler,
+  emitMastraInvocationTopology,
   executeNestedMastraWorkflow,
 } from "./mastra-execution.js";
 import { instrumentOperationalWorkflow } from "./operational-run-lifecycle.js";
@@ -113,6 +115,32 @@ export interface OperationalHost {
   fetch(request: Request): Promise<Response>;
   listen(): Promise<string>;
   close(): Promise<void>;
+}
+
+function emitOperationalRunTopology(
+  source: OperationalWorkflowSource,
+  state: OperationalRunState,
+  compiled: CompiledMastraPlan,
+): void {
+  if (state.topologyEmitted) return;
+  state.topologyEmitted = true;
+  if (source.eventSink === undefined) return;
+  state.events.emitPlan(
+    createSeqlanePlanSnapshot(source.plan),
+    state.workId,
+    state.runId,
+  );
+  emitMastraInvocationTopology(
+    compiled,
+    {
+      context: {
+        workId: state.workId,
+        runId: state.runId,
+        invocationIds: compiled.invocationIds,
+      },
+    },
+    state.events,
+  );
 }
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -224,6 +252,7 @@ export function createOperationalWorkflow(
     validatorDefinitions: source.validatorDefinitions,
     executeInvocation: invocationHandler.invoke,
     executeWorkflowInvocation: invocationHandler.invoke,
+    staticInvocationTopology: true,
     events,
   });
   const prepareRunContext = (
@@ -231,10 +260,9 @@ export function createOperationalWorkflow(
     workId: string,
     runId: string,
   ): void => {
-    setOperationalRunContext(
-      requestContext,
-      operationalRunState(source, runStates, workId, runId),
-    );
+    const state = operationalRunState(source, runStates, workId, runId);
+    setOperationalRunContext(requestContext, state);
+    emitOperationalRunTopology(source, state, compiled);
   };
   return {
     key: source.key,
@@ -254,6 +282,7 @@ interface OperationalRunState {
   readonly runId: string;
   readonly events: OperationalEventSink;
   readonly repeatBudget: RepeatExecutionBudget;
+  topologyEmitted: boolean;
 }
 
 function operationalRunState(
@@ -276,6 +305,7 @@ function operationalRunState(
     runId,
     events: source.eventSink?.({ workId, runId }) ?? noExecutionEvents,
     repeatBudget: { executed: 0 },
+    topologyEmitted: false,
   };
   states.set(runId, state);
   return state;
@@ -435,13 +465,6 @@ function createOperationalInvocationHandler(
           preflightCompiledWorkflowSessionCapabilities(prepared);
           await preflightCompiledWorkflowModels(prepared);
           await resolveCompiledWorkflowSessions(prepared);
-          if (source.eventSink !== undefined) {
-            events.emitPlan(
-              createSeqlanePlanSnapshot(prepared.plan),
-              workId,
-              context.runId,
-            );
-          }
           const invokeWorkflow: MastraPlanInvocation = async (invocation) => {
             const child = source.workflowDefinitions?.get(
               invocation.workflowId,

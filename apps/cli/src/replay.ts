@@ -4,7 +4,6 @@ import {
 } from "@seqlane/protocol";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/tui";
-import { connectTerminalResize } from "./output.js";
 import { errorMessage, writeDiagnostic } from "./command.js";
 import { redactReplayOutput } from "./redaction.js";
 import { iterateSeqlaneRecording, type SeqlaneRecording } from "./recording.js";
@@ -165,18 +164,13 @@ export function writeReplayEvents(
   }
 }
 
-/** Render a decoded recording and always release its terminal resize listener. */
+/** Render a decoded recording and finalize Ink-owned terminal resources. */
 export async function renderReplayRecording(options: {
   readonly recording: SeqlaneRecording;
   readonly renderer: ExecutionRenderer;
   readonly capabilities: OutputCapabilities;
-  readonly terminal: Pick<
-    NodeJS.WriteStream,
-    "on" | "removeListener" | "columns"
-  >;
 }): Promise<void> {
-  const { recording, renderer, capabilities, terminal } = options;
-  const disconnectResize = connectTerminalResize(renderer, terminal);
+  const { recording, renderer, capabilities } = options;
   for (const event of recording.events) {
     try {
       renderer.handle(event);
@@ -194,7 +188,5 @@ export async function renderReplayRecording(options: {
       capabilities.stderr,
       "seqlane output error: " + errorMessage(error),
     );
-  } finally {
-    disconnectResize();
   }
 }

@@ -1,10 +1,10 @@
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  getRunProjectionLimitNotice,
   getRunVisibleRows,
   reduceRunEvents,
-  setRunNodeExpanded,
-  setRunNodeFocused,
+  reduceRunViewModel,
 } from "./run-view-model.js";
 
 const run = {
@@ -67,31 +67,41 @@ function terminal(
 }
 
 describe("human execution view model", () => {
-  it("keeps presentation state separate from execution nodes", () => {
-    const view = reduceRunEvents([
-      created("workflow", "Workflow", 0, { kind: "workflow" }),
-      created("task", "Task", 0, { parentInvocationId: "workflow" }),
-    ]);
-    const executionNode = view.nodes.get("workflow");
-
-    expect(executionNode).toBeDefined();
-    expect(executionNode).not.toHaveProperty("presentation");
-    expect(view.presentation.get("workflow")).toEqual({
-      isExpanded: true,
-      isFocused: false,
+  it("bounds nodes, dependency edges, and detail text with visible markers", () => {
+    const events = [
+      created("root", "Root", 0, {
+        kind: "workflow",
+        dependencyIds: ["a", "b"],
+      }),
+      created("omitted", "Omitted", 1),
+      {
+        type: "invocation.output" as const,
+        ...run,
+        invocationId: "root",
+        policy: "persistent" as const,
+        channel: "task" as const,
+        content: "😀 a payload that cannot fit",
+      },
+    ];
+    const view = reduceRunEvents(events, {
+      limits: {
+        nodes: 1,
+        dependencyEdges: 1,
+        nodeDetailBytes: 8,
+        runDetailBytes: 8,
+      },
     });
 
-    const collapsed = setRunNodeExpanded(view, "workflow", false);
-    const focused = setRunNodeFocused(collapsed, "task");
-    expect(focused.nodes.get("workflow")).toBe(executionNode);
-    expect(focused.presentation.get("workflow")).toEqual({
-      isExpanded: false,
-      isFocused: false,
-    });
-    expect(focused.presentation.get("task")).toEqual({
-      isExpanded: false,
-      isFocused: true,
-    });
+    expect(view.nodes.size).toBe(1);
+    expect(view.nodes.get("root")?.dependencyIds).toEqual(["a"]);
+    expect(getRunProjectionLimitNotice(view)).toContain("nodes=1 edges=1");
+    expect(view.nodes.get("root")?.output.truncated).toBe(true);
+    expect(view.nodes.get("root")?.output.originalBytes).toBe(30);
+    expect(view.nodes.get("root")?.output.omittedBytes).toBe(22);
+    expect(view.retainedDetailBytes).toBeLessThanOrEqual(8);
+    expect(getRunProjectionLimitNotice(view)).toContain(
+      "details truncated omitted_bytes=22",
+    );
   });
 
   it("creates stable rows before execution starts", () => {
@@ -110,6 +120,201 @@ describe("human execution view model", () => {
       "Child",
       "Task A",
     ]);
+  });
+
+  it("reconciles children and dependencies admitted before their targets", () => {
+    const view = reduceRunEvents([
+      created("child", "Child", 0, { parentInvocationId: "parent" }),
+      created("dependent", "Dependent", 1, { dependencyIds: ["dependency"] }),
+      created("parent", "Parent", 0, { kind: "workflow" }),
+      created("dependency", "Dependency", 2),
+    ]);
+
+    expect(getRunVisibleRows(view).map(({ node }) => node.label)).toEqual([
+      "Parent",
+      "Child",
+      "Dependent",
+      "Dependency",
+    ]);
+    expect(view.nodes.get("parent")?.aggregate).toMatchObject({
+      total: 1,
+      queued: 1,
+    });
+    expect(view.nodes.get("dependent")?.waitingDependencyLabels).toEqual([
+      "Dependency",
+    ]);
+  });
+
+  it("projects plan topology before runtime invocation setup", () => {
+    const view = reduceRunEvents([
+      {
+        type: "run.plan",
+        ...run,
+        plan: {
+          workflow: { id: "example" },
+          nodes: [
+            {
+              planNodeId: "root",
+              type: "workflow",
+              label: "Root workflow",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+            {
+              planNodeId: "task",
+              type: "task",
+              taskId: "task",
+              label: "Task",
+              dependsOn: [],
+              parentPlanNodeId: "root",
+              siblingOrder: 0,
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(getRunVisibleRows(view).map((row) => row.node.label)).toEqual([
+      "Root workflow",
+      "Task",
+    ]);
+    expect(view.nodes.get("plan:task")?.parentInvocationId).toBe("plan:root");
+  });
+
+  it("reconciles a lowered invocation with its unique planned task", () => {
+    const view = reduceRunEvents([
+      {
+        type: "run.plan",
+        ...run,
+        plan: {
+          workflow: { id: "example" },
+          nodes: [
+            {
+              planNodeId: "planned-task",
+              type: "task",
+              taskId: "task",
+              label: "Task",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+          ],
+        },
+      },
+      created("lowered-task", "task", 0),
+      started("lowered-task", "task"),
+      terminal("lowered-task", "invocation.succeeded"),
+    ]);
+
+    expect(view.nodes.has("plan:planned-task")).toBe(false);
+    expect(view.nodes.get("lowered-task")?.state).toBe("succeeded");
+  });
+
+  it("updates a unique planned task when lifecycle events arrive first", () => {
+    const view = reduceRunEvents([
+      {
+        type: "run.plan",
+        ...run,
+        plan: {
+          workflow: { id: "example" },
+          nodes: [
+            {
+              planNodeId: "planned-task",
+              type: "task",
+              taskId: "task",
+              label: "Task",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+          ],
+        },
+      },
+      started("runtime-task", "task"),
+      terminal("runtime-task", "invocation.succeeded"),
+    ]);
+
+    expect(view.nodes.has("plan:planned-task")).toBe(false);
+    expect(view.nodes.get("runtime-task")?.state).toBe("succeeded");
+  });
+
+  it("reconciles a validation placeholder after its source task completed", () => {
+    const plan = {
+      workflow: { id: "example" },
+      nodes: [
+        {
+          planNodeId: "task",
+          type: "task" as const,
+          taskId: "task",
+          label: "Task",
+          dependsOn: [],
+          siblingOrder: 0,
+        },
+        {
+          planNodeId: "validation",
+          type: "validation.check" as const,
+          label: "Validation",
+          dependsOn: ["task"],
+          siblingOrder: 1,
+        },
+      ],
+    };
+    const view = reduceRunEvents([
+      { type: "run.plan", ...run, plan },
+      created("task-runtime", "task", 0),
+      started("task-runtime", "task"),
+      terminal("task-runtime", "invocation.succeeded"),
+      started("validation-runtime", "task"),
+      terminal("validation-runtime", "invocation.succeeded"),
+    ]);
+
+    expect(view.nodes.has("plan:validation")).toBe(false);
+    expect(view.nodes.get("validation-runtime")?.state).toBe("succeeded");
+  });
+
+  it("reconciles a planned validator by its validator identity", () => {
+    const view = reduceRunEvents([
+      {
+        type: "run.plan",
+        ...run,
+        plan: {
+          workflow: { id: "example" },
+          nodes: [
+            {
+              planNodeId: "task",
+              type: "task" as const,
+              taskId: "task",
+              label: "Task",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+            {
+              planNodeId: "semantic-check",
+              type: "validation.check" as const,
+              label: "semantic-validator",
+              dependsOn: ["task"],
+              siblingOrder: 1,
+            },
+            {
+              planNodeId: "validation.gate:1",
+              type: "validation.gate" as const,
+              label: "Validation gate",
+              dependsOn: ["semantic-check"],
+              siblingOrder: 2,
+            },
+          ],
+        },
+      },
+      {
+        type: "invocation.started",
+        ...run,
+        invocationId: "semantic-runtime",
+        subject: { type: "validator", validatorId: "semantic-validator" },
+      },
+      terminal("semantic-runtime", "invocation.succeeded"),
+    ]);
+
+    expect(view.nodes.has("plan:semantic-check")).toBe(false);
+    expect(view.nodes.get("semantic-runtime")?.state).toBe("succeeded");
+    expect(view.nodes.has("plan:validation.gate:1")).toBe(true);
   });
 
   it("keeps nested containment separate from dependencies", () => {
@@ -145,6 +350,24 @@ describe("human execution view model", () => {
     ).toEqual(["a", "b"]);
     expect(view.nodes.get("a")?.state).toBe("active");
     expect(view.nodes.get("b")?.state).toBe("active");
+  });
+
+  it("projects a deep visible tree without consuming the call stack", () => {
+    const events: SeqlaneExecutionEvent[] = [];
+    for (let index = 0; index < 1_200; index += 1) {
+      events.push(
+        created(`node-${index}`, `Node ${index}`, 0, {
+          kind: "workflow",
+          ...(index === 0 ? {} : { parentInvocationId: `node-${index - 1}` }),
+        }),
+      );
+    }
+
+    const rows = getRunVisibleRows(reduceRunEvents(events));
+    expect(rows).toHaveLength(1_200);
+    expect(rows.at(-1)?.depth).toBe(1_199);
+    expect(rows.at(-1)?.ancestorRails).toHaveLength(32);
+    expect(rows.at(-1)?.omittedAncestorRailCount).toBe(1_167);
   });
 
   it("keeps loop children grouped by iteration in stable order", () => {
@@ -206,6 +429,62 @@ describe("human execution view model", () => {
     });
   });
 
+  it.each(["invocation.progress", "invocation.skipped"] as const)(
+    "keeps reverse dependency indexes consistent after %s",
+    (type) => {
+      const lifecycle =
+        type === "invocation.progress"
+          ? {
+              type,
+              ...run,
+              invocationId: "dependent",
+              state: "waiting" as const,
+              phase: "dependencies",
+              dependencyIds: ["replacement"],
+            }
+          : {
+              type,
+              ...run,
+              invocationId: "dependent",
+              reason: "dependency changed",
+              dependencyIds: ["replacement"],
+            };
+      const view = reduceRunEvents([
+        created("original", "Original", 0),
+        created("replacement", "Replacement", 1),
+        created("dependent", "Dependent", 2, {
+          dependencyIds: ["original"],
+        }),
+        lifecycle,
+      ]);
+
+      expect(view.nodes.get("dependent")?.dependencyIds).toEqual([
+        "replacement",
+      ]);
+      expect(view.nodes.get("dependent")?.waitingDependencyLabels).toEqual([
+        "Replacement",
+      ]);
+      expect(view.dependentsByDependency.has("original")).toBe(false);
+      expect(view.dependentsByDependency.get("replacement")).toEqual([
+        "dependent",
+      ]);
+      expect(view.retainedDependencyEdgeCount).toBe(1);
+    },
+  );
+
+  it("preserves creation order when equal-order events are reduced in a batch", () => {
+    const first = {
+      ...created("z-first", "First", 0),
+      metadata: { ...run.metadata, sequence: 2 },
+    };
+    const second = {
+      ...created("a-second", "Second", 0),
+      metadata: { ...run.metadata, sequence: 3 },
+    };
+    const view = reduceRunEvents([first, second]);
+    expect(view.rootInvocationIds).toEqual(["z-first", "a-second"]);
+  });
+
   it("aggregates completed descendants and supports collapse", () => {
     const expanded = reduceRunEvents([
       created("workflow", "Workflow", 0, { kind: "workflow" }),
@@ -223,7 +502,10 @@ describe("human execution view model", () => {
       failed: 0,
     });
 
-    const collapsed = setRunNodeExpanded(expanded, "workflow", false);
+    const collapsed = reduceRunViewModel(
+      expanded,
+      terminal("workflow", "invocation.succeeded"),
+    );
     expect(getRunVisibleRows(collapsed).map(({ node }) => node.label)).toEqual([
       "Workflow",
     ]);

@@ -35,4 +35,5 @@
 | [adr.use-runner-local-nx-cache](./2026-09-11-use-runner-local-nx-cache.md) | Use Runner-Local Nx Cache | accepted | 2026-09-11 | core |
 | [adr.separate-seqlane-protocol-package](./2026-09-13-separate-seqlane-protocol-package.md) | Separate Seqlane Protocol Contracts from Core Authoring | accepted | 2026-09-13 | core |
 | [adr.github-native-review-publication-state](./2026-09-14-github-native-review-publication-state.md) | Keep Review Publication State in a Comment and Evidence in Artifacts | accepted | 2026-09-14 | core |
-| [adr.run-terminal-presentation-boundary](./2026-09-15-run-terminal-presentation-boundary.md) | Separate Run Terminal Presentation from Machine Results | accepted | 2026-09-15 | core |
+| [adr.run-terminal-presentation-boundary](./2026-09-15-run-terminal-presentation-boundary.md) | Separate Run Terminal Presentation from Machine Results | superseded | 2026-09-15 | core |
+| [adr.passive-run-output](./2026-09-16-passive-run-output.md) | Use Passive Run Output | accepted | 2026-09-16 | core |

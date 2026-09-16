@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-15
+updated: 2026-09-16
 upstream:
   - spec.run-terminal-rendering
   - spec.run-machine-output
@@ -36,8 +36,8 @@ behavior through the compiled CLI and remove migration artifacts.
 ## Scope
 
 - Implement the final mode-resolution order in the run command.
-- Supply terminal input, output, dimensions, capabilities, and cancellation
-  intent to human mode.
+- Supply terminal streams, initial capabilities, and cancellation intent to
+  human mode. Ink owns resize subscriptions and layout updates.
 - Keep CI mode append-only, non-interactive, and independent of Ink.
 - Include full run identity on every CI line and full invocation identity on
   each invocation line.
@@ -93,7 +93,7 @@ unexplained golden-fixture changes.
 ## Completion criteria
 
 - Automatic and explicit mode selection match the active specification.
-- Human mode accepts input and restores the terminal.
+- Human mode stays passive and restores the terminal.
 - CI mode needs no TTY and writes only permanent lines.
 - Every CI line has the required stable identity and safe field encoding.
 - JSON mode writes one final result and no progress.

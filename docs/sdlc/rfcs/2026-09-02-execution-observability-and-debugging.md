@@ -5,7 +5,7 @@ status: proposed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-15
+updated: 2026-09-16
 upstream:
   - prd.seqlane-on-mastra
 supersedes: []
@@ -247,22 +247,23 @@ CLI output is a projection of structured Seqlane events. Terminal output must
 never become the canonical debugging model.
 
 The private `@seqlane/tui` package owns event reduction and terminal
-presentation. It provides an interactive human renderer and an append-only CI
+presentation. It provides a passive live human renderer and an append-only CI
 renderer. It consumes only validated Seqlane events. It does not own runner
 transport, execution, process status, final-result serialization, or event
 recording.
 
 The CLI selects `--output auto|human|ci`. Auto mode uses human output only for
 an interactive non-CI terminal. CI output is the fallback for CI and non-TTY
-execution. Human output can redraw and accept navigation input. CI output is
+execution. Human output redraws without keyboard input. CI output is
 append-only and accepts no terminal input.
 
 The native `--json` flag bypasses terminal rendering. It reserves stdout for
 one final, validated run result. Canonical event recording remains a separate
 `--record` function. A JSON event stream is not a final run result.
 
-The CLI supplies terminal capabilities, output sinks, optional
-`GITHUB_STEP_SUMMARY` integration, and resize updates. Renderer write or
+The CLI supplies terminal streams and capabilities, output sinks, and optional
+`GITHUB_STEP_SUMMARY` integration. Ink owns resize subscriptions and layout
+updates for human output. Renderer write or
 finalization errors are reported diagnostically and do not replace the runner's
 authoritative success, failure, or cancellation status.
 

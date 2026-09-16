@@ -8,7 +8,12 @@ does not depend on a runtime adapter or executor.
 
 ## Renderer modes
 
-- `human` shows a terminal-friendly execution tree.
+- `human` shows a passive live execution tree with automatic expansion,
+  type colors, bright running rows, muted inactive rows, branch rails, right-aligned timing, resize,
+  no-color, and ASCII support. It does not read keyboard input.
+  Active rows expand with reported activity, workspace mode, planned session policy,
+  model, completed tool calls, tokens, and cost. Rails stretch with wrapped details.
+  Missing fields stay hidden. Successful rows collapse to duration and usage totals.
 - `ci` writes concise, append-only status and failure output for automation.
 
 The CLI selects these modes with `--output auto|human|ci`. Final run results
@@ -41,6 +46,10 @@ import { createExecutionRenderer, type OutputCapabilities } from "@seqlane/tui";
 Pass a renderer a declared `OutputCapabilities` value, call `handle` for each
 canonical execution event, and call `finish` after the run ends. Renderers
 accept only `@seqlane/protocol` values.
+
+The CLI owns ordinary signal cancellation. Ink owns layout, animation,
+resize, frame limiting, and terminal cleanup through its standard hooks and
+render options. Mounted component tests use ink-testing-library.
 
 The package root exposes the renderer factory and its consumer types. Concrete
 renderers and run-projection types stay private.

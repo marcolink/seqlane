@@ -130,7 +130,7 @@ function dependencyResults(
 }
 
 function dependencyInvocationIds(
-  context: PreparedPlanExecution["context"],
+  context: InvocationTopologyContext,
   compiled: CompiledMastraPlan,
   node: PlanNode,
 ): readonly InvocationId[] {
@@ -144,9 +144,17 @@ function dependencyInvocationIds(
   });
 }
 
+interface InvocationTopologyContext {
+  readonly workId: WorkId;
+  readonly runId: RunId;
+  readonly invocationIds: ReadonlyMap<PlanNode["nodeId"], InvocationId>;
+}
+
 export function emitMastraInvocationTopology(
   compiled: CompiledMastraPlan,
-  prepared: PreparedPlanExecution,
+  prepared: {
+    readonly context: InvocationTopologyContext;
+  },
   events: SeqlaneEventSink,
   parentInvocationId?: InvocationId,
 ): void {

@@ -145,18 +145,19 @@ describe("seqlane runner entry point", () => {
       (globalThis as Record<string, unknown>).__seqlaneSetupSignal,
     ).toMatchObject({ aborted: true });
     delete (globalThis as Record<string, unknown>).__seqlaneSetupSignal;
-    expect(host.events).toHaveLength(2);
+    expect(host.events).toHaveLength(3);
     expect(host.events[0]).toMatchObject({
       type: "run.started",
       workId: "work-1",
       runId: "run-1",
       metadata: { schemaVersion: 1, sequence: 1 },
     });
-    expect(host.events[1]).toMatchObject({
+    expect(host.events[1]).toMatchObject({ type: "run.plan" });
+    expect(host.events[2]).toMatchObject({
       type: "run.cancelled",
       workId: "work-1",
       runId: "run-1",
-      metadata: { schemaVersion: 1, sequence: 2 },
+      metadata: { schemaVersion: 1, sequence: 3 },
     });
   });
 

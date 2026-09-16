@@ -115,6 +115,14 @@ export async function startRun(
     const loadedWorkflow = await loadWorkflow(request.workflow, request.input);
     retainWorkflow(loadedWorkflow);
 
+    // The authored Plan is available before an executor adapter can resolve.
+    // Publish it first so human output can show planned work during setup.
+    events.emitPlan(
+      createSeqlanePlanSnapshot(loadedWorkflow.plan),
+      workId,
+      runId,
+    );
+
     if (control.cancellationRequested) {
       events.emit({ type: "run.cancelled", workId, runId });
       await events.flush();
@@ -123,11 +131,6 @@ export async function startRun(
     }
 
     if (request.dryRun) {
-      events.emitPlan(
-        createSeqlanePlanSnapshot(loadedWorkflow.plan),
-        workId,
-        runId,
-      );
       events.emit({ type: "run.succeeded", workId, runId, output: null });
       await events.flush();
       host.exit(0);
@@ -164,20 +167,17 @@ export async function startRun(
       events,
       createInvocationId,
     });
-    preflightCompiledWorkflowSessionCapabilities(mastraExecution.prepared);
-    await preflightCompiledWorkflowModels(mastraExecution.prepared);
-    await resolveCompiledWorkflowSessions(mastraExecution.prepared);
-
-    events.emitPlan(
-      createSeqlanePlanSnapshot(mastraExecution.compiled.plan),
-      workId,
-      runId,
-    );
+    // Topology is already compiled and does not depend on model/session
+    // preflight. Emit it now so the interactive TUI is useful while a slow
+    // executor setup is still in progress.
     emitMastraInvocationTopology(
       mastraExecution.compiled,
       mastraExecution.prepared,
       events,
     );
+    preflightCompiledWorkflowSessionCapabilities(mastraExecution.prepared);
+    await preflightCompiledWorkflowModels(mastraExecution.prepared);
+    await resolveCompiledWorkflowSessions(mastraExecution.prepared);
 
     if (control.cancellationRequested) {
       await execution.close?.();

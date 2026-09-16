@@ -197,7 +197,9 @@ export function buildRepeatStep(
         abortSignal,
         observability: { tracing, tracingContext, loggerVNext, metrics },
         emitCreated:
-          options.workId === undefined && options.runId === undefined,
+          options.staticInvocationTopology !== true &&
+          options.workId === undefined &&
+          options.runId === undefined,
       });
     },
   });

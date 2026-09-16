@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     name: "tui",
     environment: "node",
-    include: ["src/**/*.spec.ts"],
+    include: ["src/**/*.spec.{ts,tsx}"],
   },
   resolve: { alias: workspaceAliases },
 });

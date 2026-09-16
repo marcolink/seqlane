@@ -11,6 +11,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./terminal-field": {
+      "types": "./dist/terminal-field.d.ts",
+      "import": "./dist/terminal-field.js",
+      "default": "./dist/terminal-field.js"
     }
   },
   "nx": {
@@ -22,7 +27,13 @@
   },
   "dependencies": {
     "@seqlane/core": "workspace:*",
-    "@seqlane/protocol": "workspace:*"
+    "@seqlane/protocol": "workspace:*",
+    "ink": "7.1.1",
+    "react": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "ink-testing-library": "4.0.0"
   },
   "files": [
     "dist"

@@ -12,7 +12,6 @@ export interface RunLifecycleOptions {
   readonly closeClient?: () => void | Promise<void>;
   readonly closeHost?: () => void | Promise<void>;
   readonly finishRenderer?: () => void | Promise<void>;
-  readonly disconnectResize?: () => void;
   readonly beforeCleanup?: () => void;
 }
 
@@ -51,7 +50,6 @@ export async function closeRunResources(
       errors.push(error);
     }
   }
-  await attempt(options.disconnectResize);
 
   return errors;
 }

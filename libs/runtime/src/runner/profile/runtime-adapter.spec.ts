@@ -11,6 +11,7 @@ import {
   redactRuntimeAdapterText,
   RuntimeAdapterConfigurationError,
   RuntimeAdapterSelectionError,
+  RuntimeAdapterUnavailableError,
 } from "./runtime-adapter.js";
 
 const openCodeConfiguration = {
@@ -244,6 +245,45 @@ describe("private runtime adapter selection", () => {
     } finally {
       globalThis.fetch = previousFetch;
     }
+  });
+
+  it("reports unavailable adapters without leaking transport details", async () => {
+    const transportFailure = new Error("fetch failed at secret endpoint");
+    const selected = createRuntimeAdapterRegistry([
+      {
+        identity: "opencode",
+        resolveCapabilities: () => adapter().capabilities,
+        prepare: async () => ({}),
+        create: () => ({
+          createAdapter: () => adapter(),
+          modelCapabilities: {
+            executor: "opencode",
+            listModels: async () => {
+              throw transportFailure;
+            },
+            resolveDefaultModel: async () => ({
+              model: { provider: "openai", model: "test-model" },
+            }),
+          },
+        }),
+      },
+    ]).resolve({
+      adapter: "opencode",
+      url: "https://runtime.test/secret",
+    });
+    const capabilities = selected.create({
+      signal: new AbortController().signal,
+    }).modelCapabilities;
+
+    await expect(capabilities?.listModels()).rejects.toMatchObject({
+      name: "RuntimeAdapterUnavailableError",
+      message: 'adapter "opencode" unavailable',
+      adapter: "opencode",
+      cause: { message: "fetch failed at [REDACTED] endpoint" },
+    });
+    await expect(capabilities?.listModels()).rejects.toBeInstanceOf(
+      RuntimeAdapterUnavailableError,
+    );
   });
 
   it("rejects capability declarations without matching optional operations", () => {

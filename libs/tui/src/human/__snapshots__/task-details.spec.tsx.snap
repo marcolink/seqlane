@@ -1,0 +1,14 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`shows reported context and usage, preserves wrapped rails, then collapses 1`] = `
+"⠋ ▼ Review                            0/2 · 0ms
+
+├─ ⠋ Review runtime                         0ms
+│    Reading a long source path that wraps onto
+│     several terminal lines
+│    workspace shared · session new (planned) ·
+│     test-model
+│    1 tool calls completed · in 12400 · out
+│    1800 · $0.08
+└─ ○ Publish                             queued"
+`;

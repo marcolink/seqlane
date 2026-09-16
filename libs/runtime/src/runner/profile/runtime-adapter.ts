@@ -115,6 +115,16 @@ export class RuntimeAdapterSelectionError extends Error {
   }
 }
 
+export class RuntimeAdapterUnavailableError extends Error {
+  readonly adapter: RuntimeAdapterIdentity;
+
+  constructor(adapter: RuntimeAdapterIdentity, cause?: unknown) {
+    super(`adapter "${adapter}" unavailable`, { cause });
+    this.name = "RuntimeAdapterUnavailableError";
+    this.adapter = adapter;
+  }
+}
+
 function configurationError(cause?: unknown): never {
   const issueCount =
     cause instanceof z.ZodError ? cause.issues.length : undefined;
@@ -406,17 +416,28 @@ function redactRuntimeModelCapabilities(
       try {
         return await capabilities.listModels();
       } catch (cause) {
-        throw redactRuntimeAdapterError(cause, configuration);
+        throw unavailableAdapterError(configuration, cause);
       }
     },
     resolveDefaultModel: async () => {
       try {
         return await capabilities.resolveDefaultModel();
       } catch (cause) {
-        throw redactRuntimeAdapterError(cause, configuration);
+        throw unavailableAdapterError(configuration, cause);
       }
     },
   };
+}
+
+function unavailableAdapterError(
+  configuration: RuntimeAdapterConfiguration,
+  cause: unknown,
+): RuntimeAdapterUnavailableError {
+  if (cause instanceof RuntimeAdapterUnavailableError) return cause;
+  return new RuntimeAdapterUnavailableError(
+    configuration.adapter,
+    redactRuntimeAdapterError(cause, configuration),
+  );
 }
 
 export function createRuntimeAdapterRegistry(
@@ -475,10 +496,7 @@ export function createRuntimeAdapterRegistry(
             return await factory.prepare(configuration, signal);
           } catch (cause) {
             if (cause instanceof RuntimeAdapterSelectionError) throw cause;
-            throw new RuntimeAdapterSelectionError(
-              `factory "${configuration.adapter}" could not prepare the selected adapter`,
-              redactRuntimeAdapterError(cause, configuration),
-            );
+            throw unavailableAdapterError(configuration, cause);
           }
         },
         create(context) {

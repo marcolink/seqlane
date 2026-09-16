@@ -88,7 +88,6 @@ export default class ReplayCommand extends SeqlaneCommand {
       recording,
       renderer,
       capabilities,
-      terminal: process.stdout,
     });
   }
 }

@@ -1,11 +1,11 @@
 ---
 id: adr.run-terminal-presentation-boundary
 title: Separate Run Terminal Presentation from Machine Results
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-15
+updated: 2026-09-16
 upstream:
   - prd.seqlane-on-mastra
   - rfc.execution-observability-and-debugging
@@ -17,6 +17,8 @@ supersedes:
 # Separate Run Terminal Presentation from Machine Results
 
 ## Context
+
+Superseded by [Use Passive Run Output](./2026-09-16-passive-run-output.md).
 
 `@seqlane/output` currently combines three different contracts:
 
