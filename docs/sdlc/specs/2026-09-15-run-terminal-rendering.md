@@ -184,8 +184,8 @@ Ink renders inline and leaves a final frame in terminal scrollback.
 
 ### requirement-human-details
 
-Failures and waiting reasons appear under the affected row. Session URLs remain
-available under agent tasks. There is no inspector, selected row, key guide,
+Failures and waiting reasons appear under the affected row. Session URLs do not
+appear in the human tree. There is no inspector, selected row, key guide,
 identity banner, or routine tool-event tally.
 
 ### requirement-visual-language

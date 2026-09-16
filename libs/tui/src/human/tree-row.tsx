@@ -14,7 +14,6 @@ export interface HumanTreeRowProps {
   readonly row: RunVisibleRow;
   readonly capabilities: HumanDisplayCapabilities;
   readonly spinnerFrame: number;
-  readonly sessionUiUrl?: string;
   readonly lastSibling: boolean;
   readonly now: Date;
 }
@@ -22,7 +21,6 @@ export function HumanTreeRow({
   row,
   capabilities,
   spinnerFrame,
-  sessionUiUrl,
   lastSibling,
   now,
 }: HumanTreeRowProps): React.JSX.Element {
@@ -59,11 +57,6 @@ export function HumanTreeRow({
       {node.state !== "waiting" || node.waitingReason === undefined ? null : (
         <Text dimColor={capabilities.supportsAnsi}>
           {"   " + node.waitingReason}
-        </Text>
-      )}
-      {sessionUiUrl === undefined ? null : (
-        <Text dimColor={capabilities.supportsAnsi}>
-          {"   Session UI: " + sessionUiUrl}
         </Text>
       )}
     </Box>

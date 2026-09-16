@@ -49,7 +49,6 @@ describe("HumanApp", () => {
         view={view}
         capabilities={{ supportsAnsi: false, supportsUnicode: true, width: 80 }}
         spinnerFrame={0}
-        sessionUiByInvocation={new Map()}
       />,
     );
     expect(rendered.lastFrame()).toContain("├─ ○ ▼ Review changes");
@@ -65,7 +64,6 @@ describe("HumanApp", () => {
       view: reduceRunEvents([{ type: "run.started", ...event }]),
       capabilities: { supportsAnsi: false, supportsUnicode: true },
       spinnerFrame: 0,
-      sessionUiByInvocation: new Map<string, string>(),
     };
     const rendered = render(<LiveHumanApp {...props} />);
     const initial = rendered.lastFrame();
@@ -87,7 +85,7 @@ describe("HumanApp", () => {
     expect(rendered.frames).toHaveLength(framesAfterUnmount);
     expect(rendered.stdin.listenerCount("data")).toBe(0);
   });
-  it("renders a passive tree and session link without controls or run IDs", () => {
+  it("renders a passive tree without session links, controls, or run IDs", () => {
     const view = reduceRunEvents(
       [
         { type: "run.started", ...event },
@@ -114,18 +112,14 @@ describe("HumanApp", () => {
         view={view}
         capabilities={{ supportsAnsi: false, supportsUnicode: false }}
         spinnerFrame={0}
-        sessionUiByInvocation={
-          new Map([["task-1", "http://127.0.0.1:4096/session/session-1"]])
-        }
       />,
     );
 
     const output = rendered.lastFrame() ?? "";
     expect(output).toContain("Seqlane run");
     expect(output).toContain("Build release");
-    expect(output).toContain(
-      "Session UI: http://127.0.0.1:4096/session/session-1",
-    );
+    expect(output).not.toContain("Session UI:");
+    expect(output.split("\n")).toHaveLength(3);
     expect(output).not.toContain("help");
     expect(output).not.toContain("work=");
     expect(output).not.toContain("run=");
@@ -153,7 +147,6 @@ describe("HumanApp", () => {
     const props = {
       capabilities: { supportsAnsi: false, supportsUnicode: true, width: 80 },
       spinnerFrame: 0,
-      sessionUiByInvocation: new Map<string, string>(),
     };
     const rendered = render(<HumanApp {...props} view={initial} />);
     expect(rendered.lastFrame()).toContain("queued");
@@ -196,7 +189,6 @@ describe("HumanApp", () => {
           height: 12,
         }}
         spinnerFrame={0}
-        sessionUiByInvocation={new Map()}
       />,
     );
 

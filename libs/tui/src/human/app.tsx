@@ -16,7 +16,6 @@ export interface HumanAppProps {
   readonly view: RunViewModel;
   readonly capabilities: HumanDisplayCapabilities;
   readonly spinnerFrame: number;
-  readonly sessionUiByInvocation: ReadonlyMap<string, string>;
 }
 
 export interface MountedHumanApp {
@@ -79,7 +78,6 @@ export function HumanApp({
   view,
   capabilities,
   spinnerFrame,
-  sessionUiByInvocation,
 }: HumanAppProps): React.JSX.Element {
   return (
     <Box flexDirection="column">
@@ -94,7 +92,6 @@ export function HumanApp({
           view={view}
           capabilities={capabilities}
           spinnerFrame={spinnerFrame}
-          sessionUiByInvocation={sessionUiByInvocation}
         />
       </Box>
       {view.runError === undefined ? null : (

@@ -7,7 +7,6 @@ import {
 import type {
   ExecutionRenderer,
   OutputCapabilities,
-  RuntimeSessionUi,
   RendererFailure,
 } from "./renderer-contract.js";
 import type { HumanAppProps, MountedHumanApp } from "./human/app.js";
@@ -17,7 +16,6 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   readonly mode = "human" as const;
   private view: RunViewModel;
   private readonly app: Promise<MountedHumanApp>;
-  private readonly sessionUiByInvocation = new Map<string, string>();
   private finished = false;
   private renderError: unknown;
 
@@ -39,15 +37,6 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   handle(event: SeqlaneExecutionEvent): void {
     if (this.finished) return;
     this.view = reduceRunViewModel(this.view, event);
-    this.render();
-  }
-
-  handleRuntimeSessionUi(notification: RuntimeSessionUi): void {
-    if (this.finished) return;
-    this.sessionUiByInvocation.set(
-      notification.invocationId,
-      notification.browserUrl,
-    );
     this.render();
   }
 
@@ -81,7 +70,6 @@ export class HumanTTYRenderer implements ExecutionRenderer {
       view: this.view,
       capabilities: this.capabilities,
       spinnerFrame: 0,
-      sessionUiByInvocation: this.sessionUiByInvocation,
     };
   }
 

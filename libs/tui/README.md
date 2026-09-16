@@ -9,7 +9,7 @@ does not depend on a runtime adapter or executor.
 ## Renderer modes
 
 - `human` shows a passive live execution tree with automatic expansion,
-  type colors, bright running rows, muted inactive rows, branch rails, right-aligned timing, session links, resize,
+  type colors, bright running rows, muted inactive rows, branch rails, right-aligned timing, resize,
   no-color, and ASCII support. It does not read keyboard input.
 - `ci` writes concise, append-only status and failure output for automation.
 
