@@ -1,5 +1,6 @@
 import { validationResultSchema } from "@seqlane/core";
 import { projectNodeActivity } from "./run-activity.js";
+import { outputBytes, retainOutput } from "./run-output.js";
 import type {
   SeqlaneFailureDisposition,
   SeqlaneDisplayValue,
@@ -54,6 +55,8 @@ export interface RunAggregate {
 }
 
 export interface RunOutputState {
+  readonly retainedBytes?: number;
+  readonly truncated?: boolean;
   readonly transient?: string;
   readonly persistent: readonly string[];
   readonly metrics?: SeqlaneInvocationMetrics;
@@ -76,9 +79,6 @@ export interface RunFailureState {
 
 export interface RunPresentationState {
   readonly isExpanded: boolean;
-  readonly isFocused: boolean;
-  /** User choices outrank automatic active/successful branch presentation. */
-  readonly isManuallyExpanded?: boolean;
 }
 
 export interface RunNode {
@@ -130,7 +130,7 @@ export interface RunViewModel {
   readonly nodes: ReadonlyMap<string, RunNode>;
   /** Stable containment index. Normal event updates do not rebuild it. */
   readonly childrenByParent: ReadonlyMap<string, readonly string[]>;
-  /** User-controlled state kept separate from the event-derived execution nodes. */
+  /** Automatic expansion state kept separate from execution nodes. */
   readonly presentation: ReadonlyMap<string, RunPresentationState>;
   readonly rootInvocationIds: readonly string[];
   readonly toolUsage: ReadonlyMap<string, number>;
@@ -141,6 +141,7 @@ export interface RunViewModel {
   readonly omittedNodeCount: number;
   readonly omittedDependencyEdgeCount: number;
   readonly retainedDetailBytes: number;
+  readonly detailsTruncated?: boolean;
   readonly now: () => Date;
 }
 
@@ -183,24 +184,6 @@ const EMPTY_AGGREGATE: RunAggregate = {
   skipped: 0,
   cancelled: 0,
 };
-
-function byteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
-}
-
-/** Keep a UTF-8 prefix and report exactly what was omitted. */
-function truncateDetailText(value: string, limit: number): string {
-  const originalBytes = byteLength(value);
-  if (originalBytes <= limit) return value;
-  const marker = `[truncated original_bytes=${originalBytes}]`;
-  // A visible truncation marker is more important than an impossible tiny
-  // storage budget. This still retains no raw event payload.
-  if (limit <= marker.length) return marker;
-  const prefixBytes = limit - byteLength(marker);
-  let end = value.length;
-  while (byteLength(value.slice(0, end)) > prefixBytes) end -= 1;
-  return value.slice(0, end) + marker;
-}
 
 function boundedDependencies(
   dependencies: readonly string[],
@@ -514,20 +497,48 @@ function rebuildTopology(
     )
     .sort(compareNodes)
     .map(({ invocationId }) => invocationId);
-  let rebuilt: RunViewModel = {
-    ...view,
-    nodes,
-    childrenByParent,
-    rootInvocationIds,
-  };
-  for (const node of nodes.values()) {
-    rebuilt = applyAncestorAggregateDelta(
-      rebuilt,
+  rebuildAggregates(nodes, childrenByParent);
+  return { ...view, nodes, childrenByParent, rootInvocationIds };
+}
+
+/** Mutates only the new topology map, never a previous projection. */
+function rebuildAggregates(
+  nodes: Map<string, RunNode>,
+  childrenByParent: ReadonlyMap<string, readonly string[]>,
+): void {
+  // Fold each subtree once, leaves first, without cloning the node map per edge.
+  const remaining = new Map(
+    [...nodes.keys()].map((id) => [id, childrenByParent.get(id)?.length ?? 0]),
+  );
+  const totals = new Map(
+    [...nodes.values()].map((node) => [
+      node.invocationId,
       aggregateForNode(node),
-      node.parentInvocationId,
+    ]),
+  );
+  const pending = [...nodes.keys()].filter((id) => remaining.get(id) === 0);
+  for (let index = 0; index < pending.length; index += 1) {
+    const id = pending[index];
+    if (id === undefined) continue;
+    const node = nodes.get(id);
+    if (node === undefined) continue;
+    const total = totals.get(id) ?? EMPTY_AGGREGATE;
+    if (node.kind === "workflow" || node.kind === "loop") {
+      nodes.set(id, {
+        ...node,
+        aggregate: aggregateDelta(total, aggregateForNode(node)),
+      });
+    }
+    const parent = node.parentInvocationId;
+    if (parent === undefined || !nodes.has(parent)) continue;
+    totals.set(
+      parent,
+      addAggregate(totals.get(parent) ?? EMPTY_AGGREGATE, total),
     );
+    const count = (remaining.get(parent) ?? 1) - 1;
+    remaining.set(parent, count);
+    if (count === 0) pending.push(parent);
   }
-  return rebuilt;
 }
 
 export function createRunViewModel(
@@ -624,13 +635,9 @@ function reduceCreated(
         ? placeholders.find((node) => node.taskId === event.taskId)
             ?.invocationId
         : undefined);
-  if (placeholderId !== undefined) {
-    const nodes = new Map(view.nodes);
-    nodes.delete(placeholderId);
-    const presentation = new Map(view.presentation);
-    presentation.delete(placeholderId);
+  if (placeholderId !== undefined && placeholderId !== event.invocationId) {
     return reduceCreated(
-      rebuildTopology({ ...view, presentation }, nodes),
+      reconcilePlanPlaceholder(view, placeholderId, event.invocationId),
       event,
     );
   }
@@ -682,7 +689,6 @@ function reduceCreated(
   const presentation = new Map(view.presentation);
   presentation.set(event.invocationId, {
     isExpanded: event.kind === "workflow" || event.kind === "loop",
-    isFocused: false,
   });
   const next = {
     ...view,
@@ -721,43 +727,83 @@ function reducePlan(
   view: RunViewModel,
   event: Extract<OutputEvent, { type: "run.plan" }>,
 ): RunViewModel {
-  let projected = view;
+  const nodes = new Map(view.nodes);
+  const presentation = new Map(view.presentation);
+  const identities = new Map(
+    [...nodes.values()].map((node) => [node.planNodeId, node.invocationId]),
+  );
+  const accepted = [];
+  let omittedNodeCount = view.omittedNodeCount;
+  let omittedDependencyEdgeCount = view.omittedDependencyEdgeCount;
+  let remainingEdges =
+    view.limits.dependencyEdges -
+    [...nodes.values()].reduce(
+      (sum, node) => sum + node.dependencyIds.length,
+      0,
+    );
+  // Reserve identities first so forward references and existing live nodes resolve.
   for (const node of event.plan.nodes) {
-    if (
-      [...projected.nodes.values()].some(
-        (current) => current.planNodeId === node.planNodeId,
-      )
-    ) {
-      continue;
-    }
-    const created: Extract<OutputEvent, { type: "invocation.created" }> = {
-      type: "invocation.created",
-      metadata: event.metadata,
-      workId: event.workId,
-      runId: event.runId,
-      invocationId: `plan:${node.planNodeId}`,
-      planNodeId: node.planNodeId,
-      subject: planNodeSubject(node),
-      ...(node.taskId === undefined ? {} : { taskId: node.taskId }),
-      kind: planNodeKind(node),
-      label: node.label,
-      ...(node.parentPlanNodeId === undefined
-        ? {}
-        : { parentInvocationId: `plan:${node.parentPlanNodeId}` }),
-      siblingOrder: node.siblingOrder,
-      dependencyIds: node.dependsOn.map((id) => `plan:${id}`),
-    };
-    projected = reduceCreated(projected, created);
-    if (node.session !== undefined) {
-      projected = updateNode(projected, created.invocationId, (current) => ({
-        ...current,
-        session: node.session,
-      }));
+    if (identities.has(node.planNodeId)) continue;
+    if (nodes.size + accepted.length >= view.limits.nodes) {
+      omittedNodeCount += 1;
+      omittedDependencyEdgeCount += node.dependsOn.length;
+    } else {
+      identities.set(node.planNodeId, `plan:${node.planNodeId}`);
+      accepted.push(node);
     }
   }
+  for (const node of accepted) {
+    const created = plannedInvocation(event, node, identities);
+    const dependencies = boundedDependencies(
+      created.dependencyIds,
+      remainingEdges,
+    );
+    remainingEdges -= dependencies.length;
+    omittedDependencyEdgeCount +=
+      created.dependencyIds.length - dependencies.length;
+    nodes.set(created.invocationId, {
+      ...emptyNode(created, view.lastEventSequence, dependencies),
+      session: node.session,
+    });
+    presentation.set(created.invocationId, {
+      isExpanded: created.kind === "workflow" || created.kind === "loop",
+    });
+  }
+  const projected = rebuildTopology(
+    { ...view, presentation, omittedNodeCount, omittedDependencyEdgeCount },
+    nodes,
+  );
   return {
     ...setRunState(projected, "active", event),
     workflowLabel: event.plan.workflow.id,
+  };
+}
+
+function plannedInvocation(
+  event: Extract<OutputEvent, { type: "run.plan" }>,
+  node: Extract<OutputEvent, { type: "run.plan" }>["plan"]["nodes"][number],
+  identities: ReadonlyMap<string, string>,
+): Extract<OutputEvent, { type: "invocation.created" }> {
+  return {
+    type: "invocation.created",
+    metadata: event.metadata,
+    workId: event.workId,
+    runId: event.runId,
+    invocationId: `plan:${node.planNodeId}`,
+    planNodeId: node.planNodeId,
+    subject: planNodeSubject(node),
+    taskId: node.taskId,
+    kind: planNodeKind(node),
+    label: node.label,
+    parentInvocationId:
+      node.parentPlanNodeId === undefined
+        ? undefined
+        : (identities.get(node.parentPlanNodeId) ??
+          `plan:${node.parentPlanNodeId}`),
+    siblingOrder: node.siblingOrder,
+    dependencyIds: node.dependsOn.map(
+      (id) => identities.get(id) ?? `plan:${id}`,
+    ),
   };
 }
 
@@ -766,18 +812,15 @@ function collapseSuccessfulBranch(
   invocationId: string,
 ): RunViewModel {
   const node = view.nodes.get(invocationId);
-  const state = view.presentation.get(invocationId);
   if (
     node === undefined ||
-    (node.kind !== "workflow" && node.kind !== "loop") ||
-    state?.isManuallyExpanded
+    (node.kind !== "workflow" && node.kind !== "loop")
   ) {
     return view;
   }
   const presentation = new Map(view.presentation);
   presentation.set(invocationId, {
     isExpanded: false,
-    isFocused: state?.isFocused ?? false,
   });
   return { ...view, presentation };
 }
@@ -836,7 +879,15 @@ function materializePlanPlaceholder(
   );
   const placeholder = planPlaceholderForSubject(placeholders, subject);
   if (placeholder === undefined) return view;
-  const oldId = placeholder.invocationId;
+  return reconcilePlanPlaceholder(view, placeholder.invocationId, invocationId);
+}
+
+/** Retain planned context and rebind containment/dependency references together. */
+function reconcilePlanPlaceholder(
+  view: RunViewModel,
+  oldId: string,
+  invocationId: string,
+): RunViewModel {
   const nodes = new Map(
     [...view.nodes.values()].map((node) => [
       node.invocationId === oldId ? invocationId : node.invocationId,
@@ -892,9 +943,7 @@ export function reduceRunViewModel(
                 : event.subject.planNodeId),
         }),
       );
-      return focusedInvocationId(started) === undefined
-        ? setRunNodeFocused(started, event.invocationId)
-        : started;
+      return revealAncestors(started, event.invocationId);
     }
     case "invocation.progress":
       return updateNode(next, event.invocationId, (node) => ({
@@ -925,61 +974,28 @@ export function reduceRunViewModel(
     case "invocation.output": {
       const node = next.nodes.get(event.invocationId);
       if (node === undefined) return next;
-      const priorNodeBytes =
-        (node.output.transient === undefined
-          ? 0
-          : byteLength(node.output.transient)) +
-        node.output.persistent.reduce(
-          (total, output) => total + byteLength(output),
-          0,
-        );
-      const replacedTransientBytes =
-        event.policy === "transient" && node.output.transient !== undefined
-          ? byteLength(node.output.transient)
+      const priorBytes = outputBytes(node.output);
+      const replacedBytes =
+        event.policy === "transient"
+          ? Buffer.byteLength(node.output.transient ?? "")
           : 0;
       const available = Math.max(
         0,
         Math.min(
-          next.limits.nodeDetailBytes - priorNodeBytes,
-          next.limits.runDetailBytes -
-            (next.retainedDetailBytes - replacedTransientBytes),
+          next.limits.nodeDetailBytes - priorBytes + replacedBytes,
+          next.limits.runDetailBytes - next.retainedDetailBytes + replacedBytes,
         ),
       );
-      const content = truncateDetailText(event.content, available);
-      const retainedBytes = byteLength(content);
-      const updated = updateNode(next, event.invocationId, (node) => ({
-        ...node,
-        output:
-          event.policy === "persistent"
-            ? {
-                transient: node.output.transient,
-                persistent: [...node.output.persistent, content],
-                ...(event.metrics === undefined
-                  ? node.output.metrics === undefined
-                    ? {}
-                    : { metrics: node.output.metrics }
-                  : { metrics: event.metrics }),
-                ...(event.summary === undefined
-                  ? node.output.summary === undefined
-                    ? {}
-                    : { summary: node.output.summary }
-                  : { summary: event.summary }),
-              }
-            : {
-                ...node.output,
-                transient: content,
-                ...(event.metrics === undefined
-                  ? {}
-                  : { metrics: event.metrics }),
-                ...(event.summary === undefined
-                  ? {}
-                  : { summary: event.summary }),
-              },
+      const output = retainOutput(node.output, event, available);
+      const updated = updateNode(next, event.invocationId, (current) => ({
+        ...current,
+        output,
       }));
       return {
         ...updated,
         retainedDetailBytes:
-          next.retainedDetailBytes - replacedTransientBytes + retainedBytes,
+          next.retainedDetailBytes - priorBytes + outputBytes(output),
+        detailsTruncated: next.detailsTruncated || output.truncated,
       };
     }
     case "invocation.input":
@@ -1133,30 +1149,15 @@ export function getRunVisibleRows(
   return rows;
 }
 
-/**
- * Select a stable window which always contains the focused row. The viewport
- * is derived, so resize never mutates focus or the user's expansion choices.
- */
-export function getRunViewportRows(
-  view: RunViewModel,
-  maxRows: number,
-): readonly RunVisibleRow[] {
-  const rows = getRunVisibleRows(view);
-  if (maxRows <= 0 || rows.length <= maxRows) return rows;
-  const focused = focusedInvocationId(view);
-  const focusedIndex = rows.findIndex(
-    (row) => row.node.invocationId === focused,
-  );
-  const centeredStart = Math.max(0, focusedIndex - Math.floor(maxRows / 2));
-  const start = Math.min(centeredStart, rows.length - maxRows);
-  return rows.slice(start, start + maxRows);
-}
-
 /** One explicit row prevents bounded projection from looking like a complete run. */
 export function getRunProjectionLimitNotice(
   view: RunViewModel,
 ): string | undefined {
-  if (view.omittedNodeCount === 0 && view.omittedDependencyEdgeCount === 0) {
+  if (
+    view.omittedNodeCount === 0 &&
+    view.omittedDependencyEdgeCount === 0 &&
+    !view.detailsTruncated
+  ) {
     return undefined;
   }
   return (
@@ -1164,54 +1165,8 @@ export function getRunProjectionLimitNotice(
     view.omittedNodeCount +
     " edges=" +
     view.omittedDependencyEdgeCount +
-    "]"
+    (view.detailsTruncated ? " details truncated]" : "]")
   );
-}
-
-export function setRunNodeExpanded(
-  view: RunViewModel,
-  invocationId: string,
-  isExpanded: boolean,
-): RunViewModel {
-  if (!view.nodes.has(invocationId)) return view;
-  const presentation = new Map(view.presentation);
-  const current = presentation.get(invocationId) ?? {
-    isExpanded: false,
-    isFocused: false,
-  };
-  presentation.set(invocationId, {
-    ...current,
-    isExpanded,
-    isManuallyExpanded: true,
-  });
-  return { ...view, presentation };
-}
-
-export function setRunNodeFocused(
-  view: RunViewModel,
-  invocationId: string | undefined,
-): RunViewModel {
-  const presentation = new Map<string, RunPresentationState>();
-  for (const node of view.nodes.values()) {
-    const current = view.presentation.get(node.invocationId) ?? {
-      isExpanded: false,
-      isFocused: false,
-    };
-    presentation.set(node.invocationId, {
-      ...current,
-      isFocused: node.invocationId === invocationId,
-    });
-  }
-  return { ...view, presentation };
-}
-
-function focusedInvocationId(view: RunViewModel): string | undefined {
-  for (const [invocationId, presentation] of view.presentation) {
-    if (presentation.isFocused && view.nodes.has(invocationId)) {
-      return invocationId;
-    }
-  }
-  return undefined;
 }
 
 function revealAncestors(
@@ -1225,65 +1180,9 @@ function revealAncestors(
     if (parent === undefined) break;
     const current = presentation.get(parent.invocationId) ?? {
       isExpanded: false,
-      isFocused: false,
     };
     presentation.set(parent.invocationId, { ...current, isExpanded: true });
     node = parent;
   }
   return { ...view, presentation };
-}
-
-/** Move focus by a visible-row offset without modifying execution state. */
-export function moveRunNodeFocus(
-  view: RunViewModel,
-  direction: -1 | 1,
-): RunViewModel {
-  const rows = getRunVisibleRows(view);
-  if (rows.length === 0) return view;
-  const current = focusedInvocationId(view);
-  const index = rows.findIndex(({ node }) => node.invocationId === current);
-  const nextIndex = Math.max(0, Math.min(rows.length - 1, index + direction));
-  return setRunNodeFocused(view, rows[nextIndex]?.node.invocationId);
-}
-
-/** Collapse the focused branch, or focus its parent when already collapsed. */
-export function collapseOrFocusParent(view: RunViewModel): RunViewModel {
-  const focused = focusedInvocationId(view);
-  if (focused === undefined) return view;
-  const node = view.nodes.get(focused);
-  if (node === undefined) return view;
-  const children = view.childrenByParent.get(focused) ?? [];
-  const expanded = view.presentation.get(focused)?.isExpanded ?? false;
-  if (children.length > 0 && expanded)
-    return setRunNodeExpanded(view, focused, false);
-  return setRunNodeFocused(view, node.parentInvocationId);
-}
-
-/** Expand the focused branch, or focus its first child when already expanded. */
-export function expandOrFocusChild(view: RunViewModel): RunViewModel {
-  const focused = focusedInvocationId(view);
-  if (focused === undefined) return view;
-  const children = view.childrenByParent.get(focused) ?? [];
-  if (children.length === 0) return view;
-  const expanded = view.presentation.get(focused)?.isExpanded ?? false;
-  if (!expanded) return setRunNodeExpanded(view, focused, true);
-  return setRunNodeFocused(view, children[0]);
-}
-
-/** Focus the next failed row and reveal the containment path that leads to it. */
-export function focusNextFailedRunNode(view: RunViewModel): RunViewModel {
-  const failures = [...view.nodes.values()]
-    .filter((node) => node.state === "failed")
-    .sort(compareNodes);
-  if (failures.length === 0) return view;
-  const focused = focusedInvocationId(view);
-  const currentIndex = failures.findIndex(
-    (node) => node.invocationId === focused,
-  );
-  const next = failures[(currentIndex + 1) % failures.length];
-  if (next === undefined) return view;
-  return setRunNodeFocused(
-    revealAncestors(view, next.invocationId),
-    next.invocationId,
-  );
 }

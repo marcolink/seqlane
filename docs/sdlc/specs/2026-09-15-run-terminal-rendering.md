@@ -149,6 +149,7 @@ The default projection limits are:
 | retained dependency edges | 50,000 |
 | retained detail text for one node | 32 KiB |
 | retained detail text for one run | 16 MiB |
+| persistent output chunks per node | 128 |
 | pending render frames | 1 |
 | retained raw-event backlog | 0 |
 
@@ -164,9 +165,10 @@ After a topology limit, human mode keeps known nodes and root aggregate state.
 It shows one synthetic limit row with cumulative omitted node and edge counts.
 CI mode continues to show safe incoming lifecycle lines.
 
-After a text limit, the renderer keeps a UTF-8 boundary-safe prefix and adds
-`[truncated original_bytes=<count>]`. The renderer never removes information
-without a visible count or marker. Tests can inject smaller limits.
+After a text or chunk limit, the projection keeps a UTF-8 boundary-safe prefix
+and records truncation separately from payload bytes. Later content is dropped;
+metrics can still update. One node marker and one run notice report truncation
+without consuming the payload budget. Tests can inject smaller limits.
 
 ### requirement-root-elapsed-time
 

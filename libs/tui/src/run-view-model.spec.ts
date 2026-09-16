@@ -1,16 +1,10 @@
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import {
-  collapseOrFocusParent,
-  expandOrFocusChild,
-  focusNextFailedRunNode,
   getRunProjectionLimitNotice,
-  getRunViewportRows,
   getRunVisibleRows,
-  moveRunNodeFocus,
   reduceRunEvents,
-  setRunNodeExpanded,
-  setRunNodeFocused,
+  reduceRunViewModel,
 } from "./run-view-model.js";
 
 const run = {
@@ -73,20 +67,6 @@ function terminal(
 }
 
 describe("human execution view model", () => {
-  it("keeps the focused row in a derived viewport without changing focus", () => {
-    let view = reduceRunEvents(
-      Array.from({ length: 8 }, (_, index) =>
-        created(`task-${index}`, `Task ${index}`, index),
-      ),
-    );
-    view = setRunNodeFocused(view, "task-6");
-
-    expect(
-      getRunViewportRows(view, 3).map((row) => row.node.invocationId),
-    ).toContain("task-6");
-    expect(view.presentation.get("task-6")?.isFocused).toBe(true);
-  });
-
   it("bounds nodes, dependency edges, and detail text with visible markers", () => {
     const events = [
       created("root", "Root", 0, {
@@ -115,37 +95,9 @@ describe("human execution view model", () => {
     expect(view.nodes.size).toBe(1);
     expect(view.nodes.get("root")?.dependencyIds).toEqual(["a"]);
     expect(getRunProjectionLimitNotice(view)).toContain("nodes=1 edges=1");
-    expect(view.nodes.get("root")?.output.persistent[0]).toContain(
-      "[truncated original_bytes=",
-    );
-  });
-
-  it("keeps presentation state separate from execution nodes", () => {
-    const view = reduceRunEvents([
-      created("workflow", "Workflow", 0, { kind: "workflow" }),
-      created("task", "Task", 0, { parentInvocationId: "workflow" }),
-    ]);
-    const executionNode = view.nodes.get("workflow");
-
-    expect(executionNode).toBeDefined();
-    expect(executionNode).not.toHaveProperty("presentation");
-    expect(view.presentation.get("workflow")).toEqual({
-      isExpanded: true,
-      isFocused: false,
-    });
-
-    const collapsed = setRunNodeExpanded(view, "workflow", false);
-    const focused = setRunNodeFocused(collapsed, "task");
-    expect(focused.nodes.get("workflow")).toBe(executionNode);
-    expect(focused.presentation.get("workflow")).toEqual({
-      isExpanded: false,
-      isFocused: false,
-      isManuallyExpanded: true,
-    });
-    expect(focused.presentation.get("task")).toEqual({
-      isExpanded: false,
-      isFocused: true,
-    });
+    expect(view.nodes.get("root")?.output.truncated).toBe(true);
+    expect(view.retainedDetailBytes).toBeLessThanOrEqual(8);
+    expect(getRunProjectionLimitNotice(view)).toContain("details truncated");
   });
 
   it("creates stable rows before execution starts", () => {
@@ -389,40 +341,6 @@ describe("human execution view model", () => {
     expect(rows.at(-1)?.depth).toBe(1_199);
   });
 
-  it("navigates visible rows and reveals a failed branch", () => {
-    const view = reduceRunEvents([
-      created("root", "Root", 0, { kind: "workflow" }),
-      created("left", "Left", 0, { parentInvocationId: "root" }),
-      created("right", "Right", 1, { parentInvocationId: "root" }),
-      {
-        type: "invocation.failed",
-        ...run,
-        invocationId: "right",
-        disposition: "fail_run",
-        error: { category: "ExecutorError", message: "failed" },
-      },
-    ]);
-
-    const focused = setRunNodeFocused(view, "root");
-    expect(
-      moveRunNodeFocus(focused, 1).presentation.get("left")?.isFocused,
-    ).toBe(true);
-    expect(
-      collapseOrFocusParent(focused).presentation.get("root")?.isExpanded,
-    ).toBe(false);
-    expect(
-      expandOrFocusChild(collapseOrFocusParent(focused)).presentation.get(
-        "root",
-      )?.isExpanded,
-    ).toBe(true);
-
-    const failed = focusNextFailedRunNode(
-      setRunNodeExpanded(focused, "root", false),
-    );
-    expect(failed.presentation.get("root")?.isExpanded).toBe(true);
-    expect(failed.presentation.get("right")?.isFocused).toBe(true);
-  });
-
   it("keeps loop children grouped by iteration in stable order", () => {
     const view = reduceRunEvents([
       created("loop", "repeat:1", 0, { kind: "loop" }),
@@ -499,7 +417,10 @@ describe("human execution view model", () => {
       failed: 0,
     });
 
-    const collapsed = setRunNodeExpanded(expanded, "workflow", false);
+    const collapsed = reduceRunViewModel(
+      expanded,
+      terminal("workflow", "invocation.succeeded"),
+    );
     expect(getRunVisibleRows(collapsed).map(({ node }) => node.label)).toEqual([
       "Workflow",
     ]);
