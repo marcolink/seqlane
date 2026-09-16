@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-16
 upstream:
   - adr.runner-built-action-bundles
 supersedes: []
@@ -61,9 +61,9 @@ Deferred.
 
 ## Delivery state
 
-Implementation is under review in
-[pull request 98](https://github.com/marcolink/seqlane/pull/98). It is not
-delivered on `main`.
+Delivered to the default branch through [pull request
+#98](https://github.com/marcolink/seqlane/pull/98). The ADR remains the
+historical decision record.
 
 ## Traceability
 

@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-14
+updated: 2026-09-16
 upstream:
   - adr.mastra-backed-seqlane-workflows
   - adr.separate-seqlane-protocol-package
@@ -567,8 +567,9 @@ The delivery records use this order:
 5. Cut over the runtime to Mastra and remove Effect. Completed in PR #26.
 6. Compose workflows as runnables.
 7. Add Mastra observability. Native agent projections completed in PR #75.
-8. Migrate execution-event consumers to `@seqlane/protocol`.
-9. Remove the former `@seqlane/events` package.
+8. Migrate execution-event consumers to `@seqlane/protocol`. Completed in PR
+   #107.
+9. Remove the former `@seqlane/events` package. Completed in PR #107.
 
 Each slice remains independently committable. The protocol extraction and
 final event deletion use repository-wide verification. Other slices use

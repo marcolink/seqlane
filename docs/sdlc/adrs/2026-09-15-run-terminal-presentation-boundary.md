@@ -117,8 +117,9 @@ functions while keeping execution semantics outside the UI.
 
 ## Delivery state
 
-Not delivered. The current source still uses `@seqlane/output` and combines
-human, CI, and JSON renderers.
+Superseded before full delivery. Pull requests #117 through #120 delivered its
+package and machine-result boundaries. The passive-output ADR replaced its
+interactive terminal design.
 
 ## Traceability
 

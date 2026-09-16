@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-09-16
 upstream:
   - adr.mastra-backed-seqlane-workflows
   - spec.mastra-backed-seqlane-workflows
@@ -91,6 +91,12 @@ Consumers import serialized events, runner commands, and Plan snapshots from
 authoring. The package graph gains one public protocol node and removes the
 legacy events node. A later runtime-private extraction can reduce core further
 without another serialized-contract migration.
+
+## Delivery state
+
+Delivered to the default branch through [pull request
+#107](https://github.com/marcolink/seqlane/pull/107). The ADR remains the
+historical decision record.
 
 ## Traceability
 

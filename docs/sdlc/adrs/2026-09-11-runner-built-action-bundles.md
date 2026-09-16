@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-16
 upstream:
   - adr.seqlane-action-library-boundary
   - adr.direct-runtime-code-review-action
@@ -100,8 +100,9 @@ publication. No current consumer needs that contract. Deferred until required.
 
 ## Delivery state
 
-Implementation is tracked by `task.migrate-to-runner-built-action-bundles`.
-Acceptance records the decision; it does not prove delivery on `main`.
+Delivered to the default branch through [pull request
+#98](https://github.com/marcolink/seqlane/pull/98). The ADR remains the
+historical decision record.
 
 ## Traceability
 

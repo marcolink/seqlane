@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-15
+updated: 2026-09-16
 upstream:
   - spec.run-terminal-rendering
   - task.separate-run-machine-output
@@ -90,9 +90,8 @@ tests. The CLI suite passes with 133 tests. The compiled CLI suite passes with
 
 ## Delivery state
 
-Implementation is complete on a feature branch stacked on the head of
-`task.separate-run-machine-output` in pull request #117. Default-branch delivery
-still requires a reachable commit or merged pull request.
+Delivered to the default branch through [pull request
+#118](https://github.com/marcolink/seqlane/pull/118).
 
 ## Traceability
 

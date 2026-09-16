@@ -47,12 +47,12 @@ Mounted component tests and representative CLI validation pass.
 
 ## Outcome
 
-Implemented on the feature branch. Ink hooks own animation and resize; the
-custom scheduler, ANSI renderer, and inspector are removed. Mounted tests use
-ink-testing-library. Focused rendering/projection tests, CLI integration tests,
-typechecks, and TUI/CLI lint pass. A built real-terminal OpenCode run completed
-both agent tasks with a 2/2 header. Later runs verified expandable live task
-details and successful collapse, without session URLs.
+Ink hooks own animation and resize. The custom scheduler, ANSI renderer, and
+inspector are removed. Mounted tests use ink-testing-library. Focused
+rendering/projection tests, CLI integration tests, typechecks, and TUI/CLI lint
+pass. A built real-terminal OpenCode run completed both agent tasks with a 2/2
+header. Later runs verified expandable live task details and successful
+collapse, without session URLs.
 
 PR review follow-up covers early operational-host plan publication, planned
 metadata reconciliation, batch projection, strict output retention, terminal
@@ -62,7 +62,10 @@ The final review fixes planned subject identity, dependency reindexing, dynamic
 task totals, stable event order, control-safe redaction, large-plan scaling,
 and isolated animation updates. Focused regressions cover each correction.
 
-No default-branch delivery claim is made. That requires a merged pull request.
+## Delivery state
+
+Delivered to the default branch through [pull request
+#120](https://github.com/marcolink/seqlane/pull/120).
 
 ## Traceability
 

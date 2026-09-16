@@ -1,11 +1,11 @@
 ---
 id: task.deliver-fluent-task-until-repeats
 title: Deliver Fluent Task-Until Repeats
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-15
+updated: 2026-09-16
 upstream:
   - spec.fluent-task-until-repeats
   - spec.mastra-backed-seqlane-workflows
@@ -118,9 +118,9 @@ imports.
 
 ## Outcome
 
-The feature branch implements and verifies the fluent repeat contract. This
-task supersedes four completed tasks that defined or implemented the earlier
-repeat shape, and the cancelled plan to reject child workflows in repeats.
+The delivered implementation provides the fluent repeat contract. This task
+supersedes four completed tasks that defined or implemented the earlier repeat
+shape, and the cancelled plan to reject child workflows in repeats.
 Their completed statuses remain historical records.
 Review fixes isolate run identity, repeat budgets, and events; preserve task
 output validation; admit all child workflow resources; and split repeat
@@ -130,9 +130,9 @@ envelopes reference that state. The full test suite and typecheck pass.
 
 ## Delivery state
 
-In review. Commit `27b50d2` on `feat/fluent-task-until-repeats` and
-[pull request #114](https://github.com/marcolink/seqlane/pull/114) contain the
-implementation. The feature is not yet delivered on the target branch.
+Delivered to the default branch through [pull request
+#114](https://github.com/marcolink/seqlane/pull/114). The merged quality gates
+passed.
 
 ## Traceability
 

@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-11
+updated: 2026-09-16
 upstream:
   - adr.seqlane-action-library-boundary
   - adr.runner-built-action-bundles
@@ -723,7 +723,6 @@ pnpm exec nx run action-merge-conflict-resolution:typecheck
 pnpm exec nx run action-merge-conflict-resolution:test
 pnpm exec nx run action-resolve-merge-conflicts:typecheck
 pnpm exec nx run action-resolve-merge-conflicts:build
-git diff --exit-code -- actions/*/dist/
 pnpm docs:index
 pnpm docs:validate
 pnpm docs:test
