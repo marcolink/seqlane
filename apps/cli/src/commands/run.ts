@@ -332,6 +332,7 @@ export default class RunCommand extends SeqlaneCommand {
         runnerClient = launchRunner(request, {
           onExecutionEvent: (event) => dispatcher?.consume(event),
           onRuntimeSessionUiAvailable: (notification) => {
+            if (renderer?.mode === "human") return;
             if (renderer?.handleRuntimeSessionUi !== undefined) {
               renderer.handleRuntimeSessionUi(notification);
               return;

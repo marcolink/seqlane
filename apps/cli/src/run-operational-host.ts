@@ -133,6 +133,8 @@ export async function executeOperationalHostRun(
             adapterConfiguration,
             eventSink: () => events,
             onSessionUiAvailable: (notification) => {
+              // Out-of-band writes move the cursor underneath Ink's live tree.
+              if (renderer?.mode === "human") return;
               if (renderer?.handleRuntimeSessionUi !== undefined) {
                 renderer.handleRuntimeSessionUi(notification);
                 return;

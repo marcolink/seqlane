@@ -70,6 +70,45 @@ describe("executeOperationalHostRun", () => {
     mocks.startOwnedOperationalHost.mockReset();
   });
 
+  it.each(["human", "ci"] as const)(
+    "keeps session diagnostics out of the human tree (%s mode)",
+    async (mode) => {
+      const browserUrl = "http://127.0.0.1:4096/session/test-session";
+      const stderr = { write: vi.fn() };
+      mocks.startOwnedOperationalHost.mockImplementation(async (options) => {
+        options.onSessionUiAvailable({
+          invocationId: "task-1",
+          browserUrl,
+        });
+        // Stop after exercising the real callback; no operational server needed.
+        throw new Error("stop after notification");
+      });
+
+      await executeOperationalHostRun({
+        request,
+        sourceWorkflowReference: "repository:remote",
+        roots: { repository: "/repo", user: "/user" },
+        hostname: "127.0.0.1",
+        port: 0,
+        storageUrl: "file::memory:",
+        adapterConfiguration: undefined,
+        jsonMode: false,
+        capabilities: { ...capabilities, stderr },
+        dispatcher: dispatcher(),
+        renderer: { ...renderer(), mode },
+        disconnectResize: vi.fn(),
+      });
+
+      if (mode === "human") {
+        expect(stderr.write).not.toHaveBeenCalled();
+      } else {
+        expect(stderr.write).toHaveBeenCalledWith(
+          `Seqlane session UI: ${browserUrl}\n`,
+        );
+      }
+    },
+  );
+
   it("preserves a canonical serialized remote error in the run result", async () => {
     const remoteError = {
       category: "ValidationError" as const,
