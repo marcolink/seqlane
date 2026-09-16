@@ -22,8 +22,12 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   private flushScheduled = false;
 
   constructor(private readonly capabilities: OutputCapabilities) {
-    if (!capabilities.isTTY || capabilities.terminal === undefined) {
-      throw new Error("Human output requires terminal streams");
+    if (
+      !capabilities.isTTY ||
+      !capabilities.hasTerminalInput ||
+      capabilities.terminal === undefined
+    ) {
+      throw new Error("Human output requires terminal input and output");
     }
     this.view = createRunViewModel();
     const terminal = capabilities.terminal;

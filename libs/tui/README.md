@@ -27,7 +27,7 @@ CI mode consumes the complete event stream but renders only meaningful state
 changes, retries, waits, skips, persistent output, failures, heartbeats, and
 the final summary. It does not print invocation input, transient output, or
 routine successful tool and skill activity. Task start and terminal lines use
-bold ANSI styling so the execution steps are easy to scan. Terminal task lines
+bold ANSI styling only when the CLI reports ANSI support. Terminal task lines
 include elapsed time and available token totals with input, output, reasoning,
 and cache breakdowns. When the caller explicitly enables the GitHub Actions
 capability, failed tool activity includes a bounded command, path, or search

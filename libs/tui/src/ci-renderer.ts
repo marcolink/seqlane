@@ -148,8 +148,8 @@ function compactCI(
     : normalized.slice(0, Math.max(0, maximum - 1)) + "…";
 }
 
-function boldCI(value: string): string {
-  return ANSI_BOLD + value + ANSI_RESET;
+function boldCI(value: string, supportsAnsi: boolean): string {
+  return supportsAnsi ? ANSI_BOLD + value + ANSI_RESET : value;
 }
 
 function activityDetail(event: InvocationActivityEvent): string | undefined {
@@ -471,6 +471,7 @@ export class CIRenderer implements ExecutionRenderer {
             (event.iteration === undefined
               ? ""
               : " iteration=" + event.iteration),
+          this.capabilities.supportsAnsi,
         );
       }
       case "invocation.succeeded": {
@@ -483,6 +484,7 @@ export class CIRenderer implements ExecutionRenderer {
             " succeeded label=" +
             compactCI(node?.label ?? "unknown", 200) +
             this.invocationEndDetails(node),
+          this.capabilities.supportsAnsi,
         );
       }
       case "invocation.failed": {
@@ -517,6 +519,7 @@ export class CIRenderer implements ExecutionRenderer {
                   },
                 )) +
             this.invocationEndDetails(node),
+          this.capabilities.supportsAnsi,
         );
       }
       case "invocation.skipped":
@@ -628,6 +631,7 @@ export class CIRenderer implements ExecutionRenderer {
         (label === undefined ? "" : " label=" + compactCI(label, 200)) +
         (reason === undefined ? "" : " reason=" + compactCI(reason)) +
         this.invocationEndDetails(node),
+      this.capabilities.supportsAnsi,
     );
   }
 

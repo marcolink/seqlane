@@ -3,6 +3,7 @@
   "name": "cli",
   "projectType": "application",
   "sourceRoot": "apps/cli/src",
+  "implicitDependencies": ["action-code-review-library"],
   "targets": {
     "build": {
       "executor": "nx:run-commands",
@@ -14,6 +15,7 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "dependsOn": ["build", "^build"],
       "options": {
         "cwd": "apps/cli",
         "command": "vitest run"

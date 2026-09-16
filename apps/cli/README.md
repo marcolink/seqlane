@@ -247,9 +247,8 @@ seqlane run ./examples/pr-code-review.ts \
 Runs use isolated executor sessions by default. Independent tasks can overlap
 only when their session, DAG, global capacity, and workspace policies permit it.
 
-When the configured OpenCode runtime also serves its browser UI, human terminal
-output adds a per-task `Session UI` link. CI output prints the URL to stderr so
-its stdout remains machine-readable. Final JSON results contain no progress.
+When the configured OpenCode runtime also serves its browser UI, the terminal
+renderers do not show its session URL. Final JSON results contain no progress.
 Signal cancellation results preserve the received signal, for example
 `Run cancelled after SIGINT` or `Run cancelled after SIGTERM`.
 

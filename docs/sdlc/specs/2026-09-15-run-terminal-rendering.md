@@ -499,17 +499,15 @@ typechecks, builds, lint checks, and the complete CLI entrypoint tests.
 
 ## Delivery state
 
-Implemented on the current feature branch. The branch includes bounded event
-projection, clock-based elapsed time, safe field encoding, passive Ink
-rendering, CLI wiring, and renderer cleanup.
+Implemented on the default branch through pull request #120. The delivery
+includes bounded event projection, clock-based elapsed time, safe field
+encoding, passive Ink rendering, CLI wiring, and renderer cleanup.
 
 The review follow-up aligns plan subjects with runtime subjects. It also keeps
 dependency indexes, task totals, event order, secret redaction, and large-plan
 updates correct. Animation updates only the header and active rows.
 
-Pull request #120 remains open. Thus, the current default branch does not
-contain this delivery. The integration task tracks the final cross-mode CLI
-verification.
+The integration task tracks the final cross-mode CLI verification.
 
 ## Traceability
 

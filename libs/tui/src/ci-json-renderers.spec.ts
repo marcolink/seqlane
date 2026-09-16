@@ -42,6 +42,7 @@ function capabilities(
 ): OutputCapabilities {
   return {
     isTTY: false,
+    hasTerminalInput: false,
     supportsAnsi: false,
     supportsUnicode: false,
     width: 80,
@@ -79,7 +80,7 @@ afterEach(() => {
 });
 
 describe("CI renderer", () => {
-  it("emits bold task lifecycle lines with duration and token details", async () => {
+  it("emits plain task lifecycle lines when ANSI is unavailable", async () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -140,10 +141,11 @@ describe("CI renderer", () => {
     const output = stdout.writes.join("");
     expect(isCIOutput(output)).toBe(true);
     expect(output).toContain("invocation=a");
-    expect(output).toContain("\u001b[1mrun=run-1 invocation=a started");
+    expect(output).toContain("run=run-1 invocation=a started");
     expect(output).toContain(
-      "\u001b[1mrun=run-1 invocation=a succeeded label=Parallel A duration=2000ms tokens=42 inputTokens=20 outputTokens=12 reasoning=8 cacheRead=2 cacheWrite=0 cost=0.0042\u001b[0m",
+      "run=run-1 invocation=a succeeded label=Parallel A duration=2000ms tokens=42 inputTokens=20 outputTokens=12 reasoning=8 cacheRead=2 cacheWrite=0 cost=0.0042",
     );
+    expect(output).not.toContain("\u001b");
     expect(output).toContain(
       "task-duration run=run-1 invocation=a label=Parallel A state=succeeded duration=2.0s cost=0.0042",
     );
@@ -153,6 +155,27 @@ describe("CI renderer", () => {
       totalCost: 0.0042,
       taskDurations: [{ invocationId: "a", cost: 0.0042 }],
     });
+  });
+
+  it("uses bold task lifecycle lines only when ANSI is supported", () => {
+    const stdout = new RecordingSink();
+    const renderer = new CIRenderer(
+      { ...capabilities(stdout), supportsAnsi: true },
+      { heartbeatIntervalMs: 0 },
+    );
+    renderer.handle({ type: "run.started", ...run });
+    renderer.handle(created("a", "Task A", 0));
+    renderer.handle({
+      type: "invocation.started",
+      ...run,
+      invocationId: "a",
+      subject: { type: "task", taskId: "Task A" },
+      taskId: "Task A",
+    });
+
+    expect(stdout.writes.join("")).toContain(
+      "\u001b[1mrun=run-1 invocation=a started",
+    );
   });
 
   it("includes loop parents and body iterations in CI lines", () => {

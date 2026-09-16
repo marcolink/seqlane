@@ -13,6 +13,8 @@ export interface OutputSink {
 
 export interface OutputCapabilities {
   readonly isTTY: boolean;
+  /** Both streams must be terminals before the inline human renderer can mount. */
+  readonly hasTerminalInput: boolean;
   readonly supportsAnsi: boolean;
   readonly supportsUnicode: boolean;
   readonly width: number;
