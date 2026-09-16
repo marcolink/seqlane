@@ -240,6 +240,64 @@ it("renders failed validation identity, verdict, issues, and evidence", () => {
   expect(output).toContain("evidence=redacted");
 });
 
+it("collapses validation details after the task succeeds", async () => {
+  const events: SeqlaneExecutionEvent[] = [
+    {
+      ...identity,
+      type: "invocation.created",
+      invocationId: "validation",
+      planNodeId: "validation.gate:1",
+      subject: { type: "validation-gate", planNodeId: "validation.gate:1" },
+      kind: "validation",
+      label: "Validate release",
+      siblingOrder: 0,
+      dependencyIds: [],
+    },
+    {
+      ...identity,
+      type: "invocation.result",
+      invocationId: "validation",
+      result: {
+        state: "present",
+        value: {
+          success: true,
+          issues: [],
+          evidence: { state: "verified" },
+        },
+      },
+    },
+  ];
+  const view = reduceRunEvents(events);
+  const props = {
+    capabilities: {
+      supportsAnsi: false,
+      supportsUnicode: true,
+      width: 100,
+    },
+    spinnerFrame: 0,
+  };
+  const app = render(<HumanApp {...props} view={view} />);
+  expect(app.lastFrame()).toContain("validation source=validation.gate:1");
+
+  app.rerender(
+    <HumanApp
+      {...props}
+      view={reduceRunViewModel(view, {
+        ...identity,
+        type: "invocation.succeeded",
+        invocationId: "validation",
+      })}
+    />,
+  );
+
+  await vi.waitFor(() =>
+    expect(app.lastFrame()).not.toContain(
+      "validation source=validation.gate:1",
+    ),
+  );
+  expect(app.lastFrame()).toContain("Validate release");
+});
+
 it("renders node and run truncation byte counts", () => {
   const view = reduceRunEvents(
     [

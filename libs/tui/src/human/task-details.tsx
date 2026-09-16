@@ -37,6 +37,7 @@ export function HumanTaskDetails({
   readonly lastSibling: boolean;
 }): React.JSX.Element | null {
   const { node } = row;
+  if (node.state === "succeeded") return null;
   const expanded =
     node.state === "active" ||
     node.state === "retrying" ||
