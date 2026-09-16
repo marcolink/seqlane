@@ -16,5 +16,6 @@ package published by this repository.
   `workflow-kind:example` tag.
 - Do not add workflow unit tests by default. Test reusable task/library logic;
   add a workflow test only for an observable regression or integration seam.
-- Add a `build` target only when the workflow requires compilation or bundling.
-  Do not add an Nx `run` target: use the Seqlane CLI.
+- Add an Nx `project.json` only when the workflow owns a build, test, lint, or
+  smoke-check target. Add a `build` target only when compilation or bundling
+  requires it. Do not add an Nx `run` target: use the Seqlane CLI.

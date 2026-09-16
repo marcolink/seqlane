@@ -16,8 +16,9 @@ supersedes: []
 
 ## Objective
 
-Place repository portable workflows in `workflows/<name>/workflow.ts` and add
-them to the Nx project graph without changing CLI directory invocation.
+Place repository portable workflows in `workflows/<name>/workflow.ts`. Add a
+workflow to the Nx project graph only when it owns a build, test, lint, or
+smoke-check target; do not change CLI directory invocation.
 
 ## Scope
 

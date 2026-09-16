@@ -1,7 +1,0 @@
-{
-  "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "workflow-all-features-example",
-  "projectType": "application",
-  "sourceRoot": "workflows/all-features-example",
-  "tags": ["type:workflow", "workflow-kind:example"]
-}
