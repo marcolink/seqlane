@@ -34,7 +34,6 @@ export interface RunOperationalHostOptions {
   readonly renderer?: ExecutionRenderer;
   readonly capabilities: OutputCapabilities;
   readonly dispatcher: EventDispatcher;
-  readonly disconnectResize: () => void;
 }
 
 export interface RunOperationalHostResult {
@@ -80,7 +79,6 @@ export async function executeOperationalHostRun(
     renderer,
     capabilities,
     dispatcher,
-    disconnectResize,
   } = options;
   const identity: RunIdentity = {
     workId: randomUUID(),
@@ -280,7 +278,6 @@ export async function executeOperationalHostRun(
       flushEvents: () => events.flush(),
       closeHost: () => ownedHost?.close(),
       finishRenderer: () => renderer?.finish(),
-      disconnectResize,
       beforeCleanup: () => {
         process.removeListener("SIGINT", onSigint);
         process.removeListener("SIGTERM", onSigterm);

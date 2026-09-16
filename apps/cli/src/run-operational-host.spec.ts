@@ -96,7 +96,6 @@ describe("executeOperationalHostRun", () => {
         capabilities: { ...capabilities, stderr },
         dispatcher: dispatcher(),
         renderer: { ...renderer(), mode },
-        disconnectResize: vi.fn(),
       });
 
       if (mode === "human") {
@@ -133,7 +132,6 @@ describe("executeOperationalHostRun", () => {
     });
     const events = dispatcher();
     const rendererInstance = renderer();
-    const disconnectResize = vi.fn();
 
     const result = await executeOperationalHostRun({
       request,
@@ -147,7 +145,6 @@ describe("executeOperationalHostRun", () => {
       jsonMode: true,
       capabilities,
       dispatcher: events,
-      disconnectResize,
       renderer: rendererInstance,
     });
 
@@ -160,7 +157,6 @@ describe("executeOperationalHostRun", () => {
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
-    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 
   it("owns presentation cleanup exactly once", async () => {
@@ -170,7 +166,6 @@ describe("executeOperationalHostRun", () => {
     });
     const events = dispatcher();
     const rendererInstance = renderer();
-    const disconnectResize = vi.fn();
 
     await executeOperationalHostRun({
       request,
@@ -185,13 +180,11 @@ describe("executeOperationalHostRun", () => {
       capabilities,
       dispatcher: events,
       renderer: rendererInstance,
-      disconnectResize,
     });
 
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
-    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 
   it("closes every resource when owned-host setup fails", async () => {
@@ -199,7 +192,6 @@ describe("executeOperationalHostRun", () => {
     mocks.startOwnedOperationalHost.mockRejectedValue(setupError);
     const events = dispatcher();
     const rendererInstance = renderer();
-    const disconnectResize = vi.fn();
 
     const result = await executeOperationalHostRun({
       request,
@@ -213,7 +205,6 @@ describe("executeOperationalHostRun", () => {
       capabilities,
       dispatcher: events,
       renderer: rendererInstance,
-      disconnectResize,
     });
 
     expect(result.commandResult).toMatchObject({
@@ -224,14 +215,12 @@ describe("executeOperationalHostRun", () => {
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
-    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 
   it("closes every resource for runtime cancellation", async () => {
     mocks.client.startRun.mockResolvedValue({ status: "cancelled" });
     const events = dispatcher();
     const rendererInstance = renderer();
-    const disconnectResize = vi.fn();
 
     const result = await executeOperationalHostRun({
       request,
@@ -246,7 +235,6 @@ describe("executeOperationalHostRun", () => {
       capabilities,
       dispatcher: events,
       renderer: rendererInstance,
-      disconnectResize,
     });
 
     expect(result.exitStatus).toBe(130);
@@ -254,6 +242,5 @@ describe("executeOperationalHostRun", () => {
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
-    expect(disconnectResize).toHaveBeenCalledOnce();
   });
 });

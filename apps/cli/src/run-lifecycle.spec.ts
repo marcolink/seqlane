@@ -22,7 +22,6 @@ describe("closeRunResources", () => {
     const result = await closeRunResources({
       recordingConsumer: recording,
       finishRenderer: vi.fn(async () => undefined),
-      disconnectResize: vi.fn(),
     });
 
     expect(result).toEqual([]);
@@ -40,7 +39,6 @@ describe("closeRunResources", () => {
       dispatcherFlush: new Error("dispatcher flush failed"),
       dispatcherClose: new Error("dispatcher close failed"),
       renderer: new Error("renderer finish failed"),
-      resize: new Error("resize disconnect failed"),
     };
     events.flush.mockRejectedValue(errors.dispatcherFlush);
     events.close.mockRejectedValue(errors.dispatcherClose);
@@ -59,9 +57,6 @@ describe("closeRunResources", () => {
       finishRenderer: async () => {
         throw errors.renderer;
       },
-      disconnectResize: () => {
-        throw errors.resize;
-      },
       beforeCleanup: () => {
         throw errors.before;
       },
@@ -75,7 +70,6 @@ describe("closeRunResources", () => {
       errors.dispatcherFlush,
       errors.dispatcherClose,
       errors.renderer,
-      errors.resize,
     ]);
     expect(events.flush).toHaveBeenCalledOnce();
     expect(events.close).toHaveBeenCalledOnce();
@@ -90,7 +84,6 @@ describe("closeRunResources", () => {
       finishRenderer: async () => {
         throw rendererError;
       },
-      disconnectResize: vi.fn(),
     });
 
     expect(result).toEqual([rendererError]);

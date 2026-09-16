@@ -251,7 +251,6 @@ export default class RunCommand extends SeqlaneCommand {
     }
     let recordingConsumer: ExecutionEventConsumer | undefined;
     let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
-    const disconnectResize: () => void = () => undefined;
     let dispatcher: ReturnType<typeof createEventDispatcher> | undefined;
     let operationalHostOwnsResources = false;
 
@@ -375,7 +374,6 @@ export default class RunCommand extends SeqlaneCommand {
         renderer,
         capabilities,
         dispatcher,
-        disconnectResize,
       });
       for (const error of run.cleanupErrors) {
         writeDiagnostic(
@@ -392,7 +390,6 @@ export default class RunCommand extends SeqlaneCommand {
           recordingConsumer,
           closeClient: () => runnerClient?.close(),
           finishRenderer: () => renderer?.finish(),
-          disconnectResize,
         });
         for (const error of cleanupErrors) {
           writeDiagnostic(

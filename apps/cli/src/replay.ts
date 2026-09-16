@@ -169,10 +169,6 @@ export async function renderReplayRecording(options: {
   readonly recording: SeqlaneRecording;
   readonly renderer: ExecutionRenderer;
   readonly capabilities: OutputCapabilities;
-  readonly terminal: Pick<
-    NodeJS.WriteStream,
-    "on" | "removeListener" | "columns" | "rows"
-  >;
 }): Promise<void> {
   const { recording, renderer, capabilities } = options;
   for (const event of recording.events) {
