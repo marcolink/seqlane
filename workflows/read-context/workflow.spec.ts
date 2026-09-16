@@ -56,10 +56,12 @@ describe("command classification and hook policy", () => {
         "pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input '{}' --workspace .",
       ).kind,
     ).toBe("workflow");
-    expect(classifyCommand("cat workflows/read-context/workflow.ts").kind).toBe("full");
-    expect(classifyCommand("cat /tmp/workflows/read-context/workflow.ts").kind).toBe(
+    expect(classifyCommand("cat workflows/read-context/workflow.ts").kind).toBe(
       "full",
     );
+    expect(
+      classifyCommand("cat /tmp/workflows/read-context/workflow.ts").kind,
+    ).toBe("full");
     expect(classifyCommand("cat a.ts && cat b.ts").kind).toBe("unsupported");
   });
 
@@ -158,7 +160,10 @@ describe("command classification and hook policy", () => {
     await mkdir(join(root, "apps/cli/bin"), { recursive: true });
     await mkdir(join(root, "workflows/read-context"), { recursive: true });
     await writeFile(join(root, "apps/cli/bin/run.js"), "runner");
-    await writeFile(join(root, "workflows/read-context/workflow.ts"), "workflow");
+    await writeFile(
+      join(root, "workflows/read-context/workflow.ts"),
+      "workflow",
+    );
     const previous = process.cwd();
     process.chdir(root);
     try {
@@ -618,9 +623,7 @@ describe("read-context result references", () => {
 describe("retrieval workflow fan-out", () => {
   it("runs independent evidence scrapes before selection", () => {
     const built = buildWorkflow(readContextWorkflow);
-    const retrieval = built.workflowDefinitions.get(
-      "read-context-retrieve",
-    );
+    const retrieval = built.workflowDefinitions.get("read-context-retrieve");
 
     expect(built.plan.nodes).toContainEqual(
       expect.objectContaining({

@@ -5,7 +5,10 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const { default: resolveMergeConflictsWorkflow } = await import(
-  new URL("../../../workflows/resolve-merge-conflicts/workflow.ts", import.meta.url).href
+  new URL(
+    "../../../workflows/resolve-merge-conflicts/workflow.ts",
+    import.meta.url,
+  ).href
 );
 
 const validInput = {

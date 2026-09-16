@@ -1,9 +1,6 @@
 import { createFlow, isolated } from "@seqlane/core";
 import { openai } from "@seqlane/core/models";
-import {
-  codeReviewInputSchema,
-  codeReviewReportSchema,
-} from "./contracts.js";
+import { codeReviewInputSchema, codeReviewReportSchema } from "./contracts.js";
 import { gitReviewEvidenceTask } from "./tasks/review-git-evidence.js";
 import {
   reviewContextTask,

@@ -11,7 +11,11 @@
     }
   },
   "nx": {
-    "tags": ["type:workflow", "workflow-kind:shipped", "scope:private"]
+    "tags": [
+      "type:workflow",
+      "workflow-kind:shipped",
+      "scope:private"
+    ]
   },
   "dependencies": {
     "@seqlane/core": "workspace:*",

@@ -7,7 +7,10 @@ import { createOperationalWorkflow } from "@seqlane/runtime/operational-host";
 import { describe, expect, it } from "vitest";
 
 const { default: allFeaturesWorkflow } = await import(
-  new URL("../../../workflows/all-features-example/workflow.ts", import.meta.url).href
+  new URL(
+    "../../../workflows/all-features-example/workflow.ts",
+    import.meta.url,
+  ).href
 );
 
 describe("all-features workflow example", () => {

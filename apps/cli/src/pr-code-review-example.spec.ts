@@ -337,8 +337,7 @@ describe("pull-request code review example workflow", () => {
         ].includes(node.taskId),
     );
     const summarize = plan.nodes.find(
-      (node) =>
-        node.type === "task" && node.taskId === "code-review-summarize",
+      (node) => node.type === "task" && node.taskId === "code-review-summarize",
     );
     const gitEvidence = plan.nodes.find(
       (node) =>

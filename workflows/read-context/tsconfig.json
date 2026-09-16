@@ -8,5 +8,8 @@
     "emitDeclarationOnly": false
   },
   "include": ["workflow.ts", "tasks/**/*.ts"],
-  "references": [{ "path": "../../libs/core" }, { "path": "../../libs/read-context" }]
+  "references": [
+    { "path": "../../libs/core" },
+    { "path": "../../libs/read-context" }
+  ]
 }

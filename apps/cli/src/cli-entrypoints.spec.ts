@@ -616,12 +616,18 @@ describe("seqlane CLI entrypoints", () => {
       workflow === "local-only"
         ? {
             name: "discovered-local-only",
-            modulePath: join(repositoryRoot, "workflows/local-only-example/workflow.ts"),
+            modulePath: join(
+              repositoryRoot,
+              "workflows/local-only-example/workflow.ts",
+            ),
             description: "A discovered local-only workflow",
           }
         : {
             name: "discovered-minimal",
-            modulePath: join(repositoryRoot, "workflows/minimal-example/workflow.ts"),
+            modulePath: join(
+              repositoryRoot,
+              "workflows/minimal-example/workflow.ts",
+            ),
             description: "A discovered minimal workflow",
           };
     writeFileSync(
