@@ -1,4 +1,4 @@
-// @test-scope ../../../examples/pr-code-review.ts
+// @test-scope ../../../workflows/code-review/workflow.ts
 
 import { gzipSync } from "node:zlib";
 import { readFile } from "node:fs/promises";
@@ -7,7 +7,7 @@ import { buildWorkflow } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 
 const { default: prCodeReviewWorkflow } = await import(
-  new URL("../../../examples/pr-code-review.ts", import.meta.url).href
+  new URL("../../../workflows/code-review/workflow.ts", import.meta.url).href
 );
 
 const REVIEW_TEST_BASE_REVISION = "a".repeat(40);
@@ -217,7 +217,7 @@ describe("pull-request code review example workflow", () => {
       "SEQLANE_REDACT_VALUES: |-\n            ${{ secrets.OPENAI_API_KEY }}\n            ${{ steps.ripwire.outputs.mcp-token }}\n            ${{ secrets.MASTRA_PLATFORM_ACCESS_TOKEN }}",
     );
     expect(workflow).not.toContain(
-      './apps/cli/bin/dev.js run "$PWD/examples/pr-code-review.ts"',
+      './apps/cli/bin/dev.js run "$PWD/workflows/code-review/workflow.ts"',
     );
     expect(workflow).not.toContain("## Available commands");
     expect(workflow).not.toContain("- `/seqlane review`");
@@ -331,31 +331,31 @@ describe("pull-request code review example workflow", () => {
       (node) =>
         node.type === "task" &&
         [
-          "pr-code-review.correctness",
-          "pr-code-review.maintainability",
-          "pr-code-review.risk",
+          "code-review-correctness",
+          "code-review-maintainability",
+          "code-review-risk",
         ].includes(node.taskId),
     );
     const summarize = plan.nodes.find(
       (node) =>
-        node.type === "task" && node.taskId === "pr-code-review.summarize",
+        node.type === "task" && node.taskId === "code-review-summarize",
     );
     const gitEvidence = plan.nodes.find(
       (node) =>
-        node.type === "task" && node.taskId === "pr-code-review.git-evidence",
+        node.type === "task" && node.taskId === "code-review-git-evidence",
     );
     const historyVerification = plan.nodes.find(
       (node) =>
-        node.type === "task" && node.taskId === "pr-code-review.verify-history",
+        node.type === "task" && node.taskId === "code-review-verify-history",
     );
     const applyDispositions = plan.nodes.find(
       (node) =>
         node.type === "task" &&
-        node.taskId === "pr-code-review.apply-dispositions",
+        node.taskId === "code-review-apply-dispositions",
     );
     const reviewContext = plan.nodes.find(
       (node) =>
-        node.type === "task" && node.taskId === "pr-code-review.review-context",
+        node.type === "task" && node.taskId === "code-review-review-context",
     );
 
     expect(gitEvidence).toMatchObject({
@@ -399,7 +399,7 @@ describe("pull-request code review example workflow", () => {
     expect(reviewLanes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          taskId: "pr-code-review.correctness",
+          taskId: "code-review-correctness",
           session: {
             type: "isolated",
             model: {
@@ -409,7 +409,7 @@ describe("pull-request code review example workflow", () => {
           },
         }),
         expect.objectContaining({
-          taskId: "pr-code-review.maintainability",
+          taskId: "code-review-maintainability",
           session: {
             type: "isolated",
             model: {
@@ -419,7 +419,7 @@ describe("pull-request code review example workflow", () => {
           },
         }),
         expect.objectContaining({
-          taskId: "pr-code-review.risk",
+          taskId: "code-review-risk",
           session: {
             type: "isolated",
             model: {
@@ -444,13 +444,13 @@ describe("pull-request code review example workflow", () => {
   it("allows read-only indexed search only within the review workspace", () => {
     const workflow = buildWorkflow(prCodeReviewWorkflow);
     expect(
-      workflow.taskDefinitions.get("pr-code-review.correctness"),
+      workflow.taskDefinitions.get("code-review-correctness"),
     ).toBeDefined();
     expect(workflow.plan.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: "task",
-          taskId: "pr-code-review.correctness",
+          taskId: "code-review-correctness",
           workspace: "shared",
         }),
       ]),
@@ -459,7 +459,7 @@ describe("pull-request code review example workflow", () => {
 
   it("normalizes review history and authorizes disposition commands", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -577,7 +577,7 @@ describe("pull-request code review example workflow", () => {
 
   it("trusts only bot snapshots and orders dispositions by edit time", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -660,7 +660,7 @@ describe("pull-request code review example workflow", () => {
 
   it("reads strict version 3 state from the trusted bot comment", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -755,7 +755,7 @@ describe("pull-request code review example workflow", () => {
 
   it("reads appended run history and validates metadata against its latest run", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -803,7 +803,7 @@ describe("pull-request code review example workflow", () => {
 
   it("reads a strict run metrics ledger independently of review state", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -878,7 +878,7 @@ describe("pull-request code review example workflow", () => {
 
   it("starts an empty ledger for malformed, legacy, or unsupported metrics data", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -931,7 +931,7 @@ describe("pull-request code review example workflow", () => {
 
   it("rejects version 3 state with unknown fields", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -974,7 +974,7 @@ describe("pull-request code review example workflow", () => {
 
   it("rejects version 3 state with both legacy and history run fields", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -1019,7 +1019,7 @@ describe("pull-request code review example workflow", () => {
 
   it("rejects ambiguous or mismatched version 3 state framing", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -1080,7 +1080,7 @@ describe("pull-request code review example workflow", () => {
 
   it("ignores malformed commands and caps valid dispositions", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -1131,7 +1131,7 @@ describe("pull-request code review example workflow", () => {
 
   it("retains dispositions for persisted findings when the global bound overflows", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -1199,7 +1199,7 @@ describe("pull-request code review example workflow", () => {
 
   it("rejects compressed snapshots that exceed the decompression bound", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.review-context",
+      "code-review-review-context",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected review context task definition");
@@ -1235,7 +1235,7 @@ describe("pull-request code review example workflow", () => {
 
   it("collects deterministic Git review evidence with command-level bounds", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.git-evidence",
+      "code-review-git-evidence",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected local Git evidence task definition");
@@ -1338,7 +1338,7 @@ describe("pull-request code review example workflow", () => {
 
   it("uses only an ancestor review revision as the comparable predecessor", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.git-evidence",
+      "code-review-git-evidence",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected local Git evidence task definition");
@@ -1401,7 +1401,7 @@ describe("pull-request code review example workflow", () => {
 
   it("bounds oversized Git evidence and records overflow", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.git-evidence",
+      "code-review-git-evidence",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected local Git evidence task definition");
@@ -1482,7 +1482,7 @@ describe("pull-request code review example workflow", () => {
 
   it("preserves complete UTF-8 patch lines and records patch size", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.git-evidence",
+      "code-review-git-evidence",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected local Git evidence task definition");
@@ -1537,7 +1537,7 @@ describe("pull-request code review example workflow", () => {
 
   it("does not retain a partial first patch line when it exceeds the bound", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.git-evidence",
+      "code-review-git-evidence",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected local Git evidence task definition");
@@ -1589,14 +1589,14 @@ describe("pull-request code review example workflow", () => {
   it("keeps review tasks on shared workspaces with explicit schemas", () => {
     const workflow = buildWorkflow(prCodeReviewWorkflow);
     const sharedReviewTaskIds = [
-      "pr-code-review.review-context",
-      "pr-code-review.git-evidence",
-      "pr-code-review.verify-history",
-      "pr-code-review.correctness",
-      "pr-code-review.maintainability",
-      "pr-code-review.risk",
-      "pr-code-review.summarize",
-      "pr-code-review.apply-dispositions",
+      "code-review-review-context",
+      "code-review-git-evidence",
+      "code-review-verify-history",
+      "code-review-correctness",
+      "code-review-maintainability",
+      "code-review-risk",
+      "code-review-summarize",
+      "code-review-apply-dispositions",
     ];
     for (const taskId of sharedReviewTaskIds) {
       expect(workflow.taskDefinitions.get(taskId)).toBeDefined();
@@ -1614,7 +1614,7 @@ describe("pull-request code review example workflow", () => {
 
   it("applies authorized wont-fix and downgrade decisions before the verdict", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -1839,7 +1839,7 @@ describe("pull-request code review example workflow", () => {
 
   it("keeps an omitted fixed finding open until current evidence confirms it", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -1953,7 +1953,7 @@ describe("pull-request code review example workflow", () => {
 
   it("resolves a fixed finding only with finding-specific current-head verification", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2032,7 +2032,7 @@ describe("pull-request code review example workflow", () => {
 
   it("applies a lowercase disposition ID to its canonical finding", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2097,7 +2097,7 @@ describe("pull-request code review example workflow", () => {
 
   it("requires fresh current-head proof to retain a resolved fixed finding", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2185,7 +2185,7 @@ describe("pull-request code review example workflow", () => {
 
   it("replaces stale disposition reason and commit metadata", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2253,7 +2253,7 @@ describe("pull-request code review example workflow", () => {
 
   it("bounds merged current and historical findings", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2321,7 +2321,7 @@ describe("pull-request code review example workflow", () => {
 
   it("deduplicates temporary finding identifiers before allocating stable IDs", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2361,7 +2361,7 @@ describe("pull-request code review example workflow", () => {
 
   it("deduplicates legacy identities during version 3 migration", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2410,7 +2410,7 @@ describe("pull-request code review example workflow", () => {
 
   it("reopens a historical finding when an edited command targets another finding", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2482,7 +2482,7 @@ describe("pull-request code review example workflow", () => {
 
   it("lets current-head evidence override a truncated stale fixed disposition", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2556,7 +2556,7 @@ describe("pull-request code review example workflow", () => {
 
   it("preserves a disposition omitted by bounded command projection", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2629,7 +2629,7 @@ describe("pull-request code review example workflow", () => {
 
   it("applies an omitted disposition to a current finding", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2688,7 +2688,7 @@ describe("pull-request code review example workflow", () => {
 
   it("reopens a removed disposition when another command was omitted", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2760,7 +2760,7 @@ describe("pull-request code review example workflow", () => {
 
   it("does not accept a fixed finding without current-head evidence", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2816,7 +2816,7 @@ describe("pull-request code review example workflow", () => {
 
   it("reopens a finding when its disposition command is removed despite resolved verification", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "pr-code-review.apply-dispositions",
+      "code-review-apply-dispositions",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2949,7 +2949,7 @@ describe("pull-request code review example workflow", () => {
     const output = buildWorkflow(prCodeReviewWorkflow).plan.output;
     expect(output).toEqual({
       type: "ref",
-      nodeId: "pr-code-review.apply-dispositions:1",
+      nodeId: "code-review-apply-dispositions:1",
       path: ["output"],
     });
   });

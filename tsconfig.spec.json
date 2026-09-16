@@ -15,7 +15,7 @@
     "apps/*/src/**/*.spec.tsx",
     "libs/*/src/**/*.spec.ts",
     "libs/*/src/**/*.spec.tsx",
-    "examples/**/*.ts"
+    "workflows/**/*.spec.ts"
   ],
   "exclude": ["**/dist/**", "**/node_modules/**"]
 }

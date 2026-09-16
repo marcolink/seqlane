@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "workflow-local-only-example",
+  "projectType": "application",
+  "sourceRoot": "workflows/local-only-example",
+  "tags": ["type:workflow", "workflow-kind:example"]
+}

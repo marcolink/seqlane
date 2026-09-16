@@ -1,11 +1,11 @@
-// @test-scope ../../../examples/resolve-merge-conflicts.ts
+// @test-scope ../../../workflows/resolve-merge-conflicts/workflow.ts
 
 import { buildWorkflow } from "@seqlane/core";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const { default: resolveMergeConflictsWorkflow } = await import(
-  new URL("../../../examples/resolve-merge-conflicts.ts", import.meta.url).href
+  new URL("../../../workflows/resolve-merge-conflicts/workflow.ts", import.meta.url).href
 );
 
 const validInput = {
@@ -50,7 +50,7 @@ describe("merge-conflict resolution example workflow", () => {
     expect(plan.nodes).toEqual([
       expect.objectContaining({
         type: "task",
-        taskId: "merge-conflicts.resolve",
+        taskId: "resolve-merge-conflicts-task",
         workspace: "exclusive",
         dependsOn: [],
         session: {
@@ -67,13 +67,13 @@ describe("merge-conflict resolution example workflow", () => {
   it("limits the agent to file edits for the supplied conflicts", () => {
     const workflow = buildWorkflow(resolveMergeConflictsWorkflow);
     expect(
-      workflow.taskDefinitions.get("merge-conflicts.resolve"),
+      workflow.taskDefinitions.get("resolve-merge-conflicts-task"),
     ).toBeDefined();
     expect(workflow.plan.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: "task",
-          taskId: "merge-conflicts.resolve",
+          taskId: "resolve-merge-conflicts-task",
           workspace: "exclusive",
         }),
       ]),

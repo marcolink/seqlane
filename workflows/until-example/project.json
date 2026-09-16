@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "workflow-until-example",
+  "projectType": "application",
+  "sourceRoot": "workflows/until-example",
+  "tags": ["type:workflow", "workflow-kind:example"]
+}

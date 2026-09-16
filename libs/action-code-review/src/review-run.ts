@@ -21,7 +21,7 @@ import {
 } from "./publication-guard.js";
 import { publicationResultSchema } from "./workflows/publication-workflow.js";
 import { type LivePullRequest, type ReviewTargetInput } from "./contracts.js";
-import { trustedCodeReviewWorkflow } from "./workflows/trusted-workflow.js";
+import trustedCodeReviewWorkflow from "@seqlane/code-review-workflow";
 import { BoundedEventRecorder } from "./event-recorder.js";
 import {
   createReviewProgress,

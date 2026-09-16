@@ -23,7 +23,7 @@ describe("serve workflow loading", () => {
         JSON.stringify({
           name: "local-only",
           moduleSpecifier: pathToFileURL(
-            join(repositoryRoot, "examples/local-only.ts"),
+            join(repositoryRoot, "workflows/local-only-example/workflow.ts"),
           ).href,
           exportName: "default",
           description: "Local-only fixture",

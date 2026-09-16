@@ -1,4 +1,4 @@
-// @test-scope ../../../examples/all-features.ts
+// @test-scope ../../../workflows/all-features-example/workflow.ts
 // @test-scope ../../../libs/runtime/src/runtime/mastra/operational-host.ts
 
 import type { AgentTaskRequest } from "@seqlane/core";
@@ -7,7 +7,7 @@ import { createOperationalWorkflow } from "@seqlane/runtime/operational-host";
 import { describe, expect, it } from "vitest";
 
 const { default: allFeaturesWorkflow } = await import(
-  new URL("../../../examples/all-features.ts", import.meta.url).href
+  new URL("../../../workflows/all-features-example/workflow.ts", import.meta.url).href
 );
 
 describe("all-features workflow example", () => {
@@ -15,29 +15,29 @@ describe("all-features workflow example", () => {
     const built = buildWorkflow(allFeaturesWorkflow);
     const taskNodes = built.plan.nodes.filter((node) => node.type === "task");
     const context = taskNodes.find(
-      (node) => node.taskId === "all-features.context",
+      (node) => node.taskId === "all-features-example-context",
     );
     const lanes = taskNodes.filter(
-      (node) => node.taskId === "all-features.lane",
+      (node) => node.taskId === "all-features-example-lane",
     );
     const policy = taskNodes.find(
-      (node) => node.taskId === "all-features.policy",
+      (node) => node.taskId === "all-features-example-policy",
     );
     const joined = taskNodes.find(
-      (node) => node.taskId === "all-features.joined",
+      (node) => node.taskId === "all-features-example-joined",
     );
     const polish = taskNodes.find(
-      (node) => node.taskId === "all-features.polish",
+      (node) => node.taskId === "all-features-example-polish",
     );
 
     expect(built.plan.workflow.id).toBe("all-features");
     expect(taskNodes.map(({ taskId }) => taskId)).toEqual([
-      "all-features.context",
-      "all-features.lane",
-      "all-features.lane",
-      "all-features.policy",
-      "all-features.joined",
-      "all-features.polish",
+      "all-features-example-context",
+      "all-features-example-lane",
+      "all-features-example-lane",
+      "all-features-example-policy",
+      "all-features-example-joined",
+      "all-features-example-polish",
     ]);
     expect(context).toMatchObject({
       workspace: "shared",
@@ -47,21 +47,21 @@ describe("all-features workflow example", () => {
     expect(lanes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          session: { type: "branch", from: "all-features.context:1" },
+          session: { type: "branch", from: "all-features-example-context:1" },
         }),
       ]),
     );
     expect(policy?.dependsOn).toEqual([]);
     expect(joined).toMatchObject({
       workspace: "exclusive",
-      session: { type: "reuse", from: "all-features.lane:1" },
+      session: { type: "reuse", from: "all-features-example-lane:1" },
     });
-    expect(joined?.dependsOn).toContain("all-features.policy:1");
+    expect(joined?.dependsOn).toContain("all-features-example-policy:1");
 
     expect(built.plan.nodes.some((node) => node.type === "repeat")).toBe(false);
     expect(polish).toMatchObject({
       workspace: "shared",
-      taskId: "all-features.polish",
+      taskId: "all-features-example-polish",
     });
     expect(built.plan.output).toMatchObject({
       validation: { type: "ref", path: ["validation"] },
@@ -71,7 +71,7 @@ describe("all-features workflow example", () => {
 
   it("keeps the example tasks short and observable", async () => {
     const definitions = buildWorkflow(allFeaturesWorkflow).taskDefinitions;
-    const context = definitions.get("all-features.context");
+    const context = definitions.get("all-features-example-context");
 
     expect(context).toBeDefined();
     if (context === undefined) return;
@@ -93,7 +93,7 @@ describe("all-features workflow example", () => {
       {
         goal: "Extract two keywords and a short focus hint for workflow design (authoring).",
         instructions: ["Return only two keywords and a short focus hint."],
-        references: ["examples/minimal-workflow.ts"],
+        references: ["workflows/minimal-example/workflow.ts"],
       },
     ]);
     expect(context).toMatchObject({

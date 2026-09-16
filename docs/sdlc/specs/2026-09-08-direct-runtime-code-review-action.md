@@ -161,8 +161,8 @@ their processes.
 
 ### requirement-seqlane-task-ownership
 
-Reorganize the current `examples/pr-code-review.ts` into cohesive workflow and
-library files with one primary concern per file. Keep workflow authoring
+Store the portable review graph in `workflows/code-review/`, with one primary
+concern per file. Keep workflow authoring
 executor-neutral and keep GitHub, Action Toolkit, OpenCode, and service types
 out of Plan and DSL contracts.
 
@@ -392,10 +392,10 @@ Action. Retain the untrusted review-target checkout and all service Action
 composition. Keep the current workflow admission, permissions, concurrency,
 timeout, and closed-pull-request cancellation behavior.
 
-Reorganize `examples/pr-code-review.ts` into owned review and publication
-workflow files plus cohesive task files. Keep the existing CLI example test as
-a compatibility test for the runner adapter, and add direct service and Action
-tests for the new path.
+Keep the review graph and its typed task modules in `workflows/code-review/`.
+Keep GitHub publication and Action orchestration in the Action consumer. Keep
+the CLI workflow test as a runner-adapter compatibility test, and add direct
+service and Action tests for the consumer path.
 
 ## Verification
 

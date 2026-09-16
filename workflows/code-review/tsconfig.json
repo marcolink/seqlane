@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
+    "types": ["node"],
+    "emitDeclarationOnly": false
+  },
+  "include": ["workflow.ts", "contracts.ts", "metrics.ts", "tasks/**/*.ts"],
+  "exclude": ["**/*.spec.ts"],
+  "references": [{ "path": "../../libs/core" }]
+}

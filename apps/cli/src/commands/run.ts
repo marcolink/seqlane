@@ -142,7 +142,7 @@ export default class RunCommand extends SeqlaneCommand {
   static override description = "Run one selected workflow in a fresh runner";
 
   static override examples = [
-    '<%= config.bin %> run ./examples/minimal-workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local',
+    '<%= config.bin %> run ./workflows/minimal-example/workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local',
     '<%= config.bin %> run repository:review --input \'{"topic":"Seqlane"}\'',
   ];
 

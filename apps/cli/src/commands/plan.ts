@@ -85,8 +85,8 @@ export default class PlanCommand extends Command {
     "Compile a workflow Plan without executing tasks or starting a runtime";
 
   static override examples = [
-    "<%= config.bin %> plan repository:review",
-    "<%= config.bin %> plan ./examples/minimal-workflow.ts --output json",
+    '<%= config.bin %> plan repository:review --input \'{"topic":"Seqlane"}\'',
+    "<%= config.bin %> plan ./workflows/minimal-example/workflow.ts --output json",
   ];
 
   static override args = {

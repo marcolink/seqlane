@@ -61,8 +61,8 @@ An unqualified name works only when it is unique. The `--repository-root` and
 process, executor, or model:
 
 ```sh
-seqlane plan repository:review
-seqlane plan ./examples/minimal-workflow.ts --output json
+seqlane plan repository:review --input '{"topic":"Seqlane"}'
+seqlane plan ./workflows/minimal-example/workflow.ts --output json
 ```
 
 Repository and user workflow modules are trusted local authoring code. The plan
@@ -123,7 +123,7 @@ seqlane cancel <run-id> --server-url http://127.0.0.1:4111
 ```
 
 For an owned host, `--workflow` accepts either a registered workflow name or a
-direct file/module reference such as `./examples/minimal-workflow.ts`. A
+direct file/module reference such as `./workflows/minimal-example/workflow.ts`. A
 `--server-url` command does not load local workflow references; the existing
 server must already have the workflow registered.
 
@@ -202,7 +202,8 @@ the local Mastra instance automatically.
 Print the calculated Plan without connecting to the runtime or running tasks:
 
 ```sh
-seqlane plan ./examples/minimal-workflow.ts
+seqlane plan ./workflows/minimal-example/workflow.ts \
+  --input '{"topic":"Seqlane"}'
 ```
 
 The command writes the Plan in human-readable form by default. Use
@@ -212,7 +213,7 @@ runtime profile, even when the workflow contains agent tasks.
 Local-only workflows can execute without a runtime profile:
 
 ```sh
-seqlane run ./examples/local-only.ts \
+seqlane run ./workflows/local-only-example/workflow.ts \
   --input '{"value":"local"}'
 ```
 
@@ -220,7 +221,7 @@ For non-interactive execution, use CI output for concise line-by-line progress
 and actionable failures:
 
 ```sh
-seqlane run ./examples/minimal-workflow.ts \
+seqlane run ./workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
   --runtime opencode \
   --output ci
@@ -239,7 +240,7 @@ filesystem permission boundary. The workflow input does not grant file access;
 configure executor permissions before starting a non-interactive Run.
 
 ```sh
-seqlane run ./examples/pr-code-review.ts \
+seqlane run ./workflows/code-review/workflow.ts \
   --input '{"repository":"owner/repository","baseBranch":"main","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"number":123,"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
   --runtime opencode \
   --workspace /path/to/repository
@@ -258,7 +259,7 @@ Signal cancellation results preserve the received signal, for example
 Recording is explicit and writes a new, local newline-delimited JSON file:
 
 ```sh
-seqlane run ./examples/minimal-workflow.ts \
+seqlane run ./workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
   --runtime opencode \
   --record ./seqlane-recording.jsonl
@@ -305,7 +306,7 @@ pnpm exec node apps/cli/bin/run.js studio --port 57694
 Run a local workflow:
 
 ```sh
-pnpm exec node apps/cli/bin/run.js run examples/minimal-workflow.ts \
+pnpm exec node apps/cli/bin/run.js run workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
   --runtime opencode
 ```

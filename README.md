@@ -189,7 +189,7 @@ const gitStatusTask = defineShellTask({
 });
 ```
 
-See the [workflow examples](examples/README.md) and the
+See the [workflow examples](workflows/README.md) and the
 [`@seqlane/core` guide](libs/core/README.md) for sessions, branches,
 validators, references, and workspace policies.
 
@@ -304,7 +304,7 @@ Use `--output json` when another tool needs the Plan result.
 The included local-only example does not need an agent runtime:
 
 ```sh
-seqlane run ./examples/local-only.ts \
+seqlane run ./workflows/local-only-example/workflow.ts \
   --input '{"value":"local"}'
 ```
 
@@ -484,7 +484,7 @@ server storage, and run-control details.
 
 ## Route oversized reads to context analysis
 
-This repository includes the `workflow-read-context` workflow. It retrieves a
+This repository includes the `read-context` workflow. It retrieves a
 small, source-grounded evidence set with native `rg`, and optionally uses
 installed zvec-grep and Ripwire tools before asking
 `openai/gpt-5.6-luna` with medium reasoning for a structured answer. Runtime
@@ -494,7 +494,7 @@ Build and run it with the normal Seqlane CLI:
 
 ```sh
 pnpm build
-pnpm exec node apps/cli/bin/run.js run examples/read-context.ts \
+pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts \
   --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
   --runtime opencode \
   --workspace "$PWD"
@@ -510,8 +510,8 @@ are reported as uncertainties when they exclude evidence.
 
 The project-local Codex hook in `.codex/hooks.json` denies supported oversized
 broad reads, unscoped or unsupported read-like commands, and denied paths. It
-points the active session to `seqlane run examples/read-context.ts` for the
-`workflow-read-context` workflow. Trust the project-local hook through `/hooks`
+points the active session to `seqlane run workflows/read-context/workflow.ts` for the
+`read-context` workflow. Trust the project-local hook through `/hooks`
 before enabling it. The hook fails open for commands it cannot classify as
 read-like. Read-context sends selected source to the configured endpoint, so
 review the endpoint's privacy and retention policy.

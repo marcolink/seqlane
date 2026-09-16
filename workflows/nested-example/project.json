@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "workflow-nested-example",
+  "projectType": "application",
+  "sourceRoot": "workflows/nested-example",
+  "tags": ["type:workflow", "workflow-kind:example"]
+}

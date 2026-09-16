@@ -14,9 +14,9 @@
 // @test-scope ./commands/serve.ts
 // @test-scope ./cli-contracts.ts
 // @test-scope ./command.ts
-// @test-scope ../../../examples/minimal-workflow.ts
-// @test-scope ../../../examples/local-only.ts
-// @test-scope ../../../examples/until-workflow.ts
+// @test-scope ../../../workflows/minimal-example/workflow.ts
+// @test-scope ../../../workflows/local-only-example/workflow.ts
+// @test-scope ../../../workflows/until-example/workflow.ts
 
 import { spawn, type ChildProcess } from "node:child_process";
 import {
@@ -52,9 +52,9 @@ const productionEntry = fileURLToPath(
 );
 const workflowReference =
   "@seqlane/fixtures/renovate-workflow#renovateWorkflow";
-const exampleWorkflowReference = "examples/minimal-workflow.ts";
-const localOnlyWorkflowReference = "examples/local-only.ts";
-const untilWorkflowReference = "examples/until-workflow.ts";
+const exampleWorkflowReference = "workflows/minimal-example/workflow.ts";
+const localOnlyWorkflowReference = "workflows/local-only-example/workflow.ts";
+const untilWorkflowReference = "workflows/until-example/workflow.ts";
 const input = JSON.stringify({
   dependency: "some-package",
   fromVersion: "1.0.0",
@@ -616,12 +616,12 @@ describe("seqlane CLI entrypoints", () => {
       workflow === "local-only"
         ? {
             name: "discovered-local-only",
-            modulePath: join(repositoryRoot, "examples/local-only.ts"),
+            modulePath: join(repositoryRoot, "workflows/local-only-example/workflow.ts"),
             description: "A discovered local-only workflow",
           }
         : {
             name: "discovered-minimal",
-            modulePath: join(repositoryRoot, "examples/minimal-workflow.ts"),
+            modulePath: join(repositoryRoot, "workflows/minimal-example/workflow.ts"),
             description: "A discovered minimal workflow",
           };
     writeFileSync(
@@ -708,7 +708,7 @@ describe("seqlane CLI entrypoints", () => {
           expect(result.stdout).toContain(
             "Plan for repository:discovered-minimal",
           );
-          expect(result.stdout).toContain("example.prepare");
+          expect(result.stdout).toContain("minimal-example-prepare");
         }
       } finally {
         rmSync(fixture.directory, { recursive: true, force: true });
@@ -844,9 +844,9 @@ describe("seqlane CLI entrypoints", () => {
       workflow: { id: "minimal-example" },
       nodes: [
         {
-          planNodeId: "example.prepare:1",
+          planNodeId: "minimal-example-prepare:1",
           type: "task",
-          taskId: "example.prepare",
+          taskId: "minimal-example-prepare",
           session: {
             type: "isolated",
             model: {
@@ -864,9 +864,9 @@ describe("seqlane CLI entrypoints", () => {
           type: "validation.gate",
         },
         {
-          planNodeId: "example.finish:1",
+          planNodeId: "minimal-example-finish:1",
           type: "task",
-          taskId: "example.finish",
+          taskId: "minimal-example-finish",
         },
       ],
     });

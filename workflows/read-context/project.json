@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "workflow-read-context",
+  "projectType": "application",
+  "sourceRoot": "workflows/read-context",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "workflows/read-context",
+        "command": "tsc --build tsconfig.json"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "workflows/read-context",
+        "command": "vitest run workflow.spec.ts"
+      }
+    }
+  }
+}

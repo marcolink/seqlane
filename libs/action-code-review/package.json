@@ -20,6 +20,7 @@
     ]
   },
   "dependencies": {
+    "@seqlane/code-review-workflow": "workspace:*",
     "@seqlane/core": "workspace:*",
     "@seqlane/runtime": "workspace:*",
     "zod": "4.5.4"

@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "workflow-resolve-merge-conflicts",
+  "projectType": "application",
+  "sourceRoot": "workflows/resolve-merge-conflicts",
+  "tags": ["type:workflow", "workflow-kind:shipped"]
+}

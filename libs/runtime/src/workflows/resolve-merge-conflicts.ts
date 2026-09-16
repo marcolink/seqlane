@@ -33,7 +33,7 @@ export type ResolveMergeConflictsWorkflowOutput = z.infer<
 >;
 
 const conflictResolutionTask = defineAgentTask({
-  id: "merge-conflicts.resolve",
+  id: "resolve-merge-conflicts-task",
   input: conflictResolutionInputSchema,
   output: conflictResolutionOutputSchema,
   goal: (input) =>

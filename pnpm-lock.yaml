@@ -285,6 +285,9 @@ importers:
 
   libs/action-code-review:
     dependencies:
+      '@seqlane/code-review-workflow':
+        specifier: workspace:*
+        version: link:../../workflows/code-review
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
@@ -457,6 +460,27 @@ importers:
       ink-testing-library:
         specifier: 4.0.0
         version: 4.0.0(@types/react@19.3.0)
+
+  workflows/code-review:
+    dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../../libs/core
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
+  workflows/read-context:
+    dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../../libs/core
+      '@seqlane/read-context':
+        specifier: workspace:*
+        version: link:../../libs/read-context
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
 
 packages:
 

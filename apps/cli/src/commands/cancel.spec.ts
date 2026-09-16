@@ -38,14 +38,14 @@ describe("cancel command workflow selection", () => {
 
   it("passes a direct workflow reference to an owned host", async () => {
     await CancelCommand.run(
-      ["run-1", "--workflow", "./examples/minimal-workflow.ts"],
+      ["run-1", "--workflow", "./workflows/minimal-example/workflow.ts"],
       { root: cliRoot },
     );
 
     expect(mocks.startOwnedOperationalHost).toHaveBeenCalledWith(
       expect.objectContaining({
         workflow: {
-          id: "./examples/minimal-workflow.ts",
+          id: "./workflows/minimal-example/workflow.ts",
           exportName: "default",
           moduleSpecifier: expect.stringMatching(
             /^file:\/\/.*\/examples\/minimal-workflow\.ts$/,
@@ -55,7 +55,7 @@ describe("cancel command workflow selection", () => {
     );
     expect(mocks.client.cancelRun).toHaveBeenCalledWith(
       "run-1",
-      "./examples/minimal-workflow.ts",
+      "./workflows/minimal-example/workflow.ts",
     );
   });
 
@@ -64,7 +64,7 @@ describe("cancel command workflow selection", () => {
       [
         "run-1",
         "--workflow",
-        "./examples/minimal-workflow.ts",
+        "./workflows/minimal-example/workflow.ts",
         "--server-url",
         "http://127.0.0.1:4111",
       ],
@@ -74,7 +74,7 @@ describe("cancel command workflow selection", () => {
     expect(mocks.startOwnedOperationalHost).not.toHaveBeenCalled();
     expect(mocks.client.cancelRun).toHaveBeenCalledWith(
       "run-1",
-      "./examples/minimal-workflow.ts",
+      "./workflows/minimal-example/workflow.ts",
     );
   });
 });

@@ -1,0 +1,30 @@
+{
+  "name": "@seqlane/code-review-workflow",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js",
+      "default": "./dist/workflow.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js",
+      "default": "./dist/contracts.js"
+    },
+    "./metrics": {
+      "types": "./dist/metrics.d.ts",
+      "import": "./dist/metrics.js",
+      "default": "./dist/metrics.js"
+    }
+  },
+  "nx": {
+    "tags": ["type:workflow", "workflow-kind:shipped", "scope:private"]
+  },
+  "dependencies": {
+    "@seqlane/core": "workspace:*",
+    "zod": "4.5.4"
+  }
+}

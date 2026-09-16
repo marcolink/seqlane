@@ -12,8 +12,23 @@ export * from "./schemas.js";
 export { formatReadContextMarkdown } from "./format.js";
 export { classifyCommand } from "./command-classifier.js";
 export { estimateFile } from "./size-estimator.js";
+export { readBoundedFile } from "./bounded-read.js";
+export { rankCandidates, selectEvidence } from "./evidence-selection.js";
+export { runReadContextGuard } from "./hook.js";
 export { retrieveEvidence } from "./retrieval.js";
+export {
+  exactSearchArguments,
+  retrieveEvidenceFromScrapes,
+  ripwireSearchArguments,
+  zvecSearchArguments,
+} from "./retrieval.js";
 export { summarizeEvidence } from "./summarizer.js";
+export { summarizeWithOpenAICompatible } from "./providers/openai-compatible.js";
+export {
+  formatReadContextSummaryPrompt,
+  mergeReadContextUncertainties,
+  READ_CONTEXT_SUMMARY_INSTRUCTIONS,
+} from "./summarization-contract.js";
 export { validateReadContextReferences } from "./result-validation.js";
 export { ReadContextSchema as readContextSchema };
 
