@@ -1,4 +1,5 @@
 import type { RunNodeState, RunVisibleRow } from "../run-view-model.js";
+import { usageSummary } from "./usage.js";
 
 export interface HumanDisplayCapabilities {
   readonly supportsAnsi: boolean;
@@ -137,7 +138,8 @@ export function nodeFacts(row: RunVisibleRow, now: Date): string {
     return (
       node.aggregate.succeeded + "/" + node.aggregate.total + " · " + duration
     );
-  return duration;
+  const usage = node.state === "succeeded" ? usageSummary(node, true) : "";
+  return [usage, duration].filter(Boolean).join(" · ");
 }
 
 export function formatDuration(milliseconds: number | undefined): string {

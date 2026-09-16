@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import { workTone } from "./theme.js";
+import { HumanTaskDetails } from "./task-details.js";
 import type { RunVisibleRow } from "../run-view-model.js";
 import {
   statusColor,
@@ -46,19 +47,16 @@ export function HumanTreeRow({
           </Text>
         </Box>
         <Box paddingLeft={1} flexShrink={0} maxWidth={Math.max(1, width - 12)}>
-          <Text {...tone} wrap="truncate-end">
+          <Text {...tone} wrap="truncate-start">
             {facts}
           </Text>
         </Box>
       </Box>
-      {node.failure === undefined ? null : (
-        <Text color={color}>{"   " + node.failure.message}</Text>
-      )}
-      {node.state !== "waiting" || node.waitingReason === undefined ? null : (
-        <Text dimColor={capabilities.supportsAnsi}>
-          {"   " + node.waitingReason}
-        </Text>
-      )}
+      <HumanTaskDetails
+        row={row}
+        capabilities={capabilities}
+        lastSibling={lastSibling}
+      />
     </Box>
   );
 }

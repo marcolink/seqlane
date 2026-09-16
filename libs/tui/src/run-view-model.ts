@@ -1,4 +1,5 @@
 import { validationResultSchema } from "@seqlane/core";
+import { projectNodeActivity } from "./run-activity.js";
 import type {
   SeqlaneFailureDisposition,
   SeqlaneDisplayValue,
@@ -96,6 +97,12 @@ export interface RunNode {
   readonly skillUsage: ReadonlyMap<string, number>;
   readonly phase?: string;
   readonly activity?: string;
+  readonly workspace?: "shared" | "exclusive";
+  readonly session?: Extract<
+    OutputEvent,
+    { type: "run.plan" }
+  >["plan"]["nodes"][number]["session"];
+  readonly completedToolIds?: ReadonlySet<string>;
   readonly waitingReason?: string;
   readonly aggregate: RunAggregate;
   readonly output: RunOutputState;
@@ -741,6 +748,12 @@ function reducePlan(
       dependencyIds: node.dependsOn.map((id) => `plan:${id}`),
     };
     projected = reduceCreated(projected, created);
+    if (node.session !== undefined) {
+      projected = updateNode(projected, created.invocationId, (current) => ({
+        ...current,
+        session: node.session,
+      }));
+    }
   }
   return {
     ...setRunState(projected, "active", event),
@@ -890,6 +903,7 @@ export function reduceRunViewModel(
           : withState(node, event.state, timestamp)),
         ...(event.label === undefined ? {} : { label: event.label }),
         phase: event.phase,
+        workspace: event.workspace ?? node.workspace,
         activity: event.message,
         waitingReason: event.waitingReason,
         dependencyIds: event.dependencyIds ?? node.dependencyIds,
@@ -904,20 +918,9 @@ export function reduceRunViewModel(
         event.kind === "skill"
           ? { ...next, skillUsage: usage }
           : { ...next, toolUsage: usage };
-      return updateNode(nextView, event.invocationId, (node) => {
-        const nodeUsage =
-          event.kind === "skill"
-            ? new Map(node.skillUsage)
-            : new Map(node.toolUsage);
-        nodeUsage.set(event.name, (nodeUsage.get(event.name) ?? 0) + 1);
-        return {
-          ...node,
-          ...(event.kind === "skill"
-            ? { skillUsage: nodeUsage }
-            : { toolUsage: nodeUsage }),
-          activity: event.kind + " " + event.name + " " + event.state,
-        };
-      });
+      return updateNode(nextView, event.invocationId, (node) =>
+        projectNodeActivity(node, event),
+      );
     }
     case "invocation.output": {
       const node = next.nodes.get(event.invocationId);

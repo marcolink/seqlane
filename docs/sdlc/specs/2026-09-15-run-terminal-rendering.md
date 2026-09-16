@@ -188,6 +188,14 @@ Failures and waiting reasons appear under the affected row. Session URLs do not
 appear in the human tree. There is no inspector, selected row, key guide,
 identity banner, or routine tool-event tally.
 
+Active rows show reported activity, workspace mode, planned session policy and
+model, completed tool calls, token usage, and cost. Unknown fields stay hidden.
+Tool calls count unique completed activity IDs, not streaming event counts.
+The retained count is capped at 1,000 per invocation and displays a lower bound
+at that limit. Tree rails span all wrapped detail lines. Successful rows collapse
+to duration and compact usage totals. Workspace paths and session IDs remain
+hidden until the event contract supplies them.
+
 ### requirement-visual-language
 
 Rows show ancestor rails, a branch connector, status, optional automatic

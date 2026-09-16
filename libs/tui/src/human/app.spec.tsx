@@ -84,9 +84,7 @@ describe("HumanApp", () => {
         expect(lines[2]).toContain(expected);
         // Visible text must stop before the terminal's last column.
         expect(
-          lines.every(
-            (line) => stripVTControlCharacters(line).length < width,
-          ),
+          lines.every((line) => stripVTControlCharacters(line).length < width),
         ).toBe(true);
       });
     },

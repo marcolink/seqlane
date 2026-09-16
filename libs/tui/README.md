@@ -11,6 +11,9 @@ does not depend on a runtime adapter or executor.
 - `human` shows a passive live execution tree with automatic expansion,
   type colors, bright running rows, muted inactive rows, branch rails, right-aligned timing, resize,
   no-color, and ASCII support. It does not read keyboard input.
+  Active rows expand with reported activity, workspace mode, planned session policy,
+  model, completed tool calls, tokens, and cost. Rails stretch with wrapped details.
+  Missing fields stay hidden. Successful rows collapse to duration and usage totals.
 - `ci` writes concise, append-only status and failure output for automation.
 
 The CLI selects these modes with `--output auto|human|ci`. Final run results
