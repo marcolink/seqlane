@@ -191,8 +191,13 @@ identity banner, or routine tool-event tally.
 ### requirement-visual-language
 
 Rows show ancestor rails, a branch connector, status, optional automatic
-disclosure, label, and right-aligned facts. Cyan indicates active work, green
-success, yellow retries and waits, red failure, and gray queued/skipped work.
+disclosure, label, and right-aligned facts. Label, rail, and fact hues identify
+work types: blue workflows, cyan tasks, magenta validations, and yellow loops.
+Running rows use bright, bold variants. Inactive rows are dimmed, except failures
+and retries, which retain normal intensity. Task rows do not distinguish agent
+and shell execution because the projection does not expose that distinction.
+Status symbols use cyan for active work, green for success, yellow for retries
+and waits, red for failure, and gray for queued or skipped work.
 Symbols preserve meaning without color: spinner, ✓, ↻, ◌, ○, ✗, ■, and –.
 ASCII terminals use equivalent punctuation. Expanded branches show ▼ and
 completed collapsed branches show ▶. There is no selection highlight.

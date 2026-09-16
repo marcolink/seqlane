@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import { useMemo } from "react";
+import { workTone } from "./theme.js";
 import type { RunViewModel } from "../run-view-model.js";
 import {
   formatDuration,
@@ -33,20 +34,23 @@ export function HumanHeader({
   const facts =
     counts.complete + "/" + counts.total + " · " + formatDuration(elapsedMs);
   const width = Math.max(1, capabilities.width ?? 80);
-  const prefix =
-    statusSymbol(state, capabilities.supportsUnicode, spinnerFrame) +
-    " " +
-    (capabilities.supportsUnicode ? "▼ " : "v ");
+  const disclosure = capabilities.supportsUnicode ? " ▼ " : " v ";
   const color = capabilities.supportsAnsi ? statusColor(state) : undefined;
+  const tone = workTone("workflow", state, capabilities.supportsAnsi);
   return (
     <Box width={width}>
       <Box flexGrow={1} flexShrink={1} minWidth={0}>
-        <Text color={color} wrap="truncate-end">
-          {prefix + (view.workflowLabel ?? "Seqlane run")}
+        <Text wrap="truncate-end">
+          <Text color={color} bold={tone.bold}>
+            {statusSymbol(state, capabilities.supportsUnicode, spinnerFrame)}
+          </Text>
+          <Text {...tone}>
+            {disclosure + (view.workflowLabel ?? "Seqlane run")}
+          </Text>
         </Text>
       </Box>
       <Box paddingLeft={1} flexShrink={0} maxWidth={Math.max(1, width - 8)}>
-        <Text color={color} wrap="truncate-end">
+        <Text {...tone} wrap="truncate-end">
           {facts}
         </Text>
       </Box>

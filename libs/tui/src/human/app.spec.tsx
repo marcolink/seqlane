@@ -1,4 +1,4 @@
-// @test-scope ./app.tsx ./header.tsx ./tree.tsx ./tree-row.tsx ./format.ts
+// @test-scope ./app.tsx ./header.tsx ./tree.tsx ./tree-row.tsx ./format.ts ./theme.ts
 import { cleanup, render } from "ink-testing-library";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
