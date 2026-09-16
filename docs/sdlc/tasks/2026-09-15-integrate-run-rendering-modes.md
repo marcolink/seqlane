@@ -111,10 +111,13 @@ Existing compiled CLI coverage proves CI, JSON success and failure,
 signal cancellation, and event recording. TUI and CLI tests cover renderer
 lifecycle, safe terminal fields, and final result isolation.
 
+Delivery pull request: [#121](https://github.com/marcolink/seqlane/pull/121).
+
 ## Delivery state
 
 Completed on `feat/integrate-run-rendering-modes`. Default-branch delivery
-requires the pull request for this change to merge.
+requires [pull request #121](https://github.com/marcolink/seqlane/pull/121) to
+merge.
 
 ## Traceability
 
