@@ -3,73 +3,60 @@ import type { RunVisibleRow } from "../run-view-model.js";
 import {
   statusColor,
   statusSymbol,
-  formatDuration,
-  truncateTerminalText,
   treePrefix,
+  disclosureSymbol,
+  nodeFacts,
   type HumanDisplayCapabilities,
 } from "./format.js";
 
 export interface HumanTreeRowProps {
   readonly row: RunVisibleRow;
   readonly capabilities: HumanDisplayCapabilities;
-  readonly focused: boolean;
   readonly spinnerFrame: number;
   readonly sessionUiUrl?: string;
+  readonly lastSibling: boolean;
+  readonly now: Date;
 }
-
 export function HumanTreeRow({
   row,
   capabilities,
-  focused,
   spinnerFrame,
   sessionUiUrl,
+  lastSibling,
+  now,
 }: HumanTreeRowProps): React.JSX.Element {
-  const focusMarker = focused && !capabilities.supportsAnsi ? ">" : " ";
+  const { node } = row;
   const width = Math.max(1, capabilities.width ?? 80);
-  const facts =
-    row.node.retry === undefined
-      ? row.node.state === "waiting"
-        ? "waiting"
-        : row.node.failure === undefined
-          ? row.node.aggregate.total > 1
-            ? `${row.node.aggregate.succeeded}/${row.node.aggregate.total}`
-            : formatDuration(row.node.elapsedMs)
-          : "failed"
-      : `retry ${row.node.retry.attempt}`;
-  const prefix = treePrefix(row, capabilities);
-  const fixed = 4 + prefix.length + facts.length;
-  const label = truncateTerminalText(
-    row.node.label,
-    Math.max(1, width - fixed),
-    capabilities.supportsUnicode,
-  );
+  const unicode = capabilities.supportsUnicode;
+  const facts = nodeFacts(row, now);
+  const prefix =
+    treePrefix(row, capabilities, lastSibling) +
+    statusSymbol(node.state, unicode, spinnerFrame) +
+    " " +
+    disclosureSymbol(row, unicode);
+  const color = capabilities.supportsAnsi ? statusColor(node.state) : undefined;
   return (
     <Box flexDirection="column">
       <Box width={width}>
-        <Text
-          inverse={focused && capabilities.supportsAnsi}
-          color={
-            capabilities.supportsAnsi ? statusColor(row.node.state) : undefined
-          }
-        >
-          {focusMarker +
-            statusSymbol(
-              row.node.state,
-              capabilities.supportsUnicode,
-              spinnerFrame,
-            )}
-        </Text>
-        <Text inverse={focused && capabilities.supportsAnsi}>
-          {" " + prefix + " " + label}
-        </Text>
-        {facts === "" ? null : (
-          <Box flexGrow={1} justifyContent="flex-end">
-            <Text dimColor={!focused}>{facts}</Text>
-          </Box>
-        )}
+        <Box flexGrow={1} flexShrink={1} minWidth={0}>
+          <Text color={color} wrap="truncate-end">
+            {prefix + node.label}
+          </Text>
+        </Box>
+        <Box paddingLeft={1} flexShrink={0} maxWidth={Math.max(1, width - 12)}>
+          <Text color={color} wrap="truncate-end">
+            {facts}
+          </Text>
+        </Box>
       </Box>
+      {node.failure === undefined ? null : (
+        <Text color={color}>{"   " + node.failure.message}</Text>
+      )}
+      {node.state !== "waiting" || node.waitingReason === undefined ? null : (
+        <Text dimColor>{"   " + node.waitingReason}</Text>
+      )}
       {sessionUiUrl === undefined ? null : (
-        <Text dimColor>{"    Session UI: " + sessionUiUrl}</Text>
+        <Text dimColor>{"   Session UI: " + sessionUiUrl}</Text>
       )}
     </Box>
   );

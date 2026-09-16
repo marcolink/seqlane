@@ -7,11 +7,7 @@ import { closeSync, openSync, readSync } from "node:fs";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import { loadRuntimeAdapterConfiguration } from "@seqlane/runtime/operational-host";
 import { createRecordingConsumer } from "../recording.js";
-import {
-  connectTerminalResize,
-  createCliRenderer,
-  createOutputCapabilities,
-} from "../output.js";
+import { createCliRenderer, createOutputCapabilities } from "../output.js";
 import { outputModeOptions, parseOutputMode } from "../output-mode.js";
 import { workflowRootsFromFlags } from "../workflow-roots.js";
 import {
@@ -244,24 +240,18 @@ export default class RunCommand extends SeqlaneCommand {
 
     let runnerClient: import("../runner-client.js").RunnerClient | undefined;
     const baseCapabilities = createOutputCapabilities();
-    const capabilities = {
-      ...baseCapabilities,
-      onCancellationIntent: () => runnerClient?.cancel(),
-    };
+    const capabilities = baseCapabilities;
     if (
       !jsonMode &&
       !flags.dry &&
       flags.output === "human" &&
-      (!capabilities.isTTY || process.stdin.isTTY !== true)
+      !capabilities.isTTY
     ) {
-      this.error(
-        "--output human requires an interactive terminal for stdin and stdout",
-        { exit: 1 },
-      );
+      this.error("--output human requires a terminal for stdout", { exit: 1 });
     }
     let recordingConsumer: ExecutionEventConsumer | undefined;
     let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
-    let disconnectResize: () => void = () => undefined;
+    const disconnectResize: () => void = () => undefined;
     let dispatcher: ReturnType<typeof createEventDispatcher> | undefined;
     let operationalHostOwnsResources = false;
 
@@ -299,9 +289,6 @@ export default class RunCommand extends SeqlaneCommand {
         });
       }
 
-      if (renderer !== undefined) {
-        disconnectResize = connectTerminalResize(renderer, process.stdout);
-      }
       const outputConsumer: ExecutionEventConsumer = {
         consume: (event) => {
           try {

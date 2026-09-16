@@ -1,0 +1,11 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`HumanApp > renders four containment levels with stable branch rails 1`] = `
+"⠋ ▼ Seqlane run                                                        0/2 · 0ms
+
+├─ ○ ▼ Review changes                                                     queued
+│  └─ ○ ▼ Runtime package                                                 queued
+│     └─ ○ ▼ Checks                                                       queued
+│        └─ ○ Run integration tests                                       queued
+└─ ○ Publish report                                                       queued"
+`;

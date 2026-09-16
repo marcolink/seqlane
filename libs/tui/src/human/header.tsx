@@ -1,35 +1,55 @@
 import { Box, Text } from "ink";
+import { useMemo } from "react";
 import type { RunViewModel } from "../run-view-model.js";
-import { formatDuration } from "./format.js";
+import {
+  formatDuration,
+  statusColor,
+  statusSymbol,
+  type HumanDisplayCapabilities,
+} from "./format.js";
 
 export interface HumanHeaderProps {
   readonly view: RunViewModel;
   readonly elapsedMs?: number;
+  readonly capabilities: HumanDisplayCapabilities;
+  readonly spinnerFrame: number;
 }
-
 export function HumanHeader({
   view,
   elapsedMs,
+  capabilities,
+  spinnerFrame,
 }: HumanHeaderProps): React.JSX.Element {
-  const root = view.rootInvocationIds[0];
-  const label =
-    root === undefined
-      ? "Seqlane run"
-      : (view.nodes.get(root)?.label ?? "Seqlane run");
-  const aggregate =
-    root === undefined ? undefined : view.nodes.get(root)?.aggregate;
+  const counts = useMemo(() => {
+    const tasks = [...view.nodes.values()].filter(
+      (node) => node.kind === "task",
+    );
+    return {
+      total: tasks.length,
+      complete: tasks.filter((node) => node.state === "succeeded").length,
+    };
+  }, [view.nodes]);
+  const state = view.runState === "idle" ? "queued" : view.runState;
+  const facts =
+    counts.complete + "/" + counts.total + " · " + formatDuration(elapsedMs);
+  const width = Math.max(1, capabilities.width ?? 80);
+  const prefix =
+    statusSymbol(state, capabilities.supportsUnicode, spinnerFrame) +
+    " " +
+    (capabilities.supportsUnicode ? "▼ " : "v ");
+  const color = capabilities.supportsAnsi ? statusColor(state) : undefined;
   return (
-    <Box flexDirection="column">
-      <Text bold>
-        {label + " " + view.runState + " · total " + formatDuration(elapsedMs)}
-      </Text>
-      <Text dimColor>
-        {(view.workId === undefined ? "" : `work=${view.workId} `) +
-          (view.runId === undefined ? "" : `run=${view.runId} `) +
-          (aggregate === undefined
-            ? ""
-            : `${aggregate.succeeded}/${aggregate.total} complete`)}
-      </Text>
+    <Box width={width}>
+      <Box flexGrow={1} flexShrink={1} minWidth={0}>
+        <Text color={color} wrap="truncate-end">
+          {prefix + (view.workflowLabel ?? "Seqlane run")}
+        </Text>
+      </Box>
+      <Box paddingLeft={1} flexShrink={0} maxWidth={Math.max(1, width - 8)}>
+        <Text color={color} wrap="truncate-end">
+          {facts}
+        </Text>
+      </Box>
     </Box>
   );
 }

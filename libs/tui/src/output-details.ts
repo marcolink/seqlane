@@ -51,27 +51,6 @@ function formatIssues(validation: RunValidationState): string {
     .join("; ");
 }
 
-export function formatHumanValidationDetails(
-  validation: RunValidationState,
-): readonly string[] {
-  const identity =
-    "validation " +
-    validation.sourceId +
-    " (node " +
-    validation.validationNodeId +
-    ") verdict " +
-    validation.verdict +
-    (validation.continued ? "; repeat continues" : "");
-  const lines = [identity];
-  if (validation.verdict === "failed") {
-    lines.push("issues " + formatIssues(validation));
-  }
-  if (validation.evidence !== undefined) {
-    lines.push("evidence " + formatEvidence(validation.evidence));
-  }
-  return lines;
-}
-
 export function formatCIValidationDetails(
   validation: RunValidationState,
 ): string {
@@ -120,89 +99,6 @@ export function formatCICostDetails(
   return metrics?.cost === undefined
     ? undefined
     : "cost=" + formatCICost(metrics.cost);
-}
-
-function formatDuration(milliseconds: number): string {
-  return milliseconds < 1000
-    ? milliseconds + "ms"
-    : (milliseconds / 1000).toFixed(1) + "s";
-}
-
-function formatHumanTokens(
-  metrics: SeqlaneInvocationMetrics,
-): string | undefined {
-  if (metrics.tokens === undefined) return undefined;
-  const total =
-    metrics.tokens.total ??
-    metrics.tokens.input + metrics.tokens.output + metrics.tokens.reasoning;
-  return (
-    total +
-    " tokens (input " +
-    metrics.tokens.input +
-    ", output " +
-    metrics.tokens.output +
-    ", reasoning " +
-    metrics.tokens.reasoning +
-    ", cache " +
-    metrics.tokens.cacheRead +
-    "/" +
-    metrics.tokens.cacheWrite +
-    ")"
-  );
-}
-
-export function formatHumanOutputDetails(
-  metrics: SeqlaneInvocationMetrics | undefined,
-  summary: SeqlaneOutputSummary | undefined,
-): readonly string[] {
-  const lines: string[] = [];
-  if (summary !== undefined) {
-    const size =
-      summary.size === undefined
-        ? ""
-        : " (" +
-          summary.size +
-          (summary.kind === "object"
-            ? " fields"
-            : summary.kind === "array"
-              ? " items"
-              : summary.kind === "string"
-                ? " chars"
-                : "") +
-          (summary.fields === undefined || summary.fields.length === 0
-            ? ")"
-            : ": " + summary.fields.join(", ") + ")");
-    lines.push("output " + summary.kind + size);
-  }
-  if (metrics?.durationMs !== undefined) {
-    lines.push("duration " + formatDuration(metrics.durationMs));
-  }
-  const modelAndProvider: string[] = [];
-  if (metrics?.model !== undefined) {
-    modelAndProvider.push("model " + metrics.model);
-  }
-  if (metrics?.provider !== undefined) {
-    modelAndProvider.push("provider " + metrics.provider);
-  }
-  if (modelAndProvider.length > 0) {
-    lines.push(modelAndProvider.join(" · "));
-  }
-  if (metrics?.modelSelection !== undefined) {
-    const { model, reasoning } = metrics.modelSelection;
-    lines.push(
-      "selection " +
-        model.provider +
-        "/" +
-        model.model +
-        (reasoning === undefined ? "" : " · reasoning " + reasoning),
-    );
-  }
-  const tokens = metrics === undefined ? undefined : formatHumanTokens(metrics);
-  if (tokens !== undefined) lines.push(tokens);
-  if (metrics?.cost !== undefined) {
-    lines.push("cost $" + metrics.cost.toFixed(4));
-  }
-  return lines;
 }
 
 export function formatCIOutputDetails(

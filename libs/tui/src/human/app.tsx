@@ -1,29 +1,22 @@
-import { Box, render, Text, useInput, type Instance } from "ink";
+import {
+  Box,
+  render,
+  Text,
+  useAnimation,
+  useWindowSize,
+  type Instance,
+} from "ink";
 import type { RunViewModel } from "../run-view-model.js";
 import { getRootRunElapsedMs } from "../run-view-model.js";
 import type { HumanDisplayCapabilities } from "./format.js";
-import { HumanDetails } from "./details.js";
 import { HumanHeader } from "./header.js";
 import { HumanTree } from "./tree.js";
-
-export type HumanInputAction =
-  | "previous"
-  | "next"
-  | "collapse"
-  | "expand"
-  | "toggle-details"
-  | "next-failure"
-  | "toggle-help"
-  | "cancel";
 
 export interface HumanAppProps {
   readonly view: RunViewModel;
   readonly capabilities: HumanDisplayCapabilities;
   readonly spinnerFrame: number;
-  readonly detailsVisible: boolean;
-  readonly helpVisible: boolean;
   readonly sessionUiByInvocation: ReadonlyMap<string, string>;
-  readonly onInput: (action: HumanInputAction) => void;
 }
 
 export interface MountedHumanApp {
@@ -39,7 +32,7 @@ export function mountHumanApp(
     readonly stderr: NodeJS.WriteStream;
   },
 ): MountedHumanApp {
-  const instance: Instance = render(<HumanApp {...props} />, {
+  const instance: Instance = render(<LiveHumanApp {...props} />, {
     ...terminal,
     alternateScreen: false,
     exitOnCtrlC: false,
@@ -47,44 +40,55 @@ export function mountHumanApp(
     maxFps: 12,
   });
   return {
-    rerender: (next) => instance.rerender(<HumanApp {...next} />),
+    rerender: (next) => instance.rerender(<LiveHumanApp {...next} />),
     async finish() {
-      await instance.waitUntilRenderFlush();
-      instance.unmount();
-      await instance.waitUntilExit();
-      instance.cleanup();
+      try {
+        await instance.waitUntilRenderFlush();
+      } finally {
+        instance.unmount();
+        try {
+          await instance.waitUntilExit();
+        } finally {
+          instance.cleanup();
+        }
+      }
     },
   };
+}
+
+export function LiveHumanApp(props: HumanAppProps): React.JSX.Element {
+  const { frame } = useAnimation({
+    interval: 100,
+    isActive: props.view.runState === "active",
+  });
+  const { columns, rows } = useWindowSize();
+  return (
+    <HumanApp
+      {...props}
+      spinnerFrame={frame}
+      capabilities={{
+        ...props.capabilities,
+        width: columns,
+        height: rows,
+      }}
+    />
+  );
 }
 
 export function HumanApp({
   view,
   capabilities,
   spinnerFrame,
-  detailsVisible,
-  helpVisible,
   sessionUiByInvocation,
-  onInput,
 }: HumanAppProps): React.JSX.Element {
-  const width = capabilities.width ?? 80;
-  const height = capabilities.height ?? 24;
-  const detailLines =
-    width >= 100 && height >= 16 ? 5 : width >= 60 && height >= 16 ? 3 : 1;
-  const showDetails = detailsVisible && (height >= 10 || width >= 40);
-  useInput((input, key) => {
-    if (key.ctrl && input === "c") return onInput("cancel");
-    if (key.upArrow || input === "k") return onInput("previous");
-    if (key.downArrow || input === "j") return onInput("next");
-    if (key.leftArrow || input === "h") return onInput("collapse");
-    if (key.rightArrow || input === "l") return onInput("expand");
-    if (key.return) return onInput("toggle-details");
-    if (input === "f") return onInput("next-failure");
-    if (input === "?") return onInput("toggle-help");
-  });
-
   return (
     <Box flexDirection="column">
-      <HumanHeader view={view} elapsedMs={getRootRunElapsedMs(view)} />
+      <HumanHeader
+        view={view}
+        elapsedMs={getRootRunElapsedMs(view)}
+        capabilities={capabilities}
+        spinnerFrame={spinnerFrame}
+      />
       <Box marginTop={1} flexDirection="column">
         <HumanTree
           view={view}
@@ -93,17 +97,11 @@ export function HumanApp({
           sessionUiByInvocation={sessionUiByInvocation}
         />
       </Box>
-      {showDetails ? <HumanDetails view={view} maxLines={detailLines} /> : null}
-      {helpVisible ? (
-        <Text dimColor>
-          ↑↓/jk move · ←→/hl expand · enter details · f failures · ^C cancel
+      {view.runError === undefined ? null : (
+        <Text color={capabilities.supportsAnsi ? "red" : undefined}>
+          {view.runError.message}
         </Text>
-      ) : null}
-      {view.runState === "active" ? (
-        <Text dimColor>
-          {width < 60 ? "? help · ^C cancel" : "? help · ↑↓ move · ^C cancel"}
-        </Text>
-      ) : null}
+      )}
     </Box>
   );
 }

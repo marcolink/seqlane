@@ -8,9 +8,9 @@ does not depend on a runtime adapter or executor.
 
 ## Renderer modes
 
-- `human` shows an inline interactive execution tree. It supports keyboard
-  focus, expansion, failure navigation, bounded details, resize, no-color,
-  and ASCII terminal capabilities.
+- `human` shows a passive live execution tree with automatic expansion,
+  status colors, branch rails, right-aligned timing, session links, resize,
+  no-color, and ASCII support. It does not read keyboard input.
 - `ci` writes concise, append-only status and failure output for automation.
 
 The CLI selects these modes with `--output auto|human|ci`. Final run results
@@ -44,9 +44,9 @@ Pass a renderer a declared `OutputCapabilities` value, call `handle` for each
 canonical execution event, and call `finish` after the run ends. Renderers
 accept only `@seqlane/protocol` values.
 
-Human renderers receive a cancellation intent only. The CLI supplies the
-existing cancellation operation; the terminal package does not call runtime
-APIs.
+The CLI owns ordinary signal cancellation. Ink owns layout, animation,
+resize, frame limiting, and terminal cleanup through its standard hooks and
+render options. Mounted component tests use ink-testing-library.
 
 The package root exposes the renderer factory and its consumer types. Concrete
 renderers and run-projection types stay private.

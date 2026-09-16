@@ -107,32 +107,3 @@ export function createCliRenderer(
     renderer: createExecutionRenderer(resolvedMode, capabilities),
   };
 }
-
-export function connectTerminalResize(
-  renderer: ExecutionRenderer,
-  streams: Pick<
-    NodeJS.WriteStream,
-    "on" | "removeListener" | "columns" | "rows"
-  >,
-): () => void {
-  if (
-    renderer.mode !== "human" ||
-    typeof streams.on !== "function" ||
-    typeof streams.removeListener !== "function"
-  ) {
-    return () => undefined;
-  }
-
-  const resizable = renderer as ExecutionRenderer & {
-    updateTerminal?: (update: { width?: number; height?: number }) => void;
-  };
-  if (resizable.updateTerminal === undefined) return () => undefined;
-  const onResize = (): void => {
-    resizable.updateTerminal?.({
-      width: Math.max(1, streams.columns ?? 80),
-      height: Math.max(1, streams.rows ?? 24),
-    });
-  };
-  streams.on("resize", onResize);
-  return () => streams.removeListener("resize", onResize);
-}

@@ -27,7 +27,8 @@
     "react": "19.3.0"
   },
   "devDependencies": {
-    "@types/react": "19.3.0"
+    "@types/react": "19.3.0",
+    "ink-testing-library": "4.0.0"
   },
   "files": [
     "dist"

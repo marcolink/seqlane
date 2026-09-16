@@ -1,9 +1,9 @@
-// @test-scope ./app.tsx ./header.tsx ./tree.tsx ./tree-row.tsx ./details.tsx ./format.ts
-import { renderToString } from "ink";
+// @test-scope ./app.tsx ./header.tsx ./tree.tsx ./tree-row.tsx ./format.ts
+import { cleanup, render } from "ink-testing-library";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
-import { describe, expect, it } from "vitest";
-import { reduceRunEvents } from "../run-view-model.js";
-import { HumanApp } from "./app.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { reduceRunEvents, reduceRunViewModel } from "../run-view-model.js";
+import { HumanApp, LiveHumanApp } from "./app.js";
 
 const event = {
   workId: "work-1",
@@ -17,7 +17,77 @@ const event = {
 };
 
 describe("HumanApp", () => {
-  it("composes the header, tree, details, and active controls", () => {
+  afterEach(cleanup);
+  it("renders four containment levels with stable branch rails", () => {
+    const definitions = [
+      ["review", undefined, "Review changes", "workflow"],
+      ["runtime", "review", "Runtime package", "workflow"],
+      ["checks", "runtime", "Checks", "workflow"],
+      ["test", "checks", "Run integration tests", "task"],
+      ["publish", undefined, "Publish report", "task"],
+    ] as const;
+    const events: SeqlaneExecutionEvent[] = definitions.map(
+      ([id, parent, label, kind], index) => ({
+        type: "invocation.created",
+        ...event,
+        invocationId: id,
+        planNodeId: id,
+        subject: { type: "task", taskId: id },
+        taskId: id,
+        label,
+        kind,
+        parentInvocationId: parent,
+        siblingOrder: index,
+        dependencyIds: [],
+      }),
+    );
+    const view = reduceRunEvents(events, {
+      now: () => new Date(event.metadata.occurredAt),
+    });
+    const rendered = render(
+      <HumanApp
+        view={view}
+        capabilities={{ supportsAnsi: false, supportsUnicode: true, width: 80 }}
+        spinnerFrame={0}
+        sessionUiByInvocation={new Map()}
+      />,
+    );
+    expect(rendered.lastFrame()).toContain("├─ ○ ▼ Review changes");
+    expect(rendered.lastFrame()).toContain(
+      "│        └─ ○ Run integration tests",
+    );
+    expect(rendered.lastFrame()).toContain("└─ ○ Publish report");
+    expect(rendered.lastFrame()).toMatchSnapshot();
+  });
+
+  it("uses Ink animation and releases it when the run finishes", async () => {
+    const props = {
+      view: reduceRunEvents([{ type: "run.started", ...event }]),
+      capabilities: { supportsAnsi: false, supportsUnicode: true },
+      spinnerFrame: 0,
+      sessionUiByInvocation: new Map<string, string>(),
+    };
+    const rendered = render(<LiveHumanApp {...props} />);
+    const initial = rendered.lastFrame();
+    await vi.waitFor(() => expect(rendered.lastFrame()).not.toBe(initial));
+    rendered.rerender(
+      <LiveHumanApp
+        {...props}
+        view={reduceRunViewModel(props.view, {
+          type: "run.succeeded",
+          output: null,
+          ...event,
+        })}
+      />,
+    );
+    await vi.waitFor(() => expect(rendered.lastFrame()).toContain("✓"));
+    rendered.unmount();
+    const framesAfterUnmount = rendered.frames.length;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(rendered.frames).toHaveLength(framesAfterUnmount);
+    expect(rendered.stdin.listenerCount("data")).toBe(0);
+  });
+  it("renders a passive tree and session link without controls or run IDs", () => {
     const view = reduceRunEvents(
       [
         { type: "run.started", ...event },
@@ -39,30 +109,67 @@ describe("HumanApp", () => {
       },
     );
 
-    const output = renderToString(
+    const rendered = render(
       <HumanApp
         view={view}
         capabilities={{ supportsAnsi: false, supportsUnicode: false }}
         spinnerFrame={0}
-        detailsVisible
-        helpVisible
         sessionUiByInvocation={
           new Map([["task-1", "http://127.0.0.1:4096/session/session-1"]])
         }
-        onInput={() => undefined}
       />,
-      { columns: 100 },
     );
 
-    expect(output).toContain("Build release active");
+    const output = rendered.lastFrame() ?? "";
+    expect(output).toContain("Seqlane run");
     expect(output).toContain("Build release");
     expect(output).toContain(
       "Session UI: http://127.0.0.1:4096/session/session-1",
     );
-    expect(output).toContain("help");
+    expect(output).not.toContain("help");
+    expect(output).not.toContain("work=");
+    expect(output).not.toContain("run=");
+    expect(output).toContain("0/1");
+    rendered.stdin.write("j?\\r");
+    expect(rendered.lastFrame()).toBe(output);
   });
 
-  it("keeps status and cancellation controls in a narrow ASCII terminal", () => {
+  it("updates task completion through React rerender", async () => {
+    const initial = reduceRunEvents([
+      { type: "run.started", ...event },
+      {
+        type: "invocation.created",
+        ...event,
+        invocationId: "task-1",
+        planNodeId: "task-1",
+        subject: { type: "task", taskId: "build" },
+        taskId: "build",
+        kind: "task",
+        label: "Build",
+        siblingOrder: 0,
+        dependencyIds: [],
+      },
+    ]);
+    const props = {
+      capabilities: { supportsAnsi: false, supportsUnicode: true, width: 80 },
+      spinnerFrame: 0,
+      sessionUiByInvocation: new Map<string, string>(),
+    };
+    const rendered = render(<HumanApp {...props} view={initial} />);
+    expect(rendered.lastFrame()).toContain("queued");
+    const completed = reduceRunViewModel(initial, {
+      type: "invocation.succeeded",
+      ...event,
+      invocationId: "task-1",
+    });
+    rendered.rerender(<HumanApp {...props} view={completed} />);
+    await vi.waitFor(() => expect(rendered.lastFrame()).toContain("✓ Build"));
+    expect(rendered.lastFrame()).toContain("1/1");
+    expect(rendered.lastFrame()).not.toContain("queued");
+    rendered.unmount();
+  });
+
+  it("keeps status and facts in a narrow ASCII terminal", () => {
     const view = reduceRunEvents([
       { type: "run.started", ...event },
       {
@@ -79,7 +186,7 @@ describe("HumanApp", () => {
       },
     ] satisfies SeqlaneExecutionEvent[]);
 
-    const output = renderToString(
+    const rendered = render(
       <HumanApp
         view={view}
         capabilities={{
@@ -89,15 +196,14 @@ describe("HumanApp", () => {
           height: 12,
         }}
         spinnerFrame={0}
-        detailsVisible
-        helpVisible={false}
         sessionUiByInvocation={new Map()}
-        onInput={() => undefined}
       />,
-      { columns: 40, rows: 12 },
     );
 
+    const output = rendered.lastFrame() ?? "";
     expect(output).toContain(".");
-    expect(output).toContain("? help · ^C cancel");
+    expect(output).toContain("queued");
+    expect(output).not.toContain("help");
+    expect(output.split("\n").every((line) => line.length <= 40)).toBe(true);
   });
 });

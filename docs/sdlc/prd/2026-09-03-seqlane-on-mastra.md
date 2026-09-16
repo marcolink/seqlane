@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-15
+updated: 2026-09-16
 upstream:
   - brd.seqlane
 supersedes:
@@ -113,8 +113,8 @@ Migration verification uses representative agent and deterministic-task fixtures
 ### Operator experience
 
 - The Seqlane CLI remains the stable entry point for discovery, planning, execution, progress, cancellation, and final results.
-- An interactive `seqlane run` shows live nested workflow progress, details for
-  the selected work, and the total run elapsed time.
+- A terminal `seqlane run` shows passive live nested workflow progress,
+  relevant inline details, and total run elapsed time without keyboard input.
 - A CI `seqlane run` writes permanent progress lines and does not require a
   terminal input device.
 - A final-result `seqlane run` writes one machine-readable result. It writes no

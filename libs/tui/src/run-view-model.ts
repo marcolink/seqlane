@@ -113,6 +113,7 @@ export interface RunNode {
 export type RunState = "idle" | "active" | "succeeded" | "failed" | "cancelled";
 
 export interface RunViewModel {
+  readonly workflowLabel?: string;
   readonly workId?: string;
   readonly runId?: string;
   readonly runState: RunState;
@@ -741,7 +742,10 @@ function reducePlan(
     };
     projected = reduceCreated(projected, created);
   }
-  return setRunState(projected, "active", event);
+  return {
+    ...setRunState(projected, "active", event),
+    workflowLabel: event.plan.workflow.id,
+  };
 }
 
 function collapseSuccessfulBranch(
