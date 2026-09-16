@@ -1,7 +1,7 @@
 ---
 id: task.integrate-run-rendering-modes
 title: Integrate and Verify Run Rendering Modes
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-15
@@ -104,11 +104,17 @@ unexplained golden-fixture changes.
 
 ## Outcome
 
-Not delivered.
+The CLI resolves human mode only when both terminal input and terminal output
+are usable. It falls back to CI mode for a redirected input stream, and an
+explicit human request fails before execution when either stream is unavailable.
+Existing compiled CLI coverage proves CI, JSON success and failure,
+signal cancellation, and event recording. TUI and CLI tests cover renderer
+lifecycle, safe terminal fields, and final result isolation.
 
 ## Delivery state
 
-Planned. This task completes the run-rendering delivery sequence.
+Completed on `feat/integrate-run-rendering-modes`. Default-branch delivery
+requires the pull request for this change to merge.
 
 ## Traceability
 

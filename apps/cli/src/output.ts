@@ -21,11 +21,15 @@ export function isCIEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
 
 export function resolveRendererMode(
   mode: OutputMode,
-  capabilities: Pick<OutputCapabilities, "isTTY" | "supportsAnsi">,
+  capabilities: Pick<
+    OutputCapabilities,
+    "isTTY" | "hasTerminalInput" | "supportsAnsi"
+  >,
   env: NodeJS.ProcessEnv = process.env,
 ): RendererMode {
   if (mode !== "auto") return mode;
   return capabilities.isTTY &&
+    capabilities.hasTerminalInput &&
     capabilities.supportsAnsi &&
     !isCIEnvironment(env)
     ? "human"
@@ -69,6 +73,7 @@ export function createOutputCapabilities(
 ): OutputCapabilities {
   const env = streams.env ?? process.env;
   const isTTY = streams.stdout.isTTY === true;
+  const stdin = streams.stdin ?? process.stdin;
   const term = env.TERM;
   const supportsAnsi = isTTY && env.NO_COLOR === undefined && term !== "dumb";
   const locale = env.LC_ALL ?? env.LC_CTYPE ?? env.LANG ?? "";
@@ -77,6 +82,7 @@ export function createOutputCapabilities(
 
   return {
     isTTY,
+    hasTerminalInput: stdin.isTTY === true,
     supportsAnsi,
     supportsUnicode,
     width: Math.max(1, streams.stdout.columns ?? 80),
@@ -84,7 +90,7 @@ export function createOutputCapabilities(
     stdout: streamSink(streams.stdout),
     stderr: streamSink(streams.stderr),
     terminal: {
-      stdin: streams.stdin ?? process.stdin,
+      stdin,
       stdout: streams.stdout,
       stderr: streams.stderr,
     },

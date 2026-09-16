@@ -7,7 +7,11 @@ import { closeSync, openSync, readSync } from "node:fs";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import { loadRuntimeAdapterConfiguration } from "@seqlane/runtime/operational-host";
 import { createRecordingConsumer } from "../recording.js";
-import { createCliRenderer, createOutputCapabilities } from "../output.js";
+import {
+  createCliRenderer,
+  createOutputCapabilities,
+  resolveRendererMode,
+} from "../output.js";
 import { outputModeOptions, parseOutputMode } from "../output-mode.js";
 import { workflowRootsFromFlags } from "../workflow-roots.js";
 import {
@@ -242,13 +246,17 @@ export default class RunCommand extends SeqlaneCommand {
     let runnerClient: import("../runner-client.js").RunnerClient | undefined;
     const baseCapabilities = createOutputCapabilities();
     const capabilities = baseCapabilities;
+    const terminalMode =
+      jsonMode || flags.dry
+        ? undefined
+        : resolveRendererMode(parseOutputMode(flags.output), capabilities);
     if (
-      !jsonMode &&
-      !flags.dry &&
-      flags.output === "human" &&
-      !capabilities.isTTY
+      terminalMode === "human" &&
+      (!capabilities.isTTY || !capabilities.hasTerminalInput)
     ) {
-      this.error("--output human requires a terminal for stdout", { exit: 1 });
+      this.error("--output human requires terminal input and output", {
+        exit: 1,
+      });
     }
     let recordingConsumer: ExecutionEventConsumer | undefined;
     let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
@@ -279,10 +287,9 @@ export default class RunCommand extends SeqlaneCommand {
 
       try {
         renderer =
-          flags.dry || jsonMode
+          terminalMode === undefined
             ? undefined
-            : createCliRenderer(parseOutputMode(flags.output), capabilities)
-                .renderer;
+            : createCliRenderer(terminalMode, capabilities).renderer;
       } catch (error) {
         this.error(contextualizeCommandError(errorMessage(error), error), {
           exit: 1,

@@ -17,6 +17,7 @@ function capabilities(): OutputCapabilities {
   const sink = { write: () => undefined };
   return {
     isTTY: false,
+    hasTerminalInput: false,
     supportsAnsi: false,
     supportsUnicode: false,
     width: 80,

@@ -9,6 +9,7 @@ import { parseOutputMode } from "./output-mode.js";
 
 const capabilities: OutputCapabilities = {
   isTTY: true,
+  hasTerminalInput: true,
   supportsAnsi: true,
   supportsUnicode: true,
   width: 80,
@@ -30,7 +31,17 @@ describe("CLI output mode selection", () => {
     expect(
       resolveRendererMode(
         "auto",
-        { isTTY: false, supportsAnsi: false },
+        { isTTY: false, hasTerminalInput: false, supportsAnsi: false },
+        { CI: undefined },
+      ),
+    ).toBe("ci");
+  });
+
+  it("selects CI mode when terminal input is unavailable", () => {
+    expect(
+      resolveRendererMode(
+        "auto",
+        { ...capabilities, hasTerminalInput: false },
         { CI: undefined },
       ),
     ).toBe("ci");
