@@ -24,6 +24,16 @@ failures do not change execution. Span metadata is bounded and excludes raw
 prompts, transcripts, tool inputs, and tool outputs. OpenCode 1.18.27 does not
 expose a verified cost unit, so native cost context is omitted.
 
+OpenCode 1.18.27 leaks server listeners for each `/event` connection. The
+adapter does not use that SSE route. It polls finite session history and pending
+permission or question requests. The same validated reducer processes each
+history event. Monitoring keeps one durable cursor per session, limits every
+history page and drain, rejects pages that do not advance, and backs off while
+the session is idle. Monitor responses are limited to 256 KiB before JSON
+parsing. Their values also have bounded strings, nesting, and collection sizes.
+Prompt completion performs one bounded tail drain. Closing a run cancels active
+local requests, interrupts the remote session, and waits for bounded cleanup.
+
 OpenCode `skill` calls remain `TOOL_CALL` spans with `toolType: "skill"`. When
 the event exposes a skill name, the adapter uses that bounded identity as the
 span name, so traces distinguish individual skills without persisting skill

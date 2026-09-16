@@ -167,6 +167,49 @@ describe("HumanApp", () => {
     expect(rendered.frames).toHaveLength(framesAfterUnmount);
     expect(rendered.stdin.listenerCount("data")).toBe(0);
   });
+
+  it("updates an active task duration without receiving another event", async () => {
+    let currentTime = Date.parse(event.metadata.occurredAt);
+    const view = reduceRunEvents(
+      [
+        { type: "run.started", ...event },
+        {
+          type: "invocation.created",
+          ...event,
+          invocationId: "task-1",
+          planNodeId: "task-1",
+          subject: { type: "task", taskId: "task-1" },
+          taskId: "task-1",
+          kind: "task",
+          label: "Long task",
+          siblingOrder: 0,
+          dependencyIds: [],
+        },
+        {
+          type: "invocation.started",
+          ...event,
+          invocationId: "task-1",
+          subject: { type: "task", taskId: "task-1" },
+        },
+      ],
+      { now: () => new Date(currentTime) },
+    );
+    const rendered = render(
+      <HumanApp
+        view={view}
+        capabilities={{ supportsAnsi: false, supportsUnicode: true, width: 80 }}
+        spinnerFrame={0}
+        animate
+      />,
+    );
+
+    expect((rendered.lastFrame() ?? "").split("\n")[2]).toContain("0ms");
+    currentTime += 1_100;
+    await vi.waitFor(() =>
+      expect((rendered.lastFrame() ?? "").split("\n")[2]).toContain("1.1s"),
+    );
+  });
+
   it("renders a passive tree without session links, controls, or run IDs", () => {
     const view = reduceRunEvents(
       [

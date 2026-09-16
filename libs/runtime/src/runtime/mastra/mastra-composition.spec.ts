@@ -85,6 +85,7 @@ describe("Mastra composition observability", () => {
           throw new Error("fork is not used by storage verification");
         },
         abort: async () => undefined,
+        close: async () => undefined,
       } satisfies Parameters<typeof createOpenCodeAdapterForRun>[0];
 
       const openCodeAdapter = createOpenCodeAdapterForRun(openCodeRun);

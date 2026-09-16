@@ -1,6 +1,5 @@
 import { InteractionRequiredError } from "@seqlane/core";
 import type { ModelSelection } from "@seqlane/core";
-import type { Event as OpenCodeEvent } from "@opencode-ai/sdk/v2";
 import { z } from "zod";
 import { OpenCodeExecutorError } from "./errors.js";
 import { StructuredOutputCompatibilityError } from "./errors.js";
@@ -28,14 +27,36 @@ const checkpointSchema = z.object({
   sessionId: z.string().min(1),
   messageId: z.string().min(1),
 });
+const runAbortTimeoutMs = 2_000;
 
 const structuredOutputStates = new WeakMap<
   OpenCodeConnection,
   StructuredOutputState
 >();
 
+type InteractionMonitorResult =
+  | { readonly type: "interaction" }
+  | { readonly type: "monitor-error"; readonly cause: unknown };
+
+async function closeInteractionMonitor(
+  controller: AbortController,
+  removeAbortListener: () => void,
+  monitor: Promise<InteractionMonitorResult> | undefined,
+): Promise<void> {
+  controller.abort();
+  removeAbortListener();
+  if (monitor === undefined) return;
+  const result = await monitor;
+  if (result.type === "monitor-error") {
+    throw executorError(
+      "could not monitor external interaction requirements",
+      result.cause,
+    );
+  }
+}
+
 async function waitForInteraction(
-  events: AsyncIterable<OpenCodeEvent>,
+  events: AsyncIterable<unknown>,
   sessionID: string,
   signal: AbortSignal,
   onActivity: ((activity: OpenCodeActivity) => void) | undefined,
@@ -83,7 +104,7 @@ async function waitForInteraction(
   }
   if (!signal.aborted) {
     throw new OpenCodeExecutorError(
-      "interaction event stream closed before task completion",
+      "interaction monitor closed before task completion",
     );
   }
 }
@@ -99,6 +120,73 @@ export type {
 
 function executorError(message: string, cause?: unknown): Error {
   return new OpenCodeExecutorError(message, cause);
+}
+
+function createRunCloser(
+  queue: () => Promise<void>,
+  cancel: () => Promise<void>,
+) {
+  let closed = false;
+  let closePromise: Promise<void> | undefined;
+  return {
+    assertOpen(): void {
+      if (closed) throw executorError("run is closed");
+    },
+    close(): Promise<void> {
+      if (closePromise !== undefined) return closePromise;
+      closed = true;
+      closePromise = (async () => {
+        const [cancelled, drained] = await Promise.allSettled([
+          cancel(),
+          queue(),
+        ]);
+        if (cancelled.status === "rejected") throw cancelled.reason;
+        if (drained.status === "rejected") throw drained.reason;
+      })();
+      return closePromise;
+    },
+  };
+}
+
+interface PromptCancellation {
+  readonly monitorController: AbortController;
+  readonly monitorSignal: AbortSignal;
+  readonly promptController: AbortController;
+  readonly promptSignal: AbortSignal;
+  readonly result?: Promise<void>;
+  readonly removeRequestListener: () => void;
+}
+
+function createPromptCancellation(
+  runSignal: AbortSignal,
+  requestSignal: AbortSignal | undefined,
+  abort: () => Promise<void>,
+): PromptCancellation {
+  const promptController = new AbortController();
+  const monitorController = new AbortController();
+  let removeRequestListener = (): void => undefined;
+  const result = requestSignal
+    ? new Promise<void>((resolve, reject) => {
+        const onAbort = (): void => {
+          requestSignal.removeEventListener("abort", onAbort);
+          promptController.abort();
+          monitorController.abort();
+          void abort().then(resolve, reject);
+        };
+        removeRequestListener = () =>
+          requestSignal.removeEventListener("abort", onAbort);
+        if (requestSignal.aborted) onAbort();
+        else requestSignal.addEventListener("abort", onAbort, { once: true });
+      })
+    : undefined;
+  return {
+    monitorController,
+    monitorSignal: AbortSignal.any([monitorController.signal, runSignal]),
+    promptController,
+    promptSignal: AbortSignal.any([promptController.signal, runSignal]),
+    result,
+    removeRequestListener,
+  };
 }
 
 function getStructuredOutputState(
@@ -171,6 +259,14 @@ async function createOpenCodeRunForSession(
 
   let queue = Promise.resolve();
   let aborted = false;
+  const runController = new AbortController();
+  const closer = createRunCloser(
+    () => queue,
+    async () => {
+      runController.abort();
+      await abort();
+    },
+  );
   let abortPromise: Promise<void> | undefined;
   let terminalCheckpoint: z.infer<typeof checkpointSchema> | undefined;
   let eventDiagnosticCount = 0;
@@ -193,6 +289,7 @@ async function createOpenCodeRunForSession(
 
   const prompt = (request: OpenCodePrompt): Promise<OpenCodePromptResult> => {
     const operation = queue.then(async () => {
+      closer.assertOpen();
       if (aborted || signal?.aborted || request.signal?.aborted) {
         throw executorError("run was cancelled before task submission");
       }
@@ -200,35 +297,18 @@ async function createOpenCodeRunForSession(
       try {
         const selected = await outputState.resolve();
         const effectiveStrategy = request.strategy ?? selected.strategy;
-        const promptController = new AbortController();
-        const permissionMonitorController = new AbortController();
-        const requestSignal = request.signal;
-        let removeAbortListener = (): void => undefined;
-        const cancellation =
-          requestSignal === undefined
-            ? undefined
-            : new Promise<void>((resolve, reject) => {
-                const onAbort = () => {
-                  requestSignal.removeEventListener("abort", onAbort);
-                  void abort().then(() => {
-                    promptController.abort();
-                    resolve();
-                  }, reject);
-                };
-                removeAbortListener = () => {
-                  requestSignal.removeEventListener("abort", onAbort);
-                };
-                if (requestSignal.aborted) onAbort();
-                else
-                  requestSignal.addEventListener("abort", onAbort, {
-                    once: true,
-                  });
-              });
+        const cancellation = createPromptCancellation(
+          runController.signal,
+          request.signal,
+          abort,
+        );
+        let interactionRequest: Promise<InteractionMonitorResult> | undefined;
         try {
-          let events: AsyncIterable<OpenCodeEvent>;
+          let events: AsyncIterable<unknown>;
           try {
-            events = await transport.subscribeEvents(
-              permissionMonitorController.signal,
+            events = await transport.monitorSession(
+              sessionID,
+              cancellation.monitorSignal,
             );
           } catch (cause) {
             throw executorError(
@@ -236,10 +316,10 @@ async function createOpenCodeRunForSession(
               cause,
             );
           }
-          const interactionRequest = waitForInteraction(
+          interactionRequest = waitForInteraction(
             events,
             sessionID,
-            permissionMonitorController.signal,
+            cancellation.monitorSignal,
             request.onActivity,
             request.onUncertainActivity,
             request.onObservation,
@@ -261,7 +341,7 @@ async function createOpenCodeRunForSession(
                 }),
           };
           const promptResponse = transport
-            .prompt(sessionID, effectiveRequest, promptController.signal)
+            .prompt(sessionID, effectiveRequest, cancellation.promptSignal)
             .then(
               (response) => ({ type: "response" as const, response }),
               (cause: unknown) => ({ type: "transport-error" as const, cause }),
@@ -269,12 +349,16 @@ async function createOpenCodeRunForSession(
           const result = await Promise.race([
             promptResponse,
             interactionRequest,
-            ...(cancellation === undefined
+            ...(cancellation.result === undefined
               ? []
-              : [cancellation.then(() => ({ type: "cancelled" as const }))]),
+              : [
+                  cancellation.result.then(() => ({
+                    type: "cancelled" as const,
+                  })),
+                ]),
           ]);
-          if (request.signal?.aborted && cancellation !== undefined) {
-            await cancellation;
+          if (request.signal?.aborted && cancellation.result !== undefined) {
+            await cancellation.result;
             throw executorError("run was cancelled during task submission");
           }
 
@@ -284,7 +368,7 @@ async function createOpenCodeRunForSession(
 
           if (result.type === "monitor-error") {
             request.onRunInvalidated?.();
-            promptController.abort();
+            cancellation.promptController.abort();
             await abort().catch(() => undefined);
             throw executorError(
               "could not monitor external interaction requirements",
@@ -294,7 +378,7 @@ async function createOpenCodeRunForSession(
 
           if (result.type === "interaction") {
             request.onRunInvalidated?.();
-            promptController.abort();
+            cancellation.promptController.abort();
             await abort().catch(() => undefined);
             await promptResponse.catch(() => undefined);
             throw new InteractionRequiredError("user-input");
@@ -325,7 +409,10 @@ async function createOpenCodeRunForSession(
           }
           if (effectiveStrategy === "native" && transport.listMessages) {
             try {
-              await transport.listMessages(sessionID, promptController.signal);
+              await transport.listMessages(
+                sessionID,
+                cancellation.promptSignal,
+              );
             } catch (cause) {
               if (isNativeReadbackCompatibilityError(cause)) {
                 outputState.markNativeReadbackIncompatible(selected.version);
@@ -350,8 +437,11 @@ async function createOpenCodeRunForSession(
               : { observation: parsed.observation }),
           };
         } finally {
-          permissionMonitorController.abort();
-          removeAbortListener();
+          await closeInteractionMonitor(
+            cancellation.monitorController,
+            cancellation.removeRequestListener,
+            interactionRequest,
+          );
         }
       } catch (cause) {
         if (cause instanceof InteractionRequiredError) throw cause;
@@ -374,7 +464,7 @@ async function createOpenCodeRunForSession(
     if (abortPromise) return abortPromise;
     aborted = true;
     abortPromise = transport
-      .abort(sessionID)
+      .abort(sessionID, AbortSignal.timeout(runAbortTimeoutMs))
       .then(() => undefined)
       .catch((cause) => {
         throw executorError("could not abort the external session", cause);
@@ -444,5 +534,6 @@ async function createOpenCodeRunForSession(
     checkpoint,
     fork,
     abort,
+    close: closer.close,
   };
 }

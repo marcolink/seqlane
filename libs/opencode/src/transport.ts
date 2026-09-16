@@ -1,10 +1,8 @@
-import type {
-  Event as OpenCodeEvent,
-  OpencodeClient,
-} from "@opencode-ai/sdk/v2";
+import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import type { ModelSelection } from "@seqlane/core";
 import { z } from "zod";
 import { createOpenCodeClient } from "./client.js";
+import { OpenCodeExecutorError } from "./errors.js";
 import type { OpenCodePrompt } from "./protocol.js";
 const sessionSchema = z.looseObject({
   id: z.string().min(1),
@@ -50,8 +48,303 @@ export interface OpenCodeTransport {
     sessionId: string,
     signal?: AbortSignal,
   ) => Promise<unknown>;
-  subscribeEvents(signal: AbortSignal): Promise<AsyncIterable<OpenCodeEvent>>;
-  abort(sessionId: string): Promise<void>;
+  /** Uses finite session reads. Do not implement this with OpenCode's `/event`. */
+  monitorSession(
+    sessionId: string,
+    signal: AbortSignal,
+  ): Promise<AsyncIterable<unknown>>;
+  abort(sessionId: string, signal?: AbortSignal): Promise<void>;
+}
+
+const historyPageLimit = 100;
+const maxHistoryPagesPerCycle = 10;
+const maxHistoryBaselinePages = 100;
+const initialPollDelayMs = 250;
+const maxPollDelayMs = 1_000;
+const finalPollTimeoutMs = 1_000;
+const maxMonitorValueDepth = 12;
+const maxMonitorCollectionEntries = 100;
+const maxMonitorStringLength = 64 * 1_024;
+const maxMonitorPropertyNameLength = 256;
+
+function boundedMonitorValueSchema(depth: number): z.ZodType<unknown> {
+  const scalar = z.union([
+    z.null(),
+    z.boolean(),
+    z.number().finite(),
+    z.string().max(maxMonitorStringLength),
+  ]);
+  if (depth === 0) return scalar;
+  const value = boundedMonitorValueSchema(depth - 1);
+  const record = z
+    .record(z.string().max(maxMonitorPropertyNameLength), value)
+    .superRefine((entry, context) => {
+      if (Object.keys(entry).length > maxMonitorCollectionEntries) {
+        context.addIssue({
+          code: "too_big",
+          maximum: maxMonitorCollectionEntries,
+          origin: "object",
+          inclusive: true,
+          message: "Monitor object has too many properties",
+        });
+      }
+    });
+  return z.union([
+    scalar,
+    z.array(value).max(maxMonitorCollectionEntries),
+    record,
+  ]);
+}
+
+const boundedMonitorRecordSchema = z
+  .record(
+    z.string().max(maxMonitorPropertyNameLength),
+    boundedMonitorValueSchema(maxMonitorValueDepth),
+  )
+  .superRefine((entry, context) => {
+    if (Object.keys(entry).length > maxMonitorCollectionEntries) {
+      context.addIssue({
+        code: "too_big",
+        maximum: maxMonitorCollectionEntries,
+        origin: "object",
+        inclusive: true,
+        message: "Monitor record has too many properties",
+      });
+    }
+  });
+
+const eventPageSchema = z.object({
+  data: z.array(boundedMonitorRecordSchema).max(historyPageLimit),
+  hasMore: z.boolean(),
+});
+
+const pendingRequestsSchema = z.object({
+  data: z.array(boundedMonitorRecordSchema).max(historyPageLimit),
+});
+
+const durableEventSchema = z.object({
+  durable: z.object({ seq: z.number().int().nonnegative() }),
+});
+
+interface SessionMonitorState {
+  after?: number;
+  initialized: boolean;
+}
+
+interface HistoryDrainOptions {
+  readonly collect: boolean;
+  readonly maxPages: number;
+}
+
+async function readHistoryPage(
+  client: OpencodeClient,
+  sessionId: string,
+  after: number | undefined,
+  signal: AbortSignal,
+) {
+  const response = await client.v2.session.history(
+    {
+      sessionID: sessionId,
+      limit: historyPageLimit,
+      ...(after === undefined ? {} : { after }),
+    },
+    { throwOnError: true, signal },
+  );
+  const page = eventPageSchema.safeParse(response.data);
+  if (!page.success) {
+    throw new OpenCodeExecutorError(
+      "OpenCode session history returned an invalid or oversized page",
+      page.error,
+    );
+  }
+  return page.data;
+}
+
+function durableSequence(event: unknown, cursor: number | undefined): number {
+  const parsed = durableEventSchema.safeParse(event);
+  if (!parsed.success) {
+    throw new OpenCodeExecutorError(
+      "OpenCode session history returned an invalid durable event",
+      parsed.error,
+    );
+  }
+  const sequence = parsed.data.durable.seq;
+  if (sequence <= (cursor ?? -1)) {
+    throw new OpenCodeExecutorError(
+      "OpenCode session history did not advance its durable cursor",
+    );
+  }
+  return sequence;
+}
+
+async function drainSessionHistory(
+  client: OpencodeClient,
+  sessionId: string,
+  state: SessionMonitorState,
+  signal: AbortSignal,
+  options: HistoryDrainOptions,
+): Promise<unknown[]> {
+  const events: unknown[] = [];
+  let cursor = state.after;
+  for (let pageIndex = 0; pageIndex < options.maxPages; pageIndex += 1) {
+    const page = await readHistoryPage(client, sessionId, cursor, signal);
+    for (const event of page.data) {
+      cursor = durableSequence(event, cursor);
+      if (options.collect) events.push(event);
+    }
+    if (!page.hasMore) {
+      state.after = cursor;
+      return events;
+    }
+    if (page.data.length === 0) {
+      throw new OpenCodeExecutorError(
+        "OpenCode session history returned an empty continuation page",
+      );
+    }
+  }
+  throw new OpenCodeExecutorError(
+    `OpenCode session history exceeded ${options.maxPages} pages`,
+  );
+}
+
+async function readPendingRequests(
+  client: OpencodeClient,
+  sessionId: string,
+  signal: AbortSignal,
+) {
+  const requestOptions = { throwOnError: true as const, signal };
+  const [permissionResponse, questionResponse] = await Promise.all([
+    client.v2.session.permission.list({ sessionID: sessionId }, requestOptions),
+    client.v2.session.question.list({ sessionID: sessionId }, requestOptions),
+  ] as const);
+  const permissions = pendingRequestsSchema.safeParse(permissionResponse.data);
+  const questions = pendingRequestsSchema.safeParse(questionResponse.data);
+  if (!permissions.success || !questions.success) {
+    throw new OpenCodeExecutorError(
+      "OpenCode returned invalid or oversized pending requests",
+      !permissions.success ? permissions.error : questions.error,
+    );
+  }
+  return {
+    permissions: permissions.data,
+    questions: questions.data,
+  };
+}
+
+function waitForPoll(signal: AbortSignal, delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(finish, delayMs);
+    const onAbort = (): void => finish();
+    function finish(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) finish();
+  });
+}
+
+function hasPendingRequests(
+  pending: Awaited<ReturnType<typeof readPendingRequests>>,
+): boolean {
+  return (
+    pending.permissions.data.length > 0 || pending.questions.data.length > 0
+  );
+}
+
+async function readFinalHistory(
+  client: OpencodeClient,
+  sessionId: string,
+  state: SessionMonitorState,
+): Promise<unknown[]> {
+  const signal = AbortSignal.timeout(finalPollTimeoutMs);
+  try {
+    return await drainSessionHistory(client, sessionId, state, signal, {
+      collect: true,
+      maxPages: maxHistoryPagesPerCycle,
+    });
+  } catch (cause) {
+    if (!signal.aborted) throw cause;
+    state.initialized = false;
+    return [];
+  }
+}
+
+/**
+ * Do not replace this polling loop with `client.event.subscribe()`.
+ *
+ * OpenCode 1.18.27 retains a GlobalBus listener after an `/event` client
+ * disconnects. Reopening that stream for sequential prompts eventually emits
+ * `MaxListenersExceededWarning`. Keep monitoring on finite, session-scoped
+ * endpoints until the server guarantees listener cleanup on disconnect.
+ * See https://github.com/anomalyco/opencode/issues/29204.
+ */
+async function* pollSessionEvents(
+  client: OpencodeClient,
+  sessionId: string,
+  state: SessionMonitorState,
+  signal: AbortSignal,
+): AsyncIterable<unknown> {
+  let delayMs = initialPollDelayMs;
+  while (!signal.aborted) {
+    let events: unknown[];
+    let pending: Awaited<ReturnType<typeof readPendingRequests>>;
+    try {
+      [events, pending] = await Promise.all([
+        drainSessionHistory(client, sessionId, state, signal, {
+          collect: true,
+          maxPages: maxHistoryPagesPerCycle,
+        }),
+        readPendingRequests(client, sessionId, signal),
+      ]);
+    } catch (cause) {
+      if (signal.aborted) break;
+      throw cause;
+    }
+    for (const event of events) yield event;
+    if (hasPendingRequests(pending)) {
+      yield {
+        type: "permission.v2.asked",
+        data: { sessionID: sessionId },
+      };
+    }
+    if (events.length > 0) delayMs = initialPollDelayMs;
+    await waitForPoll(signal, delayMs);
+    if (events.length === 0) {
+      delayMs = Math.min(maxPollDelayMs, delayMs * 2);
+    }
+  }
+
+  // Prompt completion can race the last durable events. Drain a bounded tail
+  // with an independent timeout so cleanup cannot hang on the server.
+  for (const event of await readFinalHistory(client, sessionId, state)) {
+    yield event;
+  }
+}
+
+function createSessionMonitor(
+  client: OpencodeClient,
+): OpenCodeTransport["monitorSession"] {
+  const states = new Map<string, SessionMonitorState>();
+  return async (sessionId, signal) => {
+    const state = states.get(sessionId) ?? { initialized: false };
+    states.set(sessionId, state);
+    if (!state.initialized) {
+      await drainSessionHistory(client, sessionId, state, signal, {
+        collect: false,
+        maxPages: maxHistoryBaselinePages,
+      });
+      state.initialized = true;
+    }
+    return pollSessionEvents(client, sessionId, state, signal);
+  };
+}
+
+async function sdkResponseData<T>(
+  response: Promise<{ readonly data: T }>,
+): Promise<T> {
+  return (await response).data;
 }
 
 /** Adapts the SDK's session API to the private session lifecycle. */
@@ -62,6 +355,7 @@ export function createOpenCodeTransport(url: string): OpenCodeTransport {
 function createOpenCodeTransportFromClient(
   client: OpencodeClient,
 ): OpenCodeTransport {
+  const monitorSession = createSessionMonitor(client);
   return {
     async createSession(workspace, signal) {
       const response = await client.session.create(
@@ -126,11 +420,12 @@ function createOpenCodeTransportFromClient(
     },
 
     async listMessages(sessionId, signal) {
-      const response = await client.session.messages(
-        { sessionID: sessionId },
-        { throwOnError: true, signal },
+      return sdkResponseData(
+        client.session.messages(
+          { sessionID: sessionId },
+          { throwOnError: true, signal },
+        ),
       );
-      return response.data;
     },
 
     async forkSession(sessionId, messageId, signal) {
@@ -154,15 +449,11 @@ function createOpenCodeTransportFromClient(
       );
     },
 
-    async subscribeEvents(signal) {
-      const subscription = await client.event.subscribe({}, { signal });
-      return subscription.stream;
-    },
-    async abort(sessionId) {
-      await client.session.abort(
-        { sessionID: sessionId },
-        { throwOnError: true },
-      );
+    monitorSession,
+    abort(sessionId, signal) {
+      return client.session
+        .abort({ sessionID: sessionId }, { throwOnError: true, signal })
+        .then(() => undefined);
     },
   };
 }

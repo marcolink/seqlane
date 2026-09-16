@@ -693,7 +693,13 @@ describe("human execution view model", () => {
         },
       },
       {
-        ...started("a", "A"),
+        type: "invocation.progress",
+        ...run,
+        invocationId: "a",
+        state: "waiting",
+        phase: "dependencies",
+        waitingReason: "Waiting for prerequisites",
+        dependencyIds: [],
         metadata: {
           schemaVersion: 1,
           eventId: "2",
@@ -702,12 +708,21 @@ describe("human execution view model", () => {
         },
       },
       {
-        ...terminal("a", "invocation.succeeded"),
+        ...started("a", "A"),
         metadata: {
           schemaVersion: 1,
           eventId: "3",
           sequence: 3,
-          occurredAt: "2026-08-18T00:00:04.000Z",
+          occurredAt: "2026-08-18T00:00:02.000Z",
+        },
+      },
+      {
+        ...terminal("a", "invocation.succeeded"),
+        metadata: {
+          schemaVersion: 1,
+          eventId: "4",
+          sequence: 4,
+          occurredAt: "2026-08-18T00:00:05.000Z",
         },
       },
     ]);

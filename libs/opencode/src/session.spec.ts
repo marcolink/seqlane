@@ -4,6 +4,10 @@ import { once } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { createOpenCodeRun, type OpenCodeActivity } from "./session.js";
 import type { OpenCodeEventObservation } from "./observations.js";
+import {
+  createSessionMonitorFixture,
+  type SessionMonitorFixtureOptions,
+} from "./session-monitor-fixture.js";
 
 interface RequestLog {
   readonly method: string;
@@ -12,7 +16,7 @@ interface RequestLog {
 }
 
 function isInteractionMonitorPath(path: string): boolean {
-  return path === "/event";
+  return /^\/api\/session\/[^/]+\/(?:history|permission|question)/.test(path);
 }
 
 function writeJson(response: ServerResponse, value: unknown) {
@@ -66,26 +70,20 @@ function textPromptResponse(sessionID: string, text: string) {
   };
 }
 
-async function startServer(
-  options: {
-    readonly interaction?: boolean | string;
-    readonly failPrompt?: boolean;
-    readonly failInit?: boolean;
-    readonly holdPrompt?: boolean;
-    readonly holdAbort?: boolean;
-    readonly holdSession?: boolean;
-    readonly readbackCompatibilityError?: boolean;
-    readonly toolEvents?: boolean;
-    readonly duplicateToolTerminal?: boolean;
-    readonly malformedEventCount?: number;
-    readonly nextToolEvents?: boolean;
-    readonly skillEvents?: boolean;
-    readonly backgroundShellEvent?: boolean;
-    readonly version?: string;
-    readonly promptResponses?: readonly unknown[];
-    readonly readbackFailures?: number;
-  } = {},
-) {
+interface StartServerOptions extends SessionMonitorFixtureOptions {
+  readonly interaction?: boolean | string;
+  readonly failPrompt?: boolean;
+  readonly failInit?: boolean;
+  readonly holdPrompt?: boolean;
+  readonly holdAbort?: boolean;
+  readonly holdSession?: boolean;
+  readonly readbackCompatibilityError?: boolean;
+  readonly version?: string;
+  readonly promptResponses?: readonly unknown[];
+  readonly readbackFailures?: number;
+}
+
+async function startServer(options: StartServerOptions = {}) {
   const requests: RequestLog[] = [];
   let nextSession = 0;
   let resolvePromptStarted: () => void = () => undefined;
@@ -101,11 +99,7 @@ async function startServer(
   const abortStarted = new Promise<void>((resolve) => {
     resolveAbortStarted = resolve;
   });
-  const eventResponses: ServerResponse[] = [];
-  let resolveEventStarted: () => void = () => undefined;
-  const eventStarted = new Promise<void>((resolve) => {
-    resolveEventStarted = resolve;
-  });
+  const monitor = createSessionMonitorFixture(options);
   let resolveSessionStarted: () => void = () => undefined;
   const sessionStarted = new Promise<void>((resolve) => {
     resolveSessionStarted = resolve;
@@ -159,6 +153,8 @@ async function startServer(
       });
       return;
     }
+
+    if (monitor.handle(request.method, path, requestPath, response)) return;
 
     if (request.method === "POST" && path === "/session") {
       resolveSessionStarted();
@@ -227,6 +223,7 @@ async function startServer(
         return;
       }
       markPromptStarted();
+      monitor.publishPromptEvents(sessionID, promptCount);
       if (options.failPrompt) {
         response.writeHead(503);
         response.end("OpenCode unavailable");
@@ -241,187 +238,6 @@ async function startServer(
         options.promptResponses?.[promptCount - 1] ??
           promptResponse(sessionID, options.interaction),
       );
-      return;
-    }
-
-    if (request.method === "GET" && path === "/event") {
-      resolveEventStarted();
-      response.writeHead(200, {
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-        "content-type": "text/event-stream",
-      });
-      eventResponses.push(response);
-      if (options.toolEvents) {
-        for (const event of [
-          {
-            type: "message.part.updated",
-            properties: {
-              sessionID: "session-1",
-              part: {
-                type: "tool",
-                callID: "call-1",
-                tool: "filesystem.read",
-                state: {
-                  status: "running",
-                  input: { path: "/repo/package.json" },
-                },
-              },
-            },
-          },
-          {
-            type: "message.part.updated",
-            properties: {
-              sessionID: "session-1",
-              part: {
-                type: "tool",
-                callID: "call-1",
-                tool: "filesystem.read",
-                state: {
-                  status: "completed",
-                  output: "12 bytes",
-                },
-              },
-            },
-          },
-          ...(options.duplicateToolTerminal
-            ? [
-                {
-                  type: "message.part.updated",
-                  properties: {
-                    sessionID: "session-1",
-                    part: {
-                      type: "tool",
-                      callID: "call-1",
-                      tool: "filesystem.read",
-                      state: { status: "completed", output: "12 bytes" },
-                    },
-                  },
-                },
-              ]
-            : []),
-        ]) {
-          response.write(`data: ${JSON.stringify(event)}\n\n`);
-        }
-      }
-      if (options.nextToolEvents) {
-        for (const event of [
-          {
-            id: "event-tool-called",
-            type: "session.next.tool.called",
-            properties: {
-              sessionID: "session-1",
-              assistantMessageID: "assistant-session-1",
-              callID: "call-next-1",
-              tool: "filesystem.read",
-              input: { path: "/repo/package.json" },
-            },
-          },
-          {
-            id: "event-tool-progress",
-            type: "session.next.tool.progress",
-            properties: {
-              sessionID: "session-1",
-              assistantMessageID: "assistant-session-1",
-              callID: "call-next-1",
-              structured: { bytes: 12 },
-              content: [],
-            },
-          },
-          {
-            id: "event-tool-success",
-            type: "session.next.tool.success",
-            properties: {
-              sessionID: "session-1",
-              assistantMessageID: "assistant-session-1",
-              callID: "call-next-1",
-              structured: { bytes: 12 },
-              content: [],
-              result: { bytes: 12 },
-              provider: { executed: true },
-            },
-          },
-        ]) {
-          response.write(`data: ${JSON.stringify(event)}\n\n`);
-        }
-      }
-      if (options.skillEvents) {
-        for (const event of [
-          {
-            id: "event-skill-started",
-            type: "message.part.updated",
-            data: {
-              sessionID: "session-1",
-              part: {
-                type: "tool",
-                callID: "skill-call-1",
-                tool: "skill",
-                state: {
-                  status: "running",
-                  input: { name: "web-perf" },
-                  metadata: {
-                    name: "web-perf",
-                    dir: "/repo/.agents/skills/web-perf",
-                  },
-                  time: { start: 100 },
-                },
-              },
-            },
-          },
-          {
-            id: "event-skill-completed",
-            type: "message.part.updated",
-            data: {
-              sessionID: "session-1",
-              part: {
-                type: "tool",
-                callID: "skill-call-1",
-                tool: "skill",
-                state: {
-                  status: "completed",
-                  input: { name: "web-perf" },
-                  output: "Loaded skill instructions",
-                  metadata: {
-                    name: "web-perf",
-                    dir: "/repo/.agents/skills/web-perf",
-                  },
-                  time: { start: 100, end: 125 },
-                },
-              },
-            },
-          },
-        ]) {
-          response.write(`data: ${JSON.stringify(event)}\n\n`);
-        }
-      }
-      if (options.backgroundShellEvent) {
-        response.write(
-          `data: ${JSON.stringify({
-            type: "session.next.shell.started",
-            properties: {
-              sessionID: "session-1",
-              callID: "shell-1",
-              command: "pnpm format &",
-            },
-          })}\n\n`,
-        );
-      }
-      for (
-        let index = 0;
-        index < (options.malformedEventCount ?? 0);
-        index += 1
-      ) {
-        response.write(
-          `data: ${JSON.stringify({
-            type: "message.updated",
-            properties: { info: { role: "assistant" } },
-          })}\n\n`,
-        );
-      }
-      response.on("close", () => {
-        const index = eventResponses.indexOf(response);
-        if (index >= 0) eventResponses.splice(index, 1);
-      });
       return;
     }
 
@@ -489,19 +305,12 @@ async function startServer(
       writeJson(pending.response, promptResponse(pending.sessionID));
     },
     requests,
-    eventStarted,
+    monitorStarted: monitor.monitorStarted,
     publishPermission() {
-      for (const response of eventResponses) {
-        response.write(
-          `data: ${JSON.stringify({
-            type: "permission.asked",
-            properties: { id: "permission-1", sessionID: "session-1" },
-          })}\n\n`,
-        );
-      }
+      monitor.publishPermission();
     },
     closePermissionEvents() {
-      for (const response of eventResponses.splice(0)) response.end();
+      monitor.fail();
     },
     promptStarted,
     promptCount: () => promptCount,
@@ -519,6 +328,178 @@ async function closeServer(server: Server): Promise<void> {
 }
 
 describe("OpenCode run session", () => {
+  it("does not open the leaking event stream for sequential prompts", async () => {
+    const fake = await startServer({
+      toolEvents: true,
+      eventsEveryPrompt: true,
+    });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const activities: OpenCodeActivity[] = [];
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        await run.prompt({
+          text: `inspect ${attempt}`,
+          schema: {},
+          onActivity: (activity) => activities.push(activity),
+        });
+      }
+      expect(fake.requests.some(({ path }) => path === "/event")).toBe(false);
+      expect(
+        fake.requests.filter(({ path }) => /\/history(?:\?|$)/.test(path)),
+      ).toHaveLength(25);
+      expect(activities).toHaveLength(24);
+      await run.close();
+      await run.close();
+      await expect(
+        run.prompt({ text: "too late", schema: {} }),
+      ).rejects.toThrow("run is closed");
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("drains every final history page before completing a prompt", async () => {
+    const fake = await startServer({ toolEvents: true, historyPageSize: 1 });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const activities: OpenCodeActivity[] = [];
+
+      await run.prompt({
+        text: "inspect",
+        schema: {},
+        onActivity: (activity) => activities.push(activity),
+      });
+
+      expect(activities).toHaveLength(2);
+      expect(
+        fake.requests.filter(({ path }) => /\/history(?:\?|$)/.test(path)),
+      ).toHaveLength(4);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("aborts active prompt work before closing a run", async () => {
+    const fake = await startServer({ holdPrompt: true });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const prompt = run.prompt({ text: "wait", schema: {} });
+      await fake.promptStarted;
+
+      await expect(run.close()).resolves.toBeUndefined();
+      await expect(prompt).rejects.toThrow();
+      expect(
+        fake.requests.some(
+          ({ method, path }) =>
+            method === "POST" && path === "/session/session-1/abort",
+        ),
+      ).toBe(true);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("bounds a stalled final history read", async () => {
+    const fake = await startServer({ stallHistoryAfterPrompt: true });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const started = Date.now();
+
+      await run.prompt({ text: "finish", schema: {} });
+
+      expect(Date.now() - started).toBeLessThan(1_500);
+      await run.close();
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it.each([
+    [
+      "empty continuation pages",
+      { emptyHistoryContinuation: true },
+      "empty continuation page",
+    ],
+    [
+      "repeated durable events",
+      { toolEvents: true, historyPageSize: 1, repeatHistoryPage: true },
+      "did not advance its durable cursor",
+    ],
+    [
+      "oversized pages",
+      { oversizedHistoryPage: true },
+      "invalid or oversized page",
+    ],
+    [
+      "oversized history events",
+      { oversizedHistoryEvent: true },
+      "exceeded 262144 bytes",
+    ],
+    [
+      "excessive page counts",
+      { promptHistoryEventCount: 1_001 },
+      "exceeded 10 pages",
+    ],
+  ] as const)("rejects %s", async (_name, options, expectedCause) => {
+    const fake = await startServer(options);
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      await expect(
+        run.prompt({ text: "inspect", schema: {} }),
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({
+          message: expect.stringContaining(expectedCause),
+        }),
+      });
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("rejects oversized pending-request records", async () => {
+    const fake = await startServer({
+      holdPrompt: true,
+      oversizedPendingRequest: true,
+    });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const prompt = run.prompt({ text: "inspect", schema: {} });
+      await fake.promptStarted;
+      await fake.monitorStarted;
+      fake.publishPermission();
+
+      await expect(prompt).rejects.toMatchObject({
+        cause: expect.objectContaining({
+          message: expect.stringContaining(
+            "invalid or oversized pending requests",
+          ),
+        }),
+      });
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("backs off finite monitor requests while a prompt is idle", async () => {
+    const fake = await startServer({ holdPrompt: true });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const prompt = run.prompt({ text: "wait", schema: {} });
+      await fake.promptStarted;
+      await new Promise((resolve) => setTimeout(resolve, 900));
+
+      const monitorRequestCount = fake.requests.filter(({ path }) =>
+        isInteractionMonitorPath(path),
+      ).length;
+      expect(monitorRequestCount).toBeGreaterThanOrEqual(7);
+      expect(monitorRequestCount).toBeLessThanOrEqual(10);
+      await run.abort();
+      await expect(prompt).rejects.toThrow();
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
   it("keeps terminal observations out of the streamed event callback", async () => {
     const fake = await startServer();
     try {
@@ -1246,9 +1227,11 @@ describe("OpenCode run session", () => {
             .map(({ path }) => path),
         ).toEqual(["/session", "/session/session-1/message"]);
         expect(
-          fake.requests.some(({ path }) =>
-            /permission\/.*\/reply|question|tui|response/i.test(path),
-          ),
+          fake.requests
+            .filter(({ path }) => !isInteractionMonitorPath(path))
+            .some(({ path }) =>
+              /permission\/.*\/reply|question|tui|response/i.test(path),
+            ),
         ).toBe(false);
       } finally {
         await closeServer(fake.server);
@@ -1272,7 +1255,7 @@ describe("OpenCode run session", () => {
         },
       });
       await fake.promptStarted;
-      await fake.eventStarted;
+      await fake.monitorStarted;
       fake.publishPermission();
 
       await expect(
@@ -1281,7 +1264,7 @@ describe("OpenCode run session", () => {
           new Promise((_, reject) => {
             setTimeout(
               () => reject(new Error("prompt did not fail for permission")),
-              250,
+              1_500,
             );
           }),
         ]),
@@ -1291,7 +1274,9 @@ describe("OpenCode run session", () => {
         message: "Seqlane execution requires human interaction",
       });
       expect(invalidated).toBe(1);
-      expect(fake.requests.some(({ path }) => path === "/event")).toBe(true);
+      expect(
+        fake.requests.some(({ path }) => /\/history(?:\?|$)/.test(path)),
+      ).toBe(true);
       expect(
         fake.requests.some(({ path }) => /permission.*reply/i.test(path)),
       ).toBe(false);
@@ -1315,7 +1300,7 @@ describe("OpenCode run session", () => {
         },
       });
       await fake.promptStarted;
-      await fake.eventStarted;
+      await fake.monitorStarted;
       fake.closePermissionEvents();
 
       await expect(pending).rejects.toThrow(
@@ -1331,7 +1316,7 @@ describe("OpenCode run session", () => {
     }
   });
 
-  it("does not abort a shared session after event subscription setup fails", async () => {
+  it("does not abort a shared session after monitor setup fails", async () => {
     const abort = vi.fn(async () => undefined);
     vi.resetModules();
     vi.doMock("./transport.js", () => ({
@@ -1340,10 +1325,9 @@ describe("OpenCode run session", () => {
           sessionId: "session-1",
           directory: "/repo",
         }),
-        subscribeEvents: async () => {
-          throw new Error("event connection failed");
+        monitorSession: async () => {
+          throw new Error("session monitor failed");
         },
-        hasPendingPermission: async () => false,
         prompt: async () => promptResponse("session-1"),
         abort,
       }),
@@ -1370,6 +1354,76 @@ describe("OpenCode run session", () => {
 
       expect(abort).not.toHaveBeenCalled();
     } finally {
+      vi.doUnmock("./transport.js");
+      vi.resetModules();
+    }
+  });
+
+  it("waits for session monitor cleanup before completing a prompt", async () => {
+    let releaseCleanup!: () => void;
+    const cleanupReleased = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    let reportCleanupStarted!: () => void;
+    const cleanupStarted = new Promise<void>((resolve) => {
+      reportCleanupStarted = resolve;
+    });
+    vi.resetModules();
+    vi.doMock("./transport.js", () => ({
+      createOpenCodeTransport: () => ({
+        createSession: async () => ({
+          sessionId: "session-1",
+          directory: "/repo",
+        }),
+        getRuntimeVersion: async () => "1.18.27",
+        monitorSession: async (_sessionId: string, signal: AbortSignal) => ({
+          async *[Symbol.asyncIterator]() {
+            yield { type: "server.connected", properties: {} };
+            try {
+              await new Promise<void>((resolve) =>
+                signal.addEventListener("abort", () => resolve(), {
+                  once: true,
+                }),
+              );
+            } finally {
+              reportCleanupStarted();
+              await cleanupReleased;
+            }
+          },
+        }),
+        prompt: async () => promptResponse("session-1"),
+        abort: async () => undefined,
+      }),
+    }));
+
+    try {
+      const { createOpenCodeRun: createMockedRun } =
+        await import("./session.js");
+      const run = await createMockedRun({
+        url: "http://opencode.test",
+        structuredOutput: { strategy: "native" },
+      });
+      const pending = run.prompt({ text: "inspect", schema: {} });
+      await cleanupStarted;
+
+      let settled = false;
+      void pending.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(settled).toBe(false);
+
+      releaseCleanup();
+      await expect(pending).resolves.toMatchObject({
+        structured: { session: "session-1" },
+      });
+    } finally {
+      releaseCleanup();
       vi.doUnmock("./transport.js");
       vi.resetModules();
     }

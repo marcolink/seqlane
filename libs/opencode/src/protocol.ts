@@ -86,4 +86,5 @@ export interface OpenCodeRun {
   checkpoint(): Promise<OpenCodeSessionCheckpoint>;
   fork(checkpoint: unknown, selection?: ModelSelection): Promise<OpenCodeRun>;
   abort(): Promise<void>;
+  close(): Promise<void>;
 }
