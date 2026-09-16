@@ -1,7 +1,7 @@
 ---
 id: task.standalone-workflow-loading
 title: Load Standalone Workflow Entrypoints
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-16
@@ -74,12 +74,33 @@ Git whitespace gates. Preserve hosted behavior during this intermediate step.
 
 ## Outcome
 
-Not implemented. A fresh Terra implementation agent delivers this task under
-orchestrator review and quality gates. Commit this task before starting its successor.
+Implemented explicit file and caller-relative package loading, authored export
+validation, bounded JSON input, and independent workspace preparation. Local
+TypeScript imports retain ESM semantics and loader hooks until disposal.
+The CLI now declares `tsx` and `get-tsconfig` dependencies. Snyk checks found
+no known direct vulnerabilities in the selected versions.
+
+An isolated Jiti 2.7.0 comparison passed ordinary loading and cache checks.
+It repeated import-time side effects when a native module threw, and changed
+circular-import behavior from an ESM reference error to an invalid value.
+Keep `tsx` to preserve the specified ESM execution semantics.
+
+Fresh-process tests cover unconfigured TypeScript, inherited aliases, imports
+outside the entrypoint directory, runtime imports, source assets, and absence
+of a transpilation cache. Package tests cover ESM conditions and named subpaths.
+Input tests cover invalid JSON, UTF-8, size limits, files, and explicit stdin.
+
+The full install, typecheck, test, lint, build, format, Nx sync, and whitespace
+gates passed. Process-lifecycle tests required execution outside the sandbox.
+Two existing gate defects were repaired: the OpenCode result fixture omitted
+`structured`, and the root TypeScript references omitted the Codex package.
+Static review found no changed loader call signature. The churn warning reflects
+the deliberate extraction of shared authored-workflow validation.
 
 ## Delivery state
 
-Planned. No target-branch delivery is claimed.
+Verified on `feat/standalone-cli-runs`. The public command cutover remains in
+the fourth task. No delivery to the default branch is claimed.
 
 ## Traceability
 

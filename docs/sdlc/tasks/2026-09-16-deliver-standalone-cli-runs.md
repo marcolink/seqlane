@@ -1,7 +1,7 @@
 ---
 id: task.deliver-standalone-cli-runs
 title: Deliver Standalone CLI Runs
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-16

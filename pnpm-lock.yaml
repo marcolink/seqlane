@@ -88,7 +88,7 @@ importers:
         version: 22.7.1(@babel/traverse@7.29.8)(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23))(@types/node@24.13.2)(@zkochan/js-yaml@0.0.7)(babel-plugin-macros@3.1.0)(eslint@9.39.5)(nx@22.7.1(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23)))(typescript@5.9.3)
       '@nx/vitest':
         specifier: 'catalog:'
-        version: 22.7.1(f4d00da3236b2931b02e21ab7e4be351)
+        version: 22.7.1(851fb5d23080188de0e73f80a7c482fe)
       '@nx/workspace':
         specifier: 'catalog:'
         version: 22.7.1(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23))
@@ -151,10 +151,10 @@ importers:
         version: 8.67.0(eslint@9.39.5)(typescript@5.9.3)
       vite:
         specifier: 'catalog:'
-        version: 8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0)
+        version: 8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@types/node@24.13.2)(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0))
+        version: 4.1.10(@types/node@24.13.2)(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0))
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -248,9 +248,15 @@ importers:
       '@seqlane/tui':
         specifier: workspace:*
         version: link:../../libs/tui
+      get-tsconfig:
+        specifier: 4.14.3
+        version: 4.14.3
       mastra:
         specifier: 1.27.3
         version: 1.27.3(@hono/node-server@2.1.1(hono@4.13.5))(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(typescript@5.9.3)(zod@4.5.4)
+      tsx:
+        specifier: 4.23.13
+        version: 4.23.13
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -5726,6 +5732,11 @@ packages:
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==, tarball: https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz}
 
+  tsx@4.23.13:
+    resolution: {integrity: sha512-BL5MGkRln6aDYhb0xbQlEAGw743BaZYWdbWtdJOBriYJboKgUUYCadFp2/FpBBZquBC/ezNBn7wMMPx7FDZUDw==, tarball: https://registry.npmjs.org/tsx/-/tsx-4.23.13.tgz}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+
   tunnel@0.0.6:
     resolution: {integrity: sha512-1h/Lnq9yajKY2PEbBadPXj3VxsDDu844OnaAo52UVmIzIvwwtBPIuNvkjuzBlTWpfJyUbG3ez0KSBibQkj4ojg==, tarball: https://registry.npmjs.org/tunnel/-/tunnel-0.0.6.tgz}
     engines: {node: '>=0.6.11 <=0.7.0 || >=0.7.3'}
@@ -8220,7 +8231,7 @@ snapshots:
   '@nx/nx-win32-x64-msvc@22.7.1':
     optional: true
 
-  '@nx/vitest@22.7.1(f4d00da3236b2931b02e21ab7e4be351)':
+  '@nx/vitest@22.7.1(851fb5d23080188de0e73f80a7c482fe)':
     dependencies:
       '@nx/devkit': 22.7.1(nx@22.7.1(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23)))
       '@nx/js': 22.7.1(@babel/traverse@7.29.8)(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23))(nx@22.7.1(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23)))
@@ -8229,8 +8240,8 @@ snapshots:
       tslib: 2.8.1
     optionalDependencies:
       '@nx/eslint': 22.7.1(@babel/traverse@7.29.8)(@nx/jest@22.7.1(@babel/traverse@7.29.8)(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23))(@types/node@24.13.2)(babel-plugin-macros@3.1.0)(nx@22.7.1(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23)))(typescript@5.9.3))(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23))(@zkochan/js-yaml@0.0.7)(eslint@9.39.5)(nx@22.7.1(@swc-node/register@1.12.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@swc/types@0.1.28)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23)))
-      vite: 8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0)
-      vitest: 4.1.10(@types/node@24.13.2)(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0))
+      vite: 8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0)
+      vitest: 4.1.10(@types/node@24.13.2)(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0))
     transitivePeerDependencies:
       - '@babel/traverse'
       - '@swc-node/register'
@@ -9001,13 +9012,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.1
 
-  '@vitest/mocker@4.1.10(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.10(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0))':
     dependencies:
       '@vitest/spy': 4.1.10
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0)
+      vite: 8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0)
 
   '@vitest/pretty-format@4.1.10':
     dependencies:
@@ -12188,6 +12199,12 @@ snapshots:
 
   tslib@2.8.1: {}
 
+  tsx@4.23.13:
+    dependencies:
+      esbuild: 0.28.2
+    optionalDependencies:
+      fsevents: 2.3.3
+
   tunnel@0.0.6: {}
 
   type-check@0.4.0:
@@ -12345,7 +12362,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0):
+  vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -12356,12 +12373,13 @@ snapshots:
       '@types/node': 24.13.2
       esbuild: 0.28.2
       fsevents: 2.3.3
+      tsx: 4.23.13
       yaml: 2.9.0
 
-  vitest@4.1.10(@types/node@24.13.2)(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0)):
+  vitest@4.1.10(@types/node@24.13.2)(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.10
-      '@vitest/mocker': 4.1.10(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0))
+      '@vitest/mocker': 4.1.10(vite@8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.10
       '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
@@ -12378,7 +12396,7 @@ snapshots:
       tinyexec: 1.3.0
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.1
-      vite: 8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(yaml@2.9.0)
+      vite: 8.2.1(@types/node@24.13.2)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 24.13.2

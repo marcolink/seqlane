@@ -30,6 +30,8 @@
     "@seqlane/tui": "workspace:*",
     "@seqlane/runtime": "workspace:*",
     "@oclif/core": "4.13.5",
+    "get-tsconfig": "4.14.3",
+    "tsx": "4.23.13",
     "zod": "4.5.4"
   },
   "devDependencies": {
