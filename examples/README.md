@@ -37,6 +37,14 @@ seqlane run examples/local-only.ts \
   --input '{"value":"local"}'
 ```
 
+`nested-workflow.ts` passes typed input to a child workflow, then passes the
+child output to a parent task. It contains no agent work:
+
+```sh
+seqlane run examples/nested-workflow.ts \
+  --input '{"values":[2,3,5]}'
+```
+
 `until-workflow.ts` repeats one deterministic task until its result is ready:
 
 ```sh
