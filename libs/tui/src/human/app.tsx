@@ -79,18 +79,23 @@ export function HumanApp({
   capabilities,
   spinnerFrame,
 }: HumanAppProps): React.JSX.Element {
+  // Leave the terminal's final column unused to avoid edge clipping/autowrap.
+  const contentCapabilities = {
+    ...capabilities,
+    width: Math.max(1, (capabilities.width ?? 80) - 1),
+  };
   return (
     <Box flexDirection="column">
       <HumanHeader
         view={view}
         elapsedMs={getRootRunElapsedMs(view)}
-        capabilities={capabilities}
+        capabilities={contentCapabilities}
         spinnerFrame={spinnerFrame}
       />
       <Box marginTop={1} flexDirection="column">
         <HumanTree
           view={view}
-          capabilities={capabilities}
+          capabilities={contentCapabilities}
           spinnerFrame={spinnerFrame}
         />
       </Box>

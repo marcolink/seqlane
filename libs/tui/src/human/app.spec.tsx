@@ -1,5 +1,6 @@
 // @test-scope ./app.tsx ./header.tsx ./tree.tsx ./tree-row.tsx ./format.ts ./theme.ts
 import { cleanup, render } from "ink-testing-library";
+import { stripVTControlCharacters } from "node:util";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reduceRunEvents, reduceRunViewModel } from "../run-view-model.js";
@@ -18,6 +19,78 @@ const event = {
 
 describe("HumanApp", () => {
   afterEach(cleanup);
+  it.each([
+    [40, 1, "1ms"],
+    [80, 0, "0ms"],
+    [100, 11000, "11.0s"],
+    [101, 11000, "11.0s"],
+  ] as const)(
+    "preserves duration units at the terminal edge (%i columns)",
+    async (width, elapsed, expected) => {
+      const occurredAt = new Date(
+        Date.parse(event.metadata.occurredAt) + elapsed,
+      ).toISOString();
+      const view = reduceRunEvents([
+        { type: "run.started", ...event },
+        {
+          type: "invocation.created",
+          ...event,
+          invocationId: "timed",
+          planNodeId: "timed",
+          subject: { type: "task", taskId: "timed" },
+          taskId: "timed",
+          kind: "task",
+          label: "Timed task",
+          siblingOrder: 0,
+          dependencyIds: [],
+        },
+        {
+          type: "invocation.started",
+          ...event,
+          invocationId: "timed",
+          subject: { type: "task", taskId: "timed" },
+        },
+        {
+          type: "invocation.succeeded",
+          ...event,
+          invocationId: "timed",
+          metadata: {
+            ...event.metadata,
+            occurredAt,
+          },
+        },
+        {
+          type: "run.succeeded",
+          ...event,
+          output: null,
+          metadata: {
+            ...event.metadata,
+            occurredAt,
+          },
+        },
+      ]);
+      const rendered = render(
+        <HumanApp
+          view={view}
+          capabilities={{ supportsAnsi: true, supportsUnicode: true, width }}
+          spinnerFrame={0}
+        />,
+      );
+      vi.spyOn(rendered.stdout, "columns", "get").mockReturnValue(width);
+      rendered.stdout.emit("resize");
+      await vi.waitFor(() => {
+        const lines = (rendered.lastFrame() ?? "").split("\n");
+        expect(lines[0]).toContain(expected);
+        expect(lines[2]).toContain(expected);
+        // Visible text must stop before the terminal's last column.
+        expect(
+          lines.every(
+            (line) => stripVTControlCharacters(line).length < width,
+          ),
+        ).toBe(true);
+      });
+    },
+  );
   it("renders four containment levels with stable branch rails", () => {
     const definitions = [
       ["review", undefined, "Review changes", "workflow"],
