@@ -11,6 +11,7 @@ import { getRootRunElapsedMs } from "../run-view-model.js";
 import type { HumanDisplayCapabilities } from "./format.js";
 import { HumanHeader } from "./header.js";
 import { HumanTree } from "./tree.js";
+import { encodeTerminalField } from "../terminal-field.js";
 
 export interface HumanAppProps {
   readonly view: RunViewModel;
@@ -101,7 +102,7 @@ export function HumanApp({
       </Box>
       {view.runError === undefined ? null : (
         <Text color={capabilities.supportsAnsi ? "red" : undefined}>
-          {view.runError.message}
+          {encodeTerminalField(view.runError.message, capabilities.redactions)}
         </Text>
       )}
     </Box>

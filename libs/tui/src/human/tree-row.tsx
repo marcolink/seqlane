@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import { workTone } from "./theme.js";
+import { encodeTerminalField } from "../terminal-field.js";
 import { HumanTaskDetails } from "./task-details.js";
 import type { RunVisibleRow } from "../run-view-model.js";
 import {
@@ -42,7 +43,9 @@ export function HumanTreeRow({
               {statusSymbol(node.state, unicode, spinnerFrame)}
             </Text>
             <Text {...tone}>
-              {" " + disclosureSymbol(row, unicode) + node.label}
+              {" " +
+                disclosureSymbol(row, unicode) +
+                encodeTerminalField(node.label, capabilities.redactions)}
             </Text>
           </Text>
         </Box>

@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import type { RunNode, RunVisibleRow } from "../run-view-model.js";
 import type { HumanDisplayCapabilities } from "./format.js";
 import { workTone } from "./theme.js";
+import { encodeTerminalField } from "../terminal-field.js";
 import { usageSummary } from "./usage.js";
 
 function contextSummary(node: RunNode): string {
@@ -49,6 +50,7 @@ export function HumanTaskDetails({
       ]
     : [];
   if (node.failure) lines.push(node.failure.message);
+  if (node.output.truncated) lines.push("[output truncated]");
   const details = lines.filter((line): line is string => Boolean(line));
   if (details.length === 0) return null;
   const limit = Math.min(
@@ -90,7 +92,7 @@ export function HumanTaskDetails({
               capabilities.supportsAnsi && node.failure ? "red" : undefined
             }
           >
-            {line}
+            {encodeTerminalField(line, capabilities.redactions)}
           </Text>
         ))}
       </Box>

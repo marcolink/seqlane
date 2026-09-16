@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import { useMemo } from "react";
 import { workTone } from "./theme.js";
+import { encodeTerminalField } from "../terminal-field.js";
 import type { RunViewModel } from "../run-view-model.js";
 import {
   formatDuration,
@@ -45,7 +46,11 @@ export function HumanHeader({
             {statusSymbol(state, capabilities.supportsUnicode, spinnerFrame)}
           </Text>
           <Text {...tone}>
-            {disclosure + (view.workflowLabel ?? "Seqlane run")}
+            {disclosure +
+              encodeTerminalField(
+                view.workflowLabel ?? "Seqlane run",
+                capabilities.redactions,
+              )}
           </Text>
         </Text>
       </Box>

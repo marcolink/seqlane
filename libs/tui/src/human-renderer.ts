@@ -45,10 +45,10 @@ export class HumanTTYRenderer implements ExecutionRenderer {
     this.view = {
       ...this.view,
       runState: "failed",
+      runError: { category: "ExecutorError", message: failure.message },
       finishedAt: this.view.now().toISOString(),
     };
     this.render();
-    this.capabilities.stderr.write(failure.message + "\n");
   }
 
   async finish(): Promise<void> {

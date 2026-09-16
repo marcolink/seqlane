@@ -2,6 +2,7 @@ import type { RunNodeState, RunVisibleRow } from "../run-view-model.js";
 import { usageSummary } from "./usage.js";
 
 export interface HumanDisplayCapabilities {
+  readonly redactions?: readonly string[];
   readonly supportsAnsi: boolean;
   readonly supportsUnicode: boolean;
   readonly width?: number;

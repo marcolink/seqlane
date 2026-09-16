@@ -1,4 +1,4 @@
-// @test-scope ./app.tsx ./tree-row.tsx ./usage.ts ../run-view-model.ts ../run-activity.ts
+// @test-scope ./app.tsx ./tree-row.tsx ./usage.ts ../run-view-model.ts ../run-activity.ts ../terminal-field.ts
 import { cleanup, render } from "ink-testing-library";
 import { afterEach, expect, it, vi } from "vitest";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
@@ -98,6 +98,41 @@ function activeView() {
   });
 }
 afterEach(cleanup);
+it("encodes and redacts all dynamic human fields", () => {
+  const view = activeView();
+  const node = view.nodes.get("live");
+  if (!node) throw new Error("Missing test invocation");
+  const dangerous = "secret\u001b[2J\r\n\u0085\u202e";
+  const nodes = new Map(view.nodes);
+  nodes.set("live", {
+    ...node,
+    label: dangerous,
+    activity: dangerous,
+    output: { ...node.output, metrics: { model: dangerous } },
+  });
+  const app = render(
+    <HumanApp
+      view={{
+        ...view,
+        nodes,
+        workflowLabel: dangerous,
+        runError: { category: "ExecutorError", message: dangerous },
+      }}
+      capabilities={{
+        supportsAnsi: false,
+        supportsUnicode: true,
+        width: 80,
+        redactions: ["secret"],
+      }}
+      spinnerFrame={0}
+    />,
+  );
+  const frame = app.lastFrame() ?? "";
+  expect(frame).not.toContain("secret");
+  for (const control of ["\u001b", "\r", "\u0085", "\u202e"])
+    expect(frame).not.toContain(control);
+  expect(frame).toContain("***\\u000d\\u000a");
+});
 it("shows reported context and usage, preserves wrapped rails, then collapses", async () => {
   const view = activeView();
   const props = {
