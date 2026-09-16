@@ -3,7 +3,6 @@ import type {
   ModelSelection,
   PlanNode,
   TaskNode,
-  ValidationCheckNode,
 } from "@seqlane/core";
 import type { PreparedPlanExecution } from "../compile/compile-plan.js";
 import {
@@ -52,6 +51,53 @@ export class MissingExecutorModelCapabilitiesError extends Error {
   }
 }
 
+/** A standalone run cannot rely on an adapter-selected model. */
+export class MissingWorkflowModelSelectionError extends Error {
+  constructor(
+    readonly nodeId: string,
+    readonly taskId: string,
+  ) {
+    super(
+      `Agent task "${taskId}" at "${nodeId}" has no model selection; declare a session model or workflow model`,
+    );
+    this.name = "MissingWorkflowModelSelectionError";
+  }
+}
+
+/** Requires the authored selection used for one standalone agent invocation. */
+export function requireStandaloneModelSelection(options: {
+  readonly nodeId: string;
+  readonly taskId: string;
+  readonly effectiveSelection?: ModelSelection;
+  readonly workflowModel?: ModelSelection;
+}): ModelSelection {
+  const selection = options.effectiveSelection ?? options.workflowModel;
+  if (selection === undefined) {
+    throw new MissingWorkflowModelSelectionError(
+      options.nodeId,
+      options.taskId,
+    );
+  }
+  return selection;
+}
+
+/** Checks one selected standalone model when its adapter exposes a catalog. */
+export async function validateStandaloneModelAvailability(
+  selection: ModelSelection,
+  capabilities: ExecutorModelCapabilities | undefined,
+): Promise<void> {
+  if (capabilities === undefined) return;
+  const available = await capabilities.listModels();
+  if (!available.some((model) => sameModel(model, selection.model))) {
+    throw new UnavailableExecutorModelError({
+      executor: capabilities.executor,
+      requested: selection,
+      available,
+    });
+  }
+  await capabilities.validateModelSelection?.(selection);
+}
+
 interface ModelRequirement {
   readonly invocationId: string;
   readonly nodeId: string;
@@ -60,14 +106,14 @@ interface ModelRequirement {
 }
 
 interface ModelPreflightNode {
-  readonly node: TaskNode | ValidationCheckNode;
+  readonly node: TaskNode;
   readonly nodeId: string;
   readonly taskId: string;
   readonly dynamic: boolean;
 }
 
 function modelPreflightNodes(
-  plan: PreparedPlanExecution["plan"],
+  compiled: PreparedPlanExecution,
 ): readonly ModelPreflightNode[] {
   const nodeForPlanNode = (
     node: PlanNode,
@@ -85,7 +131,7 @@ function modelPreflightNodes(
     return undefined;
   };
 
-  return plan.nodes.flatMap((node) => {
+  return compiled.plan.nodes.flatMap((node) => {
     if (node.type === "repeat") {
       const preflightNode = nodeForPlanNode(node.attempt, true);
       return preflightNode === undefined ? [] : [preflightNode];
@@ -103,6 +149,7 @@ async function modelSelectionForTaskNode(
     node: TaskNode,
   ) => ResolvedExecutorModelCapabilities | undefined,
   defaults: Map<string, ModelSelection>,
+  workflowModel: ModelSelection | undefined,
   resolving = new Set<string>(),
 ): Promise<ModelSelection | undefined> {
   if (selections.has(node.nodeId)) return selections.get(node.nodeId);
@@ -119,6 +166,13 @@ async function modelSelectionForTaskNode(
         : undefined);
   } else if (policy?.type === "reuse") {
     selection = await modelSelectionForSource(policy.from);
+  }
+
+  if (
+    selection === undefined &&
+    (policy === undefined || policy.type === "isolated")
+  ) {
+    selection = workflowModel;
   }
 
   if (selection === undefined && policy?.type !== "reuse") {
@@ -144,6 +198,7 @@ async function modelSelectionForTaskNode(
           selections,
           capabilitiesForTask,
           defaults,
+          workflowModel,
           resolving,
         );
   }
@@ -151,18 +206,12 @@ async function modelSelectionForTaskNode(
 
 function capabilityForNode(
   compiled: PreparedPlanExecution,
-  node: TaskNode | ValidationCheckNode,
+  node: TaskNode,
 ): ResolvedExecutorModelCapabilities | undefined {
-  const taskNode =
-    node.type === "task"
-      ? node
-      : node.source.type === "task"
-        ? { taskId: node.source.taskId }
-        : undefined;
-  const executorCapabilities =
-    taskNode === undefined
-      ? undefined
-      : getExecutorModelCapabilities(compiled.context.executors, taskNode);
+  const executorCapabilities = getExecutorModelCapabilities(
+    compiled.context.executors,
+    node,
+  );
   if (executorCapabilities !== undefined) return executorCapabilities;
 
   const resolverCapabilities =
@@ -207,10 +256,8 @@ function requirementKey(requirement: ModelRequirement): string {
 export async function preflightCompiledWorkflowModels(
   compiled: PreparedPlanExecution,
 ): Promise<void> {
-  const nodes = modelPreflightNodes(compiled.plan);
-  const taskNodes = nodes
-    .map(({ node }) => node)
-    .filter((node): node is TaskNode => node.type === "task");
+  const nodes = modelPreflightNodes(compiled);
+  const taskNodes = nodes.map(({ node }) => node);
   const nodesById = new Map(taskNodes.map((node) => [node.nodeId, node]));
   const selections = new Map<string, ModelSelection | undefined>();
   const requirements = new Map<string, ModelRequirement>();
@@ -220,16 +267,14 @@ export async function preflightCompiledWorkflowModels(
 
   for (const preflightNode of nodes) {
     const capabilities = capabilityForNode(compiled, preflightNode.node);
-    const effectiveSelection =
-      preflightNode.node.type === "task"
-        ? await modelSelectionForTaskNode(
-            preflightNode.node,
-            nodesById,
-            selections,
-            (taskNode) => capabilityForNode(compiled, taskNode),
-            defaults,
-          )
-        : await resolveDefaultSelection(capabilities, defaults);
+    const effectiveSelection = await modelSelectionForTaskNode(
+      preflightNode.node,
+      nodesById,
+      selections,
+      (taskNode) => capabilityForNode(compiled, taskNode),
+      defaults,
+      compiled.context.workflowModel,
+    );
 
     if (effectiveSelection !== undefined) {
       const invocationId =
@@ -240,21 +285,22 @@ export async function preflightCompiledWorkflowModels(
           "unknown executor",
           effectiveSelection,
         );
+      } else {
+        requirements.set(
+          requirementKey({
+            invocationId,
+            nodeId: preflightNode.nodeId,
+            selection: effectiveSelection,
+            capabilities,
+          }),
+          {
+            invocationId,
+            nodeId: preflightNode.nodeId,
+            selection: effectiveSelection,
+            capabilities,
+          },
+        );
       }
-      requirements.set(
-        requirementKey({
-          invocationId,
-          nodeId: preflightNode.nodeId,
-          selection: effectiveSelection,
-          capabilities,
-        }),
-        {
-          invocationId,
-          nodeId: preflightNode.nodeId,
-          selection: effectiveSelection,
-          capabilities,
-        },
-      );
       if (!preflightNode.dynamic) {
         effectiveSelections.set(invocationId, effectiveSelection);
       } else {
@@ -280,6 +326,9 @@ export async function preflightCompiledWorkflowModels(
         available,
       });
     }
+    await requirement.capabilities.capabilities.validateModelSelection?.(
+      requirement.selection,
+    );
   }
 
   for (const [invocationId, selection] of effectiveSelections) {

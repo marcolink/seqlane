@@ -29,8 +29,8 @@ prompt, and record the effective selection on every invocation.
 owns model source and compatibility timing for direct CLI runs. Workflow
 selection replaces executor-default resolution in that scope. Existing pinned
 session inheritance remains mandatory. The remaining executor-default clauses
-apply only outside standalone runs. Availability failures occur before tasks
-start when the adapter can establish availability, otherwise at invocation.
+apply only outside standalone runs. Standalone adapters are acquired on agent
+demand. Availability checks occur before that agent invocation when possible.
 
 ## 2. Normative Terms
 

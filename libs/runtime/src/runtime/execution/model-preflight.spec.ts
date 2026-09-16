@@ -11,13 +11,16 @@ import type {
   RepeatNode,
   TaskDefinition,
 } from "@seqlane/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import {
+  MissingWorkflowModelSelectionError,
   preflightCompiledWorkflowModels,
+  requireStandaloneModelSelection,
   UnavailableExecutorModelError,
+  validateStandaloneModelAvailability,
 } from "./model-preflight.js";
 import type { ExecutorModelCapabilities, SeqlaneExecutor } from "./executor.js";
 
@@ -39,9 +42,15 @@ function task(
   };
 }
 
-function plan(nodes: readonly PlanNode[]): Plan {
+function plan(
+  nodes: readonly PlanNode[],
+  workflowModel?: ModelSelection,
+): Plan {
   return {
-    workflow: { id: "model-preflight" },
+    workflow: {
+      id: "model-preflight",
+      ...(workflowModel === undefined ? {} : { model: workflowModel }),
+    },
     nodes,
     output: null,
   };
@@ -92,6 +101,73 @@ function fakeExecutor(
 }
 
 describe("executor model preflight", () => {
+  it("uses a workflow model default without consulting an adapter default", async () => {
+    const selection = { model: model("openai/gpt-5.6-sol") };
+    const resolveDefaultModel = vi.fn(async () => selection);
+    const compiled = new PlanCompiler().compileWorkflow(
+      plan([task("agent")], selection),
+      {
+        createInvocationId: (nodeId) => nodeId,
+        executors: new Map([
+          [
+            "agent",
+            fakeExecutor(
+              {
+                ...capabilities([selection.model], selection),
+                resolveDefaultModel,
+              },
+              () => undefined,
+            ),
+          ],
+        ]),
+      },
+    );
+
+    await preflightCompiledWorkflowModels(compiled);
+
+    expect(resolveDefaultModel).not.toHaveBeenCalled();
+    expect(compiled.context.effectiveModelSelections).toEqual(
+      new Map([["agent", selection]]),
+    );
+  });
+
+  it("requires an authored model for a standalone agent invocation", () => {
+    expect(() =>
+      requireStandaloneModelSelection({ nodeId: "agent", taskId: "agent" }),
+    ).toThrow(MissingWorkflowModelSelectionError);
+  });
+
+  it("checks a demanded standalone model only when discovery is available", async () => {
+    const requested = { model: model("openai/gpt-5.6-sol") };
+    await expect(
+      validateStandaloneModelAvailability(requested, undefined),
+    ).resolves.toBeUndefined();
+    await expect(
+      validateStandaloneModelAvailability(
+        requested,
+        capabilities([model("anthropic/claude-sonnet-4")], requested),
+      ),
+    ).rejects.toBeInstanceOf(UnavailableExecutorModelError);
+  });
+
+  it("rejects a demanded model setting that the adapter does not support", async () => {
+    const requested = {
+      model: model("openai/gpt-5.6-sol"),
+      reasoning: "high" as const,
+    };
+    const validateModelSelection = vi.fn(async () => {
+      throw new Error("unsupported reasoning");
+    });
+
+    await expect(
+      validateStandaloneModelAvailability(requested, {
+        ...capabilities([requested.model], requested),
+        validateModelSelection,
+      }),
+    ).rejects.toThrow("unsupported reasoning");
+    expect(validateModelSelection).toHaveBeenCalledWith(requested);
+  });
+
   it("uses task executor capabilities before resolver capabilities", async () => {
     const taskSelection = {
       model: model("task/task-model"),
@@ -246,6 +322,60 @@ describe("executor model preflight", () => {
         ["reuse", defaultSelection],
         ["branch", defaultSelection],
         ["branch-reuse", defaultSelection],
+      ]),
+    );
+  });
+
+  it("keeps a branch pinned to its source instead of using the workflow default", async () => {
+    const sourceSelection = {
+      model: model("openai/gpt-5.6-sol"),
+      reasoning: "high" as const,
+    };
+    const workflowSelection = {
+      model: model("anthropic/claude-sonnet-4"),
+      reasoning: "minimal" as const,
+    };
+    const compiled = new PlanCompiler().compileWorkflow(
+      plan(
+        [
+          task("source", { type: "isolated", model: sourceSelection }),
+          task("branch", { type: "branch", from: "source" }, ["source"]),
+        ],
+        workflowSelection,
+      ),
+      {
+        createInvocationId: (nodeId) => nodeId,
+        executors: new Map([
+          [
+            "source",
+            fakeExecutor(
+              capabilities(
+                [sourceSelection.model, workflowSelection.model],
+                sourceSelection,
+              ),
+              () => undefined,
+            ),
+          ],
+          [
+            "branch",
+            fakeExecutor(
+              capabilities(
+                [sourceSelection.model, workflowSelection.model],
+                sourceSelection,
+              ),
+              () => undefined,
+            ),
+          ],
+        ]),
+      },
+    );
+
+    await preflightCompiledWorkflowModels(compiled);
+
+    expect(compiled.context.effectiveModelSelections).toEqual(
+      new Map([
+        ["source", sourceSelection],
+        ["branch", sourceSelection],
       ]),
     );
   });

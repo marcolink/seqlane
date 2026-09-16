@@ -121,6 +121,43 @@ describe("OpenCode model capabilities", () => {
     }
   });
 
+  it("rejects reasoning efforts absent from the native model variants", async () => {
+    const fake = await startFakeServer({
+      providerResponse: {
+        all: [
+          {
+            id: "openai",
+            models: {
+              "gpt-5.6-sol": {
+                id: "gpt-5.6-sol",
+                variants: { high: {}, low: { disabled: true } },
+              },
+            },
+          },
+        ],
+        default: { openai: "gpt-5.6-sol" },
+        connected: ["openai"],
+      },
+      configResponse: providerCatalog,
+    });
+    try {
+      const capabilities = createOpenCodeModelCapabilities(fake.url);
+      const model = { provider: "openai", model: "gpt-5.6-sol" };
+
+      await expect(
+        capabilities.validateModelSelection({ model, reasoning: "high" }),
+      ).resolves.toBeUndefined();
+      await expect(
+        capabilities.validateModelSelection({ model, reasoning: "low" }),
+      ).rejects.toThrow('does not support reasoning effort "low"');
+      await expect(
+        capabilities.validateModelSelection({ model, reasoning: "max" }),
+      ).rejects.toThrow('does not support reasoning effort "max"');
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
   it("rejects a catalog with a malformed model entry", async () => {
     const fake = await startFakeServer({
       providerResponse: {

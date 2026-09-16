@@ -188,6 +188,7 @@ export class PlanCompiler {
       runId: options.runId ?? `${parsedPlan.workflow.id}:run`,
       createInvocationId: options.createInvocationId ?? (() => randomUUID()),
       workflowInput: options.workflowInput,
+      workflowModel: parsedPlan.workflow.model,
       executors: options.executors,
       sessionResolver: options.sessionResolver,
       workspaceResources: options.workspaceResources,

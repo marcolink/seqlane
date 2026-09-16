@@ -119,13 +119,15 @@ Check public declarations for Mastra leakage and reject `/ee/` imports. Run
 
 ## Outcome
 
-Not implemented. This task is the next agreed implementation deliverable.
-The current change establishes its decision, specification, and acceptance
-criteria only.
+Implementation is in progress on `feat/standalone-cli-runs`. Workflow loading
+was verified and committed in `16374e7`. Adapter lifecycle preparation follows,
+then direct execution and the public command cutover. Child task outcomes own
+their verification evidence.
 
 ## Delivery state
 
-Planned. No implementation or target-branch delivery is claimed by this task.
+Partial implementation on the delivery branch. The public command has not
+switched to standalone execution. No target-branch delivery is claimed.
 
 ## Traceability
 

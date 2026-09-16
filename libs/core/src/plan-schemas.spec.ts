@@ -56,6 +56,32 @@ describe("canonical Plan schemas", () => {
     ).toBe(true);
   });
 
+  it("accepts an existing Plan with no workflow model", () => {
+    expect(
+      planSchema.safeParse({
+        workflow: { id: "existing-plan" },
+        nodes: [],
+        output: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a malformed workflow model selection", () => {
+    expect(
+      planSchema.safeParse({
+        workflow: {
+          id: "malformed-workflow-model",
+          model: {
+            model: { provider: "openai", model: "gpt-5" },
+            reasoning: "ultra",
+          },
+        },
+        nodes: [],
+        output: null,
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects unsupported nodes and repeat limits outside 1..1000", () => {
     expect(
       planNodeSchema.safeParse({ type: "branch", nodeId: "branch:1" }).success,

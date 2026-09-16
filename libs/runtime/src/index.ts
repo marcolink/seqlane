@@ -31,6 +31,20 @@ export {
 } from "./runtime/execution/workflow-run.js";
 export type { ActiveWorkflowRun } from "./runtime/execution/workflow-run.js";
 export {
+  MissingWorkflowModelSelectionError,
+  requireStandaloneModelSelection,
+  validateStandaloneModelAvailability,
+} from "./runtime/execution/model-preflight.js";
+export {
+  createStandaloneAdapterLease,
+  StandaloneAdapterSelectionError,
+} from "./runner/profile/standalone-adapter.js";
+export type {
+  StandaloneAdapterConnection,
+  StandaloneAdapterLease,
+  StandaloneAdapterLeaseOptions,
+} from "./runner/profile/standalone-adapter.js";
+export {
   BindingResolutionError,
   resolveBinding,
   WORKFLOW_INPUT_NODE_ID,

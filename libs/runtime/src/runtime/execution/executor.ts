@@ -58,6 +58,10 @@ export interface ExecutorModelCapabilities {
   readonly executor: string;
   readonly listModels: () => Promise<readonly ModelRef[]>;
   readonly resolveDefaultModel: () => Promise<ModelSelection>;
+  /** Rejects a supported model whose requested settings are not supported. */
+  readonly validateModelSelection?: (
+    selection: ModelSelection,
+  ) => Promise<void>;
 }
 
 export class UntrackedMutatingBackgroundProcessError extends Error {

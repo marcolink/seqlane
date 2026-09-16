@@ -426,6 +426,17 @@ function redactRuntimeModelCapabilities(
         throw unavailableAdapterError(configuration, cause);
       }
     },
+    ...(capabilities.validateModelSelection === undefined
+      ? {}
+      : {
+          validateModelSelection: async (selection: ModelSelection) => {
+            try {
+              await capabilities.validateModelSelection?.(selection);
+            } catch (cause) {
+              throw redactRuntimeAdapterError(cause, configuration);
+            }
+          },
+        }),
   };
 }
 

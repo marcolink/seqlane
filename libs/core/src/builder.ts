@@ -469,7 +469,10 @@ function buildWorkflowInternal<Input, Output>(
   });
 
   const plan: Plan = {
-    workflow: { id: workflow.id },
+    workflow: {
+      id: workflow.id,
+      ...(workflow.model === undefined ? {} : { model: workflow.model }),
+    },
     nodes,
     output: serializeBinding(output),
   };

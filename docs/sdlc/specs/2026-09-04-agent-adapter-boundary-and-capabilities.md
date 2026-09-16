@@ -80,6 +80,23 @@ The adapter receives validated Seqlane task input, output schema, model
 selection, cancellation signal, and observation callbacks. It returns a
 validated task result and normalized metrics.
 
+### requirement-composition-owned-adapters
+
+The runtime receives a generic adapter binding or factory from its caller.
+It must not import concrete adapter packages, construct their implementations,
+or branch on their error classes. Adapter-specific startup and configuration
+belong to the adapter package and the application composition root.
+
+CLI and server composition select the concrete implementation, validate its
+configuration, and supply it to the runtime. Runtime code manages execution
+through generic lifecycle, capability, session, and model contracts.
+
+New standalone lifecycle code follows this boundary. Removing the existing
+runtime registry's concrete imports is deferred to
+[task.decouple-runtime-adapter-composition](../tasks/2026-09-16-decouple-runtime-adapter-composition.md).
+This requirement refines implementation ownership; it does not introduce a
+public plugin API or claim that the existing runtime is already decoupled.
+
 ### requirement-generic-acp-adapter
 
 The generic ACP adapter must accept validated ACP launch or connection
@@ -108,13 +125,14 @@ Its protocol, lifecycle, and first-delivery scope are defined in
 
 ### requirement-explicit-adapter-selection
 
-The runtime must select exactly one adapter before model preflight or session
-creation. The selection must use a canonical schema and a registered adapter
-identity.
+Application composition must select exactly one adapter before model preflight
+or adapter session creation. The selection uses a canonical configuration
+schema and a registered adapter identity.
 
-The runtime must reject missing, unknown, mixed, or invalid adapter
+Composition must reject missing, unknown, mixed, or invalid adapter
 configuration. It must not infer ACP from an OpenCode endpoint or infer
-OpenCode from an ACP command.
+OpenCode from an ACP command. Standalone demand-time selection follows the
+standalone CLI contract.
 
 Adapter selection remains private runtime configuration. Workflow definitions,
 Plans, runner events, and task results remain executor-neutral.
@@ -167,16 +185,14 @@ errors must preserve a private cause without exposing SDK objects.
 ### Package boundary
 
 ```text
-Seqlane runtime
+Application composition --> Seqlane runtime
+      |                         |
+      | supplies                v
+      +----------------> generic adapter contract
       |
-      v
-private agent adapter contract
-      |
-      +--> generic ACP adapter --> ACP implementation
-      |
-      +--> OpenCode adapter ----> OpenCode SDK --> OpenCode server
-      |
-      +--> Codex adapter ------> Codex app-server
+      +--> ACP implementation
+      +--> OpenCode adapter --> OpenCode SDK --> OpenCode server
+      +--> Codex adapter ----> Codex app-server
 ```
 
 The generic ACP implementation belongs in a private ACP package. The OpenCode
@@ -240,7 +256,7 @@ workspace, and supported SDK options.
 Codex configuration identifies its local executable; the runtime supplies the
 workspace. Codex does not use OpenCode or ACP configuration fields.
 
-The runtime validates configuration before it starts a process or contacts a
+Application composition validates configuration before it starts a process or contacts a
 server. It redacts environment values, credentials, and tokens from errors and
 events.
 

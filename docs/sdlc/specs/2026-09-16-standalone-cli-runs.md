@@ -147,10 +147,16 @@ a sandbox.
 
 ### requirement-adapter-lifecycle
 
-Agent workflows require `--adapter <id>`. Unknown identifiers and missing
-selection produce command errors. Deterministic workflows require neither an
+Agent execution requires `--adapter <id>`. Unknown identifiers produce an
+argument error. Missing selection fails when an agent is requested.
+Deterministic workflows require neither an
 adapter nor a model. Even with an explicit valid adapter flag, a deterministic
 workflow must not start an adapter process or make a model call.
+
+Acquire the adapter lazily at the `context.runAgent()` boundary. Do not add a
+public or private task discriminator, inspect function bodies, or infer agent
+use from a session declaration. Custom tasks can request agents through the
+same boundary. Concurrent requests share one run-owned acquisition.
 
 For an installed and authenticated OpenCode adapter, this is sufficient:
 
@@ -164,7 +170,7 @@ are not prerequisites.
 
 The selected integration locates its executable and reads its normal
 configuration and authentication. It starts a private service when required,
-waits for readiness, connects, and records ownership before execution.
+waits for readiness, connects, and records ownership before the agent invocation.
 It does not silently attach to an arbitrary service on a default port.
 
 Startup and shutdown use finite bounds. Failed startup releases resources
@@ -183,8 +189,10 @@ Session reuse and branches preserve the existing pinned-model inheritance rules.
 Missing model declarations fail validation. The CLI provides no model override
 and does not use an adapter's implicit model default.
 
-Check declared models, explicit model settings, and required capabilities
-before tasks start when the adapter exposes sufficient discovery information.
+Resolve declared or inherited models when an agent is requested. Reject missing
+selections before adapter startup. After lazy acquisition, check model
+availability, explicit model settings, and required capabilities before the
+agent invocation when discovery provides sufficient information.
 Unsupported choices fail with the session, model, adapter, and reason.
 Do not substitute a model, drop an explicit setting, or choose another adapter.
 
@@ -201,7 +209,8 @@ Adapter-local transports are permitted and remain distinct from a Seqlane host.
 
 Validate argument syntax, entrypoint, authored definition, Plan, input, and
 workspace before adapter startup. Capability checks that need a live adapter
-occur after startup and before task execution where possible.
+occur after lazy startup and before the agent invocation where possible.
+Earlier deterministic work can complete before an adapter or model error occurs.
 
 SIGINT and SIGTERM request cancellation through Mastra and active adapter or
 process operations. Cleanup runs after success, failure, cancellation, and
@@ -294,7 +303,7 @@ Test observable behavior through the compiled CLI and focused runtime tests:
 | Input streams | Explicit stdin, bounded files, conflicting flags, no implicit stdin read |
 | Adapter | No-config startup, readiness failure, missing executable/authentication, concurrent ownership |
 | Models | Missing, unavailable, incompatible settings, unknown availability, no substitution |
-| Deterministic work | Zero adapter processes and zero model calls |
+| Deterministic work | Zero adapter processes and zero model calls, including custom tasks and an explicit valid adapter flag |
 | Lifecycle | Success, failure, both signals, partial startup, bounded cleanup, foreign process survives |
 | Persistence | No database, recording, summary, history, retained temporary output, or disk cache |
 | Output | Passive human/CI parity, clean JSON despite imported logging, exact false-like results |
