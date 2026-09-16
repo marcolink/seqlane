@@ -15,7 +15,10 @@ import {
   summarizeStructuredOutputIssues,
   validatePromptJson,
 } from "./structured-output-parser.js";
-import { StructuredOutputValidationError } from "./errors.js";
+import {
+  OpenCodeExecutorError,
+  StructuredOutputValidationError,
+} from "./errors.js";
 import type { ResolvedStructuredOutput } from "./structured-output-strategy.js";
 import type {
   OpenCodeActivity,
@@ -74,21 +77,123 @@ function normalizeActivity(activity: OpenCodeActivity): AgentActivity {
   };
 }
 
+function reportAdapterDiagnostic(
+  request: AgentAdapterRequest,
+  code: string,
+  message: string,
+): void {
+  const callback = request.onDiagnostic;
+  if (callback === undefined) return;
+  try {
+    callback({ code, message });
+  } catch {
+    // Diagnostics are best effort and must not affect execution.
+  }
+}
+
 interface CreateAdapterForRunOptions {
   readonly resolveRun: (signal: AbortSignal) => Promise<OpenCodeRun>;
+  readonly initialRun?: OpenCodeRun;
   readonly configuredSelection?: ModelSelection;
   readonly sessionUi: () => Promise<string | undefined>;
   readonly hasSessionUi: boolean;
   readonly onRunInvalidated?: () => void;
 }
 
+function createOpenCodeRunTracker(
+  resolveRun: (signal: AbortSignal) => Promise<OpenCodeRun>,
+  initialRun?: OpenCodeRun,
+) {
+  const pendingRuns = new Map<Promise<OpenCodeRun>, Promise<OpenCodeRun>>();
+  const ownedRuns = new Set<OpenCodeRun>(
+    initialRun === undefined ? [] : [initialRun],
+  );
+  const closingRuns = new Set<Promise<void>>();
+  let closed = false;
+  let closePromise: Promise<void> | undefined;
+
+  const release = (run: OpenCodeRun): Promise<void> => {
+    ownedRuns.delete(run);
+    const closing = run.close();
+    closingRuns.add(closing);
+    void closing
+      .finally(() => closingRuns.delete(closing))
+      .catch(() => undefined);
+    return closing;
+  };
+
+  return {
+    resolve(signal: AbortSignal): Promise<OpenCodeRun> {
+      if (closed) {
+        return Promise.reject(new OpenCodeExecutorError("adapter is closed"));
+      }
+      const source = resolveRun(signal);
+      const existing = pendingRuns.get(source);
+      if (existing !== undefined) return existing;
+      const tracked = source.then(
+        async (run) => {
+          pendingRuns.delete(source);
+          if (closed) {
+            await release(run);
+            throw new OpenCodeExecutorError("adapter is closed");
+          }
+          ownedRuns.add(run);
+          return run;
+        },
+        (cause: unknown) => {
+          pendingRuns.delete(source);
+          throw cause;
+        },
+      );
+      pendingRuns.set(source, tracked);
+      return tracked;
+    },
+    release,
+    close(): Promise<void> {
+      if (closePromise !== undefined) return closePromise;
+      closed = true;
+      closePromise = (async () => {
+        await Promise.allSettled(pendingRuns.values());
+        const releases = await Promise.allSettled([...ownedRuns].map(release));
+        const concurrent = await Promise.allSettled([...closingRuns]);
+        const failed = [...releases, ...concurrent].find(
+          (result) => result.status === "rejected",
+        );
+        if (failed?.status === "rejected") throw failed.reason;
+      })();
+      return closePromise;
+    },
+  };
+}
+
+function createRunInvalidation(
+  callback: (() => void) | undefined,
+  release: (run: OpenCodeRun) => Promise<void>,
+) {
+  let invalidated = false;
+  return {
+    invalidate(): void {
+      if (invalidated) return;
+      invalidated = true;
+      callback?.();
+    },
+    async release(run: OpenCodeRun | undefined): Promise<void> {
+      if (invalidated && run !== undefined) await release(run);
+    },
+  };
+}
+
 function createAdapterForRun({
-  resolveRun,
+  resolveRun: resolveUntrackedRun,
+  initialRun,
   configuredSelection,
   sessionUi,
   hasSessionUi,
   onRunInvalidated,
 }: CreateAdapterForRunOptions): AgentAdapter {
+  const runTracker = createOpenCodeRunTracker(resolveUntrackedRun, initialRun);
+  const resolveRun = runTracker.resolve;
+
   return {
     capabilities: {
       execute: true,
@@ -102,19 +207,17 @@ function createAdapterForRun({
     },
 
     async execute(request: AgentAdapterRequest): Promise<unknown> {
-      const reportDiagnostic = (code: string, message: string): void => {
-        try {
-          request.onDiagnostic?.({ code, message });
-        } catch {
-          // Diagnostics are best effort and must not affect execution.
-        }
-      };
       const observability = createOpenCodeObservability(
         request.observability,
         request.invocationId,
-        (message) => reportDiagnostic("opencode-observability", message),
+        (message) =>
+          reportAdapterDiagnostic(request, "opencode-observability", message),
       );
-      let run: OpenCodeRun;
+      let run: OpenCodeRun | undefined;
+      const invalidation = createRunInvalidation(
+        onRunInvalidated,
+        runTracker.release,
+      );
       let outcome: OpenCodeObservabilityOutcome | undefined;
       try {
         const schema = toOpenCodeJsonSchema(request.task);
@@ -127,10 +230,7 @@ function createAdapterForRun({
             ? undefined
             : promptStrategyDiagnostic(selection);
         if (diagnostic !== undefined) {
-          request.onDiagnostic?.({
-            code: "structured-output",
-            message: diagnostic,
-          });
+          reportAdapterDiagnostic(request, "structured-output", diagnostic);
         }
 
         const basePrompt = buildOpenCodePrompt(
@@ -163,8 +263,8 @@ function createAdapterForRun({
             onUncertainActivity: request.onUncertainActivity,
             onObservation: observability.observe,
             onDiagnostic: (message) =>
-              reportDiagnostic("opencode-event", message),
-            onRunInvalidated,
+              reportAdapterDiagnostic(request, "opencode-event", message),
+            onRunInvalidated: invalidation.invalidate,
           });
           if (response.observation !== undefined) {
             observability.observeTerminal(response.observation);
@@ -233,9 +333,12 @@ function createAdapterForRun({
           outcome ??
             (request.signal.aborted ? { kind: "cancelled" } : undefined),
         );
-        if (request.signal.aborted) onRunInvalidated?.();
+        if (request.signal.aborted) invalidation.invalidate();
+        await invalidation.release(run);
       }
     },
+
+    close: runTracker.close,
 
     ...(hasSessionUi ? { sessionUi } : {}),
     captureCheckpoint: async () =>
@@ -251,6 +354,7 @@ function createAdapterForRun({
         ));
       return createAdapterForRun({
         resolveRun: resolveChildRun,
+        initialRun: child,
         configuredSelection: modelSelection ?? configuredSelection,
         sessionUi: async () =>
           (await resolveChildRun(new AbortController().signal)).browserUrl,
@@ -270,6 +374,7 @@ export function createOpenCodeAdapterForRun(
 ): AgentAdapter {
   return createAdapterForRun({
     resolveRun: () => Promise.resolve(run),
+    initialRun: run,
     configuredSelection: modelSelection,
     sessionUi: async () => run.browserUrl,
     hasSessionUi: run.browserUrl !== undefined,

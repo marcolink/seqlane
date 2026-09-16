@@ -51,6 +51,7 @@ function createRun(
     ? never
     : NonNullable<OpenCodeRun["structuredOutput"]>,
 ): OpenCodeRun {
+  const close = vi.fn(async () => undefined);
   return {
     prompt,
     checkpoint: async () => ({
@@ -61,11 +62,98 @@ function createRun(
       throw new Error("fork is not used by adapter execution tests");
     },
     abort: async () => undefined,
+    close,
     ...(selection === undefined ? {} : { structuredOutput: selection }),
   };
 }
 
 describe("OpenCode AgentAdapter", () => {
+  it("ignores failures from structured-output diagnostic consumers", async () => {
+    const run = createRun(
+      async () => ({ text: '{"result":"done"}' }),
+      async () => ({
+        strategy: "prompt",
+        retryCount: 0,
+        reason: "affected-version",
+        version: "1.18.27",
+      }),
+    );
+    const adapter = createOpenCodeAdapterForRun(run);
+
+    await expect(
+      adapter.execute(
+        request({
+          onDiagnostic: () => {
+            throw new Error("diagnostic consumer failed");
+          },
+        }),
+      ),
+    ).resolves.toEqual({ result: "done" });
+  });
+
+  it("closes every resolved run once without creating an unused run", async () => {
+    vi.clearAllMocks();
+    const unused = createOpenCodeAdapter({ url: "http://opencode.test" });
+    await unused.close?.();
+    expect(createOpenCodeRun).not.toHaveBeenCalled();
+
+    const first = createRun(async (prompt) => {
+      prompt.onRunInvalidated?.();
+      throw new InteractionRequiredError("user-input");
+    });
+    const second = createRun(async () => ({
+      structured: { result: "replacement" },
+    }));
+    vi.mocked(createOpenCodeRun)
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second);
+    const adapter = createOpenCodeAdapter({ url: "http://opencode.test" });
+
+    await expect(adapter.execute(request())).rejects.toBeInstanceOf(
+      InteractionRequiredError,
+    );
+    expect(first.close).toHaveBeenCalledTimes(1);
+    await expect(adapter.execute(request())).resolves.toEqual({
+      result: "replacement",
+    });
+    await Promise.all([adapter.close?.(), adapter.close?.()]);
+
+    expect(first.close).toHaveBeenCalledTimes(1);
+    expect(second.close).toHaveBeenCalledTimes(1);
+
+    const fixedRun = createRun(async () => ({
+      structured: { result: "fixed" },
+    }));
+    const fixedRunAdapter = createOpenCodeAdapterForRun(fixedRun);
+    await expect(fixedRunAdapter.execute(request())).resolves.toEqual({
+      result: "fixed",
+    });
+    await fixedRunAdapter.close?.();
+    expect(fixedRun.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases every invalidated run before resolving its replacement", async () => {
+    vi.clearAllMocks();
+    const runs = Array.from({ length: 5 }, () =>
+      createRun(async (prompt) => {
+        prompt.onRunInvalidated?.();
+        throw new InteractionRequiredError("user-input");
+      }),
+    );
+    for (const run of runs)
+      vi.mocked(createOpenCodeRun).mockResolvedValueOnce(run);
+    const adapter = createOpenCodeAdapter({ url: "http://opencode.test" });
+
+    for (const run of runs) {
+      await expect(adapter.execute(request())).rejects.toBeInstanceOf(
+        InteractionRequiredError,
+      );
+      expect(run.close).toHaveBeenCalledTimes(1);
+    }
+    await adapter.close?.();
+    for (const run of runs) expect(run.close).toHaveBeenCalledTimes(1);
+  });
+
   it("returns SDK structured output and maps activity and metrics", async () => {
     const activities: unknown[] = [];
     const metrics: SeqlaneInvocationMetrics[] = [];

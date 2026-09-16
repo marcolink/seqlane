@@ -13,6 +13,8 @@ does not depend on a runtime adapter or executor.
   no-color, and ASCII support. It does not read keyboard input.
   Active rows expand with reported activity, workspace mode, planned session policy,
   model, completed tool calls, tokens, and cost. Rails stretch with wrapped details.
+  A task duration starts when the task becomes active. It excludes queue time and
+  dependency wait time.
   Missing fields stay hidden. Successful rows collapse to duration and usage totals.
 - `ci` writes concise, append-only status and failure output for automation.
 

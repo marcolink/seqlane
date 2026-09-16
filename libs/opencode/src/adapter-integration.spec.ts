@@ -85,6 +85,56 @@ async function readBody(
   }
 }
 
+function handleReadRequest(
+  method: string | undefined,
+  requestUrl: URL,
+  response: ServerResponse,
+  eventsBySession: ReadonlyMap<string, Record<string, unknown>[]>,
+  pendingPermissions: ReadonlySet<string>,
+): boolean {
+  if (method !== "GET") return false;
+  if (requestUrl.pathname === "/global/health") {
+    writeJson(response, { healthy: true, version: "1.14.19" });
+    return true;
+  }
+
+  const historyMatch = /^\/api\/session\/(session-\d+)\/history$/.exec(
+    requestUrl.pathname,
+  );
+  if (historyMatch) {
+    const sessionId = historyMatch[1] ?? "";
+    const after = Number(requestUrl.searchParams.get("after") ?? 0);
+    writeJson(response, {
+      data: (eventsBySession.get(sessionId) ?? []).slice(after),
+      hasMore: false,
+    });
+    return true;
+  }
+
+  const permissionMatch = /^\/api\/session\/(session-\d+)\/permission$/.exec(
+    requestUrl.pathname,
+  );
+  if (permissionMatch) {
+    const sessionId = permissionMatch[1] ?? "";
+    writeJson(response, {
+      data: pendingPermissions.has(sessionId)
+        ? [{ id: "controlled-permission", sessionID: sessionId }]
+        : [],
+    });
+    return true;
+  }
+
+  if (/^\/api\/session\/(session-\d+)\/question$/.test(requestUrl.pathname)) {
+    writeJson(response, { data: [] });
+    return true;
+  }
+  if (/^\/session\/(session-\d+)(?:\/message)?$/.test(requestUrl.pathname)) {
+    writeJson(response, []);
+    return true;
+  }
+  return false;
+}
+
 async function startServer(
   options: { readonly mode?: "success" | "hold" | "permission" } = {},
 ): Promise<{
@@ -95,7 +145,8 @@ async function startServer(
   close(): Promise<void>;
 }> {
   const requests: RequestRecord[] = [];
-  const eventResponses = new Set<ServerResponse>();
+  const eventsBySession = new Map<string, Record<string, unknown>[]>();
+  const pendingPermissions = new Set<string>();
   const pendingPrompts = new Map<string, ServerResponse>();
   let resolvePromptStarted: () => void = () => undefined;
   const promptStarted = new Promise<void>((resolve) => {
@@ -109,17 +160,22 @@ async function startServer(
   let nextMessage = 0;
 
   const sendEvent = (sessionId: string, event: Record<string, unknown>) => {
-    for (const response of eventResponses) {
-      response.write(
-        `data: ${JSON.stringify({
-          ...event,
-          properties: {
-            sessionID: sessionId,
-            ...((event.properties as object) ?? {}),
-          },
-        })}\n\n`,
-      );
-    }
+    const events = eventsBySession.get(sessionId) ?? [];
+    const { properties, ...envelope } = event;
+    const recorded = {
+      ...envelope,
+      data: {
+        sessionID: sessionId,
+        ...((properties as object) ?? {}),
+      },
+      durable: {
+        aggregateID: sessionId,
+        seq: events.length + 1,
+        version: 1,
+      },
+    };
+    events.push(recorded);
+    eventsBySession.set(sessionId, events);
   };
 
   const server: Server = createServer(async (request, response) => {
@@ -132,21 +188,16 @@ async function startServer(
       body,
     });
 
-    if (request.method === "GET" && requestUrl.pathname === "/event") {
-      response.writeHead(200, {
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-        "content-type": "text/event-stream",
-      });
-      eventResponses.add(response);
-      request.on("close", () => eventResponses.delete(response));
+    if (
+      handleReadRequest(
+        request.method,
+        requestUrl,
+        response,
+        eventsBySession,
+        pendingPermissions,
+      )
+    )
       return;
-    }
-
-    if (request.method === "GET" && requestUrl.pathname === "/global/health") {
-      writeJson(response, { healthy: true, version: "1.14.19" });
-      return;
-    }
 
     if (request.method === "POST" && requestUrl.pathname === "/session") {
       nextSession += 1;
@@ -154,20 +205,6 @@ async function startServer(
         id: `session-${nextSession}`,
         directory: "/controlled",
       });
-      return;
-    }
-
-    const sessionMatch = /^\/session\/(session-\d+)$/.exec(requestUrl.pathname);
-    if (request.method === "GET" && sessionMatch) {
-      writeJson(response, []);
-      return;
-    }
-
-    const messagesMatch = /^\/session\/(session-\d+)\/message$/.exec(
-      requestUrl.pathname,
-    );
-    if (request.method === "GET" && messagesMatch) {
-      writeJson(response, []);
       return;
     }
 
@@ -207,6 +244,7 @@ async function startServer(
         return;
       }
       if (options.mode === "permission") {
+        pendingPermissions.add(sessionId);
         sendEvent(sessionId, {
           type: "permission.asked",
           properties: { callID: "controlled-permission" },
@@ -280,7 +318,6 @@ async function startServer(
     requests,
     url: `http://127.0.0.1:${address.port}`,
     async close() {
-      for (const response of eventResponses) response.end();
       for (const response of pendingPrompts.values()) response.destroy();
       server.closeAllConnections();
       server.close();

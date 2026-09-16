@@ -30,6 +30,12 @@ function HumanTreeRowComponent({
   now,
 }: HumanTreeRowProps): React.JSX.Element {
   const { node } = row;
+  // Keep the animation at the row boundary: each frame must also refresh the
+  // active task's elapsed time when no execution event triggers a rerender.
+  const animation = useAnimation({
+    interval: 100,
+    isActive: animate && node.state === "active",
+  });
   const width = Math.max(1, capabilities.width ?? 80);
   const unicode = capabilities.supportsUnicode;
   const facts = nodeFacts(row, now());
@@ -43,10 +49,12 @@ function HumanTreeRowComponent({
           <Text wrap="truncate-end">
             <Text {...tone}>{prefix}</Text>
             <Text color={color} bold={tone.bold}>
-              {animate && node.state === "active" ? (
-                <AnimatedStatus unicode={unicode} />
-              ) : (
-                statusSymbol(node.state, unicode, spinnerFrame)
+              {statusSymbol(
+                node.state,
+                unicode,
+                animate && node.state === "active"
+                  ? animation.frame
+                  : spinnerFrame,
               )}
             </Text>
             <Text {...tone}>
@@ -69,11 +77,6 @@ function HumanTreeRowComponent({
       />
     </Box>
   );
-}
-
-function AnimatedStatus({ unicode }: { readonly unicode: boolean }) {
-  const { frame } = useAnimation({ interval: 100, isActive: true });
-  return statusSymbol("active", unicode, frame);
 }
 
 function sameRails(

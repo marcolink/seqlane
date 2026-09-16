@@ -438,12 +438,16 @@ function withState(
   state: RunNodeState,
   timestamp: string,
 ): RunNode {
-  const startedAt = node.startedAt ?? timestamp;
   const terminal =
     state === "succeeded" ||
     state === "failed" ||
     state === "skipped" ||
     state === "cancelled";
+  // Queue and dependency-wait transitions happen before execution starts.
+  // Active establishes the real start; terminal is a zero-duration fallback
+  // for incomplete event streams that omit invocation.started.
+  const startedAt =
+    node.startedAt ?? (state === "active" || terminal ? timestamp : undefined);
   return {
     ...node,
     state,
