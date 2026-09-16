@@ -17,7 +17,7 @@ import {
   remoteError,
   type RunIdentity,
 } from "./run-result.js";
-import { writeDiagnostic } from "./command.js";
+import { writeSessionUiDiagnostic } from "./session-ui-diagnostic.js";
 import type { WorkflowRoots } from "./workflow-discovery.js";
 import { randomUUID } from "node:crypto";
 
@@ -138,10 +138,7 @@ export async function executeOperationalHostRun(
                 return;
               }
               if (jsonMode) return;
-              writeDiagnostic(
-                capabilities.stderr,
-                `Seqlane session UI: ${notification.browserUrl}`,
-              );
+              writeSessionUiDiagnostic(capabilities, notification.browserUrl);
             },
           })
         : undefined;

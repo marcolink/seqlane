@@ -20,7 +20,7 @@ import {
   formatCICostDetails,
   formatCIOutputDetails,
   formatCITokenDetails,
-  formatCIValidationDetails,
+  formatValidationDetails,
 } from "./output-details.js";
 import { redactOutput } from "./redaction.js";
 
@@ -436,7 +436,7 @@ export class CIRenderer implements ExecutionRenderer {
               " invocation=" +
               event.invocationId +
               " " +
-              formatCIValidationDetails(validation);
+              formatValidationDetails(validation);
       }
       case "invocation.retrying":
         return (
@@ -503,7 +503,7 @@ export class CIRenderer implements ExecutionRenderer {
             (event.error.validation === undefined
               ? ""
               : " " +
-                formatCIValidationDetails(
+                formatValidationDetails(
                   view.nodes.get(event.invocationId)?.validation ?? {
                     validationNodeId: event.error.validation.validationNodeId,
                     sourceId: event.error.validation.sourceId,

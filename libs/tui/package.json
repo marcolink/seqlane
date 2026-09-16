@@ -11,6 +11,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./terminal-field": {
+      "types": "./dist/terminal-field.d.ts",
+      "import": "./dist/terminal-field.js",
+      "default": "./dist/terminal-field.js"
     }
   },
   "nx": {

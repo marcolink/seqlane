@@ -41,7 +41,11 @@ export function HumanTree({
           />
         );
       })}
-      {notice === undefined ? null : <Text color="yellow">{notice}</Text>}
+      {notice === undefined ? null : (
+        <Text color={capabilities.supportsAnsi ? "yellow" : undefined}>
+          {notice}
+        </Text>
+      )}
     </Box>
   );
 }

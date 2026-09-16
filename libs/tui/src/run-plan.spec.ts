@@ -1,7 +1,11 @@
 // @test-scope ./run-view-model.ts ./run-plan.ts ./run-topology.ts
 import { expect, it } from "vitest";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
-import { reduceRunEvents, reduceRunViewModel } from "./run-view-model.js";
+import {
+  reduceRunEventBatch,
+  reduceRunEvents,
+  reduceRunViewModel,
+} from "./run-view-model.js";
 
 const identity = {
   workId: "work",
@@ -102,6 +106,30 @@ it("reconciles 10,000 planned invocations in one linear batch", () => {
   expect(view.nodes.has("plan:9999")).toBe(false);
   expect(view.nodes.get("live:9999")?.dependencyIds).toEqual(["live:9998"]);
   expect(view.childrenByParent.get("live:0")).toHaveLength(9_999);
+});
+
+it("projects many lifecycle events without per-event full-map copies", () => {
+  const initial = reduceRunEvents([plan(10_000)]);
+  const events = Array.from(
+    { length: 10_000 },
+    (_, index): SeqlaneExecutionEvent => ({
+      ...identity,
+      type: "invocation.activity",
+      invocationId: `plan:${index}`,
+      activityId: `activity:${index}`,
+      kind: "tool",
+      name: "filesystem.read",
+      state: "succeeded",
+    }),
+  );
+  const started = performance.now();
+  const view = reduceRunEventBatch(initial, events);
+  expect(performance.now() - started).toBeLessThan(3000);
+  expect(view.nodes.size).toBe(10_000);
+  expect(view.nodes.get("plan:9999")?.activity).toBe(
+    "tool filesystem.read succeeded",
+  );
+  expect(initial.nodes.get("plan:9999")?.activity).toBeUndefined();
 });
 
 it("enforces shared run bytes and releases replaced transient bytes", () => {

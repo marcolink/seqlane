@@ -29,6 +29,7 @@ import {
   writeDiagnostic,
 } from "../command.js";
 import { createRunFailureResult } from "../run-result.js";
+import { writeSessionUiDiagnostic } from "../session-ui-diagnostic.js";
 import { z } from "zod";
 
 const localRuntimeId = "local";
@@ -336,10 +337,7 @@ export default class RunCommand extends SeqlaneCommand {
               renderer.handleRuntimeSessionUi(notification);
               return;
             }
-            writeDiagnostic(
-              capabilities.stderr,
-              `Seqlane session UI: ${notification.browserUrl}`,
-            );
+            writeSessionUiDiagnostic(capabilities, notification.browserUrl);
           },
         });
         const result = await runnerClient.result;

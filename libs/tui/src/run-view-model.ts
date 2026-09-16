@@ -1,6 +1,7 @@
 import { validationResultSchema } from "@seqlane/core";
 import { projectNodeActivity } from "./run-activity.js";
 import { outputBytes, retainOutput } from "./run-output.js";
+import { withMapChanges } from "./run-node-map.js";
 import {
   maxEventSequence,
   indexPlanPlaceholders,
@@ -344,25 +345,35 @@ function updateNode(
   const current = view.nodes.get(invocationId);
   if (current === undefined) return view;
   const updated = update(current);
-  const nodes = new Map(view.nodes);
   const waitingDependencyLabels = updated.dependencyIds
-    .map((dependencyId) => nodes.get(dependencyId)?.label)
+    .map((dependencyId) => view.nodes.get(dependencyId)?.label)
     .filter((label): label is string => label !== undefined);
-  nodes.set(
-    invocationId,
+  const stored =
     updated.kind === "workflow" || updated.kind === "loop"
       ? { ...updated, waitingDependencyLabels }
       : {
           ...updated,
           waitingDependencyLabels,
           aggregate: aggregateForNode(updated),
-        },
+        };
+  const changes = new Map<string, RunNode>([[invocationId, stored]]);
+  const delta = aggregateDelta(
+    aggregateForNode(updated),
+    aggregateForNode(current),
   );
-  return applyAncestorAggregateDelta(
-    { ...view, nodes },
-    aggregateDelta(aggregateForNode(updated), aggregateForNode(current)),
-    updated.parentInvocationId,
-  );
+  let parentId = updated.parentInvocationId;
+  while (parentId !== undefined && !isEmptyAggregate(delta)) {
+    const parent = changes.get(parentId) ?? view.nodes.get(parentId);
+    if (parent === undefined) break;
+    if (parent.kind === "workflow" || parent.kind === "loop") {
+      changes.set(parentId, {
+        ...parent,
+        aggregate: addAggregate(parent.aggregate, delta),
+      });
+    }
+    parentId = parent.parentInvocationId;
+  }
+  return { ...view, nodes: withMapChanges(view.nodes, changes) };
 }
 
 function withState(
@@ -576,6 +587,12 @@ function reduceCreated(
       view.retainedDependencyEdgeCount + dependencyIds.length,
     omittedDependencyEdgeCount: view.omittedDependencyEdgeCount + omittedEdges,
   };
+  if (
+    view.childrenByParent.has(node.invocationId) ||
+    view.dependentsByDependency.has(node.invocationId)
+  ) {
+    return rebuildTopology(next, nodes);
+  }
   return applyAncestorAggregateDelta(
     next,
     aggregateForNode(node),

@@ -122,6 +122,29 @@ describe("human execution view model", () => {
     ]);
   });
 
+  it("reconciles children and dependencies admitted before their targets", () => {
+    const view = reduceRunEvents([
+      created("child", "Child", 0, { parentInvocationId: "parent" }),
+      created("dependent", "Dependent", 1, { dependencyIds: ["dependency"] }),
+      created("parent", "Parent", 0, { kind: "workflow" }),
+      created("dependency", "Dependency", 2),
+    ]);
+
+    expect(getRunVisibleRows(view).map(({ node }) => node.label)).toEqual([
+      "Parent",
+      "Child",
+      "Dependent",
+      "Dependency",
+    ]);
+    expect(view.nodes.get("parent")?.aggregate).toMatchObject({
+      total: 1,
+      queued: 1,
+    });
+    expect(view.nodes.get("dependent")?.waitingDependencyLabels).toEqual([
+      "Dependency",
+    ]);
+  });
+
   it("projects plan topology before runtime invocation setup", () => {
     const view = reduceRunEvents([
       {

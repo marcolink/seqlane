@@ -73,6 +73,22 @@ describe("CLI output mode selection", () => {
     ]);
   });
 
+  it.each([{ NO_COLOR: "1" }, { TERM: "dumb" }])(
+    "disables ANSI for terminal environment %j",
+    (env) => {
+      const stream = {
+        isTTY: true,
+        columns: 80,
+        rows: 24,
+        write: () => undefined,
+      } as unknown as NodeJS.WriteStream;
+      expect(
+        createOutputCapabilities({ stdout: stream, stderr: stream, env })
+          .supportsAnsi,
+      ).toBe(false);
+    },
+  );
+
   it("parses supported modes and preserves the CLI error for invalid values", () => {
     expect(["auto", "human", "ci"].map(parseOutputMode)).toEqual([
       "auto",

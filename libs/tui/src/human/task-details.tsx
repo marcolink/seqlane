@@ -4,7 +4,7 @@ import type { HumanDisplayCapabilities } from "./format.js";
 import { workTone } from "./theme.js";
 import { encodeTerminalField } from "../terminal-field.js";
 import { usageSummary } from "./usage.js";
-import { formatCIValidationDetails } from "../output-details.js";
+import { formatValidationDetails } from "../output-details.js";
 
 function contextSummary(node: RunNode): string {
   const parts: string[] = [];
@@ -57,7 +57,7 @@ export function HumanTaskDetails({
       node.validation.issues.length > 0 ||
       node.validation.evidence !== undefined)
   )
-    lines.push(formatCIValidationDetails(node.validation));
+    lines.push(formatValidationDetails(node.validation));
   if (node.output.truncated)
     lines.push(
       `[output truncated original_bytes=${node.output.originalBytes ?? 0} omitted_bytes=${node.output.omittedBytes ?? 0}]`,

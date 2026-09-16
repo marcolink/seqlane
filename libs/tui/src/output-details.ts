@@ -51,7 +51,7 @@ function formatIssues(validation: RunValidationState): string {
     .join("; ");
 }
 
-export function formatCIValidationDetails(
+export function formatValidationDetails(
   validation: RunValidationState,
 ): string {
   const evidence =

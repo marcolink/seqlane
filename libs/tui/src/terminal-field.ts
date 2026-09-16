@@ -6,7 +6,11 @@ export function encodeTerminalField(
   value: string,
   redactions: readonly string[] = [],
 ): string {
-  const plain = stripVTControlCharacters(redactOutput(value, redactions));
+  const normalized = stripVTControlCharacters(value);
+  const normalizedRedactions = redactions.map((redaction) =>
+    stripVTControlCharacters(redaction),
+  );
+  const plain = redactOutput(normalized, normalizedRedactions);
   // Explicitly encode C0/C1 and bidi/line controls not removed by ANSI stripping.
   return plain.replace(
     // eslint-disable-next-line no-control-regex

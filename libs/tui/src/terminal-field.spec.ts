@@ -9,6 +9,9 @@ describe("terminal fields", () => {
       ]),
     ).toBe("***safe");
   });
+  it("redacts a secret split by terminal controls", () => {
+    expect(encodeTerminalField("sec\u001b[31mret", ["secret"])).toBe("***");
+  });
   it.each([
     "\r",
     "\n",

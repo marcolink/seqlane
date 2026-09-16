@@ -231,6 +231,39 @@ describe("HumanApp", () => {
     expect(rendered.lastFrame()).toContain("omitted nodes=4");
   });
 
+  it("does not color the projection notice when ANSI is disabled", () => {
+    const view = reduceRunEvents(
+      [
+        {
+          type: "run.plan",
+          ...event,
+          plan: {
+            workflow: { id: "bounded" },
+            nodes: ["retained", "omitted"].map((id, index) => ({
+              planNodeId: id,
+              type: "task" as const,
+              taskId: id,
+              label: id,
+              siblingOrder: index,
+              dependsOn: [],
+            })),
+          },
+        },
+      ],
+      { limits: { nodes: 1 } },
+    );
+    const rendered = render(
+      <HumanApp
+        view={view}
+        capabilities={{ supportsAnsi: false, supportsUnicode: true, width: 80 }}
+        spinnerFrame={0}
+      />,
+    );
+    const frame = rendered.lastFrame() ?? "";
+    expect(frame).toContain("projection limit");
+    expect(frame).toBe(stripVTControlCharacters(frame));
+  });
+
   it("keeps omitted task completion counts as an explicit lower bound", () => {
     let view = reduceRunEvents(
       [
