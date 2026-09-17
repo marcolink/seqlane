@@ -6,7 +6,7 @@ graph from the CLI.
 
 Workflows can combine:
 
-- agent tasks that use a configured runtime;
+- agent tasks that use an explicitly selected adapter;
 - deterministic tasks that run in the Seqlane process; and
 - local process tasks that use direct executable arguments.
 
@@ -16,26 +16,19 @@ declares task dependencies, session use, and workspace coordination.
 > Seqlane is in active development. Breaking changes can occur while its
 > contracts and package boundaries evolve.
 
-## Workflow layer and runtime layer
+## Workflow layer and adapters
 
 Seqlane is the workflow layer. It defines typed tasks, task dependencies,
 schemas, sessions, workspace policy, and workflow outputs.
 
-Every run also selects a runtime profile. The runtime layer executes tasks and
-owns models, tools, permissions, processes, and adapter configuration.
+The workflow layer defines the work. An adapter supplies an agent integration's
+models, tools, permissions, processes, configuration, and authentication. A
+deterministic workflow needs no adapter. For agent work, select an adapter
+explicitly, for example `--adapter opencode`.
 
-The built-in `local` profile runs deterministic tasks without an adapter. An
-agent task needs a configured adapter runtime, such as OpenCode. The workflow
-does not contain the adapter URL or its credentials.
-
-Choose the runtime profile when you start a run or call the MCP server:
-
-```text
-workflow layer:  workflow.ts + runtime profile: local
-workflow layer:  workflow.ts + runtime profile: opencode
-```
-
-This separation keeps the same workflow portable across runtime environments.
+The workflow does not contain adapter connection details or credentials. The
+selected adapter owns its native configuration and authentication, so the same
+workflow remains portable across supported adapters.
 
 ## Current Mastra dependency
 
@@ -150,7 +143,7 @@ export default createFlow({ id: "local", input, output })
 
 ### `defineAgentTask`
 
-Use `defineAgentTask` when a configured runtime agent must produce the result.
+Use `defineAgentTask` when an agent must produce the result.
 The factory turns `goal`, `instructions`, and optional `references` into an
 agent execution. The task's output schema validates the structured result.
 
@@ -167,8 +160,8 @@ const summarizeTask = defineAgentTask({
 });
 ```
 
-Agent tasks require a runtime adapter, such as the OpenCode configuration shown
-in [Run an agent workflow](#run-an-agent-workflow).
+Agent tasks require an adapter, such as OpenCode, as shown in
+[Run an agent workflow](#run-an-agent-workflow).
 
 ### `defineShellTask`
 
@@ -299,9 +292,9 @@ seqlane plan ./workflow.ts
 
 Use `--output json` when another tool needs the Plan result.
 
-### Run a local-only workflow
+### Run a deterministic workflow
 
-The included local-only example does not need an agent runtime:
+The included deterministic example does not need an adapter:
 
 ```sh
 seqlane run ./workflows/local-only-example/workflow.ts \
@@ -310,53 +303,46 @@ seqlane run ./workflows/local-only-example/workflow.ts \
 
 ### Run an agent workflow
 
-`run` defaults to the `local` runtime profile. Local-only workflows do not need
-adapter configuration. Agent tasks need a configured runtime adapter and an
-agent runtime profile. The following example uses OpenCode. Codex is also
-supported through the private adapter configuration.
-
-Start OpenCode in one terminal:
-
-```sh
-opencode serve --hostname 127.0.0.1 --port 4096
-```
-
-Set the adapter configuration in the terminal that runs Seqlane:
-
-```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
-```
-
-For Codex, use an absolute executable path. The runtime supplies the workspace
-and starts one private app-server process for each run:
-
-```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"codex","executable":"/absolute/path/to/codex","networkAccess":false}'
-```
-
-Run the workflow in that terminal:
+Agent tasks require an explicit adapter. With OpenCode installed and
+authenticated using its normal configuration, run:
 
 ```sh
 seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime opencode
+  --adapter opencode
 ```
 
-For Codex, provide the runtime workspace explicitly:
+Seqlane starts and stops an adapter service it owns when the workflow requests
+agent work. Do not start OpenCode separately or configure a server URL for a
+standalone run. Missing OpenCode installation or authentication produces
+adapter-specific setup guidance.
+
+Use `--workspace <path>` when file-accessing tasks must operate outside the
+current directory:
 
 ```sh
 seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime codex \
+  --adapter opencode \
   --workspace "$PWD"
 ```
 
-The `--runtime` value is an opaque profile ID. It is not a URL, and the CLI
-does not infer the adapter from it. The adapter configuration belongs to the
-Seqlane process or operational server.
-
 Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
-source per run, and input files have a 1 MiB limit.
+source per run, and input files have a 1 MiB limit. Use `--input-file -` to
+read explicitly from standard input. Without an input flag, Seqlane validates
+`{}` against the workflow input schema.
+
+`run` accepts one explicit local file or installed package entrypoint. Local
+files can use `.ts`, `.mts`, `.js`, or `.mjs` and may select a named export with
+`#name`. Installed packages must expose an ESM-compatible entrypoint:
+
+```sh
+seqlane run ./workflow.ts#review --adapter opencode
+seqlane run @acme/workflows/review#review --adapter opencode
+```
+
+Catalog aliases such as `repository:review` and `user:review` are not valid
+`run` entrypoints.
 
 ## Choose an access pattern
 
@@ -366,15 +352,14 @@ Use one-shot CLI execution when one process needs one workflow result:
 seqlane run my-workflow.js --input '{}'
 ```
 
-The CLI starts a temporary loopback operational server for the run, prints the
-result, and closes the server. Add `--runtime opencode` and configure
-`SEQLANE_RUNTIME_ADAPTER_CONFIG` when the workflow contains agent tasks.
+The CLI executes the workflow in memory. It does not start a Seqlane HTTP
+server, connect to an operational host, create run history, or write a
+recording. Add `--adapter opencode` when the workflow requests agent work.
 
 Use the MCP access pattern when an MCP client, Studio, or multiple runs need a
 persistent server:
 
-Local-only workflows do not need adapter configuration. For agent workflows,
-set the adapter configuration before you start the server:
+For agent workflows, configure the adapter before you start the server:
 
 ```sh
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
@@ -388,13 +373,11 @@ is available as `run_repository:review` with arguments like these:
 
 ```json
 {
-  "input": { "topic": "Seqlane" },
-  "runtime": { "id": "opencode" }
+  "input": { "topic": "Seqlane" }
 }
 ```
 
-The MCP server owns adapter configuration. The `runtime.id` value selects the
-profile for a call; it does not contain the adapter URL.
+The MCP server owns adapter configuration and host lifecycle.
 
 ## Use the CLI
 
@@ -409,7 +392,7 @@ The main commands are:
 | `studio`             | Start Community Studio with an operational server. |
 | `status <run-id>`    | Read a run from an operational server.             |
 | `cancel <run-id>`    | Cancel a run on an operational server.             |
-| `replay <recording>` | Replay a local execution recording.                |
+| `replay <recording>` | Replay a compatible execution recording.           |
 
 Run `--help` on any command for all flags:
 
@@ -418,9 +401,9 @@ seqlane run --help
 seqlane serve --help
 ```
 
-Use `--server-url` to attach `run`, `status`, or `cancel` to an existing
-loopback server. Use `serve` when you need multiple runs, persistent run
-inspection, MCP access, or Studio access.
+Use `--server-url` with `status` or `cancel` to attach to an existing loopback
+server. Use `serve` when you need MCP access, persistent run inspection, or
+Studio access. `run` is always standalone and does not accept `--server-url`.
 
 ### Discover reusable workflows
 
@@ -459,15 +442,13 @@ The default server is `http://127.0.0.1:4111`. It stores Mastra run data in
 `.seqlane/mastra.db` and exposes the registered workflows through the local
 MCP endpoint.
 
-In another terminal, run a registered workflow and inspect its run:
+In another terminal, inspect or cancel a run managed by that host:
 
 ```sh
-seqlane run repository:review \
-  --input '{"topic":"Seqlane"}' \
-  --runtime opencode \
+seqlane status <run-id> \
   --server-url http://127.0.0.1:4111
 
-seqlane status <run-id> \
+seqlane cancel <run-id> \
   --server-url http://127.0.0.1:4111
 ```
 
@@ -479,7 +460,7 @@ seqlane studio \
 ```
 
 The server and Studio accept loopback HTTP URLs only. See the
-[CLI guide](apps/cli/README.md) for MCP, recording, output modes,
+[CLI guide](apps/cli/README.md) for MCP, output modes,
 server storage, and run-control details.
 
 ## Route oversized reads to context analysis
@@ -496,13 +477,13 @@ Build and run it with the normal Seqlane CLI:
 pnpm build
 pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts \
   --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
-  --runtime opencode \
+  --adapter opencode \
   --workspace "$PWD"
 ```
 
-Configure the selected Seqlane runtime, for example with
-`SEQLANE_RUNTIME_ADAPTER_CONFIG` for OpenCode or Codex. The workflow explicitly selects
-`openai/gpt-5.6-luna` with medium reasoning. Optional `zg`/zvec-grep and
+OpenCode must be installed and authenticated through its normal configuration.
+The workflow explicitly selects `openai/gpt-5.6-luna` with medium reasoning.
+Optional `zg`/zvec-grep and
 `ripwire` failures are reported as uncertainties.
 
 Evidence is bounded to a 32,000-byte retrieval corpus. Scan and corpus limits

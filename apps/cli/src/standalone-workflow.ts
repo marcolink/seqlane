@@ -269,14 +269,6 @@ async function createStandaloneModuleLoader(
           ? { ...resolved, format: "module" }
           : resolved;
       },
-      load(url, context, nextLoad) {
-        return nextLoad(
-          url,
-          isSourceModuleUrl(url, sourceModules)
-            ? { ...context, format: "module" }
-            : context,
-        );
-      },
     });
 
     return {

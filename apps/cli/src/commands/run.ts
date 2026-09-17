@@ -1,205 +1,87 @@
 import { Args, Flags } from "@oclif/core";
-import { isJsonValue, type JsonValue } from "@seqlane/core";
+import type { JsonValue } from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
-import type { ExecutionEventConsumer } from "../event-dispatcher.js";
-import { resolve } from "node:path";
-import { closeSync, openSync, readSync } from "node:fs";
+import { createExecutionEventBridge, startWorkflowRun } from "@seqlane/runtime";
+import { createSeqlanePlanSnapshot } from "@seqlane/runtime/workflow";
 import { createEventDispatcher } from "../event-dispatcher.js";
-import { loadRuntimeAdapterConfiguration } from "@seqlane/runtime/operational-host";
-import { createRecordingConsumer } from "../recording.js";
 import {
   createCliRenderer,
   createOutputCapabilities,
   resolveRendererMode,
 } from "../output.js";
 import { outputModeOptions, parseOutputMode } from "../output-mode.js";
-import { workflowRootsFromFlags } from "../workflow-roots.js";
 import {
-  discoverWorkflowDescriptors,
-  resolveWorkflowSelection,
-  type WorkflowRoots,
-} from "../workflow-discovery.js";
-import { isExplicitWorkflowReference } from "../workflow-reference.js";
+  prepareStandaloneWorkspace,
+  readStandaloneInput,
+} from "../standalone-execution-preparation.js";
+import { loadStandaloneWorkflow } from "../standalone-workflow.js";
+import { startStandaloneAdapter } from "../standalone-adapter.js";
 import {
-  runCommandResultSchema,
-  type RunCommandResult,
-} from "../cli-contracts.js";
-import { executeOperationalHostRun } from "../run-operational-host.js";
-import { closeRunResources } from "../run-lifecycle.js";
+  createRunCancellationResult,
+  createRunFailureResult,
+  createRunSuccessResult,
+} from "../run-result.js";
 import {
   contextualizeCommandError,
   errorMessage,
   SeqlaneCommand,
   writeDiagnostic,
 } from "../command.js";
-import { createRunFailureResult } from "../run-result.js";
-import { writeSessionUiDiagnostic } from "../session-ui-diagnostic.js";
-import { z } from "zod";
+import {
+  runCommandResultSchema,
+  type RunCommandResult,
+} from "../cli-contracts.js";
 
-const localRuntimeId = "local";
-const MAX_INPUT_FILE_BYTES = 1_048_576;
-
-function parseJsonInput(value: string): JsonValue {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value) as unknown;
-  } catch {
-    throw new Error("--input must be valid JSON");
-  }
-
-  if (!isJsonValue(parsed)) throw new Error("--input must be a JSON value");
-  return parsed;
-}
-
-const runInputSourceSchema = z.union([
-  z.strictObject({
-    input: z.string(),
-    inputFile: z.undefined().optional(),
-  }),
-  z.strictObject({
-    input: z.undefined().optional(),
-    inputFile: z.string(),
-  }),
-]);
-
-type RunInputSource = z.output<typeof runInputSourceSchema>;
-
-function parseRunInputSource(
-  inlineInput: string | undefined,
-  inputFile: string | undefined,
-): RunInputSource {
-  const result = runInputSourceSchema.safeParse({
-    input: inlineInput,
-    inputFile,
-  });
-  if (!result.success) {
-    throw new Error("specify exactly one of --input or --input-file");
-  }
-  return result.data;
-}
-
-function readJsonInput(
-  inlineInput: string | undefined,
-  inputFile: string | undefined,
-): string {
-  const source = parseRunInputSource(inlineInput, inputFile);
-  if (source.input !== undefined) return source.input;
-
-  let fileDescriptor: number | undefined;
-  try {
-    fileDescriptor = openSync(resolve(source.inputFile), "r");
-    const buffer = Buffer.allocUnsafe(MAX_INPUT_FILE_BYTES + 1);
-    let bytesRead = 0;
-    while (bytesRead < buffer.length) {
-      const result = readSync(
-        fileDescriptor,
-        buffer,
-        bytesRead,
-        buffer.length - bytesRead,
-        bytesRead,
-      );
-      if (result === 0) break;
-      bytesRead += result;
-    }
-    if (bytesRead > MAX_INPUT_FILE_BYTES) {
-      throw new Error(`file exceeds the ${MAX_INPUT_FILE_BYTES}-byte limit`);
-    }
-    return buffer.subarray(0, bytesRead).toString("utf8");
-  } catch (error) {
-    throw new Error(`--input-file could not be read: ${errorMessage(error)}`, {
-      cause: error,
-    });
-  } finally {
-    if (fileDescriptor !== undefined) closeSync(fileDescriptor);
-  }
-}
-
-export function createRunRequest(
-  workflow: string,
-  input: string,
-  runtime: string | undefined,
-  workspace: string | undefined,
+function standaloneRequest(
+  workflow: import("../standalone-workflow.js").LoadedStandaloneWorkflow,
+  input: JsonValue,
+  workspace: string,
   dryRun: boolean,
-  roots: WorkflowRoots,
 ): RunRequest {
-  const workflows = isExplicitWorkflowReference(workflow)
-    ? []
-    : discoverWorkflowDescriptors(roots);
   return {
     type: "run.start",
-    workflow: resolveWorkflowSelection(workflow, workflows).reference,
-    input: parseJsonInput(input),
-    runtime: {
-      id: runtime ?? localRuntimeId,
-      ...(workspace === undefined ? {} : { workspace }),
-    },
+    workflow: workflow.reference,
+    input,
+    // Retained only for the private result envelope until that protocol is retired.
+    runtime: { id: "standalone", workspace },
     ...(dryRun ? { dryRun: true } : {}),
   };
 }
 
 export default class RunCommand extends SeqlaneCommand {
   static override enableJsonFlag = true;
-  static override description = "Run one selected workflow in a fresh runner";
+  static override description = "Run one explicit workflow entrypoint";
 
   static override examples = [
-    '<%= config.bin %> run ./workflows/minimal-example/workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local',
-    '<%= config.bin %> run repository:review --input \'{"topic":"Seqlane"}\'',
+    '<%= config.bin %> run ./workflows/local-only-example/workflow.ts --input \'{"value":"local"}\'',
+    "<%= config.bin %> run @acme/workflows/review#review --adapter opencode",
   ];
 
   static override args = {
     workflow: Args.string({
-      description:
-        "qualified or unique workflow name, or direct file/module reference",
+      description: "local file or installed package workflow entrypoint",
       required: true,
     }),
   };
 
   static override flags = {
-    input: Flags.string({
-      char: "i",
-      description: "JSON workflow input",
-    }),
+    input: Flags.string({ char: "i", description: "JSON workflow input" }),
     "input-file": Flags.string({
-      description: "Path to a JSON workflow input file (maximum 1 MiB)",
-    }),
-    runtime: Flags.string({
-      description: "Generic runtime profile identifier",
+      description:
+        "Path to JSON input, or - to read JSON from stdin (maximum 1 MiB)",
     }),
     workspace: Flags.string({
       description: "Workspace path for file-accessing tasks",
     }),
+    adapter: Flags.string({ description: "Native adapter identifier" }),
     output: Flags.string({
       description: "Execution output mode",
       options: outputModeOptions,
       default: "auto",
       exclusive: ["json"],
     }),
-    record: Flags.string({
-      description: "Write bounded canonical execution events to a new file",
-    }),
-    "server-url": Flags.string({
-      description: "Existing operational server URL",
-    }),
-    hostname: Flags.string({
-      description: "Loopback hostname for an owned operational host",
-      default: "127.0.0.1",
-    }),
-    port: Flags.integer({
-      description: "Loopback port for an owned operational host",
-      default: 0,
-    }),
-    "storage-url": Flags.string({
-      description: "Mastra LibSQL storage URL for an owned host",
-      default: "file:./.seqlane/mastra.db",
-    }),
     dry: Flags.boolean({
       description: "Print the calculated Plan without executing workflow tasks",
-    }),
-    "repository-root": Flags.string({
-      description: "Repository workflow descriptor root",
-    }),
-    "user-root": Flags.string({
-      description: "User workflow descriptor root",
     }),
   };
 
@@ -213,39 +95,11 @@ export default class RunCommand extends SeqlaneCommand {
 
   async run(): Promise<RunCommandResult | void> {
     const { args, flags } = await this.parse(RunCommand);
-    const sourceWorkflowReference = args.workflow;
     const jsonMode = this.jsonEnabled();
-    if (jsonMode && flags.dry) {
+    if (jsonMode && flags.dry)
       this.error("--json cannot be combined with --dry", { exit: 1 });
-    }
-    let request: RunRequest;
-    let adapterConfiguration: unknown;
 
-    try {
-      request = createRunRequest(
-        args.workflow,
-        readJsonInput(flags.input, flags["input-file"]),
-        flags.runtime,
-        flags.workspace,
-        flags.dry,
-        workflowRootsFromFlags(flags),
-      );
-      if (
-        flags["server-url"] === undefined &&
-        request.runtime.id !== localRuntimeId &&
-        request.runtime.id !== "test-fixture"
-      ) {
-        adapterConfiguration = loadRuntimeAdapterConfiguration();
-      }
-    } catch (error) {
-      this.error(contextualizeCommandError(errorMessage(error), error), {
-        exit: 1,
-      });
-    }
-
-    let runnerClient: import("../runner-client.js").RunnerClient | undefined;
-    const baseCapabilities = createOutputCapabilities();
-    const capabilities = baseCapabilities;
+    const capabilities = createOutputCapabilities();
     const terminalMode =
       jsonMode || flags.dry
         ? undefined
@@ -258,150 +112,139 @@ export default class RunCommand extends SeqlaneCommand {
         exit: 1,
       });
     }
-    let recordingConsumer: ExecutionEventConsumer | undefined;
-    let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
+
+    let loaded: Awaited<ReturnType<typeof loadStandaloneWorkflow>> | undefined;
     let dispatcher: ReturnType<typeof createEventDispatcher> | undefined;
-    let operationalHostOwnsResources = false;
-
+    let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
+    const cancellation = new AbortController();
+    let activeRun: ReturnType<typeof startWorkflowRun> | undefined;
+    let cancellationSignal: "SIGINT" | "SIGTERM" | undefined;
+    const cancel = (signal: "SIGINT" | "SIGTERM"): void => {
+      if (cancellation.signal.aborted) {
+        process.exitCode = 130;
+        return;
+      }
+      cancellationSignal = signal;
+      cancellation.abort();
+      void activeRun?.cancel();
+    };
+    const onSigint = (): void => cancel("SIGINT");
+    const onSigterm = (): void => cancel("SIGTERM");
+    process.once("SIGINT", onSigint);
+    process.once("SIGTERM", onSigterm);
     try {
-      if (flags.record !== undefined) {
-        try {
-          recordingConsumer = createRecordingConsumer(
-            flags.record,
-            request.workflow.id,
-          );
-        } catch (error) {
-          this.error(
-            contextualizeCommandError(
-              `Could not create recording: ${errorMessage(error)}`,
-              error,
-            ),
-            { exit: 1 },
-          );
-        }
-        writeDiagnostic(
-          capabilities.stderr,
-          `Seqlane recording: bounded execution data is written to disk at ${flags.record}\n`,
+      const callerDirectory = process.cwd();
+      const input = await readStandaloneInput({
+        callerDirectory,
+        input: flags.input,
+        inputFile: flags["input-file"],
+        ...(flags["input-file"] === "-" ? { stdin: process.stdin } : {}),
+      });
+      const workspace = await prepareStandaloneWorkspace(
+        callerDirectory,
+        flags.workspace,
+      );
+      loaded = await loadStandaloneWorkflow(args.workflow, callerDirectory);
+      const request = standaloneRequest(loaded, input, workspace, flags.dry);
+
+      if (flags.dry) {
+        capabilities.stdout.write(
+          JSON.stringify(createSeqlanePlanSnapshot(loaded.plan), null, 2) +
+            "\n",
         );
+        process.exitCode = 0;
+        return;
       }
 
-      try {
-        renderer =
-          terminalMode === undefined
-            ? undefined
-            : createCliRenderer(terminalMode, capabilities).renderer;
-      } catch (error) {
-        this.error(contextualizeCommandError(errorMessage(error), error), {
-          exit: 1,
-        });
-      }
-
-      const outputConsumer: ExecutionEventConsumer = {
-        consume: (event) => {
-          try {
-            if (flags.dry) {
-              if (event.type === "run.plan") {
-                capabilities.stdout.write(
-                  JSON.stringify(event.plan, null, 2) + "\n",
-                );
-              }
-              return;
-            }
-            renderer?.handle(event);
-          } catch (error) {
-            writeDiagnostic(
-              capabilities.stderr,
-              "seqlane output error: " + errorMessage(error),
-            );
-          }
-        },
-        flush: async () => undefined,
-        close: async () => undefined,
-      };
+      renderer =
+        terminalMode === undefined
+          ? undefined
+          : createCliRenderer(terminalMode, capabilities).renderer;
       dispatcher = createEventDispatcher(
         [
-          { name: "output", consumer: outputConsumer },
-          ...(recordingConsumer === undefined
-            ? []
-            : [{ name: "recording", consumer: recordingConsumer }]),
+          {
+            name: "output",
+            consumer: {
+              consume: (event) => renderer?.handle(event),
+              flush: async () => undefined,
+              close: async () => undefined,
+            },
+          },
         ],
         {
           onDiagnostic: (message) =>
             writeDiagnostic(capabilities.stderr, message),
         },
       );
-
-      if (flags.dry) {
-        // Dry runs retain the legacy Plan-producing runner path. Native JSON
-        // output is rejected above, so this branch must never return a run
-        // result envelope through Oclif's JSON serializer.
-        const { launchRunner } = await import("../runner-client.js");
-        runnerClient = launchRunner(request, {
-          onExecutionEvent: (event) => dispatcher?.consume(event),
-          onRuntimeSessionUiAvailable: (notification) => {
-            if (renderer?.mode === "human") return;
-            if (renderer?.handleRuntimeSessionUi !== undefined) {
-              renderer.handleRuntimeSessionUi(notification);
-              return;
-            }
-            writeSessionUiDiagnostic(capabilities, notification.browserUrl);
-          },
-        });
-        const result = await runnerClient.result;
-        if ("failure" in result) {
-          if (renderer?.handleRunnerFailure !== undefined) {
-            renderer.handleRunnerFailure(result.failure);
-          } else {
-            writeDiagnostic(
-              capabilities.stderr,
-              "seqlane runner error: " + result.failure.message,
-            );
-          }
-        }
-        process.exitCode = result.status;
-        return;
-      }
-
-      // Transfer ownership before entering the operational host. From this
-      // point, its finally block closes every acquired run resource exactly
-      // once, including setup and cancellation failures.
-      operationalHostOwnsResources = true;
-      const run = await executeOperationalHostRun({
-        request,
-        sourceWorkflowReference,
-        roots: workflowRootsFromFlags(flags),
-        serverUrl: flags["server-url"],
-        hostname: flags.hostname,
-        port: flags.port,
-        storageUrl: flags["storage-url"],
-        adapterConfiguration,
-        jsonMode,
-        renderer,
-        capabilities,
-        dispatcher,
+      const events = createExecutionEventBridge(async (event) => {
+        dispatcher?.consume(event);
       });
-      for (const error of run.cleanupErrors) {
-        writeDiagnostic(
-          capabilities.stderr,
-          "seqlane cleanup error: " + errorMessage(error),
+      const startedAt = new Date().toISOString();
+      const run = (activeRun = startWorkflowRun({
+        workflow: loaded,
+        input,
+        standalone: {
+          workspace,
+          adapter: flags.adapter,
+          startAdapter: startStandaloneAdapter,
+        },
+        events,
+        signal: cancellation.signal,
+        onDiagnostic: (message) =>
+          writeDiagnostic(capabilities.stderr, message),
+      }));
+      const outcome = await run.outcome;
+      await events.flush();
+      await dispatcher.flush();
+      if (outcome.status === "succeeded") {
+        const result = createRunSuccessResult(
+          request,
+          args.workflow,
+          { workId: run.workId, runId: run.runId, startedAt },
+          outcome.result,
         );
+        process.exitCode = 0;
+        return jsonMode ? result : undefined;
       }
-      process.exitCode = run.exitStatus;
-      return jsonMode ? run.commandResult : undefined;
+      if (outcome.status === "cancelled") {
+        const result = createRunCancellationResult(
+          request,
+          args.workflow,
+          { workId: run.workId, runId: run.runId, startedAt },
+          cancellationSignal === undefined ? "runtime_cancelled" : "signal",
+          cancellationSignal === undefined
+            ? "Run cancelled by the runtime"
+            : `Run cancelled after ${cancellationSignal}`,
+        );
+        process.exitCode = 130;
+        return jsonMode ? result : undefined;
+      }
+      const error =
+        outcome.status === "failed"
+          ? outcome.error
+          : new Error("Run cancelled");
+      const result = createRunFailureResult(
+        error,
+        "execution",
+        request,
+        args.workflow,
+        { workId: run.workId, runId: run.runId, startedAt },
+      );
+      process.exitCode = 1;
+      if (!jsonMode) writeDiagnostic(capabilities.stderr, errorMessage(error));
+      return jsonMode ? result : undefined;
+    } catch (error) {
+      this.error(contextualizeCommandError(errorMessage(error), error), {
+        exit: 1,
+      });
     } finally {
-      if (!operationalHostOwnsResources) {
-        const cleanupErrors = await closeRunResources({
-          dispatcher,
-          recordingConsumer,
-          closeClient: () => runnerClient?.close(),
-          finishRenderer: () => renderer?.finish(),
-        });
-        for (const error of cleanupErrors) {
-          writeDiagnostic(
-            capabilities.stderr,
-            "seqlane cleanup error: " + errorMessage(error),
-          );
-        }
+      process.removeListener("SIGINT", onSigint);
+      process.removeListener("SIGTERM", onSigterm);
+      try {
+        await dispatcher?.close();
+        await renderer?.finish();
+      } finally {
+        await loaded?.dispose();
       }
     }
   }

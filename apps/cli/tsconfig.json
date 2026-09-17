@@ -11,6 +11,9 @@
   "exclude": ["src/**/*.spec.ts"],
   "references": [
     {
+      "path": "../../libs/opencode"
+    },
+    {
       "path": "../../libs/runtime"
     },
     {
@@ -23,7 +26,13 @@
       "path": "../../libs/core"
     },
     {
+      "path": "../../workflows/resolve-merge-conflicts"
+    },
+    {
       "path": "../../libs/fixtures"
+    },
+    {
+      "path": "../../libs/action-code-review"
     }
   ]
 }

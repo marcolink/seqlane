@@ -1,4 +1,3 @@
-import { RuntimeError } from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
 import {
   copyCommandErrorMetadata,
@@ -118,8 +117,4 @@ export function createRunFailureResult(
           ...runTiming(canonicalIdentity.startedAt, finishedAt),
         }),
   });
-}
-
-export function executionEventError(error: unknown): RuntimeError {
-  return new RuntimeError(remoteError(error));
 }

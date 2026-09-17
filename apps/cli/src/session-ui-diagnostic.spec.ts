@@ -1,4 +1,4 @@
-// @test-scope ./session-ui-diagnostic.ts ./commands/run.ts ./run-operational-host.ts
+// @test-scope ./session-ui-diagnostic.ts
 
 import { describe, expect, it, vi } from "vitest";
 import { writeSessionUiDiagnostic } from "./session-ui-diagnostic.js";

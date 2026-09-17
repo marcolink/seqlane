@@ -239,6 +239,9 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:../../libs/core
+      '@seqlane/opencode-adapter':
+        specifier: workspace:*
+        version: link:../../libs/opencode
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../../libs/protocol
