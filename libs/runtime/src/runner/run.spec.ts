@@ -2,7 +2,7 @@
 // @test-scope ./main.ts
 // @test-scope ../runtime/plan/agent-work.ts
 import { EventEmitter } from "node:events";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { decodeSeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
@@ -12,12 +12,49 @@ import {
   type RunnerRunControl,
 } from "./run.js";
 import { bindRunnerCancellationSignals, startRunnerProcess } from "./main.js";
-import type { TaskDefinitionRegistry } from "@seqlane/core";
+import { createFlow, type TaskDefinitionRegistry } from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
 import type {
   ResolvedExecutorSession,
   SessionResolver,
 } from "../runtime/session/session-resolution.js";
+import type { LoadedWorkflow } from "./workflow/load-workflow.js";
+
+const loadWorkflowMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./workflow/load-workflow.js", () => ({
+  loadWorkflow: loadWorkflowMock,
+}));
+
+afterEach(() => {
+  loadWorkflowMock.mockReset();
+});
+
+function useLoadedWorkflow(
+  plan: LoadedWorkflow["plan"],
+  taskDefinitions: TaskDefinitionRegistry = new Map(),
+): void {
+  const schema = z.unknown();
+  const workflow = createFlow({
+    id: plan.workflow.id,
+    input: schema,
+    output: schema,
+  })
+    .output(() => null)
+    .define();
+  loadWorkflowMock.mockResolvedValue({
+    reference: {
+      id: plan.workflow.id,
+      moduleSpecifier: "test:workflow",
+      exportName: "workflow",
+    },
+    workflow,
+    plan,
+    taskDefinitions,
+    validatorDefinitions: new Map(),
+    workflowDefinitions: new Map(),
+  } satisfies LoadedWorkflow);
+}
 
 function sharedSessionResolver(
   executor: ResolvedExecutorSession["executor"],
@@ -86,18 +123,16 @@ describe("seqlane runner entry point", () => {
   });
 
   it("aborts the setup signal passed to the runner-execution factory", async () => {
-    const moduleSource = `
-      export const workflow = {
-        workflow: { id: "setup-cancellation" },
-        nodes: [],
-        output: null,
-      };
-    `;
+    useLoadedWorkflow({
+      workflow: { id: "setup-cancellation" },
+      nodes: [],
+      output: null,
+    });
     const request: RunRequest = {
       type: "run.start",
       workflow: {
         id: "setup-cancellation",
-        moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+        moduleSpecifier: "test:setup-cancellation",
         exportName: "workflow",
       },
       input: null,
@@ -162,18 +197,16 @@ describe("seqlane runner entry point", () => {
   });
 
   it("passes the workflow run identity into runtime profile resolution", async () => {
-    const moduleSource = `
-      export const workflow = {
-        workflow: { id: "run-identity" },
-        nodes: [],
-        output: null,
-      };
-    `;
+    useLoadedWorkflow({
+      workflow: { id: "run-identity" },
+      nodes: [],
+      output: null,
+    });
     const request: RunRequest = {
       type: "run.start",
       workflow: {
         id: "run-identity",
-        moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+        moduleSpecifier: "test:run-identity",
         exportName: "workflow",
       },
       input: null,
@@ -212,18 +245,16 @@ describe("seqlane runner entry point", () => {
   });
 
   it("closes a prepared runtime when cancellation arrives before execution", async () => {
-    const moduleSource = `
-      export const workflow = {
-        workflow: { id: "cancel-before-execution" },
-        nodes: [],
-        output: null,
-      };
-    `;
+    useLoadedWorkflow({
+      workflow: { id: "cancel-before-execution" },
+      nodes: [],
+      output: null,
+    });
     const request: RunRequest = {
       type: "run.start",
       workflow: {
         id: "cancel-before-execution",
-        moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+        moduleSpecifier: "test:cancel-before-execution",
         exportName: "workflow",
       },
       input: null,
@@ -261,25 +292,25 @@ describe("seqlane runner entry point", () => {
   });
 
   it("emits one Plan event before invocation topology", async () => {
-    const moduleSource = `
-      export const workflow = {
-        workflow: { id: "plan-run", version: "1" },
-        nodes: [{
-          type: "task",
+    const plan = {
+      workflow: { id: "plan-run", version: "1" },
+      nodes: [
+        {
+          type: "task" as const,
           nodeId: "task:1",
           taskId: "task",
-          workspace: "shared",
+          workspace: "shared" as const,
           input: { secret: "must-not-cross-runner" },
-          dependsOn: []
-        }],
-        output: { type: "ref", nodeId: "task:1", path: ["output"] }
-      };
-    `;
+          dependsOn: [],
+        },
+      ],
+      output: { type: "ref" as const, nodeId: "task:1", path: ["output"] },
+    };
     const request: RunRequest = {
       type: "run.start",
       workflow: {
         id: "plan-run",
-        moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+        moduleSpecifier: "test:plan-run",
         exportName: "workflow",
       },
       input: null,
@@ -306,6 +337,7 @@ describe("seqlane runner entry point", () => {
         return { result: "done" };
       },
     };
+    useLoadedWorkflow(plan, taskDefinitions);
 
     await startRun(
       host,
@@ -387,21 +419,21 @@ describe("seqlane runner entry point", () => {
   });
 
   it("emits the calculated Plan without resolving runtime execution in dry-run mode", async () => {
-    const moduleSource = `
-      export const workflow = {
-        workflow: { id: "dry-run" },
-        nodes: [{
+    useLoadedWorkflow({
+      workflow: { id: "dry-run" },
+      nodes: [
+        {
           type: "task",
           nodeId: "task:1",
           taskId: "task",
           workspace: "shared",
           session: { type: "isolated" },
           input: {},
-          dependsOn: []
-        }],
-        output: { type: "ref", nodeId: "task:1", path: [] }
-      };
-    `;
+          dependsOn: [],
+        },
+      ],
+      output: { type: "ref", nodeId: "task:1", path: [] },
+    });
     const host = new FakeRunnerHost();
     let runtimeResolved = false;
 
@@ -411,7 +443,7 @@ describe("seqlane runner entry point", () => {
         type: "run.start",
         workflow: {
           id: "dry-run",
-          moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+          moduleSpecifier: "test:dry-run",
           exportName: "workflow",
         },
         input: null,
@@ -450,25 +482,25 @@ describe("seqlane runner entry point", () => {
   });
 
   it("passes a resolved workspace resource to a write invocation", async () => {
-    const moduleSource = `
-      export const workflow = {
-        workflow: { id: "write-workspace" },
-        nodes: [{
-          type: "task",
+    const plan = {
+      workflow: { id: "write-workspace" },
+      nodes: [
+        {
+          type: "task" as const,
           nodeId: "task:1",
           taskId: "task",
-          workspace: "exclusive",
+          workspace: "exclusive" as const,
           input: {},
-          dependsOn: []
-        }],
-        output: { type: "ref", nodeId: "task:1", path: [] }
-      };
-    `;
+          dependsOn: [],
+        },
+      ],
+      output: { type: "ref" as const, nodeId: "task:1", path: [] },
+    };
     const request: RunRequest = {
       type: "run.start",
       workflow: {
         id: "write-workspace",
-        moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+        moduleSpecifier: "test:write-workspace",
         exportName: "workflow",
       },
       input: null,
@@ -494,6 +526,7 @@ describe("seqlane runner entry point", () => {
       },
     };
     const host = new FakeRunnerHost();
+    useLoadedWorkflow(plan, taskDefinitions);
 
     await startRun(
       host,
@@ -519,21 +552,21 @@ describe("seqlane runner entry point", () => {
   });
 
   it("does not preflight task permissions before resolving a runtime session", async () => {
-    const moduleSource = `
-      export const workflow = {
-        workflow: { id: "unsupported-read" },
-        nodes: [{
-          type: "task",
+    const plan = {
+      workflow: { id: "unsupported-read" },
+      nodes: [
+        {
+          type: "task" as const,
           nodeId: "task:1",
           taskId: "task",
-          workspace: "shared",
-          session: { type: "isolated" },
+          workspace: "shared" as const,
+          session: { type: "isolated" as const },
           input: {},
-          dependsOn: []
-        }],
-        output: { type: "ref", nodeId: "task:1", path: [] }
-      };
-    `;
+          dependsOn: [],
+        },
+      ],
+      output: { type: "ref" as const, nodeId: "task:1", path: [] },
+    };
     const taskDefinitions: TaskDefinitionRegistry = new Map([
       [
         "task",
@@ -549,6 +582,7 @@ describe("seqlane runner entry point", () => {
     const executor = { execute: async () => ({ result: "done" }) };
     let sessionResolved = false;
     const host = new FakeRunnerHost();
+    useLoadedWorkflow(plan, taskDefinitions);
 
     await startRun(
       host,
@@ -556,7 +590,7 @@ describe("seqlane runner entry point", () => {
         type: "run.start",
         workflow: {
           id: "unsupported-read",
-          moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+          moduleSpecifier: "test:unsupported-read",
           exportName: "workflow",
         },
         input: null,
@@ -585,21 +619,21 @@ describe("seqlane runner entry point", () => {
   });
 
   it("resolves an invocation session before the executor runs", async () => {
-    const moduleSource = `
-      export const workflow = {
-        workflow: { id: "session-resolution" },
-        nodes: [{
-          type: "task",
+    const plan = {
+      workflow: { id: "session-resolution" },
+      nodes: [
+        {
+          type: "task" as const,
           nodeId: "task:1",
           taskId: "task",
-          workspace: "shared",
-          session: { type: "isolated" },
+          workspace: "shared" as const,
+          session: { type: "isolated" as const },
           input: {},
-          dependsOn: []
-        }],
-        output: { type: "ref", nodeId: "task:1", path: [] }
-      };
-    `;
+          dependsOn: [],
+        },
+      ],
+      output: { type: "ref" as const, nodeId: "task:1", path: [] },
+    };
     const taskDefinitions: TaskDefinitionRegistry = new Map([
       [
         "task",
@@ -616,6 +650,7 @@ describe("seqlane runner entry point", () => {
     const control: RunnerRunControl = { cancellationRequested: false };
     let resolved = false;
     let executed = false;
+    useLoadedWorkflow(plan, taskDefinitions);
 
     await startRun(
       host,
@@ -623,7 +658,7 @@ describe("seqlane runner entry point", () => {
         type: "run.start",
         workflow: {
           id: "session-resolution",
-          moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+          moduleSpecifier: "test:session-resolution",
           exportName: "workflow",
         },
         input: null,
@@ -668,20 +703,7 @@ describe("seqlane runner entry point", () => {
   });
 
   it("does not emit a fabricated Plan event when loading fails", async () => {
-    const moduleSource = `
-      export const workflow = {
-        workflow: { id: "invalid-run" },
-        nodes: [{
-          type: "task",
-          nodeId: "task:1",
-          taskId: "task",
-          workspace: "shared",
-          input: null,
-          dependsOn: ["task:1"]
-        }],
-        output: { type: "ref", nodeId: "task:1", path: ["output"] }
-      };
-    `;
+    loadWorkflowMock.mockRejectedValue(new Error("workflow loading failed"));
     const host = new FakeRunnerHost();
     const control: RunnerRunControl = { cancellationRequested: false };
 
@@ -691,7 +713,7 @@ describe("seqlane runner entry point", () => {
         type: "run.start",
         workflow: {
           id: "invalid-run",
-          moduleSpecifier: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+          moduleSpecifier: "test:invalid-run",
           exportName: "workflow",
         },
         input: null,

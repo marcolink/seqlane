@@ -124,7 +124,6 @@ export async function executeOperationalHostRun(
         ? await startOwnedOperationalHost({
             roots,
             workflow: request.workflow,
-            workflowInput: request.input,
             host: hostname,
             port,
             storageUrl,

@@ -294,8 +294,7 @@ Compile a workflow without starting a runtime, calling a model, or running a
 task:
 
 ```sh
-seqlane plan ./workflow.ts \
-  --input '{"topic":"Seqlane"}'
+seqlane plan ./workflow.ts
 ```
 
 Use `--output json` when another tool needs the Plan result.

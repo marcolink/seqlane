@@ -5,34 +5,33 @@ import { loadWorkflow } from "./load-workflow.js";
 const validReference: WorkflowReference = {
   id: "renovate",
   moduleSpecifier: "@seqlane/fixtures/renovate-workflow",
-  exportName: "createRenovatePlan",
+  exportName: "renovateWorkflow",
 };
 
 describe("loadWorkflow", () => {
-  it("imports and builds a Plan from the selected export", async () => {
-    const loaded = await loadWorkflow(validReference, { dependency: "demo" });
+  it("imports and builds the selected authored workflow", async () => {
+    const loaded = await loadWorkflow(validReference);
 
     expect(loaded.reference).toEqual(validReference);
     expect(loaded.plan.workflow.id).toBe("fix-renovate-update");
+    expect(loaded.workflow.id).toBe("fix-renovate-update");
+    expect(loaded.workflowDefinitions).toBeInstanceOf(Map);
   });
 
   it("rejects a missing export", async () => {
     await expect(
-      loadWorkflow({ ...validReference, exportName: "missing" }, null),
+      loadWorkflow({ ...validReference, exportName: "missing" }),
     ).rejects.toThrow('does not export "missing"');
   });
 
-  it("rejects an export that does not build a valid Plan", async () => {
+  it("rejects an export that is not an authored workflow", async () => {
     await expect(
-      loadWorkflow(
-        {
-          ...validReference,
-          moduleSpecifier: "data:text/javascript,export const invalid = 42",
-          exportName: "invalid",
-        },
-        null,
-      ),
-    ).rejects.toThrow("must be a Plan or a Plan factory");
+      loadWorkflow({
+        ...validReference,
+        moduleSpecifier: "data:text/javascript,export const invalid = 42",
+        exportName: "invalid",
+      }),
+    ).rejects.toThrow("must be an authored Seqlane workflow definition");
   });
 
   it("builds an authored Flow and retains its task schemas", async () => {
@@ -64,7 +63,7 @@ describe("loadWorkflow", () => {
       exportName: "authored",
     };
 
-    const loaded = await loadWorkflow(reference, { value: "demo" });
+    const loaded = await loadWorkflow(reference);
 
     expect(loaded.plan.nodes).toMatchObject([
       {
@@ -81,9 +80,9 @@ describe("loadWorkflow", () => {
         path: ["output", "value"],
       },
     });
-    expect(loaded.taskDefinitions?.get("authored-task")).toBeDefined();
-    expect(loaded.definition?.input).toBeDefined();
-    expect(loaded.definition?.output).toBeDefined();
+    expect(loaded.taskDefinitions.get("authored-task")).toBeDefined();
+    expect(loaded.workflow.input).toBeDefined();
+    expect(loaded.workflow.output).toBeDefined();
   });
 
   it("validates and retains authored nested workflows", async () => {
@@ -108,56 +107,38 @@ describe("loadWorkflow", () => {
         .output(({ tasks }) => tasks.child.output)
         .define();
     `;
-    const loaded = await loadWorkflow(
-      {
-        id: "nested-loader-parent",
-        moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
-        exportName: "parent",
-      },
-      { value: 1 },
-    );
+    const loaded = await loadWorkflow({
+      id: "nested-loader-parent",
+      moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
+      exportName: "parent",
+    });
 
-    expect(loaded.built.workflowDefinitions.has("nested-loader-child")).toBe(
-      true,
-    );
+    expect(loaded.workflowDefinitions.has("nested-loader-child")).toBe(true);
     expect(loaded.plan.nodes).toMatchObject([
       { type: "workflow", workflowId: "nested-loader-child" },
     ]);
   });
 
-  it("rejects an unsupported Plan node before validation or compilation", async () => {
-    const source = `export const invalid = ${JSON.stringify({
-      workflow: { id: "invalid" },
-      nodes: [{ type: "branch", nodeId: "branch:1", dependsOn: [] }],
-      output: null,
-    })};`;
+  it("rejects a raw Plan export", async () => {
+    const source = `export const invalid = ${JSON.stringify({ workflow: { id: "invalid" }, nodes: [], output: null })};`;
     await expect(
-      loadWorkflow(
-        {
-          ...validReference,
-          moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
-          exportName: "invalid",
-        },
-        null,
-      ),
-    ).rejects.toThrow("Plan");
+      loadWorkflow({
+        ...validReference,
+        moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
+        exportName: "invalid",
+      }),
+    ).rejects.toThrow("must be an authored Seqlane workflow definition");
   });
 
-  it("rejects malformed Plan bindings before runtime validation", async () => {
-    const source = `export const invalid = ${JSON.stringify({
-      workflow: { id: "invalid" },
-      nodes: [],
-      output: { type: "ref", nodeId: "missing", path: "not-an-array" },
-    })};`;
+  it("rejects a Plan factory export", async () => {
+    const source =
+      "export const invalid = () => ({ workflow: { id: 'invalid' }, nodes: [], output: null });";
     await expect(
-      loadWorkflow(
-        {
-          ...validReference,
-          moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
-          exportName: "invalid",
-        },
-        null,
-      ),
-    ).rejects.toThrow("Plan");
+      loadWorkflow({
+        ...validReference,
+        moduleSpecifier: `data:text/javascript,${encodeURIComponent(source)}`,
+        exportName: "invalid",
+      }),
+    ).rejects.toThrow("must be an authored Seqlane workflow definition");
   });
 });
