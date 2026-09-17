@@ -430,4 +430,32 @@ describe("standalone workflow preparation", () => {
       prepareStandaloneWorkspace(project, "input.json"),
     ).rejects.toThrow("must be a directory");
   });
+
+  it("cancels a stalled explicit stdin read", async () => {
+    const controller = new AbortController();
+    let returned = false;
+    const stdin: AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () =>
+            await new Promise<IteratorResult<Uint8Array>>(() => undefined),
+          return: async () => {
+            returned = true;
+            return { done: true, value: undefined };
+          },
+        };
+      },
+    };
+    const reading = readStandaloneInput({
+      callerDirectory: process.cwd(),
+      inputFile: "-",
+      signal: controller.signal,
+      stdin,
+    });
+
+    controller.abort();
+
+    await expect(reading).rejects.toMatchObject({ name: "AbortError" });
+    expect(returned).toBe(true);
+  });
 });

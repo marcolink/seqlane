@@ -13,6 +13,8 @@ import type {
 
 export interface OpenCodeConnection {
   readonly url: string;
+  /** Private HTTP authorization for an owned OpenCode service. */
+  readonly authorization?: string;
   /** Origin of a detected OpenCode web UI for this runtime. */
   readonly browserUiUrl?: string;
   readonly workspace?: string;

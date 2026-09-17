@@ -109,6 +109,12 @@ class BoundedExecutionEventQueue {
   }
 }
 
+export class NonSerializableRunOutputError extends TypeError {
+  constructor() {
+    super("Seqlane run output must be JSON serializable");
+  }
+}
+
 function toExecutionEvent(
   event: SeqlaneEvent,
   metadata: SeqlaneExecutionEventMetadata,
@@ -152,7 +158,7 @@ function toExecutionEvent(
       return { ...event, metadata, error: serializeError(event.error) };
     case "run.succeeded":
       if (!isJsonValue(event.output)) {
-        throw new TypeError("Seqlane run output must be JSON serializable");
+        throw new NonSerializableRunOutputError();
       }
       return { ...event, metadata, output: event.output };
     case "run.failed":

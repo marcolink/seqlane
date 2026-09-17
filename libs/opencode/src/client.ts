@@ -58,6 +58,13 @@ const boundedOpenCodeFetch: typeof fetch = async (input, init) => {
 };
 
 /** Internal SDK client construction. The SDK client never crosses Seqlane's public boundary. */
-export function createOpenCodeClient(url: string): OpencodeClient {
-  return createOpencodeClient({ baseUrl: url, fetch: boundedOpenCodeFetch });
+export function createOpenCodeClient(
+  url: string,
+  authorization?: string,
+): OpencodeClient {
+  return createOpencodeClient({
+    baseUrl: url,
+    fetch: boundedOpenCodeFetch,
+    ...(authorization === undefined ? {} : { headers: { authorization } }),
+  });
 }
