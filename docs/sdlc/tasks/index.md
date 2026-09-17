@@ -256,7 +256,7 @@
 | [task.separate-run-machine-output](./2026-09-15-separate-run-machine-output.md) | Separate Final Run Results from Event Output | completed | 2026-09-15 | core |
 | [task.decouple-runtime-adapter-composition](./2026-09-16-decouple-runtime-adapter-composition.md) | Decouple Runtime from Concrete Adapter Implementations | planned | 2026-09-16 | core |
 | [task.deliver-standalone-cli-runs](./2026-09-16-deliver-standalone-cli-runs.md) | Deliver Standalone CLI Runs | in-progress | 2026-09-16 | core |
-| [task.standalone-run-execution](./2026-09-16-standalone-run-execution.md) | Execute Standalone Runs Through Mastra | planned | 2026-09-16 | core |
+| [task.standalone-run-execution](./2026-09-16-standalone-run-execution.md) | Execute Standalone Runs Through Mastra | completed | 2026-09-16 | core |
 | [task.standalone-workflow-loading](./2026-09-16-standalone-workflow-loading.md) | Load Standalone Workflow Entrypoints | completed | 2026-09-16 | core |
 | [task.standalone-adapter-lifecycle](./2026-09-16-standalone-adapter-lifecycle.md) | Manage Standalone Adapter Lifecycle | completed | 2026-09-16 | core |
 | [task.standalone-cli-cutover](./2026-09-16-standalone-cli-cutover.md) | Switch the CLI to Standalone Runs | planned | 2026-09-16 | core |

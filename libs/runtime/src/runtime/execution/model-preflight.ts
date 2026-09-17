@@ -175,7 +175,11 @@ async function modelSelectionForTaskNode(
     selection = workflowModel;
   }
 
-  if (selection === undefined && policy?.type !== "reuse") {
+  if (
+    selection === undefined &&
+    policy?.type !== "reuse" &&
+    capabilitiesForTask(node) !== undefined
+  ) {
     selection = await resolveDefaultSelection(
       capabilitiesForTask(node),
       defaults,
@@ -256,6 +260,11 @@ function requirementKey(requirement: ModelRequirement): string {
 export async function preflightCompiledWorkflowModels(
   compiled: PreparedPlanExecution,
 ): Promise<void> {
+  const authoredOnly =
+    "modelPolicy" in compiled.context.executors &&
+    compiled.context.executors.modelPolicy === "authored";
+  const capabilitiesFor = (node: TaskNode) =>
+    authoredOnly ? undefined : capabilityForNode(compiled, node);
   const nodes = modelPreflightNodes(compiled);
   const taskNodes = nodes.map(({ node }) => node);
   const nodesById = new Map(taskNodes.map((node) => [node.nodeId, node]));
@@ -266,12 +275,12 @@ export async function preflightCompiledWorkflowModels(
   const effectiveSelectionsByNode = new Map<string, ModelSelection>();
 
   for (const preflightNode of nodes) {
-    const capabilities = capabilityForNode(compiled, preflightNode.node);
+    const capabilities = capabilitiesFor(preflightNode.node);
     const effectiveSelection = await modelSelectionForTaskNode(
       preflightNode.node,
       nodesById,
       selections,
-      (taskNode) => capabilityForNode(compiled, taskNode),
+      capabilitiesFor,
       defaults,
       compiled.context.workflowModel,
     );
@@ -280,12 +289,12 @@ export async function preflightCompiledWorkflowModels(
       const invocationId =
         compiled.context.invocationIds.get(preflightNode.nodeId) ??
         preflightNode.nodeId;
-      if (capabilities === undefined) {
+      if (capabilities === undefined && !authoredOnly) {
         throw new MissingExecutorModelCapabilitiesError(
           "unknown executor",
           effectiveSelection,
         );
-      } else {
+      } else if (capabilities !== undefined) {
         requirements.set(
           requirementKey({
             invocationId,

@@ -12,9 +12,13 @@ import {
 function service(
   url = "http://127.0.0.1:4100",
   workspace = "/workspace",
-): StandaloneAdapterService {
+): StandaloneAdapterService<{
+  adapter: "opencode";
+  url: string;
+  workspace: string;
+}> {
   return {
-    configuration: { adapter: "opencode", url, workspace },
+    binding: { adapter: "opencode", url, workspace },
     close: vi.fn(async () => undefined),
   };
 }
@@ -64,8 +68,8 @@ describe("standalone adapter lease", () => {
     await expect(
       Promise.all([lease.acquire(), lease.acquire()]),
     ).resolves.toEqual([
-      { configuration: started.configuration },
-      { configuration: started.configuration },
+      { binding: started.binding },
+      { binding: started.binding },
     ]);
     expect(startAdapter).toHaveBeenCalledTimes(1);
 
@@ -77,7 +81,13 @@ describe("standalone adapter lease", () => {
     let rejectStart: ((cause: unknown) => void) | undefined;
     const startAdapter = vi.fn(
       ({ signal }: { readonly signal: AbortSignal }) =>
-        new Promise<StandaloneAdapterService>((_resolve, reject) => {
+        new Promise<
+          StandaloneAdapterService<{
+            adapter: "opencode";
+            url: string;
+            workspace: string;
+          }>
+        >((_resolve, reject) => {
           rejectStart = reject;
           signal.addEventListener(
             "abort",
@@ -100,14 +110,28 @@ describe("standalone adapter lease", () => {
   });
 
   it("does not return a connection when close wins a successful startup race", async () => {
-    let resolveStart: ((value: StandaloneAdapterService) => void) | undefined;
+    let resolveStart:
+      | ((
+          value: StandaloneAdapterService<{
+            adapter: "opencode";
+            url: string;
+            workspace: string;
+          }>,
+        ) => void)
+      | undefined;
     const started = service();
     const lease = createStandaloneAdapterLease({
       adapter: "opencode",
       workspace: process.cwd(),
       signal: new AbortController().signal,
       startAdapter: () =>
-        new Promise<StandaloneAdapterService>((resolve) => {
+        new Promise<
+          StandaloneAdapterService<{
+            adapter: "opencode";
+            url: string;
+            workspace: string;
+          }>
+        >((resolve) => {
           resolveStart = resolve;
         }),
     });
@@ -124,7 +148,11 @@ describe("standalone adapter lease", () => {
 
   it("shares one cleanup operation between concurrent close callers", async () => {
     let releaseClose: (() => void) | undefined;
-    const started: StandaloneAdapterService = {
+    const started: StandaloneAdapterService<{
+      adapter: "opencode";
+      url: string;
+      workspace: string;
+    }> = {
       ...service(),
       close: vi.fn(
         () =>
@@ -151,7 +179,11 @@ describe("standalone adapter lease", () => {
 
   it("handles an abort cleanup failure while preserving it for the final owner", async () => {
     const controller = new AbortController();
-    const started: StandaloneAdapterService = {
+    const started: StandaloneAdapterService<{
+      adapter: "opencode";
+      url: string;
+      workspace: string;
+    }> = {
       ...service(),
       close: vi.fn(async () => {
         throw new Error("cleanup failed");
@@ -175,7 +207,15 @@ describe("standalone adapter lease", () => {
     const url = "http://127.0.0.1:4100";
     const started = service(url);
     const startAdapter = vi
-      .fn<() => Promise<StandaloneAdapterService>>()
+      .fn<
+        () => Promise<
+          StandaloneAdapterService<{
+            adapter: "opencode";
+            url: string;
+            workspace: string;
+          }>
+        >
+      >()
       .mockRejectedValueOnce(new Error("not ready"))
       .mockResolvedValueOnce(started);
     const lease = createStandaloneAdapterLease({
@@ -187,9 +227,9 @@ describe("standalone adapter lease", () => {
 
     await expect(lease.acquire()).rejects.toThrow("not ready");
     const connection = await lease.acquire();
-    expect(connection.configuration.adapter).toBe("opencode");
-    if (connection.configuration.adapter === "opencode") {
-      expect(connection.configuration.url).toBe(url);
+    expect(connection.binding.adapter).toBe("opencode");
+    if (connection.binding.adapter === "opencode") {
+      expect(connection.binding.url).toBe(url);
     }
     expect(startAdapter).toHaveBeenCalledTimes(2);
   });

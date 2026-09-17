@@ -72,6 +72,8 @@ export class UntrackedMutatingBackgroundProcessError extends Error {
 }
 
 export interface ExecutorRequest {
+  readonly taskDefinition?: TaskDefinition;
+  readonly modelSelection?: ModelSelection;
   readonly invocationId: string;
   readonly observability: Partial<ObservabilityContext>;
   readonly taskId: string;
@@ -100,6 +102,8 @@ export interface SeqlaneExecutor {
 }
 
 export interface ExecutorResolvers {
+  /** Standalone execution checks authored models at agent demand. */
+  readonly modelPolicy?: "authored";
   readonly agent: <Input, Output>(
     task: TaskDefinition<Input, Output>,
   ) => SeqlaneExecutor;

@@ -413,6 +413,7 @@ export function createMastraPlanInvocationHandler(
     const results = dependencyResults(node, getStepResult);
     const context = {
       ...prepared.context,
+      workflowInput,
       results,
       remainingConsumers: new Map(prepared.context.remainingConsumers),
       failure: undefined,
@@ -514,35 +515,40 @@ export async function executeNestedMastraWorkflow(options: {
     events: options.events,
     repeatBudget: options.repeatBudget,
   });
-  preflightCompiledWorkflowSessionCapabilities(childExecution.prepared);
-  await preflightCompiledWorkflowModels(childExecution.prepared);
-  await resolveCompiledWorkflowSessions(childExecution.prepared);
-  emitMastraInvocationTopology(
-    childExecution.compiled,
-    childExecution.prepared,
-    options.events,
-    invocation.invocationId,
-  );
-  const childRun = childExecution.runtime.start(
-    {
-      workflowKey: childExecution.compiled.key,
-      input: invocation.input,
-      workId: invocation.workId,
-      runId: invocation.runId,
-    },
-    nestedRunContext(invocation.requestContext, invocation.abortSignal),
-  );
+  let childRun: ReturnType<typeof childExecution.runtime.start> | undefined;
+  let succeeded = false;
   const cancelChild = (): void => {
-    void childRun.cancel().catch(() => undefined);
+    void childRun?.cancel().catch(() => undefined);
   };
-  if (invocation.abortSignal.aborted) cancelChild();
-  else
-    invocation.abortSignal.addEventListener("abort", cancelChild, {
-      once: true,
-    });
   try {
+    preflightCompiledWorkflowSessionCapabilities(childExecution.prepared);
+    await preflightCompiledWorkflowModels(childExecution.prepared);
+    await resolveCompiledWorkflowSessions(childExecution.prepared);
+    emitMastraInvocationTopology(
+      childExecution.compiled,
+      childExecution.prepared,
+      options.events,
+      invocation.invocationId,
+    );
+    childRun = childExecution.runtime.start(
+      {
+        workflowKey: childExecution.compiled.key,
+        input: invocation.input,
+        workId: invocation.workId,
+        runId: invocation.runId,
+      },
+      nestedRunContext(invocation.requestContext, invocation.abortSignal),
+    );
+    if (invocation.abortSignal.aborted) cancelChild();
+    else
+      invocation.abortSignal.addEventListener("abort", cancelChild, {
+        once: true,
+      });
     const result = await childRun.outcome;
-    if (result.status === "succeeded") return result.result;
+    if (result.status === "succeeded") {
+      succeeded = true;
+      return result.result;
+    }
     if (result.status === "failed") {
       if (result.error instanceof SeqlaneError)
         options.onFailure?.(result.error);
@@ -553,6 +559,11 @@ export async function executeNestedMastraWorkflow(options: {
     );
   } finally {
     invocation.abortSignal.removeEventListener("abort", cancelChild);
+    try {
+      await childExecution.runtime.shutdown();
+    } catch (cause) {
+      if (succeeded) throw cause;
+    }
   }
 }
 
@@ -658,74 +669,18 @@ export function createMastraPlanExecution(
           // parent graph's static edge for each new attempt.
           workspaceAdmission:
             invocation.iteration === undefined ? "graph" : "dynamic",
-          execute: async () => {
-            const childExecution = createMastraPlanExecution({
-              plan: child.plan,
-              workflowInput: invocation.input,
-              workId: invocation.workId,
-              runId: invocation.runId,
-              createInvocationId: (nodeId) =>
-                `${invocation.invocationId}:${nodeId}`,
+          execute: () =>
+            executeNestedMastraWorkflow({
+              parent: prepared,
+              invocation,
+              child,
               executors: options.executors,
               sessionResolver: options.sessionResolver,
               workspaceResources,
-              workspaceLocks: prepared.context.workspaceLocks,
-              workspaceOwnerId: invocation.invocationId,
-              taskDefinitions: child.taskDefinitions,
-              validatorDefinitions: child.validatorDefinitions,
-              workflowDefinitions: child.workflowDefinitions,
-              workflow: child.workflow,
               events: options.events,
+              onFailure: captureFailure,
               repeatBudget,
-            });
-            preflightCompiledWorkflowSessionCapabilities(
-              childExecution.prepared,
-            );
-            await preflightCompiledWorkflowModels(childExecution.prepared);
-            await resolveCompiledWorkflowSessions(childExecution.prepared);
-            emitMastraInvocationTopology(
-              childExecution.compiled,
-              childExecution.prepared,
-              options.events,
-              invocation.invocationId,
-            );
-            const childRun = childExecution.runtime.start(
-              {
-                workflowKey: childExecution.compiled.key,
-                input: invocation.input,
-                workId: invocation.workId,
-                runId: invocation.runId,
-              },
-              nestedRunContext(
-                invocation.requestContext,
-                invocation.abortSignal,
-              ),
-            );
-            const cancelChild = (): void => {
-              void childRun.cancel().catch(() => undefined);
-            };
-            if (invocation.abortSignal.aborted) cancelChild();
-            else
-              invocation.abortSignal.addEventListener("abort", cancelChild, {
-                once: true,
-              });
-            try {
-              const result = await childRun.outcome;
-              if (result.status === "succeeded") return result.result;
-              if (result.status === "failed") {
-                if (result.error instanceof SeqlaneError) {
-                  captureFailure(result.error);
-                }
-                throw result.error;
-              }
-              throw (
-                invocation.abortSignal.reason ??
-                new Error("Nested workflow cancelled")
-              );
-            } finally {
-              invocation.abortSignal.removeEventListener("abort", cancelChild);
-            }
-          },
+            }),
         },
       );
     },

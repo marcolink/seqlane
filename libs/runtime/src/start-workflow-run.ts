@@ -1,4 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import {
+  createStandaloneExecution,
+  type StandaloneRunOptions,
+} from "./runner/profile/standalone-profile.js";
+import type { MastraPlanExecution } from "./runtime/mastra/mastra-execution.js";
 import type {
   BuiltWorkflow,
   JsonValue,
@@ -27,7 +33,9 @@ import type { RuntimeExecution } from "./runner/profile/runtime-profile.js";
 export interface StartWorkflowRunRequest<Input = unknown, Output = unknown> {
   readonly workflow: BuiltWorkflow<Input, Output>;
   readonly input: JsonValue;
-  readonly runtime: RuntimeProfileReference;
+  readonly runtime?: RuntimeProfileReference;
+  readonly standalone?: StandaloneRunOptions;
+  readonly onDiagnostic?: (message: string) => void;
   readonly events: SeqlaneEventSink;
   readonly signal?: AbortSignal;
   readonly identity?: { readonly workId: WorkId; readonly runId: RunId };
@@ -80,28 +88,42 @@ export function startWorkflowRun<Input, Output>(
 
   const outcome = (async (): Promise<SeqlaneRunOutcome> => {
     let execution: RuntimeExecution | undefined;
-    const emitCancelled = (): SeqlaneRunOutcome => {
-      request.events.emit({ type: "run.cancelled", workId, runId });
-      return { status: "cancelled" };
-    };
+    let mastraExecution: MastraPlanExecution | undefined;
+    let result: SeqlaneRunOutcome;
     try {
       request.events.emit({ type: "run.started", workId, runId });
-      if (cancellationRequested) return emitCancelled();
+      abortController.signal.throwIfAborted();
       const workflowInput = request.workflow.workflow.input.parse(
         request.input,
       );
       const notifier: RuntimeSessionUiNotifier | undefined =
         request.onRuntimeSessionUi;
-      execution = await resolveRuntimeProfile(
-        request.runtime,
-        request.workflow.taskDefinitions,
-        abortController.signal,
-        request.input,
-        notifier,
-        { environment: process.env, runId },
-      );
-      if (cancellationRequested) return emitCancelled();
-      const mastraExecution = createMastraPlanExecution({
+      if (request.standalone !== undefined) {
+        if (request.runtime !== undefined)
+          throw new TypeError(
+            "Select standalone execution or a hosted runtime, not both",
+          );
+        execution = await createStandaloneExecution(
+          request.standalone,
+          request.workflow.taskDefinitions,
+          abortController.signal,
+          runId,
+          notifier,
+        );
+      } else {
+        if (request.runtime === undefined)
+          throw new TypeError("Workflow execution requires a runtime binding");
+        execution = await resolveRuntimeProfile(
+          request.runtime,
+          request.workflow.taskDefinitions,
+          abortController.signal,
+          request.input,
+          notifier,
+          { environment: process.env, runId },
+        );
+      }
+      abortController.signal.throwIfAborted();
+      mastraExecution = createMastraPlanExecution({
         plan: request.workflow.plan,
         workId,
         runId,
@@ -112,7 +134,11 @@ export function startWorkflowRun<Input, Output>(
         taskDefinitions: execution.taskDefinitions,
         validatorDefinitions: request.workflow.validatorDefinitions,
         workflowDefinitions: request.workflow.workflowDefinitions,
-        workflow: request.workflow.workflow,
+        // Input has been validated and transformed once above.
+        workflow: {
+          input: z.unknown(),
+          output: request.workflow.workflow.output,
+        },
         events: request.events,
         createInvocationId: () => randomUUID(),
       });
@@ -124,49 +150,67 @@ export function startWorkflowRun<Input, Output>(
         mastraExecution.prepared,
         request.events,
       );
-      if (cancellationRequested) return emitCancelled();
+      abortController.signal.throwIfAborted();
       activeRun = mastraExecution.runtime.start({
         workflowKey: mastraExecution.compiled.key,
-        input: request.input,
+        input: workflowInput,
         workId,
         runId,
       });
       if (cancellationRequested) await activeRun.cancel();
-      const result = await activeRun.outcome;
-      if (result.status === "succeeded") {
+      result = await activeRun.outcome;
+    } catch (cause) {
+      result = cancellationRequested
+        ? { status: "cancelled" }
+        : { status: "failed", error: new RuntimeError(cause) };
+    }
+    const cleanupFailures: unknown[] = [];
+    for (const close of [
+      () => execution?.close?.(),
+      () => mastraExecution?.runtime.shutdown(),
+    ]) {
+      try {
+        await close();
+      } catch (cause) {
+        cleanupFailures.push(cause);
+      }
+    }
+    request.signal?.removeEventListener("abort", onAbort);
+    if (cleanupFailures.length > 0) {
+      const error = new RuntimeError(
+        new AggregateError(cleanupFailures, "Workflow cleanup failed"),
+      );
+      if (result.status === "succeeded") result = { status: "failed", error };
+      else {
+        try {
+          request.onDiagnostic?.(error.message);
+        } catch {
+          /* Preserve the primary outcome. */
+        }
+      }
+    }
+    try {
+      if (result.status === "succeeded")
         request.events.emit({
           type: "run.succeeded",
           workId,
           runId,
           output: result.result,
         });
-      } else if (result.status === "cancelled") {
+      else if (result.status === "cancelled")
         request.events.emit({ type: "run.cancelled", workId, runId });
-      } else {
+      else
         request.events.emit({
           type: "run.failed",
           workId,
           runId,
           error: result.error,
         });
-      }
-      return result;
     } catch (cause) {
-      if (cancellationRequested) return emitCancelled();
-      const error = new RuntimeError(cause);
-      try {
-        request.events.emit({ type: "run.failed", workId, runId, error });
-      } catch {
-        // Terminal event delivery is best effort. Preserve the original
-        // RuntimeError and failed outcome when the sink is unavailable.
-      }
-      return { status: "failed", error };
-    } finally {
-      if (execution?.close !== undefined) {
-        await execution.close().catch(() => undefined);
-      }
-      request.signal?.removeEventListener("abort", onAbort);
+      if (result.status === "succeeded")
+        return { status: "failed", error: new RuntimeError(cause) };
     }
+    return result;
   })();
   return { workId, runId, outcome, cancel };
 }

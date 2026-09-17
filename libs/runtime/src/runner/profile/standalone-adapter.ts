@@ -1,5 +1,3 @@
-import type { RuntimeAdapterConfiguration } from "./runtime-adapter.js";
-
 export class StandaloneAdapterSelectionError extends Error {
   constructor(message: string, cause?: unknown) {
     super(message, { cause });
@@ -7,23 +5,23 @@ export class StandaloneAdapterSelectionError extends Error {
   }
 }
 
-export interface StandaloneAdapterConnection {
-  readonly configuration: RuntimeAdapterConfiguration;
+export interface StandaloneAdapterConnection<Binding> {
+  readonly binding: Binding;
 }
 
-export interface StandaloneAdapterService {
-  readonly configuration: RuntimeAdapterConfiguration;
+export interface StandaloneAdapterService<Binding> {
+  readonly binding: Binding;
   close(): Promise<void>;
 }
 
-export interface StandaloneAdapterLease {
+export interface StandaloneAdapterLease<Binding> {
   /** Starts the selected native adapter only when an agent invocation needs it. */
-  acquire(): Promise<StandaloneAdapterConnection>;
+  acquire(): Promise<StandaloneAdapterConnection<Binding>>;
   /** Releases only service resources created by this lease. */
   close(): Promise<void>;
 }
 
-export interface StandaloneAdapterLeaseOptions {
+export interface StandaloneAdapterLeaseOptions<Binding> {
   readonly adapter?: string;
   readonly workspace: string;
   /** Run-wide cancellation; task attempts must not own this shared service. */
@@ -33,16 +31,16 @@ export interface StandaloneAdapterLeaseOptions {
     readonly adapter: string;
     readonly workspace: string;
     readonly signal: AbortSignal;
-  }) => Promise<StandaloneAdapterService>;
+  }) => Promise<StandaloneAdapterService<Binding>>;
 }
 
 /** Creates a run-scoped, demand-driven native adapter service lease. */
-export function createStandaloneAdapterLease(
-  options: StandaloneAdapterLeaseOptions,
-): StandaloneAdapterLease {
+export function createStandaloneAdapterLease<Binding>(
+  options: StandaloneAdapterLeaseOptions<Binding>,
+): StandaloneAdapterLease<Binding> {
   const startAdapter = options.startAdapter;
 
-  let service: Promise<StandaloneAdapterService> | undefined;
+  let service: Promise<StandaloneAdapterService<Binding>> | undefined;
   let closed = false;
   let closing: Promise<void> | undefined;
   const startupController = new AbortController();
@@ -66,7 +64,7 @@ export function createStandaloneAdapterLease(
     })();
     return closing;
   };
-  const acquire = async (): Promise<StandaloneAdapterConnection> => {
+  const acquire = async (): Promise<StandaloneAdapterConnection<Binding>> => {
     if (closed || options.signal.aborted) {
       await close();
       throw new StandaloneAdapterSelectionError(
@@ -91,7 +89,7 @@ export function createStandaloneAdapterLease(
         signal: startupSignal,
       });
     service ??= pending;
-    let started: StandaloneAdapterService;
+    let started: StandaloneAdapterService<Binding>;
     try {
       started = await pending;
     } catch (cause) {
@@ -104,7 +102,7 @@ export function createStandaloneAdapterLease(
         "Standalone adapter resources are already closed",
       );
     }
-    return { configuration: started.configuration };
+    return { binding: started.binding };
   };
   options.signal.addEventListener("abort", onAbort, { once: true });
   if (options.signal.aborted) onAbort();

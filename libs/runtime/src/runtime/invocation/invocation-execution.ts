@@ -329,6 +329,10 @@ export async function executeTaskNode(
             session?.executor ??
             getExecutor(context.executors, node, definition);
           return executor.execute({
+            taskDefinition: definition,
+            modelSelection:
+              effectiveModelSelection(context, invocationId, session) ??
+              context.workflowModel,
             invocationId,
             observability: options.observability,
             taskId: node.taskId,

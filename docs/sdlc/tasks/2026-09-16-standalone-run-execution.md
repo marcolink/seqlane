@@ -1,7 +1,7 @@
 ---
 id: task.standalone-run-execution
 title: Execute Standalone Runs Through Mastra
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-16
@@ -74,12 +74,25 @@ Git whitespace gates. Preserve hosted behavior during this intermediate step.
 
 ## Outcome
 
-Not implemented. A fresh Terra implementation agent delivers this task under
-orchestrator review and quality gates. Commit this task before starting its successor.
+Implemented direct standalone execution through the existing Mastra Plan seam.
+Standalone runs use in-memory runtime state, do not expose the Mastra server,
+validate transformed workflow input once, and dispose the Mastra runtime and
+adapter resources before the terminal event.
+
+Agent adapters remain demand-driven. Deterministic tasks do not start an
+adapter or resolve a model. Agent tasks require an authored model, preserve
+session model inheritance, validate availability at demand, and surface cleanup
+failures without hiding an earlier run failure.
+
+Focused standalone tests cover deterministic sessions, lazy adapter startup,
+late missing-model failure, unavailable models, model inheritance, transformed
+input, and cleanup outcomes. The full repository test gate and format, docs,
+typecheck, lint, build, Nx sync, and Git whitespace gates passed.
 
 ## Delivery state
 
-Planned. No target-branch delivery is claimed.
+Verified on `feat/standalone-cli-runs` in the commit containing this outcome.
+The public command cutover remains pending. No target-branch delivery is claimed.
 
 ## Traceability
 

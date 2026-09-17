@@ -84,3 +84,9 @@ export type {
   StartWorkflowRunRequest,
   WorkflowRunHandle,
 } from "./start-workflow-run.js";
+
+export type {
+  StandaloneAdapterBinding,
+  StandaloneRunOptions,
+} from "./runner/profile/standalone-profile.js";
+export type { StandaloneAdapterService } from "./runner/profile/standalone-adapter.js";
