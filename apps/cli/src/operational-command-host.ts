@@ -1,4 +1,3 @@
-import type { JsonValue } from "@seqlane/core";
 import type { WorkflowReference } from "@seqlane/protocol";
 import {
   createOperationalHost,
@@ -14,7 +13,6 @@ import type { WorkflowRoots } from "./workflow-discovery.js";
 export interface OwnedOperationalHostOptions {
   readonly roots: WorkflowRoots;
   readonly workflow?: WorkflowReference;
-  readonly workflowInput?: JsonValue;
   readonly storageUrl?: string;
   readonly host?: string;
   readonly port?: number;
@@ -41,16 +39,13 @@ export async function startOwnedOperationalHost(
     options.workflow !== undefined &&
     !workflows.some(({ key }) => key === options.workflow?.id)
   ) {
-    const loaded = await loadWorkflow(
-      options.workflow,
-      options.workflowInput ?? null,
-    );
+    const loaded = await loadWorkflow(options.workflow);
     workflows.push(
       createOperationalWorkflow({
         key: options.workflow.id,
         plan: loaded.plan,
-        workflow: loaded.definition,
-        workflowDefinitions: loaded.built.workflowDefinitions,
+        workflow: loaded.workflow,
+        workflowDefinitions: loaded.workflowDefinitions,
         taskDefinitions: loaded.taskDefinitions,
         validatorDefinitions: loaded.validatorDefinitions,
         eventSink: options.eventSink,

@@ -112,7 +112,7 @@ export async function startRun(
 
   try {
     // The loaded workflow and Plan remain reachable only from this child.
-    const loadedWorkflow = await loadWorkflow(request.workflow, request.input);
+    const loadedWorkflow = await loadWorkflow(request.workflow);
     retainWorkflow(loadedWorkflow);
 
     // The authored Plan is available before an executor adapter can resolve.
@@ -145,13 +145,6 @@ export async function startRun(
       (notification) => sendRuntimeSessionUi(host, notification),
       { environment: process.env, runId },
     );
-    const workflowDefinition =
-      typeof loadedWorkflow.workflow === "object" &&
-      loadedWorkflow.workflow !== null &&
-      "input" in loadedWorkflow.workflow &&
-      "output" in loadedWorkflow.workflow
-        ? loadedWorkflow.workflow
-        : undefined;
     const mastraExecution = createMastraPlanExecution({
       plan: loadedWorkflow.plan,
       workId,
@@ -162,8 +155,8 @@ export async function startRun(
       workspaceResources: execution.workspaceResources,
       taskDefinitions: execution.taskDefinitions,
       validatorDefinitions: loadedWorkflow.validatorDefinitions,
-      workflowDefinitions: loadedWorkflow.built.workflowDefinitions,
-      workflow: workflowDefinition,
+      workflowDefinitions: loadedWorkflow.workflowDefinitions,
+      workflow: loadedWorkflow.workflow,
       events,
       createInvocationId,
     });

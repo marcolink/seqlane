@@ -21,13 +21,13 @@ export async function loadOperationalWorkflows(
   const descriptors = discoverWorkflowDescriptors(roots);
   const registrations = [];
   for (const descriptor of descriptors) {
-    const loaded = await loadWorkflow(descriptor.reference, null);
+    const loaded = await loadWorkflow(descriptor.reference);
     registrations.push(
       createOperationalWorkflow({
         key: descriptor.qualifiedName,
         plan: loaded.plan,
-        workflow: loaded.definition,
-        workflowDefinitions: loaded.built.workflowDefinitions,
+        workflow: loaded.workflow,
+        workflowDefinitions: loaded.workflowDefinitions,
         taskDefinitions: loaded.taskDefinitions,
         validatorDefinitions: loaded.validatorDefinitions,
         eventSink,

@@ -116,7 +116,7 @@ describe("standalone workflow preparation", () => {
           new URL("../dist/standalone-workflow.js", import.meta.url).href,
         )};
         const loaded = await loadStandaloneWorkflow("./src/entry.ts", process.cwd());
-        console.log(JSON.stringify({ id: loaded.definition.id, input: loaded.definition.input.parse({}) }));
+        console.log(JSON.stringify({ id: loaded.workflow.id, input: loaded.workflow.input.parse({}) }));
         await loaded.dispose();
       `,
     );
@@ -174,7 +174,7 @@ describe("standalone workflow preparation", () => {
           new URL("../dist/standalone-workflow.js", import.meta.url).href,
         )};
         const loaded = await loadStandaloneWorkflow("./src/main.ts", process.cwd());
-        const input = loaded.definition.input.parse({});
+        const input = loaded.workflow.input.parse({});
         const dynamic = await globalThis.seqlaneStandaloneDynamicImport();
         console.log(JSON.stringify({ input, dynamic }));
         await loaded.dispose();
@@ -239,7 +239,7 @@ describe("standalone workflow preparation", () => {
           new URL("../dist/standalone-workflow.js", import.meta.url).href,
         )};
         const loaded = await loadStandaloneWorkflow("./src/entry.ts", process.cwd());
-        console.log(JSON.stringify(loaded.definition.input.parse({})));
+        console.log(JSON.stringify(loaded.workflow.input.parse({})));
         await loaded.dispose();
       `,
     );
@@ -277,7 +277,7 @@ describe("standalone workflow preparation", () => {
 
     const loaded = await loadWorkflow("@acme/workflows", project);
 
-    expect(loaded.definition.id).toBe("import-condition");
+    expect(loaded.workflow.id).toBe("import-condition");
   });
 
   it("loads a named package subpath export", async () => {
@@ -303,7 +303,7 @@ describe("standalone workflow preparation", () => {
 
     const loaded = await loadWorkflow("@acme/workflows/review#review", project);
 
-    expect(loaded.definition.id).toBe("named-package");
+    expect(loaded.workflow.id).toBe("named-package");
   });
 
   it("rejects un-authored exports and invalid references", async () => {

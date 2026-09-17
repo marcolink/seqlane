@@ -1,6 +1,6 @@
-import type { LoadedAuthoredWorkflow } from "@seqlane/runtime/workflow";
+import type { LoadedWorkflow } from "@seqlane/runtime/workflow";
 import type { WorkflowReference } from "@seqlane/protocol";
-import { buildAuthoredWorkflow } from "@seqlane/runtime/workflow";
+import { compileWorkflowExport } from "@seqlane/runtime/workflow";
 import { parseTsconfig } from "get-tsconfig";
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
@@ -23,7 +23,7 @@ export interface StandaloneWorkflowReference extends WorkflowReference {
 }
 
 /** A standalone workflow plus the import hooks needed while it executes. */
-export interface LoadedStandaloneWorkflow extends LoadedAuthoredWorkflow {
+export interface LoadedStandaloneWorkflow extends LoadedWorkflow {
   /** Release the loader after workflow execution and any dynamic imports finish. */
   readonly dispose: () => Promise<void>;
 }
@@ -314,15 +314,10 @@ export async function loadStandaloneWorkflow(
         `Workflow module "${reference.moduleSpecifier}" does not export "${reference.exportName}"`,
       );
     }
-    const loaded = buildAuthoredWorkflow(
+    const loaded = compileWorkflowExport(
       reference,
       module[reference.exportName],
     );
-    if (loaded === undefined) {
-      throw new Error(
-        `Workflow export "${reference.moduleSpecifier}#${reference.exportName}" must be an authored Seqlane workflow definition`,
-      );
-    }
     return { ...loaded, dispose: moduleLoader.dispose };
   } catch (error) {
     await moduleLoader.dispose();

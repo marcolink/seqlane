@@ -1,5 +1,4 @@
 import { Args, Command, Flags } from "@oclif/core";
-import { isJsonValue, type JsonValue } from "@seqlane/core";
 import {
   planCommandResultSchema,
   type PlanCommandResult,
@@ -20,17 +19,6 @@ import { workflowRootsFromFlags } from "../workflow-roots.js";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function parseJsonInput(value: string): JsonValue {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error("--input must be valid JSON");
-  }
-  if (!isJsonValue(parsed)) throw new Error("--input must be a JSON value");
-  return parsed;
 }
 
 function planWorkflowRecord(
@@ -56,7 +44,6 @@ function planWorkflowRecord(
 
 export async function createPlanCommandResult(
   workflowValue: string,
-  input: JsonValue,
   roots: Parameters<typeof discoverWorkflowDescriptors>[0],
 ): Promise<PlanCommandResult> {
   const selection = resolveWorkflowSelection(
@@ -65,7 +52,7 @@ export async function createPlanCommandResult(
       ? []
       : discoverWorkflowDescriptors(roots),
   );
-  const loaded = await loadWorkflow(selection.reference, input);
+  const loaded = await loadWorkflow(selection.reference);
   return planCommandResultSchema.parse({
     workflow: planWorkflowRecord(selection.descriptor, selection.reference),
     plan: createSeqlanePlanSnapshot(loaded.plan),
@@ -98,7 +85,7 @@ export default class PlanCommand extends Command {
     "Compile a workflow Plan without executing tasks or starting a runtime";
 
   static override examples = [
-    '<%= config.bin %> plan repository:review --input \'{"topic":"Seqlane"}\'',
+    "<%= config.bin %> plan repository:review",
     "<%= config.bin %> plan ./examples/minimal-workflow.ts --output json",
   ];
 
@@ -110,11 +97,6 @@ export default class PlanCommand extends Command {
   };
 
   static override flags = {
-    input: Flags.string({
-      char: "i",
-      description: "JSON workflow input for Plan factories",
-      default: "null",
-    }),
     output: Flags.string({
       description: "Plan output mode",
       options: ["human", "json"],
@@ -133,7 +115,6 @@ export default class PlanCommand extends Command {
     try {
       const result = await createPlanCommandResult(
         args.workflow,
-        parseJsonInput(flags.input),
         workflowRootsFromFlags(flags),
       );
       this.log(

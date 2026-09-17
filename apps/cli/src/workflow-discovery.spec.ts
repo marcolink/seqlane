@@ -219,7 +219,7 @@ describe("workflow discovery", () => {
         `,
       );
       writeDescriptor(roots.repository, "plan.json", descriptor("plan"));
-      const result = await createPlanCommandResult("plan", null, roots);
+      const result = await createPlanCommandResult("plan", roots);
       const unsafeResult = {
         ...result,
         workflow: {
@@ -287,7 +287,7 @@ describe("workflow discovery", () => {
       );
       writeDescriptor(roots.repository, "plan.json", descriptor("plan"));
 
-      const result = await createPlanCommandResult("plan", null, roots);
+      const result = await createPlanCommandResult("plan", roots);
 
       expect(result.plan.workflow.id).toBe("plan-only");
       expect(result.plan.nodes).toMatchObject([{ taskId: "never-executed" }]);

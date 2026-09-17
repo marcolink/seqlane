@@ -61,7 +61,7 @@ An unqualified name works only when it is unique. The `--repository-root` and
 process, executor, or model:
 
 ```sh
-seqlane plan repository:review --input '{"topic":"Seqlane"}'
+seqlane plan repository:review
 seqlane plan ./examples/minimal-workflow.ts --output json
 ```
 
@@ -72,6 +72,8 @@ not a sandbox for untrusted workflow source.
 Direct file and module references remain supported by `seqlane run` and
 `seqlane plan`. A module reference can include an export name as
 `<module-specifier>#<export-name>`.
+The selected export must be an authored Seqlane workflow; raw Plans and Plan
+factories are not supported entrypoints.
 
 ## Operational host
 
@@ -200,8 +202,7 @@ the local Mastra instance automatically.
 Print the calculated Plan without connecting to the runtime or running tasks:
 
 ```sh
-seqlane plan ./examples/minimal-workflow.ts \
-  --input '{"topic":"Seqlane"}'
+seqlane plan ./examples/minimal-workflow.ts
 ```
 
 The command writes the Plan in human-readable form by default. Use
