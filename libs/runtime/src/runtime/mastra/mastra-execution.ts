@@ -517,6 +517,9 @@ export async function executeNestedMastraWorkflow(options: {
   });
   let childRun: ReturnType<typeof childExecution.runtime.start> | undefined;
   let succeeded = false;
+  let result: unknown;
+  let failed = false;
+  let failure: unknown;
   const cancelChild = (): void => {
     void childRun?.cancel().catch(() => undefined);
   };
@@ -544,27 +547,31 @@ export async function executeNestedMastraWorkflow(options: {
       invocation.abortSignal.addEventListener("abort", cancelChild, {
         once: true,
       });
-    const result = await childRun.outcome;
-    if (result.status === "succeeded") {
+    const childOutcome = await childRun.outcome;
+    if (childOutcome.status === "succeeded") {
       succeeded = true;
-      return result.result;
+      result = childOutcome.result;
+    } else if (childOutcome.status === "failed") {
+      if (childOutcome.error instanceof SeqlaneError)
+        options.onFailure?.(childOutcome.error);
+      throw childOutcome.error;
+    } else {
+      throw (
+        invocation.abortSignal.reason ?? new Error("Nested workflow cancelled")
+      );
     }
-    if (result.status === "failed") {
-      if (result.error instanceof SeqlaneError)
-        options.onFailure?.(result.error);
-      throw result.error;
-    }
-    throw (
-      invocation.abortSignal.reason ?? new Error("Nested workflow cancelled")
-    );
-  } finally {
-    invocation.abortSignal.removeEventListener("abort", cancelChild);
-    try {
-      await childExecution.runtime.shutdown();
-    } catch (cause) {
-      if (succeeded) throw cause;
-    }
+  } catch (cause) {
+    failed = true;
+    failure = cause;
   }
+  invocation.abortSignal.removeEventListener("abort", cancelChild);
+  try {
+    await childExecution.runtime.shutdown();
+  } catch (cause) {
+    if (succeeded) throw cause;
+  }
+  if (failed) throw failure;
+  return result;
 }
 
 export function createMastraPlanExecution(
