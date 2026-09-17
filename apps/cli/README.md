@@ -63,15 +63,16 @@ process, executor, or model:
 ```sh
 seqlane plan repository:review --input '{"topic":"Seqlane"}'
 seqlane plan ./workflows/minimal-example/workflow.ts --output json
+seqlane run ./workflows/minimal-example/workflow.ts --input '{"topic":"Seqlane"}'
 ```
 
 Repository and user workflow modules are trusted local authoring code. The plan
 command can import and evaluate the selected module to compile its Plan. It is
 not a sandbox for untrusted workflow source.
 
-Direct file and module references remain supported by `seqlane run` and
-`seqlane plan`. A module reference can include an export name as
-`<module-specifier>#<export-name>`.
+`seqlane run` accepts only an explicit file reference or a package module
+reference with an export name: `<module-specifier>#<export-name>`. Catalog names
+remain available to `list` and `plan`, but `run` does not inspect descriptors.
 The selected export must be an authored Seqlane workflow; raw Plans and Plan
 factories are not supported entrypoints.
 
@@ -108,9 +109,9 @@ URL uses the required bracketed IPv6 form.
 The host also exposes the registered workflows through Mastra Streamable HTTP
 MCP at `http://127.0.0.1:<port>/api/mcp/seqlane-workflows/mcp`. This endpoint
 is loopback-only. Each tool call uses `{ "input": <workflow-input> }`; add
-`"runtime": { "id": "direct", "workspace": "<path>" }` to select direct
-execution. `runtime` is optional and defaults to `local`, even when the host
-has an agent adapter. Adapter configuration remains server-owned.
+`"runtime": { "id": "opencode", "workspace": "<path>" }` to select a
+runtime profile. `runtime` is optional and defaults to `opencode`. Adapter
+configuration remains server-owned.
 
 Run-control commands use the same host. Set `--server-url` to use an existing
 host; without it, the command owns a local host for its lifetime:
@@ -148,13 +149,15 @@ you start `seqlane run` or `seqlane serve`:
 ```sh
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
 
-seqlane run repository:review --input '{"topic":"Seqlane"}' --runtime direct
+seqlane run ./workflows/minimal-example/workflow.ts --input '{"topic":"Seqlane"}' --runtime direct
 ```
 
 The `--runtime` value is an opaque profile ID. `local` and `direct` are the
 built-in profiles; custom hosts can provide other profiles. A profile ID does
-not select an adapter. A remote `run --server-url` sends only the runtime and
-workspace metadata. The existing server must have its own adapter configuration.
+not select an adapter. Each `run` starts a dedicated worker process, which
+loads this configuration and connects to the operator-owned service. It does
+not start a Seqlane operational host, create durable run storage, or manage the
+service lifecycle.
 
 ## Community Studio
 
@@ -228,9 +231,7 @@ seqlane run ./workflows/minimal-example/workflow.ts \
 ```
 
 CI output does not print invocation input, transient output, or routine tool
-activity. Use `run --json` for one final machine-readable result, or use
-`--record` with `replay --events ndjson` for the complete canonical event
-stream.
+activity. Use `run --json` for one final machine-readable result.
 
 ## File-accessing workflows
 
@@ -254,19 +255,11 @@ renderers do not show its session URL. Final JSON results contain no progress.
 Signal cancellation results preserve the received signal, for example
 `Run cancelled after SIGINT` or `Run cancelled after SIGTERM`.
 
-## Recording and replay
+## Replay
 
-Recording is explicit and writes a new, local newline-delimited JSON file:
-
-```sh
-seqlane run ./workflows/minimal-example/workflow.ts \
-  --input '{"topic":"Seqlane"}' \
-  --runtime direct \
-  --record ./seqlane-recording.jsonl
-```
-
-The CLI warns on stderr before writing execution data. The file contains one
-generic `seqlane.recording` header with the CLI workflow ID, followed by the
+Replay validates an existing local recording. `seqlane run` does not create
+recordings. A recording contains one generic `seqlane.recording` header with
+the CLI workflow ID, followed by the
 ordered canonical `SeqlaneExecutionEvent` JSON lines. It is bounded to 10 MiB
 and 10,000 events; an existing path is rejected.
 

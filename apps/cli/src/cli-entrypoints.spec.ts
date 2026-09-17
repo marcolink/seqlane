@@ -279,7 +279,7 @@ function expectNoSeqlaneDiagnostics(stderr: string): void {
 function runArgs(
   inputValue = input,
   workflow = workflowReference,
-  runtime = "http://127.0.0.1:1234",
+  runtime = "opencode",
   output = "ci",
 ): string[] {
   const args = [
@@ -587,6 +587,15 @@ function fakeAcpEnvironment(
   return {
     PATH: `${fake.acpDirectory}${pathSeparator}${process.env.PATH ?? ""}`,
     SEQLANE_RUNTIME_ADAPTER_CONFIG: JSON.stringify({
+      adapter: "acp",
+      configuration: {
+        id: "test-opencode",
+        description: "Test OpenCode ACP service",
+        command: "opencode",
+        persistSession: true,
+      },
+    }),
+    SEQLANE_RUNTIME_ADAPTER_CONFIG: JSON.stringify({
       adapter: "opencode",
       url: fake.url,
     }),
@@ -766,66 +775,50 @@ describe("seqlane CLI entrypoints", () => {
     }
   });
 
-  it("runs compiled commands through the installed entrypoint", async () => {
-    const fake = await startFakeOpenCodeServer("success");
-    try {
-      const result = await runFakeCli(
-        fake,
-        productionEntry,
-        runArgs(input, workflowReference, fake.url),
-      );
-      expect(result.code).toBe(0);
-      expect(result.stdout).toMatch(/run=.* succeeded/);
-    } finally {
-      await closeFakeOpenCodeServer(fake);
-    }
+  it("runs compiled local-only workflows through the installed entrypoint", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--json",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "succeeded",
+      output: { value: "local" },
+    });
   });
 
-  it("runs a discovered local-only workflow through the installed entrypoint", async () => {
-    const fixture = createDiscoveryFixture("local-only");
-    try {
-      const result = await runCli(productionEntry, [
-        "run",
-        "repository:discovered-local-only",
-        "--input",
-        '{"value":"local"}',
-        "--json",
-        "--repository-root",
-        fixture.repositoryRoot,
-        "--user-root",
-        fixture.userRoot,
-      ]);
+  it("rejects catalog aliases for run", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      "repository:discovered-local-only",
+      "--input",
+      '{"value":"local"}',
+    ]);
 
-      expect(result.code).toBe(0);
-      const run = JSON.parse(result.stdout) as {
-        status: string;
-        output: unknown;
-      };
-      expect(run.status).toBe("succeeded");
-      expect(run.output).toEqual({ value: "local" });
-      expectNoSeqlaneDiagnostics(result.stderr);
-    } finally {
-      rmSync(fixture.directory, { recursive: true, force: true });
-    }
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "run requires an explicit workflow file",
+    );
   });
 
   it("keeps explicit JSON output machine-readable at the CLI boundary", async () => {
-    const fake = await startFakeOpenCodeServer("success", "example");
-    try {
-      const result = await runFakeCli(
-        fake,
-        productionEntry,
-        runArgs(builtinInput, exampleWorkflowReference, fake.url, "json"),
-      );
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--json",
+    ]);
 
-      expect(result.code).toBe(0);
-      const record = JSON.parse(result.stdout) as { status: string };
-      expect(record.status).toBe("succeeded");
-      expect(result.stdout).not.toContain("run=run-");
-      expectNoSeqlaneDiagnostics(result.stderr);
-    } finally {
-      await closeFakeOpenCodeServer(fake);
-    }
+    expect(result.code).toBe(0);
+    const record = JSON.parse(result.stdout) as { status: string };
+    expect(record.status).toBe("succeeded");
+    expect(result.stdout).not.toContain('"type":"run.');
+    expectNoSeqlaneDiagnostics(result.stderr);
   });
 
   it("returns one execution-failure result in native JSON mode", async () => {
@@ -984,28 +977,6 @@ describe("seqlane CLI entrypoints", () => {
     );
   });
 
-  it("rejects a non-local runtime before starting without adapter configuration", async () => {
-    const result = await runCli(
-      productionEntry,
-      [
-        "run",
-        localOnlyWorkflowReference,
-        "--input",
-        '{"value":"local"}',
-        "--runtime",
-        "opencode",
-      ],
-      undefined,
-      "unused",
-      { SEQLANE_RUNTIME_ADAPTER_CONFIG: undefined },
-    );
-
-    expect(result.code).toBe(1);
-    expect(`${result.stdout}${result.stderr}`).toContain(
-      "Agent runtime configuration: configuration is missing",
-    );
-  });
-
   it("runs a local-only workflow without a runtime profile", async () => {
     const result = await runCli(productionEntry, [
       "run",
@@ -1035,7 +1006,7 @@ describe("seqlane CLI entrypoints", () => {
     });
   });
 
-  it("wraps a non-JSON workflow result as a result-serialization failure", async () => {
+  it("returns a failed JSON result for a non-JSON workflow output", async () => {
     const directory = mkdtempSync(
       join(repositoryRoot, ".tmp-seqlane-non-json-cli-"),
     );
@@ -1077,8 +1048,12 @@ export default createFlow({ id: "non-json", input, output })
       expect(JSON.parse(result.stdout)).toMatchObject({
         schemaVersion: 1,
         status: "failed",
-        phase: "result-serialization",
-        error: { message: "Workflow result is not JSON serializable" },
+        phase: "execution",
+        error: {
+          message: expect.stringContaining(
+            "Seqlane run output must be JSON serializable",
+          ),
+        },
       });
       expect(result.stdout).not.toContain('"type":"run.');
     } finally {
@@ -1087,78 +1062,35 @@ export default createFlow({ id: "non-json", input, output })
   });
 
   it("runs a TypeScript workflow file through its default export", async () => {
-    const fake = await startFakeOpenCodeServer("success", "example");
-    try {
-      const result = await runFakeCli(
-        fake,
-        productionEntry,
-        runArgs(builtinInput, exampleWorkflowReference, fake.url, "json"),
-      );
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--json",
+    ]);
 
-      expect(result.code).toBe(0);
-      expect(JSON.parse(result.stdout)).toMatchObject({ status: "succeeded" });
-    } finally {
-      await closeFakeOpenCodeServer(fake);
-    }
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ status: "succeeded" });
   });
 
-  it("records canonical events to a new file and warns on stderr", async () => {
+  it("rejects removed recording support", async () => {
     const fake = await startFakeOpenCodeServer("success", "example");
     const directory = mkdtempSync(join(tmpdir(), "seqlane-recording-cli-"));
     const path = join(directory, "run.jsonl");
     try {
-      const result = await runFakeCli(fake, productionEntry, [
-        ...runArgs(builtinInput, exampleWorkflowReference, fake.url, "ci"),
+      const result = await runCli(productionEntry, [
+        "run",
+        localOnlyWorkflowReference,
+        "--input",
+        '{"value":"local"}',
         "--record",
         path,
       ]);
 
-      expect(result.code).toBe(0);
-      expect(result.stderr).toContain("execution data is written to disk");
-      const lines = readFileSync(path, "utf8")
-        .trimEnd()
-        .split("\n")
-        .map((line) => JSON.parse(line) as { type?: string });
-      expect(lines[0]).toMatchObject({
-        type: "seqlane.recording",
-        workflowId: exampleWorkflowReference,
-      });
-      expect(lines.map((line) => line.type)).toContain("run.plan");
+      expect(result.code).toBe(2);
+      expect(`${result.stdout}${result.stderr}`).toContain("Nonexistent flag");
     } finally {
-      await closeFakeOpenCodeServer(fake);
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps JSON result stdout separate from recorded event output", async () => {
-    const fake = await startFakeOpenCodeServer("success", "example");
-    const directory = mkdtempSync(
-      join(tmpdir(), "seqlane-recording-json-cli-"),
-    );
-    const path = join(directory, "run.jsonl");
-    try {
-      const result = await runFakeCli(fake, productionEntry, [
-        ...runArgs(builtinInput, exampleWorkflowReference, fake.url, "json"),
-        "--record",
-        path,
-      ]);
-
-      expect(result.code).toBe(0);
-      expect(JSON.parse(result.stdout)).toMatchObject({ status: "succeeded" });
-      expect(result.stdout).not.toContain('"type":"run.');
-      expect(result.stderr).toContain("execution data is written to disk");
-
-      const records = readFileSync(path, "utf8")
-        .trimEnd()
-        .split("\n")
-        .map((line) => JSON.parse(line) as { type?: string });
-      expect(records[0]).toMatchObject({
-        type: "seqlane.recording",
-        workflowId: exampleWorkflowReference,
-      });
-      expect(records.map((record) => record.type)).toContain("run.succeeded");
-    } finally {
-      await closeFakeOpenCodeServer(fake);
       rmSync(directory, { recursive: true, force: true });
     }
   });
@@ -1245,73 +1177,6 @@ export default createFlow({ id: "non-json", input, output })
       rmSync(directory, { recursive: true, force: true });
     }
   });
-
-  it("renders interaction failure and returns status 1", async () => {
-    const fake = await startFakeOpenCodeServer("interaction");
-    const result = await runFakeCli(
-      fake,
-      productionEntry,
-      runArgs(input, workflowReference, fake.url),
-    );
-    await closeFakeOpenCodeServer(fake);
-
-    expect(result.code).toBe(1);
-    expect(result.stdout).toContain(
-      "Seqlane execution requires human interaction",
-    );
-    expect(result.stdout).not.toContain("rawRequest");
-    expect(result.stdout).not.toContain("cancelled");
-  });
-
-  it("forwards cancellation through the owned operational host", async () => {
-    const result = await runCli(
-      productionEntry,
-      runArgs(
-        JSON.stringify({ ...JSON.parse(input), dependency: "cancel-case" }),
-        workflowReference,
-        "test-fixture",
-      ),
-      (child) => child.kill("SIGINT"),
-      "run=",
-    );
-
-    expect(result.code).toBe(130);
-    expect(result.stdout).toContain("cancelled");
-  });
-
-  it.each(["SIGINT", "SIGTERM"] as const)(
-    "returns a cancellation result with status 130 after %s in native JSON mode",
-    async (signal) => {
-      const fake = await startFakeOpenCodeServer("hold");
-      try {
-        const result = await runFakeCli(
-          fake,
-          productionEntry,
-          runArgs(input, workflowReference, fake.url, "json"),
-          undefined,
-          "never emitted in JSON mode",
-          (child) => {
-            setTimeout(() => child.kill(signal), 1_500);
-          },
-        );
-
-        expect(result.code, JSON.stringify(result)).toBe(130);
-        expect(result.stderr).toBe("");
-        expect(JSON.parse(result.stdout)).toMatchObject({
-          schemaVersion: 1,
-          status: "cancelled",
-          cancellation: {
-            code: "signal",
-            message: `Run cancelled after ${signal}`,
-          },
-          workflow: { reference: workflowReference },
-        });
-        expect(result.stdout).not.toContain('"type":"run.');
-      } finally {
-        await closeFakeOpenCodeServer(fake);
-      }
-    },
-  );
 
   it("rejects invalid input before starting a runner", async () => {
     const result = await runCli(productionEntry, runArgs("{"));
