@@ -33,6 +33,22 @@ export class OpenCodeServiceCleanupError extends OpenCodeExecutorError {
   }
 }
 
+export class OpenCodeProviderApiError extends OpenCodeExecutorError {
+  constructor(
+    readonly statusCode: number | undefined,
+    readonly retryable: boolean,
+    cause?: unknown,
+  ) {
+    super(
+      statusCode === 429
+        ? "provider rejected the request because the rate or usage limit was reached (HTTP 429)"
+        : `provider request failed${statusCode === undefined ? "" : ` (HTTP ${statusCode})`}`,
+      cause,
+    );
+    this.name = "OpenCodeProviderApiError";
+  }
+}
+
 export interface StructuredOutputIssue {
   readonly kind: "parse" | "validation";
   readonly code: string;

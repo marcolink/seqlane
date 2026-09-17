@@ -5,10 +5,19 @@ import {
 } from "@seqlane/core";
 import { z } from "zod";
 import type { OpenCodePromptResult } from "./protocol.js";
+import { OpenCodeProviderApiError } from "./errors.js";
 import { extractStructuredOutput } from "./structured-output.js";
 import { terminalObservationFromParsedResponse } from "./observations.js";
 
 const nonNegativeFinite = z.number().finite().nonnegative();
+
+const providerApiErrorSchema = z.object({
+  name: z.literal("APIError"),
+  data: z.object({
+    statusCode: z.number().int().optional(),
+    isRetryable: z.boolean(),
+  }),
+});
 
 const responseSchema = z.looseObject({
   info: z.looseObject({
@@ -62,6 +71,21 @@ function getInteractionRequirement(
   return name === undefined ? undefined : interactionRequirements[name];
 }
 
+function getProviderApiError(
+  response: z.infer<typeof responseSchema>,
+): OpenCodeProviderApiError | undefined {
+  const parsed = providerApiErrorSchema.safeParse(response.info.error);
+  if (!parsed.success) return undefined;
+
+  // Provider messages and response bodies can contain request data. Retain only
+  // the structured fields needed for a safe, actionable failure.
+  return new OpenCodeProviderApiError(
+    parsed.data.data.statusCode,
+    parsed.data.data.isRetryable,
+    parsed.data,
+  );
+}
+
 function getResponseMetrics(
   info: z.infer<typeof responseSchema>["info"],
 ): SeqlaneInvocationMetrics {
@@ -113,6 +137,8 @@ export function parseOpenCodePromptResponse(
   if (requirement !== undefined) {
     throw new InteractionRequiredError(requirement);
   }
+  const providerError = getProviderApiError(parsed);
+  if (providerError !== undefined) throw providerError;
 
   return {
     structured:
