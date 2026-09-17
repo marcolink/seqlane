@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-11
+updated: 2026-09-17
 upstream:
   - adr.direct-runtime-code-review-action
   - adr.runner-built-action-bundles
@@ -165,6 +165,12 @@ Store the portable review graph in `workflows/code-review/`, with one primary
 concern per file. Keep workflow authoring
 executor-neutral and keep GitHub, Action Toolkit, OpenCode, and service types
 out of Plan and DSL contracts.
+
+New code-review Plans use the `code-review` workflow ID and `code-review-*`
+task IDs. This is the directory-era identity convention. Existing persisted
+Plans, recordings, and metrics retain their historical IDs and remain
+self-describing; no runtime identifier translation occurs. Consumers must
+treat workflow and task IDs as opaque historical values.
 
 Use two trusted, statically bundled Seqlane workflows. The review workflow
 must use typed tasks for:

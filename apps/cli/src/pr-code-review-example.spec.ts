@@ -325,6 +325,28 @@ describe("pull-request code review example workflow", () => {
     ).toThrow();
   });
 
+  it("uses the directory-era workflow identity convention", () => {
+    const plan = buildWorkflow(prCodeReviewWorkflow).plan;
+
+    expect(plan.workflow.id).toBe("code-review");
+    expect(
+      plan.nodes
+        .filter((node) => node.type === "task")
+        .map((node) => node.taskId),
+    ).toEqual(
+      expect.arrayContaining([
+        "code-review-review-context",
+        "code-review-git-evidence",
+        "code-review-verify-history",
+        "code-review-correctness",
+        "code-review-maintainability",
+        "code-review-risk",
+        "code-review-summarize",
+        "code-review-apply-dispositions",
+      ]),
+    );
+  });
+
   it("selects session models for Git evidence and review lanes", () => {
     const plan = buildWorkflow(prCodeReviewWorkflow).plan;
     const reviewLanes = plan.nodes.filter(
