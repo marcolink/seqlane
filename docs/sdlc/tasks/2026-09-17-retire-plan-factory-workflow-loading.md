@@ -67,9 +67,9 @@ returns one flattened authored-workflow result with its compiled Plan and
 registries. Runner and CLI consumers use that result directly; the plan command
 no longer accepts input used only by Plan factories.
 
-`pnpm test:mapping`, `nx build runtime,cli`, `nx test runtime`, and `nx test
-cli` passed. The affected lint target remains blocked by an existing
-`no-unsafe-finally` error in `libs/runtime/src/runtime/mastra/mastra-execution.ts`.
+`pnpm test:mapping`, `nx build runtime,cli`, `nx test runtime`, `nx test cli`,
+and `nx lint runtime` passed. Nested workflow cleanup was also adjusted to
+avoid masking an execution failure with a shutdown failure.
 
 ## Delivery state
 
