@@ -5,12 +5,14 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-17
 upstream: []
 supersedes: []
 ---
 
 # Cancel Active Reviews When Pull Requests Close
+
+Historical path note: `examples/README.md` was superseded by `workflows/README.md`.
 
 ## Objective
 

@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-17
 upstream:
   - spec.ripwire-server-action
   - spec.zvec-grep-action-owned-indexing
@@ -13,6 +13,8 @@ supersedes: []
 ---
 
 # Adopt Ripwire in Seqlane Code Review
+
+Historical path note: `examples/README.md` was superseded by `workflows/README.md`.
 
 ## Objective
 

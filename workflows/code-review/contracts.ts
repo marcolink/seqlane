@@ -92,15 +92,6 @@ export const reviewHistoryInputSchema = z.object({
   truncated: z.boolean().default(false),
 });
 
-export const codeReviewInputSchema = z.object({
-  repository: z.string().min(1),
-  baseBranch: z.string().min(1),
-  baseRevision: gitRevisionSchema,
-  headRevision: gitRevisionSchema,
-  pullRequest: pullRequestContextSchema,
-  reviewHistory: reviewHistoryInputSchema.optional(),
-});
-
 export const reviewDispositionSchema = z.object({
   findingId: reviewFindingIdSchema,
   action: reviewDispositionActionSchema,
@@ -236,37 +227,6 @@ export const reviewRunAuditSchema = z
   })
   .strict();
 
-export const reviewRunMetricsLedgerEntrySchema = z
-  .object({
-    githubRunId: z.string().regex(/^\d+$/).max(128),
-    attempt: z.number().int().positive(),
-    completedAt: z.iso.datetime({ offset: true }),
-    reviewedRevision: gitRevisionSchema,
-    metrics: reviewRunMetricsSchema,
-  })
-  .strict();
-
-export const reviewRunMetricsLedgerSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    runs: z.array(reviewRunMetricsLedgerEntrySchema),
-  })
-  .strict()
-  .superRefine((ledger, context) => {
-    const identities = new Set<string>();
-    for (const [index, run] of ledger.runs.entries()) {
-      const identity = `${run.githubRunId}/${run.attempt}`;
-      if (identities.has(identity)) {
-        context.addIssue({
-          code: "custom",
-          path: ["runs", index],
-          message: "Run ID and attempt must be unique",
-        });
-      }
-      identities.add(identity);
-    }
-  });
-
 export const reviewStateSchema = z
   .object({
     schemaVersion: z.literal(3),
@@ -373,10 +333,15 @@ export const reviewHistoryOutputSchema = z.object({
   previousSnapshot: reviewSnapshotSchema.optional(),
   previousReviewedRevision: gitRevisionSchema.optional(),
   dispositions: z.array(reviewDispositionSchema).max(200),
-  runMetricsLedger: reviewRunMetricsLedgerSchema.default({
-    schemaVersion: 1,
-    runs: [],
-  }),
+});
+
+export const codeReviewInputSchema = z.object({
+  repository: z.string().min(1),
+  baseBranch: z.string().min(1),
+  baseRevision: gitRevisionSchema,
+  headRevision: gitRevisionSchema,
+  pullRequest: pullRequestContextSchema,
+  reviewHistory: reviewHistoryOutputSchema,
 });
 
 export const reviewHistoryVerificationSchema = z.object({
@@ -433,15 +398,7 @@ export const codeReviewReportSchema = synthesizedReviewReportSchema.extend({
   findings: z.array(reviewReportFindingSchema).max(40),
   limitations: z.array(z.string().min(1).max(1_000)).max(20),
   stateTruncated: z.boolean(),
-  runMetricsLedger: reviewRunMetricsLedgerSchema,
 });
-
-export const EMPTY_RUN_METRICS_LEDGER: z.infer<
-  typeof reviewRunMetricsLedgerSchema
-> = {
-  schemaVersion: 1,
-  runs: [],
-};
 
 export function findingIdentityKey(id: string): string {
   return id.toLowerCase();

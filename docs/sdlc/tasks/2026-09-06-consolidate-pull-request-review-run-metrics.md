@@ -5,13 +5,15 @@ status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-17
 upstream:
   - spec.versioned-pull-request-review-comments
 supersedes: []
 ---
 
 # Consolidate Pull Request Review Run Metrics
+
+Historical path note: `examples/pr-code-review.ts` was superseded by `workflows/code-review/workflow.ts`; `examples/README.md` by `workflows/README.md`.
 
 ## Objective
 

@@ -5,13 +5,15 @@ status: planned
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-13
+updated: 2026-09-17
 upstream:
   - spec.mechanical-pull-request-review-dispositions
 supersedes: []
 ---
 
 # Apply Pull Request Review Dispositions Without Agent Runs
+
+Historical path note: `examples/pr-code-review.ts` was superseded by `workflows/code-review/workflow.ts`; `examples/README.md` by `workflows/README.md`.
 
 ## Objective
 

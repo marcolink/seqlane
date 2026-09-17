@@ -5,12 +5,14 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-05
+updated: 2026-09-17
 upstream: []
 supersedes: []
 ---
 
 # Add Bounded Patch Evidence to Pull Request Reviews
+
+Historical path note: `examples/pr-code-review.ts` was superseded by `workflows/code-review/workflow.ts`; `examples/README.md` by `workflows/README.md`.
 
 ## Objective
 

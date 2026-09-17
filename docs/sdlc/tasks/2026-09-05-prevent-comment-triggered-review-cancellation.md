@@ -5,13 +5,15 @@ status: completed
 owners:
   - core
 created: 2026-09-05
-updated: 2026-09-08
+updated: 2026-09-17
 upstream:
   - spec.versioned-pull-request-review-comments
 supersedes: []
 ---
 
 # Prevent Irrelevant Comments from Cancelling Pull Request Reviews
+
+Historical path note: `examples/README.md` was superseded by `workflows/README.md`.
 
 ## Objective
 

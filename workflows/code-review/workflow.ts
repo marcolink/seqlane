@@ -2,10 +2,7 @@ import { createFlow, isolated } from "@seqlane/core";
 import { openai } from "@seqlane/core/models";
 import { codeReviewInputSchema, codeReviewReportSchema } from "./contracts.js";
 import { gitReviewEvidenceTask } from "./tasks/review-git-evidence.js";
-import {
-  reviewContextTask,
-  reviewHistoryVerificationTask,
-} from "./tasks/review-history.js";
+import { reviewHistoryVerificationTask } from "./tasks/review-history.js";
 import {
   correctnessReviewTask,
   maintainabilityReviewTask,
@@ -20,15 +17,6 @@ export default createFlow({
   output: codeReviewReportSchema,
 })
   .task(
-    "reviewContext",
-    reviewContextTask,
-    ({ input }) => ({
-      pullRequestNumber: input.pullRequest.number,
-      reviewHistory: input.reviewHistory,
-    }),
-    { workspace: "shared" },
-  )
-  .task(
     "gitEvidence",
     gitReviewEvidenceTask,
     ({ input, tasks }) => ({
@@ -38,7 +26,7 @@ export default createFlow({
       headRevision: input.headRevision,
       pullRequest: input.pullRequest,
       reviewHistory: input.reviewHistory,
-      normalizedReviewHistory: tasks.reviewContext.output,
+      normalizedReviewHistory: input.reviewHistory,
     }),
     { workspace: "shared" },
   )
@@ -53,7 +41,7 @@ export default createFlow({
         headRevision: input.headRevision,
         pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
-        reviewHistory: tasks.reviewContext.output,
+        reviewHistory: input.reviewHistory,
       },
     }),
     {
@@ -75,7 +63,7 @@ export default createFlow({
         headRevision: input.headRevision,
         pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
-        reviewHistory: tasks.reviewContext.output,
+        reviewHistory: input.reviewHistory,
         historyVerification: tasks.historyVerification.output,
       },
     }),
@@ -98,7 +86,7 @@ export default createFlow({
         headRevision: input.headRevision,
         pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
-        reviewHistory: tasks.reviewContext.output,
+        reviewHistory: input.reviewHistory,
         historyVerification: tasks.historyVerification.output,
       },
     }),
@@ -121,7 +109,7 @@ export default createFlow({
         headRevision: input.headRevision,
         pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
-        reviewHistory: tasks.reviewContext.output,
+        reviewHistory: input.reviewHistory,
         historyVerification: tasks.historyVerification.output,
       },
     }),
@@ -144,7 +132,7 @@ export default createFlow({
         headRevision: input.headRevision,
         pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
-        reviewHistory: tasks.reviewContext.output,
+        reviewHistory: input.reviewHistory,
         historyVerification: tasks.historyVerification.output,
       },
       correctness: tasks.correctness.output,
@@ -170,7 +158,7 @@ export default createFlow({
         headRevision: input.headRevision,
         pullRequest: input.pullRequest,
         gitEvidence: tasks.gitEvidence.output,
-        reviewHistory: tasks.reviewContext.output,
+        reviewHistory: input.reviewHistory,
         historyVerification: tasks.historyVerification.output,
       },
       report: tasks.summarize.output,

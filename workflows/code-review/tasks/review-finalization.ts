@@ -1,7 +1,6 @@
 import { defineTask } from "@seqlane/core";
 import { z } from "zod";
 import {
-  EMPTY_RUN_METRICS_LEDGER,
   MAX_REVIEW_FINDINGS,
   REVIEW_SEVERITY_RANK,
   findingIdentityKey,
@@ -16,7 +15,6 @@ import {
   codeReviewReportSchema,
   synthesizedReviewReportSchema,
 } from "../contracts.js";
-import { collectReviewDispositions } from "./review-history.js";
 
 const applyReviewDispositionInputSchema = z.object({
   review: reviewContextSchema,
@@ -100,10 +98,7 @@ const applyReviewDispositionTask = defineTask({
       string,
       z.infer<typeof reviewDispositionSchema>
     >();
-    for (const disposition of collectReviewDispositions(
-      review.reviewHistory.comments,
-      review.reviewHistory.dispositions,
-    )) {
+    for (const disposition of review.reviewHistory.dispositions) {
       if (!disposition.authorized) continue;
       const dispositionKey = findingIdentityKey(disposition.findingId);
       const existing = latestAuthorized.get(dispositionKey);
@@ -463,8 +458,6 @@ const applyReviewDispositionTask = defineTask({
         duplicateHistoricalFindings > 0 ||
         review.reviewHistory.previousState?.truncated === true ||
         review.reviewHistory.previousSnapshot?.truncated === true,
-      runMetricsLedger:
-        review.reviewHistory.runMetricsLedger ?? EMPTY_RUN_METRICS_LEDGER,
     };
   },
 });
