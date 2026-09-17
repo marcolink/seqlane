@@ -589,15 +589,11 @@ function fakeAcpEnvironment(
     SEQLANE_RUNTIME_ADAPTER_CONFIG: JSON.stringify({
       adapter: "acp",
       configuration: {
-        id: "test-opencode",
-        description: "Test OpenCode ACP service",
+        id: "test-acp",
+        description: "Test ACP service",
         command: "opencode",
         persistSession: true,
       },
-    }),
-    SEQLANE_RUNTIME_ADAPTER_CONFIG: JSON.stringify({
-      adapter: "opencode",
-      url: fake.url,
     }),
     SEQLANE_FAKE_ACP_MODE: mode,
     SEQLANE_FAKE_ACP_WORKFLOW: workflow,
@@ -1075,7 +1071,6 @@ export default createFlow({ id: "non-json", input, output })
   });
 
   it("rejects removed recording support", async () => {
-    const fake = await startFakeOpenCodeServer("success", "example");
     const directory = mkdtempSync(join(tmpdir(), "seqlane-recording-cli-"));
     const path = join(directory, "run.jsonl");
     try {

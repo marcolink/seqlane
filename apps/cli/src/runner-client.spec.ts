@@ -268,7 +268,10 @@ describe("runner client", () => {
       runId: "run-1",
     });
 
-    await expect(result).resolves.toMatchObject({ status: 130 });
+    await expect(result).resolves.toMatchObject({
+      status: 130,
+      cancellationSignal: "SIGINT",
+    });
     expect(child.messages).toHaveLength(2);
     expect(child.messages[1]).toBe(JSON.stringify({ type: "run.cancel" }));
   });

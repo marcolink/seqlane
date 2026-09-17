@@ -19,6 +19,7 @@ type TerminalEvent = TerminalSeqlaneExecutionEvent;
 type RunnerMessage = SeqlaneExecutionEvent | RuntimeSessionUiAvailable;
 
 export type RunnerExitStatus = 0 | 1 | 130;
+export type RunnerCancellationSignal = "SIGINT" | "SIGTERM";
 
 export interface RunnerFailure {
   readonly type: "runner.failure";
@@ -46,10 +47,12 @@ export type RunnerSupervisionResult =
         TerminalEvent,
         { readonly type: "run.cancelled" }
       >;
+      readonly cancellationSignal?: RunnerCancellationSignal;
     }
   | {
       readonly status: 130;
       readonly failure: RunnerFailure;
+      readonly cancellationSignal?: RunnerCancellationSignal;
     }
   | {
       readonly status: 1;
@@ -125,14 +128,21 @@ export function mapRunnerOutcomeToStatus(
   }
 }
 
-function terminalResult(event: TerminalEvent): RunnerSupervisionResult {
+function terminalResult(
+  event: TerminalEvent,
+  cancellationSignal?: RunnerCancellationSignal,
+): RunnerSupervisionResult {
   switch (event.type) {
     case "run.succeeded":
       return { status: 0, terminalEvent: event };
     case "run.failed":
       return { status: 1, terminalEvent: event };
     case "run.cancelled":
-      return { status: 130, terminalEvent: event };
+      return {
+        status: 130,
+        terminalEvent: event,
+        ...(cancellationSignal === undefined ? {} : { cancellationSignal }),
+      };
   }
 }
 
@@ -140,8 +150,15 @@ function failure(message: string): RunnerSupervisionResult {
   return { status: 1, failure: { type: "runner.failure", message } };
 }
 
-function cancellationFailure(message: string): RunnerSupervisionResult {
-  return { status: 130, failure: { type: "runner.failure", message } };
+function cancellationFailure(
+  message: string,
+  cancellationSignal?: RunnerCancellationSignal,
+): RunnerSupervisionResult {
+  return {
+    status: 130,
+    failure: { type: "runner.failure", message },
+    ...(cancellationSignal === undefined ? {} : { cancellationSignal }),
+  };
 }
 
 function errorMessage(error: unknown): string {
@@ -195,11 +212,12 @@ export function createRunnerSupervision(
     options.gracePeriodMs ?? defaultGracePeriodMs,
   );
 
-  let cancelRun = (): void => undefined;
+  let cancelRun: (signal?: RunnerCancellationSignal) => void = () => undefined;
   const result = new Promise<RunnerSupervisionResult>((resolve) => {
     let terminalEvent: TerminalEvent | undefined;
     let settled = false;
     let cancellationRequested = false;
+    let cancellationSignal: RunnerCancellationSignal | undefined;
     let graceTimer: unknown;
 
     const cleanup = () => {
@@ -207,8 +225,8 @@ export function createRunnerSupervision(
       child.removeListener("exit", onExit);
       child.removeListener("error", onError);
       if (signalSource !== undefined) {
-        signalSource.removeListener("SIGINT", onSignal);
-        signalSource.removeListener("SIGTERM", onSignal);
+        signalSource.removeListener("SIGINT", onSigint);
+        signalSource.removeListener("SIGTERM", onSigterm);
       }
       if (graceTimer !== undefined) timer.clearTimeout(graceTimer);
     };
@@ -235,6 +253,7 @@ export function createRunnerSupervision(
         finish(
           cancellationFailure(
             `Runner process error during cancellation: ${errorMessage(error)}`,
+            cancellationSignal,
           ),
         );
       } else {
@@ -248,6 +267,7 @@ export function createRunnerSupervision(
         finish(
           cancellationFailure(
             `Runner exited during cancellation before reporting run.cancelled`,
+            cancellationSignal,
           ),
         );
       } else {
@@ -255,13 +275,15 @@ export function createRunnerSupervision(
       }
     };
 
-    const onSignal = (): void => cancelRun();
+    const onSigint = (): void => cancelRun("SIGINT");
+    const onSigterm = (): void => cancelRun("SIGTERM");
 
-    cancelRun = () => {
+    cancelRun = (signal?: RunnerCancellationSignal) => {
       if (settled || terminalEvent !== undefined || cancellationRequested) {
         return;
       }
       cancellationRequested = true;
+      cancellationSignal = signal;
 
       const onCancelSendError = (error: Error | null) => {
         if (error !== null) reportProtocolError(error);
@@ -283,6 +305,7 @@ export function createRunnerSupervision(
           finish(
             cancellationFailure(
               `Graceful cancellation timed out after ${gracePeriodMs}ms`,
+              cancellationSignal,
             ),
           );
         }
@@ -334,7 +357,7 @@ export function createRunnerSupervision(
       // one turn to be validated, without waiting for child exit.
       setImmediate(() => {
         if (terminalEvent !== undefined) {
-          finish(terminalResult(terminalEvent));
+          finish(terminalResult(terminalEvent, cancellationSignal));
         }
       });
     };
@@ -342,8 +365,8 @@ export function createRunnerSupervision(
     child.on("message", onMessage);
     child.on("exit", onExit);
     child.on("error", onError);
-    signalSource?.on("SIGINT", onSignal);
-    signalSource?.on("SIGTERM", onSignal);
+    signalSource?.on("SIGINT", onSigint);
+    signalSource?.on("SIGTERM", onSigterm);
 
     try {
       child.send(encodedRequest, (error) => {
@@ -375,9 +398,8 @@ export function launchRunner(
 ): RunnerClient {
   const child = fork(options.runnerPath ?? defaultRunnerPath(), [], {
     cwd: options.cwd,
-    // Keep terminal signals at the supervising CLI. It delivers a structured
-    // run.cancel command and waits for OpenCode to acknowledge /abort.
-    detached: true,
+    // The child exits with the CLI if the parent cannot forward cancellation.
+    detached: false,
     stdio: ["ignore", "ignore", "ignore", "ipc"],
   });
   const supervision = createRunnerSupervision(

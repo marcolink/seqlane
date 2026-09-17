@@ -142,8 +142,8 @@ export default class RunCommand extends SeqlaneCommand {
   static override description = "Run one explicit workflow in a fresh runner";
 
   static override examples = [
-    '<%= config.bin %> run ./workflows/minimal-example/workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local',
-    "<%= config.bin %> run @seqlane/fixtures/renovate-workflow#renovateWorkflow --input 'null' --runtime test-fixture",
+    '<%= config.bin %> run ./workflows/local-only-example/workflow.ts --input \'{"value":"Seqlane"}\'',
+    '<%= config.bin %> run ./workflows/minimal-example/workflow.ts --input \'{"topic":"Seqlane"}\' --runtime opencode',
   ];
 
   static override args = {
@@ -317,12 +317,18 @@ export default class RunCommand extends SeqlaneCommand {
         );
       }
       if (result.terminalEvent.type === "run.cancelled") {
+        const signal =
+          "cancellationSignal" in result
+            ? result.cancellationSignal
+            : undefined;
         return createRunCancellationResult(
           request,
           sourceWorkflowReference,
           identity,
-          "runtime_cancelled",
-          "Run cancelled by the runtime",
+          signal === undefined ? "runtime_cancelled" : "signal",
+          signal === undefined
+            ? "Run cancelled by the runtime"
+            : `Run cancelled after ${signal}`,
         );
       }
       return createRunFailureResult(

@@ -128,17 +128,6 @@ direct file/module reference such as `./workflows/minimal-example/workflow.ts`. 
 `--server-url` command does not load local workflow references; the existing
 server must already have the workflow registered.
 
-`run` prints the Work and Run identifiers before progress output. It owns a
-loopback operational host by default and uses the same Mastra server path as
-`run --server-url`, which connects to an existing host. `status` reads the
-canonical Mastra run record. `cancel` sends the idempotent Mastra cancellation
-request.
-
-Remote `run --server-url` is terminal-only. The pinned Mastra `start-async`
-route does not expose Seqlane's canonical progress event stream, so remote
-mode does not forward progress events. If `--record` is used in remote mode,
-the recording is terminal-only as well.
-
 ### Runtime adapter configuration
 
 `seqlane run` uses the `local` runtime profile by default. Local-only workflows
