@@ -6,6 +6,7 @@ import {
   isolated,
   reuse,
 } from "@seqlane/core";
+import { openai } from "@seqlane/core/models";
 import { z } from "zod";
 
 const inputSchema = z.object({
@@ -189,7 +190,7 @@ export default createFlow({
 })
   .task("context", contextTask, ({ input }) => input, {
     workspace: "shared",
-    session: isolated(),
+    session: isolated({ model: openai("gpt-5.6-luna") }),
     validateOutput: contextValidator,
   })
   .task("left", laneTask, ({ tasks }) => tasks.context.output, {
@@ -210,7 +211,15 @@ export default createFlow({
       session: ({ tasks }) => branch(tasks.context.session),
     },
   )
-  .task("policy", policyTask, { version: "v1" }, { workspace: "shared" })
+  .task(
+    "policy",
+    policyTask,
+    { version: "v1" },
+    {
+      workspace: "shared",
+      session: isolated({ model: openai("gpt-5.6-luna") }),
+    },
+  )
   .task(
     "joined",
     joinedTask,
@@ -236,6 +245,7 @@ export default createFlow({
     }),
     {
       workspace: "shared",
+      session: isolated({ model: openai("gpt-5.6-luna") }),
       validateOutput: polishValidator,
     },
   )

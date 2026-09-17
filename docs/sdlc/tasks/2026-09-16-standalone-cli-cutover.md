@@ -1,11 +1,11 @@
 ---
 id: task.standalone-cli-cutover
 title: Switch the CLI to Standalone Runs
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 upstream:
   - spec.standalone-cli-runs
   - task.standalone-run-execution
@@ -76,12 +76,21 @@ Git whitespace gates. Preserve hosted behavior during this intermediate step.
 
 ## Outcome
 
-Not implemented. A fresh Terra implementation agent delivers this task under
-orchestrator review and quality gates. Commit this task before starting its successor.
+Implemented on the delivery worktree pending final repository verification and
+review. `run` now uses explicit standalone workflow loading, input and workspace
+preparation, direct in-memory Mastra execution, lazy `--adapter opencode`
+startup, cancellation, and existing final-result rendering. The installed CLI
+was verified with deterministic file runs, input files and stdin, dry plans,
+retired-flag rejection, cancellation, and a live OpenCode `1.18.27` agent run.
+
+The full CLI unit target remains blocked by an unrelated timeout in
+`operational-client.spec.ts`, which exercises the retained hosted route. No
+target-branch delivery is claimed until the delivery commit is reachable there.
 
 ## Delivery state
 
-Planned. No target-branch delivery is claimed.
+Implementation is present on the delivery worktree. No target-branch delivery
+is claimed.
 
 ## Traceability
 

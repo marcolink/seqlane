@@ -13,9 +13,15 @@ async function startFakeServer(options: {
   readonly providerResponse: unknown;
   readonly configResponse: unknown;
 }) {
-  const requests: string[] = [];
+  const requests: Array<{
+    readonly url: string;
+    readonly authorization?: string;
+  }> = [];
   const server = createServer((request, response) => {
-    requests.push(request.url ?? "/");
+    requests.push({
+      url: request.url ?? "/",
+      authorization: request.headers.authorization,
+    });
     if (request.method === "GET" && request.url === "/provider") {
       writeJson(response, options.providerResponse);
       return;
@@ -95,7 +101,33 @@ describe("OpenCode model capabilities", () => {
       });
 
       expect(capabilities.executor).toBe("opencode");
-      expect(fake.requests).toEqual(["/provider", "/config/providers"]);
+      expect(fake.requests.map((request) => request.url)).toEqual([
+        "/provider",
+        "/config/providers",
+      ]);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("authenticates model discovery for an owned service", async () => {
+    const fake = await startFakeServer({
+      providerResponse: providerList,
+      configResponse: providerCatalog,
+    });
+    try {
+      await createOpenCodeModelCapabilities(
+        fake.url,
+        undefined,
+        "Basic c2VxbGFuZTpzZWNyZXQ=",
+      ).listModels();
+
+      expect(fake.requests).toEqual([
+        {
+          url: "/provider",
+          authorization: "Basic c2VxbGFuZTpzZWNyZXQ=",
+        },
+      ]);
     } finally {
       await closeServer(fake.server);
     }

@@ -348,8 +348,13 @@ async function sdkResponseData<T>(
 }
 
 /** Adapts the SDK's session API to the private session lifecycle. */
-export function createOpenCodeTransport(url: string): OpenCodeTransport {
-  return createOpenCodeTransportFromClient(createOpenCodeClient(url));
+export function createOpenCodeTransport(
+  url: string,
+  authorization?: string,
+): OpenCodeTransport {
+  return createOpenCodeTransportFromClient(
+    createOpenCodeClient(url, authorization),
+  );
 }
 
 function createOpenCodeTransportFromClient(

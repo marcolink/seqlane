@@ -138,7 +138,7 @@ test("renders all owners in generated indexes", () => {
   }
 });
 
-test("documents a runnable Codex command with its runtime workspace", () => {
+test("documents a runnable OpenCode command with its execution workspace", () => {
   const readme = readFileSync(join(repositoryRoot, "README.md"), "utf8");
   const shellBlocks = [...readme.matchAll(/```sh\n([\s\S]*?)```/g)].map(
     (match) => match[1],
@@ -148,10 +148,10 @@ test("documents a runnable Codex command with its runtime workspace", () => {
     shellBlocks.some(
       (block) =>
         block.includes("seqlane run ./workflow.ts") &&
-        block.includes("--runtime codex") &&
+        block.includes("--adapter opencode") &&
         block.includes('--workspace "$PWD"'),
     ),
-    "README must include a runnable Codex command with an explicit workspace",
+    "README must include a runnable OpenCode command with an explicit workspace",
   );
 });
 

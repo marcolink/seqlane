@@ -3,10 +3,9 @@
 Seqlane provides the workflow layer. It defines typed tasks, dependencies,
 schemas, sessions, workspace policy, and workflow outputs.
 
-Every run selects a runtime profile. The runtime layer executes tasks and owns
-models, tools, permissions, processes, and adapter configuration. The built-in
-`local` profile runs deterministic tasks without an adapter. Agent tasks need a
-configured adapter runtime, such as OpenCode.
+Deterministic tasks run without an adapter. Agent tasks require an explicit
+adapter, such as `--adapter opencode`. The adapter owns its models, tools,
+permissions, processes, configuration, and authentication.
 
 ## Published and local-development commands
 
@@ -69,11 +68,17 @@ Repository and user workflow modules are trusted local authoring code. The plan
 command can import and evaluate the selected module to compile its Plan. It is
 not a sandbox for untrusted workflow source.
 
-Direct file and module references remain supported by `seqlane run` and
-`seqlane plan`. A module reference can include an export name as
+`seqlane plan` can use discovered workflow names, direct files, and module
+references. `seqlane run` accepts only one explicit local file or installed
+package entrypoint. An entrypoint can include an export name as
 `<module-specifier>#<export-name>`.
 The selected export must be an authored Seqlane workflow; raw Plans and Plan
 factories are not supported entrypoints.
+
+Local run entrypoints support `.ts`, `.mts`, `.js`, and `.mjs`. Relative paths
+resolve from the current directory. Installed packages must expose an
+ESM-compatible public entrypoint. `repository:<name>`, `user:<name>`, and other
+catalog aliases are not valid `run` references.
 
 ## Operational host
 
@@ -122,39 +127,9 @@ seqlane status <run-id> --server-url http://127.0.0.1:4111
 seqlane cancel <run-id> --server-url http://127.0.0.1:4111
 ```
 
-For an owned host, `--workflow` accepts either a registered workflow name or a
-direct file/module reference such as `./workflows/minimal-example/workflow.ts`. A
-`--server-url` command does not load local workflow references; the existing
-server must already have the workflow registered.
-
-`run` prints the Work and Run identifiers before progress output. It owns a
-loopback operational host by default and uses the same Mastra server path as
-`run --server-url`, which connects to an existing host. `status` reads the
-canonical Mastra run record. `cancel` sends the idempotent Mastra cancellation
-request.
-
-Remote `run --server-url` is terminal-only. The pinned Mastra `start-async`
-route does not expose Seqlane's canonical progress event stream, so remote
-mode does not forward progress events. If `--record` is used in remote mode,
-the recording is terminal-only as well.
-
-### Runtime adapter configuration
-
-`seqlane run` uses the `local` runtime profile by default. Local-only workflows
-do not need adapter configuration. Agent runs use the private
-`SEQLANE_RUNTIME_ADAPTER_CONFIG` environment variable. Set this variable before
-you start `seqlane run` or `seqlane serve`:
-
-```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
-
-seqlane run repository:review --input '{"topic":"Seqlane"}' --runtime opencode
-```
-
-The `--runtime` value is an opaque profile identifier. The CLI does not infer
-the adapter from a URL. A remote `run --server-url` sends only the profile and
-workspace metadata. The existing server must have its own adapter
-configuration.
+`status` reads the canonical Mastra run record. `cancel` sends the idempotent
+Mastra cancellation request. `run` is separate from these host operations: it
+never owns or attaches to a Seqlane operational host.
 
 ## Community Studio
 
@@ -208,9 +183,9 @@ seqlane plan ./workflows/minimal-example/workflow.ts \
 
 The command writes the Plan in human-readable form by default. Use
 `--output json` for machine-readable Plan output. The command does not need a
-runtime profile, even when the workflow contains agent tasks.
+adapter, even when the workflow contains agent tasks.
 
-Local-only workflows can execute without a runtime profile:
+Deterministic workflows can execute without an adapter:
 
 ```sh
 seqlane run ./workflows/local-only-example/workflow.ts \
@@ -223,14 +198,12 @@ and actionable failures:
 ```sh
 seqlane run ./workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime opencode \
+  --adapter opencode \
   --output ci
 ```
 
 CI output does not print invocation input, transient output, or routine tool
-activity. Use `run --json` for one final machine-readable result, or use
-`--record` with `replay --events ndjson` for the complete canonical event
-stream.
+activity. Use `run --json` for one final machine-readable result.
 
 ## File-accessing workflows
 
@@ -242,33 +215,24 @@ configure executor permissions before starting a non-interactive Run.
 ```sh
 seqlane run ./workflows/code-review/workflow.ts \
   --input '{"repository":"owner/repository","baseBranch":"main","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"number":123,"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
-  --runtime opencode \
+  --adapter opencode \
   --workspace /path/to/repository
 ```
 
 Runs use isolated executor sessions by default. Independent tasks can overlap
 only when their session, DAG, global capacity, and workspace policies permit it.
 
-When the configured OpenCode runtime also serves its browser UI, the terminal
-renderers do not show its session URL. Final JSON results contain no progress.
+The OpenCode adapter starts a private service only when agent work is requested;
+it does not attach to a server URL or expose a browser session URL. Final JSON
+results contain no progress.
 Signal cancellation results preserve the received signal, for example
 `Run cancelled after SIGINT` or `Run cancelled after SIGTERM`.
 
-## Recording and replay
+## Replay recordings
 
-Recording is explicit and writes a new, local newline-delimited JSON file:
-
-```sh
-seqlane run ./workflows/minimal-example/workflow.ts \
-  --input '{"topic":"Seqlane"}' \
-  --runtime opencode \
-  --record ./seqlane-recording.jsonl
-```
-
-The CLI warns on stderr before writing execution data. The file contains one
-generic `seqlane.recording` header with the CLI workflow ID, followed by the
-ordered canonical `SeqlaneExecutionEvent` JSON lines. It is bounded to 10 MiB
-and 10,000 events; an existing path is rejected.
+Standalone `run` does not create recordings, run history, or other persistent
+Seqlane state. `replay` remains available for compatible recording files
+supplied from earlier runs or another producer.
 
 Replay is read-only. It validates the header, canonical events, run identity,
 and contiguous sequence before sending the same output. It never loads or
@@ -308,7 +272,7 @@ Run a local workflow:
 ```sh
 pnpm exec node apps/cli/bin/run.js run workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime opencode
+  --adapter opencode
 ```
 
 Run the CLI boundary tests after a build:

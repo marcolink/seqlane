@@ -2,7 +2,6 @@
 // @test-scope ./workflow-reference.ts
 // @test-scope ./commands/list.ts
 // @test-scope ./commands/plan.ts
-// @test-scope ./commands/run.ts
 // @test-scope ./cli-contracts.ts
 // @test-scope ./human-output.ts
 // @test-scope ./workflow-roots.ts
@@ -25,7 +24,6 @@ import {
 } from "./workflow-discovery.js";
 import { renderWorkflowListHuman } from "./commands/list.js";
 import { createPlanCommandResult, renderPlanHuman } from "./commands/plan.js";
-import { createRunRequest } from "./commands/run.js";
 import {
   planCommandResultSchema,
   workflowListResultSchema,
@@ -110,16 +108,6 @@ describe("workflow discovery", () => {
       ).toMatchObject({
         id: "repository:review.ts",
       });
-      expect(
-        createRunRequest(
-          "review.ts",
-          "null",
-          undefined,
-          undefined,
-          false,
-          roots,
-        ).workflow,
-      ).toMatchObject({ id: "repository:review.ts" });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -294,55 +282,6 @@ describe("workflow discovery", () => {
       expect(result.plan.nodes[0]).not.toHaveProperty("execution");
       expect(renderPlanHuman(result)).toContain("never-executed");
       expect(planCommandResultSchema.parse(result)).toEqual(result);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("resolves discovered run references and does not discover direct references", () => {
-    const { roots, directory } = createRoots();
-    try {
-      writeDescriptor(roots.repository, "review.json", descriptor("review"));
-      writeDescriptor(roots.user, "personal.json", descriptor("personal"));
-
-      expect(
-        createRunRequest(
-          "repository:review",
-          "null",
-          undefined,
-          undefined,
-          false,
-          roots,
-        ).workflow,
-      ).toMatchObject({ id: "repository:review" });
-      expect(
-        createRunRequest(
-          "user:personal",
-          "null",
-          undefined,
-          undefined,
-          false,
-          roots,
-        ).workflow,
-      ).toMatchObject({ id: "user:personal" });
-      expect(
-        createRunRequest("personal", "null", undefined, undefined, false, roots)
-          .workflow,
-      ).toMatchObject({ id: "user:personal" });
-
-      expect(
-        createRunRequest(
-          "./workflow.mjs",
-          "null",
-          undefined,
-          undefined,
-          false,
-          {
-            repository: join(directory, "missing"),
-            user: join(directory, "also-missing"),
-          },
-        ).workflow,
-      ).toMatchObject({ exportName: "default" });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

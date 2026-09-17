@@ -61,9 +61,11 @@ Its model-selection validator rejects missing or disabled reasoning variants.
 Authentication and transport failures retain their original error meaning.
 
 `startOpenCodeService` owns a private loopback service on an allocated port.
-It preserves native configuration, bounds startup and shutdown, and closes
-only the process group it creates. Its caller must close the returned service.
-This helper writes no Seqlane state; OpenCode can write its own native state.
+It generates one HTTP Basic credential per owned process and uses it for all
+private SDK requests. It preserves native configuration, bounds startup and
+shutdown, and closes only the process group it creates. Its caller must close
+the returned service. This helper writes no Seqlane state; OpenCode can write
+its own native state.
 
 After a successful prompt, the adapter retains its terminal OpenCode message
 ID as a private checkpoint. A Seqlane branch calls OpenCode's native
