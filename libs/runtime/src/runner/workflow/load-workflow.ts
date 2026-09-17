@@ -46,6 +46,16 @@ export interface LoadedWorkflow {
   readonly built: BuiltWorkflow;
 }
 
+/** An authored definition loaded for a standalone execution entrypoint. */
+export interface LoadedAuthoredWorkflow {
+  readonly reference: WorkflowReference;
+  readonly definition: AuthoredWorkflow;
+  readonly plan: Plan;
+  readonly taskDefinitions: TaskDefinitionRegistry;
+  readonly validatorDefinitions: ValidatorDefinitionRegistry;
+  readonly built: BuiltWorkflow;
+}
+
 const passthroughSchema = z.unknown();
 
 function describeReference(reference: WorkflowReference): string {
@@ -65,6 +75,36 @@ function requirePlan(value: unknown, reference: WorkflowReference): Plan {
     );
   }
   return parsed;
+}
+
+export function buildAuthoredWorkflow(
+  reference: WorkflowReference,
+  exported: unknown,
+): LoadedAuthoredWorkflow | undefined {
+  const workflowDefinition = workflowDefinitionSchema.safeParse(exported);
+  if (
+    !workflowDefinition.success ||
+    !isAuthoredWorkflow(workflowDefinition.data)
+  ) {
+    return undefined;
+  }
+
+  const definition = workflowDefinition.data as AuthoredWorkflow;
+  const built = buildWorkflow(definition);
+  validateParsedPlan(
+    built.plan,
+    built.taskDefinitions,
+    true,
+    built.workflowDefinitions,
+  );
+  return {
+    reference,
+    definition,
+    plan: built.plan,
+    taskDefinitions: built.taskDefinitions,
+    validatorDefinitions: built.validatorDefinitions,
+    built,
+  };
 }
 
 export async function loadWorkflow(
@@ -89,19 +129,13 @@ export async function loadWorkflow(
   let validatorDefinitions: ValidatorDefinitionRegistry | undefined;
   let built: BuiltWorkflow;
 
-  const workflowDefinition = workflowDefinitionSchema.safeParse(exported);
-  if (
-    workflowDefinition.success &&
-    isAuthoredWorkflow(workflowDefinition.data)
-  ) {
-    const workflowBuilt = buildWorkflow(
-      workflowDefinition.data as AuthoredWorkflow,
-    );
-    built = workflowBuilt;
-    workflow = workflowDefinition.data;
-    plan = workflowBuilt.plan;
-    taskDefinitions = workflowBuilt.taskDefinitions;
-    validatorDefinitions = workflowBuilt.validatorDefinitions;
+  const authored = buildAuthoredWorkflow(reference, exported);
+  if (authored !== undefined) {
+    built = authored.built;
+    workflow = authored.definition;
+    plan = authored.plan;
+    taskDefinitions = authored.taskDefinitions;
+    validatorDefinitions = authored.validatorDefinitions;
   } else {
     const workflowFactory = workflowPlanFactorySchema.safeParse(exported);
     if (workflowFactory.success) {
@@ -151,9 +185,7 @@ export async function loadWorkflow(
   return {
     reference,
     workflow,
-    ...(workflowDefinition.success
-      ? { definition: workflowDefinition.data }
-      : {}),
+    ...(authored === undefined ? {} : { definition: authored.definition }),
     plan,
     taskDefinitions,
     validatorDefinitions,

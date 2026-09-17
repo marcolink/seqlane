@@ -1,6 +1,35 @@
+import type { ModelSelection } from "@seqlane/core";
+
 export class OpenCodeExecutorError extends Error {
   constructor(message: string, cause?: unknown) {
     super(`OpenCode executor: ${message}`, { cause });
+  }
+}
+
+/** A configured model exists but cannot accept its requested native setting. */
+export class OpenCodeModelSelectionError extends OpenCodeExecutorError {
+  readonly selection: ModelSelection;
+
+  constructor(selection: ModelSelection) {
+    super(
+      `model "${selection.model.provider}/${selection.model.model}" does not support reasoning effort "${selection.reasoning}"`,
+    );
+    this.name = "OpenCodeModelSelectionError";
+    this.selection = selection;
+  }
+}
+
+export class OpenCodeServiceStartupError extends OpenCodeExecutorError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+    this.name = "OpenCodeServiceStartupError";
+  }
+}
+
+export class OpenCodeServiceCleanupError extends OpenCodeExecutorError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+    this.name = "OpenCodeServiceCleanupError";
   }
 }
 

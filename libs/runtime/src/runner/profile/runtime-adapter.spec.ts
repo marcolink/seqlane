@@ -1,6 +1,6 @@
 // @test-scope ./runtime-adapter.ts
 import type { AgentAdapter } from "@seqlane/agent-adapter";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   assertRuntimeAdapterCapabilities,
   createRuntimeAdapterRegistry,
@@ -284,6 +284,90 @@ describe("private runtime adapter selection", () => {
     await expect(capabilities?.listModels()).rejects.toBeInstanceOf(
       RuntimeAdapterUnavailableError,
     );
+  });
+
+  it("retains adapter model-setting validation through the runtime binding", async () => {
+    const validateModelSelection = vi.fn(async () => undefined);
+    const selected = createRuntimeAdapterRegistry([
+      {
+        identity: "opencode",
+        resolveCapabilities: () => adapter().capabilities,
+        prepare: async () => ({}),
+        create: () => ({
+          createAdapter: () => adapter(),
+          modelCapabilities: {
+            executor: "opencode",
+            listModels: async () => [
+              { provider: "openai", model: "test-model" },
+            ],
+            resolveDefaultModel: async () => ({
+              model: { provider: "openai", model: "test-model" },
+            }),
+            validateModelSelection,
+          },
+        }),
+      },
+    ]).resolve(openCodeConfiguration);
+    const capabilities = selected.create({
+      signal: new AbortController().signal,
+    }).modelCapabilities;
+
+    await capabilities?.validateModelSelection?.({
+      model: { provider: "openai", model: "test-model" },
+      reasoning: "high",
+    });
+
+    expect(validateModelSelection).toHaveBeenCalledWith({
+      model: { provider: "openai", model: "test-model" },
+      reasoning: "high",
+    });
+  });
+
+  it("redacts a native model-setting rejection without changing its category", async () => {
+    const selection = {
+      model: { provider: "openai", model: "test-model" },
+      reasoning: "high" as const,
+    };
+    const rejection = Object.assign(
+      new Error("model selection rejected at secret"),
+      {
+        code: "model-selection",
+        cause: new Error("native service rejected secret"),
+      },
+    );
+    const selected = createRuntimeAdapterRegistry([
+      {
+        identity: "opencode",
+        resolveCapabilities: () => adapter().capabilities,
+        prepare: async () => ({}),
+        create: () => ({
+          createAdapter: () => adapter(),
+          modelCapabilities: {
+            executor: "opencode",
+            listModels: async () => [selection.model],
+            resolveDefaultModel: async () => ({ model: selection.model }),
+            validateModelSelection: async () => {
+              throw rejection;
+            },
+          },
+        }),
+      },
+    ]).resolve({
+      adapter: "opencode",
+      url: "https://runtime.test/secret",
+    });
+    const capabilities = selected.create({
+      signal: new AbortController().signal,
+    }).modelCapabilities;
+
+    await expect(
+      capabilities?.validateModelSelection?.(selection),
+    ).rejects.toMatchObject({
+      name: "Error",
+      code: "model-selection",
+      message: "model selection rejected at [REDACTED]",
+      cause: { message: "native service rejected [REDACTED]" },
+    });
   });
 
   it("rejects capability declarations without matching optional operations", () => {

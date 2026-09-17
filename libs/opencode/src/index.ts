@@ -4,6 +4,16 @@ export { createOpenCodeAdapter } from "./adapter.js";
 export type { OpenCodeAdapterOptions } from "./adapter.js";
 export { createOpenCodeModelCapabilities } from "./model-capabilities.js";
 export type { OpenCodeModelCapabilities } from "./model-capabilities.js";
+export {
+  OpenCodeModelSelectionError,
+  OpenCodeServiceCleanupError,
+  OpenCodeServiceStartupError,
+} from "./errors.js";
+export { startOpenCodeService } from "./service.js";
+export type {
+  OpenCodeService,
+  StartOpenCodeServiceOptions,
+} from "./service.js";
 
 /** The SDK/server contract proven by the TS-004-00 contract suite. */
 export const OPENCODE_SDK_VERSION = "1.18.27" as const;

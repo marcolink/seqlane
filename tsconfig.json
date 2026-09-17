@@ -59,6 +59,9 @@
     },
     {
       "path": "./actions/ripwire-server"
+    },
+    {
+      "path": "./libs/codex"
     }
   ]
 }

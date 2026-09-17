@@ -2,9 +2,16 @@ import type { ModelRef, ModelSelection } from "@seqlane/core";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import { z } from "zod";
 import { createOpenCodeClient } from "./client.js";
+import { OpenCodeModelSelectionError } from "./errors.js";
 
 const providerModelSchema = z.looseObject({
   id: z.string().min(1),
+  variants: z
+    .record(
+      z.string().min(1),
+      z.looseObject({ disabled: z.boolean().optional() }),
+    )
+    .optional(),
 });
 
 const providerSchema = z.looseObject({
@@ -30,6 +37,7 @@ export interface OpenCodeModelCapabilities {
   readonly executor: "opencode";
   readonly listModels: () => Promise<readonly ModelRef[]>;
   readonly resolveDefaultModel: () => Promise<ModelSelection>;
+  readonly validateModelSelection: (selection: ModelSelection) => Promise<void>;
 }
 
 /** Creates model discovery/default resolution without exposing OpenCode types. */
@@ -94,6 +102,25 @@ function createOpenCodeModelCapabilitiesFromClient(
       return Object.freeze({
         model: Object.freeze({ provider: provider.id, model: model.id }),
       });
+    },
+
+    async validateModelSelection(selection) {
+      if (selection.reasoning === undefined) return;
+      const response = await client.provider.list(
+        workspace === undefined ? {} : { directory: workspace },
+        { throwOnError: true },
+      );
+      const catalog = providerListResponseSchema.parse(response.data);
+      const provider = catalog.all.find(
+        (candidate) =>
+          candidate.id === selection.model.provider &&
+          catalog.connected.includes(candidate.id),
+      );
+      const model = provider?.models[selection.model.model];
+      const variant = model?.variants?.[selection.reasoning];
+      if (variant === undefined || variant.disabled === true) {
+        throw new OpenCodeModelSelectionError(selection);
+      }
     },
   };
 }

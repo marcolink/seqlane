@@ -119,7 +119,7 @@ export class RuntimeAdapterCheckpointError extends Error {
   }
 }
 
-interface SessionCheckpointBinding {
+export interface SessionCheckpointBinding {
   readonly adapter: string;
   readonly runId: RunId;
   readonly configurationBinding: string;
@@ -137,7 +137,7 @@ export function executeAgentAdapterRequest(
   effectiveSelection: ModelSelection | undefined,
   request: ExecutorRequest,
 ): Promise<unknown> {
-  const task = taskDefinitions.get(request.taskId);
+  const task = request.taskDefinition ?? taskDefinitions.get(request.taskId);
   if (task === undefined) {
     throw new Error(`No task definition found for "${request.taskId}"`);
   }
@@ -159,7 +159,7 @@ export function executeAgentAdapterRequest(
   });
 }
 
-function createAgentSession(
+export function createAgentSession(
   taskDefinitions: TaskDefinitionRegistry,
   adapter: AgentAdapter,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,

@@ -18,6 +18,32 @@ import { openai } from "./models/index.js";
 const schema = <T>() => z.custom<T>(() => true);
 
 describe("buildWorkflow", () => {
+  it("serializes a workflow model default without adapter details", () => {
+    const task = defineAgentTask({
+      id: "workflow-default-model",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      goal: () => "Complete work",
+    });
+    const workflow = createFlow({
+      id: "workflow-default-model-workflow",
+      input: schema<Record<never, never>>(),
+      output: schema<Record<never, never>>(),
+      model: { model: openai("gpt-5.6-sol"), reasoning: "medium" },
+    })
+      .task("agent", task, ({ input }) => input)
+      .output(({ tasks }) => tasks.agent.output)
+      .define();
+
+    expect(buildWorkflow(workflow).plan.workflow).toEqual({
+      id: workflow.id,
+      model: {
+        model: { provider: "openai", model: "gpt-5.6-sol" },
+        reasoning: "medium",
+      },
+    });
+  });
+
   it("rejects malformed task behavior when a workflow is built", () => {
     const malformedTask = {
       id: "mixed-task-behavior",

@@ -70,7 +70,7 @@ function createRun(
 describe("OpenCode AgentAdapter", () => {
   it("ignores failures from structured-output diagnostic consumers", async () => {
     const run = createRun(
-      async () => ({ text: '{"result":"done"}' }),
+      async () => ({ structured: undefined, text: '{"result":"done"}' }),
       async () => ({
         strategy: "prompt",
         retryCount: 0,

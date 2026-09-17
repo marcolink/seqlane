@@ -57,6 +57,13 @@ provider and model IDs remain private to the adapter. New and branched sessions
 send their selected model before the first prompt; portable reasoning labels
 are sent through OpenCode's variant field. The adapter exposes the configured
 OpenCode catalog and default model to runtime preflight.
+Its model-selection validator rejects missing or disabled reasoning variants.
+Authentication and transport failures retain their original error meaning.
+
+`startOpenCodeService` owns a private loopback service on an allocated port.
+It preserves native configuration, bounds startup and shutdown, and closes
+only the process group it creates. Its caller must close the returned service.
+This helper writes no Seqlane state; OpenCode can write its own native state.
 
 After a successful prompt, the adapter retains its terminal OpenCode message
 ID as a private checkpoint. A Seqlane branch calls OpenCode's native

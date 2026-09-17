@@ -15,6 +15,8 @@ import { z } from "zod";
 export interface WorkflowIdentity {
   readonly id: string;
   readonly version?: string;
+  /** Default model for new agent sessions in this workflow. */
+  readonly model?: ModelSelection;
 }
 
 /** Maximum number of repeat-body executions admitted in one run. */
@@ -201,6 +203,7 @@ export const planSchema = z.strictObject({
   workflow: z.strictObject({
     id: z.string().min(1),
     version: z.string().min(1).optional(),
+    model: modelSelectionSchema.optional(),
   }),
   nodes: z.array(planNodeSchema),
   output: valueBindingSchema,

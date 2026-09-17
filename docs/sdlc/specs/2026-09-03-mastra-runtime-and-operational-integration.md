@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-06
+updated: 2026-09-16
 upstream:
   - rfc.mastra-runtime-and-operational-foundation
+  - adr.standalone-cli-runs
 supersedes:
   - spec.effect-runtime-integration
   - spec.local-development-studio-trust-and-lifecycle
@@ -119,7 +120,8 @@ continues to consume the stable Seqlane event and result contracts.
 
 ### requirement-storage-tracing
 
-Mastra storage and tracing are canonical for operational runtime state.
+Mastra storage and tracing are canonical for hosted operational state.
+Standalone runs retain runtime state in memory and create no durable copy.
 Seqlane must not mirror complete run or trace state.
 
 ### requirement-server-mcp
@@ -138,6 +140,9 @@ trusted internal code. `seqlane list` must not import workflow modules.
 Plan. It must not start a task, process, executor, model, or runtime. Seqlane
 does not provide an untrusted-workflow sandbox.
 
+`seqlane run` bypasses these catalogs. It accepts explicit file and package
+entrypoints under [spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md).
+
 ### requirement-workflow-discovery-bounds
 
 Workflow discovery must use explicitly configured depth, file, workflow-count,
@@ -152,9 +157,10 @@ not create a second runtime, run store, or trace store.
 
 ### requirement-operational-host
 
-One foreground Mastra host must register discovered workflows and expose the
-canonical server, MCP, storage, and trace surfaces for its lifetime. A CLI may
-supervise that host but must not own its Mastra runtime state.
+`seqlane serve` owns one foreground Mastra host with registered workflows and
+canonical server, MCP, storage, and trace surfaces. Studio can supervise or
+connect to that host. Standalone `run` uses Mastra directly, creates no Seqlane
+listener, and does not connect to this operational host.
 
 ### requirement-local-operational-access
 
@@ -171,10 +177,11 @@ pagination. Cleanup must not remove an active run's required state.
 
 ### requirement-cross-surface-run
 
-One workflow run started through CLI or MCP must retain the same Work and Run
+One hosted workflow run must retain the same Work and Run
 identity when observed through the server, storage, traces, and Community
 Studio. Each surface must read canonical Mastra state rather than a Seqlane
-projection or copy.
+projection or copy. Standalone runs are excluded from hosted inspection and
+retain no post-exit history.
 
 ### requirement-community-studio
 
@@ -317,6 +324,9 @@ review, and a repository search for forbidden `/ee/` imports.
 - The final task reports production-code, dependency, and Nx-project deltas.
 
 ## Traceability
+
+- [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
+- [spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md)
 
 - [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md)
 - [spec.agent-adapter-boundary-and-capabilities](./2026-09-04-agent-adapter-boundary-and-capabilities.md)

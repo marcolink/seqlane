@@ -22,7 +22,9 @@ Human mode is a passive live terminal tree. CI mode is an append-only
 progress log. Both modes consume the same validated execution events.
 
 `@seqlane/tui` owns terminal projection and rendering. The CLI owns consumer
-selection, cancellation wiring, final results, event recording, and exit status.
+selection, cancellation wiring, final results, and exit status. Standalone runs
+retain no event recordings under
+[spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md).
 
 ## Goals
 

@@ -35,7 +35,10 @@ Run `pnpm models:update` to refresh the committed model ID mirrors from
 models.dev. The generated catalog includes strict OpenAI and Anthropic IDs;
 other providers are intentionally left to generic string model references.
 
-Model selections are nested under new or branched sessions:
+Set a workflow default with `createFlow({ ..., model: { model: openai("gpt-5.6-luna"), reasoning: "high" } })`.
+New sessions use this default unless they declare a selection. One-shot agent
+invocations also use the workflow default. New or branched sessions can select
+a model explicitly:
 
 ```ts
 import { isolated } from "@seqlane/core";
@@ -48,6 +51,7 @@ const session = isolated({
 ```
 
 Reuse sessions cannot select a model; they inherit the source session model.
+A branch without an explicit selection also inherits its source model.
 
 Use `defineTask` and `createFlow(...).task(...).output(...).define()` to declare
 typed, core-owned workflows. Workflow authoring callbacks stay private and are

@@ -34,6 +34,8 @@ export interface ExecutionContext {
   nextInvocationCreationOrdinal: number;
   readonly createInvocationId: (nodeId: PlanNodeId) => InvocationId;
   readonly workflowInput: unknown;
+  /** Adapter-neutral default for new agent sessions in this compiled workflow. */
+  readonly workflowModel?: ModelSelection;
   readonly results: Map<string, unknown>;
   readonly remainingConsumers: Map<string, number>;
   readonly executors: ExecutorRegistry;
@@ -62,6 +64,7 @@ export interface ExecutionContextOptions {
   readonly runId: RunId;
   readonly createInvocationId: (nodeId: PlanNodeId) => InvocationId;
   readonly workflowInput: unknown;
+  readonly workflowModel?: ModelSelection;
   readonly remainingConsumers?: ReadonlyMap<string, number>;
   readonly executors: ExecutorRegistry;
   readonly sessionResolver?: SessionResolver;
@@ -87,6 +90,7 @@ export function createExecutionContext(
     nextInvocationCreationOrdinal: 0,
     createInvocationId: options.createInvocationId,
     workflowInput: options.workflowInput,
+    workflowModel: options.workflowModel,
     results: new Map(),
     remainingConsumers: new Map(options.remainingConsumers),
     executors: options.executors,

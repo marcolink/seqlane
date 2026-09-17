@@ -5,13 +5,22 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-16
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
 ---
 
 # Model Selection and Session Model Semantics
+
+## Scope amendment: standalone run model authority
+
+[adr.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md) replaces implicit
+executor defaults for standalone runs. Models must come from workflow
+declarations, including workflow defaults and pinned session inheritance.
+Availability checks occur before tasks start where discovery permits them.
+Other session identity and inheritance rules remain unchanged. The text below
+records the earlier default-resolution decision.
 
 ## Context
 

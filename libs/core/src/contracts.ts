@@ -202,6 +202,8 @@ export interface WorkflowDefinition<Input = unknown, Output = unknown> {
   readonly id: string;
   readonly input: SeqlaneSchema<Input>;
   readonly output: SeqlaneSchema<Output>;
+  /** Default model for new agent sessions in this workflow. */
+  readonly model?: ModelSelection;
 }
 
 declare const authoredWorkflowBrand: unique symbol;
@@ -358,6 +360,8 @@ export interface CreateFlowOptions<Input, Output> {
   readonly id: string;
   readonly input: SeqlaneSchema<Input>;
   readonly output: SeqlaneSchema<Output>;
+  /** Default model for new agent sessions in this workflow. */
+  readonly model?: ModelSelection;
 }
 
 export type InteractionRequirement =

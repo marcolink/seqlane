@@ -26,7 +26,7 @@
 | [adr.model-selection-and-session-model-semantics](./2026-09-03-model-selection-and-session-model-semantics.md) | Model Selection and Session Model Semantics | accepted | 2026-09-03 | core |
 | [adr.local-mechanical-tasks](./2026-09-03-local-mechanical-tasks.md) | Run Local Mechanical Tasks Without an Agent | superseded | 2026-09-03 | core |
 | [adr.mastra-local-mechanical-tasks](./2026-09-04-mastra-local-mechanical-tasks.md) | Run Local Mechanical Tasks Through Mastra LocalSandbox | accepted | 2026-09-04 | core |
-| [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md) | Run Seqlane Through a Local Mastra Operational Host | accepted | 2026-09-05 | core |
+| [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md) | Run Seqlane Through a Local Mastra Operational Host | superseded | 2026-09-05 | core |
 | [adr.seqlane-action-library-boundary](./2026-09-06-seqlane-action-library-boundary.md) | Use an Action-Specific Library for Merge-Conflict Resolution | accepted | 2026-09-06 | core |
 | [adr.mastra-native-agent-observability](./2026-09-07-mastra-native-agent-observability.md) | Project Executor Observations into Native Mastra Agent Observability | accepted | 2026-09-07 | core |
 | [adr.mastra-backed-seqlane-workflows](./2026-09-08-mastra-backed-seqlane-workflows.md) | Center Seqlane Workflows on a Mastra-Backed Executable DSL | accepted | 2026-09-08 | core |
@@ -36,4 +36,5 @@
 | [adr.separate-seqlane-protocol-package](./2026-09-13-separate-seqlane-protocol-package.md) | Separate Seqlane Protocol Contracts from Core Authoring | accepted | 2026-09-13 | core |
 | [adr.github-native-review-publication-state](./2026-09-14-github-native-review-publication-state.md) | Keep Review Publication State in a Comment and Evidence in Artifacts | accepted | 2026-09-14 | core |
 | [adr.run-terminal-presentation-boundary](./2026-09-15-run-terminal-presentation-boundary.md) | Separate Run Terminal Presentation from Machine Results | superseded | 2026-09-15 | core |
+| [adr.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md) | Execute Standalone CLI Runs Without an Operational Host | accepted | 2026-09-16 | core |
 | [adr.passive-run-output](./2026-09-16-passive-run-output.md) | Use Passive Run Output | accepted | 2026-09-16 | core |

@@ -84,11 +84,17 @@ materialized. A fan-in task consumes branch outputs as normal input and
 explicitly selects one session; Seqlane never merges diverged histories.
 Failed or ambiguous turns publish no checkpoint and poison their session.
 
-Model selection is resolved before execution. A new session may select a
-model; omitted selection uses the configured OpenCode default. Reuse inherits
+Hosted model selection is resolved before execution. A new session may select a
+model; omitted selection uses the workflow default, then the configured adapter default. Reuse inherits
 the pinned selection, while a branch may pin a different selection. Seqlane
 does not fall back after validation. Completion events expose the effective
 provider, model, and optional reasoning as Seqlane-owned metrics.
+
+Standalone preparation provides a lazy, run-owned adapter lease. The caller
+supplies the service factory; concrete adapter packages own service startup and
+shutdown. Standalone model checks require a workflow or session selection and
+never use an adapter default. These preparation APIs do not change the CLI
+command until the standalone cutover.
 
 Agent invocation metrics cover every completed model response in that
 invocation, including structured-output repair responses. Duration, cost, and
