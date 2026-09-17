@@ -35,7 +35,9 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
-    "@seqlane/fixtures": "workspace:*"
+    "@seqlane/action-code-review": "workspace:*",
+    "@seqlane/fixtures": "workspace:*",
+    "@seqlane/resolve-merge-conflicts-workflow": "workspace:*"
   },
   "files": [
     "bin",

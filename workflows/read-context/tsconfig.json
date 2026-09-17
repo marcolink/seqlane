@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
+    "types": ["node"],
+    "emitDeclarationOnly": false
+  },
+  "include": ["workflow.ts", "tasks/**/*.ts"],
+  "references": [
+    { "path": "../../libs/core" },
+    { "path": "../../libs/read-context" }
+  ]
+}

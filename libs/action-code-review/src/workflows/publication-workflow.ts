@@ -70,14 +70,14 @@ const publicationInputSchema = z
   });
 
 const metricsTask = defineTask({
-  id: "pr-code-review.publication.metrics",
+  id: "code-review-publication-metrics",
   input: publicationSnapshotSchema,
   output: reviewRunMetricsSchema,
   execute: async ({ input }) => derivePublicationMetrics(input),
 });
 
 const renderTask = defineTask({
-  id: "pr-code-review.publication.report",
+  id: "code-review-publication-report",
   input: z.object({
     snapshot: publicationSnapshotSchema,
     metrics: metricsTask.output,
@@ -97,7 +97,7 @@ export const publicationResultSchema = z.object({
 });
 
 const decisionTask = defineTask({
-  id: "pr-code-review.publication.decision",
+  id: "code-review-publication-decision",
   input: z.object({
     liveState: z.enum(["live", "stale"]),
     publication: reviewPublicationSchema,
@@ -116,7 +116,7 @@ const decisionTask = defineTask({
  */
 export const publicationWorkflow = (port: PublicationPort) =>
   createFlow({
-    id: "pull-request-code-review-publication",
+    id: "code-review-publication",
     input: publicationInputSchema,
     output: publicationResultSchema,
   })
@@ -135,7 +135,7 @@ export const publicationWorkflow = (port: PublicationPort) =>
     .task(
       "liveState",
       defineTask({
-        id: "pr-code-review.publication.live-state",
+        id: "code-review-publication-live-state",
         input: z.object({
           repository: z.string().min(1),
           pullRequestNumber: z.number().int().positive(),
@@ -163,7 +163,7 @@ export const publicationWorkflow = (port: PublicationPort) =>
     .task(
       "publish",
       defineTask({
-        id: "pr-code-review.publication.publish",
+        id: "code-review-publication-publish",
         input: z.object({
           repository: z.string().min(1),
           pullRequestNumber: z.number().int().positive(),

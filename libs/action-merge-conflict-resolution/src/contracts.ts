@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { GitCommandResult } from "./git-port.js";
 import { resolutionErrorDetailsSchema } from "./errors.js";
-import type { ResolveMergeConflictsWorkflowOutput } from "@seqlane/runtime/workflows/resolve-merge-conflicts";
+import type { ResolveMergeConflictsWorkflowOutput } from "@seqlane/resolve-merge-conflicts-workflow";
 export type { ResolutionErrorDetails } from "./errors.js";
 
 export const DEFAULT_MAX_ATTEMPTS = 10;

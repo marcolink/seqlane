@@ -20,6 +20,9 @@
       "path": "../core"
     },
     {
+      "path": "../../workflows/resolve-merge-conflicts"
+    },
+    {
       "path": "../adapter"
     },
     {

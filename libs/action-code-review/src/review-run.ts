@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { jsonValueSchema } from "@seqlane/core";
 import type { SeqlaneError } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
+import { z } from "zod";
 import {
   startWorkflowRun,
   type StartWorkflowRunRequest,
@@ -21,13 +21,14 @@ import {
 } from "./publication-guard.js";
 import { publicationResultSchema } from "./workflows/publication-workflow.js";
 import { type LivePullRequest, type ReviewTargetInput } from "./contracts.js";
-import { trustedCodeReviewWorkflow } from "./workflows/trusted-workflow.js";
+import trustedCodeReviewWorkflow from "@seqlane/code-review-workflow";
 import { BoundedEventRecorder } from "./event-recorder.js";
 import {
   createReviewProgress,
   type ReviewProgressPort,
 } from "./review-progress.js";
 import { githubActionsRunUrl } from "./publication-rendering.js";
+import { normalizeReviewHistory } from "./review-history.js";
 
 const markerStart = "<!-- seqlane-review-in-progress-start -->";
 const markerEnd = "<!-- seqlane-review-in-progress-end -->";
@@ -243,6 +244,10 @@ export async function runCodeReview(
   const runWorkflow = ports.runWorkflow ?? startWorkflowRun;
   const pullRequest = await adapter.readPullRequest(request.pullRequestNumber);
   const reviewHistory = await adapter.readComments(request.pullRequestNumber);
+  const normalizedHistory = normalizeReviewHistory(
+    request.pullRequestNumber,
+    reviewHistory,
+  );
   const liveBeforeRun = await adapter.readLivePullRequest(
     request.pullRequestNumber,
   );
@@ -338,7 +343,7 @@ export async function runCodeReview(
       baseRevision: request.baseRevision,
       headRevision: request.headRevision,
       pullRequest,
-      reviewHistory,
+      reviewHistory: normalizedHistory.reviewHistory,
     },
     runtime: { id: request.runtime, workspace: request.reviewTarget },
     identity: reservedIdentity,
@@ -386,8 +391,14 @@ export async function runCodeReview(
     return { status: "stale", runId: handle.runId };
   }
 
+  const workflowReport = z
+    .record(z.string(), z.unknown())
+    .parse(outcome.result);
   const snapshot = Object.freeze({
-    report: jsonValueSchema.parse(outcome.result),
+    report: {
+      ...workflowReport,
+      runMetricsLedger: normalizedHistory.runMetricsLedger,
+    },
     events: eventRecorder.events,
     eventsTruncated: eventRecorder.truncated,
     runId: handle.runId,

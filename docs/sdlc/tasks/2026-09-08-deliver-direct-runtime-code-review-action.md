@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-10
+updated: 2026-09-17
 upstream:
   - spec.direct-runtime-code-review-action
   - spec.versioned-pull-request-review-comments
@@ -13,6 +13,8 @@ supersedes: []
 ---
 
 # Deliver the Direct-Runtime Code-Review Action
+
+Historical path note: `examples/pr-code-review.ts` was superseded by `workflows/code-review/workflow.ts`; `examples/README.md` by `workflows/README.md`.
 
 ## Objective
 

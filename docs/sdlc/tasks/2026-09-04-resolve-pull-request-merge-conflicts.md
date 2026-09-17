@@ -5,12 +5,14 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-08
+updated: 2026-09-17
 upstream: []
 supersedes: []
 ---
 
 # Resolve Pull Request Merge Conflicts
+
+Historical path note: `examples/resolve-merge-conflicts.ts` was superseded by `workflows/resolve-merge-conflicts/workflow.ts`; `examples/README.md` by `workflows/README.md`.
 
 ## Objective
 

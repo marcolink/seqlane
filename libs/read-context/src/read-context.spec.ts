@@ -5,8 +5,6 @@
 // @test-scope ./providers/openai-compatible.ts
 // @test-scope ./format.ts
 // @test-scope ./retrieval.ts
-// @test-scope ./retrieval-workflow.ts
-// @test-scope ./workflow.ts
 // @test-scope ./result-validation.ts
 // @test-scope ./summarization-contract.ts
 // @test-scope ./bounded-read.ts
@@ -14,7 +12,6 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildWorkflow } from "@seqlane/core";
 import { classifyCommand } from "./command-classifier.js";
 import { formatReadContextMarkdown } from "./format.js";
 import { runReadContextGuard } from "./hook.js";
@@ -30,7 +27,6 @@ import {
   retrieveEvidenceFromScrapes,
 } from "./retrieval.js";
 import { mergeReadContextUncertainties } from "./summarization-contract.js";
-import readContextWorkflow from "./workflow.js";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -61,13 +57,15 @@ describe("command classification and hook policy", () => {
     expect(classifyCommand("git status --short").kind).toBe("unsafe");
     expect(
       classifyCommand(
-        "pnpm exec node apps/cli/bin/run.js run examples/read-context.ts --input '{}' --workspace .",
+        "pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input '{}' --workspace .",
       ).kind,
     ).toBe("workflow");
-    expect(classifyCommand("cat examples/read-context.ts").kind).toBe("full");
-    expect(classifyCommand("cat /tmp/examples/read-context.ts").kind).toBe(
+    expect(classifyCommand("cat workflows/read-context/workflow.ts").kind).toBe(
       "full",
     );
+    expect(
+      classifyCommand("cat /tmp/workflows/read-context/workflow.ts").kind,
+    ).toBe("full");
     expect(classifyCommand("cat a.ts && cat b.ts").kind).toBe("unsupported");
   });
 
@@ -164,14 +162,17 @@ describe("command classification and hook policy", () => {
   it("accepts only the validated repository-local workflow invocation", async () => {
     const root = await mkdtemp(join("/tmp", "read-context-workflow-hook-"));
     await mkdir(join(root, "apps/cli/bin"), { recursive: true });
-    await mkdir(join(root, "examples"), { recursive: true });
+    await mkdir(join(root, "workflows/read-context"), { recursive: true });
     await writeFile(join(root, "apps/cli/bin/run.js"), "runner");
-    await writeFile(join(root, "examples/read-context.ts"), "workflow");
+    await writeFile(
+      join(root, "workflows/read-context/workflow.ts"),
+      "workflow",
+    );
     const previous = process.cwd();
     process.chdir(root);
     try {
       const command =
-        'pnpm exec node apps/cli/bin/run.js run examples/read-context.ts --input \'{"question":"q"}\' --runtime opencode --workspace .';
+        'pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input \'{"question":"q"}\' --runtime opencode --workspace .';
       expect(
         runReadContextGuard(JSON.stringify({ tool_input: { command } })),
       ).toBe("{}");
@@ -448,7 +449,7 @@ describe("size and evidence budgets", () => {
       timedOut: false,
     }));
     const result = await retrieveEvidence(
-      { question: "q", paths: ["examples/read-context.ts"] },
+      { question: "q", paths: ["workflows/read-context/workflow.ts"] },
       { root: resolve(process.cwd(), "../.."), commandRunner: run },
     );
     expect(result.usedZvecGrep).toBe(false);
@@ -620,39 +621,6 @@ describe("read-context result references", () => {
     expect(formatReadContextMarkdown(result)).toContain(
       "1 total evidence range(s) were not included",
     );
-  });
-});
-
-describe("retrieval workflow fan-out", () => {
-  it("runs independent evidence scrapes before selection", () => {
-    const built = buildWorkflow(readContextWorkflow);
-    const retrieval = built.workflowDefinitions.get(
-      "workflow-read-context.retrieve",
-    );
-
-    expect(built.plan.nodes).toContainEqual(
-      expect.objectContaining({
-        type: "workflow",
-        workflowId: "workflow-read-context.retrieve",
-      }),
-    );
-    expect(retrieval).toBeDefined();
-    const scrapeNodes = retrieval?.plan.nodes.filter(
-      (node) => node.type === "task" && node.taskId.includes("-search"),
-    );
-    expect(scrapeNodes).toHaveLength(3);
-    expect(scrapeNodes?.every((node) => node.dependsOn.length === 0)).toBe(
-      true,
-    );
-    expect(retrieval?.plan.nodes.at(-1)).toMatchObject({
-      type: "task",
-      taskId: "workflow-read-context.retrieve.select-evidence",
-      dependsOn: [
-        "workflow-read-context.retrieve.exact-search:1",
-        "workflow-read-context.retrieve.zvec-search:1",
-        "workflow-read-context.retrieve.ripwire-search:1",
-      ],
-    });
   });
 });
 

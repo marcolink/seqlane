@@ -247,7 +247,7 @@ export function classifyCommand(command: string): ClassifiedRead {
     tokens[2] === "node" &&
     tokens[3] === "apps/cli/bin/run.js" &&
     tokens[4] === "run" &&
-    tokens[5] === "examples/read-context.ts"
+    tokens[5] === "workflows/read-context/workflow.ts"
   ) {
     return {
       kind: "workflow",

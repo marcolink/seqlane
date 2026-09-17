@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   conflictResolutionOutputSchema,
   type ResolveMergeConflictsWorkflowOutput,
-} from "@seqlane/runtime/workflows/resolve-merge-conflicts";
+} from "@seqlane/resolve-merge-conflicts-workflow";
 
 import {
   agentResolutionRequestSchema,

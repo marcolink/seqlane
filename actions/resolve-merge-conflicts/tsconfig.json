@@ -10,6 +10,6 @@
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../../libs/action-merge-conflict-resolution" },
-    { "path": "../../libs/runtime" }
+    { "path": "../../workflows/resolve-merge-conflicts" }
   ]
 }

@@ -191,9 +191,9 @@ importers:
       '@seqlane/action-merge-conflict-resolution':
         specifier: workspace:*
         version: link:../../libs/action-merge-conflict-resolution
-      '@seqlane/runtime':
+      '@seqlane/resolve-merge-conflicts-workflow':
         specifier: workspace:*
-        version: link:../../libs/runtime
+        version: link:../../workflows/resolve-merge-conflicts
 
   actions/ripwire-server:
     dependencies:
@@ -261,9 +261,15 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
     devDependencies:
+      '@seqlane/action-code-review':
+        specifier: workspace:*
+        version: link:../../libs/action-code-review
       '@seqlane/fixtures':
         specifier: workspace:*
         version: link:../../libs/fixtures
+      '@seqlane/resolve-merge-conflicts-workflow':
+        specifier: workspace:*
+        version: link:../../workflows/resolve-merge-conflicts
 
   libs/acp:
     dependencies:
@@ -285,6 +291,9 @@ importers:
 
   libs/action-code-review:
     dependencies:
+      '@seqlane/code-review-workflow':
+        specifier: workspace:*
+        version: link:../../workflows/code-review
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
@@ -303,6 +312,9 @@ importers:
       '@seqlane/opencode-adapter':
         specifier: workspace:*
         version: link:../opencode
+      '@seqlane/resolve-merge-conflicts-workflow':
+        specifier: workspace:*
+        version: link:../../workflows/resolve-merge-conflicts
       '@seqlane/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -377,9 +389,6 @@ importers:
 
   libs/read-context:
     dependencies:
-      '@seqlane/core':
-        specifier: workspace:*
-        version: link:../core
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -425,6 +434,9 @@ importers:
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@seqlane/resolve-merge-conflicts-workflow':
+        specifier: workspace:*
+        version: link:../../workflows/resolve-merge-conflicts
       hono:
         specifier: 4.13.5
         version: 4.13.5
@@ -457,6 +469,36 @@ importers:
       ink-testing-library:
         specifier: 4.0.0
         version: 4.0.0(@types/react@19.3.0)
+
+  workflows/code-review:
+    dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../../libs/core
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
+  workflows/read-context:
+    dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../../libs/core
+      '@seqlane/read-context':
+        specifier: workspace:*
+        version: link:../../libs/read-context
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
+  workflows/resolve-merge-conflicts:
+    dependencies:
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../../libs/core
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
 
 packages:
 

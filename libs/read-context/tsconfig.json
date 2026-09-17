@@ -8,6 +8,5 @@
     "emitDeclarationOnly": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.spec.ts"],
-  "references": [{ "path": "../core" }]
+  "exclude": ["src/**/*.spec.ts"]
 }

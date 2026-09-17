@@ -13,7 +13,18 @@ export { formatReadContextMarkdown } from "./format.js";
 export { classifyCommand } from "./command-classifier.js";
 export { estimateFile } from "./size-estimator.js";
 export { retrieveEvidence } from "./retrieval.js";
+export {
+  exactSearchArguments,
+  retrieveEvidenceFromScrapes,
+  ripwireSearchArguments,
+  zvecSearchArguments,
+} from "./retrieval.js";
 export { summarizeEvidence } from "./summarizer.js";
+export {
+  formatReadContextSummaryPrompt,
+  mergeReadContextUncertainties,
+  READ_CONTEXT_SUMMARY_INSTRUCTIONS,
+} from "./summarization-contract.js";
 export { validateReadContextReferences } from "./result-validation.js";
 export { ReadContextSchema as readContextSchema };
 

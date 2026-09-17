@@ -5,13 +5,15 @@ status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-08
+updated: 2026-09-17
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
 ---
 
 # Migrate the Merge Conflict Workflow to the Seqlane Action
+
+Historical path note: `examples/README.md` was superseded by `workflows/README.md`.
 
 ## Objective
 

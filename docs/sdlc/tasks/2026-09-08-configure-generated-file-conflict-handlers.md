@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-17
 upstream:
   - spec.seqlane-action-merge-conflict-resolution
   - adr.seqlane-action-library-boundary
@@ -13,6 +13,8 @@ supersedes: []
 ---
 
 # Configure Generated-File Conflict Handlers
+
+Historical path note: `examples/README.md` was superseded by `workflows/README.md`.
 
 ## Objective
 

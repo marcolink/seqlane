@@ -1,11 +1,21 @@
-// @test-scope ../../../examples/resolve-merge-conflicts.ts
+// @test-scope ../../../workflows/resolve-merge-conflicts/workflow.ts
+// @test-scope ../../../libs/runtime/src/workflows/resolve-merge-conflicts.ts
 
 import { buildWorkflow } from "@seqlane/core";
+import canonicalWorkflow, {
+  conflictResolutionOutputSchema,
+} from "@seqlane/resolve-merge-conflicts-workflow";
+import runtimeWorkflow, {
+  conflictResolutionOutputSchema as runtimeConflictResolutionOutputSchema,
+} from "@seqlane/runtime/workflows/resolve-merge-conflicts";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const { default: resolveMergeConflictsWorkflow } = await import(
-  new URL("../../../examples/resolve-merge-conflicts.ts", import.meta.url).href
+  new URL(
+    "../../../workflows/resolve-merge-conflicts/workflow.ts",
+    import.meta.url,
+  ).href
 );
 
 const validInput = {
@@ -19,7 +29,14 @@ const validInput = {
   conflictedFiles: ["src/example.ts"],
 };
 
-describe("merge-conflict resolution example workflow", () => {
+describe("merge-conflict resolution workflow", () => {
+  it("is the runtime compatibility export", () => {
+    expect(runtimeWorkflow).toBe(canonicalWorkflow);
+    expect(runtimeConflictResolutionOutputSchema).toBe(
+      conflictResolutionOutputSchema,
+    );
+  });
+
   it("requires explicit pull-request revisions and conflict files", () => {
     expect(resolveMergeConflictsWorkflow.input.parse(validInput)).toEqual(
       validInput,
@@ -50,7 +67,7 @@ describe("merge-conflict resolution example workflow", () => {
     expect(plan.nodes).toEqual([
       expect.objectContaining({
         type: "task",
-        taskId: "merge-conflicts.resolve",
+        taskId: "resolve-merge-conflicts-task",
         workspace: "exclusive",
         dependsOn: [],
         session: {
@@ -67,13 +84,13 @@ describe("merge-conflict resolution example workflow", () => {
   it("limits the agent to file edits for the supplied conflicts", () => {
     const workflow = buildWorkflow(resolveMergeConflictsWorkflow);
     expect(
-      workflow.taskDefinitions.get("merge-conflicts.resolve"),
+      workflow.taskDefinitions.get("resolve-merge-conflicts-task"),
     ).toBeDefined();
     expect(workflow.plan.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: "task",
-          taskId: "merge-conflicts.resolve",
+          taskId: "resolve-merge-conflicts-task",
           workspace: "exclusive",
         }),
       ]),

@@ -1,0 +1,25 @@
+{
+  "name": "@seqlane/read-context-workflow",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js",
+      "default": "./dist/workflow.js"
+    }
+  },
+  "nx": {
+    "tags": [
+      "type:workflow",
+      "workflow-kind:shipped",
+      "scope:private"
+    ]
+  },
+  "dependencies": {
+    "@seqlane/core": "workspace:*",
+    "@seqlane/read-context": "workspace:*",
+    "zod": "4.5.4"
+  }
+}

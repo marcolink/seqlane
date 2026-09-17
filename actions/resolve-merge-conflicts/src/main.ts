@@ -28,7 +28,7 @@ import {
   type WorkspaceFilesPort,
   validateSeparateWorkspaceRoots,
 } from "@seqlane/action-merge-conflict-resolution";
-import workflow from "@seqlane/runtime/workflows/resolve-merge-conflicts";
+import workflow from "@seqlane/resolve-merge-conflicts-workflow";
 import { createLazyAgentPort } from "./lazy-agent-port.js";
 
 function requiredWorkspace(): string {

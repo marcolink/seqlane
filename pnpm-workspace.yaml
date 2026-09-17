@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "actions/*"
   - "libs/*"
+  - "workflows/*"
 
 allowBuilds:
   {

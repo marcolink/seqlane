@@ -156,7 +156,7 @@ function guardReadCommand(
       ? (requestedLines ?? 0) > maxTargetedLines
       : estimate.lines > maxLines || estimate.bytes > maxBytes;
   if (!blocked) return "{}";
-  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use pnpm exec node apps/cli/bin/run.js run examples/read-context.ts --input '{"question":"...","paths":["${candidate.path}"]}' --runtime opencode --workspace "$PWD" for the workflow-read-context workflow with a focused question from the active task. Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
+  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input '{"question":"...","paths":["${candidate.path}"]}' --runtime opencode --workspace "$PWD" for the read-context workflow with a focused question from the active task. Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
   return deny(reason);
 }
 
