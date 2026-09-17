@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   OpenCodeServiceCleanupError,
   OpenCodeServiceStartupError,
@@ -8,9 +9,12 @@ const OPENCODE_HOST = "127.0.0.1";
 const STARTUP_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 const OUTPUT_LIMIT_BYTES = 16 * 1024;
+const OPENCODE_SERVER_USERNAME = "seqlane";
 
 export interface OpenCodeService {
   readonly url: string;
+  /** Private HTTP Basic credential for this owned service process. */
+  readonly authorization: string;
   readonly diagnostics: () => string;
   close(): Promise<void>;
 }
@@ -153,6 +157,7 @@ async function waitForOpenCodeReady(options: {
   readonly url: () => string | undefined;
   readonly startupFailure: () => unknown;
   readonly fetch: typeof fetch;
+  readonly authorization: string;
 }): Promise<string> {
   const deadline = Date.now() + options.timeoutMs;
   while (Date.now() < deadline) {
@@ -170,6 +175,7 @@ async function waitForOpenCodeReady(options: {
     if (url !== undefined) {
       try {
         const response = await options.fetch(`${url}/global/health`, {
+          headers: { authorization: options.authorization },
           signal: AbortSignal.any([
             options.signal,
             AbortSignal.timeout(
@@ -198,13 +204,23 @@ export async function startOpenCodeService(
     throw new OpenCodeServiceStartupError("OpenCode startup was cancelled");
   }
   const start = options.spawn ?? spawn;
+  // OpenCode supports Basic auth through these native environment variables.
+  // A distinct secret prevents other local processes from using this run's API.
+  const password = randomBytes(32).toString("base64url");
+  const authorization = `Basic ${Buffer.from(
+    `${OPENCODE_SERVER_USERNAME}:${password}`,
+  ).toString("base64")}`;
   const child = start(
     "opencode",
     ["serve", `--hostname=${OPENCODE_HOST}`, "--port=0", "--print-logs"],
     {
       cwd: options.workspace,
       detached: process.platform !== "win32",
-      env: process.env,
+      env: {
+        ...process.env,
+        OPENCODE_SERVER_USERNAME,
+        OPENCODE_SERVER_PASSWORD: password,
+      },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     },
@@ -244,8 +260,9 @@ export async function startOpenCodeService(
       url: () => endpoint,
       startupFailure: () => startupFailure,
       fetch: options.fetch ?? fetch,
+      authorization,
     });
-    return { url, diagnostics: () => output, close };
+    return { url, authorization, diagnostics: () => output, close };
   } catch (cause) {
     let cleanupFailure: unknown;
     try {

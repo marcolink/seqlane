@@ -80,6 +80,7 @@ export type {
   SeqlaneRunOutcome,
 } from "@seqlane/core";
 export { startWorkflowRun } from "./start-workflow-run.js";
+export { NonSerializableRunOutputError } from "./runner/event-bridge.js";
 export type {
   StartWorkflowRunRequest,
   WorkflowRunHandle,

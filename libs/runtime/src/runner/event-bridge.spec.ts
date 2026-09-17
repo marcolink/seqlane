@@ -8,7 +8,10 @@ import type {
   SeqlanePlanSnapshot,
 } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
-import { createExecutionEventBridge } from "./event-bridge.js";
+import {
+  createExecutionEventBridge,
+  NonSerializableRunOutputError,
+} from "./event-bridge.js";
 
 const metadata = {
   schemaVersion: 1 as const,
@@ -89,7 +92,7 @@ describe("execution event bridge", () => {
         runId: "run-1",
         output: new Date(),
       }),
-    ).toThrow("JSON serializable");
+    ).toThrow(NonSerializableRunOutputError);
   });
 
   it("emits a canonical plan event in the same sequence", async () => {

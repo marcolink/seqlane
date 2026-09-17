@@ -44,9 +44,10 @@ export interface OpenCodeModelCapabilities {
 export function createOpenCodeModelCapabilities(
   url: string,
   workspace?: string,
+  authorization?: string,
 ): OpenCodeModelCapabilities {
   return createOpenCodeModelCapabilitiesFromClient(
-    createOpenCodeClient(url),
+    createOpenCodeClient(url, authorization),
     workspace,
   );
 }

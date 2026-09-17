@@ -228,7 +228,10 @@ async function createOpenCodeRunForSession(
     throw executorError("run was cancelled before session creation");
   }
 
-  const transport = createOpenCodeTransport(connection.url);
+  const transport = createOpenCodeTransport(
+    connection.url,
+    connection.authorization,
+  );
   const outputState =
     structuredOutputState ??
     connection.structuredOutputState ??

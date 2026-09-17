@@ -339,6 +339,79 @@ export default createFlow({ id: "empty-input", input: schema, output: schema }).
     });
   });
 
+  it("rejects an unknown adapter before loading the workflow", async () => {
+    const result = await runCli([
+      "run",
+      "./missing-workflow.ts",
+      "--adapter",
+      "unknown",
+      "--json",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "failed",
+      phase: "command",
+      error: {
+        message: 'Unknown adapter "unknown"; supported adapters: opencode',
+      },
+    });
+    expect(result.stderr).not.toContain("missing-workflow");
+  });
+
+  it("keeps workflow output out of JSON stdout", async () => {
+    const directory = mkdtempSync(
+      join(repositoryRoot, ".tmp-seqlane-cli-json-output-"),
+    );
+    const workflow = join(directory, "workflow.ts");
+    writeWorkflow(
+      workflow,
+      `import { createFlow, defineTask } from "@seqlane/core";
+import { z } from "zod";
+console.log("import output");
+const schema = z.object({});
+const task = defineTask({ id: "output", input: schema, output: schema, execute: () => { console.log("task output"); return {}; } });
+export default createFlow({ id: "json-output", input: schema, output: schema }).task("output", task, () => ({})).output(({ tasks }) => tasks.output.output).define();
+`,
+    );
+    try {
+      const result = await runCli(["run", workflow, "--json"]);
+      expect(result.code, JSON.stringify(result)).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({ status: "succeeded" });
+      expect(result.stderr).toContain("import output");
+      expect(result.stderr).toContain("task output");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reports an unserializable success output as result serialization failure", async () => {
+    const directory = mkdtempSync(
+      join(repositoryRoot, ".tmp-seqlane-cli-result-output-"),
+    );
+    const workflow = join(directory, "workflow.ts");
+    writeWorkflow(
+      workflow,
+      `import { createFlow, defineTask } from "@seqlane/core";
+import { z } from "zod";
+const input = z.object({});
+const output = z.any();
+const task = defineTask({ id: "non-json", input, output, execute: () => Number.NaN });
+export default createFlow({ id: "non-json-output", input, output }).task("non-json", task, () => ({})).output(({ tasks }) => tasks["non-json"].output).define();
+`,
+    );
+    try {
+      const result = await runCli(["run", workflow, "--json"]);
+      expect(result.code, JSON.stringify(result)).toBe(1);
+      expect(JSON.parse(result.stdout), JSON.stringify(result)).toMatchObject({
+        status: "failed",
+        phase: "result-serialization",
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each(["SIGINT", "SIGTERM"] as const)(
     "returns a cancellation result after %s for a deterministic held task",
     async (signal) => {

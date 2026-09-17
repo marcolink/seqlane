@@ -1,7 +1,12 @@
 import { Args, Flags } from "@oclif/core";
 import type { JsonValue } from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
-import { createExecutionEventBridge, startWorkflowRun } from "@seqlane/runtime";
+import {
+  createExecutionEventBridge,
+  NonSerializableRunOutputError,
+  RuntimeError,
+  startWorkflowRun,
+} from "@seqlane/runtime";
 import { createSeqlanePlanSnapshot } from "@seqlane/runtime/workflow";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import {
@@ -15,7 +20,12 @@ import {
   readStandaloneInput,
 } from "../standalone-execution-preparation.js";
 import { loadStandaloneWorkflow } from "../standalone-workflow.js";
-import { startStandaloneAdapter } from "../standalone-adapter.js";
+import {
+  assertStandaloneAdapter,
+  startStandaloneAdapter,
+} from "../standalone-adapter.js";
+import { withExecutionOutputBoundary } from "../execution-output.js";
+import { closeRunResources } from "../run-lifecycle.js";
 import {
   createRunCancellationResult,
   createRunFailureResult,
@@ -46,6 +56,13 @@ function standaloneRequest(
     runtime: { id: "standalone", workspace },
     ...(dryRun ? { dryRun: true } : {}),
   };
+}
+
+function isResultSerializationFailure(error: unknown): boolean {
+  return (
+    error instanceof RuntimeError &&
+    error.cause instanceof NonSerializableRunOutputError
+  );
 }
 
 export default class RunCommand extends SeqlaneCommand {
@@ -95,6 +112,11 @@ export default class RunCommand extends SeqlaneCommand {
 
   async run(): Promise<RunCommandResult | void> {
     const { args, flags } = await this.parse(RunCommand);
+    try {
+      assertStandaloneAdapter(flags.adapter);
+    } catch (error) {
+      this.error(errorMessage(error), { exit: 1 });
+    }
     const jsonMode = this.jsonEnabled();
     if (jsonMode && flags.dry)
       this.error("--json cannot be combined with --dry", { exit: 1 });
@@ -138,18 +160,24 @@ export default class RunCommand extends SeqlaneCommand {
         callerDirectory,
         input: flags.input,
         inputFile: flags["input-file"],
+        signal: cancellation.signal,
         ...(flags["input-file"] === "-" ? { stdin: process.stdin } : {}),
       });
       const workspace = await prepareStandaloneWorkspace(
         callerDirectory,
         flags.workspace,
       );
-      loaded = await loadStandaloneWorkflow(args.workflow, callerDirectory);
-      const request = standaloneRequest(loaded, input, workspace, flags.dry);
+      const workflow = await withExecutionOutputBoundary(
+        jsonMode,
+        () => loadStandaloneWorkflow(args.workflow, callerDirectory),
+        (value) => writeDiagnostic(capabilities.stderr, value),
+      );
+      loaded = workflow;
+      const request = standaloneRequest(workflow, input, workspace, flags.dry);
 
       if (flags.dry) {
         capabilities.stdout.write(
-          JSON.stringify(createSeqlanePlanSnapshot(loaded.plan), null, 2) +
+          JSON.stringify(createSeqlanePlanSnapshot(workflow.plan), null, 2) +
             "\n",
         );
         process.exitCode = 0;
@@ -180,29 +208,52 @@ export default class RunCommand extends SeqlaneCommand {
         dispatcher?.consume(event);
       });
       const startedAt = new Date().toISOString();
-      const run = (activeRun = startWorkflowRun({
-        workflow: loaded,
-        input,
-        standalone: {
-          workspace,
-          adapter: flags.adapter,
-          startAdapter: startStandaloneAdapter,
+      let run: ReturnType<typeof startWorkflowRun> | undefined;
+      const outcome = await withExecutionOutputBoundary(
+        jsonMode,
+        async () => {
+          run = activeRun = startWorkflowRun({
+            workflow,
+            input,
+            standalone: {
+              workspace,
+              adapter: flags.adapter,
+              startAdapter: startStandaloneAdapter,
+            },
+            events,
+            signal: cancellation.signal,
+            onDiagnostic: (message) =>
+              writeDiagnostic(capabilities.stderr, message),
+          });
+          return run.outcome;
         },
-        events,
-        signal: cancellation.signal,
-        onDiagnostic: (message) =>
-          writeDiagnostic(capabilities.stderr, message),
-      }));
-      const outcome = await run.outcome;
+        (value) => writeDiagnostic(capabilities.stderr, value),
+      );
+      if (run === undefined) throw new Error("Workflow run did not start");
       await events.flush();
       await dispatcher.flush();
       if (outcome.status === "succeeded") {
-        const result = createRunSuccessResult(
-          request,
-          args.workflow,
-          { workId: run.workId, runId: run.runId, startedAt },
-          outcome.result,
-        );
+        let result: RunCommandResult;
+        try {
+          result = createRunSuccessResult(
+            request,
+            args.workflow,
+            { workId: run.workId, runId: run.runId, startedAt },
+            outcome.result,
+          );
+        } catch (error) {
+          result = createRunFailureResult(
+            error,
+            "result-serialization",
+            request,
+            args.workflow,
+            { workId: run.workId, runId: run.runId, startedAt },
+          );
+          process.exitCode = 1;
+          if (!jsonMode)
+            writeDiagnostic(capabilities.stderr, errorMessage(error));
+          return jsonMode ? result : undefined;
+        }
         process.exitCode = 0;
         return jsonMode ? result : undefined;
       }
@@ -225,7 +276,9 @@ export default class RunCommand extends SeqlaneCommand {
           : new Error("Run cancelled");
       const result = createRunFailureResult(
         error,
-        "execution",
+        isResultSerializationFailure(error)
+          ? "result-serialization"
+          : "execution",
         request,
         args.workflow,
         { workId: run.workId, runId: run.runId, startedAt },
@@ -234,17 +287,26 @@ export default class RunCommand extends SeqlaneCommand {
       if (!jsonMode) writeDiagnostic(capabilities.stderr, errorMessage(error));
       return jsonMode ? result : undefined;
     } catch (error) {
+      if (cancellation.signal.aborted) {
+        process.exitCode = 130;
+        return;
+      }
       this.error(contextualizeCommandError(errorMessage(error), error), {
         exit: 1,
       });
     } finally {
       process.removeListener("SIGINT", onSigint);
       process.removeListener("SIGTERM", onSigterm);
-      try {
-        await dispatcher?.close();
-        await renderer?.finish();
-      } finally {
-        await loaded?.dispose();
+      const cleanupErrors = await closeRunResources({
+        dispatcher,
+        finishRenderer: () => renderer?.finish(),
+        closeHost: () => loaded?.dispose(),
+      });
+      for (const error of cleanupErrors) {
+        writeDiagnostic(
+          capabilities.stderr,
+          `Cleanup failed: ${errorMessage(error)}`,
+        );
       }
     }
   }
