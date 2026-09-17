@@ -11,3 +11,5 @@ consumer owns conflict discovery, checkout, and publishing; this graph edits
 only supplied files. Consumers use the private
 `@seqlane/resolve-merge-conflicts-workflow` package; runtime also preserves its
 legacy workflow subpath as a re-export.
+
+The resolver uses `openai/gpt-5.6-luna` with high reasoning.

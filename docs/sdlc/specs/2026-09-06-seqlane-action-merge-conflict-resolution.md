@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-16
+updated: 2026-09-17
 upstream:
   - adr.seqlane-action-library-boundary
   - adr.runner-built-action-bundles
@@ -713,6 +713,9 @@ the agent task contract. It is exposed as the private
 `@seqlane/resolve-merge-conflicts-workflow` package. Runtime and Action
 consumers must use that package or their declared compatibility re-export; do
 not duplicate the graph or import the workflow through a relative path.
+
+The resolver uses `openai/gpt-5.6-luna` with high reasoning. A model change
+requires an explicit specification update and focused resolver verification.
 
 ## Verification
 

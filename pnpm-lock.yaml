@@ -264,6 +264,9 @@ importers:
       '@seqlane/fixtures':
         specifier: workspace:*
         version: link:../../libs/fixtures
+      '@seqlane/resolve-merge-conflicts-workflow':
+        specifier: workspace:*
+        version: link:../../workflows/resolve-merge-conflicts
 
   libs/acp:
     dependencies:
