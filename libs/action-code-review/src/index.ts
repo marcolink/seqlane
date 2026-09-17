@@ -7,6 +7,7 @@ export * from "./workflows/publication-workflow.js";
 export * from "./event-recorder.js";
 export * from "./publication-guard.js";
 export * from "./review-run.js";
+export { normalizeReviewHistory } from "./review-history.js";
 export * from "./review-progress.js";
 export { default as trustedCodeReviewWorkflow } from "@seqlane/code-review-workflow";
 export { default } from "@seqlane/code-review-workflow";

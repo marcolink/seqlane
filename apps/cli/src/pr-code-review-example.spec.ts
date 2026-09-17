@@ -1,9 +1,11 @@
 // @test-scope ../../../workflows/code-review/workflow.ts
+// @test-scope ../../../libs/action-code-review/src/review-history.ts
 
 import { gzipSync } from "node:zlib";
 import { readFile } from "node:fs/promises";
 import type { TaskContext, TaskDefinition } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
+import { normalizeReviewHistory } from "@seqlane/action-code-review";
 import { describe, expect, it } from "vitest";
 
 const { default: prCodeReviewWorkflow } = await import(
@@ -12,6 +14,26 @@ const { default: prCodeReviewWorkflow } = await import(
 
 const REVIEW_TEST_BASE_REVISION = "a".repeat(40);
 const REVIEW_TEST_HEAD_REVISION = "b".repeat(40);
+
+const reviewContextTask = {
+  execute: async ({
+    input,
+  }: {
+    readonly input: {
+      readonly pullRequestNumber: number;
+      readonly reviewHistory?: object;
+    };
+  }) => {
+    const normalized = normalizeReviewHistory(
+      input.pullRequestNumber,
+      input.reviewHistory,
+    );
+    return {
+      ...normalized.reviewHistory,
+      runMetricsLedger: normalized.runMetricsLedger,
+    };
+  },
+};
 
 function createReviewInput(
   reviewHistory: object,
@@ -314,6 +336,13 @@ describe("pull-request code review example workflow", () => {
         title: "Add automated review",
         description: "Run Seqlane for every pull request.",
       },
+      reviewHistory: {
+        comments: [],
+        commentIds: [],
+        truncated: false,
+        dispositionsTruncated: false,
+        dispositions: [],
+      },
     };
 
     expect(prCodeReviewWorkflow.input.parse(input)).toEqual(input);
@@ -335,7 +364,6 @@ describe("pull-request code review example workflow", () => {
         .map((node) => node.taskId),
     ).toEqual(
       expect.arrayContaining([
-        "code-review-review-context",
         "code-review-git-evidence",
         "code-review-verify-history",
         "code-review-correctness",
@@ -374,48 +402,33 @@ describe("pull-request code review example workflow", () => {
         node.type === "task" &&
         node.taskId === "code-review-apply-dispositions",
     );
-    const reviewContext = plan.nodes.find(
-      (node) =>
-        node.type === "task" && node.taskId === "code-review-review-context",
-    );
-
     expect(gitEvidence).toMatchObject({
-      workspace: "shared",
-      dependsOn: [reviewContext?.nodeId],
-    });
-    expect(gitEvidence).not.toHaveProperty("execution");
-    expect(reviewContext).toMatchObject({
       workspace: "shared",
       dependsOn: [],
     });
-    expect(reviewContext).not.toHaveProperty("execution");
+    expect(gitEvidence).not.toHaveProperty("execution");
     expect(applyDispositions?.dependsOn).toEqual(
       expect.arrayContaining([
         gitEvidence?.nodeId,
-        reviewContext?.nodeId,
         historyVerification?.nodeId,
         summarize?.nodeId,
       ]),
     );
-    expect(applyDispositions?.dependsOn).toHaveLength(4);
+    expect(applyDispositions?.dependsOn).toHaveLength(3);
     expect(historyVerification).toMatchObject({
       workspace: "shared",
-      dependsOn: expect.arrayContaining([
-        gitEvidence?.nodeId,
-        reviewContext?.nodeId,
-      ]),
+      dependsOn: expect.arrayContaining([gitEvidence?.nodeId]),
     });
-    expect(historyVerification?.dependsOn).toHaveLength(2);
+    expect(historyVerification?.dependsOn).toHaveLength(1);
     expect(reviewLanes).toHaveLength(3);
     for (const reviewLane of reviewLanes) {
       expect(reviewLane.dependsOn).toEqual(
         expect.arrayContaining([
           gitEvidence?.nodeId,
-          reviewContext?.nodeId,
           historyVerification?.nodeId,
         ]),
       );
-      expect(reviewLane.dependsOn).toHaveLength(3);
+      expect(reviewLane.dependsOn).toHaveLength(2);
     }
     expect(reviewLanes).toEqual(
       expect.arrayContaining([
@@ -479,12 +492,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("normalizes review history and authorizes disposition commands", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
 
     const result = await executeTask<any, any>(
       task,
@@ -597,12 +605,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("trusts only bot snapshots and orders dispositions by edit time", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
 
     const snapshot = gzipSync(
       JSON.stringify({
@@ -680,12 +683,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("reads strict version 3 state from the trusted bot comment", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
 
     const state = {
       schemaVersion: 3,
@@ -775,12 +773,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("reads appended run history and validates metadata against its latest run", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
 
     const state = {
       schemaVersion: 3,
@@ -823,12 +816,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("reads a strict run metrics ledger independently of review state", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
     const state = {
       schemaVersion: 3,
       pullRequestNumber: 44,
@@ -898,12 +886,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("starts an empty ledger for malformed, legacy, or unsupported metrics data", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
     const state = {
       schemaVersion: 3,
       pullRequestNumber: 44,
@@ -951,12 +934,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("rejects version 3 state with unknown fields", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
     const invalidState = {
       schemaVersion: 3,
       pullRequestNumber: 44,
@@ -994,12 +972,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("rejects version 3 state with both legacy and history run fields", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
     const invalidState = {
       schemaVersion: 3,
       pullRequestNumber: 44,
@@ -1039,12 +1012,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("rejects ambiguous or mismatched version 3 state framing", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
     const state = {
       schemaVersion: 3,
       pullRequestNumber: 44,
@@ -1100,12 +1068,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("ignores malformed commands and caps valid dispositions", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
 
     const commands = [
       `/seqlane wont-fix F-invalid reason: ${"x".repeat(2_001)}`,
@@ -1151,12 +1114,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("retains dispositions for persisted findings when the global bound overflows", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
     const snapshot = gzipSync(
       JSON.stringify({
         headRevision: REVIEW_TEST_BASE_REVISION,
@@ -1219,12 +1177,7 @@ describe("pull-request code review example workflow", () => {
   });
 
   it("rejects compressed snapshots that exceed the decompression bound", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-review-context",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review context task definition");
-    }
+    const task = reviewContextTask;
 
     const oversizedSnapshot = gzipSync("x".repeat(512_001)).toString("base64");
     const result = await executeTask<any, any>(
@@ -1610,7 +1563,6 @@ describe("pull-request code review example workflow", () => {
   it("keeps review tasks on shared workspaces with explicit schemas", () => {
     const workflow = buildWorkflow(prCodeReviewWorkflow);
     const sharedReviewTaskIds = [
-      "code-review-review-context",
       "code-review-git-evidence",
       "code-review-verify-history",
       "code-review-correctness",
@@ -1827,7 +1779,6 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(result.verdict).toBe("approve");
-    expect(result.runMetricsLedger).toEqual({ schemaVersion: 1, runs: [] });
     expect(() => JSON.stringify(result)).not.toThrow();
     expect(result.findings).toEqual(
       expect.arrayContaining([
@@ -2656,31 +2607,30 @@ describe("pull-request code review example workflow", () => {
       throw new Error("Expected disposition task definition");
     }
 
+    const normalizedHistory = normalizeReviewHistory(44, {
+      comments: [
+        {
+          id: "bounded-current-command",
+          kind: "issue",
+          author: "maintainer",
+          authorAssociation: "MEMBER",
+          body: "",
+          omittedDispositionCommands: [
+            {
+              findingId: "SEQ-PR44-001",
+              action: "wont-fix",
+              authorized: true,
+            },
+          ],
+          createdAt: "2026-09-05T10:00:00Z",
+        },
+      ],
+      truncated: true,
+    });
     const result = await executeTask<any, any>(
       task,
       {
-        review: createReviewInput({
-          comments: [
-            {
-              id: "bounded-current-command",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              body: "",
-              omittedDispositionCommands: [
-                {
-                  findingId: "SEQ-PR44-001",
-                  action: "wont-fix",
-                  authorized: true,
-                },
-              ],
-              createdAt: "2026-09-05T10:00:00Z",
-            },
-          ],
-          commentIds: ["bounded-current-command"],
-          truncated: true,
-          dispositions: [],
-        }),
+        review: createReviewInput(normalizedHistory.reviewHistory),
         report: createReport([
           {
             id: "SEQ-PR44-001",

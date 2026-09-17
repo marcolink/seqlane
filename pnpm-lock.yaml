@@ -261,6 +261,9 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
     devDependencies:
+      '@seqlane/action-code-review':
+        specifier: workspace:*
+        version: link:../../libs/action-code-review
       '@seqlane/fixtures':
         specifier: workspace:*
         version: link:../../libs/fixtures
