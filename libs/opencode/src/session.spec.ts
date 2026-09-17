@@ -1,4 +1,5 @@
 // @test-scope ./attempt-transitions.ts
+// @test-scope ./prompt-response.ts
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { describe, expect, it, vi } from "vitest";
@@ -67,6 +68,26 @@ function textPromptResponse(sessionID: string, text: string) {
     ...response,
     info: { ...response.info, structured: undefined },
     parts: [{ type: "text", text }],
+  };
+}
+
+function providerErrorResponse(sessionID: string) {
+  const response = promptResponse(sessionID);
+  return {
+    ...response,
+    info: {
+      ...response.info,
+      structured: undefined,
+      error: {
+        name: "APIError",
+        data: {
+          message: "The usage limit has been reached",
+          statusCode: 429,
+          isRetryable: false,
+          responseBody: "private provider response",
+        },
+      },
+    },
   };
 }
 
@@ -1195,6 +1216,34 @@ describe("OpenCode run session", () => {
       ).rejects.toThrow("structured task request failed");
 
       expect(uncertainActivities).toEqual([{ reason: "disconnect" }]);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("surfaces a safe provider rate or usage limit failure", async () => {
+    const fake = await startServer({
+      promptResponses: [providerErrorResponse("session-1")],
+    });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+
+      await expect(
+        run.prompt({
+          text: "inspect the repository",
+          schema: { type: "object" },
+        }),
+      ).rejects.toMatchObject({
+        name: "OpenCodeProviderApiError",
+        message:
+          "OpenCode executor: provider rejected the request because the rate or usage limit was reached (HTTP 429)",
+        statusCode: 429,
+        retryable: false,
+        cause: {
+          name: "APIError",
+          data: { statusCode: 429, isRetryable: false },
+        },
+      });
     } finally {
       await closeServer(fake.server);
     }
