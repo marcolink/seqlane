@@ -34,3 +34,56 @@ See [AGENTS.md](./AGENTS.md) for local workflow conventions.
 - [read context](./read-context/README.md)
 - [resolve merge conflicts](./resolve-merge-conflicts/README.md)
 - [until example](./until-example/README.md)
+
+## Local operation
+
+Workflow files are local Node.js code. Run only files you trust. The CLI loads
+a module default export; use `path/to/workflow.ts#namedExport` only for an
+intentional named export. Node 24 runs erasable TypeScript syntax directly.
+
+Workflows that need an agent require a configured runtime. For local OpenCode
+runs, start a loopback server in one terminal, then configure the adapter in
+another:
+
+```sh
+opencode serve --hostname 127.0.0.1 --port 4096 --print-logs
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
+```
+
+Use `--workspace "$PWD"` only when a workflow needs repository files or a
+shell task. Deterministic examples do not need a runtime profile.
+
+## Code-review operation
+
+`.github/workflows/seqlane-code-review.yml` runs the portable review graph for
+eligible non-draft pull requests. Set `OPENAI_API_KEY` as an Actions secret;
+without it, the workflow reports a successful skip. Automatic runs use the
+trusted base workflow and source checkout, while the pull-request head is a
+separate review target. A manual run is only for trusted-branch testing:
+
+```sh
+gh workflow run "Seqlane code review" --ref my-review-branch \
+  -f pull_request_number=123
+```
+
+The Action owns GitHub event admission, concurrency, credentials, checkouts,
+and final publication. Review tasks receive bounded Git evidence and
+workspace-relative read access only: they do not run shell commands, package
+managers, tests, or builds. The runtime blocks environment files and paths
+outside the review workspace. Modified or new repository skills are excluded;
+only unchanged base skills are staged. The publisher writes one marked bot
+comment, rechecks that the pull request head is current before publishing, and
+retains the validated review state and bounded run metrics there.
+
+## Merge-conflict operation
+
+`.github/workflows/seqlane-resolve-merge-conflicts.yml` is maintainer-dispatched
+from the default branch. It accepts a same-repository pull request and a
+required `rebase` or `merge` strategy. Configure `OPENAI_API_KEY` and a
+dedicated `SEQLANE_RESOLVER_TOKEN` with `Contents: write` and `Workflows: write`.
+
+The resolver receives only declared conflict files in a fresh non-Git staging
+workspace. It cannot use shell commands, external paths, or project runtime
+configuration. Before push, the Action rejects unexpected files, unresolved or
+staged conflict markers, and whitespace errors. Rebases use the captured head
+in `--force-with-lease`, so a stale remote head cannot be overwritten.

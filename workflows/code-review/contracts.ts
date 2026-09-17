@@ -1,5 +1,15 @@
 import { z } from "zod";
-import { reviewRunSkillUsageSchema } from "./metrics.js";
+
+export const reviewRunSkillUsageSchema = z
+  .array(
+    z
+      .object({
+        name: z.string().min(1).max(256),
+        count: z.number().int().positive(),
+      })
+      .strict(),
+  )
+  .max(128);
 
 // Review rubric: https://github.com/addyosmani/agent-skills/blob/main/skills/code-review-and-quality/SKILL.md
 export const reviewAxisSchema = z.enum([
