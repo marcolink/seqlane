@@ -4,27 +4,36 @@ import type {
   ModelSelection,
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
+import { z } from "zod";
 
 export {
   createBoundedNormalizedNameAllocator,
   type BoundedNormalizedNameAllocator,
 } from "./observability.js";
 
-export type AgentActivityState =
-  "started" | "progress" | "succeeded" | "failed";
+const agentActivityStateSchema = z.enum([
+  "started",
+  "progress",
+  "succeeded",
+  "failed",
+]);
 
-export interface AgentActivity {
-  readonly activityId: string;
-  readonly kind: "tool" | "skill";
-  readonly name: string;
-  readonly state: AgentActivityState;
-  readonly input?: unknown;
-  readonly output?: unknown;
-  readonly metadata?: unknown;
-  readonly startedAt?: number;
-  readonly endedAt?: number;
-  readonly message?: string;
-}
+export type AgentActivityState = z.infer<typeof agentActivityStateSchema>;
+
+const agentActivitySchema = z.strictObject({
+  activityId: z.string(),
+  kind: z.enum(["tool", "skill"]),
+  name: z.string(),
+  state: agentActivityStateSchema,
+  input: z.unknown().optional(),
+  output: z.unknown().optional(),
+  metadata: z.unknown().optional(),
+  startedAt: z.number().optional(),
+  endedAt: z.number().optional(),
+  message: z.string().optional(),
+});
+
+export type AgentActivity = z.infer<typeof agentActivitySchema>;
 
 export interface AgentDiagnostic {
   readonly code: string;
@@ -109,7 +118,7 @@ export interface AgentRuntimeContext {
    * Opaque execution context supplied by the runtime integration. Concrete
    * adapters must validate it before use; this contract exposes no engine type.
    */
-  readonly requestContext?: unknown;
+  readonly requestContext: unknown;
 }
 
 /** A run-scoped, composition-owned runtime for one selected agent adapter. */
@@ -188,6 +197,41 @@ export function redactOpaqueValue(
   return copy;
 }
 
+/** Redacts failures from runtime-owned model discovery and validation. */
+export function redactAgentRuntimeModelCapabilities(
+  capabilities: AgentRuntimeModelCapabilities,
+  redactText: (value: string) => string,
+): AgentRuntimeModelCapabilities {
+  return {
+    ...capabilities,
+    listModels: async () => {
+      try {
+        return await capabilities.listModels();
+      } catch (cause) {
+        throw redactOpaqueValue(cause, redactText);
+      }
+    },
+    resolveDefaultModel: async () => {
+      try {
+        return await capabilities.resolveDefaultModel();
+      } catch (cause) {
+        throw redactOpaqueValue(cause, redactText);
+      }
+    },
+    ...(capabilities.validateModelSelection === undefined
+      ? {}
+      : {
+          validateModelSelection: async (selection) => {
+            try {
+              await capabilities.validateModelSelection?.(selection);
+            } catch (cause) {
+              throw redactOpaqueValue(cause, redactText);
+            }
+          },
+        }),
+  };
+}
+
 /** Wraps one adapter with concrete-runtime-owned diagnostic redaction. */
 export function redactAgentAdapter(
   adapter: AgentAdapter,
@@ -206,7 +250,7 @@ export function redactAgentAdapter(
           // Activity payloads originate in the concrete runtime and can contain
           // connection details in arbitrary nested fields.
           request.onActivity?.(
-            redactOpaqueValue(activity, redactText) as AgentActivity,
+            agentActivitySchema.parse(redactOpaqueValue(activity, redactText)),
           );
         },
       });

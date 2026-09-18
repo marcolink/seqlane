@@ -1,5 +1,10 @@
 import { isAbsolute } from "node:path";
-import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
+import {
+  redactAgentAdapter,
+  redactAgentRuntimeModelCapabilities,
+  redactOpaqueValue,
+  type AgentRuntimeFactory,
+} from "@seqlane/agent-adapter";
 import { z } from "zod";
 import { CODEX_AGENT_CAPABILITIES } from "./capabilities.js";
 import { createCodexRun } from "./run.js";
@@ -27,22 +32,59 @@ export function createCodexAgentRuntimeFactory(
     const resolvedWorkspace = workspace ?? configuration.workspace;
     if (resolvedWorkspace === undefined)
       throw new Error("Codex requires a workspace");
-    const run = createCodexRun(
-      {
-        executable: configuration.executable,
-        workspace: resolvedWorkspace,
-        networkAccess: configuration.networkAccess,
-      },
-      { signal },
+    const redactText = createRuntimeRedactor(
+      configuration.executable,
+      resolvedWorkspace,
     );
+    let run: ReturnType<typeof createCodexRun>;
+    try {
+      run = createCodexRun(
+        {
+          executable: configuration.executable,
+          workspace: resolvedWorkspace,
+          networkAccess: configuration.networkAccess,
+        },
+        { signal },
+      );
+    } catch (cause) {
+      throw redactOpaqueValue(cause, redactText);
+    }
     return {
       identity: "codex",
       capabilities: CODEX_AGENT_CAPABILITIES,
-      modelCapabilities: run.modelCapabilities,
-      createAdapter: (context) =>
-        run.createAdapter(context.signal, context.modelSelection),
-      redactAdapter: (adapter) => adapter,
-      close: () => run.close(),
+      modelCapabilities: redactAgentRuntimeModelCapabilities(
+        run.modelCapabilities,
+        redactText,
+      ),
+      createAdapter: (context) => {
+        try {
+          return run.createAdapter(context.signal, context.modelSelection);
+        } catch (cause) {
+          throw redactOpaqueValue(cause, redactText);
+        }
+      },
+      redactAdapter: (adapter) => redactAgentAdapter(adapter, redactText),
+      close: async () => {
+        try {
+          await run.close();
+        } catch (cause) {
+          throw redactOpaqueValue(cause, redactText);
+        }
+      },
     };
   };
+}
+
+function createRuntimeRedactor(
+  executable: string,
+  workspace: string,
+): (value: string) => string {
+  const values = [executable, workspace]
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .sort((first, second) => second.length - first.length);
+  return (value: string): string =>
+    values.reduce(
+      (message, secret) => message.split(secret).join("[REDACTED]"),
+      value,
+    );
 }

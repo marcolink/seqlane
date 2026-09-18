@@ -264,7 +264,7 @@ function createLazyAgentSession(
   const adapter = agentRuntime.redactAdapter(
     agentRuntime.createAdapter({
       signal,
-      ...(requestContext === undefined ? {} : { requestContext }),
+      requestContext,
       ...(effectiveSelection === undefined
         ? {}
         : { modelSelection: effectiveSelection }),
@@ -400,9 +400,7 @@ export async function resolveRuntimeProfile(
       const oneShotAdapter = agentRuntime.redactAdapter(
         agentRuntime.createAdapter({
           signal,
-          ...(options.requestContext === undefined
-            ? {}
-            : { requestContext: options.requestContext }),
+          requestContext: options.requestContext,
         }),
       );
       ownedAdapters.add(oneShotAdapter);

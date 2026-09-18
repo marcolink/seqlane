@@ -25,7 +25,7 @@ describe("agent runtime contract", () => {
     ).toThrow(/capability/i);
   });
 
-  it("redacts nested adapter errors and diagnostics", async () => {
+  it("redacts nested adapter errors, diagnostics, and activities", async () => {
     const task = defineTask({
       id: "fixture",
       input: z.unknown(),
@@ -50,12 +50,21 @@ describe("agent runtime contract", () => {
         },
         execute: async (request) => {
           request.onDiagnostic?.({ code: "fixture", message: "secret" });
+          request.onActivity?.({
+            activityId: "fixture-activity",
+            kind: "tool",
+            name: "fixture",
+            state: "progress",
+            metadata: { location: "secret" },
+            message: "found secret",
+          });
           throw failure;
         },
       },
       (value) => value.replaceAll("secret", "[REDACTED]"),
     );
     const diagnostics: string[] = [];
+    const activities: unknown[] = [];
 
     await expect(
       adapter.execute({
@@ -65,6 +74,7 @@ describe("agent runtime contract", () => {
         input: null,
         signal: new AbortController().signal,
         onDiagnostic: (diagnostic) => diagnostics.push(diagnostic.message),
+        onActivity: (activity) => activities.push(activity),
       }),
     ).rejects.toMatchObject({
       code: "adapter-failure",
@@ -72,5 +82,15 @@ describe("agent runtime contract", () => {
       cause: { message: "nested [REDACTED]" },
     });
     expect(diagnostics).toEqual(["[REDACTED]"]);
+    expect(activities).toEqual([
+      {
+        activityId: "fixture-activity",
+        kind: "tool",
+        name: "fixture",
+        state: "progress",
+        metadata: { location: "[REDACTED]" },
+        message: "found [REDACTED]",
+      },
+    ]);
   });
 });

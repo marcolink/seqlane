@@ -1,8 +1,8 @@
 import {
   redactAgentAdapter,
+  redactAgentRuntimeModelCapabilities,
   redactOpaqueValue,
   AgentRuntimeFactory,
-  type AgentRuntimeModelCapabilities,
 } from "@seqlane/agent-adapter";
 import { z } from "zod";
 import { createOpenCodeAdapter } from "./adapter.js";
@@ -57,7 +57,7 @@ export function createOpenCodeAgentRuntimeFactory(
         activity: true,
         sessionUi: browserUiUrl !== undefined,
       },
-      modelCapabilities: redactModelCapabilities(
+      modelCapabilities: redactAgentRuntimeModelCapabilities(
         createOpenCodeModelCapabilities(configuration.url, resolvedWorkspace),
         redactText,
       ),
@@ -125,38 +125,4 @@ function decodeUrlComponent(value: string): string {
   } catch {
     return value;
   }
-}
-
-function redactModelCapabilities(
-  capabilities: AgentRuntimeModelCapabilities,
-  redactText: (value: string) => string,
-): AgentRuntimeModelCapabilities {
-  return {
-    ...capabilities,
-    listModels: async () => {
-      try {
-        return await capabilities.listModels();
-      } catch (cause) {
-        throw redactOpaqueValue(cause, redactText);
-      }
-    },
-    resolveDefaultModel: async () => {
-      try {
-        return await capabilities.resolveDefaultModel();
-      } catch (cause) {
-        throw redactOpaqueValue(cause, redactText);
-      }
-    },
-    ...(capabilities.validateModelSelection === undefined
-      ? {}
-      : {
-          validateModelSelection: async (selection) => {
-            try {
-              await capabilities.validateModelSelection?.(selection);
-            } catch (cause) {
-              throw redactOpaqueValue(cause, redactText);
-            }
-          },
-        }),
-  };
 }

@@ -109,9 +109,8 @@ The host also exposes the registered workflows through Mastra Streamable HTTP
 MCP at `http://127.0.0.1:<port>/api/mcp/seqlane-workflows/mcp`. This endpoint
 is loopback-only. Each tool call uses `{ "input": <workflow-input> }`; add
 `"runtime": { "id": "direct", "workspace": "<path>" }` to select direct
-execution. `runtime` is optional. It defaults to `direct` when the host has an
-agent adapter, and to `local` otherwise. Adapter configuration remains
-server-owned.
+execution. `runtime` is optional and defaults to `local`, even when the host
+has an agent adapter. Adapter configuration remains server-owned.
 
 Run-control commands use the same host. Set `--server-url` to use an existing
 host; without it, the command owns a local host for its lifetime:

@@ -60,7 +60,7 @@ function registration() {
   });
 }
 
-function localRegistration() {
+function localRegistration(agentRuntime?: AgentRuntimeFactory) {
   const node = workflowPlan().nodes[0];
   if (node === undefined || node.type !== "task") {
     throw new Error("Fixture workflow must contain a task node");
@@ -69,6 +69,7 @@ function localRegistration() {
   const output = z.object({ value: z.string() });
   return createOperationalWorkflow({
     key: "repository:local-fixture",
+    ...(agentRuntime === undefined ? {} : { agentRuntime }),
     plan: {
       ...workflowPlan(),
       nodes: [
@@ -197,6 +198,7 @@ function mcpToolCall(
   mcpUrl: string,
   sessionId: string,
   id: number,
+  runtimeId?: string,
   signal?: AbortSignal,
 ): Promise<Response> {
   return fetch(mcpUrl, {
@@ -212,7 +214,10 @@ function mcpToolCall(
       method: "tools/call",
       params: {
         name: "run_repository:runtime-profile",
-        arguments: { input: { dependency: "runtime-profile" } },
+        arguments: {
+          input: { dependency: "runtime-profile" },
+          ...(runtimeId === undefined ? {} : { runtime: { id: runtimeId } }),
+        },
       },
     }),
     ...(signal === undefined ? {} : { signal }),
@@ -476,14 +481,16 @@ describe("Mastra operational host", () => {
       expect(defaultRuntimeCall.status).toBe(200);
       expect(await mcpJson(defaultRuntimeCall)).toMatchObject({
         result: {
+          isError: false,
           content: [
             {
               type: "text",
-              text: expect.stringContaining('"rootCause":"runtime=direct"'),
+              text: expect.stringContaining('"status":"failed"'),
             },
           ],
         },
       });
+      expect(receivedRuntimeId).toBeUndefined();
 
       const calledTool = await fetch(mcpUrl, {
         method: "POST",
@@ -500,7 +507,7 @@ describe("Mastra operational host", () => {
             name: "run_repository:runtime-profile",
             arguments: {
               input: { dependency: "runtime-profile" },
-              runtime: { id: "test-fixture" },
+              runtime: { id: "direct" },
             },
           },
         }),
@@ -509,6 +516,40 @@ describe("Mastra operational host", () => {
       expect(await mcpJson(calledTool)).toMatchObject({
         jsonrpc: "2.0",
         id: 4,
+        result: {
+          content: [
+            {
+              type: "text",
+              text: expect.stringContaining('"rootCause":"runtime=direct"'),
+            },
+          ],
+        },
+      });
+
+      const testFixtureTool = await fetch(mcpUrl, {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-session-id": sessionId ?? "",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: {
+            name: "run_repository:runtime-profile",
+            arguments: {
+              input: { dependency: "runtime-profile" },
+              runtime: { id: "test-fixture" },
+            },
+          },
+        }),
+      });
+      expect(testFixtureTool.status).toBe(200);
+      expect(await mcpJson(testFixtureTool)).toMatchObject({
+        jsonrpc: "2.0",
+        id: 5,
         result: {
           content: [
             {
@@ -530,7 +571,7 @@ describe("Mastra operational host", () => {
         },
         body: JSON.stringify({
           jsonrpc: "2.0",
-          id: 5,
+          id: 6,
           method: "tools/call",
           params: {
             name: "run_repository:runtime-profile",
@@ -590,7 +631,7 @@ describe("Mastra operational host", () => {
 
     try {
       const { mcpUrl, sessionId } = await openMcpSession(host);
-      const response = await mcpToolCall(mcpUrl, sessionId, 2);
+      const response = await mcpToolCall(mcpUrl, sessionId, 2, "direct");
       const payload = await mcpJson(response);
       expect(payload).toMatchObject({
         result: {
@@ -1319,9 +1360,14 @@ describe("Mastra operational host", () => {
     }
   });
 
-  it("executes deterministic work without an agent runtime", async () => {
+  it("defaults configured hosts with deterministic work to local", async () => {
+    let runtimeBootstraps = 0;
+    const agentRuntime: AgentRuntimeFactory = async () => {
+      runtimeBootstraps += 1;
+      throw new Error("agent runtime must not start for deterministic work");
+    };
     const host = await createOperationalHost({
-      workflows: [localRegistration()],
+      workflows: [localRegistration(agentRuntime)],
       storageUrl: "file::memory:",
       port: 0,
     });
@@ -1337,7 +1383,6 @@ describe("Mastra operational host", () => {
             body: JSON.stringify({
               resourceId: "work-configured-adapter",
               inputData: { required: "value" },
-              requestContext: { "seqlane.runtimeId": "local" },
             }),
           },
         ),
@@ -1348,6 +1393,7 @@ describe("Mastra operational host", () => {
         status: "success",
         result: { value: "executed-by-owned-host" },
       });
+      expect(runtimeBootstraps).toBe(0);
     } finally {
       await host.close();
     }

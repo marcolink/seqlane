@@ -268,7 +268,9 @@ export function createOperationalWorkflow(
   };
   return {
     key: source.key,
-    defaultRuntimeId: source.agentRuntime === undefined ? "local" : "direct",
+    // A configured adapter must not make agent execution implicit. Callers
+    // select the direct profile explicitly when a workflow needs it.
+    defaultRuntimeId: "local",
     workflow: instrumentOperationalWorkflow(
       compiled.workflow,
       prepareRunContext,
@@ -341,17 +343,11 @@ function requestContextValue(
 
 function runtimeProfileFromContext(
   requestContext: { get(key: string): unknown } | undefined,
-  hasAgentRuntime: boolean,
 ): RuntimeProfileReference {
   const id = requestContextValue(requestContext, "seqlane.runtimeId");
   const workspace = requestContextValue(requestContext, "seqlane.workspace");
   return {
-    id:
-      typeof id === "string" && id.length > 0
-        ? id
-        : hasAgentRuntime
-          ? "direct"
-          : "local",
+    id: typeof id === "string" && id.length > 0 ? id : "local",
     ...(typeof workspace === "string" && workspace.length > 0
       ? { workspace }
       : {}),
@@ -433,10 +429,7 @@ function createOperationalInvocationHandler(
         );
         setOperationalRunContext(context.requestContext, state);
         const events = state.events;
-        const profile = runtimeProfileFromContext(
-          context.requestContext,
-          source.agentRuntime !== undefined,
-        );
+        const profile = runtimeProfileFromContext(context.requestContext);
         let closeExecution: (() => Promise<void>) | undefined;
         let closeExecutionPromise: Promise<void> | undefined;
         const closeExecutionOnce = (): Promise<void> =>

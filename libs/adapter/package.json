@@ -21,7 +21,8 @@
     ]
   },
   "dependencies": {
-    "@seqlane/core": "workspace:*"
+    "@seqlane/core": "workspace:*",
+    "zod": "4.5.4"
   },
   "files": [
     "dist"

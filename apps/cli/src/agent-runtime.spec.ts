@@ -186,9 +186,18 @@ describe("CLI agent runtime composition", () => {
   });
 
   it("does not interpret configuration for an unknown adapter", () => {
-    expect(() => createAgentRuntimeFactory({ adapter: "unknown" })).toThrow(
-      AgentRuntimeConfigurationError,
-    );
+    const unsupportedIdentity = "private-adapter-name";
+    try {
+      createAgentRuntimeFactory({ adapter: unsupportedIdentity });
+      throw new Error("Expected unknown adapter configuration to fail");
+    } catch (cause) {
+      expect(cause).toBeInstanceOf(AgentRuntimeConfigurationError);
+      expect(cause).toHaveProperty(
+        "message",
+        "Agent runtime configuration: adapter is unavailable",
+      );
+      expect(String(cause)).not.toContain(unsupportedIdentity);
+    }
   });
 
   it("persists injected OpenCode adapter spans through the operational host", async () => {

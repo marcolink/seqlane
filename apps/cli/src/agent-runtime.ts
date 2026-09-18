@@ -34,9 +34,7 @@ export function createAgentRuntimeFactory(value: unknown): AgentRuntimeFactory {
       case "opencode":
         return createOpenCodeAgentRuntimeFactory(value);
       default:
-        throw new AgentRuntimeConfigurationError(
-          `adapter "${identity.data.adapter}" is unavailable`,
-        );
+        throw new AgentRuntimeConfigurationError("adapter is unavailable");
     }
   } catch (cause) {
     if (cause instanceof AgentRuntimeConfigurationError) throw cause;

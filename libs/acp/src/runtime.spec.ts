@@ -35,6 +35,7 @@ describe("ACP agent runtime composition", () => {
     const runtime = await factory(new AbortController().signal, undefined);
     const adapter = runtime.createAdapter({
       signal: new AbortController().signal,
+      requestContext: undefined,
     });
 
     expect(runtime).toMatchObject({
@@ -75,7 +76,10 @@ describe("ACP agent runtime composition", () => {
     const runtime = await factory(new AbortController().signal, undefined);
 
     expect(() =>
-      runtime.createAdapter({ signal: new AbortController().signal }),
+      runtime.createAdapter({
+        signal: new AbortController().signal,
+        requestContext: undefined,
+      }),
     ).toThrow("could not launch [REDACTED]");
   });
 
