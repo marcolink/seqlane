@@ -30,6 +30,8 @@ isolated runner child without Seqlane operational-host or persistence overhead.
   GitHub summary behavior from `run`.
 - Preserve worker supervision, canonical events, terminal outcomes,
   cancellation, exit statuses, Codex, ACP, and configured OpenCode support.
+- Cancel and clean up worker-owned execution when the CLI supervisor IPC
+  disconnects, then terminate the worker.
 - Leave `list`, `plan`, `serve`, `status`, `cancel`, Studio, replay, and hosted
   behavior unchanged except for minimal shared-code corrections.
 
@@ -47,6 +49,8 @@ isolated runner child without Seqlane operational-host or persistence overhead.
 - Run compiled CLI explicit-entrypoint tests, including malformed input,
   catalog-alias rejection, deterministic zero-model work, configured OpenCode,
   Codex, ACP, JSON output, and signals.
+- Cover abrupt supervisor termination, including adapter-resource cleanup and
+  runner-child shutdown.
 - Run relevant typecheck, lint, formatting, build, documentation, and
   `git diff --check` gates.
 
