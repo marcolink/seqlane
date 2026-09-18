@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -20,8 +21,41 @@ export const OPENCODE_ARCHIVE_MAX_BYTES = 64 * 1024 * 1024;
 export const OPENCODE_DOWNLOAD_TIMEOUT_MS = 60_000;
 export const OPENCODE_HOST = "127.0.0.1";
 export const OPENCODE_PORT = 4096;
-export const OPENCODE_CONFIG =
-  '{"model":"openai/gpt-5.6-terra","permission":{"*":"deny","StructuredOutput":"allow","read":{"*":"allow","*.env":"deny","*.env.*":"deny","*.env.example":"allow"},"glob":"allow","grep":"allow","edit":"allow","write":"allow","bash":"deny","external_directory":"deny"}}';
+export const OPENCODE_SKILL_NAME = "seqlane-git-automation";
+
+export function resolveOpenCodeSkillDirectory(
+  actionPath = process.env.GITHUB_ACTION_PATH,
+): string {
+  assert(actionPath, "GITHUB_ACTION_PATH is required to load resolver skills.");
+  return resolve(actionPath, "skills");
+}
+
+export function buildOpenCodeConfig(skillDirectory: string): string {
+  return JSON.stringify({
+    model: "openai/gpt-5.6-terra",
+    skills: { paths: [skillDirectory] },
+    permission: {
+      "*": "deny",
+      skill: {
+        "*": "deny",
+        [OPENCODE_SKILL_NAME]: "allow",
+      },
+      StructuredOutput: "allow",
+      read: {
+        "*": "allow",
+        "*.env": "deny",
+        "*.env.*": "deny",
+        "*.env.example": "allow",
+      },
+      glob: "allow",
+      grep: "allow",
+      edit: "allow",
+      write: "allow",
+      bash: "deny",
+      external_directory: "deny",
+    },
+  });
+}
 
 const inheritedRuntimeEnvironmentKeys = [
   "PATH",
@@ -33,7 +67,8 @@ const inheritedRuntimeEnvironmentKeys = [
 ] as const;
 
 export function buildOpenCodeChildEnvironment(
-  parent: Readonly<Record<string, string | undefined>> = process.env,
+  parent: Readonly<Record<string, string | undefined>>,
+  skillDirectory: string,
 ): Readonly<Record<string, string>> {
   const environment: Record<string, string> = {};
   for (const key of inheritedRuntimeEnvironmentKeys) {
@@ -43,7 +78,8 @@ export function buildOpenCodeChildEnvironment(
   return {
     ...environment,
     OPENCODE_DISABLE_PROJECT_CONFIG: "true",
-    OPENCODE_CONFIG_CONTENT: OPENCODE_CONFIG,
+    OPENCODE_DISABLE_EXTERNAL_SKILLS: "true",
+    OPENCODE_CONFIG_CONTENT: buildOpenCodeConfig(skillDirectory),
   };
 }
 
@@ -53,6 +89,7 @@ export interface OpenCodeRuntimeHandle {
 }
 
 export interface OpenCodeRuntimeOptions {
+  readonly skillDirectory?: string;
   readonly temporaryParent?: string;
   readonly archiveUrl?: string;
   readonly download?: (url: string) => Promise<Uint8Array>;
@@ -214,6 +251,8 @@ export class NodeOpenCodeRuntime {
     const directory = await mkdtemp(join(parent, ".seqlane-opencode-"));
     let child: ChildProcess | undefined;
     try {
+      const skillDirectory =
+        this.options.skillDirectory ?? resolveOpenCodeSkillDirectory();
       const archive = await (this.options.download ?? downloadOpenCodeArchive)(
         this.options.archiveUrl ?? OPENCODE_ARCHIVE_URL,
       );
@@ -235,7 +274,7 @@ export class NodeOpenCodeRuntime {
         ],
         {
           cwd: resolve(workspace),
-          env: buildOpenCodeChildEnvironment(),
+          env: buildOpenCodeChildEnvironment(process.env, skillDirectory),
         },
       );
       let startupError: unknown;
