@@ -73,13 +73,14 @@ Implement `requirement-seqlane-and-opencode` from
 The Action owns a narrow `seqlane-git-automation` skill. The repository skill
 directory no longer exposes this guidance.
 
-The resolver reads the skill directory from `GITHUB_ACTION_PATH`. Its OpenCode
-configuration disables ambient external skills and project configuration. The
-permission policy exposes only the Action-owned skill through the `skill`
-tool. Shell and external-directory access remain denied.
+The resolver reads the skill directory from the bundled Action module
+location. Its OpenCode configuration disables ambient external skills and
+project configuration. The permission policy exposes only the Action-owned
+skill through the `skill` tool. Shell and external-directory access remain
+denied.
 
 The skill validator passed. Test mapping passed for 305 mappings. The focused
-library suite passed 124 tests. The Action suite passed three tests and its
+library suite passed 124 tests. The Action suite passed four tests and its
 entrypoint smoke test. Type checks, lint, bundle creation, SDLC checks,
 formatting, Git diff checks, and the Ripwire quality gate passed.
 
