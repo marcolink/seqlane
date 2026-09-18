@@ -3,6 +3,7 @@ import {
   type OperationalEventSink,
   type OperationalSessionUiNotifier,
 } from "@seqlane/runtime/operational-host";
+import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import { loadWorkflow } from "@seqlane/runtime/workflow";
 import {
   discoverWorkflowDescriptors,
@@ -16,7 +17,7 @@ export async function loadOperationalWorkflows(
     readonly runId: string;
   }) => OperationalEventSink,
   onSessionUiAvailable?: OperationalSessionUiNotifier,
-  adapterConfiguration?: unknown,
+  agentRuntime?: AgentRuntimeFactory,
 ): Promise<readonly ReturnType<typeof createOperationalWorkflow>[]> {
   const descriptors = discoverWorkflowDescriptors(roots);
   const registrations = [];
@@ -32,7 +33,7 @@ export async function loadOperationalWorkflows(
         validatorDefinitions: loaded.validatorDefinitions,
         eventSink,
         onSessionUiAvailable,
-        adapterConfiguration,
+        agentRuntime,
       }),
     );
   }

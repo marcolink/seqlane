@@ -1,5 +1,6 @@
 export { createCodexAdapter, type CodexAdapterOptions } from "./adapter.js";
 export { createCodexRun, type CodexRun } from "./run.js";
+export { createCodexAgentRuntimeFactory } from "./runtime.js";
 export {
   createCodexModelCapabilities,
   type CodexModelCapabilitiesOptions,

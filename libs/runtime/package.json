@@ -41,9 +41,7 @@
     ]
   },
   "dependencies": {
-    "@seqlane/acp-adapter": "workspace:*",
     "@seqlane/agent-adapter": "workspace:*",
-    "@seqlane/codex-adapter": "workspace:*",
     "@mastra/core": "1.64.0",
     "@mastra/hono": "1.7.6",
     "@mastra/libsql": "1.22.3",
@@ -54,7 +52,6 @@
     "@seqlane/core": "workspace:*",
     "@seqlane/protocol": "workspace:*",
     "@seqlane/resolve-merge-conflicts-workflow": "workspace:*",
-    "@seqlane/opencode-adapter": "workspace:*",
     "hono": "4.13.5",
     "zod": "4.5.4"
   },

@@ -13,8 +13,8 @@ import type {
   WorkId,
   RunId,
 } from "@seqlane/core";
-import type { RuntimeProfileReference } from "@seqlane/protocol";
 import { RuntimeError } from "@seqlane/core";
+import type { AgentRuntime } from "@seqlane/agent-adapter";
 import type { MastraActiveRun } from "./runtime/mastra/mastra-runtime.js";
 import {
   createMastraPlanExecution,
@@ -33,7 +33,10 @@ import type { RuntimeExecution } from "./runner/profile/runtime-profile.js";
 export interface StartWorkflowRunRequest<Input = unknown, Output = unknown> {
   readonly workflow: BuiltWorkflow<Input, Output>;
   readonly input: JsonValue;
-  readonly runtime?: RuntimeProfileReference;
+  /** Pre-bootstrapped adapter runtime supplied by application composition. */
+  readonly agentRuntime?: AgentRuntime;
+  /** Workspace for direct execution. */
+  readonly workspace?: string;
   readonly standalone?: StandaloneRunOptions;
   readonly onDiagnostic?: (message: string) => void;
   readonly events: SeqlaneEventSink;
@@ -99,9 +102,9 @@ export function startWorkflowRun<Input, Output>(
       const notifier: RuntimeSessionUiNotifier | undefined =
         request.onRuntimeSessionUi;
       if (request.standalone !== undefined) {
-        if (request.runtime !== undefined)
+        if (request.agentRuntime !== undefined)
           throw new TypeError(
-            "Select standalone execution or a hosted runtime, not both",
+            "Select standalone execution or a direct agent runtime, not both",
           );
         execution = await createStandaloneExecution(
           request.standalone,
@@ -111,15 +114,24 @@ export function startWorkflowRun<Input, Output>(
           notifier,
         );
       } else {
-        if (request.runtime === undefined)
-          throw new TypeError("Workflow execution requires a runtime binding");
+        const agentRuntime = request.agentRuntime;
         execution = await resolveRuntimeProfile(
-          request.runtime,
+          {
+            id: agentRuntime === undefined ? "local" : "direct",
+            ...(request.workspace === undefined
+              ? {}
+              : { workspace: request.workspace }),
+          },
           request.workflow.taskDefinitions,
           abortController.signal,
           request.input,
           notifier,
-          { environment: process.env, runId },
+          {
+            runId,
+            ...(agentRuntime === undefined
+              ? {}
+              : { agentRuntime: async () => agentRuntime }),
+          },
         );
       }
       abortController.signal.throwIfAborted();
@@ -166,7 +178,10 @@ export function startWorkflowRun<Input, Output>(
     }
     const cleanupFailures: unknown[] = [];
     for (const close of [
-      () => execution?.close?.(),
+      // A direct runtime is bootstrapped by application composition before
+      // input validation. If validation fails, the resolver never takes
+      // ownership, so release that run-scoped resource here.
+      () => execution?.close?.() ?? request.agentRuntime?.close?.(),
       () => mastraExecution?.runtime.shutdown(),
     ]) {
       try {

@@ -20,10 +20,7 @@ import { RequestContext } from "@mastra/core/request-context";
 import type { AnyWorkflow } from "@mastra/core/workflows";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import {
-  createRuntimeAdapterRegistry,
-  type RuntimeAdapterRegistry,
-} from "../../runner/profile/runtime-adapter.js";
+import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import {
   createOperationalHost,
   createOperationalWorkflow,
@@ -63,7 +60,7 @@ function registration() {
   });
 }
 
-function localRegistration(adapterConfiguration?: unknown) {
+function localRegistration() {
   const node = workflowPlan().nodes[0];
   if (node === undefined || node.type !== "task") {
     throw new Error("Fixture workflow must contain a task node");
@@ -94,14 +91,12 @@ function localRegistration(adapterConfiguration?: unknown) {
       ],
     ]),
     workflow: { input, output },
-    adapterConfiguration,
   });
 }
 
 function runtimeProfileRegistration(
   options: {
-    readonly adapterConfiguration?: unknown;
-    readonly adapterRegistry?: RuntimeAdapterRegistry;
+    readonly agentRuntime?: AgentRuntimeFactory;
   } = {},
 ) {
   const taskId = "investigate-renovate-failure";
@@ -138,22 +133,19 @@ function runtimeProfileRegistration(
         },
       ],
     ]),
-    adapterConfiguration: options.adapterConfiguration,
-    adapterRegistry: options.adapterRegistry,
+    agentRuntime: options.agentRuntime,
   });
 }
 
-function runtimeProfileAdapterRegistry(
+function runtimeProfileAgentRuntime(
   adapter: AgentAdapter,
-): RuntimeAdapterRegistry {
-  return createRuntimeAdapterRegistry([
-    {
-      identity: "acp",
-      resolveCapabilities: () => adapter.capabilities,
-      prepare: async () => ({}),
-      create: () => ({ createAdapter: () => adapter }),
-    },
-  ]);
+): AgentRuntimeFactory {
+  return async () => ({
+    identity: "fixture",
+    capabilities: adapter.capabilities,
+    createAdapter: () => adapter,
+    redactAdapter: (value) => value,
+  });
 }
 
 async function json(response: Response): Promise<Record<string, unknown>> {
@@ -229,8 +221,7 @@ function mcpToolCall(
 
 function parallelRuntimeProfileRegistration(
   options: {
-    readonly adapterConfiguration?: unknown;
-    readonly adapterRegistry?: RuntimeAdapterRegistry;
+    readonly agentRuntime?: AgentRuntimeFactory;
   } = {},
 ) {
   const taskIds = ["parallel.left", "parallel.right"] as const;
@@ -263,8 +254,7 @@ function parallelRuntimeProfileRegistration(
         },
       ]),
     ),
-    adapterConfiguration: options.adapterConfiguration,
-    adapterRegistry: options.adapterRegistry,
+    agentRuntime: options.agentRuntime,
   });
 }
 
@@ -372,32 +362,22 @@ describe("Mastra operational host", () => {
         closed += 1;
       },
     };
-    const adapterRegistry = createRuntimeAdapterRegistry([
-      {
-        identity: "acp",
-        resolveCapabilities: () => capabilities,
-        prepare: async () => ({}),
-        create: (_configuration, context) => {
-          receivedRuntimeId = context.requestContext?.get(
-            "seqlane.runtimeId",
-          ) as string | undefined;
-          return { createAdapter: () => adapter };
-        },
+    const agentRuntime: AgentRuntimeFactory = async () => ({
+      identity: "acp",
+      capabilities,
+      createAdapter: (context) => {
+        const requestContext = context.requestContext as
+          { get(key: string): unknown } | undefined;
+        receivedRuntimeId = requestContext?.get("seqlane.runtimeId") as
+          string | undefined;
+        return adapter;
       },
-    ]);
+      redactAdapter: (value) => value,
+    });
     const host = await createOperationalHost({
       workflows: [
         runtimeProfileRegistration({
-          adapterConfiguration: {
-            adapter: "acp",
-            configuration: {
-              id: "fixture-agent",
-              description: "Fixture agent",
-              command: "fixture-agent",
-              persistSession: true,
-            },
-          },
-          adapterRegistry,
+          agentRuntime,
         }),
       ],
       storageUrl: "file::memory:",
@@ -499,7 +479,7 @@ describe("Mastra operational host", () => {
           content: [
             {
               type: "text",
-              text: expect.stringContaining('"rootCause":"runtime=opencode"'),
+              text: expect.stringContaining('"rootCause":"runtime=direct"'),
             },
           ],
         },
@@ -601,16 +581,7 @@ describe("Mastra operational host", () => {
     const host = await createOperationalHost({
       workflows: [
         runtimeProfileRegistration({
-          adapterConfiguration: {
-            adapter: "acp",
-            configuration: {
-              id: "fixture-agent",
-              description: "Fixture agent",
-              command: "fixture-agent",
-              persistSession: true,
-            },
-          },
-          adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+          agentRuntime: runtimeProfileAgentRuntime(adapter),
         }),
       ],
       storageUrl: "file::memory:",
@@ -655,16 +626,7 @@ describe("Mastra operational host", () => {
       },
     };
     const registration = runtimeProfileRegistration({
-      adapterConfiguration: {
-        adapter: "acp",
-        configuration: {
-          id: "fixture-agent",
-          description: "Fixture agent",
-          command: "fixture-agent",
-          persistSession: true,
-        },
-      },
-      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+      agentRuntime: runtimeProfileAgentRuntime(adapter),
     });
     const workflow = registration.workflow as AnyWorkflow;
     const runId = "direct-run-cleanup";
@@ -708,16 +670,7 @@ describe("Mastra operational host", () => {
       },
     };
     const registration = runtimeProfileRegistration({
-      adapterConfiguration: {
-        adapter: "acp",
-        configuration: {
-          id: "fixture-agent",
-          description: "Fixture agent",
-          command: "fixture-agent",
-          persistSession: true,
-        },
-      },
-      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+      agentRuntime: runtimeProfileAgentRuntime(adapter),
     });
     const workflow = registration.workflow as AnyWorkflow;
     const runId = "run-failed-cleanup";
@@ -773,16 +726,7 @@ describe("Mastra operational host", () => {
       },
     };
     const registration = runtimeProfileRegistration({
-      adapterConfiguration: {
-        adapter: "acp",
-        configuration: {
-          id: "fixture-agent",
-          description: "Fixture agent",
-          command: "fixture-agent",
-          persistSession: true,
-        },
-      },
-      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+      agentRuntime: runtimeProfileAgentRuntime(adapter),
     });
     const workflow = registration.workflow as AnyWorkflow;
     const run = await workflow.createRun({
@@ -837,16 +781,7 @@ describe("Mastra operational host", () => {
       },
     };
     const registration = parallelRuntimeProfileRegistration({
-      adapterConfiguration: {
-        adapter: "acp",
-        configuration: {
-          id: "fixture-agent",
-          description: "Fixture agent",
-          command: "fixture-agent",
-          persistSession: true,
-        },
-      },
-      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+      agentRuntime: runtimeProfileAgentRuntime(adapter),
     });
     const workflow = registration.workflow as AnyWorkflow;
     const run = await workflow.createRun({
@@ -912,16 +847,7 @@ describe("Mastra operational host", () => {
       },
     };
     const registration = parallelRuntimeProfileRegistration({
-      adapterConfiguration: {
-        adapter: "acp",
-        configuration: {
-          id: "fixture-agent",
-          description: "Fixture agent",
-          command: "fixture-agent",
-          persistSession: true,
-        },
-      },
-      adapterRegistry: runtimeProfileAdapterRegistry(adapter),
+      agentRuntime: runtimeProfileAgentRuntime(adapter),
     });
     const workflow = registration.workflow as AnyWorkflow;
     const runId = "run-parallel-failure";
@@ -1393,24 +1319,9 @@ describe("Mastra operational host", () => {
     }
   });
 
-  it("uses the adapter configuration supplied by the operational composition root", async () => {
-    const previousConfiguration = process.env.SEQLANE_RUNTIME_ADAPTER_CONFIG;
-    delete process.env.SEQLANE_RUNTIME_ADAPTER_CONFIG;
-    const configuredRuntimeUrl = "http://configured-runtime.invalid";
-    const fetchMock = async (): Promise<Response> =>
-      new Response("<html></html>", {
-        status: 200,
-        headers: { "content-type": "text/html" },
-      });
-    const previousFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock;
+  it("executes deterministic work without an agent runtime", async () => {
     const host = await createOperationalHost({
-      workflows: [
-        localRegistration({
-          adapter: "opencode",
-          url: configuredRuntimeUrl,
-        }),
-      ],
+      workflows: [localRegistration()],
       storageUrl: "file::memory:",
       port: 0,
     });
@@ -1426,7 +1337,7 @@ describe("Mastra operational host", () => {
             body: JSON.stringify({
               resourceId: "work-configured-adapter",
               inputData: { required: "value" },
-              requestContext: { "seqlane.runtimeId": "opaque-profile" },
+              requestContext: { "seqlane.runtimeId": "local" },
             }),
           },
         ),
@@ -1439,12 +1350,6 @@ describe("Mastra operational host", () => {
       });
     } finally {
       await host.close();
-      globalThis.fetch = previousFetch;
-      if (previousConfiguration === undefined) {
-        delete process.env.SEQLANE_RUNTIME_ADAPTER_CONFIG;
-      } else {
-        process.env.SEQLANE_RUNTIME_ADAPTER_CONFIG = previousConfiguration;
-      }
     }
   });
 

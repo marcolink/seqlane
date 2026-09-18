@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { SeqlaneError } from "@seqlane/core";
+import { RuntimeError, type SeqlaneError } from "@seqlane/core";
+import type { AgentRuntime } from "@seqlane/agent-adapter";
 import { buildWorkflow } from "@seqlane/core";
 import { z } from "zod";
 import {
@@ -196,6 +197,8 @@ export interface CodeReviewRunRequest extends ReviewTargetInput {
 
 export interface CodeReviewRunPorts {
   readonly github: GitHubReviewPort;
+  /** Bootstraps the selected agent runtime after review admission succeeds. */
+  readonly bootstrapAgentRuntime?: (workspace: string) => Promise<AgentRuntime>;
   readonly onRunStarted?: (run: ReviewRunStarted) => void | Promise<void>;
   readonly progress?: ReviewProgressPort;
   /** Test seam for deterministic Action-local progress elapsed time. */
@@ -335,6 +338,24 @@ export async function runCodeReview(
     headRevision: request.headRevision,
     now: ports.now,
   });
+  let agentRuntime: AgentRuntime | undefined;
+  try {
+    agentRuntime = await ports.bootstrapAgentRuntime?.(request.reviewTarget);
+  } catch (cause) {
+    await clearOwnedMarker(
+      adapter,
+      markerId,
+      markerCreated,
+      publicationGuardInput(request, reservedIdentity.runId),
+    );
+    return {
+      status: "failed",
+      workId: reservedIdentity.workId,
+      runId: reservedIdentity.runId,
+      phase: "review",
+      error: new RuntimeError(cause),
+    };
+  }
   const handle = runWorkflow({
     workflow: buildWorkflow(trustedCodeReviewWorkflow),
     input: {
@@ -345,7 +366,8 @@ export async function runCodeReview(
       pullRequest,
       reviewHistory: normalizedHistory.reviewHistory,
     },
-    runtime: { id: request.runtime, workspace: request.reviewTarget },
+    agentRuntime,
+    workspace: request.reviewTarget,
     identity: reservedIdentity,
     events: {
       emit: (event) => {
@@ -419,7 +441,7 @@ export async function runCodeReview(
       snapshot,
       existingReportId: markerId ?? "",
     },
-    runtime: { id: "local", workspace: request.reviewTarget },
+    workspace: request.reviewTarget,
     events: { emit: () => undefined },
   });
   const publicationOutcome = await publicationHandle.outcome;

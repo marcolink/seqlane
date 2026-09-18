@@ -11,7 +11,11 @@ import {
   type RunnerHost,
   type RunnerRunControl,
 } from "./run.js";
-import { bindRunnerCancellationSignals, startRunnerProcess } from "./main.js";
+import {
+  bindRunnerCancellationSignals,
+  createRunnerExecutionResolver,
+  startRunnerProcess,
+} from "./main.js";
 import { createFlow, type TaskDefinitionRegistry } from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
 import type {
@@ -96,6 +100,41 @@ class FakeRunnerSignalSource extends EventEmitter {
 describe("seqlane runner entry point", () => {
   it("is safe to call outside a child process with IPC", () => {
     expect(() => startRunnerProcess()).not.toThrow();
+  });
+
+  it("uses composition-owned agent runtime only for agent worker profiles", async () => {
+    const agentRuntimeFactory = vi.fn(async () => ({
+      identity: "fixture",
+      capabilities: {
+        execute: true as const,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: false,
+        checkpoint: false,
+        fork: false,
+        activity: false,
+        sessionUi: false,
+      },
+      createAdapter: () => {
+        throw new Error("adapter creation is not expected during setup");
+      },
+      redactAdapter: (adapter: never) => adapter,
+    }));
+    const createAgentRuntimeFactory = vi.fn(() => agentRuntimeFactory);
+    const resolver = createRunnerExecutionResolver({
+      createAgentRuntimeFactory,
+    });
+    const definitions = new Map();
+    const signal = new AbortController().signal;
+
+    const local = await resolver({ id: "local" }, definitions, signal, null);
+    await local.close?.();
+    expect(createAgentRuntimeFactory).not.toHaveBeenCalled();
+
+    const agent = await resolver({ id: "fixture" }, definitions, signal, null);
+    await agent.close?.();
+    expect(createAgentRuntimeFactory).toHaveBeenCalledTimes(1);
+    expect(agentRuntimeFactory).toHaveBeenCalledTimes(1);
   });
 
   it("cancels the active run when the runner receives a termination signal", async () => {

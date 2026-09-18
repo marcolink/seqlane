@@ -2,9 +2,9 @@ import { Command, Flags } from "@oclif/core";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import {
-  loadRuntimeAdapterConfiguration,
-  runtimeAdapterConfigurationEnvironment,
-} from "@seqlane/runtime/operational-host";
+  agentRuntimeConfigurationEnvironment,
+  loadAgentRuntimeFactory,
+} from "../agent-runtime.js";
 import { parseOperationalServerUrl } from "../operational-client.js";
 import { startOwnedOperationalHost } from "../operational-command-host.js";
 import { workflowRootsFromFlags } from "../workflow-roots.js";
@@ -358,16 +358,16 @@ export default class StudioCommand extends Command {
       Awaited<ReturnType<typeof startOwnedOperationalHost>> | undefined;
     try {
       if (flags["server-url"] === undefined) {
-        const adapterConfiguration =
-          process.env[runtimeAdapterConfigurationEnvironment] === undefined
+        const agentRuntime =
+          process.env[agentRuntimeConfigurationEnvironment] === undefined
             ? undefined
-            : loadRuntimeAdapterConfiguration();
+            : loadAgentRuntimeFactory();
         ownedHost = await startOwnedOperationalHost({
           roots: workflowRootsFromFlags(flags),
           host: server.serverHost,
           port: server.serverPort,
           storageUrl: flags["storage-url"],
-          adapterConfiguration,
+          agentRuntime,
         });
         lifecycle.setOwnedHost(ownedHost);
         if (lifecycle.isShuttingDown()) return;

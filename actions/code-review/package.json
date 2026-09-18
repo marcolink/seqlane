@@ -10,7 +10,8 @@
   "dependencies": {
     "@actions/core": "3.0.1",
     "@actions/github": "9.1.1",
-    "@seqlane/action-code-review": "workspace:*"
+    "@seqlane/action-code-review": "workspace:*",
+    "@seqlane/opencode-adapter": "workspace:*"
   },
   "engines": {
     "node": ">=24.0.0",

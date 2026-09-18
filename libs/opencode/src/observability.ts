@@ -93,12 +93,41 @@ function skillName(
   return candidate;
 }
 
+type CurrentSpan = NonNullable<ObservabilityContext["tracing"]["currentSpan"]>;
+
+function property(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
+  try {
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Narrows the opaque generic-adapter value at the Mastra integration edge. */
+function isCurrentSpan(value: unknown): value is CurrentSpan {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof property(value, "id") === "string" &&
+    typeof property(value, "createChildSpan") === "function"
+  );
+}
+
+function contextCurrentSpan(
+  context: unknown,
+  key: string,
+): CurrentSpan | undefined {
+  const current = property(property(context, key), "currentSpan");
+  return isCurrentSpan(current) ? current : undefined;
+}
+
 function currentSpan(
-  context: Partial<ObservabilityContext>,
+  context: unknown,
   diagnose: (message: string) => void,
-): ObservabilityContext["tracing"]["currentSpan"] {
-  const preferred = context.tracingContext?.currentSpan;
-  const fallback = context.tracing?.currentSpan;
+): CurrentSpan | undefined {
+  const preferred = contextCurrentSpan(context, "tracingContext");
+  const fallback = contextCurrentSpan(context, "tracing");
   if (
     preferred !== undefined &&
     fallback !== undefined &&
@@ -220,7 +249,7 @@ function createToolNameAllocator(reportDiagnostic: (message: string) => void) {
 
 /** Creates the adapter-owned OpenCode to Mastra span projection. */
 export function createOpenCodeObservability(
-  context: Partial<ObservabilityContext>,
+  context: unknown,
   invocationId: string,
   onDiagnostic: (message: string) => void = () => undefined,
 ): OpenCodeObservability {

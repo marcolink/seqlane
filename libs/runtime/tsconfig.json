@@ -11,9 +11,6 @@
   "exclude": ["src/**/*.spec.ts"],
   "references": [
     {
-      "path": "../opencode"
-    },
-    {
       "path": "../protocol"
     },
     {
@@ -24,12 +21,6 @@
     },
     {
       "path": "../adapter"
-    },
-    {
-      "path": "../codex"
-    },
-    {
-      "path": "../acp"
     },
     {
       "path": "../fixtures"

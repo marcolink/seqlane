@@ -1,8 +1,8 @@
 import { Command, Flags } from "@oclif/core";
 import {
-  loadRuntimeAdapterConfiguration,
-  runtimeAdapterConfigurationEnvironment,
-} from "@seqlane/runtime/operational-host";
+  agentRuntimeConfigurationEnvironment,
+  loadAgentRuntimeFactory,
+} from "../agent-runtime.js";
 import { startOwnedOperationalHost } from "../operational-command-host.js";
 import { workflowRootsFromFlags } from "../workflow-roots.js";
 
@@ -45,16 +45,16 @@ export default class ServeCommand extends Command {
     let operationalHost: Awaited<ReturnType<typeof startOwnedOperationalHost>>;
     try {
       const roots = workflowRootsFromFlags(flags);
-      const adapterConfiguration =
-        process.env[runtimeAdapterConfigurationEnvironment] === undefined
+      const agentRuntime =
+        process.env[agentRuntimeConfigurationEnvironment] === undefined
           ? undefined
-          : loadRuntimeAdapterConfiguration();
+          : loadAgentRuntimeFactory();
       operationalHost = await startOwnedOperationalHost({
         roots,
         host: flags.hostname,
         port: flags.port,
         storageUrl: flags["storage-url"],
-        adapterConfiguration,
+        agentRuntime,
       });
     } catch (error) {
       this.error(

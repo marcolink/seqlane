@@ -52,10 +52,12 @@ import {
   type MastraWorkflowRegistration,
 } from "./mastra-composition.js";
 import { registerMastraServer } from "./mastra-server.js";
-import type { RuntimeAdapterRegistry } from "../../runner/profile/runtime-adapter.js";
+import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 
 export interface OperationalWorkflowRegistration {
   readonly key: string;
+  /** Selected by composition when the request does not name a runtime. */
+  readonly defaultRuntimeId: string;
   /** Mastra workflow values stay opaque at this boundary. */
   readonly workflow: unknown;
   /** Closes adapter resources for one terminal workflow run. */
@@ -94,10 +96,8 @@ export interface OperationalWorkflowSource {
     readonly runId: string;
   }) => OperationalEventSink;
   readonly onSessionUiAvailable?: OperationalSessionUiNotifier;
-  /** Private adapter configuration selected by the composition root. */
-  readonly adapterConfiguration?: unknown;
-  /** Private adapter registry selected by the composition root or test seam. */
-  readonly adapterRegistry?: RuntimeAdapterRegistry;
+  /** Private agent runtime selected by application composition. */
+  readonly agentRuntime?: AgentRuntimeFactory;
 }
 
 export interface OperationalHostOptions {
@@ -113,6 +113,8 @@ export interface OperationalHost {
   readonly address: string;
   readonly ready: boolean;
   fetch(request: Request): Promise<Response>;
+  /** Reads a flushed persisted trace for in-process operational inspection. */
+  inspectTrace(traceId: string): Promise<unknown>;
   listen(): Promise<string>;
   close(): Promise<void>;
 }
@@ -266,6 +268,7 @@ export function createOperationalWorkflow(
   };
   return {
     key: source.key,
+    defaultRuntimeId: source.agentRuntime === undefined ? "local" : "direct",
     workflow: instrumentOperationalWorkflow(
       compiled.workflow,
       prepareRunContext,
@@ -338,11 +341,17 @@ function requestContextValue(
 
 function runtimeProfileFromContext(
   requestContext: { get(key: string): unknown } | undefined,
+  hasAgentRuntime: boolean,
 ): RuntimeProfileReference {
   const id = requestContextValue(requestContext, "seqlane.runtimeId");
   const workspace = requestContextValue(requestContext, "seqlane.workspace");
   return {
-    id: typeof id === "string" && id.length > 0 ? id : "local",
+    id:
+      typeof id === "string" && id.length > 0
+        ? id
+        : hasAgentRuntime
+          ? "direct"
+          : "local",
     ...(typeof workspace === "string" && workspace.length > 0
       ? { workspace }
       : {}),
@@ -424,7 +433,10 @@ function createOperationalInvocationHandler(
         );
         setOperationalRunContext(context.requestContext, state);
         const events = state.events;
-        const profile = runtimeProfileFromContext(context.requestContext);
+        const profile = runtimeProfileFromContext(
+          context.requestContext,
+          source.agentRuntime !== undefined,
+        );
         let closeExecution: (() => Promise<void>) | undefined;
         let closeExecutionPromise: Promise<void> | undefined;
         const closeExecutionOnce = (): Promise<void> =>
@@ -438,8 +450,7 @@ function createOperationalInvocationHandler(
             context.workflowInput,
             source.onSessionUiAvailable,
             {
-              adapterConfiguration: source.adapterConfiguration,
-              adapterRegistry: source.adapterRegistry,
+              agentRuntime: source.agentRuntime,
               requestContext: context.requestContext,
               runId: context.runId,
             },
@@ -548,7 +559,10 @@ function registerOperationalMastraServer(
   composition: ReturnType<typeof createMastraComposition>,
   registrations: ReadonlyMap<
     string,
-    Pick<OperationalWorkflowRegistration, "terminate" | "prepareRunContext">
+    Pick<
+      OperationalWorkflowRegistration,
+      "terminate" | "prepareRunContext" | "defaultRuntimeId"
+    >
   >,
 ): void {
   registerMastraServer(
@@ -582,7 +596,10 @@ function registerOperationalMastraServer(
       const runContext = new RequestContext(requestContext.entries());
       runContext.setRaw(WORK_ID_CONTEXT_KEY, workId);
       runContext.setRaw(RUN_ID_CONTEXT_KEY, runId);
-      runContext.setRaw("seqlane.runtimeId", runtime?.id ?? "opencode");
+      runContext.setRaw(
+        "seqlane.runtimeId",
+        runtime?.id ?? registration?.defaultRuntimeId ?? "local",
+      );
       if (runtime?.workspace !== undefined) {
         runContext.setRaw("seqlane.workspace", runtime.workspace);
       }
@@ -700,6 +717,10 @@ export async function createOperationalHost(
         return ready;
       },
       fetch: async (request) => app.fetch(request),
+      inspectTrace: async (traceId) => {
+        await composition?.observability.flush();
+        return composition?.observability.getRecordedTrace({ traceId }) ?? null;
+      },
       listen: () => {
         if (closed) {
           return Promise.reject(new Error("Operational host is closed"));

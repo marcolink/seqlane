@@ -1,4 +1,5 @@
 export { createAcpAdapter } from "./adapter.js";
+export { createAcpAgentRuntimeFactory } from "./runtime.js";
 export {
   acpLaunchConfigurationSchema,
   parseAcpLaunchConfiguration,

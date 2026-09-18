@@ -41,13 +41,42 @@ function safeDiagnostic(
   }
 }
 
-function currentSpan(
-  context: Partial<ObservabilityContext>,
-  diagnose: (message: string) => void,
-): ObservabilityContext["tracing"]["currentSpan"] | undefined {
+type CurrentSpan = NonNullable<ObservabilityContext["tracing"]["currentSpan"]>;
+
+function property(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
   try {
-    const preferred = context.tracingContext?.currentSpan;
-    const fallback = context.tracing?.currentSpan;
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Narrows the opaque generic-adapter value at the Mastra integration edge. */
+function isCurrentSpan(value: unknown): value is CurrentSpan {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof property(value, "id") === "string" &&
+    typeof property(value, "createChildSpan") === "function"
+  );
+}
+
+function contextCurrentSpan(
+  context: unknown,
+  key: string,
+): CurrentSpan | undefined {
+  const current = property(property(context, key), "currentSpan");
+  return isCurrentSpan(current) ? current : undefined;
+}
+
+function currentSpan(
+  context: unknown,
+  diagnose: (message: string) => void,
+): CurrentSpan | undefined {
+  try {
+    const preferred = contextCurrentSpan(context, "tracingContext");
+    const fallback = contextCurrentSpan(context, "tracing");
     if (
       preferred !== undefined &&
       fallback !== undefined &&
@@ -86,7 +115,7 @@ function terminalKind(
 
 /** Adapter-owned ACP v1 projection to native Mastra spans. */
 export function createAcpObservability(
-  context: Partial<ObservabilityContext>,
+  context: unknown,
   invocationId: string,
   onDiagnostic: (message: string) => void = () => undefined,
 ): AcpObservability {

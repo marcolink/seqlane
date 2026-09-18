@@ -14,6 +14,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "import": "./dist/runner.js",
+      "default": "./dist/runner.js"
     }
   },
   "nx": {
@@ -26,6 +31,10 @@
   "dependencies": {
     "mastra": "1.27.3",
     "@seqlane/core": "workspace:*",
+    "@seqlane/agent-adapter": "workspace:*",
+    "@seqlane/acp-adapter": "workspace:*",
+    "@seqlane/codex-adapter": "workspace:*",
+    "@seqlane/opencode-adapter": "workspace:*",
     "@seqlane/protocol": "workspace:*",
     "@seqlane/tui": "workspace:*",
     "@seqlane/runtime": "workspace:*",

@@ -4,7 +4,6 @@ import type {
   ModelSelection,
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
-import type { ObservabilityContext } from "@mastra/core/observability";
 
 export {
   createBoundedNormalizedNameAllocator,
@@ -60,7 +59,12 @@ export interface AgentAdapterCapabilities {
 
 export interface AgentAdapterRequest {
   readonly invocationId: string;
-  readonly observability: Partial<ObservabilityContext>;
+  /**
+   * Opaque runtime-owned observability state. Concrete adapter integrations
+   * may understand it, but the generic adapter contract does not expose a
+   * runtime-engine type.
+   */
+  readonly observability: unknown;
   readonly task: TaskDefinition;
   readonly input: unknown;
   readonly agent?: AgentTaskRequest;
@@ -86,4 +90,184 @@ export interface AgentAdapter {
     readonly modelSelection?: ModelSelection;
   }) => Promise<AgentAdapter>;
   readonly sessionUi?: () => Promise<string | undefined>;
+}
+
+export interface AgentRuntimeModelCapabilities {
+  readonly executor: string;
+  readonly listModels: () => Promise<
+    readonly { readonly provider: string; readonly model: string }[]
+  >;
+  readonly resolveDefaultModel: () => Promise<ModelSelection>;
+  readonly validateModelSelection?: (
+    selection: ModelSelection,
+  ) => Promise<void>;
+}
+
+export interface AgentRuntimeContext {
+  readonly signal: AbortSignal;
+  readonly modelSelection?: ModelSelection;
+  /**
+   * Opaque execution context supplied by the runtime integration. Concrete
+   * adapters may preserve it, but the generic contract exposes no engine type.
+   */
+  readonly requestContext?: unknown;
+}
+
+/** A run-scoped, composition-owned runtime for one selected agent adapter. */
+export interface AgentRuntime {
+  readonly identity: string;
+  readonly capabilities: AgentAdapterCapabilities;
+  readonly modelCapabilities?: AgentRuntimeModelCapabilities;
+  createAdapter(context: AgentRuntimeContext): AgentAdapter;
+  redactAdapter(adapter: AgentAdapter): AgentAdapter;
+  readonly close?: () => Promise<void>;
+}
+
+/** Supplies one composition-owned runtime for a single workflow run. */
+export type AgentRuntimeFactory = (
+  signal: AbortSignal,
+  workspace: string | undefined,
+) => Promise<AgentRuntime>;
+
+/** Validates declared capabilities against an instantiated adapter. */
+export function assertAgentRuntimeCapabilities(
+  adapter: AgentAdapter,
+  expected: AgentAdapterCapabilities,
+): void {
+  const capabilityKeys = [
+    "execute",
+    "modelSelection",
+    "structuredOutput",
+    "sessionReuse",
+    "checkpoint",
+    "fork",
+    "activity",
+    "sessionUi",
+  ] as const;
+  for (const key of capabilityKeys) {
+    if (adapter.capabilities[key] !== expected[key]) {
+      throw new Error(`Agent runtime capability "${key}" changed after setup`);
+    }
+  }
+
+  const optionalOperations = [
+    ["checkpoint", adapter.captureCheckpoint],
+    ["fork", adapter.fork],
+    ["sessionUi", adapter.sessionUi],
+  ] as const;
+  for (const [capability, operation] of optionalOperations) {
+    if (expected[capability] !== (operation !== undefined)) {
+      throw new Error(
+        `Agent runtime capability "${capability}" does not match its optional operation`,
+      );
+    }
+  }
+}
+
+function redactValue(
+  value: unknown,
+  redactText: (value: string) => string,
+  seen = new WeakMap<object, unknown>(),
+): unknown {
+  if (typeof value === "string") return redactText(value);
+  if (typeof value !== "object" || value === null) return value;
+  const existing = seen.get(value);
+  if (existing !== undefined) return existing;
+  const copy = Array.isArray(value)
+    ? []
+    : Object.create(Object.getPrototypeOf(value));
+  seen.set(value, copy);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) continue;
+    Object.defineProperty(copy, key, {
+      ...descriptor,
+      value: redactValue(descriptor.value, redactText, seen),
+    });
+  }
+  return copy;
+}
+
+/** Wraps one adapter with concrete-runtime-owned diagnostic redaction. */
+export function redactAgentAdapter(
+  adapter: AgentAdapter,
+  redactText: (value: string) => string,
+): AgentAdapter {
+  const execute = async (request: AgentAdapterRequest): Promise<unknown> => {
+    try {
+      return await adapter.execute({
+        ...request,
+        onDiagnostic: (diagnostic) =>
+          request.onDiagnostic?.({
+            ...diagnostic,
+            message: redactText(diagnostic.message),
+          }),
+        onActivity: (activity) => {
+          // Activity payloads originate in the concrete runtime and can contain
+          // connection details in arbitrary nested fields.
+          request.onActivity?.(
+            redactValue(activity, redactText) as AgentActivity,
+          );
+        },
+      });
+    } catch (cause) {
+      throw redactValue(cause, redactText);
+    }
+  };
+  return {
+    ...adapter,
+    execute,
+    ...(adapter.close === undefined
+      ? {}
+      : {
+          close: async () => {
+            try {
+              await adapter.close?.();
+            } catch (cause) {
+              throw redactValue(cause, redactText);
+            }
+          },
+        }),
+    ...(adapter.captureCheckpoint === undefined
+      ? {}
+      : {
+          captureCheckpoint: async () => {
+            try {
+              const checkpoint = await adapter.captureCheckpoint?.();
+              if (checkpoint === undefined) {
+                throw new Error("Adapter checkpoint unexpectedly missing");
+              }
+              return checkpoint;
+            } catch (cause) {
+              throw redactValue(cause, redactText);
+            }
+          },
+        }),
+    ...(adapter.fork === undefined
+      ? {}
+      : {
+          fork: async (request) => {
+            try {
+              const forked = await adapter.fork?.(request);
+              if (forked === undefined) {
+                throw new Error("Adapter fork unexpectedly missing");
+              }
+              return redactAgentAdapter(forked, redactText);
+            } catch (cause) {
+              throw redactValue(cause, redactText);
+            }
+          },
+        }),
+    ...(adapter.sessionUi === undefined
+      ? {}
+      : {
+          sessionUi: async () => {
+            try {
+              return await adapter.sessionUi?.();
+            } catch (cause) {
+              throw redactValue(cause, redactText);
+            }
+          },
+        }),
+  };
 }

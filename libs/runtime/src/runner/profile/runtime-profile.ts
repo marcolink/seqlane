@@ -7,8 +7,12 @@ import type {
 import type { RuntimeProfileReference } from "@seqlane/protocol";
 import { randomUUID } from "node:crypto";
 import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
-import type { AgentAdapter } from "@seqlane/agent-adapter";
-import type { RequestContext } from "@mastra/core/request-context";
+import {
+  assertAgentRuntimeCapabilities,
+  type AgentAdapter,
+  type AgentRuntime,
+  type AgentRuntimeFactory,
+} from "@seqlane/agent-adapter";
 import type { ExecutorResolvers } from "../../runtime/execution/executor.js";
 import type {
   ExecutorRequest,
@@ -28,16 +32,6 @@ import {
 } from "../../runtime/session/session-resolution.js";
 import type { RuntimeSessionUiAvailable } from "../runtime-session-ui.js";
 import { z } from "zod";
-import {
-  configurationWithWorkspace,
-  createRuntimeAdapterRegistry,
-  loadRuntimeAdapterConfiguration,
-  redactRuntimeAdapter,
-  assertRuntimeAdapterCapabilities,
-  type RuntimeAdapterFactoryContext,
-  type RuntimeAdapterFactoryResult,
-  type RuntimeAdapterRegistry,
-} from "./runtime-adapter.js";
 
 const fixtureInputSchema = plainRecordSchema.pipe(
   z.looseObject({ dependency: z.string().optional() }),
@@ -240,7 +234,7 @@ export function createAgentSession(
               ...(selection === undefined ? {} : { modelSelection: selection }),
             });
             onAdapterCreated(child);
-            assertRuntimeAdapterCapabilities(
+            assertAgentRuntimeCapabilities(
               child,
               checkpointBinding.capabilities,
             );
@@ -259,24 +253,25 @@ export function createAgentSession(
 
 function createLazyAgentSession(
   taskDefinitions: TaskDefinitionRegistry,
-  createAdapter: (
-    context: RuntimeAdapterFactoryContext,
-  ) => RuntimeAdapterFactoryResult,
+  agentRuntime: AgentRuntime,
   signal: AbortSignal,
+  requestContext: unknown,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
   checkpointBinding: SessionCheckpointBinding,
   onAdapterCreated: (adapter: AgentAdapter) => void,
 ): ResolvedExecutorSession {
-  const binding = createAdapter({
-    signal,
-    ...(effectiveSelection === undefined
-      ? {}
-      : { modelSelection: effectiveSelection }),
-  });
-  const adapter = binding.createAdapter();
+  const adapter = agentRuntime.redactAdapter(
+    agentRuntime.createAdapter({
+      signal,
+      ...(requestContext === undefined ? {} : { requestContext }),
+      ...(effectiveSelection === undefined
+        ? {}
+        : { modelSelection: effectiveSelection }),
+    }),
+  );
   onAdapterCreated(adapter);
-  assertRuntimeAdapterCapabilities(adapter, checkpointBinding.capabilities);
+  assertAgentRuntimeCapabilities(adapter, checkpointBinding.capabilities);
   return createAgentSession(
     taskDefinitions,
     adapter,
@@ -288,14 +283,11 @@ function createLazyAgentSession(
 }
 
 export interface RuntimeProfileResolutionOptions {
-  /** Private configuration loaded by the caller or runner environment. */
-  readonly adapterConfiguration?: unknown;
-  /** Test seam and private composition-root override. */
-  readonly adapterRegistry?: RuntimeAdapterRegistry;
+  /** Composition-owned runtime for one workflow run. */
+  readonly agentRuntime?: AgentRuntimeFactory;
   readonly runId?: RunId;
-  /** Existing Mastra invocation context for operational runs. */
-  readonly requestContext?: RequestContext;
-  readonly environment?: Readonly<Record<string, string | undefined>>;
+  /** Opaque execution context retained for concrete adapter integrations. */
+  readonly requestContext?: unknown;
 }
 
 /** Resolves private adapter state after the generic profile crosses IPC. */
@@ -352,28 +344,18 @@ export async function resolveRuntimeProfile(
     );
   }
 
-  const rawConfiguration =
-    options.adapterConfiguration === undefined
-      ? loadRuntimeAdapterConfiguration(options.environment)
-      : options.adapterConfiguration;
-  const adapterRegistry =
-    options.adapterRegistry ?? createRuntimeAdapterRegistry();
-  const selected = adapterRegistry.resolve(
-    configurationWithWorkspace(rawConfiguration, workspacePath),
-  );
-  const preparation = await selected.prepare(signal);
-  const capabilities = selected.resolveCapabilities(preparation);
-  const binding = selected.create({
-    signal,
-    ...preparation,
-    ...(options.requestContext === undefined
-      ? {}
-      : { requestContext: options.requestContext }),
-  });
+  const agentRuntimeFactory = options.agentRuntime;
+  if (agentRuntimeFactory === undefined) {
+    throw new Error(
+      `Runtime profile "${profile.id}" requires an agent runtime`,
+    );
+  }
+  const agentRuntime = await agentRuntimeFactory(signal, workspacePath);
+  const capabilities = agentRuntime.capabilities;
   const checkpointBinding: SessionCheckpointBinding = {
-    adapter: selected.identity,
+    adapter: agentRuntime.identity,
     runId: options.runId ?? randomUUID(),
-    configurationBinding: selected.configurationBinding,
+    configurationBinding: randomUUID(),
     capabilities,
   };
   const ownedAdapters = new Set<AgentAdapter>();
@@ -387,7 +369,7 @@ export async function resolveRuntimeProfile(
         }),
       );
     } finally {
-      await preparation.close?.();
+      await agentRuntime.close?.();
     }
   };
   const workspaceIdentities = await resolveTaskWorkspaceIdentities(
@@ -397,29 +379,13 @@ export async function resolveRuntimeProfile(
   const workspaceResources = createWorkspaceResources(workspaceIdentities);
   const sessionResolver: SessionResolver = {
     adapterCapabilities: capabilities,
-    modelCapabilities: binding.modelCapabilities,
+    modelCapabilities: agentRuntime.modelCapabilities,
     resolve: async ({ effectiveSelection }): Promise<ResolvedExecutorSession> =>
       createLazyAgentSession(
         taskDefinitions,
-        (context) => {
-          const result = selected.create({
-            ...context,
-            signal,
-            ...preparation,
-            ...(options.requestContext === undefined
-              ? {}
-              : { requestContext: options.requestContext }),
-          });
-          return {
-            ...result,
-            createAdapter: () =>
-              redactRuntimeAdapter(
-                result.createAdapter(),
-                selected.configuration,
-              ),
-          };
-        },
+        agentRuntime,
         signal,
+        options.requestContext,
         onSessionUiAvailable,
         effectiveSelection,
         checkpointBinding,
@@ -431,19 +397,20 @@ export async function resolveRuntimeProfile(
     agent: () => {
       // A task without a declared session gets a fresh adapter for this
       // one-shot request. It does not create a Seqlane session or checkpoint.
-      const oneShotBinding = selected.create({
-        signal,
-        ...preparation,
-        ...(options.requestContext === undefined
-          ? {}
-          : { requestContext: options.requestContext }),
-      });
-      const oneShotAdapter = oneShotBinding.createAdapter();
+      const oneShotAdapter = agentRuntime.redactAdapter(
+        agentRuntime.createAdapter({
+          signal,
+          ...(options.requestContext === undefined
+            ? {}
+            : { requestContext: options.requestContext }),
+        }),
+      );
       ownedAdapters.add(oneShotAdapter);
+      assertAgentRuntimeCapabilities(oneShotAdapter, capabilities);
       return {
         execute: (request: ExecutorRequest) =>
           executeAgentAdapterRequest(
-            redactRuntimeAdapter(oneShotAdapter, selected.configuration),
+            oneShotAdapter,
             taskDefinitions,
             undefined,
             request,

@@ -1,6 +1,4 @@
 // @test-scope ./standalone-adapter.ts
-// @test-scope ./runtime-adapter.ts
-
 import { getEventListeners } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import {

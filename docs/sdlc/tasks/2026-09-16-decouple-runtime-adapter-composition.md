@@ -1,11 +1,11 @@
 ---
 id: task.decouple-runtime-adapter-composition
 title: Decouple Runtime from Concrete Adapter Implementations
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-18
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
   - task.deliver-standalone-cli-runs
@@ -75,12 +75,18 @@ install, typecheck, test, lint, build, format, Nx sync, and whitespace gates.
 
 ## Outcome
 
-Deferred from the standalone CLI deliverable. New
-standalone lifecycle code must avoid adding concrete runtime dependencies.
+Implementation in progress. Runtime construction now moves to adapter packages
+and CLI or Action composition. The runtime accepts only an already selected
+generic agent runtime.
+
+The direct workflow API accepts a bootstrapped agent runtime. The code-review
+Action bootstraps its selected OpenCode runtime after review admission, then
+passes that runtime into direct execution. The runtime receives no adapter
+configuration, endpoint, or concrete adapter package.
 
 ## Delivery state
 
-Planned. Existing concrete runtime imports remain; no delivery is claimed.
+In progress. No target-branch delivery is claimed.
 
 ## Traceability
 

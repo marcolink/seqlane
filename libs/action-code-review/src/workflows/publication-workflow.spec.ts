@@ -83,7 +83,7 @@ describe("publicationWorkflow", () => {
           completedAt: "2026-09-09T00:00:00.000Z",
         },
       },
-      runtime: { id: "local", workspace: "/tmp" },
+      workspace: "/tmp",
       events: { emit: () => undefined },
     });
 
@@ -146,7 +146,7 @@ describe("publicationWorkflow", () => {
           completedAt: "2026-09-09T00:00:00.000Z",
         },
       },
-      runtime: { id: "local", workspace: "/tmp" },
+      workspace: "/tmp",
       events: { emit: () => undefined },
     });
     const outcome = await handle.outcome;
@@ -202,7 +202,7 @@ describe("publicationWorkflow", () => {
           runId: "review-run",
         },
       },
-      runtime: { id: "local", workspace: "/tmp" },
+      workspace: "/tmp",
       events: { emit: () => undefined },
     });
     const outcome = await handle.outcome;

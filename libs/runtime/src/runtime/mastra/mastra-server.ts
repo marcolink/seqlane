@@ -258,9 +258,7 @@ export function registerMastraServer(
           // Mastra's compiled workflow schema is a Standard Schema at this
           // private integration edge; preserve it as the nested validator.
           input: workflow.inputSchema as unknown as z.ZodType,
-          runtime: runtimeProfileReferenceSchema
-            .optional()
-            .default({ id: "opencode" }),
+          runtime: runtimeProfileReferenceSchema.optional(),
         })
       : workflow.inputSchema;
     tools[toolId] = createTool({
@@ -279,12 +277,12 @@ export function registerMastraServer(
           );
         }
         const workflowInput = options.runtimeProfileInput
-          ? (input as { input: unknown; runtime: RuntimeProfileReference })
+          ? (input as { input: unknown; runtime?: RuntimeProfileReference })
           : undefined;
         return boundedDispatcher.dispatchInvocation({
           workflowKey: key,
           input: workflowInput?.input ?? input,
-          ...(workflowInput === undefined
+          ...(workflowInput?.runtime === undefined
             ? {}
             : { runtime: workflowInput.runtime }),
           requestContext: context.requestContext,

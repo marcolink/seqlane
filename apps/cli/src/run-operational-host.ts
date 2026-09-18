@@ -1,6 +1,7 @@
 import { isJsonValue, RuntimeError } from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
 import { createExecutionEventBridge } from "@seqlane/runtime";
+import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/tui";
 import {
   OperationalClient,
@@ -29,7 +30,7 @@ export interface RunOperationalHostOptions {
   readonly hostname: string;
   readonly port: number;
   readonly storageUrl: string;
-  readonly adapterConfiguration: unknown;
+  readonly agentRuntime?: AgentRuntimeFactory;
   readonly jsonMode: boolean;
   readonly renderer?: ExecutionRenderer;
   readonly capabilities: OutputCapabilities;
@@ -74,7 +75,7 @@ export async function executeOperationalHostRun(
     hostname,
     port,
     storageUrl,
-    adapterConfiguration,
+    agentRuntime,
     jsonMode,
     renderer,
     capabilities,
@@ -127,7 +128,7 @@ export async function executeOperationalHostRun(
             host: hostname,
             port,
             storageUrl,
-            adapterConfiguration,
+            agentRuntime,
             eventSink: () => events,
             onSessionUiAvailable: (notification) => {
               // Out-of-band writes move the cursor underneath Ink's live tree.

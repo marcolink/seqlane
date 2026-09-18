@@ -159,7 +159,7 @@ function childExitFailure(
 }
 
 const defaultGracePeriodMs = 5_000;
-const runnerModuleSpecifier = "@seqlane/runtime/runner";
+const runnerModuleSpecifier = "seqlane/runner";
 
 const defaultTimer: RunnerTimer = {
   setTimeout: (handler, delayMs) => setTimeout(handler, delayMs),

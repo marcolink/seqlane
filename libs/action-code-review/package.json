@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@seqlane/code-review-workflow": "workspace:*",
+    "@seqlane/agent-adapter": "workspace:*",
     "@seqlane/core": "workspace:*",
     "@seqlane/runtime": "workspace:*",
     "zod": "4.5.4"
