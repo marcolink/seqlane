@@ -53,7 +53,8 @@ before starting its successor. This document remains the parent deliverable.
 1. [task.standalone-workflow-loading](./2026-09-16-standalone-workflow-loading.md)
 2. [task.standalone-adapter-lifecycle](./2026-09-16-standalone-adapter-lifecycle.md)
 3. [task.standalone-run-execution](./2026-09-16-standalone-run-execution.md)
-4. [task.standalone-cli-cutover](./2026-09-16-standalone-cli-cutover.md)
+4. [Cancelled standalone CLI cutover](./2026-09-16-standalone-cli-cutover.md).
+   Do not infer this cutover from adapter CLI flag or configuration work.
 
 ## Implementation plan
 
@@ -73,10 +74,11 @@ before starting its successor. This document remains the parent deliverable.
    substitution and distinguish model failures from connection/authentication.
 6. Connect the selected workflow to direct Mastra execution and existing event
    consumers. Keep all canonical run state in memory.
-7. Remove obsolete run flags and its host/catalog/recording/storage paths.
-   Retain shared hosted functionality. Migrate internal callers and examples.
-8. Run the verification matrix and reconcile canonical docs with delivery
+7. Run the verification matrix and reconcile canonical docs with delivery
    evidence. Record any unsupported adapter capability as a delivery blocker.
+
+The standalone CLI cutover is cancelled. It requires a new approved task and
+must not be folded into adapter CLI flag or configuration behavior changes.
 
 ## Affected areas
 
@@ -120,9 +122,9 @@ Check public declarations for Mastra leakage and reject `/ee/` imports. Run
 ## Outcome
 
 Implementation is in progress on `feat/standalone-cli-runs`. Workflow loading
-was verified and committed in `16374e7`. Adapter lifecycle preparation follows,
-then direct execution and the public command cutover. Child task outcomes own
-their verification evidence.
+was verified and committed in `16374e7`. The planned public command cutover was
+cancelled on 2026-09-18 and must not be inferred from this parent task. Child
+task outcomes own their verification evidence.
 
 ## Delivery state
 

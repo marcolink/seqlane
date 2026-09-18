@@ -1,11 +1,11 @@
 ---
 id: task.standalone-cli-cutover
 title: Switch the CLI to Standalone Runs
-status: planned
+status: cancelled
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-18
 upstream:
   - spec.standalone-cli-runs
   - task.standalone-run-execution
@@ -13,6 +13,13 @@ supersedes: []
 ---
 
 # Switch the CLI to Standalone Runs
+
+## Cancellation
+
+Cancelled on 2026-09-18. Do not use this task to justify or add standalone
+execution cutover work to adapter CLI flag or configuration changes. Those
+changes are limited to the existing run flags and adapter configuration
+behavior. Any future standalone execution cutover needs a newly approved task.
 
 ## Objective
 
@@ -76,12 +83,12 @@ Git whitespace gates. Preserve hosted behavior during this intermediate step.
 
 ## Outcome
 
-Not implemented. A fresh Terra implementation agent delivers this task under
-orchestrator review and quality gates. Commit this task before starting its successor.
+Not implemented. This task is obsolete for the current adapter CLI work and
+must not be resumed implicitly.
 
 ## Delivery state
 
-Planned. No target-branch delivery is claimed.
+Cancelled. No target-branch delivery is claimed.
 
 ## Traceability
 

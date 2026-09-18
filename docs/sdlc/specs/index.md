@@ -44,3 +44,4 @@
 | [spec.run-machine-output](./2026-09-15-run-machine-output.md) | Run Machine Output and Command Errors | active | 2026-09-15 | core |
 | [spec.run-terminal-rendering](./2026-09-15-run-terminal-rendering.md) | Run Terminal Rendering | active | 2026-09-15 | core |
 | [spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md) | Standalone CLI Run Contract | active | 2026-09-16 | core |
+| [spec.adapter-cli-flags](./2026-09-19-adapter-cli-flags.md) | Direct-Run Adapter CLI Flags | active | 2026-09-19 | core |
