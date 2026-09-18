@@ -184,6 +184,20 @@ describe("CLI agent runtime composition", () => {
       host: "127.0.0.1",
       port: 4123,
     });
+    expect(
+      JSON.parse(
+        createDirectRunAdapterConfiguration({
+          adapter: "opencode",
+          host: "0:0:0:0:0:0:0:1",
+        }),
+      ),
+    ).toMatchObject({ host: "::1" });
+    expect(() =>
+      createDirectRunAdapterConfiguration({
+        adapter: "opencode",
+        host: "192.168.1.1",
+      }),
+    ).toThrow();
 
     const factory = loadDirectRunAgentRuntimeFactory({
       [directRunAdapterConfigurationEnvironment]: JSON.stringify({

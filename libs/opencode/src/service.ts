@@ -19,7 +19,7 @@ export interface StartOpenCodeServiceOptions {
   readonly workspace: string;
   readonly signal: AbortSignal;
   /** Loopback address for the owned service. */
-  readonly host?: typeof OPENCODE_HOST;
+  readonly host?: string;
   /** TCP port for the owned service; zero asks OpenCode to select one. */
   readonly port?: number;
   readonly startupTimeoutMs?: number;
@@ -49,7 +49,7 @@ function parseOpenCodeUrl(
     const actualPort =
       url.port === "" && url.protocol === "http:" ? 80 : Number(url.port);
     return url.protocol === "http:" &&
-      url.hostname === host &&
+      url.hostname.replace(/^\[|\]$/g, "") === host &&
       Number.isInteger(actualPort) &&
       actualPort > 0 &&
       (port === 0 || actualPort === port)

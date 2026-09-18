@@ -3,6 +3,7 @@ import { createAcpAgentRuntimeFactory } from "@seqlane/acp-adapter";
 import { createCodexAgentRuntimeFactory } from "@seqlane/codex-adapter";
 import { createOpenCodeAgentRuntimeFactory } from "@seqlane/opencode-adapter";
 import { startOpenCodeService } from "@seqlane/opencode-adapter";
+import { isIP } from "node:net";
 import { z } from "zod";
 
 const adapterIdentitySchema = z.object({ adapter: z.string().min(1) });
@@ -14,11 +15,25 @@ export const agentRuntimeConfigurationEnvironment =
 export const directRunAdapterConfigurationEnvironment =
   "SEQLANE_CLI_DIRECT_ADAPTER_CONFIG" as const;
 
+const loopbackHostSchema = z
+  .string()
+  .trim()
+  .transform((value, context) => {
+    if (value === "localhost") return "127.0.0.1";
+    if (isIP(value) === 4 && value.startsWith("127.")) return value;
+    if (isIP(value) === 6) {
+      const normalized = new URL(`http://[${value}]`).hostname.slice(1, -1);
+      if (normalized === "::1") return normalized;
+    }
+    context.addIssue({ code: "custom", message: "must be a loopback host" });
+    return z.NEVER;
+  });
+
 const directRunAdapterConfigurationSchema = z.discriminatedUnion("adapter", [
   z.strictObject({ adapter: z.literal("codex") }),
   z.strictObject({
     adapter: z.literal("opencode"),
-    host: z.literal("127.0.0.1").default("127.0.0.1"),
+    host: loopbackHostSchema.default("127.0.0.1"),
     port: z.number().int().min(0).max(65_535).default(0),
   }),
 ]);
