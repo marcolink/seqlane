@@ -93,7 +93,7 @@ describe("Codex executable discovery", () => {
   it("uses PATHEXT with Windows PATH entries", async () => {
     await expect(
       resolveCodexExecutable({
-        ...discoveryOptions([String.raw`C:\tools\codex.CMD`], {
+        ...discoveryOptions([String.raw`C:\tools\codex.EXE`], {
           environment: {
             PATH: String.raw`C:\missing;C:\tools`,
             PATHEXT: ".EXE;.CMD",
@@ -101,13 +101,38 @@ describe("Codex executable discovery", () => {
         }),
         platform: "win32",
         realpath: vi.fn(async (path) => {
-          if (path !== String.raw`C:\tools\codex.CMD`)
+          if (path !== String.raw`C:\tools\codex.EXE`)
             throw new Error("not found");
-          return String.raw`C:\canonical\codex.CMD`;
+          return String.raw`C:\canonical\codex.EXE`;
         }),
       }),
     ).resolves.toMatchObject({
-      executable: String.raw`C:\canonical\codex.CMD`,
+      executable: String.raw`C:\canonical\codex.EXE`,
     });
+  });
+
+  it("does not discover Windows command shims that direct spawning cannot run", async () => {
+    await expect(
+      resolveCodexExecutable({
+        ...discoveryOptions([String.raw`C:\tools\codex.CMD`], {
+          environment: {
+            PATH: String.raw`C:\tools`,
+            PATHEXT: ".EXE;.CMD",
+          },
+        }),
+        platform: "win32",
+      }),
+    ).rejects.toMatchObject({ code: CODEX_EXECUTABLE_NOT_FOUND });
+  });
+
+  it("does not search the current directory for empty POSIX PATH entries", async () => {
+    const options = discoveryOptions(["/codex", "/second/codex"], {
+      environment: { PATH: ":/second" },
+    });
+
+    await expect(resolveCodexExecutable(options)).resolves.toMatchObject({
+      executable: "/canonical/second/codex",
+    });
+    expect(options.realpath).not.toHaveBeenCalledWith("/codex");
   });
 });

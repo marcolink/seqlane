@@ -4,7 +4,7 @@ import { posix, win32 } from "node:path";
 import { CodexAdapterError } from "./errors.js";
 
 const CODEX_COMMAND = "codex";
-const DEFAULT_WINDOWS_PATH_EXTENSIONS = [".COM", ".EXE", ".BAT", ".CMD"];
+const DIRECT_WINDOWS_PATH_EXTENSIONS = [".COM", ".EXE"];
 
 export const CODEX_EXECUTABLE_CONFIGURED_PATH_UNAVAILABLE =
   "codex.executable.configured-path-unavailable";
@@ -130,7 +130,7 @@ async function findOnPath(
 
 function windowsPathExtensions(pathExtensions: string | undefined): string[] {
   if (pathExtensions === undefined || pathExtensions.length === 0) {
-    return DEFAULT_WINDOWS_PATH_EXTENSIONS;
+    return DIRECT_WINDOWS_PATH_EXTENSIONS;
   }
   const extensions = pathExtensions
     .split(";")
@@ -138,6 +138,8 @@ function windowsPathExtensions(pathExtensions: string | undefined): string[] {
     .filter((extension) => extension.length > 0)
     .map((extension) =>
       extension.startsWith(".") ? extension : `.${extension}`,
-    );
-  return extensions.length === 0 ? DEFAULT_WINDOWS_PATH_EXTENSIONS : extensions;
+    )
+    .map((extension) => extension.toUpperCase())
+    .filter((extension) => DIRECT_WINDOWS_PATH_EXTENSIONS.includes(extension));
+  return extensions.length === 0 ? DIRECT_WINDOWS_PATH_EXTENSIONS : extensions;
 }

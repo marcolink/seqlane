@@ -4,6 +4,7 @@ import { CodexProtocolError } from "./errors.js";
 import {
   parseCodexMessage,
   parseInitializeResult,
+  parseCodexLaunchConfiguration,
   parseModelListResult,
   parseThreadResult,
   unsupportedCodexServerRequest,
@@ -98,6 +99,19 @@ describe("Codex app-server protocol", () => {
         codexHome: "/tmp/codex",
       }),
     ).toThrow(CodexProtocolError);
+  });
+
+  it("accepts an absolute Windows executable path", () => {
+    expect(
+      parseCodexLaunchConfiguration(
+        {
+          executable: String.raw`C:\tools\codex.exe`,
+          workspace: String.raw`C:\workspace`,
+          networkAccess: false,
+        },
+        "win32",
+      ),
+    ).toMatchObject({ executable: String.raw`C:\tools\codex.exe` });
   });
 
   it("normalizes the model catalog used by preflight", () => {

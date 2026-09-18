@@ -1,4 +1,3 @@
-import { isAbsolute } from "node:path";
 import {
   redactAgentAdapter,
   redactAgentRuntimeModelCapabilities,
@@ -8,6 +7,7 @@ import {
 import { z } from "zod";
 import { CODEX_AGENT_CAPABILITIES } from "./capabilities.js";
 import { resolveCodexExecutable } from "./executable-discovery.js";
+import { isAbsoluteCodexExecutablePath } from "./executable-path.js";
 import { createCodexRun } from "./run.js";
 
 const configurationSchema = z.strictObject({
@@ -18,7 +18,8 @@ const configurationSchema = z.strictObject({
     .min(1)
     .pipe(
       z.custom<string>(
-        (value) => typeof value === "string" && isAbsolute(value),
+        (value) =>
+          typeof value === "string" && isAbsoluteCodexExecutablePath(value),
         { message: "must be an absolute executable path" },
       ),
     )
