@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import "./require-shim.js";
 
@@ -37,6 +38,10 @@ function requiredWorkspace(): string {
     throw new Error("GITHUB_WORKSPACE is required.");
   }
   return resolve(value);
+}
+
+export function resolverSkillDirectory(): string {
+  return fileURLToPath(new URL("../skills", import.meta.url));
 }
 
 function workflowMetadata() {
@@ -140,7 +145,9 @@ export async function run(): Promise<void> {
     validateTarget: async (conflicts, generatedPaths) =>
       getBoundary().validateTarget(conflicts, generatedPaths),
   };
-  const runtime = new NodeOpenCodeRuntime();
+  const runtime = new NodeOpenCodeRuntime({
+    skillDirectory: resolverSkillDirectory(),
+  });
   const ports = {
     github: {
       readPullRequest: async (number: number) => {

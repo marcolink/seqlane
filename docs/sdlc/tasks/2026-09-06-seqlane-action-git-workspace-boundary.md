@@ -27,8 +27,8 @@ Implement `requirement-git-integration`, `requirement-agent-workspace`, and
 
 Depend on [task.seqlane-action-resolution-contracts](./2026-09-06-seqlane-action-resolution-contracts.md).
 
-Use the Git rules in [seqlane-git-automation](../../../.agents/skills/seqlane-git-automation/SKILL.md),
-including real Git integration tests and argument-array execution.
+Use the Git rules in [the Action instructions](../../../actions/AGENTS.md).
+Use real Git integration tests and argument-array execution.
 
 ## Scope
 

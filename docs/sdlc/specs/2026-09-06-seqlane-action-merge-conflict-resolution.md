@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-17
+updated: 2026-09-18
 upstream:
   - adr.seqlane-action-library-boundary
   - adr.runner-built-action-bundles
@@ -56,6 +56,8 @@ The migration must preserve the behavior documented by
 - Keep handler execution isolated from secrets, credentials, and the normal
   workflow process even when a handler executes target checkout code or
   configuration.
+- Give the resolver agent only the Git guidance that applies to conflict
+  resolution.
 
 ## Non-goals
 
@@ -67,7 +69,6 @@ The migration must preserve the behavior documented by
 - Move generic OpenCode or service lifecycle code into the resolver library.
 - Add GitHub platform types to `@seqlane/core` or runner IPC.
 - Change the generic Seqlane workflow authoring contract.
-- Change the OpenCode permission policy.
 - Change the current merge or rebase product behavior.
 - Load a conflict-handler policy from the resolution-target checkout.
 - Send generated-file conflicts to the model or use a model-selected handler.
@@ -464,6 +465,14 @@ The OpenCode process must listen on loopback only. The policy must deny shell,
 external-directory, and project-configuration access. The policy must allow
 only the tools required by the current agent workflow.
 
+The Action must store its conflict-resolution skill under
+`actions/resolve-merge-conflicts/skills`. The skill must not be a repository
+skill under `.agents/skills`.
+
+The OpenCode configuration must register only the Action-owned skill path. It
+must disable ambient external skills. The permission policy must allow only
+the `seqlane-git-automation` skill through the `skill` tool.
+
 The resolver must stop OpenCode in a cleanup path before it configures GitHub
 authentication for the push. The Action adapter must expose `start`,
 `resolve`, and idempotent `stop` on one lazily created runner instance. It must
@@ -784,6 +793,8 @@ verification must keep remote push behavior disabled.
 - Lockfile workspace inputs cap each file at 512 KiB and the total at 2 MiB.
 - All workspace, staged-content, marker, and size guards remain active.
 - OpenCode runs only for agent conflicts and stops before push authentication.
+- OpenCode can load the Action-owned `seqlane-git-automation` skill. Ambient
+  and repository-wide skills are not visible to the resolver agent.
 - The Action exposes one lazy agent lifecycle with idempotent cleanup on
   success and failure.
 - Pushes require a dedicated masked token and use a read-only workflow token

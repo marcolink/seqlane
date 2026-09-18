@@ -19,8 +19,8 @@ repository as its working directory.
 Assert repository state instead of Git log wording. Check the exit code, HEAD,
 porcelain status, index entries, staged diff, and remote ref as applicable.
 
-For merge and rebase behavior, use the conflict scenarios in
-`seqlane-git-automation`. Include only the scenarios that the action supports.
+For merge and rebase behavior, include only the required Git scenarios that
+the action supports.
 
 Keep action adapters thin. Pass parsed inputs and GitHub context values to
 ordinary TypeScript functions. Unit-test those functions without an Actions

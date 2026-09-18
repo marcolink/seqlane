@@ -41,7 +41,7 @@
       "dependsOn": ["build"],
       "options": {
         "cwd": ".",
-        "command": "pnpm exec vitest run actions/resolve-merge-conflicts/src/lazy-agent-port.spec.ts && node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs"
+        "command": "pnpm exec vitest run actions/resolve-merge-conflicts/src/lazy-agent-port.spec.ts actions/resolve-merge-conflicts/src/main.spec.ts && node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs"
       }
     }
   }
