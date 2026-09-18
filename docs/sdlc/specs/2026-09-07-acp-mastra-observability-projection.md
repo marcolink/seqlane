@@ -5,9 +5,9 @@ status: active
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-09
+updated: 2026-09-18
 upstream:
-  - adr.mastra-native-agent-observability
+  - adr.engine-opaque-agent-adapter-contracts
   - spec.mastra-native-agent-observability
 supersedes: []
 ---
@@ -28,9 +28,11 @@ lockfile resolution is `@agentclientprotocol/sdk` 0.21.1, which exports
 chunks and a final `text` promise. It does not expose raw ACP v1 types.
 
 This specification does not create or change `AcpAgentStream`. The
-observability contract starts at `AgentAdapterRequest.observability` and ends
-at the Mastra spans that the ACP adapter emits. The bridge consumes execution
-observations that are already available through `AcpAgentStream`.
+observability contract starts at the opaque
+`AgentAdapterRequest.observability` value and ends at the Mastra spans that
+the ACP adapter emits. The adapter narrows the value at its private Mastra
+integration edge. The bridge consumes execution observations that are already
+available through `AcpAgentStream`.
 
 The current boundary does not expose ACP session IDs, ACP state updates, ACP
 usage updates, agent-message IDs, or raw ACP tool status patches. It also does
@@ -101,11 +103,12 @@ The default implementation uses `@agentclientprotocol/sdk` `^0.21.0`. The
 current lockfile resolves 0.21.1, which exports `PROTOCOL_VERSION = 1`. Raw ACP
 v1 types MUST remain behind `@mastra/acp`.
 
-The adapter MUST use `AgentAdapterRequest.observability` from the shared
-private adapter contract. The supported Mastra contract is `@mastra/core`
-1.64.0. Each package that imports `ObservabilityContext`, `SpanType`, or span
-types MUST declare `@mastra/core` directly at the workspace-pinned version.
-It MUST NOT rely on the transitive peer dependency from `@mastra/acp`.
+The adapter MUST use and privately narrow the opaque
+`AgentAdapterRequest.observability` value from the shared generic adapter
+contract. The supported Mastra contract is `@mastra/core` 1.64.0. Each concrete
+package that imports `ObservabilityContext`, `SpanType`, or span types MUST
+declare `@mastra/core` directly at the workspace-pinned version. It MUST NOT
+rely on the transitive peer dependency from `@mastra/acp`.
 
 ### R2. Admission, run lifecycle, and parentage
 
@@ -135,10 +138,11 @@ ACP v1 MUST be one concrete private adapter registration. It is bound to the
 pinned ACP v1 package set and owns its Zod schemas, lifecycle reducer, and
 Mastra projection.
 
-For observability, the shared `AgentAdapter` request contract exposes only the
-per-invocation Mastra context. Shared internal projector code is limited to
-no-throw span helpers, redaction, and bounded diagnostics. It MUST NOT define
-a generic executor-observation union.
+For observability, the shared `AgentAdapter` request contract exposes only an
+opaque per-invocation context. The ACP adapter narrows it at the concrete
+integration edge. Shared internal projector code is limited to no-throw span
+helpers, redaction, and bounded diagnostics. It MUST NOT define a generic
+executor-observation union.
 
 ### R4. Canonical validation and tool lifecycle
 
@@ -470,7 +474,7 @@ The specification is satisfied when:
 
 ## Traceability
 
-- [adr.mastra-native-agent-observability: Project Executor Observations into Native Mastra Agent Observability](../adrs/2026-09-07-mastra-native-agent-observability.md)
+- [adr.engine-opaque-agent-adapter-contracts: Keep Generic Agent Adapter Contracts Engine-Opaque](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)
 - [spec.mastra-native-agent-observability: Native Mastra Agent Observability Projection](./2026-09-07-mastra-native-agent-observability.md)
 - [adr.executor-neutral-workflow-authoring: Keep Workflow Authoring and Plans Executor-Neutral](../adrs/2026-09-02-executor-neutral-workflow-authoring.md)
 - [spec.executor-neutral-workflow-authoring: Executor-Neutral Workflow Authoring](./2026-09-02-executor-neutral-workflow-authoring.md)

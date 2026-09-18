@@ -11,6 +11,9 @@
   "references": [
     {
       "path": "../../libs/action-code-review"
+    },
+    {
+      "path": "../../libs/opencode"
     }
   ]
 }

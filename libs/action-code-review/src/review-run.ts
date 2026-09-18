@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { SeqlaneError } from "@seqlane/core";
+import { realpath } from "node:fs/promises";
+import { RuntimeError, type SeqlaneError } from "@seqlane/core";
+import type { AgentRuntime } from "@seqlane/agent-adapter";
 import { buildWorkflow } from "@seqlane/core";
 import { z } from "zod";
 import {
@@ -20,7 +22,12 @@ import {
   type PublicationGuardInput,
 } from "./publication-guard.js";
 import { publicationResultSchema } from "./workflows/publication-workflow.js";
-import { type LivePullRequest, type ReviewTargetInput } from "./contracts.js";
+import {
+  type LivePullRequest,
+  type PullRequestContext,
+  type ReviewHistory,
+  type ReviewTargetInput,
+} from "./contracts.js";
 import trustedCodeReviewWorkflow from "@seqlane/code-review-workflow";
 import { BoundedEventRecorder } from "./event-recorder.js";
 import {
@@ -103,6 +110,87 @@ async function clearOwnedMarker(
   }
   if (deleteMarker) await adapter.deleteComment(markerId);
   else await adapter.updateReport(markerId, removeMarker(report.body));
+}
+
+async function startWorkflowWithCleanup(
+  start: () => WorkflowRunHandle,
+  identity: { readonly workId: string; readonly runId: string },
+  cleanup: readonly (() => void | Promise<void>)[],
+): Promise<WorkflowRunHandle> {
+  try {
+    return start();
+  } catch (cause) {
+    const cleanupResults = await Promise.allSettled(
+      cleanup.map((step) => Promise.resolve().then(step)),
+    );
+    const cleanupFailures: unknown[] = [];
+    for (const result of cleanupResults) {
+      if (result.status === "rejected") cleanupFailures.push(result.reason);
+    }
+    const failureCause =
+      cleanupFailures.length === 0
+        ? cause
+        : new AggregateError(
+            [cause, ...cleanupFailures],
+            "Workflow startup and cleanup failed",
+          );
+    return {
+      ...identity,
+      outcome: Promise.resolve({
+        status: "failed",
+        error: new RuntimeError(failureCause),
+      }),
+      cancel: async () => undefined,
+    };
+  }
+}
+
+type ReviewWorkflowStartRequest = {
+  readonly request: CodeReviewRunRequest;
+  readonly pullRequest: PullRequestContext;
+  readonly reviewHistory: ReviewHistory;
+  readonly agentRuntime: AgentRuntime | undefined;
+  readonly reviewTarget: string;
+  readonly identity: NonNullable<StartWorkflowRunRequest["identity"]>;
+  readonly events: StartWorkflowRunRequest["events"];
+  readonly adapter: GitHubReviewPort;
+  readonly markerId: string | undefined;
+  readonly markerCreated: boolean;
+};
+
+async function startReviewWorkflow(
+  runWorkflow: WorkflowRunner,
+  start: ReviewWorkflowStartRequest,
+): Promise<WorkflowRunHandle> {
+  return startWorkflowWithCleanup(
+    () =>
+      runWorkflow({
+        workflow: buildWorkflow(trustedCodeReviewWorkflow),
+        input: {
+          repository: start.request.repository,
+          baseBranch: start.request.baseBranch,
+          baseRevision: start.request.baseRevision,
+          headRevision: start.request.headRevision,
+          pullRequest: start.pullRequest,
+          reviewHistory: start.reviewHistory,
+        },
+        agentRuntime: start.agentRuntime,
+        workspace: start.reviewTarget,
+        identity: start.identity,
+        events: start.events,
+      }),
+    start.identity,
+    [
+      () => start.agentRuntime?.close?.(),
+      () =>
+        clearOwnedMarker(
+          start.adapter,
+          start.markerId,
+          start.markerCreated,
+          publicationGuardInput(start.request, start.identity.runId),
+        ),
+    ],
+  );
 }
 
 function isLivePullRequest(
@@ -196,6 +284,8 @@ export interface CodeReviewRunRequest extends ReviewTargetInput {
 
 export interface CodeReviewRunPorts {
   readonly github: GitHubReviewPort;
+  /** Bootstraps the selected agent runtime after review admission succeeds. */
+  readonly bootstrapAgentRuntime?: (workspace: string) => Promise<AgentRuntime>;
   readonly onRunStarted?: (run: ReviewRunStarted) => void | Promise<void>;
   readonly progress?: ReviewProgressPort;
   /** Test seam for deterministic Action-local progress elapsed time. */
@@ -335,18 +425,36 @@ export async function runCodeReview(
     headRevision: request.headRevision,
     now: ports.now,
   });
-  const handle = runWorkflow({
-    workflow: buildWorkflow(trustedCodeReviewWorkflow),
-    input: {
-      repository: request.repository,
-      baseBranch: request.baseBranch,
-      baseRevision: request.baseRevision,
-      headRevision: request.headRevision,
-      pullRequest,
-      reviewHistory: normalizedHistory.reviewHistory,
-    },
-    runtime: { id: request.runtime, workspace: request.reviewTarget },
+  let agentRuntime: AgentRuntime | undefined;
+  let reviewTarget: string;
+  try {
+    reviewTarget = await realpath(request.reviewTarget);
+    agentRuntime = await ports.bootstrapAgentRuntime?.(reviewTarget);
+  } catch (cause) {
+    await clearOwnedMarker(
+      adapter,
+      markerId,
+      markerCreated,
+      publicationGuardInput(request, reservedIdentity.runId),
+    );
+    return {
+      status: "failed",
+      workId: reservedIdentity.workId,
+      runId: reservedIdentity.runId,
+      phase: "review",
+      error: new RuntimeError(cause),
+    };
+  }
+  const handle = await startReviewWorkflow(runWorkflow, {
+    request,
+    pullRequest,
+    reviewHistory: normalizedHistory.reviewHistory,
+    agentRuntime,
+    reviewTarget,
     identity: reservedIdentity,
+    adapter,
+    markerId,
+    markerCreated,
     events: {
       emit: (event) => {
         eventRecorder.emit(event);
@@ -419,7 +527,7 @@ export async function runCodeReview(
       snapshot,
       existingReportId: markerId ?? "",
     },
-    runtime: { id: "local", workspace: request.reviewTarget },
+    workspace: reviewTarget,
     events: { emit: () => undefined },
   });
   const publicationOutcome = await publicationHandle.outcome;

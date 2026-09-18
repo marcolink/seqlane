@@ -20,10 +20,28 @@
       "path": "../../libs/protocol"
     },
     {
+      "path": "../../libs/opencode"
+    },
+    {
+      "path": "../../libs/codex"
+    },
+    {
+      "path": "../../libs/acp"
+    },
+    {
+      "path": "../../libs/adapter"
+    },
+    {
       "path": "../../libs/core"
     },
     {
+      "path": "../../workflows/resolve-merge-conflicts"
+    },
+    {
       "path": "../../libs/fixtures"
+    },
+    {
+      "path": "../../libs/action-code-review"
     }
   ]
 }

@@ -316,7 +316,10 @@ function fakeProviderCatalog(): object {
       {
         id: "openai",
         models: {
-          "gpt-5.6-luna": { id: "gpt-5.6-luna" },
+          "gpt-5.6-luna": {
+            id: "gpt-5.6-luna",
+            variants: { high: {} },
+          },
           "gpt-5.6-terra": { id: "gpt-5.6-terra" },
         },
       },
@@ -486,6 +489,18 @@ async function handleFakeOpenCodeRequest(
   }
   if (request.method === "GET" && path === "/session/session-1/message") {
     writeJson(response, []);
+    return;
+  }
+  if (request.method === "GET" && path === "/api/session/session-1/history") {
+    writeJson(response, { data: [], hasMore: false });
+    return;
+  }
+  if (
+    request.method === "GET" &&
+    (path === "/api/session/session-1/permission" ||
+      path === "/api/session/session-1/question")
+  ) {
+    writeJson(response, { data: [] });
     return;
   }
   if (request.method === "GET" && path === "/global/health") {
@@ -966,6 +981,28 @@ describe("seqlane CLI entrypoints", () => {
     expect(result.code).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toMatch(
       /runtime profile.*not configured|model capabilities are unavailable/i,
+    );
+  });
+
+  it("rejects a non-local runtime before starting without adapter configuration", async () => {
+    const result = await runCli(
+      productionEntry,
+      [
+        "run",
+        localOnlyWorkflowReference,
+        "--input",
+        '{"value":"local"}',
+        "--runtime",
+        "opencode",
+      ],
+      undefined,
+      "unused",
+      { SEQLANE_RUNTIME_ADAPTER_CONFIG: undefined },
+    );
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Agent runtime configuration: configuration is missing",
     );
   });
 

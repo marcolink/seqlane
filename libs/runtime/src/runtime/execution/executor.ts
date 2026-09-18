@@ -1,11 +1,11 @@
 import type {
-  ModelRef,
   ModelSelection,
   AgentTaskRequest,
   TaskNode,
   TaskDefinition,
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
+import type { AgentRuntimeModelCapabilities } from "@seqlane/agent-adapter";
 import type { ObservabilityContext } from "@mastra/core/observability";
 
 type LegacyTaskNode = TaskNode & { readonly executor?: string };
@@ -54,15 +54,7 @@ export interface SeqlaneBackgroundProcessRequest {
 }
 
 /** Normalized model capabilities exposed by a private executor adapter. */
-export interface ExecutorModelCapabilities {
-  readonly executor: string;
-  readonly listModels: () => Promise<readonly ModelRef[]>;
-  readonly resolveDefaultModel: () => Promise<ModelSelection>;
-  /** Rejects a supported model whose requested settings are not supported. */
-  readonly validateModelSelection?: (
-    selection: ModelSelection,
-  ) => Promise<void>;
-}
+export type ExecutorModelCapabilities = AgentRuntimeModelCapabilities;
 
 export class UntrackedMutatingBackgroundProcessError extends Error {
   constructor() {

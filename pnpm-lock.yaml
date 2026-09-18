@@ -170,6 +170,9 @@ importers:
       '@seqlane/action-code-review':
         specifier: workspace:*
         version: link:../../libs/action-code-review
+      '@seqlane/opencode-adapter':
+        specifier: workspace:*
+        version: link:../../libs/opencode
 
   actions/opencode-server:
     dependencies:
@@ -236,9 +239,21 @@ importers:
       '@oclif/core':
         specifier: 4.13.5
         version: 4.13.5
+      '@seqlane/acp-adapter':
+        specifier: workspace:*
+        version: link:../../libs/acp
+      '@seqlane/agent-adapter':
+        specifier: workspace:*
+        version: link:../../libs/adapter
+      '@seqlane/codex-adapter':
+        specifier: workspace:*
+        version: link:../../libs/codex
       '@seqlane/core':
         specifier: workspace:*
         version: link:../../libs/core
+      '@seqlane/opencode-adapter':
+        specifier: workspace:*
+        version: link:../../libs/opencode
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../../libs/protocol
@@ -291,6 +306,9 @@ importers:
 
   libs/action-code-review:
     dependencies:
+      '@seqlane/agent-adapter':
+        specifier: workspace:*
+        version: link:../adapter
       '@seqlane/code-review-workflow':
         specifier: workspace:*
         version: link:../../workflows/code-review
@@ -326,12 +344,12 @@ importers:
 
   libs/adapter:
     dependencies:
-      '@mastra/core':
-        specifier: 1.64.0
-        version: 1.64.0(express@5.2.1)(zod@4.5.4)
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
 
   libs/codex:
     dependencies:
@@ -416,21 +434,12 @@ importers:
       '@mastra/server':
         specifier: 1.64.0
         version: 1.64.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
-      '@seqlane/acp-adapter':
-        specifier: workspace:*
-        version: link:../acp
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../adapter
-      '@seqlane/codex-adapter':
-        specifier: workspace:*
-        version: link:../codex
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
-      '@seqlane/opencode-adapter':
-        specifier: workspace:*
-        version: link:../opencode
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../protocol

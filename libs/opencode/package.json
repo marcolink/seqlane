@@ -22,7 +22,8 @@
     "$schema": "../../node_modules/nx/schemas/project-schema.json",
     "tags": [
       "type:lib",
-      "scope:private"
+      "scope:private",
+      "adapter:concrete"
     ]
   },
   "dependencies": {

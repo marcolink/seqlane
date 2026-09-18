@@ -108,9 +108,9 @@ URL uses the required bracketed IPv6 form.
 The host also exposes the registered workflows through Mastra Streamable HTTP
 MCP at `http://127.0.0.1:<port>/api/mcp/seqlane-workflows/mcp`. This endpoint
 is loopback-only. Each tool call uses `{ "input": <workflow-input> }`; add
-`"runtime": { "id": "opencode", "workspace": "<path>" }` to select a
-runtime profile. `runtime` is optional and defaults to `opencode`. Adapter
-configuration remains server-owned.
+`"runtime": { "id": "direct", "workspace": "<path>" }` to select direct
+execution. `runtime` is optional and defaults to `local`, even when the host
+has an agent adapter. Adapter configuration remains server-owned.
 
 Run-control commands use the same host. Set `--server-url` to use an existing
 host; without it, the command owns a local host for its lifetime:
@@ -148,13 +148,13 @@ you start `seqlane run` or `seqlane serve`:
 ```sh
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
 
-seqlane run repository:review --input '{"topic":"Seqlane"}' --runtime opencode
+seqlane run repository:review --input '{"topic":"Seqlane"}' --runtime direct
 ```
 
-The `--runtime` value is an opaque profile identifier. The CLI does not infer
-the adapter from a URL. A remote `run --server-url` sends only the profile and
-workspace metadata. The existing server must have its own adapter
-configuration.
+The `--runtime` value is an opaque profile ID. `local` and `direct` are the
+built-in profiles; custom hosts can provide other profiles. A profile ID does
+not select an adapter. A remote `run --server-url` sends only the runtime and
+workspace metadata. The existing server must have its own adapter configuration.
 
 ## Community Studio
 
@@ -223,7 +223,7 @@ and actionable failures:
 ```sh
 seqlane run ./workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime opencode \
+  --runtime direct \
   --output ci
 ```
 
@@ -242,7 +242,7 @@ configure executor permissions before starting a non-interactive Run.
 ```sh
 seqlane run ./workflows/code-review/workflow.ts \
   --input '{"repository":"owner/repository","baseBranch":"main","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"number":123,"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
-  --runtime opencode \
+  --runtime direct \
   --workspace /path/to/repository
 ```
 
@@ -261,7 +261,7 @@ Recording is explicit and writes a new, local newline-delimited JSON file:
 ```sh
 seqlane run ./workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime opencode \
+  --runtime direct \
   --record ./seqlane-recording.jsonl
 ```
 
@@ -308,7 +308,7 @@ Run a local workflow:
 ```sh
 pnpm exec node apps/cli/bin/run.js run workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime opencode
+  --runtime direct
 ```
 
 Run the CLI boundary tests after a build:

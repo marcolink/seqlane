@@ -5,6 +5,7 @@ import type {
 } from "@mastra/core/observability";
 import { SpanType as MastraSpanType } from "@mastra/core/observability";
 import { createBoundedNormalizedNameAllocator } from "@seqlane/agent-adapter";
+import { z } from "zod";
 import type {
   OpenCodeAssistantObservation,
   OpenCodeEventObservation,
@@ -93,12 +94,54 @@ function skillName(
   return candidate;
 }
 
+type CurrentSpan = NonNullable<ObservabilityContext["tracing"]["currentSpan"]>;
+
+function property(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
+  try {
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
+}
+
+const currentSpanSchema = z.custom<CurrentSpan>(
+  (value) =>
+    typeof value === "object" &&
+    value !== null &&
+    typeof property(value, "id") === "string" &&
+    typeof property(value, "isValid") === "boolean" &&
+    typeof property(value, "createChildSpan") === "function",
+  { message: "must be a compatible Mastra span" },
+);
+
+const tracingContextSchema = z.looseObject({
+  currentSpan: currentSpanSchema.optional(),
+});
+
+const observabilityContextSchema = z.looseObject({
+  tracing: tracingContextSchema.optional(),
+  tracingContext: tracingContextSchema.optional(),
+});
+
 function currentSpan(
-  context: Partial<ObservabilityContext>,
+  context: unknown,
   diagnose: (message: string) => void,
-): ObservabilityContext["tracing"]["currentSpan"] {
-  const preferred = context.tracingContext?.currentSpan;
-  const fallback = context.tracing?.currentSpan;
+): CurrentSpan | undefined {
+  let parsed: z.output<typeof observabilityContextSchema>;
+  try {
+    const result = observabilityContextSchema.safeParse(context);
+    if (!result.success) {
+      diagnose("OpenCode observability context did not match its schema");
+      return undefined;
+    }
+    parsed = result.data;
+  } catch {
+    diagnose("OpenCode observability context was unavailable");
+    return undefined;
+  }
+  const preferred = parsed.tracingContext?.currentSpan;
+  const fallback = parsed.tracing?.currentSpan;
   if (
     preferred !== undefined &&
     fallback !== undefined &&
@@ -220,7 +263,7 @@ function createToolNameAllocator(reportDiagnostic: (message: string) => void) {
 
 /** Creates the adapter-owned OpenCode to Mastra span projection. */
 export function createOpenCodeObservability(
-  context: Partial<ObservabilityContext>,
+  context: unknown,
   invocationId: string,
   onDiagnostic: (message: string) => void = () => undefined,
 ): OpenCodeObservability {

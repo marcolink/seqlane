@@ -143,7 +143,7 @@ export async function startRun(
       abortController.signal,
       request.input,
       (notification) => sendRuntimeSessionUi(host, notification),
-      { environment: process.env, runId },
+      { runId },
     );
     const mastraExecution = createMastraPlanExecution({
       plan: loadedWorkflow.plan,

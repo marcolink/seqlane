@@ -2,6 +2,7 @@ import "./require-shim.js";
 
 import * as core from "@actions/core";
 import * as github from "@actions/github";
+import { createOpenCodeAgentRuntimeFactory } from "@seqlane/opencode-adapter";
 import {
   GitHubReviewAdapter,
   type GitHubReviewClient,
@@ -162,6 +163,10 @@ export async function run(): Promise<void> {
   core.setOutput("reviewed-revision", parsed.data.headRevision);
   core.setOutput("publication-status", "not-published");
   const failureContext = createReviewFailureContext();
+  const createAgentRuntime = createOpenCodeAgentRuntimeFactory({
+    adapter: "opencode",
+    url: parsed.data.runtime,
+  });
 
   const result = await runCodeReview(
     {
@@ -173,6 +178,8 @@ export async function run(): Promise<void> {
     },
     {
       github: adapter,
+      bootstrapAgentRuntime: (workspace) =>
+        createAgentRuntime(new AbortController().signal, workspace),
       onRunStarted: ({ workId, runId, markerId }) => {
         core.setOutput("work-id", workId);
         core.setOutput("run-id", runId);

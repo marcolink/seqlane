@@ -5,6 +5,7 @@ import type {
 } from "@mastra/core/observability";
 import { SpanType as MastraSpanType } from "@mastra/core/observability";
 import { createBoundedNormalizedNameAllocator } from "@seqlane/agent-adapter";
+import { z } from "zod";
 import type { AcpToolRecord, AcpToolTerminalOutcome } from "./stream.js";
 
 const MAX_INVOCATION_METADATA_LENGTH = 128;
@@ -41,13 +42,48 @@ function safeDiagnostic(
   }
 }
 
-function currentSpan(
-  context: Partial<ObservabilityContext>,
-  diagnose: (message: string) => void,
-): ObservabilityContext["tracing"]["currentSpan"] | undefined {
+type CurrentSpan = NonNullable<ObservabilityContext["tracing"]["currentSpan"]>;
+
+function property(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
   try {
-    const preferred = context.tracingContext?.currentSpan;
-    const fallback = context.tracing?.currentSpan;
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
+}
+
+const currentSpanSchema = z.custom<CurrentSpan>(
+  (value) =>
+    typeof value === "object" &&
+    value !== null &&
+    typeof property(value, "id") === "string" &&
+    typeof property(value, "isValid") === "boolean" &&
+    typeof property(value, "createChildSpan") === "function",
+  { message: "must be a compatible Mastra span" },
+);
+
+const tracingContextSchema = z.looseObject({
+  currentSpan: currentSpanSchema.optional(),
+});
+
+const observabilityContextSchema = z.looseObject({
+  tracing: tracingContextSchema.optional(),
+  tracingContext: tracingContextSchema.optional(),
+});
+
+function currentSpan(
+  context: unknown,
+  diagnose: (message: string) => void,
+): CurrentSpan | undefined {
+  try {
+    const parsed = observabilityContextSchema.safeParse(context);
+    if (!parsed.success) {
+      diagnose("ACP v1 observability context did not match its schema");
+      return undefined;
+    }
+    const preferred = parsed.data.tracingContext?.currentSpan;
+    const fallback = parsed.data.tracing?.currentSpan;
     if (
       preferred !== undefined &&
       fallback !== undefined &&
@@ -86,7 +122,7 @@ function terminalKind(
 
 /** Adapter-owned ACP v1 projection to native Mastra spans. */
 export function createAcpObservability(
-  context: Partial<ObservabilityContext>,
+  context: unknown,
   invocationId: string,
   onDiagnostic: (message: string) => void = () => undefined,
 ): AcpObservability {

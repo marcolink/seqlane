@@ -68,6 +68,10 @@ export default [
               sourceTag: "scope:public",
               onlyDependOnLibsWithTags: ["scope:public"],
             },
+            {
+              sourceTag: "boundary:generic-runtime",
+              notDependOnLibsWithTags: ["adapter:concrete"],
+            },
           ],
         },
       ],

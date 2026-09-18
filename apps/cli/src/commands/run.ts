@@ -5,7 +5,7 @@ import type { ExecutionEventConsumer } from "../event-dispatcher.js";
 import { resolve } from "node:path";
 import { closeSync, openSync, readSync } from "node:fs";
 import { createEventDispatcher } from "../event-dispatcher.js";
-import { loadRuntimeAdapterConfiguration } from "@seqlane/runtime/operational-host";
+import { loadAgentRuntimeFactory } from "../agent-runtime.js";
 import { createRecordingConsumer } from "../recording.js";
 import {
   createCliRenderer,
@@ -219,7 +219,7 @@ export default class RunCommand extends SeqlaneCommand {
       this.error("--json cannot be combined with --dry", { exit: 1 });
     }
     let request: RunRequest;
-    let adapterConfiguration: unknown;
+    let agentRuntime: ReturnType<typeof loadAgentRuntimeFactory> | undefined;
 
     try {
       request = createRunRequest(
@@ -235,7 +235,7 @@ export default class RunCommand extends SeqlaneCommand {
         request.runtime.id !== localRuntimeId &&
         request.runtime.id !== "test-fixture"
       ) {
-        adapterConfiguration = loadRuntimeAdapterConfiguration();
+        agentRuntime = loadAgentRuntimeFactory();
       }
     } catch (error) {
       this.error(contextualizeCommandError(errorMessage(error), error), {
@@ -374,7 +374,7 @@ export default class RunCommand extends SeqlaneCommand {
         hostname: flags.hostname,
         port: flags.port,
         storageUrl: flags["storage-url"],
-        adapterConfiguration,
+        agentRuntime,
         jsonMode,
         renderer,
         capabilities,

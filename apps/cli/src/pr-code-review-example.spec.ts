@@ -21,7 +21,9 @@ const reviewContextTask = {
   }: {
     readonly input: {
       readonly pullRequestNumber: number;
-      readonly reviewHistory?: object;
+      readonly reviewHistory?: NonNullable<
+        Parameters<typeof normalizeReviewHistory>[1]
+      >;
     };
   }) => {
     const normalized = normalizeReviewHistory(
@@ -159,7 +161,7 @@ const REVIEW_CONTEXT_TEST_CONTEXT: TestTaskContext = {
 };
 
 async function executeTask<Input, Output>(
-  task: TaskDefinition<Input, Output>,
+  task: Pick<TaskDefinition<Input, Output>, "execute">,
   input: Input,
   context: TestTaskContext = REVIEW_CONTEXT_TEST_CONTEXT,
 ): Promise<Output> {

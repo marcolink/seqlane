@@ -833,6 +833,20 @@ describe("OpenCode Mastra observability projection", () => {
     ]);
   });
 
+  it("rejects malformed observability at the adapter boundary", () => {
+    const diagnostics: string[] = [];
+    const projector = createOpenCodeObservability(
+      { tracingContext: { currentSpan: { id: "malformed" } } },
+      "invocation-1",
+      (message) => diagnostics.push(message),
+    );
+
+    projector.finish();
+    expect(diagnostics).toEqual([
+      "OpenCode observability context did not match its schema",
+    ]);
+  });
+
   it("closes open descendants before the agent and preserves completed models", () => {
     const factory = spanFactory();
     const projector = createOpenCodeObservability(

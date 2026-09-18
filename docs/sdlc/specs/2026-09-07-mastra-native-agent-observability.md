@@ -5,9 +5,9 @@ status: active
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-13
+updated: 2026-09-18
 upstream:
-  - adr.mastra-native-agent-observability
+  - adr.engine-opaque-agent-adapter-contracts
 supersedes: []
 ---
 
@@ -18,8 +18,9 @@ supersedes: []
 This specification defines the private Mastra observability contract between
 the Mastra-backed runtime and concrete agent adapters. The runtime preserves
 Mastra's per-invocation `ObservabilityContext` in
-`MastraPlanInvocationContext` and passes it through `AgentAdapterRequest`.
-Each concrete adapter owns the translation of its executor's observations into
+`MastraPlanInvocationContext` and passes it as an opaque
+`AgentAdapterRequest.observability` value. Each concrete adapter narrows that
+private value and owns the translation of its executor's observations into
 native Mastra spans.
 
 This specification does not define an executor SDK mapping. Each concrete
@@ -70,15 +71,15 @@ identities, reducers, and span fields.
 ### R1. Boundary ownership
 
 The public `@seqlane/core` and `@seqlane/protocol` packages, workflow APIs,
-serialized Plans, and runner IPC MUST remain free of Mastra imports, types, and
-fields. The private `@seqlane/agent-adapter` contract MAY expose Mastra
-observability types. `@seqlane/runtime` already owns the Mastra-backed runtime
-integration and MAY use Mastra. A concrete adapter MAY import its executor
-client types and the supported Mastra types.
+serialized Plans, runner IPC, and generic `@seqlane/agent-adapter` package
+MUST remain free of Mastra imports, types, and fields. `@seqlane/runtime`
+already owns the Mastra-backed runtime integration and MAY use Mastra. A
+concrete adapter MAY import its executor client types and the supported Mastra
+types only for its private projection.
 
-Mastra types MUST NOT leak beyond the private runtime, private agent-adapter
-contract, and concrete adapter packages. An adapter MUST NOT expose Mastra
-types through workflow authoring, Plans, public events, or runner messages.
+Mastra types MUST NOT leak beyond the private runtime and concrete adapter
+packages. An adapter MUST NOT expose Mastra types through generic adapter
+contracts, workflow authoring, Plans, public events, or runner messages.
 
 ### R2. Per-invocation context propagation
 
@@ -87,12 +88,13 @@ Mastra's workflow `ExecuteFunctionParams` extends
 `MastraPlanInvocationContext` and pass the current invocation context through
 to `AgentAdapterRequest`.
 
-`AgentAdapterRequest.observability` MUST be required in the private contract as
-`Partial<ObservabilityContext>`. `RuntimeAdapterFactoryContext` is
-run/session-scoped and MUST NOT replace the per-invocation context. The runtime
-MUST collect the workflow execution's observability fields into that required
-request value before invoking the adapter. The value MAY contain no current
-span when tracing is disabled or sampled out. The adapter MUST then make
+`AgentAdapterRequest.observability` MUST be required as opaque `unknown` in the
+generic adapter contract. `RuntimeAdapterFactoryContext` is run/session-scoped
+and MUST NOT replace the per-invocation context. The runtime MUST pass its
+preserved workflow execution context unchanged into that required request value
+before invoking the adapter. A concrete Mastra adapter MUST narrow the opaque
+value at its private integration edge. The value MAY contain no current span
+when tracing is disabled or sampled out. The adapter MUST then make
 instrumentation a no-op without changing execution.
 
 The runtime MUST preserve Mastra's `tracing` and `tracingContext` aliases. If
@@ -112,7 +114,7 @@ interface MastraPlanInvocationContext {
 interface AgentAdapterRequest {
   // Executor-neutral invocation request fields remain private to the adapter
   // boundary.
-  observability: Partial<ObservabilityContext>
+  observability: unknown
 }
 ```
 
@@ -298,7 +300,7 @@ Mastra WORKFLOW_STEP
   -> Mastra step execute parameters
   -> MastraPlanInvocationContext.observability
   -> runtime admission and adapter resolution
-  -> AgentAdapter.execute(request.observability, callbacks)
+  -> AgentAdapter.execute(request.observability: unknown, callbacks)
   -> optional adapter-local admission
   -> adapter opens AGENT_RUN under WORKFLOW_STEP
   -> adapter-specific observation flow
@@ -394,9 +396,9 @@ configured Mastra version and these official references:
 
 This is an additive private contract. Existing aggregate metrics, public
 events, Plans, workflow APIs, and runner IPC remain compatible. The private
-`AgentAdapterRequest` gains required per-invocation observability context, and
-`MastraPlanInvocationContext` retains the workflow execution context needed to
-populate it.
+`AgentAdapterRequest` retains a required opaque per-invocation observability
+value, and `MastraPlanInvocationContext` retains the workflow execution
+context needed to populate it.
 
 Each concrete adapter adds its own parser, lifecycle reducer, and native span
 projector. Existing execution ports remain unchanged. No generic normalized
@@ -411,7 +413,7 @@ no-op context. The request property remains explicit and non-optional.
 Tests MUST cover observable contracts and boundary behavior:
 
 - `MastraPlanInvocationContext` retains the per-invocation partial context.
-- runtime execution passes the collected partial context to
+- runtime execution passes the collected typed context as opaque
   `AgentAdapterRequest.observability`, while factory context remains
   run/session-scoped.
 - current workflow-step parentage is reused and no synthetic workflow step is
@@ -427,8 +429,9 @@ Tests MUST cover observable contracts and boundary behavior:
 - Mastra span/storage/exporter failure isolation from execution outcomes.
 - redaction, bounds, unsupported observations, and malformed payloads.
 - boundary tests proving Mastra types do not enter `@seqlane/core`,
-  `@seqlane/protocol`, workflow APIs, Plans, or runner IPC, while private runtime
-  and concrete adapter imports remain permitted.
+  `@seqlane/protocol`, `@seqlane/agent-adapter`, workflow APIs, Plans, or
+  runner IPC, while private runtime and concrete adapter imports remain
+  permitted.
 
 Use Mastra test storage or an equivalent deterministic span sink to assert
 typed spans and derived metric inputs. Adapter-specific tests MUST add
@@ -438,8 +441,9 @@ compatibility coverage for each external observation contract.
 
 The specification is complete when:
 
-- each invocation preserves Mastra's `Partial<ObservabilityContext>` through
-  `MastraPlanInvocationContext` to the required `AgentAdapterRequest` field.
+- each invocation preserves Mastra's `Partial<ObservabilityContext>` inside
+  `MastraPlanInvocationContext` and passes it as the required opaque
+  `AgentAdapterRequest` value.
 - each concrete adapter uses the current workflow-step span as parent and does
   not create a synthetic workflow step.
 - each adapter-specific projection has one validated observation path and one
@@ -451,8 +455,8 @@ The specification is complete when:
 - Mastra export/storage failures do not alter execution outcomes.
 - redaction and size bounds prevent default persistence of secrets, prompts,
   raw transcripts, or unbounded payloads.
-- existing aggregate metrics, public events, Plan IR, workflow authoring, and
-  runner IPC remain compatible and Mastra-free.
+- generic adapter contracts, aggregate metrics, public events, Plan IR,
+  workflow authoring, and runner IPC remain compatible and Mastra-free.
 - the required tests pass against supported Mastra and adapter observation
   contracts.
 - configured Mastra storage/export derives the metrics supported by each
@@ -460,7 +464,7 @@ The specification is complete when:
 
 ## Traceability
 
-- [adr.mastra-native-agent-observability: Project Executor Observations into Native Mastra Agent Observability](../adrs/2026-09-07-mastra-native-agent-observability.md)
+- [adr.engine-opaque-agent-adapter-contracts: Keep Generic Agent Adapter Contracts Engine-Opaque](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)
 - [spec.opencode-mastra-observability-projection: OpenCode-to-Mastra Observability Projection](./2026-09-08-opencode-mastra-observability-projection.md)
 - [spec.acp-mastra-observability-projection: ACP v1-to-Mastra Observability Projection](./2026-09-07-acp-mastra-observability-projection.md)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)

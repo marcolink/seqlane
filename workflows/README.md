@@ -7,7 +7,7 @@ the repository root:
 ```sh
 seqlane run workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime opencode
+  --runtime direct
 ```
 
 Directories ending in `-example` demonstrate workflow authoring. The other

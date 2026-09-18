@@ -1,5 +1,8 @@
 // @test-scope ./review-run.ts
 import type { SeqlaneRunOutcome } from "@seqlane/core";
+import { realpathSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import type { AgentRuntime } from "@seqlane/agent-adapter";
 import type {
   StartWorkflowRunRequest,
   WorkflowRunHandle,
@@ -18,7 +21,7 @@ const headRevision = "b".repeat(40);
 const request: CodeReviewRunRequest = {
   repository: "owner/repository",
   pullRequestNumber: 1,
-  reviewTarget: "/tmp/review-target",
+  reviewTarget: realpathSync(process.cwd()),
   baseBranch: "main",
   baseRevision,
   headRevision,
@@ -153,6 +156,168 @@ function createRunner(
 }
 
 describe("runCodeReview", () => {
+  it("bootstraps the selected runtime after admission and injects it into review only", async () => {
+    const aliasedRequest = {
+      ...request,
+      reviewTarget: `${request.reviewTarget}/.`,
+    };
+    const runtime: AgentRuntime = {
+      identity: "fixture",
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: false,
+        checkpoint: false,
+        fork: false,
+        activity: false,
+        sessionUi: false,
+      },
+      createAdapter: () => {
+        throw new Error("The test runner does not execute tasks");
+      },
+      redactAdapter: (adapter) => adapter,
+    };
+    const lifecycle: string[] = [];
+    const receivedRuntimes: unknown[] = [];
+
+    const result = await runCodeReview(aliasedRequest, {
+      github: createGithubPort(true),
+      onRunStarted: () => {
+        lifecycle.push("admitted");
+      },
+      bootstrapAgentRuntime: async (workspace) => {
+        lifecycle.push("bootstrapped");
+        expect(workspace).toBe(request.reviewTarget);
+        return runtime;
+      },
+      runWorkflow: createRunner(
+        [
+          { status: "succeeded", result: {} },
+          {
+            status: "succeeded",
+            result: {
+              status: "published",
+              publication: {
+                verdict: "approve",
+                reviewedRevision: headRevision,
+                body: "published report",
+              },
+            },
+          },
+        ],
+        (workflow, index) => {
+          lifecycle.push(index === 1 ? "review" : "publication");
+          receivedRuntimes.push(workflow.agentRuntime);
+        },
+      ),
+    });
+
+    expect(result.status).toBe("published");
+    expect(lifecycle).toEqual([
+      "admitted",
+      "bootstrapped",
+      "review",
+      "publication",
+    ]);
+    expect(receivedRuntimes).toEqual([runtime, undefined]);
+  });
+
+  it("rejects an invalid review target before runtime bootstrap", async () => {
+    let bootstrapped = false;
+    const result = await runCodeReview(
+      {
+        ...request,
+        reviewTarget: `/tmp/seqlane-missing-review-target-${randomUUID()}`,
+      },
+      {
+        github: createGithubPort(true),
+        bootstrapAgentRuntime: async () => {
+          bootstrapped = true;
+          throw new Error("must not bootstrap");
+        },
+        runWorkflow: createRunner([]),
+      },
+    );
+
+    expect(result).toMatchObject({ status: "failed", phase: "review" });
+    expect(bootstrapped).toBe(false);
+  });
+
+  it("cleans its marker and returns a normalized failure when runtime bootstrap fails", async () => {
+    const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
+    const github = createGithubPort(true, { id: "report-1", body: marker });
+
+    const result = await runCodeReview(request, {
+      github,
+      bootstrapAgentRuntime: async () => {
+        throw new Error("selected runtime is unavailable");
+      },
+      runWorkflow: createRunner([]),
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      phase: "review",
+      error: {
+        category: "RuntimeError",
+        cause: { message: "selected runtime is unavailable" },
+      },
+    });
+    expect(github.updates).toEqual([
+      expect.stringContaining("seqlane-review-in-progress-run"),
+      `\n${marker}`,
+    ]);
+  });
+
+  it("closes the runtime and clears its marker when review workflow startup throws", async () => {
+    const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
+    const github = createGithubPort(true, { id: "report-1", body: marker });
+    let runtimeClosed = false;
+    const runtime: AgentRuntime = {
+      identity: "fixture",
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: false,
+        checkpoint: false,
+        fork: false,
+        activity: false,
+        sessionUi: false,
+      },
+      createAdapter: () => {
+        throw new Error("The test runner does not execute tasks");
+      },
+      redactAdapter: (adapter) => adapter,
+      close: async () => {
+        runtimeClosed = true;
+      },
+    };
+
+    const result = await runCodeReview(request, {
+      github,
+      bootstrapAgentRuntime: async () => runtime,
+      runWorkflow: () => {
+        throw new Error("workflow startup failed");
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      phase: "review",
+      error: {
+        category: "RuntimeError",
+        cause: { message: "workflow startup failed" },
+      },
+    });
+    expect(runtimeClosed).toBe(true);
+    expect(github.updates).toEqual([
+      expect.stringContaining("seqlane-review-in-progress-run"),
+      `\n${marker}`,
+    ]);
+  });
+
   it("uses the GitHub repository identity in the review report", async () => {
     let reviewInput: unknown;
     const result = await runCodeReview(request, {

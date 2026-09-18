@@ -91,10 +91,11 @@ does not fall back after validation. Completion events expose the effective
 provider, model, and optional reasoning as Seqlane-owned metrics.
 
 Standalone preparation provides a lazy, run-owned adapter lease. The caller
-supplies the service factory; concrete adapter packages own service startup and
-shutdown. Standalone model checks require a workflow or session selection and
-never use an adapter default. These preparation APIs do not change the CLI
-command until the standalone cutover.
+supplies the selected agent runtime; concrete adapter packages own service
+startup, configuration validation, and shutdown. Standalone model checks
+require a workflow or session selection and never use an adapter default.
+These preparation APIs do not change the CLI command until the standalone
+cutover.
 
 Agent invocation metrics cover every completed model response in that
 invocation, including structured-output repair responses. Duration, cost, and
@@ -108,9 +109,9 @@ inspects or changes runtime permission configuration. An unsupported runtime
 interaction during a non-interactive Run becomes a deterministic executor
 failure; Seqlane never approves it.
 
-Codex app-server is selected only through the private
-`SEQLANE_RUNTIME_ADAPTER_CONFIG` environment value. Its strict configuration
-uses an absolute executable path and optional `networkAccess` boolean:
+Application composition selects Codex through its private configuration. Its
+strict configuration uses an absolute executable path and optional
+`networkAccess` boolean:
 
 ```json
 {
@@ -120,9 +121,9 @@ uses an absolute executable path and optional `networkAccess` boolean:
 }
 ```
 
-The runtime supplies the workspace, validates Codex models before task work,
-and closes each run-owned app-server process at run completion. Codex is not
-available through workflow source, Plans, or public CLI flags.
+The selected agent runtime receives the workspace, validates Codex models before
+task work, and closes each run-owned app-server process at run completion.
+Codex is not available through workflow source, Plans, or public CLI flags.
 
 Seqlane coordinates only sessions and processes it starts or tracks. It does
 not roll back mutations or guarantee behavior of unmanaged external processes.

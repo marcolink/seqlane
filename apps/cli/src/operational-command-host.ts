@@ -6,6 +6,7 @@ import {
   type OperationalEventSink,
   type OperationalSessionUiNotifier,
 } from "@seqlane/runtime/operational-host";
+import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import { loadWorkflow } from "@seqlane/runtime/workflow";
 import { loadOperationalWorkflows } from "./operational-workflows.js";
 import type { WorkflowRoots } from "./workflow-discovery.js";
@@ -21,7 +22,7 @@ export interface OwnedOperationalHostOptions {
     readonly runId: string;
   }) => OperationalEventSink;
   readonly onSessionUiAvailable?: OperationalSessionUiNotifier;
-  readonly adapterConfiguration?: unknown;
+  readonly agentRuntime?: AgentRuntimeFactory;
 }
 
 export async function startOwnedOperationalHost(
@@ -32,7 +33,7 @@ export async function startOwnedOperationalHost(
       options.roots,
       options.eventSink,
       options.onSessionUiAvailable,
-      options.adapterConfiguration,
+      options.agentRuntime,
     )),
   ];
   if (
@@ -50,7 +51,7 @@ export async function startOwnedOperationalHost(
         validatorDefinitions: loaded.validatorDefinitions,
         eventSink: options.eventSink,
         onSessionUiAvailable: options.onSessionUiAvailable,
-        adapterConfiguration: options.adapterConfiguration,
+        agentRuntime: options.agentRuntime,
       }),
     );
   }

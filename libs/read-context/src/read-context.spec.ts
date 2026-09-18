@@ -172,14 +172,14 @@ describe("command classification and hook policy", () => {
     process.chdir(root);
     try {
       const command =
-        'pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input \'{"question":"q"}\' --runtime opencode --workspace .';
+        'pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input \'{"question":"q"}\' --runtime direct --workspace .';
       expect(
         runReadContextGuard(JSON.stringify({ tool_input: { command } })),
       ).toBe("{}");
       const missingRuntime = runReadContextGuard(
         JSON.stringify({
           tool_input: {
-            command: command.replace(" --runtime opencode", ""),
+            command: command.replace(" --runtime direct", ""),
           },
         }),
       );
