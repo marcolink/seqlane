@@ -3,7 +3,7 @@
 Reviews a supplied Git change using parallel correctness, maintainability, and
 risk lanes, then applies dispositions to the resulting report.
 
-Run: `seqlane run workflows/code-review/workflow.ts --input '<code-review input JSON>' --runtime opencode`
+Run: `seqlane run workflows/code-review/workflow.ts --input '<code-review input JSON>' --runtime direct`
 
 Input and output are defined in `contracts.ts`; the input supplies repository,
 revision, pull-request, and prior-review data, and the output is a review

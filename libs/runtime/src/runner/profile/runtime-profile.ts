@@ -350,6 +350,11 @@ export async function resolveRuntimeProfile(
       `Runtime profile "${profile.id}" requires an agent runtime`,
     );
   }
+  const workspaceIdentities = await resolveTaskWorkspaceIdentities(
+    taskDefinitions,
+    workspacePath,
+  );
+  const workspaceResources = createWorkspaceResources(workspaceIdentities);
   const agentRuntime = await agentRuntimeFactory(signal, workspacePath);
   const capabilities = agentRuntime.capabilities;
   const checkpointBinding: SessionCheckpointBinding = {
@@ -372,11 +377,6 @@ export async function resolveRuntimeProfile(
       await agentRuntime.close?.();
     }
   };
-  const workspaceIdentities = await resolveTaskWorkspaceIdentities(
-    taskDefinitions,
-    workspacePath,
-  );
-  const workspaceResources = createWorkspaceResources(workspaceIdentities);
   const sessionResolver: SessionResolver = {
     adapterCapabilities: capabilities,
     modelCapabilities: agentRuntime.modelCapabilities,

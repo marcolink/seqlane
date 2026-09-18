@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createOpenCodeAgentRuntimeFactory } from "./runtime.js";
 
 const capabilityErrorMessage =
-  "OpenCode capability failed at https://example.test/path%2Fsecret?credential=query%2Fsecret#fragment%2Fsecret (decoded: /path/secret query/secret fragment/secret)";
+  "OpenCode capability failed at https://example.test/path%2Fsecret?credential=query%2Fsecret#credential=fragment%2Fsecret (decoded: /path/secret query/secret fragment/secret; raw values: query%2Fsecret fragment%2Fsecret)";
 
 vi.mock("./model-capabilities.js", () => ({
   createOpenCodeModelCapabilities: () => ({
@@ -134,7 +134,7 @@ describe("OpenCode agent runtime composition", () => {
     try {
       const factory = createOpenCodeAgentRuntimeFactory({
         adapter: "opencode",
-        url: `${browserUi.url}/path%2Fsecret?credential=query%2Fsecret#fragment%2Fsecret`,
+        url: `${browserUi.url}/path%2Fsecret?credential=query%2Fsecret#credential=fragment%2Fsecret`,
       });
       const runtime = await factory(new AbortController().signal, undefined);
       const result = operation(runtime);

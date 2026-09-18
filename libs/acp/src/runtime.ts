@@ -37,9 +37,11 @@ function redactAdapter(
   configuration: z.output<typeof configurationSchema>,
 ): Parameters<typeof redactAgentAdapter>[0] {
   const secrets = [
-    ...(configuration.configuration.args ?? []),
+    ...(configuration.configuration.args ?? []).filter(
+      (value) => value.length > 0,
+    ),
     ...Object.values(configuration.configuration.env ?? {}).filter(
-      (value): value is string => typeof value === "string",
+      (value): value is string => typeof value === "string" && value.length > 0,
     ),
   ].sort((first, second) => second.length - first.length);
   const redact = (value: string): string =>

@@ -148,7 +148,7 @@ test("documents a runnable Codex command with its runtime workspace", () => {
     shellBlocks.some(
       (block) =>
         block.includes("seqlane run ./workflow.ts") &&
-        block.includes("--runtime codex") &&
+        block.includes("--runtime direct") &&
         block.includes('--workspace "$PWD"'),
     ),
     "README must include a runnable Codex command with an explicit workspace",

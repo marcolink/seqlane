@@ -54,6 +54,44 @@ describe("runtime profile agent runtime boundary", () => {
     ).rejects.toThrow('Runtime profile "custom" requires an agent runtime');
   });
 
+  it("validates the workspace before instantiating an agent runtime", async () => {
+    const definition = task();
+    let created = 0;
+    let closed = 0;
+
+    await expect(
+      resolveRuntimeProfile(
+        {
+          id: "custom",
+          workspace: "/seqlane-workspace-that-does-not-exist",
+        },
+        new Map([[definition.id, definition]]),
+        new AbortController().signal,
+        null,
+        undefined,
+        {
+          agentRuntime: async () => {
+            created += 1;
+            return {
+              identity: "fixture",
+              capabilities,
+              createAdapter: () => {
+                throw new Error("Adapter must not be created");
+              },
+              redactAdapter: (adapter) => adapter,
+              close: async () => {
+                closed += 1;
+              },
+            };
+          },
+        },
+      ),
+    ).rejects.toThrow("Could not resolve workspace");
+
+    expect(created).toBe(0);
+    expect(closed).toBe(0);
+  });
+
   it("uses only the injected runtime and releases its adapters", async () => {
     const definition = task();
     const definitions: TaskDefinitionRegistry = new Map([

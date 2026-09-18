@@ -32,7 +32,7 @@ Choose the runtime profile when you start a run or call the MCP server:
 
 ```text
 workflow layer:  workflow.ts + runtime profile: local
-workflow layer:  workflow.ts + runtime profile: opencode
+workflow layer:  workflow.ts + runtime profile: direct
 ```
 
 This separation keeps the same workflow portable across runtime environments.
@@ -311,8 +311,8 @@ seqlane run ./workflows/local-only-example/workflow.ts \
 ### Run an agent workflow
 
 `run` defaults to the `local` runtime profile. Local-only workflows do not need
-adapter configuration. Agent tasks need a configured runtime adapter and an
-agent runtime profile. The following example uses OpenCode. Codex is also
+adapter configuration. Agent tasks need the `direct` runtime profile and a
+configured adapter. The following example configures OpenCode. Codex is also
 supported through the private adapter configuration.
 
 Start OpenCode in one terminal:
@@ -339,7 +339,7 @@ Run the workflow in that terminal:
 ```sh
 seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime opencode
+  --runtime direct
 ```
 
 For Codex, provide the runtime workspace explicitly:
@@ -347,13 +347,14 @@ For Codex, provide the runtime workspace explicitly:
 ```sh
 seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime codex \
+  --runtime direct \
   --workspace "$PWD"
 ```
 
-The `--runtime` value is an opaque profile ID. It is not a URL, and the CLI
-does not infer the adapter from it. The adapter configuration belongs to the
-Seqlane process or operational server.
+The `--runtime` value is an opaque profile ID. `local` and `direct` are the
+built-in profiles; custom hosts can provide other profiles. A profile ID does
+not select an adapter. Adapter configuration belongs to the Seqlane process or
+operational server.
 
 Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
 source per run, and input files have a 1 MiB limit.
@@ -367,7 +368,7 @@ seqlane run my-workflow.js --input '{}'
 ```
 
 The CLI starts a temporary loopback operational server for the run, prints the
-result, and closes the server. Add `--runtime opencode` and configure
+result, and closes the server. Add `--runtime direct` and configure
 `SEQLANE_RUNTIME_ADAPTER_CONFIG` when the workflow contains agent tasks.
 
 Use the MCP access pattern when an MCP client, Studio, or multiple runs need a
@@ -389,12 +390,12 @@ is available as `run_repository:review` with arguments like these:
 ```json
 {
   "input": { "topic": "Seqlane" },
-  "runtime": { "id": "opencode" }
+  "runtime": { "id": "direct" }
 }
 ```
 
-The MCP server owns adapter configuration. The `runtime.id` value selects the
-profile for a call; it does not contain the adapter URL.
+The MCP server owns adapter configuration. The `runtime.id` value selects an
+opaque runtime profile; it does not select an adapter or contain its URL.
 
 ## Use the CLI
 
@@ -464,7 +465,7 @@ In another terminal, run a registered workflow and inspect its run:
 ```sh
 seqlane run repository:review \
   --input '{"topic":"Seqlane"}' \
-  --runtime opencode \
+  --runtime direct \
   --server-url http://127.0.0.1:4111
 
 seqlane status <run-id> \
@@ -496,7 +497,7 @@ Build and run it with the normal Seqlane CLI:
 pnpm build
 pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts \
   --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
-  --runtime opencode \
+  --runtime direct \
   --workspace "$PWD"
 ```
 

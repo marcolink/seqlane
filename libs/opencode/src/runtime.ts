@@ -92,6 +92,8 @@ function createRuntimeRedactor(
     ...url.pathname.split("/"),
     ...url.searchParams.values(),
     url.hash.slice(1),
+    ...rawUrlParameterValues(url.search.slice(1)),
+    ...rawUrlParameterValues(url.hash.slice(1)),
   ]
     .flatMap((value) => [value, decodeUrlComponent(value)])
     .filter((value) => value.length > 0 && value !== "/")
@@ -102,6 +104,13 @@ function createRuntimeRedactor(
       (message, secret) => message.split(secret).join("[REDACTED]"),
       value,
     );
+}
+
+function rawUrlParameterValues(component: string): string[] {
+  return component.split("&").flatMap((parameter) => {
+    const separator = parameter.indexOf("=");
+    return separator === -1 ? [] : [parameter.slice(separator + 1)];
+  });
 }
 
 function decodeUrlComponent(value: string): string {
