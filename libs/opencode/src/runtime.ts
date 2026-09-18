@@ -1,6 +1,7 @@
 import {
   redactAgentAdapter,
   AgentRuntimeFactory,
+  type AgentRuntimeModelCapabilities,
 } from "@seqlane/agent-adapter";
 import { z } from "zod";
 import { createOpenCodeAdapter } from "./adapter.js";
@@ -54,9 +55,9 @@ export function createOpenCodeAgentRuntimeFactory(
         activity: true,
         sessionUi: browserUiUrl !== undefined,
       },
-      modelCapabilities: createOpenCodeModelCapabilities(
-        configuration.url,
-        resolvedWorkspace,
+      modelCapabilities: redactModelCapabilities(
+        createOpenCodeModelCapabilities(configuration.url, resolvedWorkspace),
+        createRuntimeRedactor(configuration),
       ),
       createAdapter: (context) =>
         createOpenCodeAdapter(
@@ -74,27 +75,97 @@ export function createOpenCodeAgentRuntimeFactory(
               : { modelSelection: context.modelSelection }),
           },
         ),
-      redactAdapter: (adapter) => redactAdapter(adapter, configuration),
+      redactAdapter: (adapter) =>
+        redactAgentAdapter(adapter, createRuntimeRedactor(configuration)),
     };
   };
 }
 
-function redactAdapter(
-  adapter: Parameters<typeof redactAgentAdapter>[0],
+function createRuntimeRedactor(
   configuration: z.output<typeof configurationSchema>,
-): Parameters<typeof redactAgentAdapter>[0] {
+): (value: string) => string {
   const url = new URL(configuration.url);
   const secrets = [
+    url.pathname,
+    url.search,
+    url.hash,
     ...url.pathname.split("/"),
     ...url.searchParams.values(),
     url.hash.slice(1),
   ]
-    .filter((value) => value.length > 0)
+    .flatMap((value) => [value, decodeUrlComponent(value)])
+    .filter((value) => value.length > 0 && value !== "/")
+    .filter((value, index, values) => values.indexOf(value) === index)
     .sort((first, second) => second.length - first.length);
-  const redact = (value: string): string =>
+  return (value: string): string =>
     secrets.reduce(
       (message, secret) => message.split(secret).join("[REDACTED]"),
       value,
     );
-  return redactAgentAdapter(adapter, redact);
+}
+
+function decodeUrlComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function redactModelCapabilities(
+  capabilities: AgentRuntimeModelCapabilities,
+  redactText: (value: string) => string,
+): AgentRuntimeModelCapabilities {
+  return {
+    ...capabilities,
+    listModels: async () => {
+      try {
+        return await capabilities.listModels();
+      } catch (cause) {
+        throw redactRuntimeValue(cause, redactText);
+      }
+    },
+    resolveDefaultModel: async () => {
+      try {
+        return await capabilities.resolveDefaultModel();
+      } catch (cause) {
+        throw redactRuntimeValue(cause, redactText);
+      }
+    },
+    ...(capabilities.validateModelSelection === undefined
+      ? {}
+      : {
+          validateModelSelection: async (selection) => {
+            try {
+              await capabilities.validateModelSelection?.(selection);
+            } catch (cause) {
+              throw redactRuntimeValue(cause, redactText);
+            }
+          },
+        }),
+  };
+}
+
+function redactRuntimeValue(
+  value: unknown,
+  redactText: (value: string) => string,
+  seen = new WeakMap<object, unknown>(),
+): unknown {
+  if (typeof value === "string") return redactText(value);
+  if (typeof value !== "object" || value === null) return value;
+  const existing = seen.get(value);
+  if (existing !== undefined) return existing;
+  const copy = Array.isArray(value)
+    ? []
+    : Object.create(Object.getPrototypeOf(value));
+  seen.set(value, copy);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) continue;
+    Object.defineProperty(copy, key, {
+      ...descriptor,
+      value: redactRuntimeValue(descriptor.value, redactText, seen),
+    });
+  }
+  return copy;
 }

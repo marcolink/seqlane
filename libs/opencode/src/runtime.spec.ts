@@ -1,8 +1,41 @@
 // @test-scope ./runtime.ts
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createOpenCodeAgentRuntimeFactory } from "./runtime.js";
+
+const capabilityErrorMessage =
+  "OpenCode capability failed at https://example.test/path%2Fsecret?credential=query%2Fsecret#fragment%2Fsecret (decoded: /path/secret query/secret fragment/secret)";
+
+vi.mock("./model-capabilities.js", () => ({
+  createOpenCodeModelCapabilities: () => ({
+    executor: "opencode",
+    listModels: async () => {
+      throw capabilityError();
+    },
+    resolveDefaultModel: async () => {
+      throw capabilityError();
+    },
+    validateModelSelection: async () => {
+      throw capabilityError();
+    },
+  }),
+}));
+
+function capabilityError(): Error & {
+  readonly code: string;
+  readonly details: { readonly message: string };
+} {
+  return Object.assign(
+    new Error(capabilityErrorMessage, {
+      cause: new Error(capabilityErrorMessage),
+    }),
+    {
+      code: "OPENCODE_TEST_ERROR",
+      details: { message: capabilityErrorMessage },
+    },
+  );
+}
 
 async function startBrowserUiServer(): Promise<{
   readonly url: string;
@@ -66,5 +99,85 @@ describe("OpenCode agent runtime composition", () => {
         url: "https://token@example.test",
       }),
     ).toThrow(/embedded credentials/i);
+  });
+
+  it.each([
+    [
+      "lists models",
+      (
+        runtime: Awaited<
+          ReturnType<ReturnType<typeof createOpenCodeAgentRuntimeFactory>>
+        >,
+      ) => runtime.modelCapabilities?.listModels(),
+    ],
+    [
+      "resolves the default model",
+      (
+        runtime: Awaited<
+          ReturnType<ReturnType<typeof createOpenCodeAgentRuntimeFactory>>
+        >,
+      ) => runtime.modelCapabilities?.resolveDefaultModel(),
+    ],
+    [
+      "validates model selection",
+      (
+        runtime: Awaited<
+          ReturnType<ReturnType<typeof createOpenCodeAgentRuntimeFactory>>
+        >,
+      ) =>
+        runtime.modelCapabilities?.validateModelSelection?.({
+          model: { provider: "openai", model: "gpt-5.6" },
+        }),
+    ],
+  ])("redacts connection secrets when it %s", async (_name, operation) => {
+    const browserUi = await startBrowserUiServer();
+    try {
+      const factory = createOpenCodeAgentRuntimeFactory({
+        adapter: "opencode",
+        url: `${browserUi.url}/path%2Fsecret?credential=query%2Fsecret#fragment%2Fsecret`,
+      });
+      const runtime = await factory(new AbortController().signal, undefined);
+      const result = operation(runtime);
+      if (result === undefined) throw new Error("Model capability is missing");
+      const error = await result.catch((cause: unknown) => cause);
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error).toMatchObject({ code: "OPENCODE_TEST_ERROR" });
+      const serialized = JSON.stringify(
+        error,
+        Object.getOwnPropertyNames(error),
+      );
+      for (const secret of [
+        "path%2Fsecret",
+        "query%2Fsecret",
+        "fragment%2Fsecret",
+        "path/secret",
+        "query/secret",
+        "fragment/secret",
+      ]) {
+        expect(serialized).not.toContain(secret);
+      }
+    } finally {
+      await browserUi.close();
+    }
+  });
+
+  it("does not treat a root URL path as a secret", async () => {
+    const browserUi = await startBrowserUiServer();
+    try {
+      const factory = createOpenCodeAgentRuntimeFactory({
+        adapter: "opencode",
+        url: browserUi.url,
+      });
+      const runtime = await factory(new AbortController().signal, undefined);
+      const error = await runtime.modelCapabilities
+        ?.listModels()
+        .catch((cause: unknown) => cause);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(capabilityErrorMessage);
+    } finally {
+      await browserUi.close();
+    }
   });
 });

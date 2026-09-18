@@ -1,13 +1,14 @@
 ---
 id: task.decouple-runtime-adapter-composition
 title: Decouple Runtime from Concrete Adapter Implementations
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-09-16
 updated: 2026-09-18
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
+  - adr.engine-opaque-agent-adapter-contracts
   - task.deliver-standalone-cli-runs
 supersedes: []
 ---
@@ -75,20 +76,34 @@ install, typecheck, test, lint, build, format, Nx sync, and whitespace gates.
 
 ## Outcome
 
-Implementation in progress. Runtime construction now moves to adapter packages
-and CLI or Action composition. The runtime accepts only an already selected
-generic agent runtime.
+Runtime construction now belongs to adapter packages and CLI or Action
+composition. The runtime accepts only an already selected generic agent
+runtime. Its package imports and depends on no concrete adapter package or
+Mastra-typed generic adapter contract.
 
 The direct workflow API accepts a bootstrapped agent runtime. The code-review
 Action bootstraps its selected OpenCode runtime after review admission, then
 passes that runtime into direct execution. The runtime receives no adapter
 configuration, endpoint, or concrete adapter package.
 
+ACP, Codex, and OpenCode factories own concrete configuration. CLI, runner,
+operational-host, direct-run, and code-review Action paths inject the selected
+runtime. Tests cover deterministic execution, capability admission, cleanup,
+persisted spans, and redacted model-capability failures.
+
+Typecheck, mapping, focused integration tests, runtime tests, Action tests,
+lint, build, format, documentation validation, Nx sync, and whitespace checks
+passed. The full test run still has the pre-existing Node 24.11 standalone
+TypeScript loader failure; lifecycle subprocess tests passed outside the
+sandbox.
+
 ## Delivery state
 
-In progress. No target-branch delivery is claimed.
+Implementation completed on a working branch. No target-branch delivery is
+claimed.
 
 ## Traceability
 
 - [spec.agent-adapter-boundary-and-capabilities](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md)
+- [adr.engine-opaque-agent-adapter-contracts](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)
 - [task.deliver-standalone-cli-runs](./2026-09-16-deliver-standalone-cli-runs.md)

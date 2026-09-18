@@ -5,9 +5,9 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-13
+updated: 2026-09-18
 upstream:
-  - adr.mastra-native-agent-observability
+  - adr.engine-opaque-agent-adapter-contracts
   - spec.mastra-native-agent-observability
 supersedes: []
 ---
@@ -31,9 +31,10 @@ background-process, and native-span transitions. `prompt-response.ts` validates
 the terminal response separately and returns one private observation for
 identity reconciliation.
 
-`AgentAdapterRequest.observability` supplies the invocation context. The
-OpenCode adapter creates typed Mastra child spans when a current workflow-step
-span exists. It remains a no-op when tracing is absent or the aliases conflict.
+The opaque `AgentAdapterRequest.observability` value supplies the invocation
+context. The OpenCode adapter narrows it at its private Mastra integration edge
+and creates typed Mastra child spans when a current workflow-step span exists.
+It remains a no-op when tracing is absent or the aliases conflict.
 
 ## Goals
 
@@ -84,17 +85,19 @@ span exists. It remains a no-op when tracing is absent or the aliases conflict.
 ### R1. Private boundary and context
 
 The runtime MUST retain the invocation's `Partial<ObservabilityContext>` in
-its private invocation context and pass it as a required
-`AgentAdapterRequest.observability` field. The OpenCode adapter MUST read the
-current span from `tracingContext.currentSpan`, falling back to
-`tracing.currentSpan` as defined by the generic observability specification.
+its private invocation context and pass it unchanged as the required opaque
+`AgentAdapterRequest.observability` field. The OpenCode adapter MUST narrow
+that value at its private integration edge, then read the current span from
+`tracingContext.currentSpan`, falling back to `tracing.currentSpan` as defined
+by the generic observability specification.
 
 The current span, when present, MUST parent `AGENT_RUN`. The adapter MUST NOT
 create a synthetic workflow-step span. When no current span is available,
 native instrumentation MUST be a no-op and execution MUST continue.
 
-Mastra imports and types MUST remain limited to the private runtime, private
-agent-adapter contract, and concrete adapter packages.
+Mastra imports and types MUST remain limited to the private runtime and
+concrete adapter packages. The generic agent-adapter contract MUST expose no
+Mastra type.
 
 The supported Mastra contract is `@mastra/core` 1.64.0. The OpenCode adapter
 MUST declare it as a direct dependency when it imports observability types or
@@ -365,8 +368,9 @@ Verified by the current implementation and focused tests:
 - SDK v2 exposes the assistant-message and tool-part fields required for the
   projection.
 - `@mastra/core` 1.64.0 exposes the required span types and typed fields.
-- `AgentAdapterRequest.observability` reaches the adapter without entering
-  public core, event, Plan, or runner contracts.
+- `AgentAdapterRequest.observability` reaches the adapter as opaque state
+  without entering generic adapter, public core, event, Plan, or runner
+  contracts.
 - A deterministic span sink verifies typed agent, model, and tool hierarchy,
   fields, deduplication, bounded payload policy, and descendant-first closure.
 - Cancellation, malformed events, alias conflict, missing tracing, terminal
@@ -457,7 +461,7 @@ The specification is complete when:
 
 ## Traceability
 
-- [adr.mastra-native-agent-observability: Project Executor Observations into Native Mastra Agent Observability](../adrs/2026-09-07-mastra-native-agent-observability.md)
+- [adr.engine-opaque-agent-adapter-contracts: Keep Generic Agent Adapter Contracts Engine-Opaque](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)
 - [spec.mastra-native-agent-observability: Native Mastra Agent Observability Projection](./2026-09-07-mastra-native-agent-observability.md)
 - [adr.opencode-executor-integration: Integrate OpenCode Through a Seqlane-Owned Executor Boundary](../adrs/2026-09-02-opencode-executor-integration.md)
 - [spec.opencode-executor-integration: OpenCode Executor Integration](./2026-09-02-opencode-executor-integration.md)

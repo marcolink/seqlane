@@ -1,17 +1,20 @@
 ---
 id: adr.mastra-native-agent-observability
 title: Project Executor Observations into Native Mastra Agent Observability
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-18
 upstream:
   - rfc.execution-observability-and-debugging
 supersedes: []
 ---
 
 # Project Executor Observations into Native Mastra Agent Observability
+
+> Superseded by [adr.engine-opaque-agent-adapter-contracts](./2026-09-18-engine-opaque-agent-adapter-contracts.md).
+> This record remains historical context for the native projection decision.
 
 ## Context
 
