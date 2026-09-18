@@ -128,25 +128,26 @@ direct file/module reference such as `./workflows/minimal-example/workflow.ts`. 
 `--server-url` command does not load local workflow references; the existing
 server must already have the workflow registered.
 
-### Runtime adapter configuration
+### Direct-run adapter configuration
 
-`seqlane run` uses the `local` runtime profile by default. Local-only workflows
-do not need adapter configuration. Agent runs use the private
-`SEQLANE_RUNTIME_ADAPTER_CONFIG` environment variable. Set this variable before
-you start `seqlane run` or `seqlane serve`:
+`seqlane run` uses no adapter for local-only workflows. Select an adapter only
+when an agent task needs one:
 
 ```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
-
-seqlane run ./workflows/minimal-example/workflow.ts --input '{"topic":"Seqlane"}' --runtime direct
+seqlane run ./workflows/minimal-example/workflow.ts \
+  --input '{"topic":"Seqlane"}' \
+  --adapter opencode
 ```
 
-The `--runtime` value is an opaque profile ID. `local` and `direct` are the
-built-in profiles; custom hosts can provide other profiles. A profile ID does
-not select an adapter. Each `run` starts a dedicated worker process, which
-loads this configuration and connects to the operator-owned service. It does
-not start a Seqlane operational host, create durable run storage, or manage the
-service lifecycle.
+OpenCode starts as a private service owned by the run. Its optional loopback
+configuration is `--adapter-host 127.0.0.1` and `--adapter-port 0`; port `0`
+selects an ephemeral port. Codex uses its native discovery defaults. `run`
+does not read `SEQLANE_RUNTIME_ADAPTER_CONFIG`; that environment variable
+continues to configure hosted commands such as `serve`.
+
+One strict Zod discriminated schema validates the adapter selection and its
+adapter-specific values before the CLI passes them to its worker. The validated
+value is private bootstrap state, not workflow input or runner IPC.
 
 ## Community Studio
 
@@ -215,7 +216,7 @@ and actionable failures:
 ```sh
 seqlane run ./workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime direct \
+  --adapter opencode \
   --output ci
 ```
 
@@ -232,7 +233,7 @@ configure executor permissions before starting a non-interactive Run.
 ```sh
 seqlane run ./workflows/code-review/workflow.ts \
   --input '{"repository":"owner/repository","baseBranch":"main","baseRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","pullRequest":{"number":123,"title":"Add automated review","description":"Run Seqlane for every pull request."}}' \
-  --runtime direct \
+  --adapter opencode \
   --workspace /path/to/repository
 ```
 
@@ -290,7 +291,7 @@ Run a local workflow:
 ```sh
 pnpm exec node apps/cli/bin/run.js run workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime direct
+  --adapter opencode
 ```
 
 Run the CLI boundary tests after a build:

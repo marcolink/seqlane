@@ -20,6 +20,10 @@ import {
 } from "../cli-contracts.js";
 import { closeRunResources } from "../run-lifecycle.js";
 import {
+  agentRuntimeConfigurationEnvironment,
+  createDirectRunAdapterConfiguration,
+} from "../agent-runtime.js";
+import {
   contextualizeCommandError,
   errorMessage,
   SeqlaneCommand,
@@ -36,6 +40,7 @@ import { writeSessionUiDiagnostic } from "../session-ui-diagnostic.js";
 import { z } from "zod";
 
 const localRuntimeId = "local";
+const directRuntimeId = "direct";
 const MAX_INPUT_FILE_BYTES = 1_048_576;
 
 function parseJsonInput(value: string): JsonValue {
@@ -116,7 +121,7 @@ function readJsonInput(
 export function createRunRequest(
   workflow: string,
   input: string,
-  runtime: string | undefined,
+  adapter: string | undefined,
   workspace: string | undefined,
   dryRun: boolean,
 ): RunRequest {
@@ -130,7 +135,7 @@ export function createRunRequest(
     workflow: parseWorkflowReference(workflow),
     input: parseJsonInput(input),
     runtime: {
-      id: runtime ?? localRuntimeId,
+      id: adapter === undefined ? localRuntimeId : directRuntimeId,
       ...(workspace === undefined ? {} : { workspace }),
     },
     ...(dryRun ? { dryRun: true } : {}),
@@ -143,7 +148,7 @@ export default class RunCommand extends SeqlaneCommand {
 
   static override examples = [
     '<%= config.bin %> run ./workflows/local-only-example/workflow.ts --input \'{"value":"Seqlane"}\'',
-    '<%= config.bin %> run ./workflows/minimal-example/workflow.ts --input \'{"topic":"Seqlane"}\' --runtime opencode',
+    '<%= config.bin %> run ./workflows/minimal-example/workflow.ts --input \'{"topic":"Seqlane"}\' --adapter opencode',
   ];
 
   static override args = {
@@ -161,8 +166,39 @@ export default class RunCommand extends SeqlaneCommand {
     "input-file": Flags.string({
       description: "Path to a JSON workflow input file (maximum 1 MiB)",
     }),
-    runtime: Flags.string({
-      description: "Generic runtime profile identifier",
+    adapter: Flags.string({
+      description: "Concrete adapter for agent tasks",
+      options: ["codex", "opencode"],
+    }),
+    "adapter-host": Flags.string({
+      description: "Loopback host for an owned OpenCode service",
+      relationships: [
+        {
+          type: "all",
+          flags: [
+            {
+              name: "adapter",
+              when: async (flags) => flags.adapter === "opencode",
+            },
+          ],
+        },
+      ],
+    }),
+    "adapter-port": Flags.integer({
+      description: "Port for an owned OpenCode service (default: 0)",
+      min: 0,
+      max: 65_535,
+      relationships: [
+        {
+          type: "all",
+          flags: [
+            {
+              name: "adapter",
+              when: async (flags) => flags.adapter === "opencode",
+            },
+          ],
+        },
+      ],
     }),
     workspace: Flags.string({
       description: "Workspace path for file-accessing tasks",
@@ -198,7 +234,7 @@ export default class RunCommand extends SeqlaneCommand {
       request = createRunRequest(
         args.workflow,
         readJsonInput(flags.input, flags["input-file"]),
-        flags.runtime,
+        flags.adapter,
         flags.workspace,
         flags.dry,
       );
@@ -270,7 +306,47 @@ export default class RunCommand extends SeqlaneCommand {
       );
 
       const { launchRunner } = await import("../runner-client.js");
+      const {
+        [agentRuntimeConfigurationEnvironment]: _legacy,
+        ...environment
+      } = process.env;
+      let adapterConfiguration: string | undefined;
+      if (flags.adapter !== undefined) {
+        try {
+          adapterConfiguration = createDirectRunAdapterConfiguration({
+            adapter: flags.adapter,
+            ...(flags["adapter-host"] === undefined
+              ? {}
+              : { host: flags["adapter-host"] }),
+            ...(flags["adapter-port"] === undefined
+              ? {}
+              : { port: flags["adapter-port"] }),
+          });
+        } catch (error) {
+          this.error(contextualizeCommandError(errorMessage(error), error), {
+            exit: 1,
+          });
+        }
+      } else if (
+        flags["adapter-host"] !== undefined ||
+        flags["adapter-port"] !== undefined
+      ) {
+        this.error(
+          "--adapter-host and --adapter-port require --adapter opencode",
+          {
+            exit: 1,
+          },
+        );
+      }
       runnerClient = launchRunner(request, {
+        environment: {
+          ...environment,
+          ...(adapterConfiguration === undefined
+            ? {}
+            : {
+                SEQLANE_CLI_DIRECT_ADAPTER_CONFIG: adapterConfiguration,
+              }),
+        },
         onExecutionEvent: (event) => {
           dispatcher?.consume(event);
           if (event.type === "run.started" && identity === undefined) {

@@ -18,6 +18,10 @@ export interface OpenCodeService {
 export interface StartOpenCodeServiceOptions {
   readonly workspace: string;
   readonly signal: AbortSignal;
+  /** Loopback address for the owned service. */
+  readonly host?: typeof OPENCODE_HOST;
+  /** TCP port for the owned service; zero asks OpenCode to select one. */
+  readonly port?: number;
   readonly startupTimeoutMs?: number;
   readonly shutdownTimeoutMs?: number;
   readonly spawn?: typeof spawn;
@@ -31,7 +35,11 @@ function appendBounded(current: string, chunk: Buffer): string {
     : Buffer.from(next, "utf8").subarray(-OUTPUT_LIMIT_BYTES).toString("utf8");
 }
 
-function parseOpenCodeUrl(output: string): string | undefined {
+function parseOpenCodeUrl(
+  output: string,
+  host: string,
+  port: number,
+): string | undefined {
   const match = /opencode server listening on\s+(https?:\/\/[^\s]+)/.exec(
     output,
   );
@@ -39,8 +47,9 @@ function parseOpenCodeUrl(output: string): string | undefined {
   try {
     const url = new URL(match[1]);
     return url.protocol === "http:" &&
-      url.hostname === OPENCODE_HOST &&
-      url.port
+      url.hostname === host &&
+      url.port &&
+      (port === 0 || url.port === String(port))
       ? url.origin
       : undefined;
   } catch {
@@ -197,10 +206,12 @@ export async function startOpenCodeService(
   if (options.signal.aborted) {
     throw new OpenCodeServiceStartupError("OpenCode startup was cancelled");
   }
+  const host = options.host ?? OPENCODE_HOST;
+  const port = options.port ?? 0;
   const start = options.spawn ?? spawn;
   const child = start(
     "opencode",
-    ["serve", `--hostname=${OPENCODE_HOST}`, "--port=0", "--print-logs"],
+    ["serve", `--hostname=${host}`, `--port=${port}`, "--print-logs"],
     {
       cwd: options.workspace,
       detached: process.platform !== "win32",
@@ -214,7 +225,7 @@ export async function startOpenCodeService(
   let startupFailure: unknown;
   const onOutput = (chunk: Buffer): void => {
     output = appendBounded(output, chunk);
-    endpoint ??= parseOpenCodeUrl(output);
+    endpoint ??= parseOpenCodeUrl(output, host, port);
   };
   const onError = (cause: unknown): void => {
     startupFailure = cause;

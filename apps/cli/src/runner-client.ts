@@ -100,6 +100,8 @@ export interface RunnerSupervisionOptions {
 export interface RunnerClientOptions extends RunnerSupervisionOptions {
   readonly runnerPath?: string;
   readonly cwd?: string;
+  /** Private environment values set by the CLI for its owned worker. */
+  readonly environment?: NodeJS.ProcessEnv;
 }
 
 export interface RunnerClient {
@@ -398,6 +400,7 @@ export function launchRunner(
 ): RunnerClient {
   const child = fork(options.runnerPath ?? defaultRunnerPath(), [], {
     cwd: options.cwd,
+    env: options.environment,
     // The child exits with the CLI if the parent cannot forward cancellation.
     detached: false,
     stdio: ["ignore", "ignore", "ignore", "ipc"],

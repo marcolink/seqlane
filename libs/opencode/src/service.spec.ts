@@ -72,6 +72,31 @@ describe("owned OpenCode startup", () => {
     await service.close();
   });
 
+  it("uses a requested loopback port and rejects a different endpoint", async () => {
+    const child = fakeChild();
+    const spawn = vi.fn(() => child);
+    const started = startOpenCodeService({
+      workspace: "/workspace",
+      signal: new AbortController().signal,
+      host: "127.0.0.1",
+      port: 4123,
+      spawn: spawn as unknown as typeof import("node:child_process").spawn,
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      startupTimeoutMs: 1,
+    });
+    child.stdout?.emit(
+      "data",
+      Buffer.from("opencode server listening on http://127.0.0.1:4173\\n"),
+    );
+
+    await expect(started).rejects.toThrow("did not become ready");
+    expect(spawn).toHaveBeenCalledWith(
+      "opencode",
+      expect.arrayContaining(["--hostname=127.0.0.1", "--port=4123"]),
+      expect.anything(),
+    );
+  });
+
   it("stops the owned child before reporting an aborted startup", async () => {
     const controller = new AbortController();
     const child = fakeChild();

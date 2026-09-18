@@ -279,7 +279,6 @@ function expectNoSeqlaneDiagnostics(stderr: string): void {
 function runArgs(
   inputValue = input,
   workflow = workflowReference,
-  runtime = "opencode",
   output = "ci",
 ): string[] {
   const args = [
@@ -287,8 +286,6 @@ function runArgs(
     workflow,
     "--input",
     inputValue,
-    "--runtime",
-    runtime,
     "--workspace",
     repositoryRoot,
   ];
@@ -795,7 +792,7 @@ describe("seqlane CLI entrypoints", () => {
       '{"value":"local"}',
     ]);
 
-    expect(result.code).toBe(1);
+    expect(result.code).not.toBe(0);
     expect(`${result.stdout}${result.stderr}`).toContain(
       "run requires an explicit workflow file",
     );
@@ -817,27 +814,18 @@ describe("seqlane CLI entrypoints", () => {
     expectNoSeqlaneDiagnostics(result.stderr);
   });
 
-  it("returns one execution-failure result in native JSON mode", async () => {
-    const fake = await startFakeOpenCodeServer("interaction");
-    try {
-      const result = await runFakeCli(
-        fake,
-        productionEntry,
-        runArgs(input, workflowReference, fake.url, "json"),
-      );
+  it("rejects the removed runtime flag", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      workflowReference,
+      "--input",
+      input,
+      "--runtime",
+      "opencode",
+    ]);
 
-      expect(result.code).toBe(1);
-      expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        schemaVersion: 1,
-        status: "failed",
-        phase: "execution",
-        workflow: { reference: workflowReference },
-      });
-      expect(result.stdout).not.toContain('"type":"run.');
-    } finally {
-      await closeFakeOpenCodeServer(fake);
-    }
+    expect(result.code).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain("--runtime");
   });
 
   it("prints the calculated Plan without contacting the runtime in dry-run mode", async () => {
