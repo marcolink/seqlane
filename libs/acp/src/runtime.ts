@@ -1,5 +1,6 @@
 import {
   redactAgentAdapter,
+  redactOpaqueValue,
   type AgentRuntimeFactory,
 } from "@seqlane/agent-adapter";
 import { z } from "zod";
@@ -15,6 +16,7 @@ export function createAcpAgentRuntimeFactory(
   value: unknown,
 ): AgentRuntimeFactory {
   const configuration = configurationSchema.parse(value);
+  const redactText = createRuntimeRedactor(configuration);
   return async () => ({
     identity: "acp",
     capabilities: {
@@ -27,15 +29,20 @@ export function createAcpAgentRuntimeFactory(
       activity: true,
       sessionUi: false,
     },
-    createAdapter: () => createAcpAdapter(configuration.configuration),
+    createAdapter: () => {
+      try {
+        return createAcpAdapter(configuration.configuration);
+      } catch (cause) {
+        throw redactOpaqueValue(cause, redactText);
+      }
+    },
     redactAdapter: (adapter) => redactAdapter(adapter, configuration),
   });
 }
 
-function redactAdapter(
-  adapter: Parameters<typeof redactAgentAdapter>[0],
+function createRuntimeRedactor(
   configuration: z.output<typeof configurationSchema>,
-): Parameters<typeof redactAgentAdapter>[0] {
+): (value: string) => string {
   const secrets = [
     ...(configuration.configuration.args ?? []).filter(
       (value) => value.length > 0,
@@ -44,10 +51,16 @@ function redactAdapter(
       (value): value is string => typeof value === "string" && value.length > 0,
     ),
   ].sort((first, second) => second.length - first.length);
-  const redact = (value: string): string =>
+  return (value: string): string =>
     secrets.reduce(
       (message, secret) => message.split(secret).join("[REDACTED]"),
       value,
     );
-  return redactAgentAdapter(adapter, redact);
+}
+
+function redactAdapter(
+  adapter: Parameters<typeof redactAgentAdapter>[0],
+  configuration: z.output<typeof configurationSchema>,
+): Parameters<typeof redactAgentAdapter>[0] {
+  return redactAgentAdapter(adapter, createRuntimeRedactor(configuration));
 }

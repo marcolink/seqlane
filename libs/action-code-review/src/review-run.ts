@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import { RuntimeError, type SeqlaneError } from "@seqlane/core";
 import type { AgentRuntime } from "@seqlane/agent-adapter";
 import { buildWorkflow } from "@seqlane/core";
@@ -339,8 +340,10 @@ export async function runCodeReview(
     now: ports.now,
   });
   let agentRuntime: AgentRuntime | undefined;
+  let reviewTarget: string;
   try {
-    agentRuntime = await ports.bootstrapAgentRuntime?.(request.reviewTarget);
+    reviewTarget = await realpath(request.reviewTarget);
+    agentRuntime = await ports.bootstrapAgentRuntime?.(reviewTarget);
   } catch (cause) {
     await clearOwnedMarker(
       adapter,
@@ -367,7 +370,7 @@ export async function runCodeReview(
       reviewHistory: normalizedHistory.reviewHistory,
     },
     agentRuntime,
-    workspace: request.reviewTarget,
+    workspace: reviewTarget,
     identity: reservedIdentity,
     events: {
       emit: (event) => {
@@ -441,7 +444,7 @@ export async function runCodeReview(
       snapshot,
       existingReportId: markerId ?? "",
     },
-    workspace: request.reviewTarget,
+    workspace: reviewTarget,
     events: { emit: () => undefined },
   });
   const publicationOutcome = await publicationHandle.outcome;

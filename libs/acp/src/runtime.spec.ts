@@ -1,7 +1,13 @@
 // @test-scope ./runtime.ts
 import type { AgentAdapter } from "@seqlane/agent-adapter";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createAcpAdapter } from "./adapter.js";
 import { createAcpAgentRuntimeFactory } from "./runtime.js";
+
+vi.mock("./adapter.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./adapter.js")>();
+  return { ...original, createAcpAdapter: vi.fn(original.createAcpAdapter) };
+});
 
 const capabilities = {
   execute: true,
@@ -50,6 +56,27 @@ describe("ACP agent runtime composition", () => {
         configuration: { id: "missing-command" },
       }),
     ).toThrow();
+  });
+
+  it("redacts synchronous adapter-construction failures", async () => {
+    vi.mocked(createAcpAdapter).mockImplementationOnce(() => {
+      throw new Error("could not launch secret-argument");
+    });
+    const factory = createAcpAgentRuntimeFactory({
+      adapter: "acp",
+      configuration: {
+        id: "controlled-acp",
+        description: "Controlled ACP runtime",
+        command: process.execPath,
+        args: ["secret-argument"],
+        persistSession: false,
+      },
+    });
+    const runtime = await factory(new AbortController().signal, undefined);
+
+    expect(() =>
+      runtime.createAdapter({ signal: new AbortController().signal }),
+    ).toThrow("could not launch [REDACTED]");
   });
 
   it("does not treat empty launch arguments or environment values as secrets", async () => {

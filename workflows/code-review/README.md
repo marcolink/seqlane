@@ -5,6 +5,10 @@ risk lanes, then applies dispositions to the resulting report.
 
 Run: `seqlane run workflows/code-review/workflow.ts --input '<code-review input JSON>' --runtime direct`
 
+`direct` selects Seqlane's built-in in-process agent-execution profile. The
+calling process or server still owns the concrete adapter choice and its private
+connection configuration.
+
 Input and output are defined in `contracts.ts`; the input supplies repository,
 revision, pull-request, and prior-review data, and the output is a review
 report. It requires a checkout and configured model runtime. GitHub event

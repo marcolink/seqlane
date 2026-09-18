@@ -57,14 +57,13 @@ export interface AgentAdapterCapabilities {
   readonly sessionUi: boolean;
 }
 
-export interface AgentAdapterRequest {
+export interface AgentAdapterRequest<TObservability extends object = object> {
   readonly invocationId: string;
   /**
-   * Opaque runtime-owned observability state. Concrete adapter integrations
-   * may understand it, but the generic adapter contract does not expose a
-   * runtime-engine type.
+   * Runtime-owned observability state. The generic adapter contract requires
+   * an object but leaves its engine-specific shape to private integrations.
    */
-  readonly observability: unknown;
+  readonly observability: TObservability;
   readonly task: TaskDefinition;
   readonly input: unknown;
   readonly agent?: AgentTaskRequest;
@@ -79,16 +78,16 @@ export interface AgentAdapterRequest {
   readonly onBackgroundProcess?: (process: AgentBackgroundProcess) => void;
 }
 
-export interface AgentAdapter {
+export interface AgentAdapter<TObservability extends object = object> {
   readonly capabilities: AgentAdapterCapabilities;
-  execute(request: AgentAdapterRequest): Promise<unknown>;
+  execute(request: AgentAdapterRequest<TObservability>): Promise<unknown>;
   /** Closes adapter-owned resources at the end of the owning run. */
   readonly close?: () => Promise<void>;
   readonly captureCheckpoint?: () => Promise<unknown>;
   readonly fork?: (request: {
     readonly checkpoint: unknown;
     readonly modelSelection?: ModelSelection;
-  }) => Promise<AgentAdapter>;
+  }) => Promise<AgentAdapter<TObservability>>;
   readonly sessionUi?: () => Promise<string | undefined>;
 }
 
@@ -110,7 +109,7 @@ export interface AgentRuntimeContext {
    * Opaque execution context supplied by the runtime integration. Concrete
    * adapters may preserve it, but the generic contract exposes no engine type.
    */
-  readonly requestContext?: unknown;
+  readonly requestContext?: object;
 }
 
 /** A run-scoped, composition-owned runtime for one selected agent adapter. */
@@ -164,7 +163,8 @@ export function assertAgentRuntimeCapabilities(
   }
 }
 
-function redactValue(
+/** Redacts strings in an opaque value without invoking getters. */
+export function redactOpaqueValue(
   value: unknown,
   redactText: (value: string) => string,
   seen = new WeakMap<object, unknown>(),
@@ -182,18 +182,20 @@ function redactValue(
     if (descriptor === undefined || !("value" in descriptor)) continue;
     Object.defineProperty(copy, key, {
       ...descriptor,
-      value: redactValue(descriptor.value, redactText, seen),
+      value: redactOpaqueValue(descriptor.value, redactText, seen),
     });
   }
   return copy;
 }
 
 /** Wraps one adapter with concrete-runtime-owned diagnostic redaction. */
-export function redactAgentAdapter(
-  adapter: AgentAdapter,
+export function redactAgentAdapter<TObservability extends object>(
+  adapter: AgentAdapter<TObservability>,
   redactText: (value: string) => string,
-): AgentAdapter {
-  const execute = async (request: AgentAdapterRequest): Promise<unknown> => {
+): AgentAdapter<TObservability> {
+  const execute = async (
+    request: AgentAdapterRequest<TObservability>,
+  ): Promise<unknown> => {
     try {
       return await adapter.execute({
         ...request,
@@ -206,12 +208,12 @@ export function redactAgentAdapter(
           // Activity payloads originate in the concrete runtime and can contain
           // connection details in arbitrary nested fields.
           request.onActivity?.(
-            redactValue(activity, redactText) as AgentActivity,
+            redactOpaqueValue(activity, redactText) as AgentActivity,
           );
         },
       });
     } catch (cause) {
-      throw redactValue(cause, redactText);
+      throw redactOpaqueValue(cause, redactText);
     }
   };
   return {
@@ -224,7 +226,7 @@ export function redactAgentAdapter(
             try {
               await adapter.close?.();
             } catch (cause) {
-              throw redactValue(cause, redactText);
+              throw redactOpaqueValue(cause, redactText);
             }
           },
         }),
@@ -239,7 +241,7 @@ export function redactAgentAdapter(
               }
               return checkpoint;
             } catch (cause) {
-              throw redactValue(cause, redactText);
+              throw redactOpaqueValue(cause, redactText);
             }
           },
         }),
@@ -254,7 +256,7 @@ export function redactAgentAdapter(
               }
               return redactAgentAdapter(forked, redactText);
             } catch (cause) {
-              throw redactValue(cause, redactText);
+              throw redactOpaqueValue(cause, redactText);
             }
           },
         }),
@@ -265,7 +267,7 @@ export function redactAgentAdapter(
             try {
               return await adapter.sessionUi?.();
             } catch (cause) {
-              throw redactValue(cause, redactText);
+              throw redactOpaqueValue(cause, redactText);
             }
           },
         }),

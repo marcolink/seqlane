@@ -1,5 +1,7 @@
 // @test-scope ./review-run.ts
 import type { SeqlaneRunOutcome } from "@seqlane/core";
+import { realpathSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import type { AgentRuntime } from "@seqlane/agent-adapter";
 import type {
   StartWorkflowRunRequest,
@@ -19,7 +21,7 @@ const headRevision = "b".repeat(40);
 const request: CodeReviewRunRequest = {
   repository: "owner/repository",
   pullRequestNumber: 1,
-  reviewTarget: "/tmp/review-target",
+  reviewTarget: realpathSync(process.cwd()),
   baseBranch: "main",
   baseRevision,
   headRevision,
@@ -155,6 +157,10 @@ function createRunner(
 
 describe("runCodeReview", () => {
   it("bootstraps the selected runtime after admission and injects it into review only", async () => {
+    const aliasedRequest = {
+      ...request,
+      reviewTarget: `${request.reviewTarget}/.`,
+    };
     const runtime: AgentRuntime = {
       identity: "fixture",
       capabilities: {
@@ -175,7 +181,7 @@ describe("runCodeReview", () => {
     const lifecycle: string[] = [];
     const receivedRuntimes: unknown[] = [];
 
-    const result = await runCodeReview(request, {
+    const result = await runCodeReview(aliasedRequest, {
       github: createGithubPort(true),
       onRunStarted: () => {
         lifecycle.push("admitted");
@@ -215,6 +221,27 @@ describe("runCodeReview", () => {
       "publication",
     ]);
     expect(receivedRuntimes).toEqual([runtime, undefined]);
+  });
+
+  it("rejects an invalid review target before runtime bootstrap", async () => {
+    let bootstrapped = false;
+    const result = await runCodeReview(
+      {
+        ...request,
+        reviewTarget: `/tmp/seqlane-missing-review-target-${randomUUID()}`,
+      },
+      {
+        github: createGithubPort(true),
+        bootstrapAgentRuntime: async () => {
+          bootstrapped = true;
+          throw new Error("must not bootstrap");
+        },
+        runWorkflow: createRunner([]),
+      },
+    );
+
+    expect(result).toMatchObject({ status: "failed", phase: "review" });
+    expect(bootstrapped).toBe(false);
   });
 
   it("cleans its marker and returns a normalized failure when runtime bootstrap fails", async () => {

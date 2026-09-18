@@ -1,5 +1,6 @@
 import {
   redactAgentAdapter,
+  redactOpaqueValue,
   AgentRuntimeFactory,
   type AgentRuntimeModelCapabilities,
 } from "@seqlane/agent-adapter";
@@ -38,6 +39,7 @@ export function createOpenCodeAgentRuntimeFactory(
 ): AgentRuntimeFactory {
   const configuration = configurationSchema.parse(value);
   return async (signal, workspace) => {
+    const redactText = createRuntimeRedactor(configuration);
     const browserUiUrl = await resolveOpenCodeBrowserUiUrl(
       configuration.url,
       signal,
@@ -57,26 +59,30 @@ export function createOpenCodeAgentRuntimeFactory(
       },
       modelCapabilities: redactModelCapabilities(
         createOpenCodeModelCapabilities(configuration.url, resolvedWorkspace),
-        createRuntimeRedactor(configuration),
+        redactText,
       ),
-      createAdapter: (context) =>
-        createOpenCodeAdapter(
-          {
-            url: configuration.url,
-            ...(resolvedWorkspace === undefined
-              ? {}
-              : { workspace: resolvedWorkspace }),
-            ...(browserUiUrl === undefined ? {} : { browserUiUrl }),
-          },
-          {
-            signal: context.signal,
-            ...(context.modelSelection === undefined
-              ? {}
-              : { modelSelection: context.modelSelection }),
-          },
-        ),
-      redactAdapter: (adapter) =>
-        redactAgentAdapter(adapter, createRuntimeRedactor(configuration)),
+      createAdapter: (context) => {
+        try {
+          return createOpenCodeAdapter(
+            {
+              url: configuration.url,
+              ...(resolvedWorkspace === undefined
+                ? {}
+                : { workspace: resolvedWorkspace }),
+              ...(browserUiUrl === undefined ? {} : { browserUiUrl }),
+            },
+            {
+              signal: context.signal,
+              ...(context.modelSelection === undefined
+                ? {}
+                : { modelSelection: context.modelSelection }),
+            },
+          );
+        } catch (cause) {
+          throw redactOpaqueValue(cause, redactText);
+        }
+      },
+      redactAdapter: (adapter) => redactAgentAdapter(adapter, redactText),
     };
   };
 }
@@ -131,14 +137,14 @@ function redactModelCapabilities(
       try {
         return await capabilities.listModels();
       } catch (cause) {
-        throw redactRuntimeValue(cause, redactText);
+        throw redactOpaqueValue(cause, redactText);
       }
     },
     resolveDefaultModel: async () => {
       try {
         return await capabilities.resolveDefaultModel();
       } catch (cause) {
-        throw redactRuntimeValue(cause, redactText);
+        throw redactOpaqueValue(cause, redactText);
       }
     },
     ...(capabilities.validateModelSelection === undefined
@@ -148,33 +154,9 @@ function redactModelCapabilities(
             try {
               await capabilities.validateModelSelection?.(selection);
             } catch (cause) {
-              throw redactRuntimeValue(cause, redactText);
+              throw redactOpaqueValue(cause, redactText);
             }
           },
         }),
   };
-}
-
-function redactRuntimeValue(
-  value: unknown,
-  redactText: (value: string) => string,
-  seen = new WeakMap<object, unknown>(),
-): unknown {
-  if (typeof value === "string") return redactText(value);
-  if (typeof value !== "object" || value === null) return value;
-  const existing = seen.get(value);
-  if (existing !== undefined) return existing;
-  const copy = Array.isArray(value)
-    ? []
-    : Object.create(Object.getPrototypeOf(value));
-  seen.set(value, copy);
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor === undefined || !("value" in descriptor)) continue;
-    Object.defineProperty(copy, key, {
-      ...descriptor,
-      value: redactRuntimeValue(descriptor.value, redactText, seen),
-    });
-  }
-  return copy;
 }
