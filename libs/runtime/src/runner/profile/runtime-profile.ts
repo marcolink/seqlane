@@ -255,7 +255,7 @@ function createLazyAgentSession(
   taskDefinitions: TaskDefinitionRegistry,
   agentRuntime: AgentRuntime,
   signal: AbortSignal,
-  requestContext: object | undefined,
+  requestContext: unknown,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
   checkpointBinding: SessionCheckpointBinding,
@@ -287,7 +287,7 @@ export interface RuntimeProfileResolutionOptions {
   readonly agentRuntime?: AgentRuntimeFactory;
   readonly runId?: RunId;
   /** Opaque execution context retained for concrete adapter integrations. */
-  readonly requestContext?: object;
+  readonly requestContext?: unknown;
 }
 
 /** Resolves private adapter state after the generic profile crosses IPC. */

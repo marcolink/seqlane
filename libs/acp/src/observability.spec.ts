@@ -638,6 +638,20 @@ describe("ACP v1 Mastra observability", () => {
     ]);
   });
 
+  it("rejects malformed observability at the adapter boundary", () => {
+    const diagnostics: string[] = [];
+    const projection = createAcpObservability(
+      { tracingContext: { currentSpan: { id: "malformed" } } },
+      "invocation",
+      (message) => diagnostics.push(message),
+    );
+
+    expect(() => projection.finish()).not.toThrow();
+    expect(diagnostics).toEqual([
+      "ACP v1 observability context did not match its schema",
+    ]);
+  });
+
   it("enforces tool-record, activity, and activity-input limits across attempts", () => {
     const records = new AcpToolReducer("records", {});
     for (let index = 0; index < MAX_TOOL_RECORD_COUNT; index += 1) {

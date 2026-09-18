@@ -55,6 +55,7 @@
 
 - Treat HTTP, CLI, file, SSE, IPC, and subprocess data as untrusted input.
 - Use Zod schemas as the source of truth for runtime validation and inferred types. `libs/core` may depend on Zod; keep schemas in the package that owns each contract.
+- Never replace an `unknown` value with a type assertion, generic constraint, or broad type such as `object`. Parse it with the owning Zod schema before use.
 - Derive types with `z.infer`, `z.input`, or `z.output` as appropriate. Use `schema.safeParse(value).success` for type guards only when the schema does not transform its input.
 - Do not expose or maintain standalone handwritten runtime predicate functions. When a constraint cannot be expressed structurally, encapsulate it in the owning schema with `z.custom<T>(predicate)` or `.pipe(z.custom<T>(predicate))`.
 - Do not use `.refine()` for type narrowing; Zod 4 does not support it.

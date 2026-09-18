@@ -5,6 +5,7 @@ import type {
 } from "@mastra/core/observability";
 import { SpanType as MastraSpanType } from "@mastra/core/observability";
 import { createBoundedNormalizedNameAllocator } from "@seqlane/agent-adapter";
+import { z } from "zod";
 import type { AcpToolRecord, AcpToolTerminalOutcome } from "./stream.js";
 
 const MAX_INVOCATION_METADATA_LENGTH = 128;
@@ -52,31 +53,37 @@ function property(value: unknown, key: string): unknown {
   }
 }
 
-/** Narrows the opaque generic-adapter value at the Mastra integration edge. */
-function isCurrentSpan(value: unknown): value is CurrentSpan {
-  return (
+const currentSpanSchema = z.custom<CurrentSpan>(
+  (value) =>
     typeof value === "object" &&
     value !== null &&
     typeof property(value, "id") === "string" &&
-    typeof property(value, "createChildSpan") === "function"
-  );
-}
+    typeof property(value, "isValid") === "boolean" &&
+    typeof property(value, "createChildSpan") === "function",
+  { message: "must be a compatible Mastra span" },
+);
 
-function contextCurrentSpan(
-  context: unknown,
-  key: string,
-): CurrentSpan | undefined {
-  const current = property(property(context, key), "currentSpan");
-  return isCurrentSpan(current) ? current : undefined;
-}
+const tracingContextSchema = z.looseObject({
+  currentSpan: currentSpanSchema.optional(),
+});
+
+const observabilityContextSchema = z.looseObject({
+  tracing: tracingContextSchema.optional(),
+  tracingContext: tracingContextSchema.optional(),
+});
 
 function currentSpan(
   context: unknown,
   diagnose: (message: string) => void,
 ): CurrentSpan | undefined {
   try {
-    const preferred = contextCurrentSpan(context, "tracingContext");
-    const fallback = contextCurrentSpan(context, "tracing");
+    const parsed = observabilityContextSchema.safeParse(context);
+    if (!parsed.success) {
+      diagnose("ACP v1 observability context did not match its schema");
+      return undefined;
+    }
+    const preferred = parsed.data.tracingContext?.currentSpan;
+    const fallback = parsed.data.tracing?.currentSpan;
     if (
       preferred !== undefined &&
       fallback !== undefined &&

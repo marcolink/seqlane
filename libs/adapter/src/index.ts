@@ -57,13 +57,13 @@ export interface AgentAdapterCapabilities {
   readonly sessionUi: boolean;
 }
 
-export interface AgentAdapterRequest<TObservability extends object = object> {
+export interface AgentAdapterRequest {
   readonly invocationId: string;
   /**
-   * Runtime-owned observability state. The generic adapter contract requires
-   * an object but leaves its engine-specific shape to private integrations.
+   * Opaque runtime-owned observability state. Concrete adapter integrations
+   * must validate it before use.
    */
-  readonly observability: TObservability;
+  readonly observability: unknown;
   readonly task: TaskDefinition;
   readonly input: unknown;
   readonly agent?: AgentTaskRequest;
@@ -78,16 +78,16 @@ export interface AgentAdapterRequest<TObservability extends object = object> {
   readonly onBackgroundProcess?: (process: AgentBackgroundProcess) => void;
 }
 
-export interface AgentAdapter<TObservability extends object = object> {
+export interface AgentAdapter {
   readonly capabilities: AgentAdapterCapabilities;
-  execute(request: AgentAdapterRequest<TObservability>): Promise<unknown>;
+  execute(request: AgentAdapterRequest): Promise<unknown>;
   /** Closes adapter-owned resources at the end of the owning run. */
   readonly close?: () => Promise<void>;
   readonly captureCheckpoint?: () => Promise<unknown>;
   readonly fork?: (request: {
     readonly checkpoint: unknown;
     readonly modelSelection?: ModelSelection;
-  }) => Promise<AgentAdapter<TObservability>>;
+  }) => Promise<AgentAdapter>;
   readonly sessionUi?: () => Promise<string | undefined>;
 }
 
@@ -107,9 +107,9 @@ export interface AgentRuntimeContext {
   readonly modelSelection?: ModelSelection;
   /**
    * Opaque execution context supplied by the runtime integration. Concrete
-   * adapters may preserve it, but the generic contract exposes no engine type.
+   * adapters must validate it before use; this contract exposes no engine type.
    */
-  readonly requestContext?: object;
+  readonly requestContext?: unknown;
 }
 
 /** A run-scoped, composition-owned runtime for one selected agent adapter. */
@@ -189,13 +189,11 @@ export function redactOpaqueValue(
 }
 
 /** Wraps one adapter with concrete-runtime-owned diagnostic redaction. */
-export function redactAgentAdapter<TObservability extends object>(
-  adapter: AgentAdapter<TObservability>,
+export function redactAgentAdapter(
+  adapter: AgentAdapter,
   redactText: (value: string) => string,
-): AgentAdapter<TObservability> {
-  const execute = async (
-    request: AgentAdapterRequest<TObservability>,
-  ): Promise<unknown> => {
+): AgentAdapter {
+  const execute = async (request: AgentAdapterRequest): Promise<unknown> => {
     try {
       return await adapter.execute({
         ...request,
