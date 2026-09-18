@@ -22,7 +22,12 @@ import {
   type PublicationGuardInput,
 } from "./publication-guard.js";
 import { publicationResultSchema } from "./workflows/publication-workflow.js";
-import { type LivePullRequest, type ReviewTargetInput } from "./contracts.js";
+import {
+  type LivePullRequest,
+  type PullRequestContext,
+  type ReviewHistory,
+  type ReviewTargetInput,
+} from "./contracts.js";
 import trustedCodeReviewWorkflow from "@seqlane/code-review-workflow";
 import { BoundedEventRecorder } from "./event-recorder.js";
 import {
@@ -105,6 +110,87 @@ async function clearOwnedMarker(
   }
   if (deleteMarker) await adapter.deleteComment(markerId);
   else await adapter.updateReport(markerId, removeMarker(report.body));
+}
+
+async function startWorkflowWithCleanup(
+  start: () => WorkflowRunHandle,
+  identity: { readonly workId: string; readonly runId: string },
+  cleanup: readonly (() => void | Promise<void>)[],
+): Promise<WorkflowRunHandle> {
+  try {
+    return start();
+  } catch (cause) {
+    const cleanupResults = await Promise.allSettled(
+      cleanup.map((step) => Promise.resolve().then(step)),
+    );
+    const cleanupFailures: unknown[] = [];
+    for (const result of cleanupResults) {
+      if (result.status === "rejected") cleanupFailures.push(result.reason);
+    }
+    const failureCause =
+      cleanupFailures.length === 0
+        ? cause
+        : new AggregateError(
+            [cause, ...cleanupFailures],
+            "Workflow startup and cleanup failed",
+          );
+    return {
+      ...identity,
+      outcome: Promise.resolve({
+        status: "failed",
+        error: new RuntimeError(failureCause),
+      }),
+      cancel: async () => undefined,
+    };
+  }
+}
+
+type ReviewWorkflowStartRequest = {
+  readonly request: CodeReviewRunRequest;
+  readonly pullRequest: PullRequestContext;
+  readonly reviewHistory: ReviewHistory;
+  readonly agentRuntime: AgentRuntime | undefined;
+  readonly reviewTarget: string;
+  readonly identity: NonNullable<StartWorkflowRunRequest["identity"]>;
+  readonly events: StartWorkflowRunRequest["events"];
+  readonly adapter: GitHubReviewPort;
+  readonly markerId: string | undefined;
+  readonly markerCreated: boolean;
+};
+
+async function startReviewWorkflow(
+  runWorkflow: WorkflowRunner,
+  start: ReviewWorkflowStartRequest,
+): Promise<WorkflowRunHandle> {
+  return startWorkflowWithCleanup(
+    () =>
+      runWorkflow({
+        workflow: buildWorkflow(trustedCodeReviewWorkflow),
+        input: {
+          repository: start.request.repository,
+          baseBranch: start.request.baseBranch,
+          baseRevision: start.request.baseRevision,
+          headRevision: start.request.headRevision,
+          pullRequest: start.pullRequest,
+          reviewHistory: start.reviewHistory,
+        },
+        agentRuntime: start.agentRuntime,
+        workspace: start.reviewTarget,
+        identity: start.identity,
+        events: start.events,
+      }),
+    start.identity,
+    [
+      () => start.agentRuntime?.close?.(),
+      () =>
+        clearOwnedMarker(
+          start.adapter,
+          start.markerId,
+          start.markerCreated,
+          publicationGuardInput(start.request, start.identity.runId),
+        ),
+    ],
+  );
 }
 
 function isLivePullRequest(
@@ -359,19 +445,16 @@ export async function runCodeReview(
       error: new RuntimeError(cause),
     };
   }
-  const handle = runWorkflow({
-    workflow: buildWorkflow(trustedCodeReviewWorkflow),
-    input: {
-      repository: request.repository,
-      baseBranch: request.baseBranch,
-      baseRevision: request.baseRevision,
-      headRevision: request.headRevision,
-      pullRequest,
-      reviewHistory: normalizedHistory.reviewHistory,
-    },
+  const handle = await startReviewWorkflow(runWorkflow, {
+    request,
+    pullRequest,
+    reviewHistory: normalizedHistory.reviewHistory,
     agentRuntime,
-    workspace: reviewTarget,
+    reviewTarget,
     identity: reservedIdentity,
+    adapter,
+    markerId,
+    markerCreated,
     events: {
       emit: (event) => {
         eventRecorder.emit(event);

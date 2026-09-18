@@ -270,6 +270,54 @@ describe("runCodeReview", () => {
     ]);
   });
 
+  it("closes the runtime and clears its marker when review workflow startup throws", async () => {
+    const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
+    const github = createGithubPort(true, { id: "report-1", body: marker });
+    let runtimeClosed = false;
+    const runtime: AgentRuntime = {
+      identity: "fixture",
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: false,
+        checkpoint: false,
+        fork: false,
+        activity: false,
+        sessionUi: false,
+      },
+      createAdapter: () => {
+        throw new Error("The test runner does not execute tasks");
+      },
+      redactAdapter: (adapter) => adapter,
+      close: async () => {
+        runtimeClosed = true;
+      },
+    };
+
+    const result = await runCodeReview(request, {
+      github,
+      bootstrapAgentRuntime: async () => runtime,
+      runWorkflow: () => {
+        throw new Error("workflow startup failed");
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      phase: "review",
+      error: {
+        category: "RuntimeError",
+        cause: { message: "workflow startup failed" },
+      },
+    });
+    expect(runtimeClosed).toBe(true);
+    expect(github.updates).toEqual([
+      expect.stringContaining("seqlane-review-in-progress-run"),
+      `\n${marker}`,
+    ]);
+  });
+
   it("uses the GitHub repository identity in the review report", async () => {
     let reviewInput: unknown;
     const result = await runCodeReview(request, {
