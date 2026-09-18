@@ -6,6 +6,10 @@
 - `libs/core` owns public, engine-independent authoring contracts and Plan IR.
 - `libs/protocol` owns public, consumer-agnostic serialized execution events and runner IPC contracts.
 - `libs/runtime` owns the private Mastra integration and execution path.
+- Name concrete agent adapter packages `@seqlane/<id>-adapter` and give their
+  Nx projects the `adapter:concrete` tag. Keep `libs/runtime` tagged
+  `boundary:generic-runtime` so module-boundary lint rejects concrete adapter
+  dependencies.
 - `libs/fixtures` owns private test fixtures and fixture contract tests; expose only intentional fixture subpaths.
 - GitHub Action code is CI and platform integration code, not Seqlane application code. New Action-specific libraries must use short, purpose-specific directory names. Do not create a generic Action support library for one Action.
 - Keep runtime-engine types and dependencies out of core, serialized Plans, and public workflow-author APIs.

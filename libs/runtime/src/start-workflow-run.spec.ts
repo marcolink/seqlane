@@ -91,20 +91,31 @@ describe("startWorkflowRun", () => {
     expect(adaptersCreated).toBe(1);
   });
 
-  it("declares no concrete adapter dependencies", () => {
+  it("declares no concrete adapter package in any dependency section", () => {
+    const dependencySection = z.record(z.string(), z.string()).optional();
     const manifest = z
-      .object({ dependencies: z.record(z.string(), z.string()) })
+      .object({
+        dependencies: dependencySection,
+        devDependencies: dependencySection,
+        optionalDependencies: dependencySection,
+        peerDependencies: dependencySection,
+      })
       .parse(
         JSON.parse(
           readFileSync(new URL("../package.json", import.meta.url), "utf8"),
         ),
       );
-
-    expect(manifest.dependencies).not.toHaveProperty("@seqlane/acp-adapter");
-    expect(manifest.dependencies).not.toHaveProperty("@seqlane/codex-adapter");
-    expect(manifest.dependencies).not.toHaveProperty(
-      "@seqlane/opencode-adapter",
+    const declaredDependencies = Object.values(manifest).flatMap((section) =>
+      Object.keys(section ?? {}),
     );
+    const concreteAdapterDependencies = declaredDependencies.filter(
+      (dependency) =>
+        dependency.startsWith("@seqlane/") &&
+        dependency.endsWith("-adapter") &&
+        dependency !== "@seqlane/agent-adapter",
+    );
+
+    expect(concreteAdapterDependencies).toEqual([]);
   });
 
   it("validates workflow input before starting an agent runtime", async () => {
