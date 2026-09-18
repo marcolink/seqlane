@@ -110,16 +110,19 @@ interaction during a non-interactive Run becomes a deterministic executor
 failure; Seqlane never approves it.
 
 Application composition selects Codex through its private configuration. Its
-strict configuration uses an absolute executable path and optional
+strict configuration accepts an optional absolute executable path and optional
 `networkAccess` boolean:
 
 ```json
 {
   "adapter": "codex",
-  "executable": "/absolute/path/to/codex",
   "networkAccess": false
 }
 ```
+
+When `executable` is omitted, the Codex adapter resolves `codex` from `PATH`.
+A configured path is preferred; when unavailable, the adapter falls back to
+`PATH` and emits a diagnostic.
 
 The selected agent runtime receives the workspace, validates Codex models before
 task work, and closes each run-owned app-server process at run completion.

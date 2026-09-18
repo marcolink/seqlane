@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-18
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
   - spec.autonomous-non-interactive-execution
@@ -67,9 +67,15 @@ fail before the first agent task starts.
 ### requirement-codex-private-configuration
 
 The private runtime configuration must select `codex` explicitly through the existing discriminated adapter schema.
-The first delivery must accept an absolute Codex executable path and an optional `networkAccess` boolean.
-The runtime must supply the workspace path. Omitted `networkAccess` means `false`.
-It must reject unknown fields and must not infer Codex from a command name or installed binary.
+The private configuration may accept an absolute Codex executable path and an optional
+`networkAccess` boolean. When `executable` is omitted, the runtime must resolve the
+`codex` executable from `PATH` when the Codex runtime is acquired. If a configured
+path is unavailable, the runtime must fall back to `PATH` and must emit a diagnostic
+warning. Omitted `networkAccess` means `false`.
+The runtime must supply the workspace path.
+It must reject unknown fields. It must not infer the Codex adapter identity from a
+command name or installed binary. A selected executable that fails startup,
+version, or protocol validation must fail without trying another candidate.
 The adapter must use the selected binary, its local authentication, and the repository's Codex instructions.
 It must not read or expose authentication material through Seqlane contracts.
 
@@ -166,6 +172,9 @@ Neither path may put Codex thread IDs in Seqlane's canonical run store.
 ## Failure and edge cases
 
 - Missing executable, incompatible CLI, failed handshake, or unavailable model fails before task submission.
+- If no configured executable or `PATH` candidate is usable, the runtime reports a
+  stable not-found diagnostic with remediation guidance. Configured-path fallback
+  warnings go to diagnostics, not structured JSON stdout.
 - An approval or user-input request fails through the existing non-interactive error path.
 - A failed or interrupted turn cannot publish a checkpoint or a typed result.
 - A transport disconnect with an active turn reports uncertain activity until termination is confirmed.

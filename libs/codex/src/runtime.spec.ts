@@ -4,8 +4,18 @@ import { defineTask } from "@seqlane/core";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { CODEX_AGENT_CAPABILITIES } from "./capabilities.js";
+import { resolveCodexExecutable } from "./executable-discovery.js";
 import { createCodexRun, type CodexRun } from "./run.js";
 import { createCodexAgentRuntimeFactory } from "./runtime.js";
+
+vi.mock("./executable-discovery.js", () => ({
+  resolveCodexExecutable: vi.fn(
+    async ({ configuredPath }: { configuredPath?: string }) => ({
+      executable: configuredPath ?? "/resolved/codex",
+      diagnostics: [],
+    }),
+  ),
+}));
 
 vi.mock("./run.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("./run.js")>();
@@ -43,6 +53,36 @@ function failingRun(adapter: AgentAdapter): CodexRun {
 }
 
 describe("Codex agent runtime composition", () => {
+  it("defers optional executable discovery until the Codex runtime is acquired", async () => {
+    vi.mocked(resolveCodexExecutable).mockClear();
+    const factory = createCodexAgentRuntimeFactory({
+      adapter: "codex",
+      networkAccess: false,
+    });
+
+    expect(resolveCodexExecutable).not.toHaveBeenCalled();
+    const runtime = await factory(
+      new AbortController().signal,
+      "/workspace-from-composition",
+    );
+    expect(resolveCodexExecutable).toHaveBeenCalledWith({
+      configuredPath: undefined,
+    });
+    await runtime.close?.();
+  });
+
+  it("rejects a relative configured executable before discovery", () => {
+    vi.mocked(resolveCodexExecutable).mockClear();
+
+    expect(() =>
+      createCodexAgentRuntimeFactory({
+        adapter: "codex",
+        executable: "codex",
+      }),
+    ).toThrow("must be an absolute executable path");
+    expect(resolveCodexExecutable).not.toHaveBeenCalled();
+  });
+
   it("creates one run-scoped runtime with matching adapter capabilities", async () => {
     const factory = createCodexAgentRuntimeFactory({
       adapter: "codex",

@@ -529,9 +529,12 @@ function createAdapterForTransport(
           throw cause;
         }
         if (completed.turn.status !== "completed") {
+          const reason = completed.turn.error?.message;
           throw new CodexAdapterError(
             "execution",
-            `Codex turn ended with status ${completed.turn.status}`,
+            reason === undefined
+              ? `Codex turn ended with status ${completed.turn.status}`
+              : `Codex turn failed: ${reason}`,
           );
         }
         lastTurnId = completed.turn.id;

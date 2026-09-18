@@ -61,6 +61,7 @@ class FakeTransport implements CodexTransport {
   >();
   private turnNumber = 0;
   emitCompletion = true;
+  failedTurnMessage: string | undefined;
   emitBeforeTurnResponse = false;
   emitMultipleAgentMessages = false;
   delayTurnStart = false;
@@ -243,7 +244,15 @@ class FakeTransport implements CodexTransport {
             method: "turn/completed",
             params: {
               threadId: threadId.threadId,
-              turn: { id: turnId, status: "completed", items: [] },
+              turn: {
+                id: turnId,
+                status:
+                  this.failedTurnMessage === undefined ? "completed" : "failed",
+                items: [],
+                ...(this.failedTurnMessage === undefined
+                  ? {}
+                  : { error: { message: this.failedTurnMessage } }),
+              },
             },
           },
         });
@@ -397,6 +406,18 @@ describe("Codex AgentAdapter", () => {
       threadId: "thread-1",
       lastTurnId: "turn-1",
     });
+  });
+
+  it("reports the Codex error message for a failed turn", async () => {
+    const transport = new FakeTransport();
+    transport.failedTurnMessage = "Model request was rejected";
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+
+    await expect(adapter.execute(request())).rejects.toThrow(
+      "Codex turn failed: Model request was rejected",
+    );
   });
 
   it("selects the final completed agent message by item", async () => {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CodexAdapterError, CodexProtocolError } from "./errors.js";
+import { isAbsoluteCodexExecutablePath } from "./executable-path.js";
 
 export const MAX_JSONL_LINE_BYTES = 4 * 1024 * 1024;
 export const MAX_JSONL_BUFFER_BYTES = 8 * 1024 * 1024;
@@ -85,9 +86,10 @@ export type CodexLaunchConfiguration = z.output<
 
 export function parseCodexLaunchConfiguration(
   value: unknown,
+  platform: NodeJS.Platform = process.platform,
 ): CodexLaunchConfiguration {
   const parsed = codexLaunchConfigurationSchema.parse(value);
-  if (!parsed.executable.startsWith("/")) {
+  if (!isAbsoluteCodexExecutablePath(parsed.executable, platform)) {
     throw new CodexAdapterError(
       "configuration",
       "Codex executable must be an absolute path",
