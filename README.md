@@ -327,12 +327,17 @@ Set the adapter configuration in the terminal that runs Seqlane:
 export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
 ```
 
-For Codex, use an absolute executable path. The runtime supplies the workspace
-and starts one private app-server process for each run:
+For Codex, `executable` is optional. If omitted, the runtime resolves `codex` from
+`PATH`. The runtime supplies the workspace and starts one private app-server
+process for each run:
 
 ```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"codex","executable":"/absolute/path/to/codex","networkAccess":false}'
+export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"codex","networkAccess":false}'
 ```
+
+An absolute `executable` path can be supplied when a specific installation is
+required. If that path is unavailable, Seqlane falls back to `PATH` and emits a
+warning. If no executable is found, the run fails with an actionable diagnostic.
 
 Run the workflow in that terminal:
 

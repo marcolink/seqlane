@@ -1,5 +1,6 @@
 export type CodexAdapterErrorCode =
   | "configuration"
+  | "codex.executable.not-found"
   | "protocol"
   | "execution"
   | "cancellation"

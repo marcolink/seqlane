@@ -5,6 +5,13 @@ process, validates its JSONL protocol, and translates completed turns into the
 private `AgentAdapter` contract. The runtime selects it through private
 `SEQLANE_RUNTIME_ADAPTER_CONFIG` and owns its process for each run.
 
+`executable` is optional. When omitted, the runtime resolves `codex` from
+`PATH`. A configured absolute path is preferred; if it is unavailable, the
+runtime falls back to `PATH` and emits a warning. If no candidate is usable, the
+runtime reports a stable not-found error with remediation guidance. After a
+candidate is selected, startup, version, and protocol failures are terminal and
+do not trigger another candidate lookup.
+
 The tested-version list is advisory. An unconfirmed CLI version emits a
 diagnostic and continues; malformed or incompatible protocol messages fail the
 adapter.

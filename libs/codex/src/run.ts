@@ -10,6 +10,8 @@ const RUN_CLOSE_TIMEOUT_MS = 5_000;
 
 export interface CodexRunOptions {
   readonly signal?: AbortSignal;
+  /** Diagnostics produced while the executable was resolved before the run. */
+  readonly initialDiagnostics?: readonly AgentDiagnostic[];
   readonly createTransport?: (
     configuration: CodexLaunchConfiguration,
     options: {
@@ -36,7 +38,9 @@ export function createCodexRun(
     options.signal === undefined
       ? runController.signal
       : AbortSignal.any([options.signal, runController.signal]);
-  const pendingDiagnostics: AgentDiagnostic[] = [];
+  const pendingDiagnostics: AgentDiagnostic[] = (
+    options.initialDiagnostics ?? []
+  ).slice(0, 32);
   const transport = async (
     _configuration: CodexLaunchConfiguration,
     transportOptions: {

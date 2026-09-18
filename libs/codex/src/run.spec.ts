@@ -140,6 +140,13 @@ describe("Codex run ownership", () => {
         networkAccess: false,
       },
       {
+        initialDiagnostics: [
+          {
+            code: "codex.executable.configured-path-unavailable",
+            message:
+              "Configured Codex executable is unavailable; using Codex found on PATH",
+          },
+        ],
         createTransport: async (_configuration, options) => {
           starts += 1;
           options.onDiagnostic?.({
@@ -184,7 +191,10 @@ describe("Codex run ownership", () => {
     ).resolves.toEqual({ result: "done" });
     expect(starts).toBe(1);
     expect(threads).toBe(2);
-    expect(diagnostics).toEqual(["Codex version is not confirmed"]);
+    expect(diagnostics).toEqual([
+      "Configured Codex executable is unavailable; using Codex found on PATH",
+      "Codex version is not confirmed",
+    ]);
     expect(closes).toBe(0);
     await run.close();
     await run.close();
