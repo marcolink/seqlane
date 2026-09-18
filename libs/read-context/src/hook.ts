@@ -61,7 +61,7 @@ function validWorkflowArguments(
 ): boolean {
   let inputSeen = false;
   let workspaceSeen = false;
-  let runtimeSeen = false;
+  let adapterSeen = false;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--workspace") {
@@ -77,10 +77,10 @@ function validWorkflowArguments(
       index += 1;
       continue;
     }
-    if (argument === "--runtime") {
-      if (runtimeSeen) return false;
-      if (args[index + 1] !== "direct") return false;
-      runtimeSeen = true;
+    if (argument === "--adapter") {
+      if (adapterSeen) return false;
+      if (args[index + 1] !== "opencode") return false;
+      adapterSeen = true;
       index += 1;
       continue;
     }
@@ -101,7 +101,7 @@ function validWorkflowArguments(
     inputSeen = true;
     index += 1;
   }
-  return inputSeen && workspaceSeen && runtimeSeen;
+  return inputSeen && workspaceSeen && adapterSeen;
 }
 
 function guardWorkflowCommand(
@@ -156,7 +156,7 @@ function guardReadCommand(
       ? (requestedLines ?? 0) > maxTargetedLines
       : estimate.lines > maxLines || estimate.bytes > maxBytes;
   if (!blocked) return "{}";
-  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input '{"question":"...","paths":["${candidate.path}"]}' --runtime direct --workspace "$PWD" for the read-context workflow with a focused question from the active task. Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
+  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input '{"question":"...","paths":["${candidate.path}"]}' --adapter opencode --workspace "$PWD" for the read-context workflow with a focused question from the active task. Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
   return deny(reason);
 }
 

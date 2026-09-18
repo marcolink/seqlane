@@ -97,6 +97,24 @@ describe("owned OpenCode startup", () => {
     );
   });
 
+  it("accepts HTTP default port 80 after URL normalization", async () => {
+    const child = fakeChild();
+    const started = startOpenCodeService({
+      workspace: "/workspace",
+      signal: new AbortController().signal,
+      host: "127.0.0.1",
+      port: 80,
+      spawn: (() => child) as typeof import("node:child_process").spawn,
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    });
+    child.stdout?.emit(
+      "data",
+      Buffer.from("opencode server listening on http://127.0.0.1:80\\n"),
+    );
+
+    await expect(started).resolves.toMatchObject({ url: "http://127.0.0.1" });
+  });
+
   it("stops the owned child before reporting an aborted startup", async () => {
     const controller = new AbortController();
     const child = fakeChild();

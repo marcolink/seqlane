@@ -36,7 +36,7 @@ export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0
 seqlane run \
   @seqlane/fixtures/renovate-workflow#renovateWorkflow \
   --input '{"dependency":"zod","fromVersion":"3","toVersion":"4","failure":"tests fail"}' \
-  --runtime direct
+  --adapter opencode
 ```
 
 Use only the exported subpaths in `package.json`. Do not import fixture source

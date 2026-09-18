@@ -2,7 +2,7 @@
 
 Directs an agent to resolve a bounded list of existing merge-conflict files.
 
-Run: `seqlane run workflows/resolve-merge-conflicts/workflow.ts --input '<conflict-resolution input JSON>' --runtime direct`
+Run: `seqlane run workflows/resolve-merge-conflicts/workflow.ts --input '<conflict-resolution input JSON>' --adapter opencode`
 
 Input supplies repository, pull-request revisions, strategy, and conflicted
 paths; output supplies a summary, resolved paths, and per-file decisions. It

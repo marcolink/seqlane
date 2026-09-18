@@ -46,10 +46,13 @@ function parseOpenCodeUrl(
   if (match?.[1] === undefined) return undefined;
   try {
     const url = new URL(match[1]);
+    const actualPort =
+      url.port === "" && url.protocol === "http:" ? 80 : Number(url.port);
     return url.protocol === "http:" &&
       url.hostname === host &&
-      url.port &&
-      (port === 0 || url.port === String(port))
+      Number.isInteger(actualPort) &&
+      actualPort > 0 &&
+      (port === 0 || actualPort === port)
       ? url.origin
       : undefined;
   } catch {

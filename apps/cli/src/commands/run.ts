@@ -22,6 +22,7 @@ import { closeRunResources } from "../run-lifecycle.js";
 import {
   agentRuntimeConfigurationEnvironment,
   createDirectRunAdapterConfiguration,
+  directRunAdapterConfigurationEnvironment,
 } from "../agent-runtime.js";
 import {
   contextualizeCommandError,
@@ -308,6 +309,7 @@ export default class RunCommand extends SeqlaneCommand {
       const { launchRunner } = await import("../runner-client.js");
       const {
         [agentRuntimeConfigurationEnvironment]: _legacy,
+        [directRunAdapterConfigurationEnvironment]: _inheritedDirect,
         ...environment
       } = process.env;
       let adapterConfiguration: string | undefined;
@@ -344,7 +346,8 @@ export default class RunCommand extends SeqlaneCommand {
           ...(adapterConfiguration === undefined
             ? {}
             : {
-                SEQLANE_CLI_DIRECT_ADAPTER_CONFIG: adapterConfiguration,
+                [directRunAdapterConfigurationEnvironment]:
+                  adapterConfiguration,
               }),
         },
         onExecutionEvent: (event) => {

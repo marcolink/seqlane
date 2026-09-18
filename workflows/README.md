@@ -7,7 +7,7 @@ the repository root:
 ```sh
 seqlane run workflows/minimal-example/workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime direct
+  --adapter opencode
 ```
 
 Directories ending in `-example` demonstrate workflow authoring. The other
@@ -41,14 +41,8 @@ Workflow files are local Node.js code. Run only files you trust. The CLI loads
 a module default export; use `path/to/workflow.ts#namedExport` only for an
 intentional named export. Node 24 runs erasable TypeScript syntax directly.
 
-Workflows that need an agent require a configured runtime. For local OpenCode
-runs, start a loopback server in one terminal, then configure the adapter in
-another:
-
-```sh
-opencode serve --hostname 127.0.0.1 --port 4096 --print-logs
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
-```
+Workflows that need an agent require `--adapter opencode` or `--adapter codex`.
+The OpenCode adapter starts and owns its loopback service for the run.
 
 Use `--workspace "$PWD"` only when a workflow needs repository files or a
 shell task. Deterministic examples do not need a runtime profile.
