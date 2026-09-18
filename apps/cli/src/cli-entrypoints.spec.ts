@@ -801,6 +801,26 @@ describe("seqlane CLI entrypoints", () => {
     );
   });
 
+  it.each([
+    "--server-url",
+    "--hostname",
+    "--storage-url",
+    "--repository-root",
+    "--user-root",
+  ])("rejects removed run flag %s", async (flag) => {
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      flag,
+      "value",
+    ]);
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain(`Nonexistent flag: ${flag}`);
+  });
+
   it("keeps explicit JSON output machine-readable at the CLI boundary", async () => {
     const result = await runCli(productionEntry, [
       "run",

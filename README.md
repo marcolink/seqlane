@@ -424,9 +424,9 @@ seqlane run --help
 seqlane serve --help
 ```
 
-Use `--server-url` to attach `run`, `status`, or `cancel` to an existing
-loopback server. Use `serve` when you need multiple runs, persistent run
-inspection, MCP access, or Studio access.
+Use `--server-url` to attach `status` or `cancel` to an existing loopback
+server. Use `serve` when you need multiple runs, persistent run inspection,
+MCP access, or Studio access.
 
 ### Discover reusable workflows
 
@@ -465,17 +465,16 @@ The default server is `http://127.0.0.1:4111`. It stores Mastra run data in
 `.seqlane/mastra.db` and exposes the registered workflows through the local
 MCP endpoint.
 
-In another terminal, run a registered workflow and inspect its run:
+In another terminal, run one workflow:
 
 ```sh
-seqlane run repository:review \
+seqlane run ./review.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime direct \
-  --server-url http://127.0.0.1:4111
-
-seqlane status <run-id> \
-  --server-url http://127.0.0.1:4111
+  --runtime direct
 ```
+
+`run` starts a dedicated worker for the selected workflow and does not attach
+to the server started by `serve`.
 
 Start Community Studio against the same server:
 
