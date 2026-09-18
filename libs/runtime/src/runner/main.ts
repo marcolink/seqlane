@@ -16,6 +16,10 @@ export interface RunnerSignalSource {
   on(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
 }
 
+export interface RunnerDisconnectSource {
+  once(event: "disconnect", listener: () => void): unknown;
+}
+
 /**
  * Worker composition stays outside runner IPC. A process entrypoint supplies
  * this factory only when it owns a concrete agent-runtime configuration.
@@ -75,6 +79,14 @@ export function bindRunnerCancellationSignals(
   source.on("SIGTERM", cancel);
 }
 
+/** Cancels owned work when the supervising CLI disappears. */
+export function bindRunnerSupervisorDisconnect(
+  source: RunnerDisconnectSource,
+  control: RunnerRunControl,
+): void {
+  source.once("disconnect", () => requestRunnerCancellation(control));
+}
+
 /** Starts the runtime-owned IPC listener. A non-IPC host is a no-op for library use. */
 export function startRunnerProcess(options: RunnerProcessOptions = {}): void {
   if (
@@ -92,6 +104,7 @@ export function startRunnerProcess(options: RunnerProcessOptions = {}): void {
   const control: RunnerRunControl = { cancellationRequested: false };
   const resolveExecution = createRunnerExecutionResolver(options);
   bindRunnerCancellationSignals(process, control, () => host.exit(130));
+  bindRunnerSupervisorDisconnect(process, control);
 
   host.on("message", (message) => {
     if (!receivedInitialCommand) {

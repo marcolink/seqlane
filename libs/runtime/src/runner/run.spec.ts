@@ -13,6 +13,7 @@ import {
 } from "./run.js";
 import {
   bindRunnerCancellationSignals,
+  bindRunnerSupervisorDisconnect,
   createRunnerExecutionResolver,
   startRunnerProcess,
 } from "./main.js";
@@ -161,6 +162,30 @@ describe("seqlane runner entry point", () => {
     expect(cancellations).toBe(1);
   });
 
+  it("cancels active work when its CLI supervisor disconnects", async () => {
+    const supervisor = new EventEmitter();
+    const controller = new AbortController();
+    let cancellations = 0;
+    const control: RunnerRunControl = {
+      cancellationRequested: false,
+      abortController: controller,
+      activeRun: {
+        outcome: Promise.resolve({ status: "cancelled" }),
+        cancel: async () => {
+          cancellations += 1;
+        },
+      },
+    };
+
+    bindRunnerSupervisorDisconnect(supervisor, control);
+    supervisor.emit("disconnect");
+    await Promise.resolve();
+
+    expect(control.cancellationRequested).toBe(true);
+    expect(controller.signal.aborted).toBe(true);
+    expect(cancellations).toBe(1);
+  });
+
   it("aborts the setup signal passed to the runner-execution factory", async () => {
     useLoadedWorkflow({
       workflow: { id: "setup-cancellation" },
@@ -283,7 +308,7 @@ describe("seqlane runner entry point", () => {
     expect(closed).toBe(true);
   });
 
-  it("closes a prepared runtime when cancellation arrives before execution", async () => {
+  it("closes a prepared runtime and exits when its supervisor disconnects", async () => {
     useLoadedWorkflow({
       workflow: { id: "cancel-before-execution" },
       nodes: [],
@@ -301,6 +326,8 @@ describe("seqlane runner entry point", () => {
     };
     const host = new FakeRunnerHost();
     const control: RunnerRunControl = { cancellationRequested: false };
+    const supervisor = new EventEmitter();
+    bindRunnerSupervisorDisconnect(supervisor, control);
     let closed = 0;
 
     await startRun(
@@ -311,7 +338,7 @@ describe("seqlane runner entry point", () => {
       () => undefined,
       control,
       async (_profile, taskDefinitions) => {
-        control.cancellationRequested = true;
+        supervisor.emit("disconnect");
         const executor = { execute: async () => null };
         return {
           executors: { agent: () => executor },
@@ -328,6 +355,7 @@ describe("seqlane runner entry point", () => {
 
     expect(closed).toBe(1);
     expect(host.events.at(-1)).toMatchObject({ type: "run.cancelled" });
+    expect(host.exitCode).toBe(0);
   });
 
   it("emits one Plan event before invocation topology", async () => {

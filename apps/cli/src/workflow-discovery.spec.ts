@@ -99,7 +99,7 @@ describe("workflow discovery", () => {
     }
   });
 
-  it("resolves discovered extension-shaped names before direct file references", () => {
+  it("accepts an extension-shaped explicit workflow file without discovery", () => {
     const { roots, directory } = createRoots();
     try {
       writeDescriptor(roots.repository, "review.json", descriptor("review.ts"));
@@ -111,15 +111,9 @@ describe("workflow discovery", () => {
         id: "repository:review.ts",
       });
       expect(
-        createRunRequest(
-          "review.ts",
-          "null",
-          undefined,
-          undefined,
-          false,
-          roots,
-        ).workflow,
-      ).toMatchObject({ id: "repository:review.ts" });
+        createRunRequest("review.ts", "null", undefined, undefined, false)
+          .workflow,
+      ).toMatchObject({ exportName: "default" });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -299,52 +293,28 @@ describe("workflow discovery", () => {
     }
   });
 
-  it("resolves discovered run references and does not discover direct references", () => {
-    const { roots, directory } = createRoots();
-    try {
-      writeDescriptor(roots.repository, "review.json", descriptor("review"));
-      writeDescriptor(roots.user, "personal.json", descriptor("personal"));
-
-      expect(
-        createRunRequest(
-          "repository:review",
-          "null",
-          undefined,
-          undefined,
-          false,
-          roots,
-        ).workflow,
-      ).toMatchObject({ id: "repository:review" });
-      expect(
-        createRunRequest(
-          "user:personal",
-          "null",
-          undefined,
-          undefined,
-          false,
-          roots,
-        ).workflow,
-      ).toMatchObject({ id: "user:personal" });
-      expect(
-        createRunRequest("personal", "null", undefined, undefined, false, roots)
-          .workflow,
-      ).toMatchObject({ id: "user:personal" });
-
-      expect(
-        createRunRequest(
-          "./workflow.mjs",
-          "null",
-          undefined,
-          undefined,
-          false,
-          {
-            repository: join(directory, "missing"),
-            user: join(directory, "also-missing"),
-          },
-        ).workflow,
-      ).toMatchObject({ exportName: "default" });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
+  it("requires an explicit reference for run and does not inspect descriptors", () => {
+    expect(() =>
+      createRunRequest(
+        "repository:review",
+        "null",
+        undefined,
+        undefined,
+        false,
+      ),
+    ).toThrow("run requires an explicit workflow file");
+    expect(
+      createRunRequest(
+        "@seqlane/fixtures/renovate-workflow#renovateWorkflow",
+        "null",
+        "test-fixture",
+        undefined,
+        false,
+      ).workflow,
+    ).toMatchObject({
+      id: "@seqlane/fixtures/renovate-workflow#renovateWorkflow",
+      moduleSpecifier: "@seqlane/fixtures/renovate-workflow",
+      exportName: "renovateWorkflow",
+    });
   });
 });

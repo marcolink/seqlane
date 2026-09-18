@@ -1,30 +1,23 @@
 import { Args, Flags } from "@oclif/core";
 import { isJsonValue, type JsonValue } from "@seqlane/core";
-import type { RunRequest } from "@seqlane/protocol";
-import type { ExecutionEventConsumer } from "../event-dispatcher.js";
+import { type RunRequest, type SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { resolve } from "node:path";
 import { closeSync, openSync, readSync } from "node:fs";
 import { createEventDispatcher } from "../event-dispatcher.js";
-import { loadAgentRuntimeFactory } from "../agent-runtime.js";
-import { createRecordingConsumer } from "../recording.js";
 import {
   createCliRenderer,
   createOutputCapabilities,
   resolveRendererMode,
 } from "../output.js";
 import { outputModeOptions, parseOutputMode } from "../output-mode.js";
-import { workflowRootsFromFlags } from "../workflow-roots.js";
 import {
-  discoverWorkflowDescriptors,
-  resolveWorkflowSelection,
-  type WorkflowRoots,
-} from "../workflow-discovery.js";
-import { isExplicitWorkflowReference } from "../workflow-reference.js";
+  isDirectWorkflowReference,
+  parseWorkflowReference,
+} from "../workflow-reference.js";
 import {
   runCommandResultSchema,
   type RunCommandResult,
 } from "../cli-contracts.js";
-import { executeOperationalHostRun } from "../run-operational-host.js";
 import { closeRunResources } from "../run-lifecycle.js";
 import {
   contextualizeCommandError,
@@ -32,7 +25,13 @@ import {
   SeqlaneCommand,
   writeDiagnostic,
 } from "../command.js";
-import { createRunFailureResult } from "../run-result.js";
+import {
+  createRunCancellationResult,
+  createRunFailureResult,
+  createRunSuccessResult,
+  remoteError,
+  type RunIdentity,
+} from "../run-result.js";
 import { writeSessionUiDiagnostic } from "../session-ui-diagnostic.js";
 import { z } from "zod";
 
@@ -120,14 +119,15 @@ export function createRunRequest(
   runtime: string | undefined,
   workspace: string | undefined,
   dryRun: boolean,
-  roots: WorkflowRoots,
 ): RunRequest {
-  const workflows = isExplicitWorkflowReference(workflow)
-    ? []
-    : discoverWorkflowDescriptors(roots);
+  if (!isDirectWorkflowReference(workflow)) {
+    throw new Error(
+      "run requires an explicit workflow file or <module-specifier>#<export-name>",
+    );
+  }
   return {
     type: "run.start",
-    workflow: resolveWorkflowSelection(workflow, workflows).reference,
+    workflow: parseWorkflowReference(workflow),
     input: parseJsonInput(input),
     runtime: {
       id: runtime ?? localRuntimeId,
@@ -139,17 +139,16 @@ export function createRunRequest(
 
 export default class RunCommand extends SeqlaneCommand {
   static override enableJsonFlag = true;
-  static override description = "Run one selected workflow in a fresh runner";
+  static override description = "Run one explicit workflow in a fresh runner";
 
   static override examples = [
-    '<%= config.bin %> run ./workflows/minimal-example/workflow.ts --input \'{"topic":"Seqlane"}\' --runtime local',
-    '<%= config.bin %> run repository:review --input \'{"topic":"Seqlane"}\'',
+    '<%= config.bin %> run ./workflows/local-only-example/workflow.ts --input \'{"value":"Seqlane"}\'',
+    '<%= config.bin %> run ./workflows/minimal-example/workflow.ts --input \'{"topic":"Seqlane"}\' --runtime opencode',
   ];
 
   static override args = {
     workflow: Args.string({
-      description:
-        "qualified or unique workflow name, or direct file/module reference",
+      description: "explicit workflow file or <module-specifier>#<export-name>",
       required: true,
     }),
   };
@@ -174,32 +173,8 @@ export default class RunCommand extends SeqlaneCommand {
       default: "auto",
       exclusive: ["json"],
     }),
-    record: Flags.string({
-      description: "Write bounded canonical execution events to a new file",
-    }),
-    "server-url": Flags.string({
-      description: "Existing operational server URL",
-    }),
-    hostname: Flags.string({
-      description: "Loopback hostname for an owned operational host",
-      default: "127.0.0.1",
-    }),
-    port: Flags.integer({
-      description: "Loopback port for an owned operational host",
-      default: 0,
-    }),
-    "storage-url": Flags.string({
-      description: "Mastra LibSQL storage URL for an owned host",
-      default: "file:./.seqlane/mastra.db",
-    }),
     dry: Flags.boolean({
       description: "Print the calculated Plan without executing workflow tasks",
-    }),
-    "repository-root": Flags.string({
-      description: "Repository workflow descriptor root",
-    }),
-    "user-root": Flags.string({
-      description: "User workflow descriptor root",
     }),
   };
 
@@ -219,8 +194,6 @@ export default class RunCommand extends SeqlaneCommand {
       this.error("--json cannot be combined with --dry", { exit: 1 });
     }
     let request: RunRequest;
-    let agentRuntime: ReturnType<typeof loadAgentRuntimeFactory> | undefined;
-
     try {
       request = createRunRequest(
         args.workflow,
@@ -228,22 +201,13 @@ export default class RunCommand extends SeqlaneCommand {
         flags.runtime,
         flags.workspace,
         flags.dry,
-        workflowRootsFromFlags(flags),
       );
-      if (
-        flags["server-url"] === undefined &&
-        request.runtime.id !== localRuntimeId &&
-        request.runtime.id !== "test-fixture"
-      ) {
-        agentRuntime = loadAgentRuntimeFactory();
-      }
     } catch (error) {
       this.error(contextualizeCommandError(errorMessage(error), error), {
         exit: 1,
       });
     }
 
-    let runnerClient: import("../runner-client.js").RunnerClient | undefined;
     const baseCapabilities = createOutputCapabilities();
     const capabilities = baseCapabilities;
     const terminalMode =
@@ -258,33 +222,12 @@ export default class RunCommand extends SeqlaneCommand {
         exit: 1,
       });
     }
-    let recordingConsumer: ExecutionEventConsumer | undefined;
     let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
     let dispatcher: ReturnType<typeof createEventDispatcher> | undefined;
-    let operationalHostOwnsResources = false;
+    let runnerClient: import("../runner-client.js").RunnerClient | undefined;
+    let identity: RunIdentity | undefined;
 
     try {
-      if (flags.record !== undefined) {
-        try {
-          recordingConsumer = createRecordingConsumer(
-            flags.record,
-            request.workflow.id,
-          );
-        } catch (error) {
-          this.error(
-            contextualizeCommandError(
-              `Could not create recording: ${errorMessage(error)}`,
-              error,
-            ),
-            { exit: 1 },
-          );
-        }
-        writeDiagnostic(
-          capabilities.stderr,
-          `Seqlane recording: bounded execution data is written to disk at ${flags.record}\n`,
-        );
-      }
-
       try {
         renderer =
           terminalMode === undefined
@@ -296,8 +239,8 @@ export default class RunCommand extends SeqlaneCommand {
         });
       }
 
-      const outputConsumer: ExecutionEventConsumer = {
-        consume: (event) => {
+      const outputConsumer = {
+        consume: (event: SeqlaneExecutionEvent) => {
           try {
             if (flags.dry) {
               if (event.type === "run.plan") {
@@ -319,89 +262,93 @@ export default class RunCommand extends SeqlaneCommand {
         close: async () => undefined,
       };
       dispatcher = createEventDispatcher(
-        [
-          { name: "output", consumer: outputConsumer },
-          ...(recordingConsumer === undefined
-            ? []
-            : [{ name: "recording", consumer: recordingConsumer }]),
-        ],
+        [{ name: "output", consumer: outputConsumer }],
         {
           onDiagnostic: (message) =>
             writeDiagnostic(capabilities.stderr, message),
         },
       );
 
-      if (flags.dry) {
-        // Dry runs retain the legacy Plan-producing runner path. Native JSON
-        // output is rejected above, so this branch must never return a run
-        // result envelope through Oclif's JSON serializer.
-        const { launchRunner } = await import("../runner-client.js");
-        runnerClient = launchRunner(request, {
-          onExecutionEvent: (event) => dispatcher?.consume(event),
-          onRuntimeSessionUiAvailable: (notification) => {
-            if (renderer?.mode === "human") return;
-            if (renderer?.handleRuntimeSessionUi !== undefined) {
-              renderer.handleRuntimeSessionUi(notification);
-              return;
-            }
-            writeSessionUiDiagnostic(capabilities, notification.browserUrl);
-          },
-        });
-        const result = await runnerClient.result;
-        if ("failure" in result) {
-          if (renderer?.handleRunnerFailure !== undefined) {
-            renderer.handleRunnerFailure(result.failure);
-          } else {
-            writeDiagnostic(
-              capabilities.stderr,
-              "seqlane runner error: " + result.failure.message,
-            );
+      const { launchRunner } = await import("../runner-client.js");
+      runnerClient = launchRunner(request, {
+        onExecutionEvent: (event) => {
+          dispatcher?.consume(event);
+          if (event.type === "run.started" && identity === undefined) {
+            identity = {
+              workId: event.workId,
+              runId: event.runId,
+              startedAt: event.metadata.occurredAt,
+            };
           }
+        },
+        onRuntimeSessionUiAvailable: (notification) => {
+          if (renderer?.mode === "human") return;
+          if (renderer?.handleRuntimeSessionUi !== undefined) {
+            renderer.handleRuntimeSessionUi(notification);
+            return;
+          }
+          if (!jsonMode) {
+            writeSessionUiDiagnostic(capabilities, notification.browserUrl);
+          }
+        },
+      });
+      const result = await runnerClient.result;
+      process.exitCode = result.status;
+      if ("failure" in result) {
+        if (renderer?.handleRunnerFailure !== undefined) {
+          renderer.handleRunnerFailure(result.failure);
+        } else if (!jsonMode) {
+          writeDiagnostic(
+            capabilities.stderr,
+            "seqlane runner error: " + result.failure.message,
+          );
         }
-        process.exitCode = result.status;
-        return;
+        return jsonMode
+          ? createRunFailureResult(result.failure, "execution", request)
+          : undefined;
       }
-
-      // Transfer ownership before entering the operational host. From this
-      // point, its finally block closes every acquired run resource exactly
-      // once, including setup and cancellation failures.
-      operationalHostOwnsResources = true;
-      const run = await executeOperationalHostRun({
+      if (!jsonMode || identity === undefined) return;
+      if (result.terminalEvent.type === "run.succeeded") {
+        return createRunSuccessResult(
+          request,
+          sourceWorkflowReference,
+          identity,
+          result.terminalEvent.output,
+        );
+      }
+      if (result.terminalEvent.type === "run.cancelled") {
+        const signal =
+          "cancellationSignal" in result
+            ? result.cancellationSignal
+            : undefined;
+        return createRunCancellationResult(
+          request,
+          sourceWorkflowReference,
+          identity,
+          signal === undefined ? "runtime_cancelled" : "signal",
+          signal === undefined
+            ? "Run cancelled by the runtime"
+            : `Run cancelled after ${signal}`,
+        );
+      }
+      return createRunFailureResult(
+        remoteError(result.terminalEvent.error),
+        "execution",
         request,
         sourceWorkflowReference,
-        roots: workflowRootsFromFlags(flags),
-        serverUrl: flags["server-url"],
-        hostname: flags.hostname,
-        port: flags.port,
-        storageUrl: flags["storage-url"],
-        agentRuntime,
-        jsonMode,
-        renderer,
-        capabilities,
+        identity,
+      );
+    } finally {
+      const cleanupErrors = await closeRunResources({
         dispatcher,
+        closeClient: () => runnerClient?.close(),
+        finishRenderer: () => renderer?.finish(),
       });
-      for (const error of run.cleanupErrors) {
+      for (const error of cleanupErrors) {
         writeDiagnostic(
           capabilities.stderr,
           "seqlane cleanup error: " + errorMessage(error),
         );
-      }
-      process.exitCode = run.exitStatus;
-      return jsonMode ? run.commandResult : undefined;
-    } finally {
-      if (!operationalHostOwnsResources) {
-        const cleanupErrors = await closeRunResources({
-          dispatcher,
-          recordingConsumer,
-          closeClient: () => runnerClient?.close(),
-          finishRenderer: () => renderer?.finish(),
-        });
-        for (const error of cleanupErrors) {
-          writeDiagnostic(
-            capabilities.stderr,
-            "seqlane cleanup error: " + errorMessage(error),
-          );
-        }
       }
     }
   }

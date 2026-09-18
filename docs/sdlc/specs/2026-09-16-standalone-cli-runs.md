@@ -218,6 +218,11 @@ partial startup. Use bounded shutdown and terminate only owned child processes.
 A second interruption can force owned-process termination. Arbitrary crashes,
 SIGKILL, and power loss cannot guarantee cleanup.
 
+When the dedicated worker loses its CLI supervisor IPC connection, it must
+request the same cancellation path, close owned runtime and adapter resources,
+then terminate after cleanup. This protects against an abruptly terminated
+supervisor without changing the runner IPC contract.
+
 Preserve existing declared task timeout and retry semantics. This deliverable
 adds no command-wide timeout flag and no implicit whole-workflow retry.
 Cleanup failures remain secondary to the primary outcome under the machine

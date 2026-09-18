@@ -155,6 +155,20 @@ The CLI must provide stable human and JSON commands to list, plan, run,
 inspect, and cancel workflows. These commands validate transport data and do
 not create a second runtime, run store, or trace store.
 
+`seqlane run` accepts one explicit workflow file or package module entrypoint.
+It does not resolve catalog names or descriptors. Each direct run uses one
+dedicated runner child that loads the entrypoint and executes it through
+in-memory Mastra runtime primitives. A direct run does not start or attach to a
+Seqlane operational host, create durable Mastra storage, record run history,
+generate a Seqlane recording, or write a GitHub summary.
+
+The runner keeps the existing generic runtime-profile reference and adapter
+configuration contract. The operator owns any configured OpenCode service and
+its lifecycle, authentication, model availability, tools, and permissions.
+`run` must not add adapter-selection flags, endpoint flags, per-run OpenCode
+credentials, or adapter-service lifecycle management. Codex and ACP runtime
+profiles remain supported.
+
 ### requirement-operational-host
 
 `seqlane serve` owns one foreground Mastra host with registered workflows and
