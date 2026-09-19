@@ -36,13 +36,21 @@ attributes, narrow runner notifications, and typed run outcomes.
   context propagation and OpenCode and ACP projections are complete in PR #75.
 - Complete the remaining runtime-owned semantic and admission telemetry and
   align runner and execution-event consumers.
+- Full local model, tool, and skill payload capture is defined by
+  [task.implement-otel-aligned-opencode-observations](./2026-09-19-implement-otel-aligned-opencode-observations.md),
+  not by this runtime-telemetry task.
 - Use the canonical bounded telemetry projection owned by the Seqlane runtime
-  boundary.
+  boundary for runtime-level signals in this task. The separate protocol-owned
+  high-fidelity observation event is the source for model, tool, and skill
+  payload projections and is implemented by
+  [task.implement-otel-aligned-opencode-observations](./2026-09-19-implement-otel-aligned-opencode-observations.md).
 - Allowlist work, run, invocation, Plan node, task, workflow, session,
   workspace, admission, and outcome identifiers; enums; counts; booleans; and
   durations.
-- Omit prompts, task inputs and outputs, credentials, tokens, secrets, headers,
-  filesystem paths, arbitrary metadata, stack traces, and raw causes.
+- For runtime-level telemetry records owned by this task, omit prompts, task
+  inputs and outputs, credentials, tokens, secrets, headers, filesystem paths,
+  arbitrary metadata, stack traces, and raw causes. This bounded rule does not
+  apply to the approved local live observation event.
 - Limit each record to 64 attributes and each string value to 256 UTF-8 bytes.
   Limit a sanitized local diagnostic to 1,024 UTF-8 bytes. Require
   non-negative safe-integer counts and finite, non-negative durations. Emit

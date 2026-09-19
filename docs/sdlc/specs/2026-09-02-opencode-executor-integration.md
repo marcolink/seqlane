@@ -226,7 +226,9 @@ spec.opencode-executor-integration does not implement:
 - Seqlane model, provider, agent, tool, or permission profiles
 - native installation of a Seqlane skill, tool, MCP server, or Harness Overlay capability
 - Seqlane interpretation of repository harness files or OpenCode configuration
-- full OpenCode event capture, session transcript persistence, or OpenCode debugging UI
+- session transcript persistence, recording/replay, or OpenCode debugging UI;
+  live high-fidelity OpenCode observations are defined by
+  `rfc.high-fidelity-local-observability`
 - automatic retries, interactive permission approval, user input, or terminal reads
 - non-OpenCode executors.
 

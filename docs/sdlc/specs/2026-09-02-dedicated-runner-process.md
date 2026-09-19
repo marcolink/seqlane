@@ -415,7 +415,9 @@ spec.dedicated-runner-process does not implement:
 - durable or resumable execution;
 - a human-interaction protocol;
 - persistent Run Records or a local inspector;
-- full OpenCode event capture or OTEL export;
+- recording/replay, event files, or standalone remote OTel export; live
+  high-fidelity OpenCode observations are defined by
+  `rfc.high-fidelity-local-observability`;
 - parallel execution, branches, loops, or retries;
 - Seqlane-managed OpenCode startup/shutdown;
 - cross-run Work continuation;

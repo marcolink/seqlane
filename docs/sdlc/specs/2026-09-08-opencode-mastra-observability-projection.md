@@ -16,20 +16,29 @@ supersedes: []
 
 ## Summary
 
-This specification defines the OpenCode-specific projection from the private
-Seqlane adapter to native Mastra spans and derived metrics. It applies to the
-OpenCode SDK v2 event contract used by `@seqlane/opencode-adapter`. Other adapters have
-separate projection specifications for their own event and lifecycle contracts.
+This specification defines the OpenCode-specific projection from the
+protocol-owned canonical observation/event to native Mastra spans and derived
+metrics. It applies to the OpenCode SDK v2 event contract used by
+`@seqlane/opencode-adapter`. Other adapters have separate projection
+specifications for their own event and lifecycle contracts.
 
-This is not OpenCode SDK observability. The SDK is the validated observation
-source. The Seqlane OpenCode adapter owns the projection into Mastra.
+This is not OpenCode SDK observability. The SDK is the native observation
+source. The Seqlane OpenCode adapter owns native extraction and canonical
+protocol observation emission; the private Mastra projection consumes that
+validated protocol event.
+
+The canonical local payload contract is defined by
+[spec.otel-aligned-observation-contract](./2026-09-19-otel-aligned-observation-contract.md).
+This document retains OpenCode-specific extraction, lifecycle, parentage, and
+Mastra span rules.
 
 The implementation uses `@opencode-ai/sdk` 1.18.27 and `@mastra/core` 1.64.0.
 For each prompt attempt, it subscribes once to the OpenCode event stream before
-sending the prompt. One validated reducer fans out interaction, activity,
-background-process, and native-span transitions. `prompt-response.ts` validates
-the terminal response separately and returns one private observation for
-identity reconciliation.
+sending the prompt. One validated reducer emits canonical observations and
+derives interaction, activity, and background-process transitions. The private
+Mastra projection consumes the resulting protocol event. `prompt-response.ts`
+validates the terminal response separately and returns one private observation
+for identity reconciliation.
 
 The opaque `AgentAdapterRequest.observability` value supplies the invocation
 context. The OpenCode adapter narrows it at its private Mastra integration edge
@@ -59,8 +68,7 @@ It remains a no-op when tracing is absent or the aliases conflict.
 - Defining a generic executor observation union or shared executor projector.
 - Replacing Seqlane `onMetrics` aggregate invocation metrics.
 - Treating the terminal response as the primary event stream.
-- Persisting raw prompts, transcripts, tool arguments, tool results, secrets,
-  or unbounded payloads by default.
+- Adding recording files, replay storage, or a new durable raw-payload store.
 - Changing OpenCode session, structured-output, cancellation, or interaction
   semantics.
 
@@ -111,8 +119,9 @@ For every prompt attempt, the adapter MUST:
 2. Subscribe exactly once to the OpenCode event stream.
 3. Start exactly one validated event reducer over that subscription.
 4. Start the prompt request after the subscription is ready.
-5. Fan out each validated reducer result to interaction detection, existing
-   `onActivity` or background-process handling, and native span projection.
+5. Emit the canonical protocol observation/event and derive interaction,
+   existing `onActivity`, or background-process handling from it. The private
+   Mastra projection consumes the protocol event.
 
 An output consumer MUST NOT subscribe again, iterate the same stream a second time,
 or consume another output's transformed events. Interaction handling,
@@ -123,8 +132,9 @@ execution or produce an unverifiable span.
 The reducer MUST filter events to the current session. It MUST preserve event
 ordering within the attempt and reconcile repeated updates by stable identity.
 The current implementation already subscribes once before `prompt` and uses a
-single consumer for interaction and tool activity. The native projection MUST
-extend that consumer through fan-out rather than adding a second subscription.
+single consumer for interaction and tool activity. Canonical observation
+emission MUST extend that consumer through fan-out rather than adding a second
+subscription; Mastra MUST consume the canonical protocol event.
 
 ### R3. Agent run lifecycle
 
@@ -284,12 +294,16 @@ enclosing workflow step fails. On normal completion, the adapter closes leaf
 tool spans, then model spans, then `AGENT_RUN`. It MUST not close the workflow
 step. Repeated terminal, abort, or close signals MUST be safe.
 
-### R10. Data minimization and isolation
+### R10. Local payload projection and isolation
 
-All event and terminal-response fields entering Mastra MUST pass one common
-redaction and size policy. Secrets, credentials, authorization headers, raw
-prompts, raw transcripts, tool arguments, tool results, and unrestricted error
-text MUST be omitted or bounded by default.
+The canonical local observation path MUST preserve all JSON/text request,
+response, tool, and skill payloads exposed by OpenCode. It MUST NOT redact,
+select, summarize, or truncate those values because of a Seqlane policy.
+
+The adapter MUST place raw payloads in the supported Mastra data-field or span
+event mechanism. Raw payloads MUST NOT become metric labels, entity keys,
+sampling keys, or unbounded span names. The bounded metadata allowlist below
+still applies to untyped correlation metadata.
 
 Session IDs, message IDs, and call IDs MAY be retained as bounded trace
 correlation attributes. They MUST NOT become metric labels, entity keys, or
@@ -395,7 +409,8 @@ Verified by the current implementation and focused tests:
   the existing executor error.
 - **Mastra exporter failure:** Emit a bounded diagnostic and preserve execution.
 - **No current Mastra span:** Skip native spans and preserve execution.
-- **Redaction overflow:** Truncate or omit the field under the fixed bound.
+- **Unavailable or non-JSON value:** Preserve the canonical availability
+  diagnostic and continue with the other observation fields.
 
 ## Migration
 
@@ -453,7 +468,8 @@ The specification is complete when:
 - cancellation, closure, disconnect, and later failure close only spans that
   remain open and never close the workflow-step parent.
 - Mastra failures do not alter OpenCode execution or existing callbacks.
-- data remains redacted and bounded.
+- canonical local payloads remain complete, while correlation metadata remains
+  bounded and payloads never become metric dimensions.
 - public Seqlane contracts remain Mastra-free.
 - required tests pass against the pinned OpenCode and Mastra contracts.
 - configured Mastra storage derives the expected native metrics, subject to
@@ -463,6 +479,7 @@ The specification is complete when:
 
 - [adr.engine-opaque-agent-adapter-contracts: Keep Generic Agent Adapter Contracts Engine-Opaque](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)
 - [spec.mastra-native-agent-observability: Native Mastra Agent Observability Projection](./2026-09-07-mastra-native-agent-observability.md)
+- [spec.otel-aligned-observation-contract: OTel-Aligned Seqlane Observation Contract](./2026-09-19-otel-aligned-observation-contract.md)
 - [adr.opencode-executor-integration: Integrate OpenCode Through a Seqlane-Owned Executor Boundary](../adrs/2026-09-02-opencode-executor-integration.md)
 - [spec.opencode-executor-integration: OpenCode Executor Integration](./2026-09-02-opencode-executor-integration.md)
 - [spec.consumer-agnostic-seqlane-execution-events: Consumer-Agnostic Seqlane Execution Events](./2026-09-02-consumer-agnostic-seqlane-execution-events.md)
