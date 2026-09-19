@@ -16,6 +16,16 @@ declares task dependencies, session use, and workspace coordination.
 > Seqlane is in active development. Breaking changes can occur while its
 > contracts and package boundaries evolve.
 
+## How it works
+
+```mermaid
+flowchart LR
+  A[Actor] -->|seqlane run --adapter …| S[Seqlane]
+  S --> D[Selected adapter]
+  D --- O[OpenCode]
+  D --- C[Codex]
+```
+
 ## Workflow layer and runtime layer
 
 Seqlane is the workflow layer. It defines typed tasks, task dependencies,
