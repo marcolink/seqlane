@@ -1,0 +1,13 @@
+{
+  "name": "@seqlane/public-docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev .",
+    "build": "vitepress build ."
+  },
+  "devDependencies": {
+    "vitepress": "2.0.0-alpha.20"
+  }
+}
