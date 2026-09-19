@@ -25,9 +25,11 @@ sends the request through the selected adapter.
 
 ## Output and model requirements
 
-The agent result must match the output schema. Choose a model with structured
-output. For OpenCode, the model must also support tool calling and the internal
-`StructuredOutput` tool.
+The agent result must match the output schema. Seqlane validates it before the
+task completes. OpenCode can use native structured output when the runtime and
+model support it. Otherwise, it requests JSON in the prompt and validates the
+result. The fallback can repair malformed output, but it is less reliable than
+native structured output.
 
 Read [Model selection](/authoring-workflows/models) and
 [adapter capabilities](/adapters/overview#capabilities) before you select a

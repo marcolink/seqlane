@@ -72,11 +72,13 @@ an adapter can use it.
 
 ## Structured output
 
-An agent model must support structured output. Seqlane validates each agent
-result against the task output schema.
+An agent result must match the task output schema. Seqlane validates each
+result before the task completes.
 
-For OpenCode, the model must support tool calling and provide the internal
-`StructuredOutput` tool. Without structured output, an agent task cannot run.
+OpenCode can use native structured output when the runtime and model support
+it. Otherwise, it can request JSON in the prompt and validate the result. This
+fallback can repair malformed output, but it is less reliable than native
+structured output.
 
 ## Session model policy
 
