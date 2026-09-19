@@ -16,6 +16,16 @@ declares task dependencies, session use, and workspace coordination.
 > Seqlane is in active development. Breaking changes can occur while its
 > contracts and package boundaries evolve.
 
+## How it works
+
+```mermaid
+flowchart LR
+  A[Actor] -->|seqlane run --adapter …| S[Seqlane]
+  S --> D[Selected adapter]
+  D --- O[OpenCode]
+  D --- C[Codex]
+```
+
 ## Workflow layer and runtime layer
 
 Seqlane is the workflow layer. It defines typed tasks, task dependencies,
@@ -310,41 +320,16 @@ seqlane run ./workflows/local-only-example/workflow.ts \
 
 ### Run an agent workflow
 
-`run` defaults to the `local` runtime profile. Local-only workflows do not need
-adapter configuration. Agent tasks need the `direct` runtime profile and a
-configured adapter. The following example configures OpenCode. Codex is also
-supported through the private adapter configuration.
+`run` defaults to no adapter. Local-only workflows do not need configuration.
+Agent tasks select a direct-run adapter. OpenCode starts as a service owned by
+the run; Codex uses its native discovery defaults.
 
-Start OpenCode in one terminal:
-
-```sh
-opencode serve --hostname 127.0.0.1 --port 4096
-```
-
-Set the adapter configuration in the terminal that runs Seqlane:
-
-```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
-```
-
-For Codex, `executable` is optional. If omitted, the runtime resolves `codex` from
-`PATH`. The runtime supplies the workspace and starts one private app-server
-process for each run:
-
-```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"codex","networkAccess":false}'
-```
-
-An absolute `executable` path can be supplied when a specific installation is
-required. If that path is unavailable, Seqlane falls back to `PATH` and emits a
-warning. If no executable is found, the run fails with an actionable diagnostic.
-
-Run the workflow in that terminal:
+Run an agent workflow with OpenCode:
 
 ```sh
 seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime direct
+  --adapter opencode
 ```
 
 For Codex, provide the runtime workspace explicitly:
@@ -352,14 +337,14 @@ For Codex, provide the runtime workspace explicitly:
 ```sh
 seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
-  --runtime direct \
+  --adapter codex \
   --workspace "$PWD"
 ```
 
-The `--runtime` value is an opaque profile ID. `local` and `direct` are the
-built-in profiles; custom hosts can provide other profiles. A profile ID does
-not select an adapter. Adapter configuration belongs to the Seqlane process or
-operational server.
+OpenCode accepts optional `--adapter-host 127.0.0.1` and `--adapter-port 0`.
+The host is loopback-only; port `0` selects an ephemeral port. One strict Zod
+discriminated schema validates adapter-specific values before they enter the
+private worker bootstrap. They never enter workflow input or runner IPC.
 
 Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
 source per run, and input files have a 1 MiB limit.
@@ -372,9 +357,8 @@ Use one-shot CLI execution when one process needs one workflow result:
 seqlane run my-workflow.js --input '{}'
 ```
 
-The CLI starts a temporary loopback operational server for the run, prints the
-result, and closes the server. Add `--runtime direct` and configure
-`SEQLANE_RUNTIME_ADAPTER_CONFIG` when the workflow contains agent tasks.
+The CLI runs one workflow and prints the result. Add `--adapter opencode` or
+`--adapter codex` when the workflow contains agent tasks.
 
 Use the MCP access pattern when an MCP client, Studio, or multiple runs need a
 persistent server:
@@ -470,7 +454,7 @@ In another terminal, run a registered workflow and inspect its run:
 ```sh
 seqlane run repository:review \
   --input '{"topic":"Seqlane"}' \
-  --runtime direct \
+  --adapter opencode \
   --server-url http://127.0.0.1:4111
 
 seqlane status <run-id> \
@@ -502,12 +486,12 @@ Build and run it with the normal Seqlane CLI:
 pnpm build
 pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts \
   --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
-  --runtime direct \
+  --adapter opencode \
   --workspace "$PWD"
 ```
 
-Configure the selected Seqlane runtime, for example with
-`SEQLANE_RUNTIME_ADAPTER_CONFIG` for OpenCode or Codex. The workflow explicitly selects
+Select an adapter with `--adapter opencode` or `--adapter codex` when this
+workflow needs an agent task. The workflow explicitly selects
 `openai/gpt-5.6-luna` with medium reasoning. Optional `zg`/zvec-grep and
 `ripwire` failures are reported as uncertainties.
 

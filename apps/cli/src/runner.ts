@@ -5,6 +5,8 @@ import {
 import { fileURLToPath } from "node:url";
 import {
   agentRuntimeConfigurationEnvironment,
+  directRunAdapterConfigurationEnvironment,
+  loadDirectRunAgentRuntimeFactory,
   loadAgentRuntimeFactory,
 } from "./agent-runtime.js";
 
@@ -15,6 +17,12 @@ import {
 export function createRunnerProcessOptions(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): RunnerProcessOptions {
+  if (environment[directRunAdapterConfigurationEnvironment] !== undefined) {
+    return {
+      createAgentRuntimeFactory: () =>
+        loadDirectRunAgentRuntimeFactory(environment),
+    };
+  }
   if (environment[agentRuntimeConfigurationEnvironment] === undefined) {
     return {};
   }

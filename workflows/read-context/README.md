@@ -3,7 +3,7 @@
 Builds bounded, cited repository context from exact search and configured
 retrieval tools, then summarizes that evidence.
 
-Run: `seqlane run workflows/read-context/workflow.ts --input '{"question":"where is workflow loading implemented?"}' --runtime direct`
+Run: `seqlane run workflows/read-context/workflow.ts --input '{"question":"where is workflow loading implemented?"}' --adapter opencode`
 
 Input follows `ReadContextRequest`; output follows `ReadContextResult`, with
 cited evidence and uncertainty metadata. It requires the configured repository

@@ -172,18 +172,18 @@ describe("command classification and hook policy", () => {
     process.chdir(root);
     try {
       const command =
-        'pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input \'{"question":"q"}\' --runtime direct --workspace .';
+        'pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input \'{"question":"q"}\' --adapter opencode --workspace .';
       expect(
         runReadContextGuard(JSON.stringify({ tool_input: { command } })),
       ).toBe("{}");
-      const missingRuntime = runReadContextGuard(
+      const missingAdapter = runReadContextGuard(
         JSON.stringify({
           tool_input: {
-            command: command.replace(" --runtime direct", ""),
+            command: command.replace(" --adapter opencode", ""),
           },
         }),
       );
-      expect(JSON.parse(missingRuntime)).toMatchObject({
+      expect(JSON.parse(missingAdapter)).toMatchObject({
         hookSpecificOutput: { permissionDecision: "deny" },
       });
     } finally {

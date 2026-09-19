@@ -260,7 +260,8 @@
 | [task.standalone-run-execution](./2026-09-16-standalone-run-execution.md) | Execute Standalone Runs Through Mastra | completed | 2026-09-16 | core |
 | [task.standalone-workflow-loading](./2026-09-16-standalone-workflow-loading.md) | Load Standalone Workflow Entrypoints | completed | 2026-09-16 | core |
 | [task.standalone-adapter-lifecycle](./2026-09-16-standalone-adapter-lifecycle.md) | Manage Standalone Adapter Lifecycle | completed | 2026-09-16 | core |
-| [task.standalone-cli-cutover](./2026-09-16-standalone-cli-cutover.md) | Switch the CLI to Standalone Runs | planned | 2026-09-16 | core |
+| [task.standalone-cli-cutover](./2026-09-16-standalone-cli-cutover.md) | Switch the CLI to Standalone Runs | cancelled | 2026-09-16 | core |
 | [task.retire-plan-factory-workflow-loading](./2026-09-17-retire-plan-factory-workflow-loading.md) | Retire Plan Factory Workflow Loading | completed | 2026-09-17 | core |
 | [task.direct-run-cleanup](./2026-09-17-direct-run-cleanup.md) | Simplify Direct Workflow Runs | in-progress | 2026-09-17 | core |
 | [task.scope-merge-conflict-agent-skill](./2026-09-18-scope-merge-conflict-agent-skill.md) | Scope the Merge Conflict Agent Skill | completed | 2026-09-18 | core |
+| [task.adapter-cli-flags](./2026-09-19-adapter-cli-flags.md) | Replace Direct-Run Runtime Flags with Adapter Flags | in-progress | 2026-09-19 | core |

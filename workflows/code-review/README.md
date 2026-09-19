@@ -3,7 +3,7 @@
 Reviews a supplied Git change using parallel correctness, maintainability, and
 risk lanes, then applies dispositions to the resulting report.
 
-Run: `seqlane run workflows/code-review/workflow.ts --input '<code-review input JSON>' --runtime direct`
+Run: `seqlane run workflows/code-review/workflow.ts --input '<code-review input JSON>' --adapter opencode`
 
 `direct` selects Seqlane's built-in in-process agent-execution profile. The
 calling process or server still owns the concrete adapter choice and its private

@@ -1,6 +1,9 @@
 // @test-scope ./runner.ts
 import { describe, expect, it, vi } from "vitest";
-import { agentRuntimeConfigurationEnvironment } from "./agent-runtime.js";
+import {
+  agentRuntimeConfigurationEnvironment,
+  directRunAdapterConfigurationEnvironment,
+} from "./agent-runtime.js";
 
 vi.mock("@seqlane/runtime/runner", () => ({
   startRunnerProcess: vi.fn(),
@@ -27,6 +30,25 @@ describe("CLI runner composition", () => {
     });
 
     expect(options.createAgentRuntimeFactory).toEqual(expect.any(Function));
+    expect(options.createAgentRuntimeFactory?.()).toEqual(expect.any(Function));
+  });
+
+  it("prefers direct-run selection over inherited hosted configuration", () => {
+    const options = createRunnerProcessOptions({
+      [agentRuntimeConfigurationEnvironment]: JSON.stringify({
+        adapter: "acp",
+        configuration: {
+          id: "fixture",
+          description: "Fixture ACP runtime",
+          command: "fixture-acp",
+          persistSession: false,
+        },
+      }),
+      [directRunAdapterConfigurationEnvironment]: JSON.stringify({
+        adapter: "codex",
+      }),
+    });
+
     expect(options.createAgentRuntimeFactory?.()).toEqual(expect.any(Function));
   });
 });

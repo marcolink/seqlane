@@ -28,16 +28,16 @@ import { modelSelectionWorkflow } from "@seqlane/fixtures/model-selection-workfl
 import { localGitStatusWorkflow } from "@seqlane/fixtures/local-git-status";
 ```
 
-Run the Renovate fixture after an OpenCode runtime starts and its Seqlane
-adapter configuration is set:
+Run the Renovate fixture with an OpenCode service owned by the direct run:
 
 ```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
 seqlane run \
   @seqlane/fixtures/renovate-workflow#renovateWorkflow \
   --input '{"dependency":"zod","fromVersion":"3","toVersion":"4","failure":"tests fail"}' \
-  --runtime direct
+  --adapter opencode
 ```
+
+`SEQLANE_RUNTIME_ADAPTER_CONFIG` configures hosted commands such as `seqlane serve`.
 
 Use only the exported subpaths in `package.json`. Do not import fixture source
 files or `dist` files through relative paths.

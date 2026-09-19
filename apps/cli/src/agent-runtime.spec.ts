@@ -16,6 +16,9 @@ import { z } from "zod";
 import {
   AgentRuntimeConfigurationError,
   createAgentRuntimeFactory,
+  createDirectRunAdapterConfiguration,
+  directRunAdapterConfigurationEnvironment,
+  loadDirectRunAgentRuntimeFactory,
 } from "./agent-runtime.js";
 
 const input = z.object({ value: z.string() });
@@ -170,6 +173,46 @@ function serializedSpanFields(trace: unknown): string {
 }
 
 describe("CLI agent runtime composition", () => {
+  it("accepts only supported direct-run adapter configuration", async () => {
+    const encoded = createDirectRunAdapterConfiguration({
+      adapter: "opencode",
+      host: "127.0.0.1",
+      port: 4123,
+    });
+    expect(JSON.parse(encoded)).toEqual({
+      adapter: "opencode",
+      host: "127.0.0.1",
+      port: 4123,
+    });
+    expect(
+      JSON.parse(
+        createDirectRunAdapterConfiguration({
+          adapter: "opencode",
+          host: "0:0:0:0:0:0:0:1",
+        }),
+      ),
+    ).toMatchObject({ host: "::1" });
+    expect(() =>
+      createDirectRunAdapterConfiguration({
+        adapter: "opencode",
+        host: "192.168.1.1",
+      }),
+    ).toThrow();
+
+    const factory = loadDirectRunAgentRuntimeFactory({
+      [directRunAdapterConfigurationEnvironment]: JSON.stringify({
+        adapter: "codex",
+      }),
+    });
+    expect(factory).toEqual(expect.any(Function));
+    expect(() =>
+      createDirectRunAdapterConfiguration({
+        adapter: "codex",
+        host: "127.0.0.1",
+      }),
+    ).toThrow();
+  });
+
   it("selects an adapter-owned ACP runtime factory", async () => {
     const runtime = await createAgentRuntimeFactory({
       adapter: "acp",

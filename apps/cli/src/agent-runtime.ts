@@ -2,12 +2,45 @@ import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import { createAcpAgentRuntimeFactory } from "@seqlane/acp-adapter";
 import { createCodexAgentRuntimeFactory } from "@seqlane/codex-adapter";
 import { createOpenCodeAgentRuntimeFactory } from "@seqlane/opencode-adapter";
+import { startOpenCodeService } from "@seqlane/opencode-adapter";
+import { isIP } from "node:net";
 import { z } from "zod";
 
 const adapterIdentitySchema = z.object({ adapter: z.string().min(1) });
 
 export const agentRuntimeConfigurationEnvironment =
   "SEQLANE_RUNTIME_ADAPTER_CONFIG" as const;
+
+/** Private parent-to-child configuration for `seqlane run --adapter`. */
+export const directRunAdapterConfigurationEnvironment =
+  "SEQLANE_CLI_DIRECT_ADAPTER_CONFIG" as const;
+
+const loopbackHostSchema = z
+  .string()
+  .trim()
+  .transform((value, context) => {
+    if (value === "localhost") return "127.0.0.1";
+    if (isIP(value) === 4 && value.startsWith("127.")) return value;
+    if (isIP(value) === 6) {
+      const normalized = new URL(`http://[${value}]`).hostname.slice(1, -1);
+      if (normalized === "::1") return normalized;
+    }
+    context.addIssue({ code: "custom", message: "must be a loopback host" });
+    return z.NEVER;
+  });
+
+const directRunAdapterConfigurationSchema = z.discriminatedUnion("adapter", [
+  z.strictObject({ adapter: z.literal("codex") }),
+  z.strictObject({
+    adapter: z.literal("opencode"),
+    host: loopbackHostSchema.default("127.0.0.1"),
+    port: z.number().int().min(0).max(65_535).default(0),
+  }),
+]);
+
+export type DirectRunAdapterConfiguration = z.output<
+  typeof directRunAdapterConfigurationSchema
+>;
 
 export class AgentRuntimeConfigurationError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -60,4 +93,71 @@ export function loadAgentRuntimeFactory(
     );
   }
   return createAgentRuntimeFactory(value);
+}
+
+/** Validates CLI adapter flags before they cross the private child boundary. */
+export function createDirectRunAdapterConfiguration(value: unknown): string {
+  return JSON.stringify(directRunAdapterConfigurationSchema.parse(value));
+}
+
+/** Loads direct-run selection. This must never read the legacy hosted config. */
+export function loadDirectRunAgentRuntimeFactory(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): AgentRuntimeFactory {
+  const encoded = environment[directRunAdapterConfigurationEnvironment];
+  if (encoded === undefined || encoded.length === 0) {
+    throw new AgentRuntimeConfigurationError("configuration is missing");
+  }
+  let configuration: DirectRunAdapterConfiguration;
+  try {
+    configuration = directRunAdapterConfigurationSchema.parse(
+      JSON.parse(encoded),
+    );
+  } catch (cause) {
+    throw new AgentRuntimeConfigurationError("configuration is invalid", cause);
+  }
+
+  switch (configuration.adapter) {
+    case "codex":
+      return createCodexAgentRuntimeFactory({ adapter: "codex" });
+    case "opencode":
+      return async (signal, workspace) => {
+        const service = await startOpenCodeService({
+          workspace: workspace ?? process.cwd(),
+          signal,
+          host: configuration.host,
+          port: configuration.port,
+        });
+        try {
+          const runtime = await createOpenCodeAgentRuntimeFactory({
+            adapter: "opencode",
+            url: service.url,
+            ...(workspace === undefined ? {} : { workspace }),
+          })(signal, workspace);
+          return {
+            ...runtime,
+            close: async () => {
+              const results = await Promise.allSettled([
+                runtime.close?.(),
+                service.close(),
+              ]);
+              const failures = results
+                .filter((result) => result.status === "rejected")
+                .map((result) =>
+                  result.status === "rejected" ? result.reason : undefined,
+                );
+              if (failures.length > 0) {
+                throw new AggregateError(
+                  failures,
+                  "Direct OpenCode adapter cleanup failed",
+                );
+              }
+            },
+          };
+        } catch (cause) {
+          await service.close();
+          throw cause;
+        }
+      };
+  }
 }
