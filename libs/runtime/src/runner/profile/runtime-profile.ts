@@ -148,6 +148,7 @@ export function executeAgentAdapterRequest(
     onMetrics: request.onMetrics,
     onDiagnostic: (diagnostic) => request.onDiagnostic?.(diagnostic.message),
     onActivity: request.onActivity,
+    onObservation: request.onObservation,
     onUncertainActivity: request.onUncertainActivity,
     onBackgroundProcess: request.onBackgroundProcess,
   });

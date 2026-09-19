@@ -20,6 +20,7 @@ export interface HumanTreeRowProps {
   readonly animate?: boolean;
   readonly lastSibling: boolean;
   readonly now: () => Date;
+  readonly showObservationDetails?: boolean;
 }
 function HumanTreeRowComponent({
   row,
@@ -28,6 +29,7 @@ function HumanTreeRowComponent({
   animate = false,
   lastSibling,
   now,
+  showObservationDetails = false,
 }: HumanTreeRowProps): React.JSX.Element {
   const { node } = row;
   // Keep the animation at the row boundary: each frame must also refresh the
@@ -74,6 +76,7 @@ function HumanTreeRowComponent({
         row={row}
         capabilities={capabilities}
         lastSibling={lastSibling}
+        showObservationDetails={showObservationDetails}
       />
     </Box>
   );
@@ -116,7 +119,8 @@ export function sameHumanTreeRowProps(
     fallbackFrameStable &&
     left.animate === right.animate &&
     left.lastSibling === right.lastSibling &&
-    left.now === right.now
+    left.now === right.now &&
+    left.showObservationDetails === right.showObservationDetails
   );
 }
 

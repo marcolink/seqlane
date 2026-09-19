@@ -5,6 +5,7 @@ import { workTone } from "./theme.js";
 import { encodeTerminalField } from "../terminal-field.js";
 import { usageSummary } from "./usage.js";
 import { formatValidationDetails } from "../output-details.js";
+import { HumanModelObservationDetails } from "./observation-details.js";
 
 function contextSummary(node: RunNode): string {
   const parts: string[] = [];
@@ -26,18 +27,7 @@ function contextSummary(node: RunNode): string {
   return parts.join(" · ");
 }
 
-/** Native flex borders stretch with wrapped content; no line-height estimation. */
-export function HumanTaskDetails({
-  row,
-  capabilities,
-  lastSibling,
-}: {
-  readonly row: RunVisibleRow;
-  readonly capabilities: HumanDisplayCapabilities;
-  readonly lastSibling: boolean;
-}): React.JSX.Element | null {
-  const { node } = row;
-  if (node.state === "succeeded") return null;
+function taskDetailLines(node: RunNode): string[] {
   const expanded =
     node.state === "active" ||
     node.state === "retrying" ||
@@ -63,8 +53,25 @@ export function HumanTaskDetails({
     lines.push(
       `[output truncated original_bytes=${node.output.originalBytes ?? 0} omitted_bytes=${node.output.omittedBytes ?? 0}]`,
     );
-  const details = lines.filter((line): line is string => Boolean(line));
-  if (details.length === 0) return null;
+  return lines.filter((line): line is string => Boolean(line));
+}
+
+/** Native flex borders stretch with wrapped content; no line-height estimation. */
+export function HumanTaskDetails({
+  row,
+  capabilities,
+  lastSibling,
+  showObservationDetails = false,
+}: {
+  readonly row: RunVisibleRow;
+  readonly capabilities: HumanDisplayCapabilities;
+  readonly lastSibling: boolean;
+  readonly showObservationDetails?: boolean;
+}): React.JSX.Element | null {
+  const { node } = row;
+  if (node.state === "succeeded" && node.observations.size === 0) return null;
+  const details = taskDetailLines(node);
+  if (details.length === 0 && node.observations.size === 0) return null;
   const limit = Math.min(
     32,
     Math.max(0, Math.floor(((capabilities.width ?? 80) - 24) / 3)),
@@ -107,6 +114,12 @@ export function HumanTaskDetails({
             {encodeTerminalField(line, capabilities.redactions)}
           </Text>
         ))}
+        <HumanModelObservationDetails
+          events={node.observations.values()}
+          capabilities={capabilities}
+          showDetails={showObservationDetails}
+          failure={node.failure !== undefined}
+        />
       </Box>
     </Box>
   );

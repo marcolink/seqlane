@@ -1,6 +1,7 @@
 import { isPlainRecord } from "@seqlane/core";
 import type {
   InvocationActivityEvent,
+  InvocationObservationEvent,
   SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import {
@@ -23,6 +24,7 @@ import {
   formatValidationDetails,
 } from "./output-details.js";
 import { redactOutput } from "./redaction.js";
+import { formatModelObservationSummary } from "./observation-details.js";
 
 export interface CIRendererOptions {
   readonly now?: () => Date;
@@ -180,6 +182,17 @@ function activityDetail(event: InvocationActivityEvent): string | undefined {
     return details.length === 0 ? undefined : details.join(" ");
   }
   return undefined;
+}
+
+function observationSummary(event: InvocationObservationEvent): string {
+  return (
+    "run=" +
+    event.runId +
+    " invocation=" +
+    event.invocationId +
+    " " +
+    formatModelObservationSummary(event)
+  );
 }
 
 function formatCIDuration(milliseconds: number): string {
@@ -411,6 +424,8 @@ export class CIRenderer implements ExecutionRenderer {
               : " error=" + compactCI(event.message))
           );
         }
+      case "invocation.observation":
+        return compactCI(observationSummary(event), 1_000);
       case "invocation.output":
         if (event.policy !== "persistent") return "";
         {

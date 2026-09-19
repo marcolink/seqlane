@@ -4,6 +4,7 @@ import {
   serializeSeqlaneError,
   type SeqlaneExecutionEvent,
   type SeqlaneExecutionEventMetadata,
+  type InvocationObservationEvent,
   type SeqlanePlanSnapshot,
 } from "@seqlane/protocol";
 import {
@@ -20,6 +21,9 @@ export type SendExecutionEvent = (
 
 export interface ExecutionEventBridge extends SeqlaneEventSink {
   emitPlan(plan: SeqlanePlanSnapshot, workId: string, runId: string): void;
+  emitObservation(
+    event: Omit<InvocationObservationEvent, "metadata">,
+  ): void;
   flush(): Promise<void>;
 }
 
@@ -123,6 +127,14 @@ export function createExecutionEventBridge(
         createMetadata(++sequence, createEventId, clock),
       );
       pending = pending.then(() => send(canonical));
+    },
+    emitObservation(event) {
+      pending = pending.then(() =>
+        send({
+          ...event,
+          metadata: createMetadata(++sequence, createEventId, clock),
+        }),
+      );
     },
     flush() {
       return pending;

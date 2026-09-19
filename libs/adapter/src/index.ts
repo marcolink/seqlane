@@ -4,6 +4,7 @@ import type {
   ModelSelection,
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
+import type { SeqlaneObservation } from "@seqlane/protocol";
 import { z } from "zod";
 
 export {
@@ -81,6 +82,8 @@ export interface AgentAdapterRequest {
   readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
   readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
   readonly onActivity?: (activity: AgentActivity) => void;
+  /** Reports one validated canonical observation from the adapter. */
+  readonly onObservation?: (observation: SeqlaneObservation) => void;
   /** Reports an external request whose termination cannot be confirmed. */
   readonly onUncertainActivity?: (activity: AgentUncertainActivity) => void;
   /** Reports a background process started by the adapter. */

@@ -7,6 +7,7 @@ import type {
 } from "@seqlane/core";
 import type { AgentRuntimeModelCapabilities } from "@seqlane/agent-adapter";
 import type { ObservabilityContext } from "@mastra/core/observability";
+import type { SeqlaneObservation } from "@seqlane/protocol";
 
 type LegacyTaskNode = TaskNode & { readonly executor?: string };
 
@@ -77,6 +78,8 @@ export interface ExecutorRequest {
   /** Report bounded executor diagnostics for the invocation output. */
   readonly onDiagnostic?: (message: string) => void;
   readonly onActivity?: (activity: SeqlaneExecutorActivity) => void;
+  /** Forwards one adapter observation to the protocol event bridge. */
+  readonly onObservation?: (observation: SeqlaneObservation) => void;
   /** Register a managed effect before `execute` resolves. */
   readonly onEffect?: (effect: SeqlaneManagedEffect) => void;
   /** Report a timeout or disconnect whose task termination is not yet known. */

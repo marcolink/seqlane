@@ -30,6 +30,7 @@ import type {
   SeqlaneOutputSummary,
 } from "@seqlane/core";
 import type {
+  InvocationObservationEvent,
   SerializedSeqlaneError,
   SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
@@ -120,6 +121,8 @@ export interface RunNode {
   readonly state: RunNodeState;
   readonly toolUsage: ReadonlyMap<string, number>;
   readonly skillUsage: ReadonlyMap<string, number>;
+  /** Complete latest lifecycle record for each logical observation. */
+  readonly observations: ReadonlyMap<string, InvocationObservationEvent>;
   readonly phase?: string;
   readonly activity?: string;
   readonly workspace?: "shared" | "exclusive";
@@ -273,6 +276,7 @@ function emptyNode(
     state: "queued",
     toolUsage: new Map(),
     skillUsage: new Map(),
+    observations: new Map(),
     aggregate: EMPTY_AGGREGATE,
     output: { persistent: [] },
     ...(event.kind !== "validation"
@@ -838,6 +842,12 @@ export function reduceRunViewModel(
         projectNodeActivity(node, event),
       );
     }
+    case "invocation.observation":
+      return updateNode(next, event.invocationId, (node) => {
+        const observations = new Map(node.observations);
+        observations.set(event.observationId, event);
+        return { ...node, observations };
+      });
     case "invocation.output": {
       const node = next.nodes.get(event.invocationId);
       if (node === undefined) return next;

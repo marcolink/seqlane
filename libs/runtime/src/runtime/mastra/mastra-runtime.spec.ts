@@ -204,7 +204,10 @@ describe("private Mastra runtime spine", () => {
       id: "nested-runtime-task",
       input: z.object({ value: z.number() }),
       output: z.object({ result: z.number() }),
-      execute: async ({ input }) => ({ result: input.value + 1 }),
+      execute: async ({ input, context }) => {
+        await context.runAgent({ goal: "nested model call" });
+        return { result: input.value + 1 };
+      },
     });
     const child = createFlow({
       id: "nested-runtime-child",
@@ -227,6 +230,7 @@ describe("private Mastra runtime spine", () => {
       .define();
     const built = buildWorkflow(parent);
     const events: SeqlaneEvent[] = [];
+    const observations: unknown[] = [];
     const execution = createMastraPlanExecution({
       plan: built.plan,
       workflowInput: { value: 1 },
@@ -239,7 +243,22 @@ describe("private Mastra runtime spine", () => {
           resolvedSessionInvocationIds.push(invocationId);
           return {
             key: Symbol("nested-session"),
-            executor: { execute: async () => ({}) },
+            executor: {
+              execute: async (request) => {
+                request.onObservation?.({
+                  observationId: "nested-model",
+                  kind: "model",
+                  state: "succeeded",
+                  attemptIndex: 0,
+                  model: {
+                    operation: "chat",
+                    request: { text: "nested model call" },
+                    response: { text: "done" },
+                  },
+                });
+                return {};
+              },
+            },
           };
         },
       },
@@ -250,6 +269,7 @@ describe("private Mastra runtime spine", () => {
       workflowDefinitions: built.workflowDefinitions,
       workflow: built.workflow,
       events: { emit: (event) => events.push(event) },
+      onObservation: (event) => observations.push(event),
     });
     const dynamicAdmissions = vi.spyOn(
       execution.prepared.context.jointAdmissions,
@@ -314,6 +334,15 @@ describe("private Mastra runtime spine", () => {
     ).toMatchObject({ workspace: "shared" });
     expect(graphAdmissions).toHaveBeenCalled();
     expect(dynamicAdmissions).not.toHaveBeenCalled();
+    expect(observations).toEqual([
+      expect.objectContaining({
+        type: "invocation.observation",
+        invocationId: "nested-runtime-child:1:nested-runtime-task:1",
+        model: expect.objectContaining({
+          response: { text: "done" },
+        }),
+      }),
+    ]);
   });
 
   it("repeats a child workflow with typed next input and inspectable attempts", async () => {

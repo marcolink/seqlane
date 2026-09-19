@@ -68,6 +68,120 @@ function createRun(
 }
 
 describe("OpenCode AgentAdapter", () => {
+  it("emits the complete available model request and response", async () => {
+    const observations: unknown[] = [];
+    let submitted: OpenCodePrompt | undefined;
+    const run = createRun(
+      async (prompt) => {
+        submitted = prompt;
+        return {
+          structured: { result: "done", count: 0 },
+          text: "exact assistant response",
+          metrics: {
+            durationMs: 2,
+            model: "controlled-model",
+            provider: "controlled-provider",
+            cost: 0,
+            tokens: {
+              input: 4,
+              output: 3,
+              reasoning: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+          },
+          observation: {
+            kind: "assistant",
+            sessionID: "session-1",
+            messageID: "message-1",
+            created: 1,
+            completed: 3,
+            provider: "controlled-provider",
+            model: "controlled-model",
+            tokens: {
+              input: 4,
+              output: 3,
+              reasoning: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+            cost: 0,
+            finish: "stop",
+          },
+        };
+      },
+      async () => ({ strategy: "native", retryCount: 0 }),
+    );
+    const adapter = createOpenCodeAdapterForRun(run);
+
+    await adapter.execute(
+      request({ onObservation: (observation) => observations.push(observation) }),
+    );
+
+    expect(submitted).toBeDefined();
+    expect(observations).toEqual([
+      {
+        observationId: "message-1",
+        kind: "model",
+        state: "succeeded",
+        attemptIndex: 0,
+        model: {
+          operation: "chat",
+          provider: "controlled-provider",
+          model: "controlled-model",
+          responseId: "message-1",
+          finishReasons: ["stop"],
+          request: expect.objectContaining({
+            text: submitted?.text,
+            schema: submitted?.schema,
+            strategy: "native",
+            retryCount: 0,
+          }),
+          response: {
+            structured: { result: "done", count: 0 },
+            text: "exact assistant response",
+          },
+          usage: {
+            inputTokens: 4,
+            outputTokens: 3,
+            reasoningTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+          },
+          cost: 0,
+          startedAt: 1,
+          endedAt: 3,
+        },
+      },
+    ]);
+  });
+
+  it("reports model values that cannot cross the JSON protocol", async () => {
+    const observations: unknown[] = [];
+    const adapter = createOpenCodeAdapterForRun(
+      createRun(async () => ({ structured: new Date("2026-09-20T00:00:00Z") })),
+    );
+
+    await adapter.execute(
+      request({ onObservation: (observation) => observations.push(observation) }),
+    );
+
+    expect(observations).toEqual([
+      expect.objectContaining({
+        model: expect.objectContaining({
+          response: {},
+          request: expect.anything(),
+        }),
+        availability: [
+          {
+            path: "model.response.structured",
+            reason: "not-json-representable",
+          },
+        ],
+      }),
+    ]);
+  });
+
   it("ignores failures from structured-output diagnostic consumers", async () => {
     const run = createRun(
       async () => ({ structured: undefined, text: '{"result":"done"}' }),

@@ -67,6 +67,41 @@ function terminal(
 }
 
 describe("human execution view model", () => {
+  it("retains complete model observations and merges lifecycle updates", () => {
+    const first = {
+      type: "invocation.observation" as const,
+      ...run,
+      invocationId: "root",
+      observationId: "model-1",
+      kind: "model" as const,
+      state: "started" as const,
+      model: {
+        request: { messages: [{ role: "user", content: "exact input" }] },
+      },
+    };
+    const second = {
+      ...first,
+      state: "succeeded" as const,
+      model: {
+        ...first.model,
+        response: { text: "exact output", structured: { ok: false } },
+      },
+    };
+    const view = reduceRunEvents([
+      created("root", "Root", 0),
+      first,
+      second,
+    ]);
+    const node = view.nodes.get("root");
+
+    expect(node?.observations.size).toBe(1);
+    expect(node?.observations.get("model-1")).toEqual(second);
+    expect(node?.observations.get("model-1")?.model.response).toEqual({
+      text: "exact output",
+      structured: { ok: false },
+    });
+  });
+
   it("bounds nodes, dependency edges, and detail text with visible markers", () => {
     const events = [
       created("root", "Root", 0, {

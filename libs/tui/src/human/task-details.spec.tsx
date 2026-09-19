@@ -1,4 +1,4 @@
-// @test-scope ./app.tsx ./tree-row.tsx ./usage.ts ../run-view-model.ts ../run-activity.ts ../terminal-field.ts
+// @test-scope ./app.tsx ./tree-row.tsx ./usage.ts ./observation-details.tsx ../run-view-model.ts ../run-activity.ts ../terminal-field.ts ../observation-details.ts
 import { cleanup, render } from "ink-testing-library";
 import { afterEach, expect, it, vi } from "vitest";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
@@ -132,6 +132,38 @@ it("encodes and redacts all dynamic human fields", () => {
   for (const control of ["\u001b", "\r", "\u0085", "\u202e"])
     expect(frame).not.toContain(control);
   expect(frame).toContain("***\\u000d\\u000a");
+});
+
+it("shows complete model detail when requested", async () => {
+  const view = reduceRunViewModel(activeView(), {
+    ...identity,
+    type: "invocation.observation",
+    invocationId: "live",
+    observationId: "model-1",
+    kind: "model",
+    state: "succeeded",
+    model: {
+      provider: "controlled-provider",
+      model: "controlled-model",
+      request: { text: "input", flags: [false, 0, null] },
+      response: { text: "output", structured: { ok: false } },
+    },
+  });
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 100 }}
+      spinnerFrame={0}
+    />,
+  );
+  expect(app.lastFrame()).toContain("model exchanges=1");
+  expect(app.lastFrame()).not.toContain('"provider":"controlled-provider"');
+  app.stdin.write("d");
+  await vi.waitFor(() =>
+    expect(app.lastFrame()).toContain('"provider":"controlled-provider"'),
+  );
+  expect(app.lastFrame()).toContain('"text":"input"');
+  expect(app.lastFrame()).toContain('"text":"output"');
 });
 it("shows reported context and usage, preserves wrapped rails, then collapses", async () => {
   const view = activeView();

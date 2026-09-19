@@ -13,6 +13,10 @@ import type {
   WorkflowDefinition,
   WorkflowDefinitionRegistry,
 } from "@seqlane/core";
+import type {
+  InvocationObservationEvent,
+  SeqlaneObservation,
+} from "@seqlane/protocol";
 import { RequestContext } from "@mastra/core/request-context";
 import { SeqlaneError } from "@seqlane/core";
 import {
@@ -80,6 +84,9 @@ export interface MastraPlanExecutionOptions {
   readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly workflow?: Pick<WorkflowDefinition, "input" | "output">;
   readonly events: SeqlaneEventSink;
+  readonly onObservation?: (
+    event: Omit<InvocationObservationEvent, "metadata">,
+  ) => void;
   readonly repeatBudget?: RepeatExecutionBudget;
 }
 
@@ -148,6 +155,24 @@ interface InvocationTopologyContext {
   readonly workId: WorkId;
   readonly runId: RunId;
   readonly invocationIds: ReadonlyMap<PlanNode["nodeId"], InvocationId>;
+}
+
+function forwardObservation(
+  onObservation: MastraPlanExecutionOptions["onObservation"],
+  workId: WorkId,
+  runId: RunId,
+  invocationId: InvocationId,
+  observation: SeqlaneObservation,
+  iteration?: number,
+): void {
+  onObservation?.({
+    type: "invocation.observation",
+    workId,
+    runId,
+    invocationId,
+    ...observation,
+    ...(iteration === undefined ? {} : { iteration }),
+  });
 }
 
 export function emitMastraInvocationTopology(
@@ -493,6 +518,7 @@ export async function executeNestedMastraWorkflow(options: {
   readonly sessionResolver: SessionResolver;
   readonly workspaceResources: WorkspaceResourceRegistry;
   readonly events: SeqlaneEventSink;
+  readonly onObservation?: MastraPlanExecutionOptions["onObservation"];
   readonly onFailure?: (failure: SeqlaneError) => void;
   readonly repeatBudget?: RepeatExecutionBudget;
 }): Promise<unknown> {
@@ -513,6 +539,7 @@ export async function executeNestedMastraWorkflow(options: {
     workflowDefinitions: child.workflowDefinitions,
     workflow: child.workflow,
     events: options.events,
+    onObservation: options.onObservation,
     repeatBudget: options.repeatBudget,
   });
   let childRun: ReturnType<typeof childExecution.runtime.start> | undefined;
@@ -600,6 +627,15 @@ export function createMastraPlanExecution(
     validatorDefinitions: options.validatorDefinitions,
     workflowDefinitions: options.workflowDefinitions,
     events: options.events,
+    onObservation: (invocationId, observation, iteration) =>
+      forwardObservation(
+        options.onObservation,
+        options.workId,
+        options.runId,
+        invocationId,
+        observation,
+        iteration,
+      ),
   });
   const executeInvocation = createMastraPlanInvocationHandler(
     prepared,
@@ -685,6 +721,7 @@ export function createMastraPlanExecution(
               sessionResolver: options.sessionResolver,
               workspaceResources,
               events: options.events,
+              onObservation: options.onObservation,
               onFailure: captureFailure,
               repeatBudget,
             }),

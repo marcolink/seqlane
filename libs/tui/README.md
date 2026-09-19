@@ -10,7 +10,8 @@ does not depend on a runtime adapter or executor.
 
 - `human` shows a passive live execution tree with automatic expansion,
   type colors, bright running rows, muted inactive rows, branch rails, right-aligned timing, resize,
-  no-color, and ASCII support. It does not read keyboard input.
+  no-color, and ASCII support. Press `d` to toggle complete captured model
+  details; summaries remain visible by default, including after success.
   Active rows expand with reported activity, workspace mode, planned session policy,
   model, completed tool calls, tokens, and cost. Rails stretch with wrapped details.
   A task duration starts when the task becomes active. It excludes queue time and

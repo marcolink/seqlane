@@ -1,11 +1,11 @@
 ---
 id: task.implement-otel-aligned-opencode-observations
 title: Implement OTel-Aligned OpenCode Observations
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-19
-updated: 2026-09-19
+updated: 2026-09-20
 upstream:
   - spec.otel-aligned-observation-contract
 supersedes: []
@@ -16,8 +16,10 @@ supersedes: []
 ## Objective
 
 Implement the draft observation contract through the real OpenCode execution
-path. A single validated OpenCode observation must become one canonical,
-serialized protocol event before Mastra and CLI/TUI project it.
+path, with the CLI/TUI as the first consumer. A single validated OpenCode
+observation must become one canonical, serialized protocol event before the
+CLI/TUI projects it. Mastra remains a later projection after the CLI path is
+proven.
 
 ## Upstream requirements
 
@@ -29,7 +31,9 @@ serialized protocol event before Mastra and CLI/TUI project it.
 
 - Protocol-owned Zod observation/event contract.
 - One protocol-owned adapter observation sink and one OpenCode reducer.
-- Protocol event delivery, then private Mastra and TUI projections.
+- Protocol event delivery, then CLI/TUI projection; Mastra projection follows
+  as a later tracer.
+- Preserve the existing `--json` final-result-only behavior.
 - Full available local model, tool, and skill payloads.
 - Compatibility, malformed-input, ordering, failure-isolation, and cost
   measurements.
@@ -46,19 +50,21 @@ serialized protocol event before Mastra and CLI/TUI project it.
 ## Implementation plan
 
 The first tracer tests the highest-risk assumption: one real OpenCode model
-exchange can cross all three consumer boundaries without payload loss.
+exchange can reach the CLI/TUI through the protocol event boundary without
+payload loss.
 
 ### Tracer 1: Plain-text model exchange
 
 - **Outcome:** The exact available request and response are visible in one
-  protocol event, one Mastra model observation, and one TUI detail view.
+  protocol event and one TUI detail view; `--json` still prints only the final
+  result.
 - **Path:** OpenCode native event reducer → protocol-owned observation → runner
-  event bridge → serialized protocol event → Mastra and TUI projections.
+  event bridge → serialized protocol event → CLI/TUI projection.
 - **Risk:** The existing adapter, protocol, and presentation paths may use
   different identities or silently discard model content.
 - **Evidence:** Deep-equality assertions for request/response values, stable
-  Work/Run/Invocation/exchange IDs in all projections, and a focused local
-  end-to-end test.
+  Work/Run/Invocation/exchange IDs in the protocol event and TUI detail model,
+  unchanged final-result JSON behavior, and a focused local end-to-end test.
 - **Files likely touched:** `libs/protocol/src/*`, `libs/adapter/src/index.ts`,
   `libs/opencode/src/observations.ts`, `libs/runtime/src/runner/event-bridge.ts`,
   `libs/tui/src/run-view-model.ts`.
@@ -66,9 +72,9 @@ exchange can cross all three consumer boundaries without payload loss.
 
 ### Checkpoint 1
 
-Stop and inspect the emitted protocol event, Mastra observation, and TUI detail
-model. Do not expand the schema if any one projection loses a value or changes
-identity.
+Stop and inspect the emitted protocol event and TUI detail model. Do not expand
+the schema if either boundary loses a value or changes identity. Do not add the
+Mastra projection until this CLI-first path is verified.
 
 ### Tracer 2: Tool lifecycle and correlation
 
@@ -221,12 +227,20 @@ type enters protocol/core declarations.
 
 ## Outcome
 
-Planned. No implementation or target-branch delivery is claimed.
+The first CLI tracer is implemented on the feature branch. OpenCode model
+request and response observations cross the protocol event bridge and render
+in the human TUI with summaries by default and full details on demand. CI
+renders a model summary, and `--json` remains final-result-only. Nested child
+workflow observations are forwarded. The shared Zod JSON schema validates
+captured payloads; Zod JSON Schema metadata is removed before validation.
+
+The tool, skill, streaming, failure, cancellation, malformed-input, and
+payload-cost tracers remain in progress. Mastra remains a later projection.
 
 ## Delivery state
 
-Implementation gate: human approval of the draft specification and this plan is
-required before work starts.
+The delivered slice exists on the feature branch. It is not yet reachable from
+`main`. The task is not complete.
 
 ## Traceability
 
