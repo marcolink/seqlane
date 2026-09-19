@@ -13,7 +13,7 @@ seqlane run ./workflow.ts --input '{}' --adapter opencode
 
 ## Available adapters
 
-- [OpenCode](/adapters/opencode) connects to a running OpenCode 1 server.
+- [OpenCode](/adapters/opencode) starts a private OpenCode 1 service for the run.
 - [Codex](/adapters/codex) starts a local Codex app-server process for the run.
 
 ## Capabilities

@@ -30,9 +30,9 @@ The task result has this shape:
 }
 ```
 
-A nonzero exit code is a task result. A spawn error, timeout, cancellation, or
-output-limit error stops the task. Use `onError` to convert those errors to a
-normal task result.
+A nonzero exit code is a task result. Use `onError` to convert a spawn error,
+timeout, or output-limit error to a normal task result. Cancellation always
+stops the task.
 
 ```ts
 const status = defineShellTask({

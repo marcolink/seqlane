@@ -97,9 +97,10 @@ seqlane run ./workflow.ts --input '{"topic":"Seqlane"}' --adapter opencode
 
 ### `--adapter-host` and `--adapter-port`
 
-Use these flags only with `--adapter opencode`. They select the running
-OpenCode server. The default host is `127.0.0.1`; it must be a loopback
-address. The default port is `4096`.
+Use these flags only with `--adapter opencode`. They configure the OpenCode
+service that `seqlane run` starts for the run. The default host is `127.0.0.1`;
+it must be a loopback address. The default port is `0`, which selects an
+ephemeral port.
 
 ```sh
 seqlane run ./workflow.ts --input '{}' \
