@@ -11,8 +11,5 @@ export function modelObservationIdentity(
 export function formatModelObservationSummary(
   event: InvocationObservationEvent,
 ): string {
-  const response =
-    event.model.response === undefined ? "" : " response=present";
-  const request = event.model.request === undefined ? "" : " request=present";
-  return `model ${modelObservationIdentity(event)} state=${event.state} attempt=${event.attemptIndex ?? 0}${request}${response}`;
+  return `model ${modelObservationIdentity(event)}`;
 }

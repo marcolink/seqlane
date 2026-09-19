@@ -8,12 +8,16 @@ export function usageSummary(node: RunNode, compact = false): string {
   const metrics = node.output.metrics;
   const parts: string[] = [];
   const calls = node.completedToolIds?.size;
-  if (calls)
-    parts.push(
-      `${calls >= 1000 ? ">=" : ""}${calls} ${compact ? "calls" : "tool calls completed"}`,
-    );
-  if (metrics?.tokens) {
-    parts.push(tokenSummary(metrics.tokens, compact));
+  if (calls && !compact)
+    parts.push(`${calls >= 1000 ? ">=" : ""}${calls} tool calls completed`);
+  if (!compact && metrics?.tokens) {
+    parts.push(tokenSummary(metrics.tokens));
+  }
+  if (!compact) {
+    const tools = namedUsageSummary("tools", node.toolUsage);
+    if (tools) parts.push(tools);
+    const skills = namedUsageSummary("skills", node.skillUsage);
+    if (skills) parts.push(skills);
   }
   if (metrics?.cost !== undefined) parts.push(formatReportedCost(metrics.cost));
   return parts.join(" · ");
@@ -21,13 +25,23 @@ export function usageSummary(node: RunNode, compact = false): string {
 
 function tokenSummary(
   tokens: NonNullable<NonNullable<RunNode["output"]["metrics"]>["tokens"]>,
-  compact: boolean,
 ): string {
-  const { input, output, reasoning, cacheRead, cacheWrite, total } = tokens;
-  if (compact) return `${total ?? input + output + reasoning} tokens`;
-  const parts = [`in ${input} · out ${output}`];
-  if (reasoning) parts.push(`reasoning ${reasoning}`);
-  if (cacheRead || cacheWrite)
-    parts.push(`cache read ${cacheRead} / write ${cacheWrite}`);
-  return parts.join(" · ");
+  const { input, output, reasoning, cacheRead, cacheWrite } = tokens;
+  return [
+    `tokens input=${input}`,
+    `output=${output}`,
+    `reasoning=${reasoning}`,
+    `cacheRead=${cacheRead}`,
+    `cacheWrite=${cacheWrite}`,
+  ].join(" ");
+}
+
+function namedUsageSummary(
+  label: "tools" | "skills",
+  usage: ReadonlyMap<string, number>,
+): string | undefined {
+  if (usage.size === 0) return undefined;
+  return `${label} ${[...usage]
+    .map(([name, count]) => `${name}=${count}`)
+    .join(" ")}`;
 }

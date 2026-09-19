@@ -134,51 +134,86 @@ it("encodes and redacts all dynamic human fields", () => {
   expect(frame).toContain("***\\u000d\\u000a");
 });
 
-it("shows complete model detail when requested", async () => {
-  const view = reduceRunViewModel(activeView(), {
-    ...identity,
-    type: "invocation.observation",
-    invocationId: "live",
-    observationId: "model-1",
-    kind: "model",
-    state: "succeeded",
-    model: {
-      provider: "controlled-provider",
-      model: "controlled-model",
-      request: { text: "input", flags: [false, 0, null] },
-      response: { text: "output", structured: { ok: false } },
-    },
+it("shows compact model summary without raw detail mode", () => {
+  const base = activeView();
+  const node = base.nodes.get("live");
+  if (!node) throw new Error("Missing test invocation");
+  const nodes = new Map(base.nodes);
+  nodes.set("live", {
+    ...node,
+    skillUsage: new Map([["web-perf", 2]]),
   });
+  const view = reduceRunViewModel(
+    { ...base, nodes },
+    {
+      ...identity,
+      type: "invocation.observation",
+      invocationId: "live",
+      observationId: "model-1",
+      kind: "model",
+      state: "succeeded",
+      model: {
+        provider: "controlled-provider",
+        model: "controlled-model",
+        request: { text: "input", flags: [false, 0, null] },
+        response: { text: "output", structured: { ok: false } },
+      },
+    },
+  );
   const app = render(
     <HumanApp
       view={view}
-      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 100 }}
+      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 200 }}
       spinnerFrame={0}
     />,
   );
-  expect(app.lastFrame()).toContain("model exchanges=1");
-  expect(app.lastFrame()).not.toContain('"provider":"controlled-provider"');
-  app.stdin.write("d");
-  await vi.waitFor(() =>
-    expect(app.lastFrame()).toContain('"provider":"controlled-provider"'),
+  expect(app.lastFrame()).toContain(
+    "model   controlled-provider/controlled-model",
   );
-  expect(app.lastFrame()).toContain('"text":"input"');
-  expect(app.lastFrame()).toContain('"text":"output"');
+  expect(app.lastFrame()).toContain(
+    "tokens  input=12400 · output=1800 · reasoning=0 · cacheRead=0 · cacheWrite=0",
+  );
+  expect(app.lastFrame()).toContain("tools   read_file=3");
+  expect(app.lastFrame()).toContain("skills  web-perf=2");
+  expect(app.lastFrame()).not.toContain("model exchanges=");
+  expect(app.lastFrame()).not.toContain("state=succeeded");
+  expect(app.lastFrame()).not.toContain("attempt=0");
+  expect(app.lastFrame()).not.toContain("request=present");
+  expect(app.lastFrame()).not.toContain("response=present");
+  expect(app.lastFrame()).not.toContain('"provider":"controlled-provider"');
+  expect(app.lastFrame()).not.toContain("model observation=");
+  expect(app.lastFrame()).not.toContain('"text":"input"');
+  expect(app.lastFrame()).not.toContain('"text":"output"');
 });
-it("shows reported context and usage, preserves wrapped rails, then collapses", async () => {
+it("shows reported context and aligned usage, preserves wrapped rails, then collapses", async () => {
   const view = activeView();
+  const node = view.nodes.get("live");
+  if (!node) throw new Error("Missing test invocation");
+  const nodes = new Map(view.nodes);
+  nodes.set("live", {
+    ...node,
+    skillUsage: new Map([["web-perf", 2]]),
+  });
   const props = {
     capabilities: { supportsAnsi: false, supportsUnicode: true, width: 48 },
     spinnerFrame: 0,
   };
-  const app = render(<HumanApp {...props} view={view} />);
+  const app = render(<HumanApp {...props} view={{ ...view, nodes }} />);
   const output = app.lastFrame() ?? "";
   expect(output).toContain("workspace shared");
   expect(output).toContain("session new (planned)");
   expect(output).toContain("test-model");
-  expect(output).toContain("1 tool calls completed");
-  expect(output).toContain("in 12400");
-  expect(output).toContain("1800");
+  expect(output).not.toContain("1 tool calls completed");
+  const compactOutput = output.replace(/\s+/g, " ");
+  expect(compactOutput).toContain("tokens");
+  expect(compactOutput).toContain("input=12400");
+  expect(compactOutput).toContain("output=1800");
+  expect(compactOutput).toContain("reasoning=0");
+  expect(compactOutput).toContain("cacheRead=0");
+  expect(compactOutput).toContain("cacheWrite=0");
+  expect(compactOutput).toContain("tools");
+  expect(compactOutput).toContain("read_file=3");
+  expect(compactOutput).toContain("skills web-perf=2");
   expect(output).toContain("$0.08");
   expect(output).not.toContain("Never show raw output");
   const details = output.split("\n").slice(3, -1);
@@ -201,6 +236,25 @@ it("shows reported context and usage, preserves wrapped rails, then collapses", 
   expect(app.lastFrame()).toContain("$0.08");
   expect(app.lastFrame()).toContain("0ms");
 });
+
+it("keeps accumulated tokens out of the completed task header", () => {
+  const view = reduceRunViewModel(activeView(), {
+    ...identity,
+    type: "invocation.succeeded",
+    invocationId: "live",
+  });
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 100 }}
+      spinnerFrame={0}
+    />,
+  );
+  expect(app.lastFrame()).toContain("$0.08 · 0ms");
+  expect(app.lastFrame()).not.toContain("14200 tokens");
+  expect(app.lastFrame()).not.toContain("1 calls");
+});
+
 it("does not invent metrics or workspace context", () => {
   const view = activeView();
   const node = view.nodes.get("live");

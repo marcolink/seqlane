@@ -1,5 +1,5 @@
-import { Box, render, Text, useInput, useWindowSize, type Instance } from "ink";
-import { useMemo, useState } from "react";
+import { Box, render, Text, useWindowSize, type Instance } from "ink";
+import { useMemo } from "react";
 import type { RunViewModel } from "../run-view-model.js";
 import type { HumanDisplayCapabilities } from "./format.js";
 import { HumanHeader } from "./header.js";
@@ -11,7 +11,6 @@ export interface HumanAppProps {
   readonly capabilities: HumanDisplayCapabilities;
   readonly spinnerFrame: number;
   readonly animate?: boolean;
-  readonly showObservationDetails?: boolean;
 }
 
 export interface MountedHumanApp {
@@ -71,14 +70,7 @@ export function HumanApp({
   capabilities,
   spinnerFrame,
   animate = false,
-  showObservationDetails = false,
 }: HumanAppProps): React.JSX.Element {
-  const [detailsRequested, setDetailsRequested] = useState(
-    showObservationDetails,
-  );
-  useInput((input) => {
-    if (input.toLowerCase() === "d") setDetailsRequested((value) => !value);
-  });
   // Leave the terminal's final column unused to avoid edge clipping/autowrap.
   const contentCapabilities = useMemo(
     () => ({
@@ -101,7 +93,6 @@ export function HumanApp({
           capabilities={contentCapabilities}
           spinnerFrame={spinnerFrame}
           animate={animate}
-          showObservationDetails={detailsRequested}
         />
       </Box>
       {view.runError === undefined ? null : (

@@ -38,7 +38,7 @@ function taskDetailLines(node: RunNode): string[] {
           ? node.retry?.lastError.message
           : (node.waitingReason ?? node.activity ?? node.phase),
         contextSummary(node),
-        usageSummary(node),
+        usageSummary(node, true),
       ]
     : [];
   if (node.failure) lines.push(node.failure.message);
@@ -61,12 +61,10 @@ export function HumanTaskDetails({
   row,
   capabilities,
   lastSibling,
-  showObservationDetails = false,
 }: {
   readonly row: RunVisibleRow;
   readonly capabilities: HumanDisplayCapabilities;
   readonly lastSibling: boolean;
-  readonly showObservationDetails?: boolean;
 }): React.JSX.Element | null {
   const { node } = row;
   if (node.state === "succeeded" && node.observations.size === 0) return null;
@@ -117,8 +115,10 @@ export function HumanTaskDetails({
         <HumanModelObservationDetails
           events={node.observations.values()}
           capabilities={capabilities}
-          showDetails={showObservationDetails}
           failure={node.failure !== undefined}
+          tokens={node.output.metrics?.tokens}
+          toolUsage={node.toolUsage}
+          skillUsage={node.skillUsage}
         />
       </Box>
     </Box>

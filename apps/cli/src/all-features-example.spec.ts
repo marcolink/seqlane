@@ -44,7 +44,10 @@ describe("all-features workflow example", () => {
     ]);
     expect(context).toMatchObject({
       workspace: "shared",
-      session: { type: "isolated" },
+      session: {
+        type: "isolated",
+        model: { model: { provider: "openai", model: "gpt-5.6-luna" } },
+      },
     });
     expect(lanes).toHaveLength(2);
     expect(lanes).toEqual(
@@ -54,7 +57,13 @@ describe("all-features workflow example", () => {
         }),
       ]),
     );
-    expect(policy?.dependsOn).toEqual([]);
+    expect(policy).toMatchObject({
+      dependsOn: [],
+      session: {
+        type: "isolated",
+        model: { model: { provider: "openai", model: "gpt-5.6-luna" } },
+      },
+    });
     expect(joined).toMatchObject({
       workspace: "exclusive",
       session: { type: "reuse", from: "all-features-example-lane:1" },
@@ -65,6 +74,10 @@ describe("all-features workflow example", () => {
     expect(polish).toMatchObject({
       workspace: "shared",
       taskId: "all-features-example-polish",
+      session: {
+        type: "isolated",
+        model: { model: { provider: "openai", model: "gpt-5.6-luna" } },
+      },
     });
     expect(built.plan.output).toMatchObject({
       validation: { type: "ref", path: ["validation"] },

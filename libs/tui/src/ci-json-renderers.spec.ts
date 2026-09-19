@@ -256,8 +256,12 @@ describe("CI renderer", () => {
 
     const output = stdout.writes.join("");
     expect(output).toContain(
-      "run=run-1 invocation=a model controlled-provider/controlled-model state=succeeded attempt=0 request=present response=present",
+      "run=run-1 invocation=a model controlled-provider/controlled-model",
     );
+    expect(output).not.toContain("model exchanges=");
+    expect(output).not.toContain("state=succeeded attempt=0");
+    expect(output).not.toContain("request=present");
+    expect(output).not.toContain("response=present");
     expect(output).not.toContain("private request");
     expect(output).not.toContain("private response");
   });
