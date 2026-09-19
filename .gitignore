@@ -1,5 +1,7 @@
 node_modules/
 dist/
+apps/docs/.vitepress/cache/
+apps/docs/.vitepress/dist/
 .nx/
 .seqlane/
 .zvec-grep/
