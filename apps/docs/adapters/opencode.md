@@ -1,23 +1,15 @@
 # OpenCode
 
-The OpenCode adapter connects to a running OpenCode 1 server. Seqlane supports
-OpenCode 1.18.27. OpenCode 2 is not yet supported.
+The OpenCode adapter starts and closes a private OpenCode 1 service for each
+run. Seqlane supports OpenCode 1.18.27. OpenCode 2 is not yet supported.
 
-::: warning Required
+It uses a loopback host and an ephemeral port by default. Use `--adapter-host`
+or `--adapter-port` only when you need a specific loopback endpoint.
 
-Start an OpenCode server before you run a workflow:
-
-```sh
-opencode serve --port 4096
-```
-
-:::
-
-Then run the workflow:
+Run the workflow:
 
 ```sh
-seqlane run ./workflow.ts --input '{}' --adapter opencode \
-  --adapter-host 127.0.0.1 --adapter-port 4096 --workspace .
+seqlane run ./workflow.ts --input '{}' --adapter opencode --workspace .
 ```
 
 OpenCode supports model selection, structured output, session reuse, checkpoint
