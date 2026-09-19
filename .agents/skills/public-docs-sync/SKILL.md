@@ -13,8 +13,9 @@ keeps `apps/docs/` aligned with the current target-branch implementation.
 The public site lives in `apps/docs/`. It is separate from canonical SDLC
 records in `docs/sdlc/`.
 
-The public site currently documents only `seqlane run`. Do not add pages for
-other CLI commands unless the user expands this scope.
+The public site contains Introduction, Authoring workflows, Adapters, and
+`seqlane run` reference pages. Do not add pages for other CLI commands unless
+the user expands this scope.
 
 Use VitePress code groups when installation instructions show npm, pnpm, and
 Yarn commands.

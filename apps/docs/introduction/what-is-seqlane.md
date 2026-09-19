@@ -31,7 +31,7 @@ task, but they do not define the complete process.
 ## Why use a workflow?
 
 Seqlane can reduce token use. Each agent task receives only its required input
-and session context. Each task can select a model.
+and session context. Each new agent session can [select a model](/authoring-workflows/models).
 
 A later task can reuse a session or branch it when the selected adapter
 supports branches. Deterministic work and local processes run outside the agent
