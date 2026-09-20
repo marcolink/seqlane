@@ -92,7 +92,9 @@ describe("HumanApp", () => {
       await vi.waitFor(() => {
         const lines = (rendered.lastFrame() ?? "").split("\n");
         expect(lines[0]).toContain(expected);
-        expect(lines[2]).toContain(expected);
+        expect(lines.slice(2).some((line) => line.includes(expected))).toBe(
+          true,
+        );
         // Visible text must stop before the terminal's last column.
         expect(
           lines.every((line) => stripVTControlCharacters(line).length < width),

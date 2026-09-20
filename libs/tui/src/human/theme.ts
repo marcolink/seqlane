@@ -8,6 +8,13 @@ const TYPE_COLORS = {
   loop: ["yellow", "yellowBright"],
 } as const;
 
+export function activityTone(kind: "tool" | "skill", supportsAnsi: boolean) {
+  return {
+    color: supportsAnsi ? (kind === "tool" ? "cyan" : "magenta") : undefined,
+    bold: false,
+  } as const;
+}
+
 export function workTone(
   kind: RunNode["kind"],
   state: RunNode["state"],
@@ -16,7 +23,7 @@ export function workTone(
   const active = state === "active";
   return {
     color: supportsAnsi ? TYPE_COLORS[kind][active ? 1 : 0] : undefined,
-    bold: supportsAnsi && active,
+    bold: false,
     dimColor:
       supportsAnsi && !active && state !== "failed" && state !== "retrying",
   };

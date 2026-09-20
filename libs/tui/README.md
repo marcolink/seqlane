@@ -10,13 +10,17 @@ does not depend on a runtime adapter or executor.
 
 - `human` shows a passive live execution tree with automatic expansion,
   type colors, bright running rows, muted inactive rows, branch rails, right-aligned timing, resize,
-  no-color, and ASCII support. Compact task summaries use aligned model,
-  token, tool, and skill rows; token totals stay out of the task header.
-  Active rows expand with reported activity, workspace mode, planned session policy,
-  model, completed tool calls, token buckets, per-tool and per-skill counts, and
-  cost. Tool and skill counts represent logical activity IDs, not streamed
-  lifecycle updates. Completed activity-only tasks keep their usage rows. Rails
-  stretch with wrapped details.
+  no-color, and ASCII support. Each task keeps fixed model, workspace, and
+  session metadata visible when available. Active rows show only the current
+  progress, tool, and skill events. A live activity update replaces the prior
+  event with the same activity ID; completed activity lines disappear.
+  Completed rows replace live data with a four-line summary: fixed metadata;
+  total tokens and cost; input/output/reasoning/cached token buckets; and
+  per-tool/per-skill counts. Duration stays right-aligned with the task title.
+  Keys are muted and values use bright contrast when ANSI is available. Tool
+  and skill counts represent logical activity IDs, not streamed lifecycle
+  updates. Completed activity-only tasks keep their usage rows. Rails stretch
+  with wrapped details.
   A task duration starts when the task becomes active. It excludes queue time and
   dependency wait time.
   Missing fields stay hidden. Successful rows collapse to duration and usage totals.

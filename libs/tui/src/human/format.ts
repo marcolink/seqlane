@@ -1,5 +1,4 @@
 import type { RunNodeState, RunVisibleRow } from "../run-view-model.js";
-import { usageSummary } from "./usage.js";
 
 export interface HumanDisplayCapabilities {
   readonly redactions?: readonly string[];
@@ -140,8 +139,14 @@ export function nodeFacts(row: RunVisibleRow, now: Date): string {
     return (
       node.aggregate.succeeded + "/" + node.aggregate.total + " · " + duration
     );
-  const usage = node.state === "succeeded" ? usageSummary(node, true) : "";
-  return [usage, duration].filter(Boolean).join(" · ");
+  if (
+    node.state === "succeeded" ||
+    node.state === "failed" ||
+    node.state === "cancelled" ||
+    node.state === "skipped"
+  )
+    return duration;
+  return duration;
 }
 
 export function formatDuration(milliseconds: number | undefined): string {

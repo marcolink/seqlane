@@ -25,7 +25,12 @@ export function projectNodeActivity(
   const isNewActivity = !seenActivityIds.has(identity);
   if (isNewActivity) seenActivityIds.add(identity);
   const liveActivities = new Map(node.liveActivities);
-  if (event.state === "succeeded" || event.state === "failed") {
+  const terminal =
+    node.state === "succeeded" ||
+    node.state === "failed" ||
+    node.state === "skipped" ||
+    node.state === "cancelled";
+  if (terminal || event.state === "succeeded" || event.state === "failed") {
     liveActivities.delete(event.activityId);
   } else {
     liveActivities.set(event.activityId, event);

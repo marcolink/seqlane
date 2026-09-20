@@ -934,12 +934,12 @@ describe("human execution view model", () => {
       state: "started" as const,
       message: "opening file",
     };
-    const progressed = { ...started, state: "progress" as const, message: "reading file" };
-    const view = reduceRunEvents([
-      created("a", "A", 0),
-      started,
-      progressed,
-    ]);
+    const progressed = {
+      ...started,
+      state: "progress" as const,
+      message: "reading file",
+    };
+    const view = reduceRunEvents([created("a", "A", 0), started, progressed]);
 
     expect(view.nodes.get("a")?.liveActivities.get("call-1")).toEqual(
       progressed,
@@ -958,6 +958,9 @@ describe("human execution view model", () => {
       invocationId: "a",
     });
     expect(taskCompleted.nodes.get("a")?.liveActivities.size).toBe(0);
+
+    const lateActivity = reduceRunViewModel(taskCompleted, started);
+    expect(lateActivity.nodes.get("a")?.liveActivities.size).toBe(0);
   });
 
   it("keeps skill usage separate from tool usage", () => {

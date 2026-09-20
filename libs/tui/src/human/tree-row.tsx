@@ -57,7 +57,11 @@ function HumanTreeRowComponent({
                   : spinnerFrame,
               )}
             </Text>
-            <Text {...tone}>
+            <Text
+              color={tone.color}
+              dimColor={tone.dimColor}
+              bold={capabilities.supportsAnsi && node.kind === "task"}
+            >
               {" " +
                 disclosureSymbol(row, unicode) +
                 encodeTerminalField(node.label, capabilities.redactions)}
