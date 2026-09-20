@@ -111,6 +111,11 @@ const eventSchema = z.object({
   data: z.record(z.string(), z.unknown()).optional(),
 });
 
+const messageSchema = z.looseObject({
+  info: z.unknown(),
+  parts: z.array(z.unknown()),
+});
+
 export interface OpenCodeAssistantObservation {
   readonly kind: "assistant";
   readonly sessionID: string;
@@ -182,6 +187,12 @@ export interface ParsedOpenCodeEvent {
 
 export interface OpenCodeTerminalObservation extends OpenCodeAssistantObservation {
   readonly kind: "assistant";
+}
+
+interface ParsedOpenCodeMessageObservations {
+  readonly messageIDs: readonly string[];
+  readonly observations: readonly OpenCodeToolObservation[];
+  readonly malformedPartCount: number;
 }
 
 function stringField(
@@ -457,6 +468,44 @@ export function parseOpenCodeObservation(
   sessionID: string,
 ): OpenCodeEventObservation | undefined {
   return parseOpenCodeEvent(value, sessionID)?.observation;
+}
+
+export function parseOpenCodeMessageObservations(
+  value: unknown,
+  sessionID: string,
+): ParsedOpenCodeMessageObservations {
+  const messages = z.array(z.unknown()).safeParse(value);
+  if (!messages.success) {
+    return { messageIDs: [], observations: [], malformedPartCount: 0 };
+  }
+
+  const messageIDs: string[] = [];
+  const observations: OpenCodeToolObservation[] = [];
+  let malformedPartCount = 0;
+  for (const value of messages.data) {
+    const message = messageSchema.safeParse(value);
+    if (!message.success) continue;
+    const info = assistantSchema.safeParse(message.data.info);
+    if (!info.success || info.data.sessionID !== sessionID) continue;
+    messageIDs.push(info.data.id);
+    for (const partValue of message.data.parts) {
+      const part = toolPartSchema.safeParse(partValue);
+      if (!part.success) {
+        const type = z.record(z.string(), z.unknown()).safeParse(partValue);
+        if (type.success && type.data.type === "tool") malformedPartCount += 1;
+        continue;
+      }
+      if (
+        part.data.sessionID !== sessionID ||
+        part.data.messageID !== info.data.id
+      ) {
+        malformedPartCount += 1;
+        continue;
+      }
+      observations.push(toolObservation(part.data));
+    }
+  }
+  return { messageIDs, observations, malformedPartCount };
 }
 
 export function terminalObservationFromParsedResponse(

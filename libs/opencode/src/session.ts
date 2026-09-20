@@ -6,22 +6,30 @@ import { StructuredOutputCompatibilityError } from "./errors.js";
 import { parseOpenCodePromptResponse } from "./prompt-response.js";
 import type {
   OpenCodeConnection,
-  OpenCodeActivity,
   OpenCodeUncertainActivity,
   OpenCodePrompt,
   OpenCodePromptResult,
   OpenCodeRun,
 } from "./protocol.js";
-import { createOpenCodeTransport, type OpenCodeSession } from "./transport.js";
+import {
+  createOpenCodeTransport,
+  type OpenCodeSession,
+  type OpenCodeTransport,
+} from "./transport.js";
 import { createOpenCodeSessionBrowserUrl } from "./session-browser-url.js";
 import {
   createStructuredOutputState,
   type StructuredOutputState,
 } from "./structured-output-strategy.js";
 import { isNativeReadbackCompatibilityError } from "./structured-output-compatibility.js";
-import { parseOpenCodeEvent } from "./observations.js";
-import type { OpenCodeEventObservation } from "./observations.js";
-import { createAttemptTransitionDispatcher } from "./attempt-transitions.js";
+import {
+  parseOpenCodeEvent,
+  parseOpenCodeMessageObservations,
+} from "./observations.js";
+import {
+  createAttemptTransitionDispatcher,
+  type AttemptTransitionDispatcher,
+} from "./attempt-transitions.js";
 
 const checkpointSchema = z.object({
   sessionId: z.string().min(1),
@@ -59,16 +67,11 @@ async function waitForInteraction(
   events: AsyncIterable<unknown>,
   sessionID: string,
   signal: AbortSignal,
-  onActivity: ((activity: OpenCodeActivity) => void) | undefined,
+  dispatcher: AttemptTransitionDispatcher,
   onUncertainActivity:
     ((activity: OpenCodeUncertainActivity) => void) | undefined,
-  onObservation: ((observation: OpenCodeEventObservation) => void) | undefined,
   onDiagnostic: ((message: string) => void) | undefined,
 ): Promise<void> {
-  const dispatcher = createAttemptTransitionDispatcher({
-    onActivity,
-    onObservation,
-  });
   const reportDiagnostic = (message: string): void => {
     try {
       onDiagnostic?.(message);
@@ -107,6 +110,105 @@ async function waitForInteraction(
       "interaction monitor closed before task completion",
     );
   }
+}
+
+function dispatchMessageObservations(
+  value: unknown,
+  sessionID: string,
+  dispatcher: AttemptTransitionDispatcher,
+  excludedMessageIDs: ReadonlySet<string> | undefined,
+  onDiagnostic: (message: string) => void,
+): readonly string[] {
+  const parsed = parseOpenCodeMessageObservations(value, sessionID);
+  if (parsed.malformedPartCount > 0) {
+    onDiagnostic(
+      `ignored ${parsed.malformedPartCount} malformed OpenCode tool message part(s)`,
+    );
+  }
+  for (const observation of parsed.observations) {
+    if (excludedMessageIDs?.has(observation.messageID)) continue;
+    dispatcher.observation(observation);
+  }
+  return parsed.messageIDs;
+}
+
+function addMessageIDs(
+  history: PromptMessageHistoryState,
+  messageIDs: readonly string[],
+): void {
+  for (const messageID of messageIDs) {
+    history.knownMessageIDs.add(messageID);
+  }
+}
+
+async function snapshotPromptMessageHistory(
+  transport: OpenCodeTransport,
+  sessionID: string,
+  signal: AbortSignal,
+  history: PromptMessageHistoryState,
+  onDiagnostic: (message: string) => void,
+): Promise<void> {
+  if (history.ready || transport.listMessages === undefined) return;
+  try {
+    const messages = await transport.listMessages(sessionID, signal);
+    const parsed = parseOpenCodeMessageObservations(messages, sessionID);
+    addMessageIDs(history, parsed.messageIDs);
+    if (parsed.malformedPartCount > 0) {
+      onDiagnostic(
+        `ignored ${parsed.malformedPartCount} malformed OpenCode tool message part(s)`,
+      );
+    }
+    history.ready = true;
+  } catch {
+    onDiagnostic("could not snapshot the OpenCode session messages");
+  }
+}
+
+async function reconcilePromptObservations({
+  transport,
+  sessionID,
+  signal,
+  response,
+  dispatcher,
+  history,
+  onDiagnostic,
+}: ReconcilePromptObservationsInput): Promise<void> {
+  const promptMessageIDs = dispatchMessageObservations(
+    [response],
+    sessionID,
+    dispatcher,
+    undefined,
+    onDiagnostic,
+  );
+  if (transport.listMessages !== undefined) {
+    try {
+      const messages = await transport.listMessages(sessionID, signal);
+      if (history.ready) {
+        const messageIDs = dispatchMessageObservations(
+          messages,
+          sessionID,
+          dispatcher,
+          history.knownMessageIDs,
+          onDiagnostic,
+        );
+        addMessageIDs(history, messageIDs);
+      } else {
+        const parsed = parseOpenCodeMessageObservations(messages, sessionID);
+        addMessageIDs(history, parsed.messageIDs);
+        if (parsed.malformedPartCount > 0) {
+          onDiagnostic(
+            `ignored ${parsed.malformedPartCount} malformed OpenCode tool message part(s)`,
+          );
+        }
+        history.ready = true;
+      }
+    } catch {
+      onDiagnostic(
+        "could not read OpenCode session messages for activity observations",
+      );
+    }
+  }
+  addMessageIDs(history, promptMessageIDs);
 }
 
 export type {
@@ -155,6 +257,21 @@ interface PromptCancellation {
   readonly promptSignal: AbortSignal;
   readonly result?: Promise<void>;
   readonly removeRequestListener: () => void;
+}
+
+interface PromptMessageHistoryState {
+  ready: boolean;
+  readonly knownMessageIDs: Set<string>;
+}
+
+interface ReconcilePromptObservationsInput {
+  readonly transport: OpenCodeTransport;
+  readonly sessionID: string;
+  readonly signal: AbortSignal;
+  readonly response: unknown;
+  readonly dispatcher: AttemptTransitionDispatcher;
+  readonly history: PromptMessageHistoryState;
+  readonly onDiagnostic: (message: string) => void;
 }
 
 function createPromptCancellation(
@@ -277,14 +394,26 @@ async function createOpenCodeRunForSession(
   ): void => {
     if (eventDiagnosticCount < 8) {
       eventDiagnosticCount += 1;
-      callback?.(message);
+      try {
+        callback?.(message);
+      } catch {
+        // Diagnostics are best effort and must not affect execution.
+      }
       return;
     }
     if (eventDiagnosticSuppressionReported) return;
     eventDiagnosticSuppressionReported = true;
-    callback?.(
-      "suppressed additional malformed or unsupported OpenCode event diagnostics",
-    );
+    try {
+      callback?.(
+        "suppressed additional malformed or unsupported OpenCode event diagnostics",
+      );
+    } catch {
+      // Diagnostics are best effort and must not affect execution.
+    }
+  };
+  const messageHistory: PromptMessageHistoryState = {
+    ready: false,
+    knownMessageIDs: new Set(),
   };
 
   const prompt = (request: OpenCodePrompt): Promise<OpenCodePromptResult> => {
@@ -316,13 +445,16 @@ async function createOpenCodeRunForSession(
               cause,
             );
           }
+          const dispatcher = createAttemptTransitionDispatcher({
+            onActivity: request.onActivity,
+            onObservation: request.onObservation,
+          });
           interactionRequest = waitForInteraction(
             events,
             sessionID,
             cancellation.monitorSignal,
-            request.onActivity,
+            dispatcher,
             request.onUncertainActivity,
-            request.onObservation,
             (message) => reportEventDiagnostic(request.onDiagnostic, message),
           )
             .then(() => ({ type: "interaction" as const }))
@@ -340,6 +472,22 @@ async function createOpenCodeRunForSession(
                     : { variant: configuredSelection.reasoning }),
                 }),
           };
+          const reportMessageDiagnostic = (message: string): void => {
+            reportEventDiagnostic(request.onDiagnostic, message);
+          };
+          if (
+            effectiveStrategy === "prompt" &&
+            (request.onActivity !== undefined ||
+              request.onObservation !== undefined)
+          ) {
+            await snapshotPromptMessageHistory(
+              transport,
+              sessionID,
+              cancellation.promptSignal,
+              messageHistory,
+              reportMessageDiagnostic,
+            );
+          }
           const promptResponse = transport
             .prompt(sessionID, effectiveRequest, cancellation.promptSignal)
             .then(
@@ -406,6 +554,25 @@ async function createOpenCodeRunForSession(
           );
           if (parsed.checkpoint.sessionId !== sessionID) {
             throw executorError("prompt response belonged to another session");
+          }
+          if (effectiveStrategy === "prompt") {
+            await reconcilePromptObservations({
+              transport,
+              sessionID,
+              signal: cancellation.promptSignal,
+              response: result.response,
+              dispatcher,
+              history: messageHistory,
+              onDiagnostic: reportMessageDiagnostic,
+            });
+          } else {
+            dispatchMessageObservations(
+              [result.response],
+              sessionID,
+              dispatcher,
+              undefined,
+              reportMessageDiagnostic,
+            );
           }
           if (effectiveStrategy === "native" && transport.listMessages) {
             try {

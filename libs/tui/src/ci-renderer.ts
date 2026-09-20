@@ -407,7 +407,7 @@ export class CIRenderer implements ExecutionRenderer {
         );
       }
       case "invocation.activity":
-        if (event.state !== "failed") return "";
+        if (event.state !== "succeeded" && event.state !== "failed") return "";
         {
           const detail = activityDetail(event);
           return (
@@ -418,7 +418,8 @@ export class CIRenderer implements ExecutionRenderer {
             " activity=" +
             compactCI(event.name, 200) +
             (detail === undefined ? "" : " " + detail) +
-            " failed" +
+            " " +
+            event.state +
             (event.message === undefined
               ? ""
               : " error=" + compactCI(event.message))

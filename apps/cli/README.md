@@ -220,8 +220,9 @@ seqlane run ./workflows/minimal-example/workflow.ts \
   --output ci
 ```
 
-CI output does not print invocation input, transient output, or routine tool
-activity. Use `run --json` for one final machine-readable result.
+CI output does not print invocation input or transient output. It prints
+terminal tool and skill activity summaries, including successful calls. Use
+`run --json` for one final machine-readable result.
 
 ## File-accessing workflows
 

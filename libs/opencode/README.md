@@ -31,8 +31,10 @@ history event. Monitoring keeps one durable cursor per session, limits every
 history page and drain, rejects pages that do not advance, and backs off while
 the session is idle. Monitor responses are limited to 256 KiB before JSON
 parsing. Their values also have bounded strings, nesting, and collection sizes.
-Prompt completion performs one bounded tail drain. Closing a run cancels active
-local requests, interrupts the remote session, and waits for bounded cleanup.
+Prompt completion performs one bounded tail drain. Prompt-mode completion also
+reconciles newly persisted assistant message tool parts when the history stream
+does not expose the activity event. Closing a run cancels active local
+requests, interrupts the remote session, and waits for bounded cleanup.
 
 OpenCode `skill` calls remain `TOOL_CALL` spans with `toolType: "skill"`. When
 the event exposes a skill name, the adapter uses that bounded identity as the

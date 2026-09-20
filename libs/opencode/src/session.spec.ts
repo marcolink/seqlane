@@ -101,6 +101,7 @@ interface StartServerOptions extends SessionMonitorFixtureOptions {
   readonly readbackCompatibilityError?: boolean;
   readonly version?: string;
   readonly promptResponses?: readonly unknown[];
+  readonly messageLists?: readonly (readonly unknown[])[];
   readonly readbackFailures?: number;
 }
 
@@ -126,6 +127,7 @@ async function startServer(options: StartServerOptions = {}) {
     resolveSessionStarted = resolve;
   });
   let promptCount = 0;
+  let messageListCount = 0;
   let readbackFailures = options.readbackFailures ?? 0;
   const promptCountWaiters: Array<{
     readonly count: number;
@@ -233,7 +235,14 @@ async function startServer(options: StartServerOptions = {}) {
         );
         return;
       }
-      writeJson(response, [promptResponse(match[1] ?? "session-1")]);
+      const messages =
+        options.messageLists === undefined
+          ? [promptResponse(match[1] ?? "session-1")]
+          : (options.messageLists[
+              Math.min(messageListCount, options.messageLists.length - 1)
+            ] ?? []);
+      messageListCount += 1;
+      writeJson(response, messages);
       return;
     }
     if (request.method === "POST" && match) {
@@ -335,6 +344,7 @@ async function startServer(options: StartServerOptions = {}) {
     },
     promptStarted,
     promptCount: () => promptCount,
+    messageListCount: () => messageListCount,
     sessionStarted,
     server,
     url: `http://127.0.0.1:${address.port}`,
@@ -395,6 +405,81 @@ describe("OpenCode run session", () => {
       expect(
         fake.requests.filter(({ path }) => /\/history(?:\?|$)/.test(path)),
       ).toHaveLength(4);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
+  it("reads prompt-mode tool parts when history has no activity event", async () => {
+    const response = promptResponse("session-1", undefined);
+    const toolPart = {
+      id: "part-1",
+      sessionID: "session-1",
+      messageID: "message-session-1",
+      type: "tool",
+      callID: "call-1",
+      tool: "filesystem.read",
+      state: {
+        status: "completed",
+        input: { path: "/repo/package.json" },
+        output: "{}",
+        metadata: { source: "message-list" },
+        time: { start: 1, end: 2 },
+      },
+    };
+    const fake = await startServer({
+      messageLists: [
+        [],
+        [{ info: response.info, parts: [toolPart] }],
+        [{ info: response.info, parts: [toolPart] }],
+      ],
+      promptResponses: [
+        textPromptResponse("session-1", "{}"),
+        textPromptResponse("session-1", "{}"),
+      ],
+    });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const activities: OpenCodeActivity[] = [];
+      const diagnostics: string[] = [];
+      const observations: unknown[] = [];
+
+      await run.prompt({
+        text: "inspect",
+        schema: {},
+        strategy: "prompt",
+        onActivity: (activity) => activities.push(activity),
+        onObservation: (observation) => observations.push(observation),
+        onDiagnostic: (message) => diagnostics.push(message),
+      });
+      await run.prompt({
+        text: "inspect again",
+        schema: {},
+        strategy: "prompt",
+        onActivity: (activity) => activities.push(activity),
+        onObservation: (observation) => observations.push(observation),
+        onDiagnostic: (message) => diagnostics.push(message),
+      });
+
+      expect({
+        activities,
+        observations,
+        diagnostics,
+        messageListCount: fake.messageListCount(),
+      }).toEqual({
+        activities: [
+          expect.objectContaining({
+            activityId: "call-1",
+            name: "filesystem.read",
+            state: "succeeded",
+            input: { path: "/repo/package.json" },
+            output: "{}",
+          }),
+        ],
+        observations: [expect.objectContaining({ callID: "call-1" })],
+        diagnostics: [],
+        messageListCount: 3,
+      });
     } finally {
       await closeServer(fake.server);
     }

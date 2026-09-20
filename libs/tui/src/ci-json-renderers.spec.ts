@@ -200,7 +200,7 @@ describe("CI renderer", () => {
     expect(output).toContain("iteration=2");
   });
 
-  it("suppresses routine tool and skill activity lines", () => {
+  it("renders terminal tool and skill activity lines", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -227,7 +227,9 @@ describe("CI renderer", () => {
       state: "succeeded",
     });
 
-    expect(stdout.writes.join("")).not.toContain("filesystem.read");
+    const output = stdout.writes.join("");
+    expect(output).toContain("activity=filesystem.read succeeded");
+    expect(output).toContain("activity=web-perf succeeded");
   });
 
   it("summarizes model observations without printing payload details", () => {
