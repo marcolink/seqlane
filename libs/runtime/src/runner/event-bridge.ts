@@ -21,9 +21,7 @@ export type SendExecutionEvent = (
 
 export interface ExecutionEventBridge extends SeqlaneEventSink {
   emitPlan(plan: SeqlanePlanSnapshot, workId: string, runId: string): void;
-  emitObservation(
-    event: Omit<InvocationObservationEvent, "metadata">,
-  ): void;
+  emitObservation(event: Omit<InvocationObservationEvent, "metadata">): void;
   flush(): Promise<void>;
 }
 

@@ -115,7 +115,9 @@ describe("OpenCode AgentAdapter", () => {
     const adapter = createOpenCodeAdapterForRun(run);
 
     await adapter.execute(
-      request({ onObservation: (observation) => observations.push(observation) }),
+      request({
+        onObservation: (observation) => observations.push(observation),
+      }),
     );
 
     expect(submitted).toBeDefined();
@@ -163,7 +165,9 @@ describe("OpenCode AgentAdapter", () => {
     );
 
     await adapter.execute(
-      request({ onObservation: (observation) => observations.push(observation) }),
+      request({
+        onObservation: (observation) => observations.push(observation),
+      }),
     );
 
     expect(observations).toEqual([
