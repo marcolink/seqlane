@@ -268,3 +268,4 @@
 | [task.scope-merge-conflict-agent-skill](./2026-09-18-scope-merge-conflict-agent-skill.md) | Scope the Merge Conflict Agent Skill | completed | 2026-09-18 | core |
 | [task.support-package-manager-installation](./2026-09-18-support-package-manager-installation.md) | Support npm pnpm and Yarn Installation | completed | 2026-09-18 | core |
 | [task.adapter-cli-flags](./2026-09-19-adapter-cli-flags.md) | Replace Direct-Run Runtime Flags with Adapter Flags | in-progress | 2026-09-19 | core |
+| [task.git-diff-summary-example](./2026-09-20-git-diff-summary-example.md) | Add Git Diff Summary Token Comparison Example | completed | 2026-09-20 | core |
