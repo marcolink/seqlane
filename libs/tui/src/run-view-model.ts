@@ -174,8 +174,6 @@ export interface RunViewModel {
   readonly rootInvocationIds: readonly string[];
   readonly toolUsage: ReadonlyMap<string, number>;
   readonly skillUsage: ReadonlyMap<string, number>;
-  /** Logical activity identities already counted across this run. */
-  readonly seenActivityIds: ReadonlySet<string>;
   readonly lastHeartbeatAt?: string;
   readonly lastEventSequence: number;
   readonly limits: RunProjectionLimits;
@@ -512,20 +510,21 @@ function projectActivity(
   view: RunViewModel,
   event: ActivityEvent,
 ): RunViewModel {
+  const node = view.nodes.get(event.invocationId);
+  if (node === undefined) return view;
   const identity = activityIdentity(event);
-  const seenActivityIds = new Set(view.seenActivityIds);
-  const isNewActivity = !seenActivityIds.has(identity);
-  if (isNewActivity) seenActivityIds.add(identity);
-  const usage =
-    event.kind === "skill" ? new Map(view.skillUsage) : new Map(view.toolUsage);
-  if (isNewActivity) usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
-  const next =
-    event.kind === "skill"
-      ? { ...view, skillUsage: usage, seenActivityIds }
-      : { ...view, toolUsage: usage, seenActivityIds };
-  return updateNode(next, event.invocationId, (node) =>
-    projectNodeActivity(node, event),
+  const isNewActivity = !node.seenActivityIds.has(identity);
+  const next = updateNode(view, event.invocationId, (current) =>
+    projectNodeActivity(current, event),
   );
+  if (!isNewActivity) return next;
+
+  const usage =
+    event.kind === "skill" ? new Map(next.skillUsage) : new Map(next.toolUsage);
+  usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
+  return event.kind === "skill"
+    ? { ...next, skillUsage: usage }
+    : { ...next, toolUsage: usage };
 }
 
 export function createRunViewModel(
@@ -542,7 +541,6 @@ export function createRunViewModel(
     rootInvocationIds: [],
     toolUsage: new Map(),
     skillUsage: new Map(),
-    seenActivityIds: new Set(),
     lastEventSequence: 0,
     limits: { ...DEFAULT_RUN_PROJECTION_LIMITS, ...options.limits },
     omittedNodeCount: 0,

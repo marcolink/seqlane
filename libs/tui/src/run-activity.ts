@@ -21,27 +21,44 @@ export function projectNodeActivity(
     completedToolIds = new Set([...(completedToolIds ?? []), event.activityId]);
   }
   const identity = activityIdentity(event);
-  const seenActivityIds = new Set(node.seenActivityIds);
-  const isNewActivity = !seenActivityIds.has(identity);
-  if (isNewActivity) seenActivityIds.add(identity);
-  const liveActivities = new Map(node.liveActivities);
+  const isNewActivity = !node.seenActivityIds.has(identity);
+  let seenActivityIds = node.seenActivityIds;
+  if (isNewActivity) {
+    const nextSeenActivityIds = new Set(node.seenActivityIds);
+    nextSeenActivityIds.add(identity);
+    seenActivityIds = nextSeenActivityIds;
+  }
   const terminal =
     node.state === "succeeded" ||
     node.state === "failed" ||
     node.state === "skipped" ||
     node.state === "cancelled";
+  let liveActivities = node.liveActivities;
   if (terminal || event.state === "succeeded" || event.state === "failed") {
-    liveActivities.delete(event.activityId);
+    if (node.liveActivities.has(event.activityId)) {
+      const nextLiveActivities = new Map(node.liveActivities);
+      nextLiveActivities.delete(event.activityId);
+      liveActivities = nextLiveActivities;
+    }
   } else {
-    liveActivities.set(event.activityId, event);
+    const nextLiveActivities = new Map(node.liveActivities);
+    nextLiveActivities.set(event.activityId, event);
+    liveActivities = nextLiveActivities;
   }
-  const usage = new Map(
-    event.kind === "skill" ? node.skillUsage : node.toolUsage,
-  );
-  if (isNewActivity) usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
+  let toolUsage = node.toolUsage;
+  let skillUsage = node.skillUsage;
+  if (isNewActivity) {
+    const usage = new Map(
+      event.kind === "skill" ? node.skillUsage : node.toolUsage,
+    );
+    usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
+    if (event.kind === "skill") skillUsage = usage;
+    else toolUsage = usage;
+  }
   return {
     ...node,
-    ...(event.kind === "skill" ? { skillUsage: usage } : { toolUsage: usage }),
+    toolUsage,
+    skillUsage,
     completedToolIds,
     seenActivityIds,
     liveActivities,
