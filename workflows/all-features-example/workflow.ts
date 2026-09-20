@@ -152,9 +152,10 @@ const packageInspectionTask = defineAgentTask({
   input: z.object({}),
   output: packageInspectionSchema,
   goal: () =>
-    "Read package.json with filesystem.read and return its package name and version.",
+    "Read package.json with OpenCode's read tool and return its package name and version.",
   instructions: [
-    "You must call filesystem.read on package.json before answering.",
+    "You must call OpenCode's read tool on package.json before answering.",
+    "Do not infer the package contents from context.",
     "Return the exact package name and version from the file.",
   ],
   references: ["package.json"],

@@ -317,6 +317,7 @@ describe("OpenCode AgentAdapter", () => {
     expect(prompts[0]?.text).toContain(
       "Task instruction: Keep the change small",
     );
+    expect(prompts[0]?.tools).toEqual({ read: true });
     expect(prompts[0]?.selection).toBeUndefined();
     expect(activities).toEqual([
       {

@@ -139,7 +139,7 @@ describe("all-features workflow example", () => {
     });
   });
 
-  it("requires the inspection task to use filesystem.read", async () => {
+  it("requires the inspection task to use OpenCode read", async () => {
     const definitions = buildWorkflow(allFeaturesWorkflow).taskDefinitions;
     const inspection = definitions.get("all-features-example-inspect");
 
@@ -161,9 +161,10 @@ describe("all-features workflow example", () => {
 
     expect(requests).toEqual([
       {
-        goal: "Read package.json with filesystem.read and return its package name and version.",
+        goal: "Read package.json with OpenCode's read tool and return its package name and version.",
         instructions: [
-          "You must call filesystem.read on package.json before answering.",
+          "You must call OpenCode's read tool on package.json before answering.",
+          "Do not infer the package contents from context.",
           "Return the exact package name and version from the file.",
         ],
         references: ["package.json"],

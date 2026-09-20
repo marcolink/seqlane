@@ -396,6 +396,7 @@ function createAdapterForRun({
             schema,
             strategy,
             retryCount,
+            tools: { read: true },
             ...(lastIssues === undefined
               ? {}
               : { tools: { "*": false, StructuredOutput: true } }),
