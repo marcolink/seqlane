@@ -56,6 +56,14 @@ function taskDetailLines(node: RunNode): string[] {
   return lines.filter((line): line is string => Boolean(line));
 }
 
+function hasUsageDetails(node: RunNode): boolean {
+  return (
+    node.output.metrics?.tokens !== undefined ||
+    node.toolUsage.size > 0 ||
+    node.skillUsage.size > 0
+  );
+}
+
 /** Native flex borders stretch with wrapped content; no line-height estimation. */
 export function HumanTaskDetails({
   row,
@@ -67,9 +75,12 @@ export function HumanTaskDetails({
   readonly lastSibling: boolean;
 }): React.JSX.Element | null {
   const { node } = row;
-  if (node.state === "succeeded" && node.observations.size === 0) return null;
+  const hasUsage = hasUsageDetails(node);
+  if (node.state === "succeeded" && node.observations.size === 0 && !hasUsage)
+    return null;
   const details = taskDetailLines(node);
-  if (details.length === 0 && node.observations.size === 0) return null;
+  if (details.length === 0 && node.observations.size === 0 && !hasUsage)
+    return null;
   const limit = Math.min(
     32,
     Math.max(0, Math.floor(((capabilities.width ?? 80) - 24) / 3)),

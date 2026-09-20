@@ -1,5 +1,11 @@
 import type { OutputEvent, RunNode } from "./run-view-model.js";
 
+type ActivityEvent = Extract<OutputEvent, { type: "invocation.activity" }>;
+
+export function activityIdentity(event: ActivityEvent): string {
+  return JSON.stringify([event.invocationId, event.kind, event.activityId]);
+}
+
 /** Keep terminal call counts bounded and independent of streamed progress events. */
 export function projectNodeActivity(
   node: RunNode,
@@ -14,14 +20,19 @@ export function projectNodeActivity(
   ) {
     completedToolIds = new Set([...(completedToolIds ?? []), event.activityId]);
   }
+  const identity = activityIdentity(event);
+  const seenActivityIds = new Set(node.seenActivityIds);
+  const isNewActivity = !seenActivityIds.has(identity);
+  if (isNewActivity) seenActivityIds.add(identity);
   const usage = new Map(
     event.kind === "skill" ? node.skillUsage : node.toolUsage,
   );
-  usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
+  if (isNewActivity) usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
   return {
     ...node,
     ...(event.kind === "skill" ? { skillUsage: usage } : { toolUsage: usage }),
     completedToolIds,
+    seenActivityIds,
     activity:
       event.message ?? event.kind + " " + event.name + " " + event.state,
   };

@@ -173,7 +173,7 @@ it("shows compact model summary without raw detail mode", () => {
   expect(app.lastFrame()).toContain(
     "tokens  input=12400 · output=1800 · reasoning=0 · cacheRead=0 · cacheWrite=0",
   );
-  expect(app.lastFrame()).toContain("tools   read_file=3");
+  expect(app.lastFrame()).toContain("tools   read_file=1");
   expect(app.lastFrame()).toContain("skills  web-perf=2");
   expect(app.lastFrame()).not.toContain("model exchanges=");
   expect(app.lastFrame()).not.toContain("state=succeeded");
@@ -212,7 +212,7 @@ it("shows reported context and aligned usage, preserves wrapped rails, then coll
   expect(compactOutput).toContain("cacheRead=0");
   expect(compactOutput).toContain("cacheWrite=0");
   expect(compactOutput).toContain("tools");
-  expect(compactOutput).toContain("read_file=3");
+  expect(compactOutput).toContain("read_file=1");
   expect(compactOutput).toContain("skills web-perf=2");
   expect(output).toContain("$0.08");
   expect(output).not.toContain("Never show raw output");
@@ -253,6 +253,34 @@ it("keeps accumulated tokens out of the completed task header", () => {
   expect(app.lastFrame()).toContain("$0.08 · 0ms");
   expect(app.lastFrame()).not.toContain("14200 tokens");
   expect(app.lastFrame()).not.toContain("1 calls");
+});
+
+it("keeps activity usage visible after an activity-only task completes", () => {
+  const base = activeView();
+  const node = base.nodes.get("live");
+  if (!node) throw new Error("Missing test invocation");
+  const nodes = new Map(base.nodes);
+  nodes.set("live", {
+    ...node,
+    skillUsage: new Map([["web-perf", 1]]),
+  });
+  const view = reduceRunViewModel({ ...base, nodes }, {
+    ...identity,
+    type: "invocation.succeeded",
+    invocationId: "live",
+  });
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 100 }}
+      spinnerFrame={0}
+    />,
+  );
+  expect(app.lastFrame()).toContain(
+    "tokens  input=12400 · output=1800 · reasoning=0 · cacheRead=0 · cacheWrite=0",
+  );
+  expect(app.lastFrame()).toContain("tools   read_file=1");
+  expect(app.lastFrame()).toContain("skills  web-perf=1");
 });
 
 it("does not invent metrics or workspace context", () => {

@@ -14,7 +14,9 @@ does not depend on a runtime adapter or executor.
   token, tool, and skill rows; token totals stay out of the task header.
   Active rows expand with reported activity, workspace mode, planned session policy,
   model, completed tool calls, token buckets, per-tool and per-skill counts, and
-  cost. Rails stretch with wrapped details.
+  cost. Tool and skill counts represent logical activity IDs, not streamed
+  lifecycle updates. Completed activity-only tasks keep their usage rows. Rails
+  stretch with wrapped details.
   A task duration starts when the task becomes active. It excludes queue time and
   dependency wait time.
   Missing fields stay hidden. Successful rows collapse to duration and usage totals.

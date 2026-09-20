@@ -11,7 +11,7 @@ exports[`shows reported context and aligned usage, preserves wrapped rails, then
 │    $0.08
 │    tokens  input=12400 · output=1800 ·
 │    reasoning=0 · cacheRead=0 · cacheWrite=0
-│    tools   read_file=3
+│    tools   read_file=1
 │    skills  web-perf=2
 └─ ○ Publish                             queued"
 `;

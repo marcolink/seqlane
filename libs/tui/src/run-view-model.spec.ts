@@ -87,11 +87,7 @@ describe("human execution view model", () => {
         response: { text: "exact output", structured: { ok: false } },
       },
     };
-    const view = reduceRunEvents([
-      created("root", "Root", 0),
-      first,
-      second,
-    ]);
+    const view = reduceRunEvents([created("root", "Root", 0), first, second]);
     const node = view.nodes.get("root");
 
     expect(node?.observations.size).toBe(1);
@@ -922,9 +918,9 @@ describe("human execution view model", () => {
       "tool filesystem.read succeeded",
     );
     expect([...(view.nodes.get("a")?.toolUsage.entries() ?? [])]).toEqual([
-      ["filesystem.read", 2],
+      ["filesystem.read", 1],
     ]);
-    expect([...view.toolUsage.entries()]).toEqual([["filesystem.read", 2]]);
+    expect([...view.toolUsage.entries()]).toEqual([["filesystem.read", 1]]);
   });
 
   it("keeps skill usage separate from tool usage", () => {
@@ -947,5 +943,34 @@ describe("human execution view model", () => {
     ]);
     expect([...view.skillUsage.entries()]).toEqual([["web-perf", 1]]);
     expect(view.toolUsage.size).toBe(0);
+  });
+
+  it("counts distinct activity identities separately", () => {
+    const view = reduceRunEvents([
+      created("a", "A", 0),
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-1",
+        kind: "tool",
+        name: "filesystem.read",
+        state: "succeeded",
+      },
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-2",
+        kind: "tool",
+        name: "filesystem.read",
+        state: "succeeded",
+      },
+    ]);
+
+    expect([...view.toolUsage.entries()]).toEqual([["filesystem.read", 2]]);
+    expect([...view.nodes.get("a")!.toolUsage.entries()]).toEqual([
+      ["filesystem.read", 2],
+    ]);
   });
 });
