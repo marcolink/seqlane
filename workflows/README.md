@@ -27,6 +27,7 @@ See [AGENTS.md](./AGENTS.md) for local workflow conventions.
 
 - [all-features example](./all-features-example/README.md)
 - [code review](./code-review/README.md)
+- [git diff summary example](./git-diff-summary-example/README.md)
 - [local Git status example](./local-git-status-example/README.md)
 - [local-only example](./local-only-example/README.md)
 - [minimal example](./minimal-example/README.md)
