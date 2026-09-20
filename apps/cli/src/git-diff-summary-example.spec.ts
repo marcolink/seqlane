@@ -1,6 +1,6 @@
 // @test-scope ../../../workflows/git-diff-summary-example/workflow.ts
 
-import { buildWorkflow } from "@seqlane/core";
+import { buildWorkflow, shellTaskResultSchema } from "@seqlane/core";
 import { createOperationalWorkflow } from "@seqlane/runtime/operational-host";
 import { describe, expect, it } from "vitest";
 
@@ -46,8 +46,14 @@ describe("git diff summary workflow example", () => {
       },
       {
         type: "task",
-        taskId: "git-diff-summary-example-summarize-evidence",
+        taskId: "git-diff-summary-example-bound-evidence",
         dependsOn: ["git-diff-summary-example-collect-diff:1"],
+        workspace: "shared",
+      },
+      {
+        type: "task",
+        taskId: "git-diff-summary-example-summarize-evidence",
+        dependsOn: ["git-diff-summary-example-bound-evidence:1"],
         workspace: "shared",
         session: { type: "isolated" },
       },
@@ -66,7 +72,7 @@ describe("git diff summary workflow example", () => {
     expect(directDefinition?.output).toBe(evidenceDefinition?.output);
   });
 
-  it("uses direct git argv for the evidence lane", async () => {
+  it("uses bounded Git argv for the evidence lane", async () => {
     const built = buildWorkflow(workflow);
     const collectDiff = built.taskDefinitions.get(
       "git-diff-summary-example-collect-diff",
@@ -78,6 +84,7 @@ describe("git diff summary workflow example", () => {
     const calls: Array<{
       executable: string;
       argv: readonly string[];
+      timeoutMs: number | undefined;
     }> = [];
 
     await collectDiff.execute({
@@ -88,6 +95,7 @@ describe("git diff summary workflow example", () => {
           calls.push({
             executable: request.executable,
             argv: request.argv ?? [],
+            timeoutMs: request.timeoutMs,
           });
           return { exitCode: 0, stdout: "diff", stderr: "" };
         },
@@ -97,20 +105,70 @@ describe("git diff summary workflow example", () => {
 
     expect(calls).toEqual([
       {
-        executable: "git",
+        executable: "bash",
         argv: [
-          "diff",
-          "--no-ext-diff",
-          "--no-color",
-          "--patch",
-          "--stat",
-          "--unified=3",
+          "-c",
+          expect.stringContaining(
+            "git diff --no-ext-diff --no-textconv --no-color --patch --stat --unified=3",
+          ),
+          "git-diff-summary-example",
           "feature/example~1",
           "feature/example",
-          "--",
         ],
+        timeoutMs: 300_000,
       },
     ]);
+    expect(calls[0]?.argv[1]).toContain("--no-textconv");
+    expect(calls[0]?.argv[1]).toContain("2>&1");
+    expect(calls[0]?.argv[1]).toContain("head -c 512001");
+  });
+
+  it("bounds evidence and fails closed on Git errors", async () => {
+    const built = buildWorkflow(workflow);
+    const boundEvidence = built.taskDefinitions.get(
+      "git-diff-summary-example-bound-evidence",
+    );
+
+    expect(boundEvidence).toBeDefined();
+    if (boundEvidence === undefined) return;
+
+    const context = {
+      exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      runAgent: async () => ({}),
+    };
+
+    await expect(
+      boundEvidence.execute({
+        input: {
+          branch: "feature/example",
+          evidence: { exitCode: 2, stdout: "ignored", stderr: "failure" },
+        },
+        signal: new AbortController().signal,
+        context,
+      }),
+    ).rejects.toThrow("Git diff failed with exit code 2");
+
+    const result = await boundEvidence.execute({
+      input: {
+        branch: "feature/example",
+        evidence: {
+          exitCode: 0,
+          stdout: "x".repeat(512_001),
+          stderr: "ignored",
+        },
+      },
+      signal: new AbortController().signal,
+      context,
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      truncated: true,
+    });
+    const parsed = shellTaskResultSchema.parse(result);
+    expect(parsed.stdout).toContain("[git evidence truncated]");
+    expect(parsed.stdout.length).toBeLessThan(512_000 + 100);
   });
 
   it("compiles the nested lane through the operational runtime", () => {

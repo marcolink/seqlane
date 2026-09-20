@@ -24,5 +24,8 @@ Output contains one structured report for each lane. The reports use the same
 schema and instructions. Compare the token counts for
 `git-diff-summary-example-direct-agent` and
 `git-diff-summary-example-summarize-evidence` in the CI output. The shell task
-does not use model tokens. Token savings vary with the size of the diff and
+does not use model tokens. The evidence lane disables external Git diff
+processing, uses a five-minute timeout, and bounds evidence at 512,000 bytes.
+Large evidence is marked as truncated; an invalid Git range fails the lane
+before the summarizer runs. Token savings vary with the size of the diff and
 the adapter.
