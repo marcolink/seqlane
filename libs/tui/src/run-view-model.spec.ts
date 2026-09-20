@@ -923,6 +923,43 @@ describe("human execution view model", () => {
     expect([...view.toolUsage.entries()]).toEqual([["filesystem.read", 1]]);
   });
 
+  it("replaces live activity updates and clears them at activity or task completion", () => {
+    const started = {
+      type: "invocation.activity" as const,
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool" as const,
+      name: "filesystem.read",
+      state: "started" as const,
+      message: "opening file",
+    };
+    const progressed = { ...started, state: "progress" as const, message: "reading file" };
+    const view = reduceRunEvents([
+      created("a", "A", 0),
+      started,
+      progressed,
+    ]);
+
+    expect(view.nodes.get("a")?.liveActivities.get("call-1")).toEqual(
+      progressed,
+    );
+
+    const activityCompleted = reduceRunViewModel(view, {
+      ...progressed,
+      state: "succeeded",
+      message: "read file",
+    });
+    expect(activityCompleted.nodes.get("a")?.liveActivities.size).toBe(0);
+
+    const taskCompleted = reduceRunViewModel(view, {
+      ...run,
+      type: "invocation.succeeded",
+      invocationId: "a",
+    });
+    expect(taskCompleted.nodes.get("a")?.liveActivities.size).toBe(0);
+  });
+
   it("keeps skill usage separate from tool usage", () => {
     const view = reduceRunEvents([
       created("a", "A", 0),

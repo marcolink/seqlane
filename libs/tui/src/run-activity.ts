@@ -24,6 +24,12 @@ export function projectNodeActivity(
   const seenActivityIds = new Set(node.seenActivityIds);
   const isNewActivity = !seenActivityIds.has(identity);
   if (isNewActivity) seenActivityIds.add(identity);
+  const liveActivities = new Map(node.liveActivities);
+  if (event.state === "succeeded" || event.state === "failed") {
+    liveActivities.delete(event.activityId);
+  } else {
+    liveActivities.set(event.activityId, event);
+  }
   const usage = new Map(
     event.kind === "skill" ? node.skillUsage : node.toolUsage,
   );
@@ -33,6 +39,7 @@ export function projectNodeActivity(
     ...(event.kind === "skill" ? { skillUsage: usage } : { toolUsage: usage }),
     completedToolIds,
     seenActivityIds,
+    liveActivities,
     activity:
       event.message ?? event.kind + " " + event.name + " " + event.state,
   };

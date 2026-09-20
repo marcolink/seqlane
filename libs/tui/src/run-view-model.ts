@@ -30,6 +30,7 @@ import type {
   SeqlaneOutputSummary,
 } from "@seqlane/core";
 import type {
+  InvocationActivityEvent,
   InvocationObservationEvent,
   SerializedSeqlaneError,
   SeqlaneExecutionEvent,
@@ -121,6 +122,8 @@ export interface RunNode {
   readonly state: RunNodeState;
   readonly toolUsage: ReadonlyMap<string, number>;
   readonly skillUsage: ReadonlyMap<string, number>;
+  /** Latest live event for each active tool or skill activity. */
+  readonly liveActivities: ReadonlyMap<string, InvocationActivityEvent>;
   /** Complete latest lifecycle record for each logical observation. */
   readonly observations: ReadonlyMap<string, InvocationObservationEvent>;
   readonly phase?: string;
@@ -280,6 +283,7 @@ function emptyNode(
     state: "queued",
     toolUsage: new Map(),
     skillUsage: new Map(),
+    liveActivities: new Map(),
     observations: new Map(),
     seenActivityIds: new Set(),
     aggregate: EMPTY_AGGREGATE,
@@ -465,6 +469,7 @@ function withState(
       ? {
           finishedAt: timestamp,
           elapsedMs: elapsedBetween(startedAt, timestamp),
+          liveActivities: new Map(),
         }
       : {}),
   };
