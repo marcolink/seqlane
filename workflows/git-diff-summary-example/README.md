@@ -18,7 +18,7 @@ pnpm exec node apps/cli/bin/run.js run \
 ```
 
 Input is `{ branch: string }`, where `branch` is an existing local Git ref.
-The workflow reads `branch~2..branch` and does not change the checkout.
+The workflow reads `branch~1..branch` and does not change the checkout.
 
 Output contains one structured report for each lane. The reports use the same
 schema and instructions. Compare the token counts for

@@ -17,7 +17,8 @@ supersedes: []
 ## Objective
 
 Add a runnable workflow example that compares one direct agent task with a
-workflow that collects deterministic Git evidence before its agent task.
+workflow that collects deterministic Git evidence before its agent task. Both
+lanes summarize the change introduced by the latest commit on a ref.
 
 ## Upstream requirements
 

@@ -52,7 +52,10 @@ describe("git diff summary workflow example", () => {
         session: { type: "isolated" },
       },
     ]);
-    expect(direct?.session).toEqual(childSummary?.session);
+    if (direct?.type !== "task" || childSummary?.type !== "task") {
+      throw new Error("Expected agent task nodes in both lanes");
+    }
+    expect(direct.session).toEqual(childSummary.session);
 
     const directDefinition = built.taskDefinitions.get(
       "git-diff-summary-example-direct-agent",
@@ -102,7 +105,7 @@ describe("git diff summary workflow example", () => {
           "--patch",
           "--stat",
           "--unified=3",
-          "feature/example~2",
+          "feature/example~1",
           "feature/example",
           "--",
         ],

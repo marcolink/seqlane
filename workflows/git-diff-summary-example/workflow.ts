@@ -35,7 +35,7 @@ const outputSchema = z.object({
 });
 
 const summaryInstructions = [
-  "Inspect exactly the last two commits represented by branch~2..branch.",
+  "Inspect exactly the latest commit represented by branch~1..branch.",
   "Return branch, range, file and line totals, and one concise semantic summary.",
   "Do not modify files and do not guess beyond the available Git evidence.",
 ];
@@ -51,7 +51,7 @@ const directSummaryTask = defineAgentTask({
   input: inputSchema,
   output: diffSummarySchema,
   goal: ({ branch }) =>
-    `Summarize the Git diff for the last two commits on ${branch}. Inspect ${branch}~2..${branch} in the workspace.`,
+    `Summarize the Git diff for the latest commit on ${branch}. Inspect ${branch}~1..${branch} in the workspace.`,
   instructions: summaryInstructions,
 });
 
@@ -66,7 +66,7 @@ const collectDiffTask = defineShellTask({
     "--patch",
     "--stat",
     "--unified=3",
-    `${branch}~2`,
+    `${branch}~1`,
     branch,
     "--",
   ],
@@ -77,7 +77,7 @@ const evidenceSummaryTask = defineAgentTask({
   input: evidenceInputSchema,
   output: diffSummarySchema,
   goal: ({ branch, evidence }) =>
-    `Summarize the Git diff for the last two commits on ${branch} using this direct Git evidence. Exit code: ${evidence.exitCode}. Stdout: ${JSON.stringify(evidence.stdout)}. Stderr: ${JSON.stringify(evidence.stderr)}.`,
+    `Summarize the Git diff for the latest commit on ${branch} using this direct Git evidence. Exit code: ${evidence.exitCode}. Stdout: ${JSON.stringify(evidence.stdout)}. Stderr: ${JSON.stringify(evidence.stderr)}.`,
   instructions: summaryInstructions,
 });
 
