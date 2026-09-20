@@ -20,6 +20,9 @@ describe("all-features workflow example", () => {
     const context = taskNodes.find(
       (node) => node.taskId === "all-features-example-context",
     );
+    const inspection = taskNodes.find(
+      (node) => node.taskId === "all-features-example-inspect",
+    );
     const lanes = taskNodes.filter(
       (node) => node.taskId === "all-features-example-lane",
     );
@@ -36,6 +39,7 @@ describe("all-features workflow example", () => {
     expect(built.plan.workflow.id).toBe("all-features");
     expect(taskNodes.map(({ taskId }) => taskId)).toEqual([
       "all-features-example-context",
+      "all-features-example-inspect",
       "all-features-example-lane",
       "all-features-example-lane",
       "all-features-example-policy",
@@ -43,6 +47,13 @@ describe("all-features workflow example", () => {
       "all-features-example-polish",
     ]);
     expect(context).toMatchObject({
+      workspace: "shared",
+      session: {
+        type: "isolated",
+        model: { model: { provider: "openai", model: "gpt-5.6-luna" } },
+      },
+    });
+    expect(inspection).toMatchObject({
       workspace: "shared",
       session: {
         type: "isolated",
@@ -80,6 +91,7 @@ describe("all-features workflow example", () => {
       },
     });
     expect(built.plan.output).toMatchObject({
+      inspection: { type: "ref", path: ["output"] },
       validation: { type: "ref", path: ["validation"] },
       polished: { type: "ref" },
     });
@@ -125,6 +137,38 @@ describe("all-features workflow example", () => {
         },
       },
     });
+  });
+
+  it("requires the inspection task to use filesystem.read", async () => {
+    const definitions = buildWorkflow(allFeaturesWorkflow).taskDefinitions;
+    const inspection = definitions.get("all-features-example-inspect");
+
+    expect(inspection).toBeDefined();
+    if (inspection === undefined) return;
+
+    const requests: AgentTaskRequest[] = [];
+    await inspection.execute({
+      input: {},
+      signal: new AbortController().signal,
+      context: {
+        exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+        runAgent: async (request) => {
+          requests.push(request);
+          return {};
+        },
+      },
+    });
+
+    expect(requests).toEqual([
+      {
+        goal: "Read package.json with filesystem.read and return its package name and version.",
+        instructions: [
+          "You must call filesystem.read on package.json before answering.",
+          "Return the exact package name and version from the file.",
+        ],
+        references: ["package.json"],
+      },
+    ]);
   });
 
   it("compiles the feature tour through the Mastra adapter", () => {

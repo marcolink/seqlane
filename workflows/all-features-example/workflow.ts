@@ -21,6 +21,12 @@ const contextSchema = z.object({
   hint: z.string(),
 });
 
+const packageInspectionSchema = z.object({
+  path: z.literal("package.json"),
+  name: z.string().min(1),
+  version: z.string().min(1),
+});
+
 const laneSchema = z.object({
   label: z.string(),
   note: z.string().min(1),
@@ -61,6 +67,7 @@ const validationResultSchema = z.discriminatedUnion("success", [
 
 const outputSchema = z.object({
   context: contextSchema,
+  inspection: packageInspectionSchema,
   policy: policySchema,
   validation: validationResultSchema,
   polished: polishStateSchema,
@@ -140,6 +147,19 @@ const contextTask = defineAgentTask({
   },
 });
 
+const packageInspectionTask = defineAgentTask({
+  id: "all-features-example-inspect",
+  input: z.object({}),
+  output: packageInspectionSchema,
+  goal: () =>
+    "Read package.json with filesystem.read and return its package name and version.",
+  instructions: [
+    "You must call filesystem.read on package.json before answering.",
+    "Return the exact package name and version from the file.",
+  ],
+  references: ["package.json"],
+});
+
 const laneTask = defineAgentTask({
   id: "all-features-example-lane",
   input: contextSchema,
@@ -193,6 +213,15 @@ export default createFlow({
     session: isolated({ model: openai("gpt-5.6-luna") }),
     validateOutput: contextValidator,
   })
+  .task(
+    "inspect",
+    packageInspectionTask,
+    {},
+    {
+      workspace: "shared",
+      session: isolated({ model: openai("gpt-5.6-luna") }),
+    },
+  )
   .task("left", laneTask, ({ tasks }) => tasks.context.output, {
     workspace: "shared",
     session: ({ tasks }) => branch(tasks.context.session),
@@ -251,6 +280,7 @@ export default createFlow({
   )
   .output(({ tasks }) => ({
     context: tasks.context.output,
+    inspection: tasks.inspect.output,
     policy: tasks.policy.output,
     validation: tasks.ready.validation,
     polished: tasks.polish.output,
