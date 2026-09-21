@@ -492,6 +492,107 @@ describe("seqlane CLI entrypoints", () => {
     );
   });
 
+  it("exposes only OpenCode-scoped connection flags", async () => {
+    const help = await runCli(productionEntry, ["run", "--help"]);
+
+    expect(help.code).toBe(0);
+    expect(help.stdout).toContain("--opencode-mode");
+    expect(help.stdout).toContain("--opencode-host");
+    expect(help.stdout).toContain("--opencode-port");
+    expect(help.stdout).not.toContain("--adapter-host");
+    expect(help.stdout).not.toContain("--adapter-port");
+  });
+
+  it("validates the OpenCode connection flag matrix", async () => {
+    const externalDryRun = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--dry",
+      "--adapter",
+      "opencode",
+      "--opencode-mode",
+      "external",
+      "--opencode-host",
+      "127.0.0.1",
+      "--opencode-port",
+      "1",
+    ]);
+    expect(externalDryRun.code).toBe(0);
+
+    const missingExternalEndpoint = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--dry",
+      "--adapter",
+      "opencode",
+      "--opencode-mode",
+      "external",
+    ]);
+    expect(missingExternalEndpoint.code).not.toBe(0);
+
+    const missingAdapter = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--dry",
+      "--opencode-mode",
+      "managed",
+    ]);
+    expect(missingAdapter.code).not.toBe(0);
+    expect(`${missingAdapter.stdout}${missingAdapter.stderr}`).toMatch(
+      /All of the following must be provided when using --opencode-mode:[\s\S]*--adapter/,
+    );
+
+    const invalidExternalPort = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--dry",
+      "--adapter",
+      "opencode",
+      "--opencode-mode",
+      "external",
+      "--opencode-host",
+      "127.0.0.1",
+      "--opencode-port",
+      "0",
+    ]);
+    expect(invalidExternalPort.code).not.toBe(0);
+
+    const codexFlag = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--dry",
+      "--adapter",
+      "codex",
+      "--opencode-host",
+      "127.0.0.1",
+    ]);
+    expect(codexFlag.code).not.toBe(0);
+    expect(`${codexFlag.stdout}${codexFlag.stderr}`).toContain(
+      "--adapter=codex cannot also be provided when using --opencode-host",
+    );
+
+    const removedFlag = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--dry",
+      "--adapter-host",
+      "127.0.0.1",
+    ]);
+    expect(removedFlag.code).not.toBe(0);
+  }, 15_000);
+
   it("runs a local-only workflow without a runtime profile", async () => {
     const result = await runCli(productionEntry, [
       "run",

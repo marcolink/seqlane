@@ -1,10 +1,15 @@
 # OpenCode
 
-The OpenCode adapter starts and closes a private OpenCode 1 service for each
-run. Seqlane supports OpenCode 1.18.27. OpenCode 2 is not yet supported.
+The OpenCode adapter uses OpenCode 1. Seqlane supports OpenCode 1.18.27.
+OpenCode 2 is not yet supported.
 
-It uses a loopback host and an ephemeral port by default. Use `--adapter-host`
-or `--adapter-port` only when you need a specific loopback endpoint.
+By default, `seqlane run` starts and closes a private service. This managed
+mode uses `127.0.0.1` and an ephemeral port.
+
+Use `--opencode-mode external` to connect to an existing service. You must set
+`--opencode-host` and `--opencode-port`. The host must be loopback. The port
+must be from `1` through `65535`. Seqlane never starts or stops an external
+service.
 
 Run the workflow:
 

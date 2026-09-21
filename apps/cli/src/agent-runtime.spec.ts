@@ -6,12 +6,15 @@ import {
   parseAcpLaunchConfiguration,
 } from "@seqlane/acp-adapter";
 import type { Plan, PlanNode } from "@seqlane/core";
+import { startOpenCodeService } from "@seqlane/opencode-adapter";
 import { createOpenCodeAdapterForRun } from "@seqlane/opencode-adapter/testing";
 import {
   createOperationalHost,
   createOperationalWorkflow,
 } from "@seqlane/runtime/operational-host";
-import { describe, expect, it } from "vitest";
+import { once } from "node:events";
+import { createServer } from "node:http";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   AgentRuntimeConfigurationError,
@@ -20,6 +23,12 @@ import {
   directRunAdapterConfigurationEnvironment,
   loadDirectRunAgentRuntimeFactory,
 } from "./agent-runtime.js";
+
+vi.mock("@seqlane/opencode-adapter", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@seqlane/opencode-adapter")>();
+  return { ...original, startOpenCodeService: vi.fn() };
+});
 
 const input = z.object({ value: z.string() });
 const output = z.object({ value: z.string() });
@@ -181,6 +190,7 @@ describe("CLI agent runtime composition", () => {
     });
     expect(JSON.parse(encoded)).toEqual({
       adapter: "opencode",
+      mode: "managed",
       host: "127.0.0.1",
       port: 4123,
     });
@@ -192,10 +202,48 @@ describe("CLI agent runtime composition", () => {
         }),
       ),
     ).toMatchObject({ host: "::1" });
+    expect(
+      JSON.parse(createDirectRunAdapterConfiguration({ adapter: "opencode" })),
+    ).toEqual({
+      adapter: "opencode",
+      mode: "managed",
+      host: "127.0.0.1",
+      port: 0,
+    });
+    expect(
+      JSON.parse(
+        createDirectRunAdapterConfiguration({
+          adapter: "opencode",
+          mode: "external",
+          host: "0:0:0:0:0:0:0:1",
+          port: 4123,
+        }),
+      ),
+    ).toEqual({
+      adapter: "opencode",
+      mode: "external",
+      host: "::1",
+      port: 4123,
+    });
     expect(() =>
       createDirectRunAdapterConfiguration({
         adapter: "opencode",
         host: "192.168.1.1",
+      }),
+    ).toThrow();
+    expect(() =>
+      createDirectRunAdapterConfiguration({
+        adapter: "opencode",
+        mode: "external",
+        host: "127.0.0.1",
+        port: 0,
+      }),
+    ).toThrow();
+    expect(() =>
+      createDirectRunAdapterConfiguration({
+        adapter: "opencode",
+        mode: "external",
+        host: "127.0.0.1",
       }),
     ).toThrow();
 
@@ -211,6 +259,212 @@ describe("CLI agent runtime composition", () => {
         host: "127.0.0.1",
       }),
     ).toThrow();
+  });
+
+  it("uses an external OpenCode server without owning its lifecycle", async () => {
+    vi.clearAllMocks();
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<html><body>OpenCode</body></html>");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected a TCP listening address");
+    }
+
+    try {
+      const factory = loadDirectRunAgentRuntimeFactory({
+        [directRunAdapterConfigurationEnvironment]:
+          createDirectRunAdapterConfiguration({
+            adapter: "opencode",
+            mode: "external",
+            host: "127.0.0.1",
+            port: address.port,
+          }),
+      });
+      const runtime = await factory(
+        new AbortController().signal,
+        process.cwd(),
+      );
+      await runtime.close?.();
+
+      expect(startOpenCodeService).not.toHaveBeenCalled();
+      const response = await fetch(`http://127.0.0.1:${address.port}`);
+      expect(response.ok).toBe(true);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      );
+    }
+  });
+
+  it("uses a bracketed IPv6 endpoint for an external OpenCode server", async () => {
+    vi.clearAllMocks();
+    let requestHost: string | undefined;
+    const server = createServer((request, response) => {
+      requestHost = request.headers.host;
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<html><body>OpenCode</body></html>");
+    });
+    server.listen(0, "::1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected an IPv6 TCP listening address");
+    }
+
+    try {
+      const factory = loadDirectRunAgentRuntimeFactory({
+        [directRunAdapterConfigurationEnvironment]:
+          createDirectRunAdapterConfiguration({
+            adapter: "opencode",
+            mode: "external",
+            host: "0:0:0:0:0:0:0:1",
+            port: address.port,
+          }),
+      });
+      await factory(new AbortController().signal, process.cwd());
+
+      expect(requestHost).toBe(`[::1]:${address.port}`);
+      expect(startOpenCodeService).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      );
+    }
+  });
+
+  it("leaves an external OpenCode server alive after a runtime error", async () => {
+    vi.clearAllMocks();
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<html><body>OpenCode</body></html>");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected a TCP listening address");
+    }
+
+    try {
+      const factory = loadDirectRunAgentRuntimeFactory({
+        [directRunAdapterConfigurationEnvironment]:
+          createDirectRunAdapterConfiguration({
+            adapter: "opencode",
+            mode: "external",
+            host: "127.0.0.1",
+            port: address.port,
+          }),
+      });
+      const runtime = await factory(
+        new AbortController().signal,
+        process.cwd(),
+      );
+      if (runtime.modelCapabilities === undefined) {
+        throw new Error("Expected OpenCode model capabilities");
+      }
+      await expect(runtime.modelCapabilities.listModels()).rejects.toThrow();
+
+      expect(startOpenCodeService).not.toHaveBeenCalled();
+      expect((await fetch(`http://127.0.0.1:${address.port}`)).ok).toBe(true);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      );
+    }
+  });
+
+  it("leaves an external OpenCode server alive after cancellation", async () => {
+    vi.clearAllMocks();
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<html><body>OpenCode</body></html>");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected a TCP listening address");
+    }
+
+    try {
+      const factory = loadDirectRunAgentRuntimeFactory({
+        [directRunAdapterConfigurationEnvironment]:
+          createDirectRunAdapterConfiguration({
+            adapter: "opencode",
+            mode: "external",
+            host: "127.0.0.1",
+            port: address.port,
+          }),
+      });
+      const controller = new AbortController();
+      const runtime = await factory(controller.signal, process.cwd());
+      controller.abort();
+      await runtime.close?.();
+
+      expect(startOpenCodeService).not.toHaveBeenCalled();
+      expect((await fetch(`http://127.0.0.1:${address.port}`)).ok).toBe(true);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      );
+    }
+  });
+
+  it("keeps managed OpenCode service ownership", async () => {
+    vi.clearAllMocks();
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<html><body>OpenCode</body></html>");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected a TCP listening address");
+    }
+    const close = vi.fn(async () => undefined);
+    vi.mocked(startOpenCodeService).mockResolvedValue({
+      url: `http://127.0.0.1:${address.port}`,
+      diagnostics: () => "",
+      close,
+    });
+
+    try {
+      const factory = loadDirectRunAgentRuntimeFactory({
+        [directRunAdapterConfigurationEnvironment]:
+          createDirectRunAdapterConfiguration({
+            adapter: "opencode",
+          }),
+      });
+      const runtime = await factory(
+        new AbortController().signal,
+        process.cwd(),
+      );
+      await runtime.close?.();
+
+      expect(startOpenCodeService).toHaveBeenCalledWith(
+        expect.objectContaining({ host: "127.0.0.1", port: 0 }),
+      );
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      );
+    }
   });
 
   it("selects an adapter-owned ACP runtime factory", async () => {

@@ -139,11 +139,16 @@ seqlane run ./workflows/minimal-example/workflow.ts \
   --adapter opencode
 ```
 
-OpenCode starts as a private service owned by the run. Its optional loopback
-configuration is `--adapter-host 127.0.0.1` and `--adapter-port 0`; port `0`
-selects an ephemeral port. Codex uses its native discovery defaults. `run`
-does not read `SEQLANE_RUNTIME_ADAPTER_CONFIG`; that environment variable
-continues to configure hosted commands such as `serve`.
+OpenCode uses managed mode by default. The run starts and owns a private
+service at `127.0.0.1` with port `0`. Port `0` selects an ephemeral port.
+Use `--opencode-host` or `--opencode-port` to change this endpoint.
+
+Use `--opencode-mode external` to connect to an existing loopback service.
+External mode requires `--opencode-host` and `--opencode-port`. Its port must
+be from `1` through `65535`. The run never starts or stops that service. Codex
+uses its native discovery defaults. `run` does not read
+`SEQLANE_RUNTIME_ADAPTER_CONFIG`; that environment variable continues to
+configure hosted commands such as `serve`.
 
 One strict Zod discriminated schema validates the adapter selection and its
 adapter-specific values before the CLI passes them to its worker. The validated

@@ -43,6 +43,18 @@ import { z } from "zod";
 const localRuntimeId = "local";
 const directRuntimeId = "direct";
 const MAX_INPUT_FILE_BYTES = 1_048_576;
+const openCodeAdapterOnlyRelationships = [
+  {
+    type: "none" as const,
+    flags: [
+      {
+        name: "adapter",
+        when: async (flags: Record<string, unknown>) =>
+          flags.adapter !== "opencode",
+      },
+    ],
+  },
+];
 
 function parseJsonInput(value: string): JsonValue {
   let parsed: unknown;
@@ -171,35 +183,23 @@ export default class RunCommand extends SeqlaneCommand {
       description: "Concrete adapter for agent tasks",
       options: ["codex", "opencode"],
     }),
-    "adapter-host": Flags.string({
-      description: "Loopback host for an owned OpenCode service",
-      relationships: [
-        {
-          type: "all",
-          flags: [
-            {
-              name: "adapter",
-              when: async (flags) => flags.adapter === "opencode",
-            },
-          ],
-        },
-      ],
+    "opencode-mode": Flags.string({
+      description: "OpenCode connection mode (default: managed)",
+      options: ["managed", "external"],
+      dependsOn: ["adapter"],
+      relationships: openCodeAdapterOnlyRelationships,
     }),
-    "adapter-port": Flags.integer({
-      description: "Port for an owned OpenCode service (default: 0)",
+    "opencode-host": Flags.string({
+      description: "Loopback host for the OpenCode service",
+      dependsOn: ["adapter"],
+      relationships: openCodeAdapterOnlyRelationships,
+    }),
+    "opencode-port": Flags.integer({
+      description: "Port for the OpenCode service",
       min: 0,
       max: 65_535,
-      relationships: [
-        {
-          type: "all",
-          flags: [
-            {
-              name: "adapter",
-              when: async (flags) => flags.adapter === "opencode",
-            },
-          ],
-        },
-      ],
+      dependsOn: ["adapter"],
+      relationships: openCodeAdapterOnlyRelationships,
     }),
     workspace: Flags.string({
       description: "Workspace path for file-accessing tasks",
@@ -317,28 +317,21 @@ export default class RunCommand extends SeqlaneCommand {
         try {
           adapterConfiguration = createDirectRunAdapterConfiguration({
             adapter: flags.adapter,
-            ...(flags["adapter-host"] === undefined
+            ...(flags["opencode-mode"] === undefined
               ? {}
-              : { host: flags["adapter-host"] }),
-            ...(flags["adapter-port"] === undefined
+              : { mode: flags["opencode-mode"] }),
+            ...(flags["opencode-host"] === undefined
               ? {}
-              : { port: flags["adapter-port"] }),
+              : { host: flags["opencode-host"] }),
+            ...(flags["opencode-port"] === undefined
+              ? {}
+              : { port: flags["opencode-port"] }),
           });
         } catch (error) {
           this.error(contextualizeCommandError(errorMessage(error), error), {
             exit: 1,
           });
         }
-      } else if (
-        flags["adapter-host"] !== undefined ||
-        flags["adapter-port"] !== undefined
-      ) {
-        this.error(
-          "--adapter-host and --adapter-port require --adapter opencode",
-          {
-            exit: 1,
-          },
-        );
       }
       runnerClient = launchRunner(request, {
         environment: {

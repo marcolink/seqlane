@@ -95,18 +95,23 @@ Select the adapter for agent tasks. Supported values are `opencode` and
 seqlane run ./workflow.ts --input '{"topic":"Seqlane"}' --adapter opencode
 ```
 
-### `--adapter-host` and `--adapter-port`
+### `--opencode-mode`, `--opencode-host`, and `--opencode-port`
 
-Use these flags only with `--adapter opencode`. They configure the OpenCode
-service that `seqlane run` starts for the run. The default host is `127.0.0.1`;
-it must be a loopback address. The default port is `0`, which selects an
-ephemeral port.
+Use these flags only with `--adapter opencode`. The default mode is `managed`.
+Managed mode starts a private OpenCode service. Its default host is
+`127.0.0.1`, and its default port is `0`. Port `0` selects an ephemeral port.
+
+External mode connects to an existing OpenCode service. Set
+`--opencode-mode external`, `--opencode-host`, and `--opencode-port`. The host
+must be loopback. The port must be from `1` through `65535`. Seqlane does not
+start or stop this service.
 
 ```sh
 seqlane run ./workflow.ts --input '{}' \
   --adapter opencode \
-  --adapter-host 127.0.0.1 \
-  --adapter-port 4096
+  --opencode-mode external \
+  --opencode-host 127.0.0.1 \
+  --opencode-port 4096
 ```
 
 Codex has no adapter-specific flags. Use `--workspace` with
