@@ -786,24 +786,6 @@ function reducePlan(
   };
 }
 
-function collapseSuccessfulBranch(
-  view: RunViewModel,
-  invocationId: string,
-): RunViewModel {
-  const node = view.nodes.get(invocationId);
-  if (
-    node === undefined ||
-    (node.kind !== "workflow" && node.kind !== "loop")
-  ) {
-    return view;
-  }
-  const presentation = new Map(view.presentation);
-  presentation.set(invocationId, {
-    isExpanded: false,
-  });
-  return { ...view, presentation };
-}
-
 function materializePlanPlaceholder(
   view: RunViewModel,
   invocationId: string,
@@ -934,11 +916,8 @@ export function reduceRunViewModel(
         failure: undefined,
       }));
     case "invocation.succeeded":
-      return collapseSuccessfulBranch(
-        updateNode(next, event.invocationId, (node) =>
-          withState(node, "succeeded", timestamp),
-        ),
-        event.invocationId,
+      return updateNode(next, event.invocationId, (node) =>
+        withState(node, "succeeded", timestamp),
       );
     case "invocation.failed":
       return revealAncestors(

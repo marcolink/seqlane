@@ -516,8 +516,8 @@ describe("human execution view model", () => {
     expect(view.rootInvocationIds).toEqual(["z-first", "a-second"]);
   });
 
-  it("aggregates completed descendants and supports collapse", () => {
-    const expanded = reduceRunEvents([
+  it("keeps completed workflow descendants visible for child summaries", () => {
+    const view = reduceRunEvents([
       created("workflow", "Workflow", 0, { kind: "workflow" }),
       created("a", "A", 0, { parentInvocationId: "workflow" }),
       created("b", "B", 1, { parentInvocationId: "workflow" }),
@@ -525,20 +525,18 @@ describe("human execution view model", () => {
       terminal("a", "invocation.succeeded"),
       started("b", "B"),
       terminal("b", "invocation.succeeded"),
+      terminal("workflow", "invocation.succeeded"),
     ]);
-    const workflow = expanded.nodes.get("workflow");
+    const workflow = view.nodes.get("workflow");
     expect(workflow?.aggregate).toMatchObject({
       total: 2,
       succeeded: 2,
       failed: 0,
     });
-
-    const collapsed = reduceRunViewModel(
-      expanded,
-      terminal("workflow", "invocation.succeeded"),
-    );
-    expect(getRunVisibleRows(collapsed).map(({ node }) => node.label)).toEqual([
+    expect(getRunVisibleRows(view).map(({ node }) => node.label)).toEqual([
       "Workflow",
+      "A",
+      "B",
     ]);
   });
 

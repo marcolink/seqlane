@@ -19,8 +19,9 @@ does not depend on a runtime adapter or executor.
   per-tool/per-skill counts. Duration stays right-aligned with the task title.
   Keys are muted and values use bright contrast when ANSI is available. Tool
   and skill counts represent logical activity IDs, not streamed lifecycle
-  updates. Completed activity-only tasks keep their usage rows. Rails stretch
-  with wrapped details.
+  updates. Completed activity-only tasks keep their usage rows. Completed
+  workflow and loop branches stay expanded so child summaries remain visible.
+  Rails stretch with wrapped details.
   A task duration starts when the task becomes active. It excludes queue time and
   dependency wait time.
   Missing fields stay hidden. Successful rows collapse to duration and usage totals.
