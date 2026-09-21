@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   isJsonValue,
   serializeSeqlaneError,
+  seqlaneExecutionEventSchema,
   type SeqlaneExecutionEvent,
   type SeqlaneExecutionEventMetadata,
   type InvocationObservationEvent,
@@ -127,12 +128,15 @@ export function createExecutionEventBridge(
       pending = pending.then(() => send(canonical));
     },
     emitObservation(event) {
-      pending = pending.then(() =>
-        send({
-          ...event,
-          metadata: createMetadata(++sequence, createEventId, clock),
-        }),
-      );
+      const canonical = {
+        ...event,
+        metadata: createMetadata(++sequence, createEventId, clock),
+      };
+      const parsed = seqlaneExecutionEventSchema.safeParse(canonical);
+      if (!parsed.success) {
+        throw new TypeError("Invalid invocation observation event");
+      }
+      pending = pending.then(() => send(parsed.data));
     },
     flush() {
       return pending;

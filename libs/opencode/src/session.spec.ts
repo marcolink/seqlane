@@ -485,6 +485,51 @@ describe("OpenCode run session", () => {
     }
   });
 
+  it("dispatches fallback tool activity after an initial history snapshot failure", async () => {
+    const response = textPromptResponse("session-1", "{}");
+    const toolPart = {
+      id: "part-1",
+      sessionID: "session-1",
+      messageID: "message-session-1",
+      type: "tool",
+      callID: "call-1",
+      tool: "filesystem.read",
+      state: {
+        status: "completed",
+        input: { path: "/repo/package.json" },
+        output: "{}",
+        metadata: { source: "message-list" },
+        time: { start: 1, end: 2 },
+      },
+    };
+    const fake = await startServer({
+      readbackFailures: 1,
+      messageLists: [[{ info: response.info, parts: [toolPart] }]],
+      promptResponses: [response],
+    });
+    try {
+      const run = await createOpenCodeRun({ url: fake.url });
+      const activities: OpenCodeActivity[] = [];
+
+      await run.prompt({
+        text: "inspect",
+        schema: {},
+        strategy: "prompt",
+        onActivity: (activity) => activities.push(activity),
+      });
+
+      expect(activities).toEqual([
+        expect.objectContaining({
+          activityId: "call-1",
+          name: "filesystem.read",
+          state: "succeeded",
+        }),
+      ]);
+    } finally {
+      await closeServer(fake.server);
+    }
+  });
+
   it("aborts active prompt work before closing a run", async () => {
     const fake = await startServer({ holdPrompt: true });
     try {

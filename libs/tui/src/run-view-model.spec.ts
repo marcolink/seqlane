@@ -910,6 +910,16 @@ describe("human execution view model", () => {
         activityId: "call-1",
         kind: "tool",
         name: "filesystem.read",
+        state: "progress",
+        message: "reading file",
+      },
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-1",
+        kind: "tool",
+        name: "filesystem.read",
         state: "succeeded",
       },
     ]);

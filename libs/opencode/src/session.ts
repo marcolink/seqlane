@@ -193,13 +193,14 @@ async function reconcilePromptObservations({
         );
         addMessageIDs(history, messageIDs);
       } else {
-        const parsed = parseOpenCodeMessageObservations(messages, sessionID);
-        addMessageIDs(history, parsed.messageIDs);
-        if (parsed.malformedPartCount > 0) {
-          onDiagnostic(
-            `ignored ${parsed.malformedPartCount} malformed OpenCode tool message part(s)`,
-          );
-        }
+        const messageIDs = dispatchMessageObservations(
+          messages,
+          sessionID,
+          dispatcher,
+          undefined,
+          onDiagnostic,
+        );
+        addMessageIDs(history, messageIDs);
         history.ready = true;
       }
     } catch {

@@ -514,9 +514,17 @@ function projectActivity(
   if (node === undefined) return view;
   const identity = activityIdentity(event);
   const isNewActivity = !node.seenActivityIds.has(identity);
-  const next = updateNode(view, event.invocationId, (current) =>
-    projectNodeActivity(current, event),
-  );
+  const next = updateNode(view, event.invocationId, (current) => {
+    const projected = projectNodeActivity(current, event);
+    if (!isNewActivity) return projected;
+    const usage = new Map(
+      event.kind === "skill" ? projected.skillUsage : projected.toolUsage,
+    );
+    usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
+    return event.kind === "skill"
+      ? { ...projected, skillUsage: usage }
+      : { ...projected, toolUsage: usage };
+  });
   if (!isNewActivity) return next;
 
   const usage =

@@ -45,20 +45,8 @@ export function projectNodeActivity(
     nextLiveActivities.set(event.activityId, event);
     liveActivities = nextLiveActivities;
   }
-  let toolUsage = node.toolUsage;
-  let skillUsage = node.skillUsage;
-  if (isNewActivity) {
-    const usage = new Map(
-      event.kind === "skill" ? node.skillUsage : node.toolUsage,
-    );
-    usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
-    if (event.kind === "skill") skillUsage = usage;
-    else toolUsage = usage;
-  }
   return {
     ...node,
-    toolUsage,
-    skillUsage,
     completedToolIds,
     seenActivityIds,
     liveActivities,

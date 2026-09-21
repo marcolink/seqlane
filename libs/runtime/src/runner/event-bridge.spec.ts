@@ -168,6 +168,22 @@ describe("execution event bridge", () => {
     ]);
   });
 
+  it("rejects malformed adapter observations before enqueueing them", () => {
+    const bridge = createExecutionEventBridge(async () => undefined);
+    const malformed = {
+      type: "invocation.observation",
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      observationId: "message-1",
+      kind: "model",
+      state: "succeeded",
+      model: { response: { value: new Date() } },
+    } as never;
+
+    expect(() => bridge.emitObservation(malformed)).toThrow();
+  });
+
   it("bounds validation failure evidence while preserving canonical error shape", async () => {
     const events: SeqlaneExecutionEvent[] = [];
     const bridge = createExecutionEventBridge(async (event) => {

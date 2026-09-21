@@ -110,7 +110,11 @@ describe("OpenCode AgentAdapter", () => {
           },
         };
       },
-      async () => ({ strategy: "native", retryCount: 0 }),
+      async () => ({
+        strategy: "native",
+        retryCount: 0,
+        reason: "explicit" as const,
+      }),
     );
     const adapter = createOpenCodeAdapterForRun(run);
 
