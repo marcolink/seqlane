@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-19
-updated: 2026-09-19
+updated: 2026-09-21
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
@@ -43,20 +43,37 @@ does not select or deliver standalone-execution cutover work.
 `codex`. A deterministic workflow can omit the flag. An agent task without a
 selected adapter fails when it first requires an adapter.
 
-`run` accepts `--adapter-host <host>` and `--adapter-port <port>` only with
-`--adapter opencode`. The host must be loopback. The port is an integer from
-`0` through `65535`; `0` requests an ephemeral port. Defaults are
-`127.0.0.1` and `0`.
+`run` accepts `--opencode-mode`, `--opencode-host <host>`, and
+`--opencode-port <port>` only with `--adapter opencode`. It does not accept
+the former generic host or port flags.
+
+`--opencode-mode` accepts `managed` or `external`. Its default is `managed`.
+The host must be loopback in both modes.
+
+Native Oclif constraints reject these flags when `--adapter` is absent or has
+a value other than `opencode`. The private schema validates their combined
+configuration before it crosses the child-process boundary.
+
+Managed mode starts one service owned by the run. Its defaults are
+`127.0.0.1` and port `0`. Port `0` requests an ephemeral port.
+
+External mode requires an explicit host and port. The port is an integer from
+`1` through `65535`. It connects to that endpoint and never starts or stops a
+service. It never probes a default port or starts a managed service after an
+external connection error.
 
 `--runtime` is removed without a compatibility alias. Direct runs ignore an
 inherited `SEQLANE_RUNTIME_ADAPTER_CONFIG` value.
 
-### requirement-owned-opencode-service
+### requirement-opencode-service-modes
 
-OpenCode host and port values configure one service started and owned by the
-run. They do not attach to an existing service. Startup verifies that the
-reported endpoint has the requested loopback host and, for a non-zero request,
-the requested port. Cleanup affects only the process owned by that run.
+Managed OpenCode startup verifies that the reported endpoint has the requested
+loopback host and, for a non-zero request, the requested port. Cleanup affects
+only the process owned by that run.
+
+External OpenCode connects through the existing private direct-run bootstrap.
+It uses the same OpenCode runtime factory as managed mode. Adapter and session
+cleanup still occur. Service cleanup does not occur.
 
 ### requirement-private-bootstrap
 
@@ -71,8 +88,10 @@ Hosted commands retain their existing configuration contract.
 
 - Test valid and invalid adapter/flag combinations through the compiled CLI.
 - Prove deterministic and dry runs start no adapter service.
-- Prove OpenCode default and requested-port ownership, cancellation, and
-  foreign-process survival.
+- Prove managed ownership and external-service survival on success, error, and
+  cancellation where feasible.
+- Test IPv4 and IPv6 normalization, external port `0` rejection, and no
+  fallback from external mode to managed startup.
 - Prove legacy direct-run flag and environment configuration do not select an
   adapter.
 - Run adapter, CLI, test-mapping, documentation, build, and whitespace gates.

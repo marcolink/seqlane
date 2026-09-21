@@ -29,13 +29,26 @@ const loopbackHostSchema = z
     return z.NEVER;
   });
 
+const managedOpenCodeConfigurationSchema = z.strictObject({
+  adapter: z.literal("opencode"),
+  mode: z.literal("managed"),
+  host: loopbackHostSchema.default("127.0.0.1"),
+  port: z.number().int().min(0).max(65_535).default(0),
+});
+
+const externalOpenCodeConfigurationSchema = z.strictObject({
+  adapter: z.literal("opencode"),
+  mode: z.literal("external"),
+  host: loopbackHostSchema,
+  port: z.number().int().min(1).max(65_535),
+});
+
 const directRunAdapterConfigurationSchema = z.discriminatedUnion("adapter", [
   z.strictObject({ adapter: z.literal("codex") }),
-  z.strictObject({
-    adapter: z.literal("opencode"),
-    host: loopbackHostSchema.default("127.0.0.1"),
-    port: z.number().int().min(0).max(65_535).default(0),
-  }),
+  z.discriminatedUnion("mode", [
+    managedOpenCodeConfigurationSchema,
+    externalOpenCodeConfigurationSchema,
+  ]),
 ]);
 
 export type DirectRunAdapterConfiguration = z.output<
@@ -100,6 +113,11 @@ export function createDirectRunAdapterConfiguration(value: unknown): string {
   return JSON.stringify(directRunAdapterConfigurationSchema.parse(value));
 }
 
+function externalOpenCodeUrl(host: string, port: number): string {
+  const authority = host.includes(":") ? `[${host}]` : host;
+  return new URL(`http://${authority}:${port}`).origin;
+}
+
 /** Loads direct-run selection. This must never read the legacy hosted config. */
 export function loadDirectRunAgentRuntimeFactory(
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -121,6 +139,12 @@ export function loadDirectRunAgentRuntimeFactory(
     case "codex":
       return createCodexAgentRuntimeFactory({ adapter: "codex" });
     case "opencode":
+      if (configuration.mode === "external") {
+        return createOpenCodeAgentRuntimeFactory({
+          adapter: "opencode",
+          url: externalOpenCodeUrl(configuration.host, configuration.port),
+        });
+      }
       return async (signal, workspace) => {
         const service = await startOpenCodeService({
           workspace: workspace ?? process.cwd(),

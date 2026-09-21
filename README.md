@@ -321,8 +321,8 @@ seqlane run ./workflows/local-only-example/workflow.ts \
 ### Run an agent workflow
 
 `run` defaults to no adapter. Local-only workflows do not need configuration.
-Agent tasks select a direct-run adapter. OpenCode starts as a service owned by
-the run; Codex uses its native discovery defaults.
+Agent tasks select a direct-run adapter. OpenCode uses a service owned by the
+run in managed mode. Codex uses its native discovery defaults.
 
 Run an agent workflow with OpenCode:
 
@@ -341,10 +341,17 @@ seqlane run ./workflow.ts \
   --workspace "$PWD"
 ```
 
-OpenCode accepts optional `--adapter-host 127.0.0.1` and `--adapter-port 0`.
-The host is loopback-only; port `0` selects an ephemeral port. One strict Zod
-discriminated schema validates adapter-specific values before they enter the
-private worker bootstrap. They never enter workflow input or runner IPC.
+OpenCode accepts `--opencode-mode`, `--opencode-host`, and `--opencode-port`.
+Managed mode is the default. It uses loopback host `127.0.0.1` and port `0` by
+default. Port `0` selects an ephemeral port.
+
+External mode requires `--opencode-mode external`, `--opencode-host`, and
+`--opencode-port`. The host must be loopback. The port must be from `1`
+through `65535`. Seqlane does not start or stop an external service.
+
+One strict Zod discriminated schema validates adapter-specific values before
+they enter the private worker bootstrap. They never enter workflow input or
+runner IPC.
 
 Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
 source per run, and input files have a 1 MiB limit.
