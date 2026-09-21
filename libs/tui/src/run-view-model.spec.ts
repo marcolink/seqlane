@@ -76,15 +76,35 @@ describe("human execution view model", () => {
       kind: "model" as const,
       state: "started" as const,
       model: {
-        request: { messages: [{ role: "user", content: "exact input" }] },
+        request: {
+          messages: [{ role: "user", content: "exact input" }],
+          options: { temperature: 0.1, stop: ["\\n"] },
+          context: { previous: true },
+        },
+        response: { text: "partial response" },
+        usage: { inputTokens: 10, cache: { read: 2 } },
       },
+      availability: [
+        {
+          path: "model.request.tools",
+          reason: "source-unavailable" as const,
+        },
+      ],
     };
     const second = {
       ...first,
       state: "succeeded" as const,
       model: {
-        response: { text: "exact output", structured: { ok: false } },
+        request: { options: { temperature: 0.7 }, context: {} },
+        response: { text: "", structured: { ok: false } },
+        usage: { cache: { write: 3 } },
       },
+      availability: [
+        {
+          path: "model.response.reasoning",
+          reason: "not-json-representable" as const,
+        },
+      ],
     };
     const view = reduceRunEvents([created("root", "Root", 0), first, second]);
     const node = view.nodes.get("root");
@@ -93,12 +113,24 @@ describe("human execution view model", () => {
     expect(node?.observations.get("model-1")).toEqual({
       ...second,
       model: {
-        request: first.model.request,
-        response: second.model.response,
+        request: {
+          messages: first.model.request.messages,
+          options: { temperature: 0.7, stop: ["\\n"] },
+          context: {},
+        },
+        response: { text: "", structured: { ok: false } },
+        usage: { inputTokens: 10, cache: { read: 2, write: 3 } },
       },
+      availability: [
+        { path: "model.request.tools", reason: "source-unavailable" },
+        {
+          path: "model.response.reasoning",
+          reason: "not-json-representable",
+        },
+      ],
     });
     expect(node?.observations.get("model-1")?.model.response).toEqual({
-      text: "exact output",
+      text: "",
       structured: { ok: false },
     });
   });

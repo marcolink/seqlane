@@ -1,4 +1,8 @@
-import { validationResultSchema } from "@seqlane/core";
+import {
+  isJsonValue,
+  isPlainRecord,
+  validationResultSchema,
+} from "@seqlane/core";
 import { projectNodeActivity } from "./run-activity.js";
 import { outputBytes, retainOutput } from "./run-output.js";
 import { withMapChanges } from "./run-node-map.js";
@@ -23,6 +27,7 @@ import {
   rootInvocationIds,
 } from "./run-topology.js";
 import type {
+  JsonValue,
   SeqlaneFailureDisposition,
   SeqlaneDisplayValue,
   SeqlaneInvocationKind,
@@ -504,21 +509,76 @@ function applyAncestorAggregateDelta(
 
 type ActivityEvent = Extract<OutputEvent, { type: "invocation.activity" }>;
 
+function mergeJsonValues(
+  previous: JsonValue | undefined,
+  next: JsonValue | undefined,
+): JsonValue | undefined {
+  if (next === undefined) return previous;
+  if (previous === undefined) return next;
+  if (!isPlainRecord(previous) || !isPlainRecord(next)) return next;
+  if (Object.keys(next).length === 0) return next;
+
+  const merged: Record<string, JsonValue> = {};
+  for (const [key, value] of Object.entries(previous)) {
+    if (isJsonValue(value)) merged[key] = value;
+  }
+  for (const [key, value] of Object.entries(next)) {
+    if (!isJsonValue(value)) continue;
+    const mergedValue = mergeJsonValues(merged[key], value);
+    if (mergedValue !== undefined) merged[key] = mergedValue;
+  }
+  return merged;
+}
+
+function mergeObservationAvailability(
+  previous: InvocationObservationEvent["availability"],
+  next: InvocationObservationEvent["availability"],
+): InvocationObservationEvent["availability"] {
+  if (next === undefined || previous === undefined || next.length === 0)
+    return next ?? previous;
+
+  const merged = [...previous];
+  const indexByPath = new Map(
+    merged.map((entry, index) => [entry.path, index] as const),
+  );
+  for (const entry of next) {
+    const index = indexByPath.get(entry.path);
+    if (index === undefined) {
+      indexByPath.set(entry.path, merged.length);
+      merged.push(entry);
+    } else {
+      merged[index] = entry;
+    }
+  }
+  return merged;
+}
+
 function mergeInvocationObservation(
   previous: InvocationObservationEvent | undefined,
   next: InvocationObservationEvent,
 ): InvocationObservationEvent {
   if (previous === undefined) return next;
+  const request = mergeJsonValues(previous.model.request, next.model.request);
+  const response = mergeJsonValues(
+    previous.model.response,
+    next.model.response,
+  );
+  const usage = mergeJsonValues(previous.model.usage, next.model.usage);
+  const availability = mergeObservationAvailability(
+    previous.availability,
+    next.availability,
+  );
   return {
     ...previous,
     ...next,
     model: {
       ...previous.model,
       ...next.model,
+      ...(request === undefined ? {} : { request }),
+      ...(response === undefined ? {} : { response }),
+      ...(usage === undefined ? {} : { usage }),
     },
-    ...(next.availability === undefined && previous.availability !== undefined
-      ? { availability: previous.availability }
-      : {}),
+    ...(availability === undefined ? {} : { availability }),
   };
 }
 
