@@ -40,6 +40,48 @@ describe("@seqlane/protocol", () => {
     expect(isSeqlaneExecutionEvent(JSON.parse(encoded))).toBe(true);
   });
 
+  it("round-trips a high-fidelity model observation", () => {
+    const event: SeqlaneExecutionEvent = {
+      type: "invocation.observation",
+      metadata,
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      observationId: "message-1",
+      kind: "model",
+      state: "succeeded",
+      attemptIndex: 0,
+      model: {
+        operation: "chat",
+        provider: "controlled-provider",
+        model: "controlled-model",
+        responseId: "message-1",
+        request: {
+          messages: [
+            { role: "user", content: "Keep this exact text" },
+            { role: "developer", content: ["ordered", "parts"] },
+          ],
+          options: { temperature: 0, topP: null },
+        },
+        response: {
+          text: "exact response",
+          structured: { answer: "done", count: 0, ok: false },
+        },
+        usage: {
+          inputTokens: 4,
+          outputTokens: 3,
+          reasoningTokens: 0,
+        },
+        startedAt: 1,
+        endedAt: 3,
+      },
+    };
+
+    expect(
+      decodeSeqlaneExecutionEvent(encodeSeqlaneExecutionEvent(event)),
+    ).toEqual(event);
+  });
+
   it("round-trips effective model selection metrics without provider payloads", () => {
     const event: SeqlaneExecutionEvent = {
       type: "invocation.output",

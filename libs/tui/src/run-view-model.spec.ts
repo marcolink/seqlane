@@ -67,6 +67,74 @@ function terminal(
 }
 
 describe("human execution view model", () => {
+  it("retains complete model observations and merges lifecycle updates", () => {
+    const first = {
+      type: "invocation.observation" as const,
+      ...run,
+      invocationId: "root",
+      observationId: "model-1",
+      kind: "model" as const,
+      state: "started" as const,
+      model: {
+        request: {
+          messages: [{ role: "user", content: "exact input" }],
+          options: { temperature: 0.1, stop: ["\\n"] },
+          context: { previous: true },
+        },
+        response: { text: "partial response" },
+        usage: { inputTokens: 10, cache: { read: 2 } },
+      },
+      availability: [
+        {
+          path: "model.request.tools",
+          reason: "source-unavailable" as const,
+        },
+      ],
+    };
+    const second = {
+      ...first,
+      state: "succeeded" as const,
+      model: {
+        request: { options: { temperature: 0.7 }, context: {} },
+        response: { text: "", structured: { ok: false } },
+        usage: { cache: { write: 3 } },
+      },
+      availability: [
+        {
+          path: "model.response.reasoning",
+          reason: "not-json-representable" as const,
+        },
+      ],
+    };
+    const view = reduceRunEvents([created("root", "Root", 0), first, second]);
+    const node = view.nodes.get("root");
+
+    expect(node?.observations.size).toBe(1);
+    expect(node?.observations.get("model-1")).toEqual({
+      ...second,
+      model: {
+        request: {
+          messages: first.model.request.messages,
+          options: { temperature: 0.7, stop: ["\\n"] },
+          context: {},
+        },
+        response: { text: "", structured: { ok: false } },
+        usage: { inputTokens: 10, cache: { read: 2, write: 3 } },
+      },
+      availability: [
+        { path: "model.request.tools", reason: "source-unavailable" },
+        {
+          path: "model.response.reasoning",
+          reason: "not-json-representable",
+        },
+      ],
+    });
+    expect(node?.observations.get("model-1")?.model.response).toEqual({
+      text: "",
+      structured: { ok: false },
+    });
+  });
+
   it("bounds nodes, dependency edges, and detail text with visible markers", () => {
     const events = [
       created("root", "Root", 0, {
@@ -485,8 +553,8 @@ describe("human execution view model", () => {
     expect(view.rootInvocationIds).toEqual(["z-first", "a-second"]);
   });
 
-  it("aggregates completed descendants and supports collapse", () => {
-    const expanded = reduceRunEvents([
+  it("keeps completed workflow descendants visible for child summaries", () => {
+    const view = reduceRunEvents([
       created("workflow", "Workflow", 0, { kind: "workflow" }),
       created("a", "A", 0, { parentInvocationId: "workflow" }),
       created("b", "B", 1, { parentInvocationId: "workflow" }),
@@ -494,20 +562,18 @@ describe("human execution view model", () => {
       terminal("a", "invocation.succeeded"),
       started("b", "B"),
       terminal("b", "invocation.succeeded"),
+      terminal("workflow", "invocation.succeeded"),
     ]);
-    const workflow = expanded.nodes.get("workflow");
+    const workflow = view.nodes.get("workflow");
     expect(workflow?.aggregate).toMatchObject({
       total: 2,
       succeeded: 2,
       failed: 0,
     });
-
-    const collapsed = reduceRunViewModel(
-      expanded,
-      terminal("workflow", "invocation.succeeded"),
-    );
-    expect(getRunVisibleRows(collapsed).map(({ node }) => node.label)).toEqual([
+    expect(getRunVisibleRows(view).map(({ node }) => node.label)).toEqual([
       "Workflow",
+      "A",
+      "B",
     ]);
   });
 
@@ -879,6 +945,16 @@ describe("human execution view model", () => {
         activityId: "call-1",
         kind: "tool",
         name: "filesystem.read",
+        state: "progress",
+        message: "reading file",
+      },
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-1",
+        kind: "tool",
+        name: "filesystem.read",
         state: "succeeded",
       },
     ]);
@@ -887,9 +963,48 @@ describe("human execution view model", () => {
       "tool filesystem.read succeeded",
     );
     expect([...(view.nodes.get("a")?.toolUsage.entries() ?? [])]).toEqual([
-      ["filesystem.read", 2],
+      ["filesystem.read", 1],
     ]);
-    expect([...view.toolUsage.entries()]).toEqual([["filesystem.read", 2]]);
+  });
+
+  it("replaces live activity updates and clears them at activity or task completion", () => {
+    const started = {
+      type: "invocation.activity" as const,
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool" as const,
+      name: "filesystem.read",
+      state: "started" as const,
+      message: "opening file",
+    };
+    const progressed = {
+      ...started,
+      state: "progress" as const,
+      message: "reading file",
+    };
+    const view = reduceRunEvents([created("a", "A", 0), started, progressed]);
+
+    expect(view.nodes.get("a")?.liveActivities.get("call-1")).toEqual(
+      progressed,
+    );
+
+    const activityCompleted = reduceRunViewModel(view, {
+      ...progressed,
+      state: "succeeded",
+      message: "read file",
+    });
+    expect(activityCompleted.nodes.get("a")?.liveActivities.size).toBe(0);
+
+    const taskCompleted = reduceRunViewModel(view, {
+      ...run,
+      type: "invocation.succeeded",
+      invocationId: "a",
+    });
+    expect(taskCompleted.nodes.get("a")?.liveActivities.size).toBe(0);
+
+    const lateActivity = reduceRunViewModel(taskCompleted, started);
+    expect(lateActivity.nodes.get("a")?.liveActivities.size).toBe(0);
   });
 
   it("keeps skill usage separate from tool usage", () => {
@@ -910,7 +1025,33 @@ describe("human execution view model", () => {
     expect([...view.nodes.get("a")!.skillUsage.entries()]).toEqual([
       ["web-perf", 1],
     ]);
-    expect([...view.skillUsage.entries()]).toEqual([["web-perf", 1]]);
-    expect(view.toolUsage.size).toBe(0);
+  });
+
+  it("counts distinct activity identities separately", () => {
+    const view = reduceRunEvents([
+      created("a", "A", 0),
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-1",
+        kind: "tool",
+        name: "filesystem.read",
+        state: "succeeded",
+      },
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-2",
+        kind: "tool",
+        name: "filesystem.read",
+        state: "succeeded",
+      },
+    ]);
+
+    expect([...view.nodes.get("a")!.toolUsage.entries()]).toEqual([
+      ["filesystem.read", 2],
+    ]);
   });
 });

@@ -381,6 +381,52 @@ const invocationActivitySchema = eventSchema("invocation.activity", {
   iteration: iterationSchema.optional(),
 });
 
+const observationStateSchema = z.enum([
+  "started",
+  "updated",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+const observationAvailabilitySchema = strictRecord({
+  path: nonEmptyStringSchema,
+  reason: z.enum([
+    "source-unavailable",
+    "not-json-representable",
+    "projection-failed",
+  ]),
+});
+
+const modelObservationSchema = strictRecord({
+  operation: nonEmptyStringSchema.optional(),
+  provider: nonEmptyStringSchema.optional(),
+  model: nonEmptyStringSchema.optional(),
+  responseId: nonEmptyStringSchema.optional(),
+  finishReasons: arrayOf(nonEmptyStringSchema).optional(),
+  request: jsonValueSchema.optional(),
+  response: jsonValueSchema.optional(),
+  usage: jsonValueSchema.optional(),
+  cost: nonNegativeNumberSchema.optional(),
+  startedAt: nonNegativeNumberSchema.optional(),
+  endedAt: nonNegativeNumberSchema.optional(),
+  error: z.string().optional(),
+});
+
+const invocationObservationSchema = eventSchema("invocation.observation", {
+  workId: nonEmptyStringSchema,
+  runId: nonEmptyStringSchema,
+  invocationId: nonEmptyStringSchema,
+  observationId: nonEmptyStringSchema,
+  parentObservationId: nonEmptyStringSchema.optional(),
+  kind: z.literal("model"),
+  state: observationStateSchema,
+  attemptIndex: nonNegativeIntegerSchema.optional(),
+  model: modelObservationSchema,
+  availability: arrayOf(observationAvailabilitySchema).optional(),
+  iteration: iterationSchema.optional(),
+});
+
 const invocationInputSchema = eventSchema("invocation.input", {
   workId: nonEmptyStringSchema,
   runId: nonEmptyStringSchema,
@@ -473,6 +519,7 @@ export const seqlaneExecutionEventSchema = z.union([
   invocationProgressSchema,
   invocationOutputSchema,
   invocationActivitySchema,
+  invocationObservationSchema,
   invocationInputSchema,
   invocationResultSchema,
   invocationRetryingSchema,
@@ -528,6 +575,12 @@ export type InvocationCreatedEvent = EventOf<"invocation.created">;
 export type InvocationProgressEvent = EventOf<"invocation.progress">;
 export type InvocationOutputEvent = EventOf<"invocation.output">;
 export type InvocationActivityEvent = EventOf<"invocation.activity">;
+export type InvocationObservationEvent = EventOf<"invocation.observation">;
+/** Canonical observation record emitted by an adapter before runtime envelope projection. */
+export type SeqlaneObservation = Omit<
+  InvocationObservationEvent,
+  "type" | "metadata" | "workId" | "runId" | "invocationId" | "iteration"
+>;
 export type InvocationInputEvent = EventOf<"invocation.input">;
 export type InvocationResultEvent = EventOf<"invocation.result">;
 export type InvocationRetryingEvent = EventOf<"invocation.retrying">;

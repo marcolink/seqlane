@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { workTone } from "./theme.js";
+import { activityTone, workTone } from "./theme.js";
 
 describe("workTone", () => {
   it.each([
@@ -12,7 +12,7 @@ describe("workTone", () => {
     (kind, base, bright) => {
       expect(workTone(kind, "active", true)).toEqual({
         color: bright,
-        bold: true,
+        bold: false,
         dimColor: false,
       });
       for (const state of [
@@ -47,4 +47,21 @@ describe("workTone", () => {
       });
     },
   );
+});
+
+describe("activityTone", () => {
+  it("uses distinct tool and skill colors with a no-color fallback", () => {
+    expect(activityTone("tool", true)).toEqual({
+      color: "cyan",
+      bold: false,
+    });
+    expect(activityTone("skill", true)).toEqual({
+      color: "magenta",
+      bold: false,
+    });
+    expect(activityTone("tool", false)).toEqual({
+      color: undefined,
+      bold: false,
+    });
+  });
 });

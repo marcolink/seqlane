@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import {
   isJsonValue,
   serializeSeqlaneError,
+  seqlaneExecutionEventSchema,
   type SeqlaneExecutionEvent,
   type SeqlaneExecutionEventMetadata,
+  type InvocationObservationEvent,
   type SeqlanePlanSnapshot,
 } from "@seqlane/protocol";
 import {
@@ -20,6 +22,7 @@ export type SendExecutionEvent = (
 
 export interface ExecutionEventBridge extends SeqlaneEventSink {
   emitPlan(plan: SeqlanePlanSnapshot, workId: string, runId: string): void;
+  emitObservation(event: Omit<InvocationObservationEvent, "metadata">): void;
   flush(): Promise<void>;
 }
 
@@ -123,6 +126,17 @@ export function createExecutionEventBridge(
         createMetadata(++sequence, createEventId, clock),
       );
       pending = pending.then(() => send(canonical));
+    },
+    emitObservation(event) {
+      const canonical = {
+        ...event,
+        metadata: createMetadata(++sequence, createEventId, clock),
+      };
+      const parsed = seqlaneExecutionEventSchema.safeParse(canonical);
+      if (!parsed.success) {
+        throw new TypeError("Invalid invocation observation event");
+      }
+      pending = pending.then(() => send(parsed.data));
     },
     flush() {
       return pending;

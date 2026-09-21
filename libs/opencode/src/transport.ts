@@ -21,6 +21,16 @@ export interface OpenCodeSessionConfiguration {
   readonly selection: ModelSelection;
 }
 
+export interface OpenCodeMessageListOptions {
+  readonly cursor?: string;
+  readonly order?: "asc" | "desc";
+}
+
+export interface OpenCodeMessagePage {
+  readonly messages: readonly unknown[];
+  readonly nextCursor?: string;
+}
+
 export interface OpenCodeTransport {
   createSession(
     workspace: string | undefined,
@@ -47,7 +57,8 @@ export interface OpenCodeTransport {
   readonly listMessages?: (
     sessionId: string,
     signal?: AbortSignal,
-  ) => Promise<unknown>;
+    options?: OpenCodeMessageListOptions,
+  ) => Promise<OpenCodeMessagePage>;
   /** Uses finite session reads. Do not implement this with OpenCode's `/event`. */
   monitorSession(
     sessionId: string,
@@ -66,6 +77,30 @@ const maxMonitorValueDepth = 12;
 const maxMonitorCollectionEntries = 100;
 const maxMonitorStringLength = 64 * 1_024;
 const maxMonitorPropertyNameLength = 256;
+const messagePageLimit = 100;
+
+const messagePageSchema = z.object({
+  data: z.array(z.unknown()).max(messagePageLimit),
+  cursor: z.object({ next: z.string().min(1).optional() }).optional(),
+});
+
+function parseMessagePage(value: unknown): OpenCodeMessagePage {
+  const legacy = z.array(z.unknown()).max(messagePageLimit).safeParse(value);
+  if (legacy.success) return { messages: legacy.data };
+  const page = messagePageSchema.safeParse(value);
+  if (!page.success) {
+    throw new OpenCodeExecutorError(
+      "OpenCode session messages returned an invalid or oversized page",
+      page.error,
+    );
+  }
+  return {
+    messages: page.data.data,
+    ...(page.data.cursor?.next === undefined
+      ? {}
+      : { nextCursor: page.data.cursor.next }),
+  };
+}
 
 function boundedMonitorValueSchema(depth: number): z.ZodType<unknown> {
   const scalar = z.union([
@@ -341,12 +376,6 @@ function createSessionMonitor(
   };
 }
 
-async function sdkResponseData<T>(
-  response: Promise<{ readonly data: T }>,
-): Promise<T> {
-  return (await response).data;
-}
-
 /** Adapts the SDK's session API to the private session lifecycle. */
 export function createOpenCodeTransport(url: string): OpenCodeTransport {
   return createOpenCodeTransportFromClient(createOpenCodeClient(url));
@@ -419,13 +448,16 @@ function createOpenCodeTransportFromClient(
       }
     },
 
-    async listMessages(sessionId, signal) {
-      return sdkResponseData(
-        client.session.messages(
-          { sessionID: sessionId },
-          { throwOnError: true, signal },
-        ),
+    async listMessages(sessionId, signal, options) {
+      const response = await client.session.messages(
+        {
+          sessionID: sessionId,
+          limit: messagePageLimit,
+          ...(options?.cursor === undefined ? {} : { before: options.cursor }),
+        },
+        { throwOnError: true, signal },
       );
+      return parseMessagePage(response.data);
     },
 
     async forkSession(sessionId, messageId, signal) {

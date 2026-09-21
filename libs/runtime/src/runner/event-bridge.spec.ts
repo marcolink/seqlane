@@ -123,6 +123,67 @@ describe("execution event bridge", () => {
     });
   });
 
+  it("forwards adapter observations with protocol metadata", async () => {
+    const events: SeqlaneExecutionEvent[] = [];
+    const bridge = createExecutionEventBridge(
+      async (event) => {
+        events.push(event);
+      },
+      {
+        createEventId: () => "observation-event",
+        clock: () => new Date(metadata.occurredAt),
+      },
+    );
+
+    bridge.emitObservation({
+      type: "invocation.observation",
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      observationId: "message-1",
+      kind: "model",
+      state: "succeeded",
+      model: {
+        request: { text: "request" },
+        response: { text: "response" },
+      },
+    });
+    await bridge.flush();
+
+    expect(events).toEqual([
+      {
+        type: "invocation.observation",
+        workId: "work-1",
+        runId: "run-1",
+        invocationId: "invocation-1",
+        observationId: "message-1",
+        kind: "model",
+        state: "succeeded",
+        model: {
+          request: { text: "request" },
+          response: { text: "response" },
+        },
+        metadata: { ...metadata, eventId: "observation-event", sequence: 1 },
+      },
+    ]);
+  });
+
+  it("rejects malformed adapter observations before enqueueing them", () => {
+    const bridge = createExecutionEventBridge(async () => undefined);
+    const malformed = {
+      type: "invocation.observation",
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      observationId: "message-1",
+      kind: "model",
+      state: "succeeded",
+      model: { response: { value: new Date() } },
+    } as never;
+
+    expect(() => bridge.emitObservation(malformed)).toThrow();
+  });
+
   it("bounds validation failure evidence while preserving canonical error shape", async () => {
     const events: SeqlaneExecutionEvent[] = [];
     const bridge = createExecutionEventBridge(async (event) => {

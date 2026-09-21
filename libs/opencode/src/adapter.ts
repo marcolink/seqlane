@@ -3,7 +3,12 @@ import type {
   AgentAdapter,
   AgentAdapterRequest,
 } from "@seqlane/agent-adapter";
-import type { ModelSelection } from "@seqlane/core";
+import {
+  jsonValueSchema,
+  type JsonValue,
+  type ModelSelection,
+} from "@seqlane/core";
+import type { SeqlaneObservation } from "@seqlane/protocol";
 import { buildOpenCodePrompt } from "./task-prompt.js";
 import {
   buildStructuredOutputPrompt,
@@ -23,6 +28,8 @@ import type { ResolvedStructuredOutput } from "./structured-output-strategy.js";
 import type {
   OpenCodeActivity,
   OpenCodeConnection,
+  OpenCodePrompt,
+  OpenCodePromptResult,
   OpenCodeRun,
 } from "./protocol.js";
 import { createOpenCodeRun } from "./session.js";
@@ -74,6 +81,152 @@ function normalizeActivity(activity: OpenCodeActivity): AgentActivity {
       : { startedAt: activity.startedAt }),
     ...(activity.endedAt === undefined ? {} : { endedAt: activity.endedAt }),
     ...(activity.message === undefined ? {} : { message: activity.message }),
+  };
+}
+
+type ObservationAvailability = NonNullable<
+  SeqlaneObservation["availability"]
+>[number];
+
+function jsonValueOrUnavailable(
+  value: unknown,
+  path: string,
+  availability: ObservationAvailability[],
+): JsonValue | undefined {
+  const parsed = jsonValueSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  availability.push({ path, reason: "not-json-representable" });
+  return undefined;
+}
+
+function modelRequestValue(
+  prompt: OpenCodePrompt,
+  availability: ObservationAvailability[],
+): JsonValue {
+  const value: Record<string, JsonValue> = { text: prompt.text };
+  let schemaValue: unknown = prompt.schema;
+  try {
+    // Zod adds non-enumerable runtime metadata to its JSON Schema output.
+    // Clone it away before validating the JSON payload.
+    schemaValue = structuredClone(prompt.schema);
+  } catch {
+    schemaValue = undefined;
+  }
+  const schema = jsonValueOrUnavailable(
+    schemaValue,
+    "model.request.schema",
+    availability,
+  );
+  if (schema !== undefined) value.schema = schema;
+  if (prompt.strategy !== undefined) value.strategy = prompt.strategy;
+  if (prompt.retryCount !== undefined) value.retryCount = prompt.retryCount;
+  if (prompt.tools !== undefined) {
+    const tools = jsonValueOrUnavailable(
+      prompt.tools,
+      "model.request.tools",
+      availability,
+    );
+    if (tools !== undefined) value.tools = tools;
+  }
+  if (prompt.selection !== undefined) {
+    const selection = jsonValueOrUnavailable(
+      prompt.selection,
+      "model.request.selection",
+      availability,
+    );
+    if (selection !== undefined) value.selection = selection;
+  }
+  if (prompt.variant !== undefined) value.variant = prompt.variant;
+  return value;
+}
+
+function reportCanonicalObservation(
+  request: AgentAdapterRequest,
+  observation: SeqlaneObservation,
+): void {
+  try {
+    request.onObservation?.(observation);
+  } catch {
+    reportAdapterDiagnostic(
+      request,
+      "observation",
+      "canonical observation consumer failed",
+    );
+  }
+}
+
+function modelObservation(
+  request: AgentAdapterRequest,
+  prompt: OpenCodePrompt,
+  attemptIndex: number,
+  options: {
+    readonly state: SeqlaneObservation["state"];
+    readonly response?: OpenCodePromptResult;
+    readonly error?: string;
+  },
+): SeqlaneObservation {
+  const response = options.response;
+  const native = response?.observation;
+  const metrics = response?.metrics;
+  const selection = prompt.selection ?? request.modelSelection;
+  const availability: ObservationAvailability[] = [];
+  const responseValue: Record<string, JsonValue> = {};
+  if (response?.structured !== undefined) {
+    const structured = jsonValueOrUnavailable(
+      response.structured,
+      "model.response.structured",
+      availability,
+    );
+    if (structured !== undefined) responseValue.structured = structured;
+  }
+  if (response?.text !== undefined) responseValue.text = response.text;
+  const error = options.error ?? native?.error;
+  return {
+    observationId: `${request.invocationId}:model:${attemptIndex}`,
+    kind: "model",
+    state: options.state,
+    attemptIndex,
+    model: {
+      operation: "chat",
+      ...(metrics?.provider === undefined
+        ? native?.provider === undefined
+          ? selection?.model.provider === undefined
+            ? {}
+            : { provider: selection.model.provider }
+          : { provider: native.provider }
+        : { provider: metrics.provider }),
+      ...(metrics?.model === undefined
+        ? native?.model === undefined
+          ? selection?.model.model === undefined
+            ? {}
+            : { model: selection.model.model }
+          : { model: native.model }
+        : { model: metrics.model }),
+      ...(native?.messageID === undefined
+        ? {}
+        : { responseId: native.messageID }),
+      ...(native?.finish === undefined
+        ? {}
+        : { finishReasons: [native.finish] }),
+      request: modelRequestValue(prompt, availability),
+      ...(response === undefined ? {} : { response: responseValue }),
+      ...(metrics?.tokens === undefined
+        ? {}
+        : {
+            usage: {
+              inputTokens: metrics.tokens.input,
+              outputTokens: metrics.tokens.output,
+              reasoningTokens: metrics.tokens.reasoning,
+              cacheReadTokens: metrics.tokens.cacheRead,
+              cacheWriteTokens: metrics.tokens.cacheWrite,
+            },
+          }),
+      ...(metrics?.cost === undefined ? {} : { cost: metrics.cost }),
+      ...(native?.created === undefined ? {} : { startedAt: native.created }),
+      ...(native?.completed === undefined ? {} : { endedAt: native.completed }),
+      ...(error === undefined ? {} : { error }),
+    },
+    ...(availability.length === 0 ? {} : { availability }),
   };
 }
 
@@ -248,11 +401,12 @@ function createAdapterForRun({
         while (true) {
           attempts += 1;
           selection?.report?.({ type: "attempt", attempt: attempts });
-          const response = await run.prompt({
+          const prompt: OpenCodePrompt = {
             text: promptText,
             schema,
             strategy,
             retryCount,
+            tools: { read: true },
             ...(lastIssues === undefined
               ? {}
               : { tools: { "*": false, StructuredOutput: true } }),
@@ -265,7 +419,40 @@ function createAdapterForRun({
             onDiagnostic: (message) =>
               reportAdapterDiagnostic(request, "opencode-event", message),
             onRunInvalidated: invalidation.invalidate,
-          });
+          };
+          const attemptIndex = attempts - 1;
+          reportCanonicalObservation(
+            request,
+            modelObservation(request, prompt, attemptIndex, {
+              state: "started",
+            }),
+          );
+          let response: OpenCodePromptResult;
+          try {
+            response = await run.prompt(prompt);
+          } catch (cause) {
+            reportCanonicalObservation(
+              request,
+              modelObservation(request, prompt, attemptIndex, {
+                state: request.signal.aborted ? "cancelled" : "failed",
+                error:
+                  cause instanceof Error
+                    ? cause.message
+                    : "model exchange failed",
+              }),
+            );
+            throw cause;
+          }
+          reportCanonicalObservation(
+            request,
+            modelObservation(request, prompt, attemptIndex, {
+              state:
+                response.observation?.error === undefined
+                  ? "succeeded"
+                  : "failed",
+              response,
+            }),
+          );
           if (response.observation !== undefined) {
             observability.observeTerminal(response.observation);
           }

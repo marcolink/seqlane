@@ -1,4 +1,4 @@
-// @test-scope ./ci-renderer.ts
+// @test-scope ./ci-renderer.ts ./observation-details.ts
 // @test-scope ./output-details.ts
 
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
@@ -200,7 +200,7 @@ describe("CI renderer", () => {
     expect(output).toContain("iteration=2");
   });
 
-  it("suppresses routine tool and skill activity lines", () => {
+  it("renders terminal tool and skill activity lines", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -227,7 +227,45 @@ describe("CI renderer", () => {
       state: "succeeded",
     });
 
-    expect(stdout.writes.join("")).not.toContain("filesystem.read");
+    const output = stdout.writes.join("");
+    expect(output).toContain("activity=filesystem.read succeeded");
+    expect(output).toContain("activity=web-perf succeeded");
+  });
+
+  it("summarizes model observations without printing payload details", () => {
+    const stdout = new RecordingSink();
+    const renderer = new CIRenderer(capabilities(stdout), {
+      heartbeatIntervalMs: 0,
+    });
+    renderer.handle({ type: "run.started", ...run });
+    renderer.handle(created("a", "Task A", 0));
+    renderer.handle({
+      type: "invocation.observation",
+      ...run,
+      invocationId: "a",
+      observationId: "model-1",
+      kind: "model",
+      state: "succeeded",
+      attemptIndex: 0,
+      model: {
+        operation: "chat",
+        provider: "controlled-provider",
+        model: "controlled-model",
+        request: { text: "private request" },
+        response: { text: "private response" },
+      },
+    });
+
+    const output = stdout.writes.join("");
+    expect(output).toContain(
+      "run=run-1 invocation=a model controlled-provider/controlled-model",
+    );
+    expect(output).not.toContain("model exchanges=");
+    expect(output).not.toContain("state=succeeded attempt=0");
+    expect(output).not.toContain("request=present");
+    expect(output).not.toContain("response=present");
+    expect(output).not.toContain("private request");
+    expect(output).not.toContain("private response");
   });
 
   it("logs the bounded command for failed tool activity", async () => {

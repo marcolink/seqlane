@@ -1,5 +1,11 @@
 import type { OutputEvent, RunNode } from "./run-view-model.js";
 
+type ActivityEvent = Extract<OutputEvent, { type: "invocation.activity" }>;
+
+export function activityIdentity(event: ActivityEvent): string {
+  return JSON.stringify([event.invocationId, event.kind, event.activityId]);
+}
+
 /** Keep terminal call counts bounded and independent of streamed progress events. */
 export function projectNodeActivity(
   node: RunNode,
@@ -14,14 +20,43 @@ export function projectNodeActivity(
   ) {
     completedToolIds = new Set([...(completedToolIds ?? []), event.activityId]);
   }
+  const identity = activityIdentity(event);
+  const isNewActivity = !node.seenActivityIds.has(identity);
+  let seenActivityIds = node.seenActivityIds;
+  if (isNewActivity) {
+    const nextSeenActivityIds = new Set(node.seenActivityIds);
+    nextSeenActivityIds.add(identity);
+    seenActivityIds = nextSeenActivityIds;
+  }
+  const terminal =
+    node.state === "succeeded" ||
+    node.state === "failed" ||
+    node.state === "skipped" ||
+    node.state === "cancelled";
+  let liveActivities = node.liveActivities;
+  if (terminal || event.state === "succeeded" || event.state === "failed") {
+    if (node.liveActivities.has(event.activityId)) {
+      const nextLiveActivities = new Map(node.liveActivities);
+      nextLiveActivities.delete(event.activityId);
+      liveActivities = nextLiveActivities;
+    }
+  } else {
+    const nextLiveActivities = new Map(node.liveActivities);
+    nextLiveActivities.set(event.activityId, event);
+    liveActivities = nextLiveActivities;
+  }
   const usage = new Map(
     event.kind === "skill" ? node.skillUsage : node.toolUsage,
   );
-  usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
+  if (isNewActivity) {
+    usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
+  }
   return {
     ...node,
-    ...(event.kind === "skill" ? { skillUsage: usage } : { toolUsage: usage }),
     completedToolIds,
+    seenActivityIds,
+    liveActivities,
+    ...(event.kind === "skill" ? { skillUsage: usage } : { toolUsage: usage }),
     activity:
       event.message ?? event.kind + " " + event.name + " " + event.state,
   };

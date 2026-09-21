@@ -353,6 +353,9 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
+      '@seqlane/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -398,6 +401,9 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
+      '@seqlane/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       zod:
         specifier: 4.5.4
         version: 4.5.4

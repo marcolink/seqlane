@@ -1,4 +1,8 @@
-import { validationResultSchema } from "@seqlane/core";
+import {
+  isJsonValue,
+  isPlainRecord,
+  validationResultSchema,
+} from "@seqlane/core";
 import { projectNodeActivity } from "./run-activity.js";
 import { outputBytes, retainOutput } from "./run-output.js";
 import { withMapChanges } from "./run-node-map.js";
@@ -23,6 +27,7 @@ import {
   rootInvocationIds,
 } from "./run-topology.js";
 import type {
+  JsonValue,
   SeqlaneFailureDisposition,
   SeqlaneDisplayValue,
   SeqlaneInvocationKind,
@@ -30,6 +35,8 @@ import type {
   SeqlaneOutputSummary,
 } from "@seqlane/core";
 import type {
+  InvocationActivityEvent,
+  InvocationObservationEvent,
   SerializedSeqlaneError,
   SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
@@ -120,6 +127,10 @@ export interface RunNode {
   readonly state: RunNodeState;
   readonly toolUsage: ReadonlyMap<string, number>;
   readonly skillUsage: ReadonlyMap<string, number>;
+  /** Latest live event for each active tool or skill activity. */
+  readonly liveActivities: ReadonlyMap<string, InvocationActivityEvent>;
+  /** Complete latest lifecycle record for each logical observation. */
+  readonly observations: ReadonlyMap<string, InvocationObservationEvent>;
   readonly phase?: string;
   readonly activity?: string;
   readonly workspace?: "shared" | "exclusive";
@@ -128,6 +139,8 @@ export interface RunNode {
     { type: "run.plan" }
   >["plan"]["nodes"][number]["session"];
   readonly completedToolIds?: ReadonlySet<string>;
+  /** Logical activity identities already counted for this invocation. */
+  readonly seenActivityIds: ReadonlySet<string>;
   readonly waitingReason?: string;
   readonly aggregate: RunAggregate;
   readonly output: RunOutputState;
@@ -164,8 +177,6 @@ export interface RunViewModel {
   /** Automatic expansion state kept separate from execution nodes. */
   readonly presentation: ReadonlyMap<string, RunPresentationState>;
   readonly rootInvocationIds: readonly string[];
-  readonly toolUsage: ReadonlyMap<string, number>;
-  readonly skillUsage: ReadonlyMap<string, number>;
   readonly lastHeartbeatAt?: string;
   readonly lastEventSequence: number;
   readonly limits: RunProjectionLimits;
@@ -273,6 +284,9 @@ function emptyNode(
     state: "queued",
     toolUsage: new Map(),
     skillUsage: new Map(),
+    liveActivities: new Map(),
+    observations: new Map(),
+    seenActivityIds: new Set(),
     aggregate: EMPTY_AGGREGATE,
     output: { persistent: [] },
     ...(event.kind !== "validation"
@@ -456,6 +470,7 @@ function withState(
       ? {
           finishedAt: timestamp,
           elapsedMs: elapsedBetween(startedAt, timestamp),
+          liveActivities: new Map(),
         }
       : {}),
   };
@@ -492,6 +507,92 @@ function applyAncestorAggregateDelta(
   return { ...view, nodes };
 }
 
+type ActivityEvent = Extract<OutputEvent, { type: "invocation.activity" }>;
+
+function mergeJsonValues(
+  previous: JsonValue | undefined,
+  next: JsonValue | undefined,
+): JsonValue | undefined {
+  if (next === undefined) return previous;
+  if (previous === undefined) return next;
+  if (!isPlainRecord(previous) || !isPlainRecord(next)) return next;
+  if (Object.keys(next).length === 0) return next;
+
+  const merged: Record<string, JsonValue> = {};
+  for (const [key, value] of Object.entries(previous)) {
+    if (isJsonValue(value)) merged[key] = value;
+  }
+  for (const [key, value] of Object.entries(next)) {
+    if (!isJsonValue(value)) continue;
+    const mergedValue = mergeJsonValues(merged[key], value);
+    if (mergedValue !== undefined) merged[key] = mergedValue;
+  }
+  return merged;
+}
+
+function mergeObservationAvailability(
+  previous: InvocationObservationEvent["availability"],
+  next: InvocationObservationEvent["availability"],
+): InvocationObservationEvent["availability"] {
+  if (next === undefined || previous === undefined || next.length === 0)
+    return next ?? previous;
+
+  const merged = [...previous];
+  const indexByPath = new Map(
+    merged.map((entry, index) => [entry.path, index] as const),
+  );
+  for (const entry of next) {
+    const index = indexByPath.get(entry.path);
+    if (index === undefined) {
+      indexByPath.set(entry.path, merged.length);
+      merged.push(entry);
+    } else {
+      merged[index] = entry;
+    }
+  }
+  return merged;
+}
+
+function mergeInvocationObservation(
+  previous: InvocationObservationEvent | undefined,
+  next: InvocationObservationEvent,
+): InvocationObservationEvent {
+  if (previous === undefined) return next;
+  const request = mergeJsonValues(previous.model.request, next.model.request);
+  const response = mergeJsonValues(
+    previous.model.response,
+    next.model.response,
+  );
+  const usage = mergeJsonValues(previous.model.usage, next.model.usage);
+  const availability = mergeObservationAvailability(
+    previous.availability,
+    next.availability,
+  );
+  return {
+    ...previous,
+    ...next,
+    model: {
+      ...previous.model,
+      ...next.model,
+      ...(request === undefined ? {} : { request }),
+      ...(response === undefined ? {} : { response }),
+      ...(usage === undefined ? {} : { usage }),
+    },
+    ...(availability === undefined ? {} : { availability }),
+  };
+}
+
+function projectActivity(
+  view: RunViewModel,
+  event: ActivityEvent,
+): RunViewModel {
+  const node = view.nodes.get(event.invocationId);
+  if (node === undefined) return view;
+  return updateNode(view, event.invocationId, (current) =>
+    projectNodeActivity(current, event),
+  );
+}
+
 export function createRunViewModel(
   options: RunViewModelOptions = {},
 ): RunViewModel {
@@ -504,8 +605,6 @@ export function createRunViewModel(
     plannedInvocationsByTaskId: new Map(),
     presentation: new Map(),
     rootInvocationIds: [],
-    toolUsage: new Map(),
-    skillUsage: new Map(),
     lastEventSequence: 0,
     limits: { ...DEFAULT_RUN_PROJECTION_LIMITS, ...options.limits },
     omittedNodeCount: 0,
@@ -743,24 +842,6 @@ function reducePlan(
   };
 }
 
-function collapseSuccessfulBranch(
-  view: RunViewModel,
-  invocationId: string,
-): RunViewModel {
-  const node = view.nodes.get(invocationId);
-  if (
-    node === undefined ||
-    (node.kind !== "workflow" && node.kind !== "loop")
-  ) {
-    return view;
-  }
-  const presentation = new Map(view.presentation);
-  presentation.set(invocationId, {
-    isExpanded: false,
-  });
-  return { ...view, presentation };
-}
-
 function materializePlanPlaceholder(
   view: RunViewModel,
   invocationId: string,
@@ -825,19 +906,20 @@ export function reduceRunViewModel(
         }),
       );
     case "invocation.activity": {
-      const usage =
-        event.kind === "skill"
-          ? new Map(next.skillUsage)
-          : new Map(next.toolUsage);
-      usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
-      const nextView =
-        event.kind === "skill"
-          ? { ...next, skillUsage: usage }
-          : { ...next, toolUsage: usage };
-      return updateNode(nextView, event.invocationId, (node) =>
-        projectNodeActivity(node, event),
-      );
+      return projectActivity(next, event);
     }
+    case "invocation.observation":
+      return updateNode(next, event.invocationId, (node) => {
+        const observations = new Map(node.observations);
+        observations.set(
+          event.observationId,
+          mergeInvocationObservation(
+            node.observations.get(event.observationId),
+            event,
+          ),
+        );
+        return { ...node, observations };
+      });
     case "invocation.output": {
       const node = next.nodes.get(event.invocationId);
       if (node === undefined) return next;
@@ -896,11 +978,8 @@ export function reduceRunViewModel(
         failure: undefined,
       }));
     case "invocation.succeeded":
-      return collapseSuccessfulBranch(
-        updateNode(next, event.invocationId, (node) =>
-          withState(node, "succeeded", timestamp),
-        ),
-        event.invocationId,
+      return updateNode(next, event.invocationId, (node) =>
+        withState(node, "succeeded", timestamp),
       );
     case "invocation.failed":
       return revealAncestors(

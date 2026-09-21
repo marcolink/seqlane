@@ -1,4 +1,4 @@
-// @test-scope ./app.tsx ./tree-row.tsx ./usage.ts ../run-view-model.ts ../run-activity.ts ../terminal-field.ts
+// @test-scope ./app.tsx ./tree-row.tsx ./usage.ts ./observation-details.tsx ../run-view-model.ts ../run-activity.ts ../terminal-field.ts ../observation-details.ts
 import { cleanup, render } from "ink-testing-library";
 import { afterEach, expect, it, vi } from "vitest";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
@@ -133,24 +133,85 @@ it("encodes and redacts all dynamic human fields", () => {
     expect(frame).not.toContain(control);
   expect(frame).toContain("***\\u000d\\u000a");
 });
-it("shows reported context and usage, preserves wrapped rails, then collapses", async () => {
+
+it("keeps accumulated summary out of active task details", () => {
+  const base = activeView();
+  const node = base.nodes.get("live");
+  if (!node) throw new Error("Missing test invocation");
+  const nodes = new Map(base.nodes);
+  nodes.set("live", {
+    ...node,
+    skillUsage: new Map([["web-perf", 2]]),
+  });
+  const view = reduceRunViewModel(
+    { ...base, nodes },
+    {
+      ...identity,
+      type: "invocation.observation",
+      invocationId: "live",
+      observationId: "model-1",
+      kind: "model",
+      state: "succeeded",
+      model: {
+        provider: "controlled-provider",
+        model: "controlled-model",
+        request: { text: "input", flags: [false, 0, null] },
+        response: { text: "output", structured: { ok: false } },
+      },
+    },
+  );
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 200 }}
+      spinnerFrame={0}
+    />,
+  );
+  expect(app.lastFrame()).toContain("test-model · shared · delegated");
+  expect(app.lastFrame()).not.toContain(
+    "model   controlled-provider/controlled-model",
+  );
+  expect(app.lastFrame()).not.toContain("tokens  input=12400");
+  expect(app.lastFrame()).not.toContain("tools   read_file=1");
+  expect(app.lastFrame()).not.toContain("skills  web-perf=2");
+  expect(app.lastFrame()).not.toContain("model exchanges=");
+  expect(app.lastFrame()).not.toContain("state=succeeded");
+  expect(app.lastFrame()).not.toContain("attempt=0");
+  expect(app.lastFrame()).not.toContain("request=present");
+  expect(app.lastFrame()).not.toContain("response=present");
+  expect(app.lastFrame()).not.toContain('"provider":"controlled-provider"');
+  expect(app.lastFrame()).not.toContain("model observation=");
+  expect(app.lastFrame()).not.toContain('"text":"input"');
+  expect(app.lastFrame()).not.toContain('"text":"output"');
+});
+it("shows reported context and aligned usage, preserves wrapped rails, then collapses", async () => {
   const view = activeView();
+  const node = view.nodes.get("live");
+  if (!node) throw new Error("Missing test invocation");
+  const nodes = new Map(view.nodes);
+  nodes.set("live", {
+    ...node,
+    skillUsage: new Map([["web-perf", 2]]),
+  });
   const props = {
     capabilities: { supportsAnsi: false, supportsUnicode: true, width: 48 },
     spinnerFrame: 0,
   };
-  const app = render(<HumanApp {...props} view={view} />);
+  const app = render(<HumanApp {...props} view={{ ...view, nodes }} />);
   const output = app.lastFrame() ?? "";
-  expect(output).toContain("workspace shared");
-  expect(output).toContain("session new (planned)");
+  expect(output).toContain("shared");
+  expect(output).toContain("delegated");
   expect(output).toContain("test-model");
-  expect(output).toContain("1 tool calls completed");
-  expect(output).toContain("in 12400");
-  expect(output).toContain("1800");
-  expect(output).toContain("$0.08");
+  expect(output).not.toContain("1 tool calls completed");
+  const compactOutput = output.replace(/\s+/g, " ");
+  expect(compactOutput).not.toContain("tokens");
+  expect(compactOutput).not.toContain("input=12400");
+  expect(compactOutput).not.toContain("output=1800");
+  expect(compactOutput).not.toContain("tools");
+  expect(compactOutput).not.toContain("skills web-perf=2");
   expect(output).not.toContain("Never show raw output");
   const details = output.split("\n").slice(3, -1);
-  expect(details.length).toBeGreaterThan(3);
+  expect(details.length).toBeGreaterThanOrEqual(3);
   expect(details.every((line) => line.startsWith("│"))).toBe(true);
   expect(output).toMatchSnapshot();
   app.rerender(
@@ -164,11 +225,141 @@ it("shows reported context and usage, preserves wrapped rails, then collapses", 
     />,
   );
   await vi.waitFor(() =>
-    expect(app.lastFrame()).not.toContain("workspace shared"),
+    expect(app.lastFrame()).toContain("test-model · shared · delegated"),
   );
+  const terminalOutput = (app.lastFrame() ?? "").replace(/\s+/g, " ");
+  expect(terminalOutput).toContain("14.2k tokens · $0.08");
+  expect(terminalOutput).toContain("input 12.4k · output 1.8k · reasoning 0");
+  expect(terminalOutput).toContain("cache read 0");
+  expect(terminalOutput).toContain("tools read_file×1 · skills none");
   expect(app.lastFrame()).toContain("$0.08");
   expect(app.lastFrame()).toContain("0ms");
 });
+
+it("does not add cache tokens to the total token count", () => {
+  const base = activeView();
+  const node = base.nodes.get("live");
+  if (!node) throw new Error("Missing test invocation");
+  const view = reduceRunViewModel(
+    {
+      ...base,
+      nodes: new Map(base.nodes).set("live", {
+        ...node,
+        output: {
+          ...node.output,
+          metrics: {
+            tokens: {
+              input: 10,
+              output: 5,
+              reasoning: 2,
+              cacheRead: 100,
+              cacheWrite: 3,
+            },
+          },
+        },
+      }),
+    },
+    {
+      ...identity,
+      type: "invocation.succeeded",
+      invocationId: "live",
+    },
+  );
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 120 }}
+      spinnerFrame={0}
+    />,
+  );
+
+  const output = (app.lastFrame() ?? "").replace(/\s+/g, " ");
+  expect(output).toContain("17 tokens");
+  expect(output).not.toContain("120 tokens");
+});
+
+it("replaces live activity lines and removes them from the completed summary", async () => {
+  const active = reduceRunViewModel(activeView(), {
+    ...tool,
+    state: "started",
+    message: "opening source file",
+  });
+  const props = {
+    capabilities: { supportsAnsi: false, supportsUnicode: false, width: 100 },
+    spinnerFrame: 0,
+  };
+  const app = render(<HumanApp {...props} view={active} />);
+  expect(app.lastFrame()).toContain("[tool] read_file opening source file");
+  expect(app.lastFrame()).not.toContain("tokens  input=12400");
+
+  app.rerender(
+    <HumanApp
+      {...props}
+      view={reduceRunViewModel(active, {
+        ...identity,
+        type: "invocation.succeeded",
+        invocationId: "live",
+      })}
+    />,
+  );
+
+  await vi.waitFor(() =>
+    expect(app.lastFrame()).not.toContain("[tool] read_file"),
+  );
+  expect(app.lastFrame()).toContain("14.2k tokens · $0.08");
+  expect(app.lastFrame()).toContain("tools read_file×1 · skills none");
+});
+
+it("keeps accumulated tokens out of the completed task header", () => {
+  const view = reduceRunViewModel(activeView(), {
+    ...identity,
+    type: "invocation.succeeded",
+    invocationId: "live",
+  });
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 100 }}
+      spinnerFrame={0}
+    />,
+  );
+  expect(app.lastFrame()).toContain("14.2k tokens · $0.08");
+  const taskLine =
+    (app.lastFrame() ?? "")
+      .split("\n")
+      .find((line) => line.includes("Review runtime")) ?? "";
+  expect(taskLine).not.toContain("14.2k tokens");
+  expect(app.lastFrame()).not.toContain("1 calls");
+});
+
+it("keeps activity usage visible after an activity-only task completes", () => {
+  const base = activeView();
+  const node = base.nodes.get("live");
+  if (!node) throw new Error("Missing test invocation");
+  const nodes = new Map(base.nodes);
+  nodes.set("live", {
+    ...node,
+    skillUsage: new Map([["web-perf", 1]]),
+  });
+  const view = reduceRunViewModel(
+    { ...base, nodes },
+    {
+      ...identity,
+      type: "invocation.succeeded",
+      invocationId: "live",
+    },
+  );
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 100 }}
+      spinnerFrame={0}
+    />,
+  );
+  expect(app.lastFrame()).toContain("14.2k tokens · $0.08");
+  expect(app.lastFrame()).toContain("tools read_file×1 · skills web-perf×1");
+});
+
 it("does not invent metrics or workspace context", () => {
   const view = activeView();
   const node = view.nodes.get("live");

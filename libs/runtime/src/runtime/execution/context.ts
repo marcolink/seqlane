@@ -10,6 +10,7 @@ import type {
   WorkId,
   ModelSelection,
 } from "@seqlane/core";
+import type { SeqlaneObservation } from "@seqlane/protocol";
 import type { ExecutorRegistry } from "./executor.js";
 import { ChildSessionRegistry } from "../session/child-session.js";
 import type {
@@ -25,6 +26,11 @@ import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.
 import { JointAdmissionRegistry } from "../invocation/joint-admission.js";
 
 export type ExecutionEventSink = SeqlaneEventSink;
+export type ExecutionObservationSink = (
+  invocationId: InvocationId,
+  observation: SeqlaneObservation,
+  iteration?: number,
+) => void;
 
 export interface ExecutionContext {
   readonly workId: WorkId;
@@ -55,6 +61,7 @@ export interface ExecutionContext {
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
   readonly events: ExecutionEventSink;
+  readonly onObservation?: ExecutionObservationSink;
   workflowResult?: unknown;
   failure?: SeqlaneError;
 }
@@ -75,6 +82,7 @@ export interface ExecutionContextOptions {
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
   readonly events?: SeqlaneEventSink;
+  readonly onObservation?: ExecutionObservationSink;
 }
 
 export function createExecutionContext(
@@ -110,6 +118,7 @@ export function createExecutionContext(
     validatorDefinitions: options.validatorDefinitions,
     taskSchemas: options.taskSchemas,
     events: options.events ?? { emit: () => undefined },
+    onObservation: options.onObservation,
   };
 }
 

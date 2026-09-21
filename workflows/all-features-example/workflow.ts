@@ -6,6 +6,7 @@ import {
   isolated,
   reuse,
 } from "@seqlane/core";
+import { openai } from "@seqlane/core/models";
 import { z } from "zod";
 
 const inputSchema = z.object({
@@ -18,6 +19,12 @@ const contextSchema = z.object({
   focus: z.string(),
   keywords: z.array(z.string()).min(1),
   hint: z.string(),
+});
+
+const packageInspectionSchema = z.object({
+  path: z.literal("package.json"),
+  name: z.string().min(1),
+  version: z.string().min(1),
 });
 
 const laneSchema = z.object({
@@ -60,6 +67,7 @@ const validationResultSchema = z.discriminatedUnion("success", [
 
 const outputSchema = z.object({
   context: contextSchema,
+  inspection: packageInspectionSchema,
   policy: policySchema,
   validation: validationResultSchema,
   polished: polishStateSchema,
@@ -139,6 +147,20 @@ const contextTask = defineAgentTask({
   },
 });
 
+const packageInspectionTask = defineAgentTask({
+  id: "all-features-example-inspect",
+  input: z.object({}),
+  output: packageInspectionSchema,
+  goal: () =>
+    "Read package.json with OpenCode's read tool and return its package name and version.",
+  instructions: [
+    "You must call OpenCode's read tool on package.json before answering.",
+    "Do not infer the package contents from context.",
+    "Return the exact package name and version from the file.",
+  ],
+  references: ["package.json"],
+});
+
 const laneTask = defineAgentTask({
   id: "all-features-example-lane",
   input: contextSchema,
@@ -189,9 +211,18 @@ export default createFlow({
 })
   .task("context", contextTask, ({ input }) => input, {
     workspace: "shared",
-    session: isolated(),
+    session: isolated({ model: openai("gpt-5.6-luna") }),
     validateOutput: contextValidator,
   })
+  .task(
+    "inspect",
+    packageInspectionTask,
+    {},
+    {
+      workspace: "shared",
+      session: isolated({ model: openai("gpt-5.6-luna") }),
+    },
+  )
   .task("left", laneTask, ({ tasks }) => tasks.context.output, {
     workspace: "shared",
     session: ({ tasks }) => branch(tasks.context.session),
@@ -210,7 +241,15 @@ export default createFlow({
       session: ({ tasks }) => branch(tasks.context.session),
     },
   )
-  .task("policy", policyTask, { version: "v1" }, { workspace: "shared" })
+  .task(
+    "policy",
+    policyTask,
+    { version: "v1" },
+    {
+      workspace: "shared",
+      session: isolated({ model: openai("gpt-5.6-luna") }),
+    },
+  )
   .task(
     "joined",
     joinedTask,
@@ -236,11 +275,13 @@ export default createFlow({
     }),
     {
       workspace: "shared",
+      session: isolated({ model: openai("gpt-5.6-luna") }),
       validateOutput: polishValidator,
     },
   )
   .output(({ tasks }) => ({
     context: tasks.context.output,
+    inspection: tasks.inspect.output,
     policy: tasks.policy.output,
     validation: tasks.ready.validation,
     polished: tasks.polish.output,

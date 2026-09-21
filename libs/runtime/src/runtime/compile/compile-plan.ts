@@ -12,6 +12,7 @@ import type {
   WorkflowDefinitionRegistry,
   WorkId,
 } from "@seqlane/core";
+import type { SeqlaneObservation } from "@seqlane/protocol";
 import {
   taskDefinitionRegistrySchema,
   validatorDefinitionRegistrySchema,
@@ -81,6 +82,11 @@ export interface CompileWorkflowOptions {
   readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
   readonly events?: SeqlaneEventSink;
+  readonly onObservation?: (
+    invocationId: InvocationId,
+    observation: SeqlaneObservation,
+    iteration?: number,
+  ) => void;
 }
 
 /** Validate definition registries before any runtime lookup can use them. */
@@ -199,6 +205,7 @@ export class PlanCompiler {
       validatorDefinitions: options.validatorDefinitions,
       taskSchemas: options.taskSchemas,
       events: options.events,
+      onObservation: options.onObservation,
     });
 
     for (const node of orderedNodes) {

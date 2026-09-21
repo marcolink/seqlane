@@ -158,6 +158,7 @@ export async function startRun(
       workflowDefinitions: loadedWorkflow.workflowDefinitions,
       workflow: loadedWorkflow.workflow,
       events,
+      onObservation: (event) => events.emitObservation(event),
       createInvocationId,
     });
     // Topology is already compiled and does not depend on model/session

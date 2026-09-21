@@ -356,6 +356,12 @@ export async function executeTaskNode(
               });
             },
             onActivity: emitActivity,
+            onObservation: (observation) =>
+              context.onObservation?.(
+                invocationId,
+                observation,
+                options.iteration,
+              ),
             onEffect: (termination) => effects.track(termination),
             onUncertainActivity: reportUncertainActivity,
             onChildSession: reportChildSession,

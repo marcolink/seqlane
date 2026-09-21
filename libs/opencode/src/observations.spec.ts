@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseOpenCodeEvent,
+  parseOpenCodeMessageObservations,
   parseOpenCodeObservation,
 } from "./observations.js";
 
@@ -22,6 +23,49 @@ const assistant = (sessionID: string, id = "message-1") => ({
 });
 
 describe("OpenCode observation validation", () => {
+  it("parses assistant tool parts from the session message list", () => {
+    const parsed = parseOpenCodeMessageObservations(
+      [
+        {
+          info: assistant("session-1", "assistant-1"),
+          parts: [
+            {
+              id: "part-1",
+              sessionID: "session-1",
+              messageID: "assistant-1",
+              type: "tool",
+              callID: "call-1",
+              tool: "filesystem.read",
+              state: {
+                status: "completed",
+                input: { path: "/repo/package.json" },
+                output: "{}",
+                metadata: { source: "message-list" },
+                time: { start: 1, end: 2 },
+              },
+            },
+          ],
+        },
+      ],
+      "session-1",
+    );
+
+    expect(parsed).toEqual({
+      messageIDs: ["assistant-1"],
+      observations: [
+        expect.objectContaining({
+          kind: "tool",
+          messageID: "assistant-1",
+          callID: "call-1",
+          status: "completed",
+          input: { path: "/repo/package.json" },
+          output: "{}",
+        }),
+      ],
+      malformedPartCount: 0,
+    });
+  });
+
   it("parses one typed assistant and tool observation", () => {
     const message = parseOpenCodeEvent(
       {

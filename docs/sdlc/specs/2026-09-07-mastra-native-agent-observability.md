@@ -20,12 +20,18 @@ the Mastra-backed runtime and concrete agent adapters. The runtime preserves
 Mastra's per-invocation `ObservabilityContext` in
 `MastraPlanInvocationContext` and passes it as an opaque
 `AgentAdapterRequest.observability` value. Each concrete adapter narrows that
-private value and owns the translation of its executor's observations into
-native Mastra spans.
+private value, translates executor observations into the protocol-owned
+canonical observation/event, and supplies the private Mastra projection with
+that validated event.
 
 This specification does not define an executor SDK mapping. Each concrete
 adapter has a separate projection specification for its observation contracts,
 identities, reducers, and span fields.
+
+Full local model, tool, and skill payload capture is governed by
+[spec.otel-aligned-observation-contract](./2026-09-19-otel-aligned-observation-contract.md).
+The lifecycle, parentage, and cardinality rules in this specification still
+apply to native spans.
 
 ## Goals
 
@@ -36,7 +42,8 @@ identities, reducers, and span fields.
 - Prevent a generic executor-observation union or shared lossy projector.
 - Preserve completed spans after later task failure or cancellation.
 - Isolate Mastra storage/export failures from execution outcomes.
-- Keep public Seqlane boundaries executor-neutral, redacted, and bounded.
+- Keep public Seqlane boundaries executor-neutral. Payload fidelity is defined
+  by the OTel-aligned observation contract.
 
 ## Non-goals
 
@@ -49,8 +56,7 @@ identities, reducers, and span fields.
 - Defining OpenCode, ACP, or other executor event mappings in this document.
 - Replacing Seqlane aggregate invocation metrics or its consumer-agnostic
   event model.
-- Persisting raw transcripts, prompts, secrets, or unbounded tool payloads by
-  default.
+- Adding recording files, replay storage, or a new durable raw-payload store.
 - Defining a new public executor contract or changing executor selection.
 
 ## Terminology
@@ -62,9 +68,9 @@ identities, reducers, and span fields.
 - **Observability input:** The required per-invocation
   `AgentAdapterRequest.observability` value.
 - **Concrete adapter:** A private executor adapter that understands its own
-  observation identities and emits native Mastra spans.
+  observation identities and emits protocol-owned canonical observations.
 - **Projection specification:** The adapter-specific contract that maps one
-  executor observation model to Mastra spans.
+  canonical protocol observation/event to Mastra spans.
 
 ## Requirements
 
@@ -153,28 +159,31 @@ The only permitted private metadata keys are:
 | `seqlane.attemptIndex` | Adapter-owned attempt/tool span, when exposed | Zero-based reducer state | Non-negative integer | Bounded control value; never raw protocol data |
 | `seqlane.acp.outcome` | ACP span being closed | Adapter terminal state | Fixed enum | `failed`, `incomplete`, or `cancelled`; never original error text |
 
-The table is an allowlist, not a minimum. Adapters MUST NOT add raw executor,
-session, message, tool name, tool arguments, tool results, prompt, transcript,
-configured-model, or unrestricted error metadata. Session, message, and call
-identifiers may be retained only in the typed or explicitly documented trace
-correlation fields of an adapter projection; they MUST NOT be copied into
-metadata, metric labels, entity keys, or unbounded span names.
+The table is an allowlist for untyped correlation metadata, not a prohibition
+on canonical observation payloads. Adapters MUST NOT put raw executor payloads
+into correlation metadata, metric labels, entity keys, or unbounded span names.
+The OTel-aligned observation contract defines the supported data fields and
+Mastra span/event mechanism for full local payloads.
 
 ### R4. Adapter-local projection ownership
 
 Each concrete adapter MUST own its executor parser, lifecycle reducer,
-correlation state, and Mastra projector. Its projection specification MUST
-define the supported observation source, identity keys, transitions, span
-types, fields, and terminal behavior.
+correlation state, and canonical observation emission. Its projection
+specification MUST define the supported observation source, identity keys,
+transitions, span types, fields, and terminal behavior. The private Mastra
+projection MUST consume the validated protocol observation/event and MUST NOT
+reconstruct payloads from derived callbacks or rendered output.
 
 An existing execution port remains an executor client seam. The adapter MUST
 NOT add Mastra types or span operations to that port. Observability enters
-through `AgentAdapterRequest.observability` and leaves through Mastra spans.
+through `AgentAdapterRequest.observability` and leaves through the canonical
+protocol event plus the private Mastra projection.
 
 Each external observation MUST be validated once. One adapter-local reducer
-MUST then fan out lifecycle transitions to existing Seqlane callbacks and the
-Mastra projector. A streaming observation source MUST have one consumer. A
-callback output MUST NOT become an input to another output path.
+MUST emit the canonical protocol observation/event, which then feeds existing
+Seqlane callbacks and the private Mastra projection. A streaming observation
+source MUST have one consumer. A callback output MUST NOT become an input to
+another output path.
 
 ### R5. Typed span fidelity
 
@@ -235,14 +244,19 @@ Adapters MUST close open spans from leaves to root. They close tool, skill, or
 other leaf spans first, then model spans, then `AGENT_RUN`. They MUST never
 close the workflow-step span.
 
-### R8. Data minimization
+### R8. Local payload projection
 
-Inputs, outputs, prompts, tool arguments/results, error text, and correlation
-metadata MUST be redacted and bounded before entering Mastra spans. Secrets,
-credentials, authorization headers, and raw transcripts MUST never be
-persisted by default. Message content MUST NOT be used as an identity key.
-The same redaction and size policy MUST apply to event and terminal-response
-paths.
+The local live observation path MUST preserve the complete JSON/text payload
+available from the canonical observation contract. It MUST NOT redact,
+select, summarize, or truncate model requests/responses, tool arguments/results,
+skill instructions, or error payloads because of a Seqlane policy.
+
+Raw payloads MUST be written as supported Mastra data fields or span events.
+They MUST NOT become metric labels, sampling keys, entity keys, or unbounded
+span names. Correlation metadata remains governed by the allowlist in R3.
+
+Recording files, replay storage, and new durable raw-payload stores remain out
+of scope. Message content MUST NOT be used as an identity key.
 
 The metadata allowlist in R3 is exhaustive for private correlation metadata.
 In particular, legacy executor/session/message/tool metadata MUST be removed
@@ -386,8 +400,9 @@ configured Mastra version and these official references:
   run. Never convert a task result into an observability error.
 - **Sampling:** Configured sampling can omit spans and derived metrics.
   Seqlane aggregate metrics remain the execution record.
-- **Redaction overflow:** Truncate or omit the field under the common bound.
-  never increase the bound to preserve a payload.
+- **Unavailable or non-JSON value:** Preserve the availability diagnostic from
+  the canonical observation. Do not substitute a summary or silently drop the
+  value.
 - **Missing current span:** Keep the required observability request property,
   skip native span creation, and continue execution. This covers disabled or
   sampled-out tracing and no-op test contexts.
@@ -400,9 +415,10 @@ events, Plans, workflow APIs, and runner IPC remain compatible. The private
 value, and `MastraPlanInvocationContext` retains the workflow execution
 context needed to populate it.
 
-Each concrete adapter adds its own parser, lifecycle reducer, and native span
-projector. Existing execution ports remain unchanged. No generic normalized
-observation union or generic runtime Mastra projector is introduced.
+Each concrete adapter adds its own parser, lifecycle reducer, canonical
+observation emission, and adapter-specific Mastra projection. Existing
+execution ports remain unchanged. No generic normalized observation union or
+generic runtime Mastra projector is introduced.
 
 No migration of historical aggregate metrics or raw transcripts is required.
 Existing callers and tests that do not exercise tracing can pass an empty or
@@ -427,7 +443,8 @@ Tests MUST cover observable contracts and boundary behavior:
   surviving later task failure.
 - native span metrics and existing aggregate metrics remain separate outputs.
 - Mastra span/storage/exporter failure isolation from execution outcomes.
-- redaction, bounds, unsupported observations, and malformed payloads.
+- unsupported observations, malformed payloads, availability diagnostics, and
+  full-payload projection.
 - boundary tests proving Mastra types do not enter `@seqlane/core`,
   `@seqlane/protocol`, `@seqlane/agent-adapter`, workflow APIs, Plans, or
   runner IPC, while private runtime and concrete adapter imports remain
@@ -453,8 +470,8 @@ The specification is complete when:
 - open spans close with errors on failure, cancellation, or disconnect, while
   completed spans remain intact.
 - Mastra export/storage failures do not alter execution outcomes.
-- redaction and size bounds prevent default persistence of secrets, prompts,
-  raw transcripts, or unbounded payloads.
+- canonical local observations preserve available payloads, while correlation
+  metadata remains bounded and raw payloads are not used as metric dimensions.
 - generic adapter contracts, aggregate metrics, public events, Plan IR,
   workflow authoring, and runner IPC remain compatible and Mastra-free.
 - the required tests pass against supported Mastra and adapter observation
@@ -466,6 +483,7 @@ The specification is complete when:
 
 - [adr.engine-opaque-agent-adapter-contracts: Keep Generic Agent Adapter Contracts Engine-Opaque](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)
 - [spec.opencode-mastra-observability-projection: OpenCode-to-Mastra Observability Projection](./2026-09-08-opencode-mastra-observability-projection.md)
+- [spec.otel-aligned-observation-contract: OTel-Aligned Seqlane Observation Contract](./2026-09-19-otel-aligned-observation-contract.md)
 - [spec.acp-mastra-observability-projection: ACP v1-to-Mastra Observability Projection](./2026-09-07-acp-mastra-observability-projection.md)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)
 - [adr.consumer-agnostic-seqlane-execution-events: Define Consumer-Agnostic Seqlane Execution Events](../adrs/2026-09-02-consumer-agnostic-seqlane-execution-events.md)

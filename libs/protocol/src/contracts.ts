@@ -7,6 +7,8 @@ export type {
   InvocationInputEvent,
   InvocationOutputEvent,
   InvocationActivityEvent,
+  InvocationObservationEvent,
+  SeqlaneObservation,
   InvocationProgressEvent,
   InvocationResultEvent,
   InvocationRetryingEvent,

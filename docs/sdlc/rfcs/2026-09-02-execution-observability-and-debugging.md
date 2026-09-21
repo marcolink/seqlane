@@ -25,7 +25,11 @@ It specifies the structured execution information Seqlane must retain and expose
 2. **One execution model powers all surfaces.** CLI output, future local UI, CI artifacts, programmatic inspection, and external observability integrations consume the same semantic model.
 3. **Provenance is first-class.**
 4. **Waiting and scheduling decisions must be explainable.**
-5. **Sensitive values must be redacted before persistence or export.**
+5. **Values outside the local live observation path must follow the applicable
+   persistence/export policy.** The local high-fidelity observation path is
+   defined by
+   [rfc.high-fidelity-local-observability](./2026-09-19-high-fidelity-local-observability.md)
+   and does not redact or truncate captured values.
 6. **The observability model is Seqlane-owned.** Mastra and OpenCode events are translated into Seqlane concepts.
 
 ## 3. Questions the Model Must Answer
@@ -289,7 +293,11 @@ Local debugging must not require an external observability service.
 
 Task inputs, outputs, prompts, model activity, shell output, environment data, and artifacts may contain sensitive information.
 
-Redaction must occur before persistence/export rather than relying solely on consumers to hide secrets later.
+The historical persistence/export rule remains outside the local live
+observation path. Local protocol observations and their configured Mastra
+projection follow
+[spec.otel-aligned-observation-contract](../specs/2026-09-19-otel-aligned-observation-contract.md).
+This change adds no recording file, replay store, or new persistence API.
 
 ## 19. Artifacts
 
@@ -324,7 +332,9 @@ Seqlane observability contracts and source workflows must not depend on them.
 - **O5** — Waiting/resource/session state must be explainable.
 - **O6** — CLI/UI/external integrations consume the same semantic model.
 - **O7** — OpenCode activity is correlated beneath Seqlane invocations.
-- **O8** — Sensitive information is redacted before persistence/export.
+- **O8** — Values sent to future persistence or export surfaces follow an
+  explicitly selected policy. This decision does not constrain the local live
+  high-fidelity observation path.
 - **O9** — Historical runs retain the actual executed Plan.
 - **O10** — Mastra tooling remains implementation-only.
 - **O11** — Replay must obey effect semantics.
@@ -357,11 +367,16 @@ type RunnerEvent =
 ```
 
 Runner-emitted events carry schema version, event ID, sequence, and UTC
-timestamp metadata. Output activity is bounded and redacted before it crosses
-the runner boundary. `@seqlane/tui` consumes this stream for terminal output.
-The CLI owns final-result serialization, renderer selection, and exit status.
+timestamp metadata. Terminal presentation remains a bounded display projection;
+the live observation event defined by the high-fidelity RFC is a separate
+protocol path and preserves its captured values. `@seqlane/tui` consumes this
+stream for terminal output. The CLI owns final-result serialization, renderer
+selection, and exit status.
 
-The MVP does not require persistent RunRecord, local visual inspector, OTEL export, timeline UI, replay, diff, persistent artifacts, or full OpenCode event capture.
+The MVP still does not require persistent RunRecord, recording files, local
+visual inspector, standalone remote OTEL export, timeline UI, replay, diff, or
+persistent artifacts. Full live OpenCode observation is now planned through
+the high-fidelity RFC.
 
 ## Traceability
 
@@ -371,3 +386,5 @@ The MVP does not require persistent RunRecord, local visual inspector, OTEL expo
 - [adr.run-terminal-presentation-boundary: Separate Run Terminal Presentation from Machine Results](../adrs/2026-09-15-run-terminal-presentation-boundary.md)
 - [spec.run-terminal-rendering: Run Terminal Rendering](../specs/2026-09-15-run-terminal-rendering.md)
 - [spec.run-machine-output: Run Machine Output and Command Errors](../specs/2026-09-15-run-machine-output.md)
+- [rfc.high-fidelity-local-observability: High-Fidelity Local Model and Agent Observability](./2026-09-19-high-fidelity-local-observability.md)
+- [spec.otel-aligned-observation-contract: OTel-Aligned Seqlane Observation Contract](../specs/2026-09-19-otel-aligned-observation-contract.md)

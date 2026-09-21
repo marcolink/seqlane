@@ -68,6 +68,201 @@ function createRun(
 }
 
 describe("OpenCode AgentAdapter", () => {
+  it("emits the complete available model request and response", async () => {
+    const observations: unknown[] = [];
+    let submitted: OpenCodePrompt | undefined;
+    const run = createRun(
+      async (prompt) => {
+        submitted = prompt;
+        return {
+          structured: { result: "done", count: 0 },
+          text: "exact assistant response",
+          metrics: {
+            durationMs: 2,
+            model: "controlled-model",
+            provider: "controlled-provider",
+            cost: 0,
+            tokens: {
+              input: 4,
+              output: 3,
+              reasoning: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+          },
+          observation: {
+            kind: "assistant",
+            sessionID: "session-1",
+            messageID: "message-1",
+            created: 1,
+            completed: 3,
+            provider: "controlled-provider",
+            model: "controlled-model",
+            tokens: {
+              input: 4,
+              output: 3,
+              reasoning: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+            cost: 0,
+            finish: "stop",
+          },
+        };
+      },
+      async () => ({
+        strategy: "native",
+        retryCount: 0,
+        reason: "explicit" as const,
+      }),
+    );
+    const adapter = createOpenCodeAdapterForRun(run);
+
+    await adapter.execute(
+      request({
+        onObservation: (observation) => observations.push(observation),
+      }),
+    );
+
+    expect(submitted).toBeDefined();
+    expect(observations).toHaveLength(2);
+    expect(observations[0]).toMatchObject({
+      observationId: "invocation-1:model:0",
+      kind: "model",
+      state: "started",
+      attemptIndex: 0,
+      model: {
+        operation: "chat",
+        request: expect.objectContaining({
+          text: submitted?.text,
+          schema: submitted?.schema,
+          strategy: "native",
+          retryCount: 0,
+        }),
+      },
+    });
+    expect(observations[1]).toMatchObject({
+      observationId: "invocation-1:model:0",
+      kind: "model",
+      state: "succeeded",
+      attemptIndex: 0,
+      model: {
+        operation: "chat",
+        provider: "controlled-provider",
+        model: "controlled-model",
+        responseId: "message-1",
+        finishReasons: ["stop"],
+        request: expect.objectContaining({
+          text: submitted?.text,
+          schema: submitted?.schema,
+          strategy: "native",
+          retryCount: 0,
+        }),
+        response: {
+          structured: { result: "done", count: 0 },
+          text: "exact assistant response",
+        },
+        usage: {
+          inputTokens: 4,
+          outputTokens: 3,
+          reasoningTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        cost: 0,
+        startedAt: 1,
+        endedAt: 3,
+      },
+    });
+  });
+
+  it("emits failed and cancelled model lifecycle observations", async () => {
+    const failedObservations: unknown[] = [];
+    const failedAdapter = createOpenCodeAdapterForRun(
+      createRun(async () => {
+        throw new Error("provider unavailable");
+      }),
+    );
+
+    await expect(
+      failedAdapter.execute(
+        request({
+          onObservation: (observation) => failedObservations.push(observation),
+        }),
+      ),
+    ).rejects.toThrow("provider unavailable");
+    expect(failedObservations).toEqual([
+      expect.objectContaining({
+        observationId: "invocation-1:model:0",
+        state: "started",
+      }),
+      expect.objectContaining({
+        observationId: "invocation-1:model:0",
+        state: "failed",
+        model: expect.objectContaining({ error: "provider unavailable" }),
+      }),
+    ]);
+
+    const controller = new AbortController();
+    const cancelledObservations: unknown[] = [];
+    const cancelledAdapter = createOpenCodeAdapterForRun(
+      createRun(async () => {
+        controller.abort();
+        throw new Error("prompt cancelled");
+      }),
+    );
+
+    await expect(
+      cancelledAdapter.execute(
+        request({
+          signal: controller.signal,
+          onObservation: (observation) =>
+            cancelledObservations.push(observation),
+        }),
+      ),
+    ).rejects.toThrow("prompt cancelled");
+    expect(cancelledObservations).toEqual([
+      expect.objectContaining({
+        observationId: "invocation-1:model:0",
+        state: "started",
+      }),
+      expect.objectContaining({
+        observationId: "invocation-1:model:0",
+        state: "cancelled",
+      }),
+    ]);
+  });
+
+  it("reports model values that cannot cross the JSON protocol", async () => {
+    const observations: unknown[] = [];
+    const adapter = createOpenCodeAdapterForRun(
+      createRun(async () => ({ structured: new Date("2026-09-20T00:00:00Z") })),
+    );
+
+    await adapter.execute(
+      request({
+        onObservation: (observation) => observations.push(observation),
+      }),
+    );
+
+    expect(observations).toHaveLength(2);
+    expect(observations[1]).toEqual(
+      expect.objectContaining({
+        state: "succeeded",
+        model: expect.objectContaining({
+          response: {},
+          request: expect.anything(),
+        }),
+        availability: [
+          {
+            path: "model.response.structured",
+            reason: "not-json-representable",
+          },
+        ],
+      }),
+    );
+  });
+
   it("ignores failures from structured-output diagnostic consumers", async () => {
     const run = createRun(
       async () => ({ structured: undefined, text: '{"result":"done"}' }),
@@ -203,6 +398,7 @@ describe("OpenCode AgentAdapter", () => {
     expect(prompts[0]?.text).toContain(
       "Task instruction: Keep the change small",
     );
+    expect(prompts[0]?.tools).toEqual({ read: true });
     expect(prompts[0]?.selection).toBeUndefined();
     expect(activities).toEqual([
       {
