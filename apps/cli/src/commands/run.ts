@@ -184,8 +184,9 @@ export default class RunCommand extends SeqlaneCommand {
       options: ["codex", "opencode"],
     }),
     "opencode-mode": Flags.string({
-      description: "OpenCode connection mode (default: managed)",
+      description: "OpenCode connection mode. Defaults to managed.",
       options: ["managed", "external"],
+      defaultHelp: "managed",
       dependsOn: ["adapter"],
       relationships: openCodeAdapterOnlyRelationships,
     }),
@@ -315,18 +316,20 @@ export default class RunCommand extends SeqlaneCommand {
       let adapterConfiguration: string | undefined;
       if (flags.adapter !== undefined) {
         try {
-          adapterConfiguration = createDirectRunAdapterConfiguration({
-            adapter: flags.adapter,
-            ...(flags["opencode-mode"] === undefined
-              ? {}
-              : { mode: flags["opencode-mode"] }),
-            ...(flags["opencode-host"] === undefined
-              ? {}
-              : { host: flags["opencode-host"] }),
-            ...(flags["opencode-port"] === undefined
-              ? {}
-              : { port: flags["opencode-port"] }),
-          });
+          adapterConfiguration = createDirectRunAdapterConfiguration(
+            flags.adapter === "opencode"
+              ? {
+                  adapter: "opencode",
+                  mode: flags["opencode-mode"] ?? "managed",
+                  ...(flags["opencode-host"] === undefined
+                    ? {}
+                    : { host: flags["opencode-host"] }),
+                  ...(flags["opencode-port"] === undefined
+                    ? {}
+                    : { port: flags["opencode-port"] }),
+                }
+              : { adapter: "codex" },
+          );
         } catch (error) {
           this.error(contextualizeCommandError(errorMessage(error), error), {
             exit: 1,

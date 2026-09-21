@@ -185,6 +185,7 @@ describe("CLI agent runtime composition", () => {
   it("accepts only supported direct-run adapter configuration", async () => {
     const encoded = createDirectRunAdapterConfiguration({
       adapter: "opencode",
+      mode: "managed",
       host: "127.0.0.1",
       port: 4123,
     });
@@ -198,18 +199,14 @@ describe("CLI agent runtime composition", () => {
       JSON.parse(
         createDirectRunAdapterConfiguration({
           adapter: "opencode",
+          mode: "managed",
           host: "0:0:0:0:0:0:0:1",
         }),
       ),
     ).toMatchObject({ host: "::1" });
-    expect(
-      JSON.parse(createDirectRunAdapterConfiguration({ adapter: "opencode" })),
-    ).toEqual({
-      adapter: "opencode",
-      mode: "managed",
-      host: "127.0.0.1",
-      port: 0,
-    });
+    expect(() =>
+      createDirectRunAdapterConfiguration({ adapter: "opencode" }),
+    ).toThrow();
     expect(
       JSON.parse(
         createDirectRunAdapterConfiguration({
@@ -228,9 +225,19 @@ describe("CLI agent runtime composition", () => {
     expect(() =>
       createDirectRunAdapterConfiguration({
         adapter: "opencode",
+        mode: "managed",
         host: "192.168.1.1",
       }),
     ).toThrow();
+    expect(() =>
+      loadDirectRunAgentRuntimeFactory({
+        [directRunAdapterConfigurationEnvironment]: JSON.stringify({
+          adapter: "opencode",
+          host: "127.0.0.1",
+          port: 4123,
+        }),
+      }),
+    ).toThrow("Agent runtime configuration: configuration is invalid");
     expect(() =>
       createDirectRunAdapterConfiguration({
         adapter: "opencode",
@@ -446,6 +453,7 @@ describe("CLI agent runtime composition", () => {
         [directRunAdapterConfigurationEnvironment]:
           createDirectRunAdapterConfiguration({
             adapter: "opencode",
+            mode: "managed",
           }),
       });
       const runtime = await factory(

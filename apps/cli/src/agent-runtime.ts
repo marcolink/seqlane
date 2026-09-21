@@ -43,26 +43,13 @@ const externalOpenCodeConfigurationSchema = z.strictObject({
   port: z.number().int().min(1).max(65_535),
 });
 
-const directRunAdapterConfigurationSchema = z.preprocess(
-  (value) => {
-    if (
-      typeof value === "object" &&
-      value !== null &&
-      Reflect.get(value, "adapter") === "opencode" &&
-      Reflect.get(value, "mode") === undefined
-    ) {
-      return { ...value, mode: "managed" };
-    }
-    return value;
-  },
-  z.discriminatedUnion("adapter", [
-    z.strictObject({ adapter: z.literal("codex") }),
-    z.discriminatedUnion("mode", [
-      managedOpenCodeConfigurationSchema,
-      externalOpenCodeConfigurationSchema,
-    ]),
+const directRunAdapterConfigurationSchema = z.discriminatedUnion("adapter", [
+  z.strictObject({ adapter: z.literal("codex") }),
+  z.discriminatedUnion("mode", [
+    managedOpenCodeConfigurationSchema,
+    externalOpenCodeConfigurationSchema,
   ]),
-);
+]);
 
 export type DirectRunAdapterConfiguration = z.output<
   typeof directRunAdapterConfigurationSchema

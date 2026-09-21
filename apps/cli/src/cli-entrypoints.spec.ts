@@ -19,7 +19,17 @@
 // @test-scope ../../../workflows/until-example/workflow.ts
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { once } from "node:events";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -123,6 +133,59 @@ function runArgs(
   return output === "json"
     ? [...args, "--json"]
     : [...args, "--output", output];
+}
+
+async function startExternalOpenCodeFixture(): Promise<{
+  readonly port: number;
+  readonly requests: string[];
+  readonly url: string;
+  close(): Promise<void>;
+}> {
+  const requests: string[] = [];
+  const server = createServer((request, response) => {
+    const path = request.url ?? "/";
+    requests.push(path);
+    if (request.method === "GET" && path === "/") {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<html><body>OpenCode</body></html>");
+      return;
+    }
+    if (request.method === "GET" && path === "/provider") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          all: [
+            {
+              id: "openai",
+              models: { "gpt-5.6-luna": { id: "gpt-5.6-luna" } },
+            },
+          ],
+          default: { openai: "gpt-5.6-luna" },
+          connected: ["openai"],
+        }),
+      );
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("External OpenCode fixture did not expose a TCP port");
+  }
+  return {
+    port: address.port,
+    requests,
+    url: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      ),
+  };
 }
 
 describe("seqlane CLI entrypoints", () => {
@@ -499,9 +562,53 @@ describe("seqlane CLI entrypoints", () => {
     expect(help.stdout).toContain("--opencode-mode");
     expect(help.stdout).toContain("--opencode-host");
     expect(help.stdout).toContain("--opencode-port");
+    expect(help.stdout).toMatch(
+      /--opencode-mode[\s\S]*OpenCode connection mode\. Defaults to managed\./,
+    );
     expect(help.stdout).not.toContain("--adapter-host");
     expect(help.stdout).not.toContain("--adapter-port");
   });
+
+  it("serializes the managed OpenCode default for the compiled child", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "seqlane-cli-opencode-"));
+    const bin = join(directory, "bin");
+    const spawnMarker = join(directory, "managed-spawned");
+    mkdirSync(bin);
+    const opencode = join(bin, "opencode");
+    writeFileSync(
+      opencode,
+      '#!/bin/sh\nprintf \'%s\' "$*" > "$SEQLANE_TEST_OPENCODE_SPAWNED"\nexit 1\n',
+    );
+    chmodSync(opencode, 0o755);
+
+    try {
+      const result = await runCli(
+        productionEntry,
+        [
+          "run",
+          exampleWorkflowReference,
+          "--input",
+          builtinInput,
+          "--json",
+          "--adapter",
+          "opencode",
+        ],
+        undefined,
+        undefined,
+        {
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          SEQLANE_TEST_OPENCODE_SPAWNED: spawnMarker,
+        },
+      );
+
+      expect(result.code).toBe(1);
+      expect(readFileSync(spawnMarker, "utf8")).toBe(
+        "serve --hostname=127.0.0.1 --port=0 --print-logs",
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   it("validates the OpenCode connection flag matrix", async () => {
     const externalDryRun = await runCli(productionEntry, [
@@ -591,6 +698,58 @@ describe("seqlane CLI entrypoints", () => {
       "127.0.0.1",
     ]);
     expect(removedFlag.code).not.toBe(0);
+  }, 15_000);
+
+  it("passes external OpenCode mode through the compiled child without service ownership", async () => {
+    const fixture = await startExternalOpenCodeFixture();
+    const directory = mkdtempSync(join(tmpdir(), "seqlane-cli-opencode-"));
+    const bin = join(directory, "bin");
+    const managedSpawnMarker = join(directory, "managed-spawned");
+    mkdirSync(bin);
+    const opencode = join(bin, "opencode");
+    writeFileSync(
+      opencode,
+      '#!/bin/sh\nprintf managed > "$SEQLANE_TEST_OPENCODE_SPAWNED"\nexit 1\n',
+    );
+    chmodSync(opencode, 0o755);
+
+    try {
+      const result = await runCli(
+        productionEntry,
+        [
+          "run",
+          exampleWorkflowReference,
+          "--input",
+          builtinInput,
+          "--json",
+          "--adapter",
+          "opencode",
+          "--opencode-mode",
+          "external",
+          "--opencode-host",
+          "127.0.0.1",
+          "--opencode-port",
+          String(fixture.port),
+        ],
+        undefined,
+        undefined,
+        {
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          SEQLANE_TEST_OPENCODE_SPAWNED: managedSpawnMarker,
+        },
+      );
+
+      expect(result.code).toBe(1);
+      expect(JSON.parse(result.stdout)).toMatchObject({ status: "failed" });
+      expect(fixture.requests).toEqual(
+        expect.arrayContaining(["/", "/provider"]),
+      );
+      expect(existsSync(managedSpawnMarker)).toBe(false);
+      expect((await fetch(fixture.url)).ok).toBe(true);
+    } finally {
+      await fixture.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
   }, 15_000);
 
   it("runs a local-only workflow without a runtime profile", async () => {
