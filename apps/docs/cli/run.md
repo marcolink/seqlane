@@ -43,7 +43,8 @@ The workflow input is JSON. Pass it with `--input` or read it from a JSON file
 with `--input-file`:
 
 ```sh
-seqlane run ./workflow.ts --input '{"topic":"Seqlane"}'
+seqlane run ./workflow.ts \
+  --input '{"topic":"Seqlane"}'
 ```
 
 Deterministic workflows run without an adapter. For agent tasks, select an
@@ -66,7 +67,7 @@ ask the user questions or wait for approval, and it must include all required
 input and permissions before the run starts. If a task needs unavailable input
 or approval, the task fails and the run stops.
 
-## Flags
+## General flags
 
 ### `--input` (`-i`)
 
@@ -74,7 +75,8 @@ Pass the workflow input as a JSON value. Use this flag or `--input-file`, but
 not both.
 
 ```sh
-seqlane run ./workflow.ts --input '{"topic":"Seqlane"}'
+seqlane run ./workflow.ts \
+  --input '{"topic":"Seqlane"}'
 ```
 
 ### `--input-file`
@@ -83,7 +85,8 @@ Read the workflow input from a JSON file. The file can be at most 1 MiB. Use
 this flag or `--input`, but not both.
 
 ```sh
-seqlane run ./workflow.ts --input-file ./input.json
+seqlane run ./workflow.ts \
+  --input-file ./input.json
 ```
 
 ### `--adapter`
@@ -92,37 +95,19 @@ Select the adapter for agent tasks. Supported values are `opencode` and
 `codex`. Omit this flag for deterministic workflows.
 
 ```sh
-seqlane run ./workflow.ts --input '{"topic":"Seqlane"}' --adapter opencode
+seqlane run ./workflow.ts \
+  --input '{"topic":"Seqlane"}' \
+  --adapter opencode
 ```
-
-### `--opencode-mode`, `--opencode-host`, and `--opencode-port`
-
-Use these flags only with `--adapter opencode`. The default mode is `managed`.
-Managed mode starts a private OpenCode service. Its default host is
-`127.0.0.1`, and its default port is `0`. Port `0` selects an ephemeral port.
-
-External mode connects to an existing OpenCode service. Set
-`--opencode-mode external`, `--opencode-host`, and `--opencode-port`. The host
-must be loopback. The port must be from `1` through `65535`. Seqlane does not
-start or stop this service.
-
-```sh
-seqlane run ./workflow.ts --input '{}' \
-  --adapter opencode \
-  --opencode-mode external \
-  --opencode-host 127.0.0.1 \
-  --opencode-port 4096
-```
-
-Codex has no adapter-specific flags. Use `--workspace` with
-`--adapter codex`.
 
 ### `--workspace`
 
 Set the workspace path for tasks that access files.
 
 ```sh
-seqlane run ./workflow.ts --input '{}' --workspace ./repository
+seqlane run ./workflow.ts \
+  --input '{}' \
+  --workspace ./repository
 ```
 
 ### `--output`
@@ -132,7 +117,9 @@ Human output requires a terminal with input and output. It does not ask the
 user questions.
 
 ```sh
-seqlane run ./workflow.ts --input '{}' --output ci
+seqlane run ./workflow.ts \
+  --input '{}' \
+  --output ci
 ```
 
 Human output keeps fixed task metadata, such as the model, workspace, and
@@ -152,7 +139,9 @@ separators while giving values stronger contrast.
 Write one final JSON result. You cannot combine this flag with `--dry`.
 
 ```sh
-seqlane run ./workflow.ts --input '{}' --json
+seqlane run ./workflow.ts \
+  --input '{}' \
+  --json
 ```
 
 ### `--dry`
@@ -161,7 +150,9 @@ Print the calculated Plan without executing workflow tasks. You cannot combine
 this flag with `--json`.
 
 ```sh
-seqlane run ./workflow.ts --input '{}' --dry
+seqlane run ./workflow.ts \
+  --input '{}' \
+  --dry
 ```
 
 ### `--help`
@@ -169,5 +160,41 @@ seqlane run ./workflow.ts --input '{}' --dry
 Show command help.
 
 ```sh
-seqlane run --help
+seqlane run \
+  --help
+```
+
+## OpenCode adapter-specific flags
+
+Codex has no adapter-specific flags. Use `--workspace` with `--adapter codex`.
+
+### `--opencode-mode`
+
+This flag requires `--adapter opencode`. It accepts `managed` or `external`.
+The default is `managed`.
+
+Managed mode starts and stops a private OpenCode service. External mode uses an
+existing OpenCode service. Seqlane does not start or stop the external service.
+
+### `--opencode-host`
+
+This flag requires `--adapter opencode`. Managed mode uses `127.0.0.1` by
+default. External mode requires an explicit host. The host must be loopback.
+
+### `--opencode-port`
+
+This flag requires `--adapter opencode`. Managed mode uses port `0` by default.
+Port `0` selects an ephemeral port. Managed mode accepts ports from `0` through
+`65535`. External mode requires an explicit port and accepts ports from `1`
+through `65535`.
+
+Run a workflow with an external OpenCode service:
+
+```sh
+seqlane run ./workflow.ts \
+  --input '{}' \
+  --adapter opencode \
+  --opencode-mode external \
+  --opencode-host 127.0.0.1 \
+  --opencode-port 4096
 ```
