@@ -39,3 +39,4 @@
 | [adr.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md) | Execute Standalone CLI Runs Without an Operational Host | accepted | 2026-09-16 | core |
 | [adr.passive-run-output](./2026-09-16-passive-run-output.md) | Use Passive Run Output | accepted | 2026-09-16 | core |
 | [adr.engine-opaque-agent-adapter-contracts](./2026-09-18-engine-opaque-agent-adapter-contracts.md) | Keep Generic Agent Adapter Contracts Engine-Opaque | accepted | 2026-09-18 | core |
+| [adr.public-npm-release](./2026-09-21-public-npm-release.md) | Publish Seqlane Packages to npm | accepted | 2026-09-21 | core |

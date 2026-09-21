@@ -4,7 +4,7 @@
 
 - Foundation-only TypeScript monorepo using pnpm and Nx.
 - `libs/core` owns public, engine-independent authoring contracts and Plan IR.
-- `libs/protocol` owns public, consumer-agnostic serialized execution events and runner IPC contracts.
+- `libs/protocol` owns consumer-agnostic serialized execution events and runner IPC contracts. It is a published CLI dependency, not a supported authoring API.
 - `libs/runtime` owns the private Mastra integration and execution path.
 - Name concrete agent adapter packages `@seqlane/<id>-adapter` and give their
   Nx projects the `adapter:concrete` tag. Keep `libs/runtime` tagged

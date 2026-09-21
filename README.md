@@ -76,23 +76,24 @@ storage, tracing, and the Community Studio integration.
 
 ## Install Seqlane
 
-Use Node.js 24 or later and pnpm 10.33 or later.
+Use Node.js 24 or later.
 
 Install the CLI globally:
 
 ```sh
-pnpm add --global seqlane
+npm install --global seqlane
 ```
 
 For a project-local installation, add the CLI and workflow dependencies:
 
 ```sh
-pnpm add --save-dev seqlane
-pnpm add @seqlane/core zod
+npm install --save-dev seqlane
+npm install @seqlane/core zod
 ```
 
-Run a project-local CLI with `pnpm exec seqlane`. Run a global installation
-with `seqlane`.
+Run a project-local CLI with `npx seqlane`. Run a global installation with
+`seqlane`. `seqlane` and `@seqlane/core` are the supported public packages.
+Other `@seqlane` packages can install as implementation dependencies.
 
 ## Write a workflow
 
@@ -512,3 +513,7 @@ points the active session to `seqlane run workflows/read-context/workflow.ts` fo
 before enabling it. The hook fails open for commands it cannot classify as
 read-like. Read-context sends selected source to the configured endpoint, so
 review the endpoint's privacy and retention policy.
+
+## License
+
+Seqlane is licensed under the [Apache License 2.0](LICENSE).

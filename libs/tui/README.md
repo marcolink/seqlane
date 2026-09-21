@@ -1,6 +1,7 @@
 # @seqlane/tui
 
-Private terminal renderers for Seqlane execution events.
+Internal terminal renderers for Seqlane execution events. This package is
+public on npm so `seqlane` can install it. Its exports are not a supported API.
 
 The package converts canonical `SeqlaneExecutionEvent` values into human or
 continuous-integration terminal output. It does not execute workflows and it

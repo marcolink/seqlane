@@ -1,7 +1,8 @@
 {
   "name": "seqlane",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.0.1",
+  "description": "Run typed Seqlane workflows from files or installed packages.",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -25,19 +26,19 @@
     "$schema": "../../node_modules/nx/schemas/project-schema.json",
     "tags": [
       "type:lib",
-      "scope:private"
+      "scope:private",
+      "release:npm"
     ]
   },
   "dependencies": {
     "mastra": "1.27.3",
-    "@seqlane/core": "workspace:*",
-    "@seqlane/agent-adapter": "workspace:*",
-    "@seqlane/acp-adapter": "workspace:*",
-    "@seqlane/codex-adapter": "workspace:*",
-    "@seqlane/opencode-adapter": "workspace:*",
-    "@seqlane/protocol": "workspace:*",
-    "@seqlane/tui": "workspace:*",
-    "@seqlane/runtime": "workspace:*",
+    "@seqlane/core": "0.0.1",
+    "@seqlane/agent-adapter": "0.0.1",
+    "@seqlane/codex-adapter": "0.0.1",
+    "@seqlane/opencode-adapter": "0.0.1",
+    "@seqlane/protocol": "0.0.1",
+    "@seqlane/tui": "0.0.1",
+    "@seqlane/runtime": "0.0.1",
     "@oclif/core": "4.13.5",
     "get-tsconfig": "4.14.3",
     "tsx": "4.23.13",
@@ -49,8 +50,13 @@
   "files": [
     "bin",
     "dist",
+    "!dist/**/*.tsbuildinfo",
     "oclif.config.mjs"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/marcolink/seqlane.git",

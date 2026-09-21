@@ -270,3 +270,4 @@
 | [task.implement-otel-aligned-opencode-observations](./2026-09-19-implement-otel-aligned-opencode-observations.md) | Implement OTel-Aligned OpenCode Observations | in-progress | 2026-09-19 | core |
 | [task.adapter-cli-flags](./2026-09-19-adapter-cli-flags.md) | Replace Direct-Run Runtime Flags with Adapter Flags | completed | 2026-09-19 | core |
 | [task.git-diff-summary-example](./2026-09-20-git-diff-summary-example.md) | Add Git Diff Summary Token Comparison Example | completed | 2026-09-20 | core |
+| [task.publish-seqlane-packages](./2026-09-21-publish-seqlane-packages.md) | Publish Seqlane Packages | in-progress | 2026-09-21 | core |

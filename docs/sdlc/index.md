@@ -23,11 +23,11 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Deliver Standalone CLI Runs](./tasks/2026-09-16-deliver-standalone-cli-runs.md)
-is the next agreed deliverable. It implements the accepted
-[standalone decision](./adrs/2026-09-16-standalone-cli-runs.md) and active
-[run contract](./specs/2026-09-16-standalone-cli-runs.md).
-App-based hosting and workflow discovery remain separate future work.
+[Publish Seqlane Packages](./tasks/2026-09-21-publish-seqlane-packages.md) is
+the next agreed deliverable. It implements the accepted
+[public release decision](./adrs/2026-09-21-public-npm-release.md) and active
+[distribution contract](./specs/2026-09-21-public-npm-distribution.md). The
+pull request prepares the release. It does not publish packages.
 
 ## Authority
 

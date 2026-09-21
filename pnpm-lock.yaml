@@ -239,29 +239,26 @@ importers:
       '@oclif/core':
         specifier: 4.13.5
         version: 4.13.5
-      '@seqlane/acp-adapter':
-        specifier: workspace:*
-        version: link:../../libs/acp
       '@seqlane/agent-adapter':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../../libs/adapter
       '@seqlane/codex-adapter':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../../libs/codex
       '@seqlane/core':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../../libs/core
       '@seqlane/opencode-adapter':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../../libs/opencode
       '@seqlane/protocol':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../../libs/protocol
       '@seqlane/runtime':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../../libs/runtime
       '@seqlane/tui':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../../libs/tui
       get-tsconfig:
         specifier: 4.14.3
@@ -345,10 +342,10 @@ importers:
   libs/adapter:
     dependencies:
       '@seqlane/core':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../core
       '@seqlane/protocol':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../protocol
       zod:
         specifier: 4.5.4
@@ -357,10 +354,10 @@ importers:
   libs/codex:
     dependencies:
       '@seqlane/agent-adapter':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../adapter
       '@seqlane/core':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../core
       zod:
         specifier: 4.5.4
@@ -390,13 +387,13 @@ importers:
         specifier: 1.18.27
         version: 1.18.27
       '@seqlane/agent-adapter':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../adapter
       '@seqlane/core':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../core
       '@seqlane/protocol':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../protocol
       zod:
         specifier: 4.5.4
@@ -405,7 +402,7 @@ importers:
   libs/protocol:
     dependencies:
       '@seqlane/core':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../core
       zod:
         specifier: 4.5.4
@@ -441,17 +438,14 @@ importers:
         specifier: 1.64.0
         version: 1.64.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
       '@seqlane/agent-adapter':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../adapter
       '@seqlane/core':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../core
       '@seqlane/protocol':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../protocol
-      '@seqlane/resolve-merge-conflicts-workflow':
-        specifier: workspace:*
-        version: link:../../workflows/resolve-merge-conflicts
       hono:
         specifier: 4.13.5
         version: 4.13.5
@@ -466,10 +460,10 @@ importers:
   libs/tui:
     dependencies:
       '@seqlane/core':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../core
       '@seqlane/protocol':
-        specifier: workspace:*
+        specifier: 0.0.1
         version: link:../protocol
       ink:
         specifier: 7.1.1

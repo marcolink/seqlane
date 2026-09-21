@@ -1,7 +1,8 @@
 {
   "name": "@seqlane/runtime",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.0.1",
+  "description": "Mastra runtime integration for Seqlane workflows.",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -16,11 +17,6 @@
       "types": "./dist/runner/main.d.ts",
       "import": "./dist/runner/main.js",
       "default": "./dist/runner/main.js"
-    },
-    "./workflows/resolve-merge-conflicts": {
-      "types": "./dist/workflows/resolve-merge-conflicts.d.ts",
-      "import": "./dist/workflows/resolve-merge-conflicts.js",
-      "default": "./dist/workflows/resolve-merge-conflicts.js"
     },
     "./workflow": {
       "types": "./dist/runner/workflow/index.d.ts",
@@ -38,11 +34,12 @@
     "tags": [
       "type:lib",
       "scope:private",
+      "release:npm",
       "boundary:generic-runtime"
     ]
   },
   "dependencies": {
-    "@seqlane/agent-adapter": "workspace:*",
+    "@seqlane/agent-adapter": "0.0.1",
     "@mastra/core": "1.64.0",
     "@mastra/hono": "1.7.6",
     "@mastra/libsql": "1.22.3",
@@ -50,9 +47,8 @@
     "@mastra/observability": "1.17.4",
     "@mastra/server": "1.64.0",
     "@hono/node-server": "2.1.1",
-    "@seqlane/core": "workspace:*",
-    "@seqlane/protocol": "workspace:*",
-    "@seqlane/resolve-merge-conflicts-workflow": "workspace:*",
+    "@seqlane/core": "0.0.1",
+    "@seqlane/protocol": "0.0.1",
     "hono": "4.13.5",
     "zod": "4.5.4"
   },
@@ -60,17 +56,19 @@
     "@seqlane/fixtures": "workspace:*"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.tsbuildinfo"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/marcolink/seqlane.git",
     "directory": "libs/runtime"
   },
-  "packageManager": "pnpm@10.33.0",
   "engines": {
-    "npm": "use pnpm instead - see README.md",
-    "yarn": "use pnpm instead - see README.md",
-    "pnpm": ">=10.33.0"
+    "node": ">=24.0.0"
   }
 }

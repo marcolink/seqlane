@@ -34,6 +34,17 @@
     ],
     "sharedGlobals": ["{workspaceRoot}/.github/workflows/*.yml"]
   },
+  "targetDefaults": {
+    "nx-release-publish": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["^nx-release-publish"],
+      "options": {
+        "command": "npm publish ./{projectRoot} --json --access public --dry-run=${NX_DRY_RUN:-false}",
+        "cwd": "{workspaceRoot}",
+        "forwardAllArgs": false
+      }
+    }
+  },
   "plugins": [
     {
       "plugin": "@nx/js/typescript",
@@ -50,5 +61,26 @@
       }
     }
   ],
+  "release": {
+    "projects": ["tag:release:npm"],
+    "projectsRelationship": "fixed",
+    "releaseTag": {
+      "pattern": "v{version}",
+      "requireSemver": true,
+      "strictPreid": true
+    },
+    "version": {
+      "preserveLocalDependencyProtocols": false,
+      "versionPrefix": ""
+    },
+    "changelog": {
+      "workspaceChangelog": true,
+      "projectChangelogs": false
+    },
+    "git": {
+      "commit": true,
+      "tag": true
+    }
+  },
   "analytics": false
 }

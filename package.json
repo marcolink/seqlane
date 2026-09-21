@@ -1,7 +1,7 @@
 {
   "name": "seqlane-project",
   "version": "0.0.0",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +14,8 @@
     "format:check": "pnpm exec nx format:check --all",
     "lint": "pnpm exec nx run-many -t lint",
     "models:update": "node scripts/update-models-catalog.mjs",
+    "release:dry-run": "pnpm exec nx release --dry-run",
+    "release:publish:dry-run": "pnpm exec nx release publish --dry-run --access public",
     "hooks:install": "node scripts/install-githooks.mjs",
     "verify:staged": "node scripts/verify-staged.mjs",
     "verify:push": "node scripts/verify-push.mjs",

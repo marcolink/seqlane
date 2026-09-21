@@ -19,13 +19,7 @@ describe("CLI runner composition", () => {
   it("defers selected runtime construction until an agent worker profile runs", () => {
     const options = createRunnerProcessOptions({
       [agentRuntimeConfigurationEnvironment]: JSON.stringify({
-        adapter: "acp",
-        configuration: {
-          id: "fixture",
-          description: "Fixture ACP runtime",
-          command: "fixture-acp",
-          persistSession: false,
-        },
+        adapter: "codex",
       }),
     });
 
@@ -36,13 +30,7 @@ describe("CLI runner composition", () => {
   it("prefers direct-run selection over inherited hosted configuration", () => {
     const options = createRunnerProcessOptions({
       [agentRuntimeConfigurationEnvironment]: JSON.stringify({
-        adapter: "acp",
-        configuration: {
-          id: "fixture",
-          description: "Fixture ACP runtime",
-          command: "fixture-acp",
-          persistSession: false,
-        },
+        adapter: "codex",
       }),
       [directRunAdapterConfigurationEnvironment]: JSON.stringify({
         adapter: "codex",
