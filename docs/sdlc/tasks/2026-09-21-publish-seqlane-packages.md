@@ -75,10 +75,11 @@ Remote Linux verification remains pending.
 
 ## Delivery state
 
-Work is local to `chore/public-readiness`. Pull-request review, remote checks,
-merge, and registry release remain pending.
+Work is under review in [pull request #144](https://github.com/marcolink/seqlane/pull/144).
+Remote checks, merge, and registry release remain pending.
 
 ## Traceability
 
 - [spec.public-npm-distribution](../specs/2026-09-21-public-npm-distribution.md)
 - [adr.public-npm-release](../adrs/2026-09-21-public-npm-release.md)
+- [Delivery pull request #144](https://github.com/marcolink/seqlane/pull/144)
