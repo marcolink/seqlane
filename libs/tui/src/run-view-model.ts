@@ -1,5 +1,5 @@
 import { validationResultSchema } from "@seqlane/core";
-import { activityIdentity, projectNodeActivity } from "./run-activity.js";
+import { projectNodeActivity } from "./run-activity.js";
 import { outputBytes, retainOutput } from "./run-output.js";
 import { withMapChanges } from "./run-node-map.js";
 import {
@@ -172,8 +172,6 @@ export interface RunViewModel {
   /** Automatic expansion state kept separate from execution nodes. */
   readonly presentation: ReadonlyMap<string, RunPresentationState>;
   readonly rootInvocationIds: readonly string[];
-  readonly toolUsage: ReadonlyMap<string, number>;
-  readonly skillUsage: ReadonlyMap<string, number>;
   readonly lastHeartbeatAt?: string;
   readonly lastEventSequence: number;
   readonly limits: RunProjectionLimits;
@@ -506,33 +504,33 @@ function applyAncestorAggregateDelta(
 
 type ActivityEvent = Extract<OutputEvent, { type: "invocation.activity" }>;
 
+function mergeInvocationObservation(
+  previous: InvocationObservationEvent | undefined,
+  next: InvocationObservationEvent,
+): InvocationObservationEvent {
+  if (previous === undefined) return next;
+  return {
+    ...previous,
+    ...next,
+    model: {
+      ...previous.model,
+      ...next.model,
+    },
+    ...(next.availability === undefined && previous.availability !== undefined
+      ? { availability: previous.availability }
+      : {}),
+  };
+}
+
 function projectActivity(
   view: RunViewModel,
   event: ActivityEvent,
 ): RunViewModel {
   const node = view.nodes.get(event.invocationId);
   if (node === undefined) return view;
-  const identity = activityIdentity(event);
-  const isNewActivity = !node.seenActivityIds.has(identity);
-  const next = updateNode(view, event.invocationId, (current) => {
-    const projected = projectNodeActivity(current, event);
-    if (!isNewActivity) return projected;
-    const usage = new Map(
-      event.kind === "skill" ? projected.skillUsage : projected.toolUsage,
-    );
-    usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
-    return event.kind === "skill"
-      ? { ...projected, skillUsage: usage }
-      : { ...projected, toolUsage: usage };
-  });
-  if (!isNewActivity) return next;
-
-  const usage =
-    event.kind === "skill" ? new Map(next.skillUsage) : new Map(next.toolUsage);
-  usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
-  return event.kind === "skill"
-    ? { ...next, skillUsage: usage }
-    : { ...next, toolUsage: usage };
+  return updateNode(view, event.invocationId, (current) =>
+    projectNodeActivity(current, event),
+  );
 }
 
 export function createRunViewModel(
@@ -547,8 +545,6 @@ export function createRunViewModel(
     plannedInvocationsByTaskId: new Map(),
     presentation: new Map(),
     rootInvocationIds: [],
-    toolUsage: new Map(),
-    skillUsage: new Map(),
     lastEventSequence: 0,
     limits: { ...DEFAULT_RUN_PROJECTION_LIMITS, ...options.limits },
     omittedNodeCount: 0,
@@ -855,7 +851,13 @@ export function reduceRunViewModel(
     case "invocation.observation":
       return updateNode(next, event.invocationId, (node) => {
         const observations = new Map(node.observations);
-        observations.set(event.observationId, event);
+        observations.set(
+          event.observationId,
+          mergeInvocationObservation(
+            node.observations.get(event.observationId),
+            event,
+          ),
+        );
         return { ...node, observations };
       });
     case "invocation.output": {

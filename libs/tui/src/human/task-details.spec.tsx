@@ -230,10 +230,52 @@ it("shows reported context and aligned usage, preserves wrapped rails, then coll
   const terminalOutput = (app.lastFrame() ?? "").replace(/\s+/g, " ");
   expect(terminalOutput).toContain("14.2k tokens · $0.08");
   expect(terminalOutput).toContain("input 12.4k · output 1.8k · reasoning 0");
-  expect(terminalOutput).toContain("cached 0");
+  expect(terminalOutput).toContain("cache read 0");
   expect(terminalOutput).toContain("tools read_file×1 · skills none");
   expect(app.lastFrame()).toContain("$0.08");
   expect(app.lastFrame()).toContain("0ms");
+});
+
+it("does not add cache tokens to the total token count", () => {
+  const base = activeView();
+  const node = base.nodes.get("live");
+  if (!node) throw new Error("Missing test invocation");
+  const view = reduceRunViewModel(
+    {
+      ...base,
+      nodes: new Map(base.nodes).set("live", {
+        ...node,
+        output: {
+          ...node.output,
+          metrics: {
+            tokens: {
+              input: 10,
+              output: 5,
+              reasoning: 2,
+              cacheRead: 100,
+              cacheWrite: 3,
+            },
+          },
+        },
+      }),
+    },
+    {
+      ...identity,
+      type: "invocation.succeeded",
+      invocationId: "live",
+    },
+  );
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{ supportsAnsi: false, supportsUnicode: false, width: 120 }}
+      spinnerFrame={0}
+    />,
+  );
+
+  const output = (app.lastFrame() ?? "").replace(/\s+/g, " ");
+  expect(output).toContain("17 tokens");
+  expect(output).not.toContain("120 tokens");
 });
 
 it("replaces live activity lines and removes them from the completed summary", async () => {

@@ -15,7 +15,8 @@ does not depend on a runtime adapter or executor.
   progress, tool, and skill events. A live activity update replaces the prior
   event with the same activity ID; completed activity lines disappear.
   Completed rows replace live data with a four-line summary: fixed metadata;
-  total tokens and cost; input/output/reasoning/cached token buckets; and
+  total tokens and cost; input/output/reasoning/cache-read/cache-write token
+  buckets; and
   per-tool/per-skill counts. Duration stays right-aligned with the task title.
   Keys are muted and values use bright contrast when ANSI is available. Tool
   and skill counts represent logical activity IDs, not streamed lifecycle

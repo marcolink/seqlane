@@ -125,40 +125,111 @@ describe("OpenCode AgentAdapter", () => {
     );
 
     expect(submitted).toBeDefined();
-    expect(observations).toEqual([
-      {
-        observationId: "message-1",
-        kind: "model",
-        state: "succeeded",
-        attemptIndex: 0,
-        model: {
-          operation: "chat",
-          provider: "controlled-provider",
-          model: "controlled-model",
-          responseId: "message-1",
-          finishReasons: ["stop"],
-          request: expect.objectContaining({
-            text: submitted?.text,
-            schema: submitted?.schema,
-            strategy: "native",
-            retryCount: 0,
-          }),
-          response: {
-            structured: { result: "done", count: 0 },
-            text: "exact assistant response",
-          },
-          usage: {
-            inputTokens: 4,
-            outputTokens: 3,
-            reasoningTokens: 0,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-          },
-          cost: 0,
-          startedAt: 1,
-          endedAt: 3,
-        },
+    expect(observations).toHaveLength(2);
+    expect(observations[0]).toMatchObject({
+      observationId: "invocation-1:model:0",
+      kind: "model",
+      state: "started",
+      attemptIndex: 0,
+      model: {
+        operation: "chat",
+        request: expect.objectContaining({
+          text: submitted?.text,
+          schema: submitted?.schema,
+          strategy: "native",
+          retryCount: 0,
+        }),
       },
+    });
+    expect(observations[1]).toMatchObject({
+      observationId: "invocation-1:model:0",
+      kind: "model",
+      state: "succeeded",
+      attemptIndex: 0,
+      model: {
+        operation: "chat",
+        provider: "controlled-provider",
+        model: "controlled-model",
+        responseId: "message-1",
+        finishReasons: ["stop"],
+        request: expect.objectContaining({
+          text: submitted?.text,
+          schema: submitted?.schema,
+          strategy: "native",
+          retryCount: 0,
+        }),
+        response: {
+          structured: { result: "done", count: 0 },
+          text: "exact assistant response",
+        },
+        usage: {
+          inputTokens: 4,
+          outputTokens: 3,
+          reasoningTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        cost: 0,
+        startedAt: 1,
+        endedAt: 3,
+      },
+    });
+  });
+
+  it("emits failed and cancelled model lifecycle observations", async () => {
+    const failedObservations: unknown[] = [];
+    const failedAdapter = createOpenCodeAdapterForRun(
+      createRun(async () => {
+        throw new Error("provider unavailable");
+      }),
+    );
+
+    await expect(
+      failedAdapter.execute(
+        request({
+          onObservation: (observation) => failedObservations.push(observation),
+        }),
+      ),
+    ).rejects.toThrow("provider unavailable");
+    expect(failedObservations).toEqual([
+      expect.objectContaining({
+        observationId: "invocation-1:model:0",
+        state: "started",
+      }),
+      expect.objectContaining({
+        observationId: "invocation-1:model:0",
+        state: "failed",
+        model: expect.objectContaining({ error: "provider unavailable" }),
+      }),
+    ]);
+
+    const controller = new AbortController();
+    const cancelledObservations: unknown[] = [];
+    const cancelledAdapter = createOpenCodeAdapterForRun(
+      createRun(async () => {
+        controller.abort();
+        throw new Error("prompt cancelled");
+      }),
+    );
+
+    await expect(
+      cancelledAdapter.execute(
+        request({
+          signal: controller.signal,
+          onObservation: (observation) =>
+            cancelledObservations.push(observation),
+        }),
+      ),
+    ).rejects.toThrow("prompt cancelled");
+    expect(cancelledObservations).toEqual([
+      expect.objectContaining({
+        observationId: "invocation-1:model:0",
+        state: "started",
+      }),
+      expect.objectContaining({
+        observationId: "invocation-1:model:0",
+        state: "cancelled",
+      }),
     ]);
   });
 
@@ -174,8 +245,10 @@ describe("OpenCode AgentAdapter", () => {
       }),
     );
 
-    expect(observations).toEqual([
+    expect(observations).toHaveLength(2);
+    expect(observations[1]).toEqual(
       expect.objectContaining({
+        state: "succeeded",
         model: expect.objectContaining({
           response: {},
           request: expect.anything(),
@@ -187,7 +260,7 @@ describe("OpenCode AgentAdapter", () => {
           },
         ],
       }),
-    ]);
+    );
   });
 
   it("ignores failures from structured-output diagnostic consumers", async () => {

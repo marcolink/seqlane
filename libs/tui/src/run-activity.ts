@@ -45,11 +45,18 @@ export function projectNodeActivity(
     nextLiveActivities.set(event.activityId, event);
     liveActivities = nextLiveActivities;
   }
+  const usage = new Map(
+    event.kind === "skill" ? node.skillUsage : node.toolUsage,
+  );
+  if (isNewActivity) {
+    usage.set(event.name, (usage.get(event.name) ?? 0) + 1);
+  }
   return {
     ...node,
     completedToolIds,
     seenActivityIds,
     liveActivities,
+    ...(event.kind === "skill" ? { skillUsage: usage } : { toolUsage: usage }),
     activity:
       event.message ?? event.kind + " " + event.name + " " + event.state,
   };

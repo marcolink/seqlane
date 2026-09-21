@@ -128,6 +128,7 @@ async function startServer(options: StartServerOptions = {}) {
   });
   let promptCount = 0;
   let messageListCount = 0;
+  const messageListQueries: string[] = [];
   let readbackFailures = options.readbackFailures ?? 0;
   const promptCountWaiters: Array<{
     readonly count: number;
@@ -219,8 +220,9 @@ async function startServer(options: StartServerOptions = {}) {
       return;
     }
 
-    const match = /^\/session\/(session-\d+)\/message$/.exec(path);
+    const match = /^(?:\/api)?\/session\/(session-\d+)\/message$/.exec(path);
     if (request.method === "GET" && match) {
+      messageListQueries.push(requestPath);
       if (readbackFailures > 0) {
         readbackFailures -= 1;
         response.writeHead(400, { "content-type": "application/json" });
@@ -242,7 +244,11 @@ async function startServer(options: StartServerOptions = {}) {
               Math.min(messageListCount, options.messageLists.length - 1)
             ] ?? []);
       messageListCount += 1;
-      writeJson(response, messages);
+      if (path.startsWith("/api/")) {
+        writeJson(response, { data: messages, cursor: {} });
+      } else {
+        writeJson(response, messages);
+      }
       return;
     }
     if (request.method === "POST" && match) {
@@ -345,6 +351,7 @@ async function startServer(options: StartServerOptions = {}) {
     promptStarted,
     promptCount: () => promptCount,
     messageListCount: () => messageListCount,
+    messageListQueries: () => [...messageListQueries],
     sessionStarted,
     server,
     url: `http://127.0.0.1:${address.port}`,
@@ -466,6 +473,7 @@ describe("OpenCode run session", () => {
         observations,
         diagnostics,
         messageListCount: fake.messageListCount(),
+        messageListQueries: fake.messageListQueries(),
       }).toEqual({
         activities: [
           expect.objectContaining({
@@ -479,6 +487,11 @@ describe("OpenCode run session", () => {
         observations: [expect.objectContaining({ callID: "call-1" })],
         diagnostics: [],
         messageListCount: 3,
+        messageListQueries: [
+          "/session/session-1/message?limit=100",
+          "/session/session-1/message?limit=100",
+          "/session/session-1/message?limit=100",
+        ],
       });
     } finally {
       await closeServer(fake.server);

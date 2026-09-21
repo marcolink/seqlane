@@ -61,14 +61,7 @@ function SummarySeparator({
 }
 
 function totalTokens(tokens: TokenCounts): number {
-  return (
-    tokens.total ??
-    tokens.input +
-      tokens.output +
-      tokens.reasoning +
-      tokens.cacheRead +
-      tokens.cacheWrite
-  );
+  return tokens.total ?? tokens.input + tokens.output + tokens.reasoning;
 }
 
 function compactTokenCount(count: number): string {
@@ -218,8 +211,14 @@ export function HumanModelObservationDetails({
           <SummarySeparator capabilities={capabilities} />
           <TokenMetric
             capabilities={capabilities}
-            label="cached"
+            label="cache read"
             value={tokens.cacheRead}
+          />
+          <SummarySeparator capabilities={capabilities} />
+          <TokenMetric
+            capabilities={capabilities}
+            label="cache write"
+            value={tokens.cacheWrite}
           />
         </Text>
       )}

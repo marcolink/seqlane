@@ -158,14 +158,20 @@ function reportCanonicalObservation(
 function modelObservation(
   request: AgentAdapterRequest,
   prompt: OpenCodePrompt,
-  response: OpenCodePromptResult,
   attemptIndex: number,
+  options: {
+    readonly state: SeqlaneObservation["state"];
+    readonly response?: OpenCodePromptResult;
+    readonly error?: string;
+  },
 ): SeqlaneObservation {
-  const native = response.observation;
-  const metrics = response.metrics;
+  const response = options.response;
+  const native = response?.observation;
+  const metrics = response?.metrics;
+  const selection = prompt.selection ?? request.modelSelection;
   const availability: ObservationAvailability[] = [];
   const responseValue: Record<string, JsonValue> = {};
-  if (response.structured !== undefined) {
+  if (response?.structured !== undefined) {
     const structured = jsonValueOrUnavailable(
       response.structured,
       "model.response.structured",
@@ -173,23 +179,27 @@ function modelObservation(
     );
     if (structured !== undefined) responseValue.structured = structured;
   }
-  if (response.text !== undefined) responseValue.text = response.text;
+  if (response?.text !== undefined) responseValue.text = response.text;
+  const error = options.error ?? native?.error;
   return {
-    observationId:
-      native?.messageID ?? `${request.invocationId}:model:${attemptIndex}`,
+    observationId: `${request.invocationId}:model:${attemptIndex}`,
     kind: "model",
-    state: native?.error === undefined ? "succeeded" : "failed",
+    state: options.state,
     attemptIndex,
     model: {
       operation: "chat",
       ...(metrics?.provider === undefined
         ? native?.provider === undefined
-          ? {}
+          ? selection?.model.provider === undefined
+            ? {}
+            : { provider: selection.model.provider }
           : { provider: native.provider }
         : { provider: metrics.provider }),
       ...(metrics?.model === undefined
         ? native?.model === undefined
-          ? {}
+          ? selection?.model.model === undefined
+            ? {}
+            : { model: selection.model.model }
           : { model: native.model }
         : { model: metrics.model }),
       ...(native?.messageID === undefined
@@ -199,7 +209,7 @@ function modelObservation(
         ? {}
         : { finishReasons: [native.finish] }),
       request: modelRequestValue(prompt, availability),
-      response: responseValue,
+      ...(response === undefined ? {} : { response: responseValue }),
       ...(metrics?.tokens === undefined
         ? {}
         : {
@@ -214,7 +224,7 @@ function modelObservation(
       ...(metrics?.cost === undefined ? {} : { cost: metrics.cost }),
       ...(native?.created === undefined ? {} : { startedAt: native.created }),
       ...(native?.completed === undefined ? {} : { endedAt: native.completed }),
-      ...(native?.error === undefined ? {} : { error: native.error }),
+      ...(error === undefined ? {} : { error }),
     },
     ...(availability.length === 0 ? {} : { availability }),
   };
@@ -410,10 +420,38 @@ function createAdapterForRun({
               reportAdapterDiagnostic(request, "opencode-event", message),
             onRunInvalidated: invalidation.invalidate,
           };
-          const response = await run.prompt(prompt);
+          const attemptIndex = attempts - 1;
           reportCanonicalObservation(
             request,
-            modelObservation(request, prompt, response, attempts - 1),
+            modelObservation(request, prompt, attemptIndex, {
+              state: "started",
+            }),
+          );
+          let response: OpenCodePromptResult;
+          try {
+            response = await run.prompt(prompt);
+          } catch (cause) {
+            reportCanonicalObservation(
+              request,
+              modelObservation(request, prompt, attemptIndex, {
+                state: request.signal.aborted ? "cancelled" : "failed",
+                error:
+                  cause instanceof Error
+                    ? cause.message
+                    : "model exchange failed",
+              }),
+            );
+            throw cause;
+          }
+          reportCanonicalObservation(
+            request,
+            modelObservation(request, prompt, attemptIndex, {
+              state:
+                response.observation?.error === undefined
+                  ? "succeeded"
+                  : "failed",
+              response,
+            }),
           );
           if (response.observation !== undefined) {
             observability.observeTerminal(response.observation);

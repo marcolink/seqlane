@@ -36,6 +36,7 @@ const checkpointSchema = z.object({
   messageId: z.string().min(1),
 });
 const runAbortTimeoutMs = 2_000;
+const maxMessageHistoryPages = 10;
 
 const structuredOutputStates = new WeakMap<
   OpenCodeConnection,
@@ -150,18 +151,63 @@ async function snapshotPromptMessageHistory(
 ): Promise<void> {
   if (history.ready || transport.listMessages === undefined) return;
   try {
-    const messages = await transport.listMessages(sessionID, signal);
-    const parsed = parseOpenCodeMessageObservations(messages, sessionID);
-    addMessageIDs(history, parsed.messageIDs);
+    await dispatchMessageHistory(
+      transport,
+      sessionID,
+      signal,
+      history,
+      undefined,
+      onDiagnostic,
+    );
+    history.ready = true;
+  } catch {
+    onDiagnostic("could not snapshot the OpenCode session messages");
+  }
+}
+
+async function dispatchMessageHistory(
+  transport: OpenCodeTransport,
+  sessionID: string,
+  signal: AbortSignal,
+  history: PromptMessageHistoryState,
+  dispatcher: AttemptTransitionDispatcher | undefined,
+  onDiagnostic: (message: string) => void,
+): Promise<void> {
+  if (transport.listMessages === undefined) return;
+  const baseline = !history.ready;
+  let cursor = baseline ? history.cursor : undefined;
+  for (let pageIndex = 0; pageIndex < maxMessageHistoryPages; pageIndex += 1) {
+    const page = await transport.listMessages(sessionID, signal, {
+      order: baseline ? "asc" : "desc",
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    const parsed = parseOpenCodeMessageObservations(page.messages, sessionID);
     if (parsed.malformedPartCount > 0) {
       onDiagnostic(
         `ignored ${parsed.malformedPartCount} malformed OpenCode tool message part(s)`,
       );
     }
-    history.ready = true;
-  } catch {
-    onDiagnostic("could not snapshot the OpenCode session messages");
+    if (dispatcher !== undefined) {
+      for (const observation of parsed.observations) {
+        if (baseline || !history.knownMessageIDs.has(observation.messageID)) {
+          dispatcher.observation(observation);
+        }
+      }
+    }
+    addMessageIDs(history, parsed.messageIDs);
+    if (!baseline || page.nextCursor === undefined) {
+      history.cursor = undefined;
+      history.ready = true;
+      return;
+    }
+    cursor = page.nextCursor;
+    history.cursor = cursor;
   }
+  onDiagnostic(
+    `stopped OpenCode message history reconciliation after ${maxMessageHistoryPages} pages`,
+  );
+  history.cursor = undefined;
+  history.ready = true;
 }
 
 async function reconcilePromptObservations({
@@ -182,27 +228,14 @@ async function reconcilePromptObservations({
   );
   if (transport.listMessages !== undefined) {
     try {
-      const messages = await transport.listMessages(sessionID, signal);
-      if (history.ready) {
-        const messageIDs = dispatchMessageObservations(
-          messages,
-          sessionID,
-          dispatcher,
-          history.knownMessageIDs,
-          onDiagnostic,
-        );
-        addMessageIDs(history, messageIDs);
-      } else {
-        const messageIDs = dispatchMessageObservations(
-          messages,
-          sessionID,
-          dispatcher,
-          undefined,
-          onDiagnostic,
-        );
-        addMessageIDs(history, messageIDs);
-        history.ready = true;
-      }
+      await dispatchMessageHistory(
+        transport,
+        sessionID,
+        signal,
+        history,
+        dispatcher,
+        onDiagnostic,
+      );
     } catch {
       onDiagnostic(
         "could not read OpenCode session messages for activity observations",
@@ -263,6 +296,7 @@ interface PromptCancellation {
 interface PromptMessageHistoryState {
   ready: boolean;
   readonly knownMessageIDs: Set<string>;
+  cursor?: string;
 }
 
 interface ReconcilePromptObservationsInput {

@@ -83,7 +83,6 @@ describe("human execution view model", () => {
       ...first,
       state: "succeeded" as const,
       model: {
-        ...first.model,
         response: { text: "exact output", structured: { ok: false } },
       },
     };
@@ -91,7 +90,13 @@ describe("human execution view model", () => {
     const node = view.nodes.get("root");
 
     expect(node?.observations.size).toBe(1);
-    expect(node?.observations.get("model-1")).toEqual(second);
+    expect(node?.observations.get("model-1")).toEqual({
+      ...second,
+      model: {
+        request: first.model.request,
+        response: second.model.response,
+      },
+    });
     expect(node?.observations.get("model-1")?.model.response).toEqual({
       text: "exact output",
       structured: { ok: false },
@@ -928,7 +933,6 @@ describe("human execution view model", () => {
     expect([...(view.nodes.get("a")?.toolUsage.entries() ?? [])]).toEqual([
       ["filesystem.read", 1],
     ]);
-    expect([...view.toolUsage.entries()]).toEqual([["filesystem.read", 1]]);
   });
 
   it("replaces live activity updates and clears them at activity or task completion", () => {
@@ -989,8 +993,6 @@ describe("human execution view model", () => {
     expect([...view.nodes.get("a")!.skillUsage.entries()]).toEqual([
       ["web-perf", 1],
     ]);
-    expect([...view.skillUsage.entries()]).toEqual([["web-perf", 1]]);
-    expect(view.toolUsage.size).toBe(0);
   });
 
   it("counts distinct activity identities separately", () => {
@@ -1016,7 +1018,6 @@ describe("human execution view model", () => {
       },
     ]);
 
-    expect([...view.toolUsage.entries()]).toEqual([["filesystem.read", 2]]);
     expect([...view.nodes.get("a")!.toolUsage.entries()]).toEqual([
       ["filesystem.read", 2],
     ]);

@@ -136,7 +136,9 @@ area shows only the current progress, tool, and skill activity. Updates replace
 the live activity with the same activity ID, and completed activity lines are
 removed. When the task completes, the live details are replaced by four compact
 summary lines: fixed metadata; total tokens and cost;
-input/output/reasoning/cached token counts; and per-tool/per-skill counts.
+input/output/reasoning/cache-read/cache-write token counts; and
+  per-tool/per-skill counts. Cache counts remain separate from the total when
+  the source does not provide a total.
 Duration stays right-aligned with the task title. ANSI colors mute keys and
 separators while giving values stronger contrast.
 

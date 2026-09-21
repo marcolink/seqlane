@@ -139,13 +139,6 @@ export function nodeFacts(row: RunVisibleRow, now: Date): string {
     return (
       node.aggregate.succeeded + "/" + node.aggregate.total + " · " + duration
     );
-  if (
-    node.state === "succeeded" ||
-    node.state === "failed" ||
-    node.state === "cancelled" ||
-    node.state === "skipped"
-  )
-    return duration;
   return duration;
 }
 
