@@ -243,6 +243,7 @@ export async function prepareRelease({ revision }) {
   git(["fetch", "--tags", "--force", "origin"], { inherit: true });
   git(["fetch", "--no-tags", "origin", "main"], { inherit: true });
   git(["switch", "--force-create", "main", revision], { inherit: true });
+  git(["branch", "--set-upstream-to=origin/main", "main"]);
 
   const [releaseTag] = releaseTagsAtHead();
   if (releaseTag) {
