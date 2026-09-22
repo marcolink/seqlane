@@ -112,7 +112,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Create and publish release
+      - name: Create release commit and tag
+        id: release
         run: |
           git fetch --no-tags origin main
           current_main="$(git rev-parse origin/main)"
@@ -123,12 +124,36 @@ jobs:
           git switch --force-create main "$GITHUB_SHA"
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          release_args=(--yes)
+          release_args=(--yes --skip-publish)
           if ! git tag --list "v*.*.*" | grep -q .; then
             release_args+=(--first-release)
+            echo "first_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "first_release=false" >> "$GITHUB_OUTPUT"
           fi
           pnpm exec nx release "${release_args[@]}"
+
+          if [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]; then
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Verify release packages
+        if: steps.release.outputs.released == 'true'
+        run: node scripts/verify-release-packages.mjs
+
+      - name: Publish release packages
+        if: steps.release.outputs.released == 'true'
+        run: |
+          publish_args=(--access public --outputStyle=static)
+          if [[ "${{ steps.release.outputs.first_release }}" == "true" ]]; then
+            publish_args+=(--first-release)
+          fi
+          pnpm exec nx release publish "${publish_args[@]}"
+        env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
+          NX_DRY_RUN: "false"

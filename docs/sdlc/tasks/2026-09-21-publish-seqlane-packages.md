@@ -75,7 +75,10 @@ complete Apache-2.0 license text. A fresh project can install the packed
 artifacts, import `@seqlane/core`, and run the `seqlane` executable.
 The release workflow verifies the triggering revision without write
 credentials. Its publish job consumes verified builds and stops if `main`
-advanced before release.
+advanced before release. It creates the release without publishing, validates
+the exact eight-package set and packed artifacts, and only then runs the Nx
+publish phase. The publish target requires explicit dry-run intent and has no
+recursive dependency scheduling.
 
 Two unchanged timing-sensitive integration tests fail in this macOS worktree:
 the non-cooperative MCP deadline test and the operational-route timeout test.

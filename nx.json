@@ -37,9 +37,8 @@
   "targetDefaults": {
     "nx-release-publish": {
       "executor": "nx:run-commands",
-      "dependsOn": ["^nx-release-publish"],
       "options": {
-        "command": "pnpm --dir ./{projectRoot} pack --out \"$PWD/.nx/release-packages/{projectName}.tgz\" && npm publish \"$PWD/.nx/release-packages/{projectName}.tgz\" --json --access public --dry-run=${NX_DRY_RUN:-false}",
+        "command": "node -e 'const value = process.env.NX_DRY_RUN; if (value !== \"true\" && value !== \"false\") { console.error(\"NX_DRY_RUN must be explicitly set to true or false\"); process.exit(1); }' && pnpm --dir ./{projectRoot} pack --out \"$PWD/.nx/release-packages/{projectName}.tgz\" && npm publish \"$PWD/.nx/release-packages/{projectName}.tgz\" --json --access public --dry-run=\"$NX_DRY_RUN\"",
         "cwd": "{workspaceRoot}",
         "forwardAllArgs": false
       }
