@@ -25,9 +25,10 @@ paths. For example:
 ```sh
 pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts \
   --input '{"question":"Trace the workflow loading path","paths":["apps/cli/src"]}' \
-  --adapter opencode \
+  --adapter codex \
   --workspace "$PWD"
 ```
 
-The workflow uses the configured retrieval tools and model endpoint. The hook
+The workflow uses the configured retrieval tools and Codex adapter. The Codex
+app-server must expose `gpt-6-luna` with medium reasoning. The hook
 fails open for commands that it does not classify as read-like.

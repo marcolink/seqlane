@@ -4,7 +4,7 @@ import {
   defineTask,
   isolated,
 } from "@seqlane/core";
-import { openai } from "@seqlane/core/models";
+import { model } from "@seqlane/core/models";
 import { z } from "zod";
 import {
   formatReadContextSummaryPrompt,
@@ -56,7 +56,7 @@ export const readContextWorkflow = createFlow({
     {
       workspace: "shared",
       session: isolated({
-        model: openai("gpt-5.6-luna"),
+        model: model("openai/gpt-6-luna"),
         reasoning: "medium",
       }),
     },

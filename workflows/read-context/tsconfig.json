@@ -11,7 +11,5 @@
   },
   "include": ["workflow.ts", "tasks/**/*.ts", "src/**/*.ts"],
   "exclude": ["src/**/*.spec.ts"],
-  "references": [
-    { "path": "../../libs/core" }
-  ]
+  "references": [{ "path": "../../libs/core" }]
 }

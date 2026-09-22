@@ -484,8 +484,8 @@ server storage, and run-control details.
 
 This repository includes the `read-context` workflow. It retrieves a
 small, source-grounded evidence set with native `rg`, and optionally uses
-installed zvec-grep and Ripwire tools before asking
-`openai/gpt-5.6-luna` with medium reasoning for a structured answer. Runtime
+installed zvec-grep and Ripwire tools before asking the Codex adapter to use
+`openai/gpt-6-luna` with medium reasoning for a structured answer. Runtime
 configuration remains authoritative for executor permissions.
 
 Build and run it with the normal Seqlane CLI:
@@ -494,13 +494,13 @@ Build and run it with the normal Seqlane CLI:
 pnpm build
 pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts \
   --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
-  --adapter opencode \
+  --adapter codex \
   --workspace "$PWD"
 ```
 
-Select an adapter with `--adapter opencode` or `--adapter codex` when this
-workflow needs an agent task. The workflow explicitly selects
-`openai/gpt-5.6-luna` with medium reasoning. Optional `zg`/zvec-grep and
+The workflow uses `--adapter codex` and explicitly selects
+`openai/gpt-6-luna` with medium reasoning. Codex must expose this model and
+reasoning effort through its model list. Optional `zg`/zvec-grep and
 `ripwire` failures are reported as uncertainties.
 
 Evidence is bounded to a 32,000-byte retrieval corpus. Scan and corpus limits

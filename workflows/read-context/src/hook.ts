@@ -79,7 +79,7 @@ function validWorkflowArguments(
     }
     if (argument === "--adapter") {
       if (adapterSeen) return false;
-      if (args[index + 1] !== "opencode") return false;
+      if (args[index + 1] !== "codex") return false;
       adapterSeen = true;
       index += 1;
       continue;
@@ -156,7 +156,7 @@ function guardReadCommand(
       ? (requestedLines ?? 0) > maxTargetedLines
       : estimate.lines > maxLines || estimate.bytes > maxBytes;
   if (!blocked) return "{}";
-  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input '{"question":"...","paths":["${candidate.path}"]}' --adapter opencode --workspace "$PWD" for the read-context workflow with a focused question from the active task. Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
+  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input '{"question":"...","paths":["${candidate.path}"]}' --adapter codex --workspace "$PWD" for the read-context workflow with a focused question from the active task. Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
   return deny(reason);
 }
 
