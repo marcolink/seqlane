@@ -354,8 +354,10 @@ One strict Zod discriminated schema validates adapter-specific values before
 they enter the private worker bootstrap. They never enter workflow input or
 runner IPC.
 
-Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
-source per run, and input files have a 1 MiB limit.
+Use `--input-file <path>` for JSON input from a file, or repeat
+`--input.<path> <value>` to build an object from fields. Use one input source
+per run. Explicit input sources have a 1 MiB limit; with no source, Seqlane
+validates `{}`.
 
 ## Choose an access pattern
 

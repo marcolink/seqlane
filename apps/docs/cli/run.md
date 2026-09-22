@@ -39,8 +39,10 @@ special Seqlane bundle format is required.
 Use a package module when you distribute workflows. The package must expose an
 importable module. The selected export still must be an authored workflow.
 
-The workflow input is JSON. Pass it with `--input` or read it from a JSON file
-with `--input-file`:
+The workflow input is JSON. Pass a JSON value with `--input`, read it from a
+file with `--input-file`, or set individual fields with `--input.<path>`. Use
+one input source per run. Each explicit source has a 1 MiB limit. With no input
+flag, the CLI validates `{}`.
 
 ```sh
 seqlane run ./workflow.ts \
@@ -71,8 +73,8 @@ or approval, the task fails and the run stops.
 
 ### `--input` (`-i`)
 
-Pass the workflow input as a JSON value. Use this flag or `--input-file`, but
-not both.
+Pass the workflow input as one JSON value. Use this flag, `--input-file`, or
+dotted input flags, but do not combine input sources.
 
 ```sh
 seqlane run ./workflow.ts \
@@ -82,12 +84,43 @@ seqlane run ./workflow.ts \
 ### `--input-file`
 
 Read the workflow input from a JSON file. The file can be at most 1 MiB. Use
-this flag or `--input`, but not both.
+`-` to read stdin. Stdin is read only when this flag is present. Use this flag,
+`--input`, or dotted input flags, but do not combine input sources.
 
 ```sh
 seqlane run ./workflow.ts \
   --input-file ./input.json
 ```
+
+Read JSON from stdin explicitly:
+
+```sh
+printf '{"topic":"Seqlane"}' | seqlane run ./workflow.ts --input-file -
+```
+
+### `--input.<path>`
+
+Set one field in a generated input object. Repeat the flag to set more fields.
+Separate nested object keys with dots. Each path must have 1 to 64 non-empty
+segments. Numeric segments are property names, not array indexes. Dots and
+equals signs cannot appear inside a property name.
+
+Values that are valid JSON use their JSON type. Other values are strings. To
+pass the string `true`, use the JSON string value `--input.state '"true"'`.
+Pass arrays and objects as JSON values. Use the equals form when a string
+begins with `--`.
+Duplicate fields and parent/child path conflicts fail.
+
+```sh
+seqlane run ./workflow.ts \
+  --input.name Marco \
+  --input.profile.age 42 \
+  --input.tags '["cli","workflow"]'
+```
+
+This creates `{"name":"Marco","profile":{"age":42},"tags":["cli","workflow"]}`.
+Use `--input` or `--input-file` for arrays at the input root or property names
+that contain dots or equals signs.
 
 ### `--adapter`
 

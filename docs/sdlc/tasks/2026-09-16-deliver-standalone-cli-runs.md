@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-22
 upstream:
   - spec.standalone-cli-runs
   - spec.run-machine-output
@@ -31,7 +31,8 @@ behavior. This task defines implementation and evidence.
 ## Scope
 
 - Explicit file/package selection and project-aware TypeScript loading.
-- Input validation, stdin, and independent execution workspace resolution.
+- Input validation, stdin, dotted input fields, and independent execution
+  workspace resolution.
 - Direct Mastra execution with in-memory state and bounded cleanup.
 - Managed adapter startup, native authentication and permission configuration.
 - Workflow-owned model selection with explicit compatibility failures.
@@ -65,8 +66,10 @@ before starting its successor. This document remains the parent deliverable.
 2. Implement explicit reference resolution from an external caller project.
    Add the supported TypeScript loader behavior and invalid-export diagnostics.
    Evaluate existing dependencies before selecting a new loader dependency.
-3. Implement input and workspace preparation. Keep module resolution independent
-   of `--workspace`. Cover stdin and imported-module diagnostic routing.
+3. Implement input and workspace preparation. Support JSON, file/stdin, and
+   dotted field input as mutually exclusive sources; validate limits and input
+   shape before adapter startup. Keep module resolution independent of
+   `--workspace`. Cover stdin and imported-module diagnostic routing.
 4. Add a private adapter lifecycle seam. Verify OpenCode startup without Seqlane
    configuration and preserve the same contract for supported adapter IDs.
    Cover ownership, readiness, authentication errors, concurrency, and cleanup.
@@ -121,15 +124,23 @@ Check public declarations for Mastra leakage and reject `/ee/` imports. Run
 
 ## Outcome
 
-Implementation is in progress on `feat/standalone-cli-runs`. Workflow loading
-was verified and committed in `16374e7`. The planned public command cutover was
-cancelled on 2026-09-18 and must not be inferred from this parent task. Child
-task outcomes own their verification evidence.
+Workflow loading was verified and committed in `16374e7`. On 2026-09-22, the
+local implementation added dotted `--input.<path>` flags through Oclif's root
+`preparse` hook, plus the input-source behaviors required by the active spec.
+The CLI builds; test mapping passes; dotted-input unit tests pass (6/6); and
+compiled CLI end-to-end tests pass (44/44). All CLI unit tests pass (130/130)
+with a 10-second timeout. One unmodified `operational-client.spec.ts` test
+exceeds the default 5-second timeout at about 5.2 seconds. Public docs build
+and SDLC validation pass. This increment is being prepared on
+`feat/dotted-cli-inputs`; no target-branch delivery is claimed. The planned
+standalone CLI cutover was cancelled on 2026-09-18 and is not implied by this
+input-flag work.
+Child task outcomes own their verification evidence.
 
 ## Delivery state
 
-Partial implementation on the delivery branch. The public command has not
-switched to standalone execution. No target-branch delivery is claimed.
+Partial implementation on `feat/dotted-cli-inputs`. The public command cutover
+remains incomplete and cancelled. No target-branch delivery is claimed.
 
 ## Traceability
 

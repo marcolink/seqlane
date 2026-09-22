@@ -47,6 +47,9 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const productionEntry = fileURLToPath(
   new URL("../bin/run.js", import.meta.url),
 );
+const developmentEntry = fileURLToPath(
+  new URL("../bin/dev.js", import.meta.url),
+);
 const workflowReference =
   "@seqlane/fixtures/renovate-workflow#renovateWorkflow";
 const exampleWorkflowReference = "workflows/minimal-example/workflow.ts";
@@ -80,14 +83,16 @@ function runCli(
   startMarker = "started task=investigate-renovate-failure",
   environment: NodeJS.ProcessEnv = {},
   onSpawn?: (child: ChildProcess) => void,
+  stdin?: string,
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(entry, args, {
       cwd: repositoryRoot,
       env: { ...process.env, FORCE_COLOR: "0", ...environment },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
     onSpawn?.(child);
+    if (stdin !== undefined) child.stdin?.end(stdin);
     let stdout = "";
     let stderr = "";
     let signalSent = false;
@@ -356,6 +361,102 @@ describe("seqlane CLI entrypoints", () => {
     });
   });
 
+  it("builds workflow input from dotted flags", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input.value",
+      "local",
+      "--json",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "succeeded",
+      output: { value: "local" },
+    });
+  });
+
+  it("supports equals syntax for dotted workflow input flags", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input.value=local",
+      "--json",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "succeeded",
+      output: { value: "local" },
+    });
+  });
+
+  it("reports a missing dotted input value with the public flag name", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input.value",
+      "--dry",
+    ]);
+
+    expect(result.code).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "--input.value requires a value",
+    );
+    expect(`${result.stdout}${result.stderr}`).not.toContain("input-param");
+  });
+
+  it("loads the preparse hook from source in the development entrypoint", async () => {
+    const result = await runCli(developmentEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input.value",
+      "local",
+      "--json",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "succeeded",
+      output: { value: "local" },
+    });
+  });
+
+  it("rejects combining dotted and JSON input sources", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--input.value",
+      "other",
+      "--dry",
+    ]);
+
+    expect(result.code).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "use only one of --input, --input-file, or --input.<path>",
+    );
+  });
+
+  it("uses Oclif relationships to keep JSON and file inputs exclusive", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      "--input",
+      '{"value":"local"}',
+      "--input-file",
+      "./input.json",
+      "--dry",
+    ]);
+
+    expect(result.code).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "cannot also be provided when using",
+    );
+  });
+
   it("rejects catalog aliases for run", async () => {
     const result = await runCli(productionEntry, [
       "run",
@@ -483,6 +584,24 @@ describe("seqlane CLI entrypoints", () => {
     }
   });
 
+  it("reads workflow input from stdin only when the file flag is explicit", async () => {
+    const result = await runCli(
+      productionEntry,
+      ["run", exampleWorkflowReference, "--input-file", "-", "--dry"],
+      undefined,
+      undefined,
+      {},
+      undefined,
+      builtinInput,
+    );
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      workflow: { id: "minimal-example" },
+    });
+    expect(result.stderr).toBe("");
+  });
+
   it("rejects a JSON input file larger than 1 MiB before parsing", async () => {
     const directory = mkdtempSync(join(tmpdir(), "seqlane-input-limit-cli-"));
     const path = join(directory, "input.json");
@@ -506,17 +625,18 @@ describe("seqlane CLI entrypoints", () => {
     }
   });
 
-  it("requires exactly one workflow input source", async () => {
+  it("validates an empty object when no workflow input source is provided", async () => {
     const result = await runCli(productionEntry, [
       "run",
-      exampleWorkflowReference,
-      "--dry",
+      localOnlyWorkflowReference,
+      "--json",
     ]);
 
     expect(result.code).toBe(1);
-    expect(`${result.stdout}${result.stderr}`).toContain(
-      "specify exactly one of --input or --input-file",
+    expect(`${result.stdout}${result.stderr}`).not.toContain(
+      "specify exactly one",
     );
+    expect(`${result.stdout}${result.stderr}`).toMatch(/value|input/i);
   });
 
   it("fails an agent workflow without a runtime profile", async () => {
@@ -562,6 +682,7 @@ describe("seqlane CLI entrypoints", () => {
     expect(help.stdout).toContain("--opencode-mode");
     expect(help.stdout).toContain("--opencode-host");
     expect(help.stdout).toContain("--opencode-port");
+    expect(help.stdout).not.toContain("--input-param");
     expect(help.stdout).toMatch(
       /--opencode-mode[\s\S]*OpenCode connection mode\. Defaults to managed\./,
     );
