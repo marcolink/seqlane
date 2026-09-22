@@ -8,6 +8,7 @@ import {
   gitEvidenceInstructions,
   sharedReviewTaskInstructions,
 } from "./review-policy.js";
+import { CODE_REVIEW_AGENT_TIMEOUT_MS } from "./review-timeout.js";
 
 export function renderPromptData(label: string, value: unknown): string {
   return [
@@ -20,6 +21,7 @@ export function renderPromptData(label: string, value: unknown): string {
 /** Model-based verification stays in the workflow; trusted parsing is Action-owned. */
 export const reviewHistoryVerificationTask = defineAgentTask({
   id: "code-review-verify-history",
+  timeoutMs: CODE_REVIEW_AGENT_TIMEOUT_MS,
   input: z.object({ review: reviewEvidenceContextSchema }),
   output: reviewHistoryVerificationOutputSchema,
   goal: ({ review }) =>

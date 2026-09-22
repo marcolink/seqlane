@@ -7,6 +7,7 @@ import {
 } from "../contracts.js";
 import { renderPromptData } from "./review-history.js";
 import { sharedReviewTaskInstructions } from "./review-policy.js";
+import { CODE_REVIEW_AGENT_TIMEOUT_MS } from "./review-timeout.js";
 
 const synthesizeReviewInputSchema = z.object({
   review: reviewContextSchema,
@@ -17,6 +18,7 @@ const synthesizeReviewInputSchema = z.object({
 
 const synthesizeReviewTask = defineAgentTask({
   id: "code-review-summarize",
+  timeoutMs: CODE_REVIEW_AGENT_TIMEOUT_MS,
   input: synthesizeReviewInputSchema,
   output: synthesizedReviewReportSchema,
   goal: ({ review, correctness, maintainability, risk }) =>
