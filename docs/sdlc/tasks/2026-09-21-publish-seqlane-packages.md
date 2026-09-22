@@ -72,6 +72,9 @@ main-branch workflow creates the release commit, tag, and GitHub release before
 publishing. Source manifests keep `workspace:*`. pnpm resolves these references
 in package archives, which npm publishes. A fresh project can install the
 packed artifacts, import `@seqlane/core`, and run the `seqlane` executable.
+The release workflow verifies the triggering revision without write
+credentials. Its publish job consumes verified builds and stops if `main`
+advanced before release.
 
 Two unchanged timing-sensitive integration tests fail in this macOS worktree:
 the non-cooperative MCP deadline test and the operational-route timeout test.

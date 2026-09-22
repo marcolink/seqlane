@@ -12,10 +12,15 @@ determine the next fixed version. For versions below `1.0.0`, `feat` and `fix`
 commits that affect the release group produce a patch release. A breaking
 change produces a minor release. Other commits do not create a release.
 
-The workflow verifies the release group, then runs the complete Nx release.
-Nx updates all package versions and preserves internal `workspace:*`
-dependencies. It also updates the changelog, creates the release commit and
-`v<version>` tag, creates the GitHub release, and publishes all eight packages.
+The workflow verifies the release group in a read-only job. This job checks out
+the triggering commit without stored credentials. It uploads the verified
+package builds for the publish job.
+
+The publish job checks out the same commit and does not run dependency scripts.
+It stops if `main` advanced after the workflow started. Nx then updates all
+package versions and preserves internal `workspace:*` dependencies. It also
+updates the changelog, creates the release commit and `v<version>` tag, creates
+the GitHub release, and publishes all eight packages.
 
 The Nx publish target packs each package with pnpm. pnpm converts `workspace:*`
 to exact versions in each package archive. The target then publishes the

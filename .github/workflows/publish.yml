@@ -5,27 +5,82 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: npm-release-main
   cancel-in-progress: false
 
 jobs:
-  publish:
+  verify:
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          persist-credentials: true
-          ref: main
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.33.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify packages
+        run: |
+          pnpm test:mapping
+          pnpm test:tooling
+          pnpm exec nx run-many -t lint,build,test --projects=tag:release:npm --output-style=static
+
+      - name: Upload verified package builds
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-release-builds-${{ github.sha }}
+          path: |
+            apps/cli/dist
+            libs/adapter/dist
+            libs/codex/dist
+            libs/core/dist
+            libs/opencode/dist
+            libs/protocol/dist
+            libs/runtime/dist
+            libs/tui/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: verify
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Check out triggering revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -43,22 +98,31 @@ jobs:
       - name: Set up npm trusted publishing client
         run: npm install --global npm@11.13.0
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install release tooling
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download verified package builds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-release-builds-${{ github.sha }}
+          path: .
 
       - name: Configure release identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Verify packages
-        run: |
-          pnpm test:mapping
-          pnpm test:tooling
-          pnpm exec nx run-many -t lint,build,test --projects=tag:release:npm --output-style=static
-
       - name: Create and publish release
         run: |
+          git fetch --no-tags origin main
+          current_main="$(git rev-parse origin/main)"
+          if [[ "$current_main" != "$GITHUB_SHA" ]]; then
+            echo "::error::main advanced to $current_main after this workflow started at $GITHUB_SHA"
+            exit 1
+          fi
+          git switch --force-create main "$GITHUB_SHA"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
           release_args=(--yes)
           if ! git tag --list "v*.*.*" | grep -q .; then
             release_args+=(--first-release)
