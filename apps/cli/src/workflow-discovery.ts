@@ -205,7 +205,7 @@ export function resolveWorkflowSelection(
   );
 }
 
-export function listWorkflowRecord(workflow: DiscoveredWorkflow): {
+export function workflowDescriptorRecord(workflow: DiscoveredWorkflow): {
   readonly name: string;
   readonly scope: WorkflowScope;
   readonly qualifiedName: string;

@@ -37,8 +37,6 @@ seqlane run \
   --adapter opencode
 ```
 
-`SEQLANE_RUNTIME_ADAPTER_CONFIG` configures hosted commands such as `seqlane serve`.
-
 Use only the exported subpaths in `package.json`. Do not import fixture source
 files or `dist` files through relative paths.
 

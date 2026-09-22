@@ -8,9 +8,9 @@ import {
   loadWorkflow,
 } from "@seqlane/runtime/workflow";
 import {
-  listWorkflowRecord,
   resolveWorkflowSelection,
   type DiscoveredWorkflow,
+  workflowDescriptorRecord,
 } from "../workflow-discovery.js";
 import { discoverWorkflowDescriptors } from "../workflow-discovery.js";
 import { escapeTerminalText } from "../human-output.js";
@@ -30,7 +30,7 @@ function planWorkflowRecord(
   },
 ): PlanCommandResult["workflow"] {
   if (descriptor !== undefined) {
-    const record = listWorkflowRecord(descriptor);
+    const record = workflowDescriptorRecord(descriptor);
     return record;
   }
   return {
@@ -81,12 +81,14 @@ export function renderPlanHuman(result: PlanCommandResult): string {
 }
 
 export default class PlanCommand extends Command {
+  static override hidden = true;
+
   static override description =
     "Compile a workflow Plan without executing tasks or starting a runtime";
 
   static override examples = [
-    '<%= config.bin %> plan repository:review --input \'{"topic":"Seqlane"}\'',
-    "<%= config.bin %> plan ./workflows/minimal-example/workflow.ts --output json",
+    '<%= config.bin %> <%= command.id %> repository:review --input \'{"topic":"Seqlane"}\'',
+    "<%= config.bin %> <%= command.id %> ./workflows/minimal-example/workflow.ts --output json",
   ];
 
   static override args = {

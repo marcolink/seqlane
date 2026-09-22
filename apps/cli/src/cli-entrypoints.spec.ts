@@ -2,16 +2,15 @@
 // @test-scope ./run-operational-host.ts
 // @test-scope ./run-result.ts
 // @test-scope ./run-lifecycle.ts
-// @test-scope ./commands/replay.ts
+// @test-scope ./commands/unstable_replay.ts
 // @test-scope ./replay.ts
 // @test-scope ./runner-client.ts
 // @test-scope ./event-dispatcher.ts
 // @test-scope ./output.ts
 // @test-scope ./recording.ts
-// @test-scope ./commands/studio.ts
-// @test-scope ./commands/list.ts
-// @test-scope ./commands/plan.ts
-// @test-scope ./commands/serve.ts
+// @test-scope ./commands/unstable_studio.ts
+// @test-scope ./commands/unstable_plan.ts
+// @test-scope ./commands/unstable_serve.ts
 // @test-scope ./cli-contracts.ts
 // @test-scope ./command.ts
 // @test-scope ../../../workflows/minimal-example/workflow.ts
@@ -38,10 +37,7 @@ import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
-import {
-  planCommandResultSchema,
-  workflowListResultSchema,
-} from "./cli-contracts.js";
+import { planCommandResultSchema } from "./cli-contracts.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const productionEntry = fileURLToPath(
@@ -235,14 +231,13 @@ describe("seqlane CLI entrypoints", () => {
     };
   }
 
-  function discoveryArgs(
-    command: "list" | "plan",
+  function planArgs(
     output: "human" | "json",
     fixture: { readonly repositoryRoot: string; readonly userRoot: string },
   ): string[] {
     return [
-      command,
-      ...(command === "plan" ? ["discovered-minimal"] : []),
+      "unstable_plan",
+      "discovered-minimal",
       "--output",
       output,
       "--repository-root",
@@ -253,44 +248,11 @@ describe("seqlane CLI entrypoints", () => {
   }
 
   it.each(["human", "json"] as const)(
-    "runs built list in %s mode for a discovered descriptor",
-    async (output) => {
-      const fixture = createDiscoveryFixture();
-      try {
-        const result = await runCli(
-          productionEntry,
-          discoveryArgs("list", output, fixture),
-        );
-
-        expect(result.code).toBe(0);
-        if (output === "json") {
-          expect(
-            workflowListResultSchema.parse(JSON.parse(result.stdout)),
-          ).toEqual([
-            expect.objectContaining({
-              qualifiedName: "repository:discovered-minimal",
-              description: "A discovered minimal workflow",
-            }),
-          ]);
-        } else {
-          expect(result.stdout).toContain("repository:discovered-minimal");
-          expect(result.stdout).toContain("A discovered minimal workflow");
-        }
-      } finally {
-        rmSync(fixture.directory, { recursive: true, force: true });
-      }
-    },
-  );
-
-  it.each(["human", "json"] as const)(
     "runs built plan in %s mode for a discovered descriptor",
     async (output) => {
       const fixture = createDiscoveryFixture();
       try {
-        const result = await runCli(
-          productionEntry,
-          discoveryArgs("plan", output, fixture),
-        );
+        const result = await runCli(productionEntry, planArgs(output, fixture));
 
         expect(result.code).toBe(0);
         if (output === "json") {
@@ -317,7 +279,7 @@ describe("seqlane CLI entrypoints", () => {
       const result = await runCli(
         productionEntry,
         [
-          "serve",
+          "unstable_serve",
           "--port",
           "0",
           "--storage-url",
@@ -912,7 +874,7 @@ export default createFlow({ id: "non-json", input, output })
     );
     try {
       const result = await runCli(productionEntry, [
-        "replay",
+        "unstable_replay",
         path,
         "--events",
         "ndjson",
@@ -936,7 +898,7 @@ export default createFlow({ id: "non-json", input, output })
     writeFileSync(path, "not-json\n");
     try {
       const result = await runCli(productionEntry, [
-        "replay",
+        "unstable_replay",
         path,
         "--output",
         "human",

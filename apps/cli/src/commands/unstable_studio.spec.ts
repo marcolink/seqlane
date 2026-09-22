@@ -1,4 +1,4 @@
-// @test-scope ./studio.ts
+// @test-scope ./unstable_studio.ts
 
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import StudioCommand from "./studio.js";
+import StudioCommand from "./unstable_studio.js";
 import { startOwnedOperationalHost } from "../operational-command-host.js";
 import {
   communityStudioExitCode,
@@ -15,7 +15,7 @@ import {
   resolveStudioServerOptions,
   waitForOperationalHostReady,
   waitForCommunityStudio,
-} from "./studio.js";
+} from "./unstable_studio.js";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
