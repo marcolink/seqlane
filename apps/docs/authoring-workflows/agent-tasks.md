@@ -47,22 +47,28 @@ its conversation history.
 These examples show how the prompt order affects caching. They show fields from
 a `defineAgentTask` definition.
 
-Bad: The changing diff comes before the stable instructions and reference.
+::: danger Bad example
+
+The changing diff comes before the stable instructions and reference.
 
 ```ts
 goal: ({ diff }) => `Review this diff:\n${diff}`,
 instructions: ["Report only supported findings."],
 references: ["docs/review-rubric.md"],
 ```
+:::
 
-Better: If the agent can read the diff from its workspace, use a stable goal.
-Later workspace reads then do not change the initial prompt prefix.
+::: tip Good example
+
+If the agent can read the diff from its workspace, use a stable goal. Later
+workspace reads then do not change the initial prompt prefix.
 
 ```ts
 goal: () => "Review the latest diff in the current workspace.",
 instructions: ["Report only supported findings."],
 references: ["docs/review-rubric.md"],
 ```
+:::
 
 Use the second pattern only for tasks where the selected adapter gives the
 agent access to the required workspace data. If the task must pass changing
