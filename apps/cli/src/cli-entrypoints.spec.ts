@@ -252,10 +252,7 @@ describe("seqlane CLI entrypoints", () => {
     async (output) => {
       const fixture = createDiscoveryFixture();
       try {
-        const result = await runCli(
-          productionEntry,
-          planArgs(output, fixture),
-        );
+        const result = await runCli(productionEntry, planArgs(output, fixture));
 
         expect(result.code).toBe(0);
         if (output === "json") {

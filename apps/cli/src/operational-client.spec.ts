@@ -290,9 +290,7 @@ describe("OperationalClient", () => {
     );
 
     await expect(
-      new OperationalClient("http://localhost:4111").resolveWorkflow(
-        "fixture",
-      ),
+      new OperationalClient("http://localhost:4111").resolveWorkflow("fixture"),
     ).rejects.toBeInstanceOf(OperationalClientError);
   });
 });
