@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-16
+updated: 2026-09-21
 upstream:
   - prd.seqlane-on-mastra
 supersedes:
@@ -240,6 +240,10 @@ Fit these logical boundaries to the repository's current Nx/package layout; do n
 
 Collapse or delete packages that become forwarding-only or empty. Avoid a generic `runtime` abstraction designed to support hypothetical non-Mastra engines; Mastra is the chosen runtime.
 
+The supported npm surface is `seqlane` and `@seqlane/core`. Runtime packages
+can be public registry dependencies without becoming supported authoring APIs.
+Workflows, fixtures, GitHub Action packages, and unused adapters stay private.
+
 ## Licensing constraints
 
 Mastra uses a dual-license repository model: its core is Apache-2.0, while code under `ee/` is governed by the Mastra Enterprise License. Seqlane therefore:
@@ -402,6 +406,8 @@ Mastra APIs are version-sensitive. Contributors must verify every touched API ag
 
 ## Traceability
 
+- [adr.public-npm-release](../adrs/2026-09-21-public-npm-release.md)
+- [spec.public-npm-distribution](../specs/2026-09-21-public-npm-distribution.md)
 - [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
 - [spec.standalone-cli-runs](../specs/2026-09-16-standalone-cli-runs.md)
 

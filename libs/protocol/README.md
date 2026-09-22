@@ -1,7 +1,8 @@
 # @seqlane/protocol
 
-Public, executor-neutral contracts for serialized Seqlane execution and runner
-protocol messages.
+Executor-neutral contracts for serialized Seqlane execution and runner protocol
+messages. This package is a public registry dependency of `seqlane`, but it is
+not a supported workflow-authoring API.
 
 The package owns the canonical `SeqlaneExecutionEvent` union, runner commands,
 event metadata, JSON encoding, and sanitized Plan snapshots. It reuses the

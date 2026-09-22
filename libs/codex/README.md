@@ -1,8 +1,9 @@
 # @seqlane/codex-adapter
 
-Private Codex app-server adapter for Seqlane. It owns the local Codex app-server
-process, validates its JSONL protocol, and translates completed turns into the
-private `AgentAdapter` contract. The runtime selects it through private
+Internal Codex app-server adapter for Seqlane. This package is public on npm so
+`seqlane` can install it. Its exports are not a supported API. It owns the local
+Codex app-server process, validates its JSONL protocol, and translates completed
+turns into the internal `AgentAdapter` contract. The runtime selects it through internal
 `SEQLANE_RUNTIME_ADAPTER_CONFIG` and owns its process for each run.
 
 `executable` is optional. When omitted, the runtime resolves `codex` from

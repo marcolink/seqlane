@@ -75,7 +75,7 @@ Checks passed:
 - `npm --prefix apps/cli pkg get engines`
 - `npm --prefix libs/core pkg get engines`
 - `pnpm --dir apps/docs run build`
-- `NX_WORKSPACE_DATA_DIRECTORY=/Users/marco.link/.codex/worktrees/1ecb/seqlane/.nx/workspace-data NX_DAEMON=false pnpm exec nx build docs-site`
+- `NX_WORKSPACE_DATA_DIRECTORY="$PWD/.nx/workspace-data" NX_DAEMON=false pnpm exec nx build docs-site`
 - `pnpm docs:index`
 - `pnpm docs:validate`
 - `pnpm exec prettier --check` for changed files

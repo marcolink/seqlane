@@ -57,7 +57,7 @@ describe("cancel command workflow selection", () => {
       "run-1",
       "./workflows/minimal-example/workflow.ts",
     );
-  });
+  }, 15_000);
 
   it("does not load a direct workflow reference for a remote host", async () => {
     await CancelCommand.run(

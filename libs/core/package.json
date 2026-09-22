@@ -1,7 +1,8 @@
 {
   "name": "@seqlane/core",
   "version": "0.0.0",
-  "private": true,
+  "description": "Public workflow authoring contracts and Plan representation for Seqlane.",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -22,12 +23,18 @@
     "$schema": "../../node_modules/nx/schemas/project-schema.json",
     "tags": [
       "type:lib",
-      "scope:public"
+      "scope:public",
+      "release:npm"
     ]
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.tsbuildinfo"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/marcolink/seqlane.git",
@@ -35,5 +42,8 @@
   },
   "dependencies": {
     "zod": "4.5.4"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

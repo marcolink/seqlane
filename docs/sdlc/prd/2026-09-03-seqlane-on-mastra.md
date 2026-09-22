@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-16
+updated: 2026-09-21
 upstream:
   - brd.seqlane
 supersedes:
@@ -51,7 +51,8 @@ The result should feel like Seqlane to workflow authors and like Mastra to runti
 6. Retain workspace coordination without rebuilding a permissions system inside Seqlane.
 7. Reuse Mastra for persistence, run state, retries, cancellation plumbing, workspaces and sandboxes, processes, agents and ACP, tracing, server APIs, MCP, and Studio.
 8. Materially reduce Seqlane's code, dependency, package, test, and maintenance footprint.
-9. Remove obsolete implementations and concepts as part of each migrated slice.
+9. Distribute the CLI and workflow-authoring API through the public npm registry.
+10. Remove obsolete implementations and concepts as part of each migrated slice.
 
 ## Non-goals
 
@@ -215,6 +216,8 @@ can add meaning, but the interface must remain clear without either feature.
 
 ## Traceability
 
+- [adr.public-npm-release](../adrs/2026-09-21-public-npm-release.md)
+- [spec.public-npm-distribution](../specs/2026-09-21-public-npm-distribution.md)
 - [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
 - [spec.standalone-cli-runs](../specs/2026-09-16-standalone-cli-runs.md)
 

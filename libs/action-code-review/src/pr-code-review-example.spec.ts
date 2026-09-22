@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib";
 import { readFile } from "node:fs/promises";
 import type { TaskContext, TaskDefinition } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
-import { normalizeReviewHistory } from "@seqlane/action-code-review";
+import { normalizeReviewHistory } from "./review-history.js";
 import { describe, expect, it } from "vitest";
 
 const { default: prCodeReviewWorkflow } = await import(

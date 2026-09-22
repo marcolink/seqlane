@@ -4,6 +4,9 @@ Install Seqlane. Then run a workflow from your project.
 
 Use Node.js 24 or later.
 
+`seqlane` and `@seqlane/core` are the supported public packages. Other
+`@seqlane` packages can install as implementation dependencies of the CLI.
+
 ## Install globally
 
 Install the CLI globally to use `seqlane` from any directory.

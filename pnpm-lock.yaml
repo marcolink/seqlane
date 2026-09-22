@@ -239,9 +239,6 @@ importers:
       '@oclif/core':
         specifier: 4.13.5
         version: 4.13.5
-      '@seqlane/acp-adapter':
-        specifier: workspace:*
-        version: link:../../libs/acp
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../../libs/adapter
@@ -276,15 +273,9 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
     devDependencies:
-      '@seqlane/action-code-review':
-        specifier: workspace:*
-        version: link:../../libs/action-code-review
       '@seqlane/fixtures':
         specifier: workspace:*
         version: link:../../libs/fixtures
-      '@seqlane/resolve-merge-conflicts-workflow':
-        specifier: workspace:*
-        version: link:../../workflows/resolve-merge-conflicts
 
   apps/docs:
     devDependencies:
@@ -455,9 +446,6 @@ importers:
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@seqlane/resolve-merge-conflicts-workflow':
-        specifier: workspace:*
-        version: link:../../workflows/resolve-merge-conflicts
       hono:
         specifier: 4.13.5
         version: 4.13.5

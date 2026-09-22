@@ -1,7 +1,8 @@
 # @seqlane/runtime
 
-Private runtime boundary for compiling and executing Seqlane Plans. Runtime
-implementation details and types do not cross this package boundary.
+Internal runtime boundary for compiling and executing Seqlane Plans. This
+package is public on npm so `seqlane` can install it. Its exports are not a
+supported API.
 
 ### Community Mastra dependency boundary
 

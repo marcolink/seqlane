@@ -143,9 +143,9 @@ OpenCode, Seqlane application packages, and workflow code.
 Verification passed for `pnpm install --frozen-lockfile`, `pnpm run
 test:mapping`, the package TypeScript typecheck and build, the package Vitest
 suite (15 tests), `pnpm docs:validate`, `pnpm format:check`, and `git diff
---check`. Nx target execution was also attempted, but the local Nx workspace
-data lock resolves to `/Users/marco.link/projects/contentful/taskflow/.nx`,
-outside this worktree's writable scope; the direct package checks passed.
+--check`. Nx target execution was also attempted, but the shared Nx workspace
+data lock was outside this worktree's writable scope. The direct package checks
+passed.
 
 ## Traceability
 

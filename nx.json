@@ -34,6 +34,16 @@
     ],
     "sharedGlobals": ["{workspaceRoot}/.github/workflows/*.yml"]
   },
+  "targetDefaults": {
+    "nx-release-publish": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node -e 'const value = process.env.NX_DRY_RUN; if (value !== \"true\" && value !== \"false\") { console.error(\"NX_DRY_RUN must be explicitly set to true or false\"); process.exit(1); }' && pnpm --dir ./{projectRoot} pack --out \"$PWD/.nx/release-packages/{projectName}.tgz\" && npm publish \"$PWD/.nx/release-packages/{projectName}.tgz\" --json --access public --dry-run=\"$NX_DRY_RUN\"",
+        "cwd": "{workspaceRoot}",
+        "forwardAllArgs": false
+      }
+    }
+  },
   "plugins": [
     {
       "plugin": "@nx/js/typescript",
@@ -50,5 +60,31 @@
       }
     }
   ],
+  "release": {
+    "projects": ["tag:release:npm"],
+    "projectsRelationship": "fixed",
+    "releaseTag": {
+      "pattern": "v{version}",
+      "requireSemver": true,
+      "strictPreid": true
+    },
+    "version": {
+      "conventionalCommits": true,
+      "adjustSemverBumpsForZeroMajorVersion": true,
+      "preserveLocalDependencyProtocols": true,
+      "versionPrefix": ""
+    },
+    "changelog": {
+      "workspaceChangelog": {
+        "createRelease": "github"
+      },
+      "projectChangelogs": false
+    },
+    "git": {
+      "commit": true,
+      "tag": true,
+      "push": true
+    }
+  },
   "analytics": false
 }

@@ -1,7 +1,9 @@
 # @seqlane/opencode-adapter
 
-Private SDK adapter for the Seqlane agent runtime. Workflow authors use
-`@seqlane/core`; OpenCode SDK, session, and endpoint details stay private.
+Internal SDK adapter for the Seqlane agent runtime. This package is public on
+npm so `seqlane` can install it. Its exports are not a supported API. Workflow
+authors use `@seqlane/core`; OpenCode SDK, session, and endpoint details stay
+internal.
 
 Agent tasks use the pinned OpenCode SDK with the selected endpoint, workspace,
 and model configuration. The adapter does not receive, derive, merge, or

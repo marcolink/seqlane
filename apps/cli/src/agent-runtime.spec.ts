@@ -1,10 +1,6 @@
 // @test-scope ./agent-runtime.ts
 // @test-scope ../../../libs/runtime/src/runtime/mastra/operational-host.ts
 import type { AgentAdapter, AgentRuntimeFactory } from "@seqlane/agent-adapter";
-import {
-  createAcpAdapter,
-  parseAcpLaunchConfiguration,
-} from "@seqlane/acp-adapter";
 import type { Plan, PlanNode } from "@seqlane/core";
 import { startOpenCodeService } from "@seqlane/opencode-adapter";
 import { createOpenCodeAdapterForRun } from "@seqlane/opencode-adapter/testing";
@@ -116,7 +112,7 @@ async function persistedTrace(
 
 function expectPersistedAdapterTrace(
   trace: unknown,
-  adapter: "acp-v1" | "opencode",
+  adapter: "opencode",
   tool: string,
   callId: string,
 ): void {
@@ -475,21 +471,6 @@ describe("CLI agent runtime composition", () => {
     }
   });
 
-  it("selects an adapter-owned ACP runtime factory", async () => {
-    const runtime = await createAgentRuntimeFactory({
-      adapter: "acp",
-      configuration: {
-        id: "fixture",
-        description: "Fixture ACP runtime",
-        command: "fixture-acp",
-        persistSession: true,
-      },
-    })(new AbortController().signal, "/workspace");
-
-    expect(runtime.identity).toBe("acp");
-    expect(runtime.capabilities).toMatchObject({ sessionReuse: true });
-  });
-
   it("does not interpret configuration for an unknown adapter", () => {
     const unsupportedIdentity = "private-adapter-name";
     try {
@@ -542,54 +523,5 @@ describe("CLI agent runtime composition", () => {
     expect(serialized).not.toContain("opencode-input");
     expect(serialized).not.toContain("opencode-output");
     expect(serialized).not.toContain("opencode-transcript");
-  });
-
-  it("persists injected ACP adapter spans through the operational host", async () => {
-    const adapter = createAcpAdapter(
-      parseAcpLaunchConfiguration({
-        id: "storage-agent",
-        description: "Storage verification agent",
-        command: "storage-agent",
-        persistSession: false,
-      }),
-      {
-        createAgent: () => ({
-          stream: async () => ({
-            fullStream: new ReadableStream({
-              start(controller) {
-                controller.enqueue({
-                  type: "tool-call",
-                  payload: {
-                    toolCallId: "acp-call",
-                    toolName: "read_file",
-                    args: { secret: "acp-input" },
-                  },
-                });
-                controller.enqueue({
-                  type: "tool-result",
-                  payload: {
-                    toolCallId: "acp-call",
-                    toolName: "read_file",
-                    result: "acp-output",
-                  },
-                });
-                controller.close();
-              },
-            }),
-            text: Promise.resolve('{"value":"done"}'),
-          }),
-        }),
-      },
-    );
-    const trace = await persistedTrace(
-      "repository:acp-observability",
-      adapter,
-      "22222222222222222222222222222222",
-    );
-
-    expectPersistedAdapterTrace(trace, "acp-v1", "read_file", "acp-call");
-    const serialized = serializedSpanFields(trace);
-    expect(serialized).not.toContain("acp-input");
-    expect(serialized).not.toContain("acp-output");
   });
 });

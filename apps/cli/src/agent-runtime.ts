@@ -1,5 +1,4 @@
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
-import { createAcpAgentRuntimeFactory } from "@seqlane/acp-adapter";
 import { createCodexAgentRuntimeFactory } from "@seqlane/codex-adapter";
 import { createOpenCodeAgentRuntimeFactory } from "@seqlane/opencode-adapter";
 import { startOpenCodeService } from "@seqlane/opencode-adapter";
@@ -73,8 +72,6 @@ export function createAgentRuntimeFactory(value: unknown): AgentRuntimeFactory {
   }
   try {
     switch (identity.data.adapter) {
-      case "acp":
-        return createAcpAgentRuntimeFactory(value);
       case "codex":
         return createCodexAgentRuntimeFactory(value);
       case "opencode":

@@ -1,7 +1,8 @@
 {
   "name": "@seqlane/codex-adapter",
   "version": "0.0.0",
-  "private": true,
+  "description": "Codex app-server adapter for Seqlane.",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -23,6 +24,7 @@
     "tags": [
       "type:lib",
       "scope:private",
+      "release:npm",
       "adapter:concrete"
     ]
   },
@@ -32,17 +34,20 @@
     "zod": "4.5.4"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "tested-versions.json"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/marcolink/seqlane.git",
     "directory": "libs/codex"
   },
-  "packageManager": "pnpm@10.33.0",
   "engines": {
-    "npm": "use pnpm instead - see README.md",
-    "yarn": "use pnpm instead - see README.md",
-    "pnpm": ">=10.33.0"
+    "node": ">=24.0.0"
   }
 }

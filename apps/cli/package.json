@@ -1,7 +1,8 @@
 {
   "name": "seqlane",
   "version": "0.0.0",
-  "private": true,
+  "description": "Run typed Seqlane workflows from files or installed packages.",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -25,14 +26,14 @@
     "$schema": "../../node_modules/nx/schemas/project-schema.json",
     "tags": [
       "type:lib",
-      "scope:private"
+      "scope:private",
+      "release:npm"
     ]
   },
   "dependencies": {
     "mastra": "1.27.3",
     "@seqlane/core": "workspace:*",
     "@seqlane/agent-adapter": "workspace:*",
-    "@seqlane/acp-adapter": "workspace:*",
     "@seqlane/codex-adapter": "workspace:*",
     "@seqlane/opencode-adapter": "workspace:*",
     "@seqlane/protocol": "workspace:*",
@@ -44,15 +45,18 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
-    "@seqlane/action-code-review": "workspace:*",
-    "@seqlane/fixtures": "workspace:*",
-    "@seqlane/resolve-merge-conflicts-workflow": "workspace:*"
+    "@seqlane/fixtures": "workspace:*"
   },
   "files": [
     "bin",
     "dist",
+    "!dist/**/*.tsbuildinfo",
     "oclif.config.mjs"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/marcolink/seqlane.git",

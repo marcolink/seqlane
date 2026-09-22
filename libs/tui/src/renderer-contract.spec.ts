@@ -54,7 +54,7 @@ describe("seqlane tui package", () => {
       ink: "7.1.1",
       react: "19.3.0",
     });
-    expect(manifest.files).toEqual(["dist"]);
+    expect(manifest.files).toEqual(["dist", "!dist/**/*.tsbuildinfo"]);
     expect(manifest.exports).toMatchObject({
       ".": expect.any(Object),
     });
