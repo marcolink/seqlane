@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-18
-updated: 2026-09-18
+updated: 2026-09-22
 upstream:
   - prd.seqlane-on-mastra
 supersedes: []
@@ -95,9 +95,15 @@ Implemented the `apps/docs` VitePress homepage and the GitHub Pages workflow.
 The page uses current workflow, task, session, deterministic-work, and parallel
 execution behavior only. It contains one conceptual CLI example.
 
+PR #144 adds the missing Pages delivery workflow. A read-only job builds the
+VitePress site and uploads its artifact. A separate job has only the Pages and
+OIDC permissions required to deploy it. Pushes that change the public docs or
+their build inputs deploy automatically. A manual trigger is also available.
+
 Checks passed:
 
 - `pnpm exec nx build docs-site`
+- `pnpm --dir apps/docs run build`
 - `pnpm docs:index`
 - `pnpm docs:validate`
 - `pnpm exec prettier --check` for the changed files
@@ -108,9 +114,9 @@ changes.
 
 ## Delivery state
 
-Implemented in the current worktree. The change is not yet committed, merged,
-or reachable from the target branch, so it does not establish public-site
-delivery.
+The site exists on the target branch. The Pages workflow is implemented on
+`chore/public-readiness` in PR #144. It is not yet merged or reachable from the
+target branch, so automated deployment is not yet delivered.
 
 ## Traceability
 
