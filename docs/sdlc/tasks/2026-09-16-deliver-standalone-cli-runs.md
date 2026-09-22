@@ -131,7 +131,8 @@ The CLI builds; test mapping passes; dotted-input unit tests pass (6/6); and
 compiled CLI end-to-end tests pass (44/44). All CLI unit tests pass (130/130)
 with a 10-second timeout. One unmodified `operational-client.spec.ts` test
 exceeds the default 5-second timeout at about 5.2 seconds. Public docs build
-and SDLC validation pass. This increment is being prepared on
+and SDLC validation pass. This increment is submitted as
+[PR #154](https://github.com/marcolink/seqlane/pull/154) from
 `feat/dotted-cli-inputs`; no target-branch delivery is claimed. The planned
 standalone CLI cutover was cancelled on 2026-09-18 and is not implied by this
 input-flag work.
@@ -139,8 +140,9 @@ Child task outcomes own their verification evidence.
 
 ## Delivery state
 
-Partial implementation on `feat/dotted-cli-inputs`. The public command cutover
-remains incomplete and cancelled. No target-branch delivery is claimed.
+Partial implementation in [PR #154](https://github.com/marcolink/seqlane/pull/154).
+The public command cutover remains incomplete and cancelled. No target-branch
+delivery is claimed.
 
 ## Traceability
 
