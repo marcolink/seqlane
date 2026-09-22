@@ -79,6 +79,8 @@ export interface AgentAdapterRequest {
   readonly agent?: AgentTaskRequest;
   readonly modelSelection?: ModelSelection;
   readonly signal: AbortSignal;
+  /** Starts the runtime-owned deadline immediately before agent execution. */
+  readonly onExecutionStarted: () => void;
   readonly onMetrics?: (metrics: SeqlaneInvocationMetrics) => void;
   readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
   readonly onActivity?: (activity: AgentActivity) => void;

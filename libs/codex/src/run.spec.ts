@@ -173,6 +173,7 @@ describe("Codex run ownership", () => {
       input: {},
       agent: { goal: "Return JSON" },
       signal: new AbortController().signal,
+      onExecutionStarted: () => undefined,
     };
     const diagnostics: string[] = [];
     const firstAdapter = run.createAdapter(request.signal);
@@ -252,7 +253,7 @@ describe("Codex run ownership", () => {
     }
   });
 
-  it("keeps the shared transport open after a parallel session timeout", async () => {
+  it("keeps the shared transport open after a parallel session cancellation", async () => {
     let closes = 0;
     let turnNumber = 0;
     let hangingTurnId: string | undefined;
@@ -330,13 +331,15 @@ describe("Codex run ownership", () => {
       input: {},
       agent: { goal: "Return JSON" },
       signal: new AbortController().signal,
+      onExecutionStarted: () => undefined,
     };
+    const hangingController = new AbortController();
 
     vi.useFakeTimers();
     try {
       const hanging = run
-        .createAdapter(request.signal)
-        .execute(request)
+        .createAdapter(hangingController.signal)
+        .execute({ ...request, signal: hangingController.signal })
         .then(
           () => undefined,
           (cause) => cause,
@@ -349,9 +352,12 @@ describe("Codex run ownership", () => {
         await Promise.resolve();
       }
       expect(turnNumber).toBe(2);
+      hangingController.abort(new Error("cancel hanging turn"));
       await vi.runAllTimersAsync();
       await expect(successful).resolves.toEqual({ result: "done" });
-      await expect(hanging).resolves.toMatchObject({ code: "cancellation" });
+      await expect(hanging).resolves.toMatchObject({
+        message: "cancel hanging turn",
+      });
       expect(closes).toBe(0);
       await run.close();
       expect(closes).toBe(1);
@@ -423,6 +429,7 @@ describe("Codex run ownership", () => {
       input: {},
       agent: { goal: "Return JSON" },
       signal: new AbortController().signal,
+      onExecutionStarted: () => undefined,
     };
     const adapter = run.createAdapter(request.signal);
     await expect(adapter.execute(request)).resolves.toEqual({ result: "done" });

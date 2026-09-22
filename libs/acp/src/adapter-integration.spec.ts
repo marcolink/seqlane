@@ -100,6 +100,7 @@ function request(
     input: "controlled input",
     agent,
     signal,
+    onExecutionStarted: () => undefined,
     ...overrides,
     observability: overrides.observability ?? {},
   };
@@ -109,12 +110,16 @@ describe("Mastra ACP adapter boundary", () => {
   it("launches the configured ACP process and maps workspace, model, output, and activity", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "seqlane-acp-"));
     const activities: unknown[] = [];
+    let executionStarted = 0;
     const adapter = createAcpAdapter(configuration(cwd, "success"));
 
     await expect(
       adapter.execute(
         request(new AbortController().signal, {
           onActivity: (activity) => activities.push(activity),
+          onExecutionStarted: () => {
+            executionStarted += 1;
+          },
         }),
       ),
     ).resolves.toEqual({
@@ -124,6 +129,7 @@ describe("Mastra ACP adapter boundary", () => {
       argument: "configured-argument",
       promptCount: 1,
     });
+    expect(executionStarted).toBe(1);
     expect(activities).toEqual([
       {
         activityId: "controlled-tool",

@@ -21,6 +21,12 @@ export type PlanNodeId = string;
 export type TaskId = string;
 
 export const workspacePolicySchema = z.enum(["shared", "exclusive"]);
+export const agentTaskTimeoutMsSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(2_147_483_647)
+  .default(120_000);
 
 export type WorkspacePolicy = z.infer<typeof workspacePolicySchema>;
 
@@ -81,6 +87,8 @@ export interface AgentTaskRequest {
   readonly goal: string;
   readonly instructions?: readonly string[];
   readonly references?: readonly string[];
+  /** Maximum agent execution time in milliseconds. */
+  readonly timeoutMs?: number;
 }
 
 export interface TaskExecResult {

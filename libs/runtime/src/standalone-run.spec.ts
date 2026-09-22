@@ -38,9 +38,12 @@ const localTask = defineTask({
 });
 
 function harness() {
-  const execute = vi.fn<AgentAdapter["execute"]>(async () => ({
-    value: "agent",
-  }));
+  const execute = vi.fn<AgentAdapter["execute"]>(
+    async ({ onExecutionStarted }) => {
+      onExecutionStarted();
+      return { value: "agent" };
+    },
+  );
   const close = vi.fn(async () => undefined);
   const closeService = vi.fn(async () => undefined);
   const createAdapter = vi.fn((): AgentAdapter => ({

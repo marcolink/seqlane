@@ -35,7 +35,7 @@ import {
   itemText,
 } from "./turn-tracker.js";
 
-const TURN_TIMEOUT_MS = 30_000;
+const TURN_TERMINATION_CONFIRM_TIMEOUT_MS = 30_000;
 const TURN_START_CONFIRM_TIMEOUT_MS = 5_000;
 const TURN_INTERRUPT_REQUEST_TIMEOUT_MS = 5_000;
 const PRE_TURN_REQUEST_TIMEOUT_MS = 5_000;
@@ -241,6 +241,13 @@ async function raceWithAbort<T>(
     promise.then(
       (value) => {
         signal.removeEventListener("abort", onAbort);
+        if (signal.aborted) {
+          reject(
+            signal.reason ??
+              new CodexAdapterError("cancellation", "Codex task was cancelled"),
+          );
+          return;
+        }
         resolve(value);
       },
       (cause) => {
@@ -412,7 +419,10 @@ function createAdapterForTransport(
         transport.request("turn/interrupt", { threadId, turnId: id }),
         TURN_INTERRUPT_REQUEST_TIMEOUT_MS,
       );
-      await withTimeout(tracker.completion, TURN_TIMEOUT_MS);
+      await withTimeout(
+        tracker.completion,
+        TURN_TERMINATION_CONFIRM_TIMEOUT_MS,
+      );
     } catch (cause) {
       await invalidateUnconfirmedTurn(request);
       throw new CodexAdapterError(
@@ -437,6 +447,7 @@ function createAdapterForTransport(
       const model = modelParams(selection);
       const id = await ensureThread(signal, selection);
       const registration = dispatcher.begin(id);
+      request.onExecutionStarted();
       const turnStartPromise = withDeadline(
         transport.request("turn/start", {
           threadId: id,
@@ -507,14 +518,11 @@ function createAdapterForTransport(
         let completed: CompletedTurn;
         try {
           completed = await raceWithAbort(
-            withTimeout(
-              Promise.race([
-                tracker.completion,
-                tracker.interaction,
-                tracker.failure,
-              ]),
-              TURN_TIMEOUT_MS,
-            ),
+            Promise.race([
+              tracker.completion,
+              tracker.interaction,
+              tracker.failure,
+            ]),
             signal,
           );
         } catch (cause) {
@@ -670,19 +678,19 @@ export function createCodexAdapter(
     ).then((transport) =>
       createAdapterForTransport(transport, validated, options),
     ));
-  const lifecycleRequest = (): AgentAdapterRequest =>
-    ({
-      invocationId: "codex-lifecycle",
-      observability: {},
-      task: {
-        id: "codex-lifecycle",
-        input: z.unknown(),
-        output: z.unknown(),
-        execute: async () => undefined,
-      },
-      input: undefined,
-      signal: options.signal ?? new AbortController().signal,
-    }) as AgentAdapterRequest;
+  const lifecycleRequest = (): AgentAdapterRequest => ({
+    invocationId: "codex-lifecycle",
+    observability: {},
+    task: {
+      id: "codex-lifecycle",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async () => undefined,
+    },
+    input: undefined,
+    signal: options.signal ?? new AbortController().signal,
+    onExecutionStarted: () => undefined,
+  });
   return {
     get capabilities() {
       return CODEX_AGENT_CAPABILITIES;

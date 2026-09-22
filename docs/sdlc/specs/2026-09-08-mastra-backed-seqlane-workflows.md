@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-16
+updated: 2026-09-22
 upstream:
   - adr.mastra-backed-seqlane-workflows
   - adr.separate-seqlane-protocol-package
@@ -83,6 +83,14 @@ implementation. A caller must not pass `execute` to a specialized factory.
 Specialized factories must be executor-neutral convenience constructors. They
 must not expose Mastra, OpenCode, provider, client, connection, or other
 executor product types.
+
+`defineAgentTask` accepts an optional positive integer `timeoutMs`. It defaults
+to 120,000 milliseconds and bounds one agent invocation from adapter-reported
+external execution start to a terminal adapter outcome. A task can override
+that default. Workflow and adapter admission or queue time do not consume the
+budget. The runtime owns the deadline signal; adapter configuration cannot
+override it. `defineShellTask` retains its existing independent `timeoutMs`
+option.
 
 The foundational execution shape is:
 

@@ -1,0 +1,13 @@
+# ripwire quality acks v1 — written by --quality-ack; a finding stays suppressed until it worsens past its acked magnitude
+# format: ack <kind> <16-hex-key> <ackNow> [cid=<16-hex-content-id>] [by=<scope that acked it>] <reason to end of line> — one per line, kept SORTED by (kind,key) on every write (merge-friendly)
+ack short-horizon-churn 078d720c58e2bef1 8 cid=7b59ebc5c4748dae Required adapter lifecycle contract update and confirmed-termination ownership
+ack short-horizon-churn 08f787027c6b762a 8 cid=4ce2ee59d72d04c7 Required adapter lifecycle contract update and confirmed-termination ownership
+ack short-horizon-churn 3d9c1607900f93fa 8 cid=6493fdeedc863289 Required adapter lifecycle contract update and confirmed-termination ownership
+ack short-horizon-churn 453371b11250e5f6 6 cid=7ce31a118f04dcd1 Required adapter lifecycle contract update and confirmed-termination ownership | prior: Required execution-start lifecycle contract and fixture update
+ack short-horizon-churn 86cd2e305f577636 10 cid=d09ec49cd193140e Required adapter lifecycle contract update and confirmed-termination ownership | prior: Required execution-start lifecycle contract and fixture update
+ack short-horizon-churn 9662f00d5bbdcd13 3 cid=ec99d07ef38d3573 Test seam mirrors the required execution-start lifecycle
+ack short-horizon-churn 9d8ad1f7e62920b9 2 cid=fee0b5bf3f3da90a Required adapter lifecycle contract update and confirmed-termination ownership
+ack short-horizon-churn a5557aa1b1c0e0e1 2 cid=70770bce4bf6b54b Required adapter lifecycle contract update and confirmed-termination ownership
+ack short-horizon-churn d3e23ccf1517b09b 5 cid=5ac4065ad18cd203 Required adapter lifecycle contract update and confirmed-termination ownership
+ack short-horizon-churn d9877a3c3a050af5 2 cid=8b5d32c1edc85a5b Required adapter lifecycle contract update and confirmed-termination ownership
+ack short-horizon-churn e11e351cd655363e 8 cid=2795ee7ca5d04dd8 Required adapter lifecycle contract update and confirmed-termination ownership

@@ -115,7 +115,7 @@ describe("git diff summary workflow example", () => {
           "feature/example~1",
           "feature/example",
         ],
-        timeoutMs: 300_000,
+        timeoutMs: 30_000,
       },
     ]);
     expect(calls[0]?.argv[1]).toContain("--no-textconv");

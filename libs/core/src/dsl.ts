@@ -18,7 +18,7 @@ import type {
   WorkflowDefinition,
 } from "./contracts.js";
 import type { WorkflowBuildContext } from "./workflow-authoring-internal.js";
-import { taskDefinitionSchema } from "./contracts.js";
+import { agentTaskTimeoutMsSchema, taskDefinitionSchema } from "./contracts.js";
 import type { ModelSelection } from "./models/model-ref.js";
 import type {
   InputBinding,
@@ -51,6 +51,8 @@ interface AgentTaskFactoryInput<Input, Output> extends Omit<
   readonly goal: (input: Input) => string;
   readonly instructions?: readonly string[];
   readonly references?: readonly string[];
+  /** Maximum agent execution time in milliseconds. Defaults to two minutes. */
+  readonly timeoutMs?: number;
 }
 
 export function defineAgentTask<Input, Output>(
@@ -59,7 +61,8 @@ export function defineAgentTask<Input, Output>(
   if (Object.hasOwn(definition, "execute")) {
     throw new TypeError("defineAgentTask does not accept execute");
   }
-  const { goal, instructions, references, ...base } = definition;
+  const { goal, instructions, references, timeoutMs, ...base } = definition;
+  const effectiveTimeoutMs = agentTaskTimeoutMsSchema.parse(timeoutMs);
   const task: TaskDefinition<Input, Output> = {
     ...base,
     execute: async ({ input, context }) =>
@@ -67,6 +70,7 @@ export function defineAgentTask<Input, Output>(
         goal: goal(input),
         ...(instructions === undefined ? {} : { instructions }),
         ...(references === undefined ? {} : { references }),
+        timeoutMs: effectiveTimeoutMs,
       }) as Promise<Output>,
   };
   return defineTask(task);

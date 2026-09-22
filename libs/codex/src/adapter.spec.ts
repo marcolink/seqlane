@@ -46,6 +46,7 @@ function request(
     input: { value: "demo" },
     agent: { goal: "Return the result" },
     signal: new AbortController().signal,
+    onExecutionStarted: () => undefined,
     ...overrides,
   };
 }
@@ -334,6 +335,7 @@ describe("Codex AgentAdapter", () => {
     const activities: AgentActivity[] = [];
     const metrics: unknown[] = [];
     const backgroundProcesses: unknown[] = [];
+    let executionStarted = 0;
     const adapter = createCodexAdapterForTransport(transport, configuration, {
       modelSelection: selection,
     });
@@ -344,9 +346,13 @@ describe("Codex AgentAdapter", () => {
           onActivity: (value) => activities.push(value),
           onMetrics: (value) => metrics.push(value),
           onBackgroundProcess: (value) => backgroundProcesses.push(value),
+          onExecutionStarted: () => {
+            executionStarted += 1;
+          },
         }),
       ),
     ).resolves.toEqual({ result: "done" });
+    expect(executionStarted).toBe(1);
     expect(backgroundProcesses).toEqual([]);
     const checkpoint = await adapter.captureCheckpoint!();
     const child = await adapter.fork!({
@@ -461,6 +467,38 @@ describe("Codex AgentAdapter", () => {
     expect(
       transport.requests.some((value) => value.method === "turn/interrupt"),
     ).toBe(true);
+  });
+
+  it("preserves cancellation when completion follows abort", async () => {
+    const transport = new FakeTransport();
+    transport.emitCompletion = false;
+    const controller = new AbortController();
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+    const execution = adapter.execute(request({ signal: controller.signal }));
+
+    for (
+      let index = 0;
+      index < 20 &&
+      !transport.requests.some((value) => value.method === "turn/start");
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    controller.abort(new Error("task deadline expired"));
+    transport.emit({
+      kind: "notification",
+      notification: {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: { id: "turn-1", status: "completed", items: [] },
+        },
+      },
+    });
+
+    await expect(execution).rejects.toThrow("task deadline expired");
   });
 
   it("rejects checkpoint and fork reuse after an unconfirmed interruption", async () => {

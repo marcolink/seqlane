@@ -412,6 +412,9 @@ function createAdapterForRun({
               : { tools: { "*": false, StructuredOutput: true } }),
             selection: request.modelSelection ?? configuredSelection,
             signal: request.signal,
+            ...(attempts === 1
+              ? { onExecutionStarted: request.onExecutionStarted }
+              : {}),
             onActivity: (activity) =>
               request.onActivity?.(normalizeActivity(activity)),
             onUncertainActivity: request.onUncertainActivity,
@@ -559,9 +562,16 @@ export function createOpenCodeAdapterForRun(
   run: OpenCodeRun,
   modelSelection?: ModelSelection,
 ): AgentAdapter {
+  const startedRun: OpenCodeRun = {
+    ...run,
+    prompt: async (request) => {
+      request.onExecutionStarted?.();
+      return run.prompt(request);
+    },
+  };
   return createAdapterForRun({
-    resolveRun: () => Promise.resolve(run),
-    initialRun: run,
+    resolveRun: () => Promise.resolve(startedRun),
+    initialRun: startedRun,
     configuredSelection: modelSelection,
     sessionUi: async () => run.browserUrl,
     hasSessionUi: run.browserUrl !== undefined,

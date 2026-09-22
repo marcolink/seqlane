@@ -523,6 +523,7 @@ async function createOpenCodeRunForSession(
               reportMessageDiagnostic,
             );
           }
+          request.onExecutionStarted?.();
           const promptResponse = transport
             .prompt(sessionID, effectiveRequest, cancellation.promptSignal)
             .then(

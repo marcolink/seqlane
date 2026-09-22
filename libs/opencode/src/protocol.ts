@@ -33,6 +33,7 @@ export interface OpenCodePrompt {
   readonly variant?: string;
   /** Cancels this prompt only after OpenCode acknowledges the session abort. */
   readonly signal?: AbortSignal;
+  readonly onExecutionStarted?: () => void;
   readonly onActivity?: (activity: OpenCodeActivity) => void;
   /** Receives one validated observation from the single event reducer. */
   readonly onObservation?: (observation: OpenCodeEventObservation) => void;

@@ -40,6 +40,7 @@ function request(
     input: { value: "demo" },
     agent,
     signal: new AbortController().signal,
+    onExecutionStarted: () => undefined,
     ...overrides,
     observability: overrides.observability ?? {},
   };

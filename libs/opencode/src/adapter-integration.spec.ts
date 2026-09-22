@@ -331,6 +331,7 @@ describe("OpenCode SDK adapter boundary", () => {
     const server = await startServer();
     try {
       const activities: unknown[] = [];
+      let executionStarted = 0;
       const adapter = createOpenCodeAdapter({
         url: server.url,
         workspace: "/configured-workspace",
@@ -347,10 +348,14 @@ describe("OpenCode SDK adapter boundary", () => {
           reasoning: "high",
         },
         signal: new AbortController().signal,
+        onExecutionStarted: () => {
+          executionStarted += 1;
+        },
         onActivity: (activity) => activities.push(activity),
       });
 
       expect(result).toEqual({ result: "done" });
+      expect(executionStarted).toBe(1);
       expect(activities).toEqual([
         {
           activityId: "controlled-tool",
@@ -416,6 +421,7 @@ describe("OpenCode SDK adapter boundary", () => {
         agent: adapterAgent,
         input: "reuse",
         signal: new AbortController().signal,
+        onExecutionStarted: () => undefined,
       };
 
       await adapter.execute(request);
@@ -465,6 +471,7 @@ describe("OpenCode SDK adapter boundary", () => {
         agent: adapterAgent,
         input: "cancel",
         signal: controller.signal,
+        onExecutionStarted: () => undefined,
       });
       await cancellationServer.promptStarted;
       controller.abort(new Error("cancelled by test"));
@@ -491,6 +498,7 @@ describe("OpenCode SDK adapter boundary", () => {
           agent: adapterAgent,
           input: "permission",
           signal: new AbortController().signal,
+          onExecutionStarted: () => undefined,
         }),
       ).rejects.toMatchObject({
         name: "InteractionRequiredError",
