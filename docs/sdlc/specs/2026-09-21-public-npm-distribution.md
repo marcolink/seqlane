@@ -95,8 +95,9 @@ metadata.
 The workflow must serialize release attempts from `main`. Private repositories
 do not publish. A commit with no semantic version impact must finish without a
 release. Insufficient GitHub token permission must not alter `main`. Missing
-npm credentials must stop publication. A retry for a validated tag remains
-valid after `main` advances and resumes after partial npm publication.
+npm credentials must stop publication. A retry for a strict SemVer tag remains
+valid after `main` advances only when the remote tag points to the triggering
+commit and matches Nx's calculated version. It resumes after partial npm publication.
 
 ## Migration
 

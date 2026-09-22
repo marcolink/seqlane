@@ -18,7 +18,7 @@ package builds for the publish job.
 
 The publish job checks out the same commit and does not run dependency scripts.
 It stops a new release if `main` advanced after the workflow started. A retry
-for an existing tag remains valid after `main` advances. Nx then updates all
+for a validated existing tag remains valid after `main` advances. Nx then updates all
 package versions and preserves internal `workspace:*` dependencies. It also
 generates the changelog in the runner, creates the `v<version>` tag and GitHub
 Release, and publishes all eight packages. It does not create or push a release
@@ -28,8 +28,8 @@ The Nx publish target packs each package with pnpm. pnpm converts `workspace:*`
 to exact versions in each package archive. The target then publishes the
 archive with npm. Source manifests keep the workspace references. Versioned
 manifests exist only in the release runner and also keep `workspace:*` until
-pnpm creates each archive. A retry skips an exact package version that already
-exists on npm and publishes only missing package versions.
+pnpm creates each archive. A retry checks npm before packing. It skips an exact
+package version that already exists and publishes only missing package versions.
 
 The first eligible commit creates `0.0.1`. Later versions derive from commits
 since the latest `v<version>` tag. GitHub Actions must have permission to write
@@ -37,8 +37,9 @@ repository contents so it can push the tag and create the GitHub Release. The
 workflow uses its built-in short-lived token. It does not push to `main` and
 does not need a ruleset bypass actor.
 
-If a run fails after it pushes the tag, rerunning the workflow restores the
-runner-local package versions and first-release state from that tag. Nx
+If a run fails after it pushes the tag, rerunning the workflow verifies that
+the remote tag points to the triggering commit and matches the version that Nx
+calculates. It then restores the runner-local package versions and first-release state. Nx
 regenerates the same changelog and GitHub Release before publication continues.
 The workflow does not store its token in the Git remote or repository config.
 
