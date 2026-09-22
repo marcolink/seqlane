@@ -64,9 +64,13 @@ Nx uses fixed versioning, Conventional Commits, and a `v{version}` tag. A push
 to `main` starts `publish.yml`. The workflow accepts only a public repository,
 installs dependencies, and verifies and builds the release group. Nx then
 versions the packages, updates the changelog, creates and pushes the release
-commit and tag, and creates the GitHub release without publishing. The workflow
-validates the complete package set and its archives before it runs the Nx
-publish phase.
+tag, and creates the GitHub release without publishing. Version and changelog
+changes stay in the release runner; the workflow does not push a commit to
+`main`. The built-in short-lived workflow token has Contents write permission
+for the tag and GitHub release only. The workflow validates the complete
+package set and its archives before it runs the Nx publish phase.
+Nx uses the generated changelog as the GitHub Release notes. The bounded job
+summary uses the current GitHub Release body.
 
 For pre-1.0 versions, feature and fix commits that affect the release group
 produce a patch release. A breaking change produces a minor release. Other
@@ -76,7 +80,8 @@ The publish target uses pnpm 10.33.0 to create each package archive. It passes
 the archive to npm 11.13.0 for publication. It requires an explicit live or
 dry-run intent and fails before packing when that intent is absent. The first
 release can use `NPM_TOKEN`. The workflow grants OIDC permission for trusted
-publishing after the initial package creation.
+publishing after the initial package creation. A retry skips package-version
+pairs that already exist and publishes the missing pairs.
 
 ## Detailed design or contracts
 
@@ -87,9 +92,11 @@ metadata.
 
 ## Failure and edge cases
 
-The workflow must serialize release attempts from `main`. npm must reject an
-existing package-version pair. Private repositories do not publish. A commit
-with no semantic version impact must finish without a release.
+The workflow must serialize release attempts from `main`. Private repositories
+do not publish. A commit with no semantic version impact must finish without a
+release. Insufficient GitHub token permission must not alter `main`. Missing
+npm credentials must stop publication. A retry for a validated tag remains
+valid after `main` advances and resumes after partial npm publication.
 
 ## Migration
 
@@ -113,6 +120,13 @@ this protocol.
   release.
 - A publish dry run succeeds through pnpm and npm, and missing dry-run intent
   fails before either command runs.
+- Release versioning uses only the non-publishing Nx choice. The built-in
+  workflow token has Contents write permission for the release tag and GitHub
+  Release. The workflow does not push a commit to `main` and needs no ruleset
+  bypass actor.
+- A retry after tag creation restores runner-local versions, first-release
+  state, and Nx release notes. It continues after `main` advances or partial
+  npm publication without storing the workflow token in Git configuration.
 - The CLI has no ACP or private workflow production dependency.
 - Published metadata and documentation match this specification.
 

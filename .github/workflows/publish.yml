@@ -112,34 +112,95 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Create release commit and tag
+      - name: Create release tag and GitHub release
         id: release
         run: |
+          git_authorization="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${git_authorization}"
+
+          git fetch --tags --force origin
           git fetch --no-tags origin main
-          current_main="$(git rev-parse origin/main)"
-          if [[ "$current_main" != "$GITHUB_SHA" ]]; then
-            echo "::error::main advanced to $current_main after this workflow started at $GITHUB_SHA"
+          git switch --force-create main "$GITHUB_SHA"
+
+          existing_release_tag="$(git tag --points-at HEAD --list 'v*.*.*' --sort=-v:refname)"
+          if [[ "$existing_release_tag" == *$'\n'* ]]; then
+            echo "::error::The triggering commit has multiple release tags"
             exit 1
           fi
-          git switch --force-create main "$GITHUB_SHA"
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          release_args=(--yes --skip-publish)
-          if ! git tag --list "v*.*.*" | grep -q .; then
-            release_args+=(--first-release)
-            echo "first_release=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "first_release=false" >> "$GITHUB_OUTPUT"
+          previous_ref="$GITHUB_SHA"
+          if [[ -n "$existing_release_tag" ]]; then
+            previous_ref="${GITHUB_SHA}^"
           fi
-          pnpm exec nx release "${release_args[@]}"
-
-          if [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]; then
-            echo "released=false" >> "$GITHUB_OUTPUT"
+          previous_release_tag="$(git describe --tags --abbrev=0 --match 'v*.*.*' "$previous_ref" 2>/dev/null || true)"
+          if [[ -z "$previous_release_tag" || "$previous_release_tag" == "v0.0.0" ]]; then
+            first_release=true
           else
+            first_release=false
+          fi
+          echo "first_release=$first_release" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "$existing_release_tag" ]]; then
+            release_tag="$existing_release_tag"
+            release_version="${release_tag#v}"
+            pnpm exec nx release version "$release_version" \
+              --stage-changes=false \
+              --git-commit=false \
+              --git-tag=false \
+              --git-push=false
+
+            if [[ -z "$previous_release_tag" ]]; then
+              echo "::error::The release tag has no previous version tag"
+              exit 1
+            fi
+            node scripts/recover-release.mjs \
+              "$release_version" \
+              "$previous_release_tag" \
+              "$GITHUB_SHA"
+            if gh release view "$release_tag" >/dev/null 2>&1; then
+              gh release edit "$release_tag" --title "$release_tag" --notes-file CHANGELOG.md
+            else
+              gh release create "$release_tag" \
+                --verify-tag \
+                --title "$release_tag" \
+                --notes-file CHANGELOG.md
+            fi
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            current_main="$(git rev-parse origin/main)"
+            if [[ "$current_main" != "$GITHUB_SHA" ]]; then
+              echo "::error::main advanced to $current_main after this workflow started at $GITHUB_SHA"
+              exit 1
+            fi
+
+            release_args=(--skip-publish)
+            if [[ "$first_release" == "true" ]]; then
+              release_args+=(--first-release)
+            fi
+            pnpm exec nx release "${release_args[@]}"
+
+            if ! release_tag="$(git describe --tags --exact-match --match 'v*.*.*' HEAD 2>/dev/null)"; then
+              echo "released=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "released=true" >> "$GITHUB_OUTPUT"
           fi
+
+          release_notes="$(gh release view "$release_tag" --json body --jq .body)"
+          summary_limit=500000
+          if (( ${#release_notes} > summary_limit )); then
+            release_notes="${release_notes:0:summary_limit}"$'\n\n_Release notes truncated. Open the GitHub Release for the complete changelog._'
+          fi
+          {
+            echo "# Release ${release_tag}"
+            echo
+            printf '%s\n' "$release_notes"
+          } >> "$GITHUB_STEP_SUMMARY"
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
 
       - name: Verify release packages
         if: steps.release.outputs.released == 'true'
