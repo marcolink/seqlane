@@ -1,11 +1,11 @@
 ---
 id: adr.public-npm-release
 title: Publish Seqlane Packages to npm
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-22
 upstream:
   - prd.seqlane-on-mastra
   - rfc.mastra-runtime-and-operational-foundation
@@ -65,10 +65,12 @@ an npm token until trusted publishing is configured.
 ## Delivery state
 
 Implementation is in progress on `chore/public-readiness`. No package has been
-published by this decision.
+published by this decision. This decision is superseded by
+[adr.preserve-workspace-release-references](./2026-09-22-preserve-workspace-release-references.md).
 
 ## Traceability
 
 - [prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md)
 - [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md)
 - [spec.public-npm-distribution](../specs/2026-09-21-public-npm-distribution.md)
+- [adr.preserve-workspace-release-references](./2026-09-22-preserve-workspace-release-references.md)

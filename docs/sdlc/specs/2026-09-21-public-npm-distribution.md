@@ -7,7 +7,7 @@ owners:
 created: 2026-09-21
 updated: 2026-09-22
 upstream:
-  - adr.public-npm-release
+  - adr.preserve-workspace-release-references
 supersedes: []
 ---
 
@@ -43,7 +43,8 @@ The `release:npm` Nx tag defines the release group. The group contains
 `seqlane`, core, protocol, runtime, TUI, the shared adapter contract, and the
 Codex and OpenCode adapters. All members use version `0.0.1` for the first
 release. Source manifests use `workspace:*` for group dependencies. Nx resolves
-them to exact versions during the version phase.
+package versions but preserves these references. pnpm converts them to exact
+versions only in package archives.
 
 ### requirement-supported-surface
 
@@ -69,7 +70,8 @@ For pre-1.0 versions, feature and fix commits that affect the release group
 produce a patch release. A breaking change produces a minor release. Other
 commits do not produce a release. The first eligible commit produces `0.0.1`.
 
-The publish target uses npm 11.5.1 or later. It supports Nx dry runs. The first
+The publish target uses pnpm 10.33.0 to create each package archive. It passes
+the archive to npm 11.13.0 for publication. It supports Nx dry runs. The first
 release can use `NPM_TOKEN`. The workflow grants OIDC permission for trusted
 publishing after the initial package creation.
 
@@ -93,14 +95,15 @@ publisher for all eight packages. Verify OIDC before restricting token access.
 ## Verification
 
 Run package tests and builds. Run `nx release publish --dry-run`. Inspect each
-tarball and install the package set in an empty project.
+archive and install the package set in an empty project. Source manifests must
+keep `workspace:*`. Published manifests must not contain this protocol.
 
 ## Acceptance criteria
 
 - Nx selects exactly the eight tagged projects.
 - A conventional-commit dry run infers `0.0.1` and previews the tag and GitHub
   release.
-- A publish dry run succeeds with npm.
+- A publish dry run succeeds through pnpm and npm.
 - The CLI has no ACP or private workflow production dependency.
 - Published metadata and documentation match this specification.
 
@@ -111,5 +114,5 @@ and trusted-publisher setup remain pending.
 
 ## Traceability
 
-- [adr.public-npm-release](../adrs/2026-09-21-public-npm-release.md)
+- [adr.preserve-workspace-release-references](../adrs/2026-09-22-preserve-workspace-release-references.md)
 - [task.publish-seqlane-packages](../tasks/2026-09-21-publish-seqlane-packages.md)

@@ -24,8 +24,8 @@ Implement all requirements in
 
 ## Scope
 
-- Public package metadata and workspace dependency references that Nx resolves
-  to exact versions during release versioning.
+- Public package metadata and workspace dependency references that remain in
+  source manifests. pnpm resolves them in package archives.
 - Apache-2.0 licensing and Node.js 24 support.
 - Fixed Nx release configuration and npm publishing.
 - A main-branch semantic release workflow.
@@ -69,9 +69,9 @@ The local branch defines an eight-package fixed release group through the
 `release:npm` tag. It removes ACP and private workflows from the CLI production
 closure. Nx derives pre-1.0 fixed versions from Conventional Commits. The
 main-branch workflow creates the release commit, tag, and GitHub release before
-publishing. Nx publish dry runs use npm and pass for all eight packages. A
-fresh project can install the packed artifacts, import `@seqlane/core`, and
-run the `seqlane` executable.
+publishing. Source manifests keep `workspace:*`. pnpm resolves these references
+in package archives, which npm publishes. A fresh project can install the
+packed artifacts, import `@seqlane/core`, and run the `seqlane` executable.
 
 Two unchanged timing-sensitive integration tests fail in this macOS worktree:
 the non-cooperative MCP deadline test and the operational-route timeout test.
@@ -85,5 +85,5 @@ Remote checks, merge, and registry release remain pending.
 ## Traceability
 
 - [spec.public-npm-distribution](../specs/2026-09-21-public-npm-distribution.md)
-- [adr.public-npm-release](../adrs/2026-09-21-public-npm-release.md)
+- [adr.preserve-workspace-release-references](../adrs/2026-09-22-preserve-workspace-release-references.md)
 - [Delivery pull request #144](https://github.com/marcolink/seqlane/pull/144)

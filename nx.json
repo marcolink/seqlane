@@ -39,7 +39,7 @@
       "executor": "nx:run-commands",
       "dependsOn": ["^nx-release-publish"],
       "options": {
-        "command": "npm publish ./{projectRoot} --json --access public --dry-run=${NX_DRY_RUN:-false}",
+        "command": "pnpm --dir ./{projectRoot} pack --out \"$PWD/.nx/release-packages/{projectName}.tgz\" && npm publish \"$PWD/.nx/release-packages/{projectName}.tgz\" --json --access public --dry-run=${NX_DRY_RUN:-false}",
         "cwd": "{workspaceRoot}",
         "forwardAllArgs": false
       }
@@ -72,7 +72,7 @@
     "version": {
       "conventionalCommits": true,
       "adjustSemverBumpsForZeroMajorVersion": true,
-      "preserveLocalDependencyProtocols": false,
+      "preserveLocalDependencyProtocols": true,
       "versionPrefix": ""
     },
     "changelog": {
