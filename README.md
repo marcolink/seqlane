@@ -480,41 +480,6 @@ The server and Studio accept loopback HTTP URLs only. See the
 [CLI guide](apps/cli/README.md) for MCP, recording, output modes,
 server storage, and run-control details.
 
-## Route oversized reads to context analysis
-
-This repository includes the `read-context` workflow. It retrieves a
-small, source-grounded evidence set with native `rg`, and optionally uses
-installed zvec-grep and Ripwire tools before asking the Codex adapter to use
-`openai/gpt-6-luna` with medium reasoning for a structured answer. Runtime
-configuration remains authoritative for executor permissions.
-
-Build and run it with the normal Seqlane CLI:
-
-```sh
-pnpm build
-pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts \
-  --input '{"question":"Trace how model settings reach the session request","paths":["libs/runtime/src"]}' \
-  --adapter codex \
-  --workspace "$PWD"
-```
-
-The workflow uses `--adapter codex` and explicitly selects
-`openai/gpt-6-luna` with medium reasoning. Codex must expose this model and
-reasoning effort through its model list. Optional `zg`/zvec-grep and
-`ripwire` failures are reported as uncertainties.
-
-Evidence is bounded to a 32,000-byte retrieval corpus. Scan and corpus limits
-are reported as uncertainties when they exclude evidence.
-
-The project-local Codex hook in `.codex/hooks.json` denies supported oversized
-broad reads, unscoped or unsupported read-like commands, and denied paths. It
-points the active session to `seqlane run workflows/read-context/workflow.ts` for the
-`read-context` workflow. Trust the project-local hook through `/hooks`
-before enabling it. The hook fails open for commands it cannot classify as
-read-like. Read-context sends selected source to the configured endpoint, so
-review the endpoint's privacy and retention policy. See
-[the hook README](.codex/hooks/README.md) for setup and use.
-
 ## License
 
 Seqlane is licensed under the [Apache License 2.0](LICENSE).
