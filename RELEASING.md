@@ -57,8 +57,11 @@ pnpm lint
 pnpm exec nx release --dry-run --skip-publish
 ```
 
-Configure a trusted GitHub Actions publisher for each package. Use repository
-`marcolink/seqlane` and workflow `ci.yml`. Verify an OIDC release before you
-restrict or remove the `NPM_TOKEN` repository secret.
+Each package trusts repository `marcolink/seqlane` and workflow `ci.yml`. The
+publish job uses npm trusted publishing through OIDC. It does not receive an
+npm token. After a release succeeds without the token, select "Require
+two-factor authentication and disallow bypass 2FA tokens" for all eight
+packages. Then remove the `NPM_TOKEN` repository secret and revoke the npm
+token.
 
 The pull request that prepares a release does not publish packages.

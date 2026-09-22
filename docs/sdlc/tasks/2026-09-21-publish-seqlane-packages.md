@@ -88,11 +88,15 @@ PR #144 merged as `d1a3995`. PRs #145 and #147 repaired the release workflow.
 The `v0.0.1` release and all eight npm packages are now public. The CI workflow
 calls the reusable release workflow after its quality checks. The release
 workflow builds exact-revision artifacts before its publish job consumes them.
+Version `0.0.2` is public with provenance for all eight packages. The publish
+workflow on this branch has no npm token fallback. The next eligible release
+will test tokenless publication on GitHub Actions after this change merges.
 
 ## Delivery state
 
 The public-readiness change and release fixes are reachable from `main`.
-Version `0.0.1` is available from npm. Trusted-publisher setup remains pending.
+Version `0.0.2` is available from npm. Trusted publishers are configured for
+all eight packages. Tokenless publication awaits a release from `main`.
 
 ## Traceability
 
@@ -101,3 +105,4 @@ Version `0.0.1` is available from npm. Trusted-publisher setup remains pending.
 - [Delivery pull request #144](https://github.com/marcolink/seqlane/pull/144)
 - [Release fix pull request #145](https://github.com/marcolink/seqlane/pull/145)
 - [Main tracking fix pull request #147](https://github.com/marcolink/seqlane/pull/147)
+- [CI release integration pull request #148](https://github.com/marcolink/seqlane/pull/148)
