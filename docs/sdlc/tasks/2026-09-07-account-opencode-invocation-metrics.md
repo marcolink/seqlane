@@ -66,7 +66,7 @@ from [spec.opencode-executor-integration](../specs/2026-09-02-opencode-executor-
 - `pnpm exec vitest run src/runtime/invocation/invocation-execution.spec.ts`:
   5 tests passed, including metrics retention before cancellation.
 - `pnpm exec nx test seqlane-runtime`: blocked by Nx lock-file permissions in
-  `/Users/marco.link/projects/contentful/taskflow/.nx`.
+  a shared workspace-data directory outside this worktree.
 - `pnpm docs:index`: passed.
 - `pnpm docs:validate`: passed, 230 documents.
 - `git diff --check`: passed.

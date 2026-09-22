@@ -55,7 +55,8 @@ must not occur in a published package's production dependency closure.
 ### requirement-package-metadata
 
 Each release package declares Apache-2.0, Node.js 24 or later, its repository
-directory, public npm access, and provenance.
+directory, public npm access, and provenance. Each package archive includes the
+complete Apache-2.0 license text.
 
 ### requirement-release-automation
 
@@ -95,8 +96,9 @@ publisher for all eight packages. Verify OIDC before restricting token access.
 ## Verification
 
 Run package tests and builds. Run `nx release publish --dry-run`. Inspect each
-archive and install the package set in an empty project. Source manifests must
-keep `workspace:*`. Published manifests must not contain this protocol.
+archive for its license and install the package set in an empty project. Source
+manifests must keep `workspace:*`. Published manifests must not contain this
+protocol.
 
 ## Acceptance criteria
 

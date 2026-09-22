@@ -95,7 +95,7 @@ Added one `seqlane run` example for each Run flag.
 Checks passed:
 
 - `pnpm --dir apps/docs exec vitepress build .`
-- `NX_WORKSPACE_DATA_DIRECTORY=/Users/marco.link/.codex/worktrees/1ecb/seqlane/.nx/workspace-data NX_DAEMON=false pnpm exec nx build docs-site`
+- `NX_WORKSPACE_DATA_DIRECTORY="$PWD/.nx/workspace-data" NX_DAEMON=false pnpm exec nx build docs-site`
 - `pnpm docs:index`
 - `pnpm docs:validate`
 - `pnpm exec prettier --check` for format-supported changed files

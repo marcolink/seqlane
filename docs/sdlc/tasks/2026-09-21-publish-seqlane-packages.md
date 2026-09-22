@@ -54,8 +54,8 @@ documentation, and the lockfile.
 ## Verification
 
 Run mapping checks, tooling tests, focused lint, builds, tests, a complete
-semantic release dry run, documentation checks, and an install smoke test from
-packed artifacts.
+semantic release dry run, documentation checks, package-license checks, and an
+install smoke test from packed artifacts.
 
 ## Completion criteria
 
@@ -70,8 +70,9 @@ The local branch defines an eight-package fixed release group through the
 closure. Nx derives pre-1.0 fixed versions from Conventional Commits. The
 main-branch workflow creates the release commit, tag, and GitHub release before
 publishing. Source manifests keep `workspace:*`. pnpm resolves these references
-in package archives, which npm publishes. A fresh project can install the
-packed artifacts, import `@seqlane/core`, and run the `seqlane` executable.
+in package archives, which npm publishes. Every package archive includes the
+complete Apache-2.0 license text. A fresh project can install the packed
+artifacts, import `@seqlane/core`, and run the `seqlane` executable.
 The release workflow verifies the triggering revision without write
 credentials. Its publish job consumes verified builds and stops if `main`
 advanced before release.
