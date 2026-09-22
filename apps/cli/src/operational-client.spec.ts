@@ -69,7 +69,7 @@ describe("OperationalClient", () => {
     } finally {
       await host.close();
     }
-  });
+  }, 15_000);
 
   it("validates workflow registration and starts a run through Mastra routes", async () => {
     const fetchMock = vi

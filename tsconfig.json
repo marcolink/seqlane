@@ -10,9 +10,6 @@
       "path": "./workflows/resolve-merge-conflicts"
     },
     {
-      "path": "./libs/read-context"
-    },
-    {
       "path": "./workflows/read-context"
     },
     {

@@ -57,7 +57,7 @@ describe("command classification and hook policy", () => {
     expect(classifyCommand("git status --short").kind).toBe("unsafe");
     expect(
       classifyCommand(
-        "pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input '{}' --workspace .",
+        "pnpm exec node apps/cli/bin/run.js run ./workflows/read-context/workflow.ts --input '{}' --workspace .",
       ).kind,
     ).toBe("workflow");
     expect(classifyCommand("cat workflows/read-context/workflow.ts").kind).toBe(
@@ -172,14 +172,24 @@ describe("command classification and hook policy", () => {
     process.chdir(root);
     try {
       const command =
-        'pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input \'{"question":"q"}\' --adapter opencode --workspace .';
+        'pnpm exec node apps/cli/bin/run.js run ./workflows/read-context/workflow.ts --input \'{"question":"q"}\' --adapter codex --workspace .';
       expect(
         runReadContextGuard(JSON.stringify({ tool_input: { command } })),
       ).toBe("{}");
+      const wrongAdapter = runReadContextGuard(
+        JSON.stringify({
+          tool_input: {
+            command: command.replace("--adapter codex", "--adapter opencode"),
+          },
+        }),
+      );
+      expect(JSON.parse(wrongAdapter)).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" },
+      });
       const missingAdapter = runReadContextGuard(
         JSON.stringify({
           tool_input: {
-            command: command.replace(" --adapter opencode", ""),
+            command: command.replace(" --adapter codex", ""),
           },
         }),
       );

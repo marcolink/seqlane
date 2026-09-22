@@ -5,11 +5,11 @@
     "rootDir": ".",
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
     "types": ["node"],
-    "emitDeclarationOnly": false
+    "emitDeclarationOnly": false,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
-  "include": ["workflow.ts", "tasks/**/*.ts"],
-  "references": [
-    { "path": "../../libs/core" },
-    { "path": "../../libs/read-context" }
-  ]
+  "include": ["workflow.ts", "tasks/**/*.ts", "src/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts"],
+  "references": [{ "path": "../../libs/core" }]
 }

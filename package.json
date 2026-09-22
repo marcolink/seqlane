@@ -31,7 +31,6 @@
     "@seqlane/action-code-review": "workspace:*",
     "@seqlane/action-service-lifecycle": "workspace:*",
     "@seqlane/core": "workspace:*",
-    "@seqlane/read-context": "workspace:*",
     "@seqlane/runtime": "workspace:*",
     "@nx/esbuild": "catalog:",
     "@nx/eslint": "catalog:",

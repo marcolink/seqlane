@@ -3,9 +3,9 @@ import { workspaceAliases } from "../../vitest.shared.mts";
 
 export default defineConfig({
   test: {
-    name: "read-context",
+    name: "workflow-read-context",
     environment: "node",
-    include: ["src/**/*.spec.ts"],
+    include: ["src/**/*.spec.ts", "workflow.spec.ts"],
   },
   resolve: { alias: workspaceAliases },
 });

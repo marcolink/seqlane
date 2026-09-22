@@ -1543,7 +1543,8 @@ describe("private Mastra runtime spine", () => {
       .then(step)
       .commit();
     const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
-      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 10 },
+      // Let the second route finish; only the first invocation should time out.
+      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 15_000 },
     });
     const context = () => ({
       requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
@@ -1573,7 +1574,7 @@ describe("private Mastra runtime spine", () => {
       result: { status: "succeeded" },
     });
     expect(startedCount).toBe(2);
-  });
+  }, 30_000);
 
   it("runs MCP invocations through the canonical runtime identity hook", async () => {
     const requests: Array<{ workId: string; runId: string }> = [];

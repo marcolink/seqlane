@@ -60,7 +60,7 @@ test("validates source metadata and private dependency closure", () => {
         project,
         projectRoot,
         sourceManifest({
-          dependencies: { "@seqlane/read-context": "workspace:*" },
+          dependencies: { "@seqlane/read-context-workflow": "workspace:*" },
         }),
       ),
     /private workspace package/,

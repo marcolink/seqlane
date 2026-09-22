@@ -117,6 +117,26 @@ describe("workflow discovery", () => {
     }
   });
 
+  it("parses the documented read-context local workflow reference", () => {
+    const workflow = "./workflows/read-context/workflow.ts";
+    const request = createRunRequest(
+      workflow,
+      '{"question":"where is workflow loading implemented?"}',
+      "codex",
+      process.cwd(),
+      false,
+    );
+
+    expect(request.workflow).toMatchObject({
+      id: workflow,
+      exportName: "default",
+    });
+    expect(request.workflow.moduleSpecifier).toMatch(
+      /^file:\/\/.*\/workflows\/read-context\/workflow\.ts$/,
+    );
+    expect(request.runtime.workspace).toBe(process.cwd());
+  });
+
   it("reports every qualified match for an ambiguous name", () => {
     const { roots, directory } = createRoots();
     try {

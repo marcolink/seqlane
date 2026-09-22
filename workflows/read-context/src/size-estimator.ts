@@ -1,5 +1,5 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
-import { resolveSafePath } from "./security.js";
+import { resolveSafePath } from "./security.ts";
 
 export interface FileEstimate {
   readonly bytes: number;

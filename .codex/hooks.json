@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .codex/hooks/read-context-guard.mjs"
+            "command": "node --experimental-strip-types .codex/hooks/read-context-guard.mjs"
           }
         ]
       }

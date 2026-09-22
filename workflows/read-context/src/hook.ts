@@ -1,14 +1,14 @@
 import { lstatSync } from "node:fs";
 import { resolve } from "node:path";
-import { classifyCommand, type ClassifiedRead } from "./command-classifier.js";
-import { estimateFile } from "./size-estimator.js";
+import { classifyCommand, type ClassifiedRead } from "./command-classifier.ts";
+import { estimateFile } from "./size-estimator.ts";
 import {
   deniedPathReason,
   isPathWithinRoot,
   repositoryRelativePath,
   resolveSafePath,
-} from "./security.js";
-import { readContextInputSchema } from "./schemas.js";
+} from "./security.ts";
+import { readContextInputSchema } from "./schemas.ts";
 import { z } from "zod";
 
 const jsonTextSchema = z.string().transform((value, context) => {
@@ -79,7 +79,7 @@ function validWorkflowArguments(
     }
     if (argument === "--adapter") {
       if (adapterSeen) return false;
-      if (args[index + 1] !== "opencode") return false;
+      if (args[index + 1] !== "codex") return false;
       adapterSeen = true;
       index += 1;
       continue;
@@ -156,7 +156,7 @@ function guardReadCommand(
       ? (requestedLines ?? 0) > maxTargetedLines
       : estimate.lines > maxLines || estimate.bytes > maxBytes;
   if (!blocked) return "{}";
-  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts --input '{"question":"...","paths":["${candidate.path}"]}' --adapter opencode --workspace "$PWD" for the read-context workflow with a focused question from the active task. Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
+  const reason = `Broad read blocked: ${candidate.path} is approximately ${estimate.lines} lines / ${estimate.bytes} bytes. Use pnpm exec node apps/cli/bin/run.js run ./workflows/read-context/workflow.ts --input '{"question":"...","paths":["${candidate.path}"]}' --adapter codex --workspace "$PWD" for the read-context workflow with a focused question from the active task. Afterwards use rg or a narrow sed/head/tail read for exact verification before editing.`;
   return deny(reason);
 }
 

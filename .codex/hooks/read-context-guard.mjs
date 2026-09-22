@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
-import { runReadContextGuard } from "@seqlane/read-context/hook";
+import { runReadContextGuard } from "../../workflows/read-context/src/hook.ts";
 
 process.env.SEQLANE_READ_CONTEXT_ROOT ??= fileURLToPath(
   new URL("../..", import.meta.url),

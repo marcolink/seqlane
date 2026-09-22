@@ -104,9 +104,6 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:libs/core
-      '@seqlane/read-context':
-        specifier: workspace:*
-        version: link:libs/read-context
       '@seqlane/runtime':
         specifier: workspace:*
         version: link:libs/runtime
@@ -408,12 +405,6 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
 
-  libs/read-context:
-    dependencies:
-      zod:
-        specifier: 4.5.4
-        version: 4.5.4
-
   libs/runtime:
     dependencies:
       '@hono/node-server':
@@ -493,9 +484,6 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:../../libs/core
-      '@seqlane/read-context':
-        specifier: workspace:*
-        version: link:../../libs/read-context
       zod:
         specifier: 4.5.4
         version: 4.5.4
