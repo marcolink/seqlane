@@ -307,12 +307,14 @@ function errorMessage(error: unknown): string {
 }
 
 export default class StudioCommand extends Command {
+  static override hidden = true;
+
   static override description =
     "Start the upstream Mastra Community Studio for a Seqlane runtime";
 
   static override examples = [
-    "<%= config.bin %> studio",
-    "<%= config.bin %> studio --port 3001 --server-port 4112",
+    "<%= config.bin %> <%= command.id %>",
+    "<%= config.bin %> <%= command.id %> --port 3001 --server-port 4112",
   ];
 
   static override flags = {

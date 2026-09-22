@@ -10,12 +10,14 @@ import {
 import { renderReplayRecording, writeReplayEvents } from "../replay.js";
 
 export default class ReplayCommand extends SeqlaneCommand {
+  static override hidden = true;
+
   static override description =
     "Replay a local canonical execution recording without executing a workflow";
 
   static override examples = [
-    "<%= config.bin %> replay ./seqlane-recording.jsonl --output human",
-    "<%= config.bin %> replay ./seqlane-recording.jsonl --events ndjson",
+    "<%= config.bin %> <%= command.id %> ./seqlane-recording.jsonl --output human",
+    "<%= config.bin %> <%= command.id %> ./seqlane-recording.jsonl --events ndjson",
   ];
 
   static override args = {

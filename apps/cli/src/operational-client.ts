@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const workflowListSchema = z.record(
+const registeredWorkflowsSchema = z.record(
   z.string(),
   z.object({ id: z.string().optional() }).passthrough(),
 );
@@ -42,8 +42,7 @@ const terminalRunStatuses = new Set([
   "tripwire",
   "skipped",
 ]);
-const runLookupConcurrency = 8;
-const runLookupRequestTimeoutMs = 10_000;
+const runObservationRequestTimeoutMs = 10_000;
 const initialRunObservationDelayMs = 25;
 const maxRunObservationDelayMs = 1_000;
 const maxConsecutiveObservationFailures = 12;
@@ -215,17 +214,6 @@ export class OperationalClient {
     return parsed.data;
   }
 
-  async listWorkflows(signal?: AbortSignal): Promise<readonly string[]> {
-    const workflows = await this.request(
-      "/api/workflows",
-      { method: "GET" },
-      workflowListSchema,
-      undefined,
-      signal,
-    );
-    return Object.keys(workflows).sort();
-  }
-
   async resolveWorkflow(
     workflowId: string,
     signal?: AbortSignal,
@@ -233,7 +221,7 @@ export class OperationalClient {
     const workflows = await this.request(
       "/api/workflows",
       { method: "GET" },
-      workflowListSchema,
+      registeredWorkflowsSchema,
       undefined,
       signal,
     );
@@ -361,11 +349,6 @@ export class OperationalClient {
     }
   }
 
-  async getRun(runId: string, workflowId?: string): Promise<OperationalRun> {
-    const target = await this.findRun(runId, workflowId);
-    return target.run;
-  }
-
   private async getRunForWorkflow(
     runId: string,
     workflow: string,
@@ -375,62 +358,13 @@ export class OperationalClient {
       `/api/workflows/${encodeURIComponent(workflow)}/runs/${encodeURIComponent(runId)}`,
       { method: "GET" },
       runResponseSchema,
-      runLookupRequestTimeoutMs,
+      runObservationRequestTimeoutMs,
       signal,
     );
   }
 
-  private async findRun(
-    runId: string,
-    workflowId?: string,
-  ): Promise<{ readonly run: OperationalRun; readonly workflow: string }> {
-    const candidates = workflowId
-      ? [await this.resolveWorkflow(workflowId)]
-      : await this.listWorkflows();
-    let lastNotFound: OperationalClientError | undefined;
-    for (
-      let offset = 0;
-      offset < candidates.length;
-      offset += runLookupConcurrency
-    ) {
-      const batch = candidates.slice(offset, offset + runLookupConcurrency);
-      const outcomes = await Promise.all(
-        batch.map(async (candidate) => {
-          try {
-            return {
-              run: await this.getRunForWorkflow(runId, candidate),
-              workflow: candidate,
-            };
-          } catch (error) {
-            if (
-              error instanceof OperationalClientError &&
-              error.status === 404
-            ) {
-              return { error };
-            }
-            throw error;
-          }
-        }),
-      );
-      for (const outcome of outcomes) {
-        if ("error" in outcome) {
-          lastNotFound = outcome.error;
-        } else {
-          return outcome;
-        }
-      }
-    }
-    throw (
-      lastNotFound ??
-      new OperationalClientError(`Run "${runId}" was not found`, {
-        status: 404,
-      })
-    );
-  }
-
-  async cancelRun(runId: string, workflowId?: string): Promise<string> {
-    const target = await this.findRun(runId, workflowId);
-    const workflow = encodeURIComponent(target.workflow);
+  async cancelRun(runId: string, workflowId: string): Promise<string> {
+    const workflow = encodeURIComponent(await this.resolveWorkflow(workflowId));
     const response = await this.request(
       `/api/workflows/${workflow}/runs/${encodeURIComponent(runId)}/cancel`,
       {

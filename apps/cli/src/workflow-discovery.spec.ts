@@ -1,7 +1,6 @@
 // @test-scope ./workflow-discovery.ts
 // @test-scope ./workflow-reference.ts
-// @test-scope ./commands/list.ts
-// @test-scope ./commands/plan.ts
+// @test-scope ./commands/unstable_plan.ts
 // @test-scope ./commands/run.ts
 // @test-scope ./cli-contracts.ts
 // @test-scope ./human-output.ts
@@ -19,17 +18,16 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   discoverWorkflowDescriptors,
-  listWorkflowRecord,
   resolveWorkflowSelection,
   type WorkflowRoots,
+  workflowDescriptorRecord,
 } from "./workflow-discovery.js";
-import { renderWorkflowListHuman } from "./commands/list.js";
-import { createPlanCommandResult, renderPlanHuman } from "./commands/plan.js";
-import { createRunRequest } from "./commands/run.js";
 import {
-  planCommandResultSchema,
-  workflowListResultSchema,
-} from "./cli-contracts.js";
+  createPlanCommandResult,
+  renderPlanHuman,
+} from "./commands/unstable_plan.js";
+import { createRunRequest } from "./commands/run.js";
+import { planCommandResultSchema } from "./cli-contracts.js";
 
 function createRoots(): {
   readonly roots: WorkflowRoots;
@@ -147,7 +145,7 @@ describe("workflow discovery", () => {
     }
   });
 
-  it("lists descriptors without importing workflow source", () => {
+  it("resolves descriptors without importing workflow source", () => {
     const { roots, directory } = createRoots();
     try {
       const marker = join(directory, "imported");
@@ -158,8 +156,9 @@ describe("workflow discovery", () => {
       );
       writeDescriptor(roots.repository, "review.json", descriptor("review"));
 
-      const records =
-        discoverWorkflowDescriptors(roots).map(listWorkflowRecord);
+      const records = discoverWorkflowDescriptors(roots).map(
+        workflowDescriptorRecord,
+      );
 
       expect(records).toEqual([
         {
@@ -171,15 +170,13 @@ describe("workflow discovery", () => {
           description: "review workflow",
         },
       ]);
-      expect(workflowListResultSchema.parse(records)).toEqual(records);
       expect(existsSync(marker)).toBe(false);
-      expect(renderWorkflowListHuman(records)).toContain("repository:review");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
 
-  it("escapes terminal control characters in human output", async () => {
+  it("escapes terminal control characters in plan output", async () => {
     const { roots, directory } = createRoots();
     try {
       const unsafe = "\u001b[31munsafe\nvalue";
@@ -189,14 +186,6 @@ describe("workflow discovery", () => {
         exportName: unsafe,
         description: unsafe,
       });
-      const records =
-        discoverWorkflowDescriptors(roots).map(listWorkflowRecord);
-
-      expect(renderWorkflowListHuman(records)).toContain(
-        "\\u001b[31munsafe\\nvalue",
-      );
-      expect(renderWorkflowListHuman(records)).not.toContain("\u001b");
-
       const modulePath = join(roots.repository, "workflow.mjs");
       const coreSpecifier = import.meta.resolve("@seqlane/core");
       writeFileSync(

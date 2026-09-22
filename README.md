@@ -38,7 +38,7 @@ The built-in `local` profile runs deterministic tasks without an adapter. An
 agent task needs a configured adapter runtime, such as OpenCode. The workflow
 does not contain the adapter URL or its credentials.
 
-Choose the runtime profile when you start a run or call the MCP server:
+Choose the runtime profile when you start a run:
 
 ```text
 workflow layer:  workflow.ts + runtime profile: local
@@ -54,20 +54,6 @@ authoring API, typed Plan, task contracts, session policies, workspace policies,
 and stable CLI and event contracts. The private runtime layer compiles each
 Seqlane Plan into Mastra workflows and steps, then uses Mastra to execute the
 workflow.
-
-Mastra also provides the operational server foundation:
-
-- `seqlane serve` starts a Mastra-backed operational host with API routes for
-  workflow execution, run status, and cancellation.
-- The same host registers reusable Seqlane workflows as MCP tools at
-  `/api/mcp/seqlane-workflows/mcp`.
-- `seqlane studio` starts the Mastra Community Studio and connects it to the
-  host API at `/api`.
-
-```sh
-seqlane serve
-seqlane studio --server-url http://127.0.0.1:4111
-```
 
 Users write workflows against `@seqlane/core`; they do not need to use Mastra
 workflow APIs directly. Mastra remains behind the Seqlane runtime boundary and
@@ -299,17 +285,6 @@ of `dependsOn`, even though it does not read `audit`'s output.
 
 ## Run a workflow
 
-### Inspect the Plan
-
-Compile a workflow without starting a runtime, calling a model, or running a
-task:
-
-```sh
-seqlane plan ./workflow.ts
-```
-
-Use `--output json` when another tool needs the Plan result.
-
 ### Run a local-only workflow
 
 The included local-only example does not need an agent runtime:
@@ -357,128 +332,13 @@ runner IPC.
 Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
 source per run, and input files have a 1 MiB limit.
 
-## Choose an access pattern
-
-Use one-shot CLI execution when one process needs one workflow result:
-
-```sh
-seqlane run my-workflow.js --input '{}'
-```
-
-The CLI runs one workflow and prints the result. Add `--adapter opencode` or
-`--adapter codex` when the workflow contains agent tasks.
-
-Use the MCP access pattern when an MCP client, Studio, or multiple runs need a
-persistent server:
-
-Local-only workflows do not need adapter configuration. For agent workflows,
-set the adapter configuration before you start the server:
-
-```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
-seqlane serve
-```
-
-Connect an MCP client to
-`http://127.0.0.1:4111/api/mcp/seqlane-workflows/mcp`. The server registers
-discovered workflows as tools. For example, the `repository:review` workflow
-is available as `run_repository:review` with arguments like these:
-
-```json
-{
-  "input": { "topic": "Seqlane" },
-  "runtime": { "id": "direct" }
-}
-```
-
-The MCP server owns adapter configuration. The `runtime.id` value selects an
-opaque runtime profile; it does not select an adapter or contain its URL.
-
 ## Use the CLI
 
-The main commands are:
-
-| Command              | Use                                                |
-| -------------------- | -------------------------------------------------- |
-| `run <workflow>`     | Execute one workflow.                              |
-| `plan <workflow>`    | Compile a Plan without execution.                  |
-| `list`               | List repository and user workflow descriptors.     |
-| `serve`              | Start a persistent local operational server.       |
-| `studio`             | Start Community Studio with an operational server. |
-| `status <run-id>`    | Read a run from an operational server.             |
-| `cancel <run-id>`    | Cancel a run on an operational server.             |
-| `replay <recording>` | Replay a local execution recording.                |
-
-Run `--help` on any command for all flags:
-
-```sh
-seqlane run --help
-seqlane serve --help
-```
-
-Use `--server-url` to attach `run`, `status`, or `cancel` to an existing
-loopback server. Use `serve` when you need multiple runs, persistent run
-inspection, MCP access, or Studio access.
-
-### Discover reusable workflows
-
-Put repository workflow descriptors in `.seqlane/workflows/*.json`. Put user
-workflow descriptors in `~/.config/seqlane/workflows/*.json`.
-
-```json
-{
-  "name": "review",
-  "moduleSpecifier": "../../review.ts",
-  "exportName": "default",
-  "description": "Review a change"
-}
-```
-
-The module path is relative to the descriptor file. This example assumes that
-`review.ts` is in the project root. List discovered workflows:
-
-```sh
-seqlane list
-```
-
-Use `repository:review` or `user:review` when both scopes contain the same
-name. An unqualified name works only when it is unique.
-
-### Use persistent operations
-
-Start a local operational server in one terminal:
-
-```sh
-export SEQLANE_RUNTIME_ADAPTER_CONFIG='{"adapter":"opencode","url":"http://127.0.0.1:4096"}'
-seqlane serve
-```
-
-The default server is `http://127.0.0.1:4111`. It stores Mastra run data in
-`.seqlane/mastra.db` and exposes the registered workflows through the local
-MCP endpoint.
-
-In another terminal, run a registered workflow and inspect its run:
-
-```sh
-seqlane run repository:review \
-  --input '{"topic":"Seqlane"}' \
-  --adapter opencode \
-  --server-url http://127.0.0.1:4111
-
-seqlane status <run-id> \
-  --server-url http://127.0.0.1:4111
-```
-
-Start Community Studio against the same server:
-
-```sh
-seqlane studio \
-  --server-url http://127.0.0.1:4111
-```
-
-The server and Studio accept loopback HTTP URLs only. See the
-[CLI guide](apps/cli/README.md) for MCP, recording, output modes,
-server storage, and run-control details.
+The CLI runs one workflow and prints the result. Add `--adapter opencode` or
+`--adapter codex` when the workflow contains agent tasks. Run
+`seqlane run --help` to see all options. See the
+[CLI guide](apps/cli/README.md) for input, output, adapter, and workspace
+options.
 
 ## Route oversized reads to context analysis
 

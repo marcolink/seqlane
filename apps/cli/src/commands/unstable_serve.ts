@@ -11,12 +11,14 @@ function errorMessage(error: unknown): string {
 }
 
 export default class ServeCommand extends Command {
+  static override hidden = true;
+
   static override description =
     "Run the foreground Mastra operational host for discovered workflows";
 
   static override examples = [
-    "<%= config.bin %> serve",
-    "<%= config.bin %> serve --port 4112 --storage-url file:./.seqlane/mastra.db",
+    "<%= config.bin %> <%= command.id %>",
+    "<%= config.bin %> <%= command.id %> --port 4112 --storage-url file:./.seqlane/mastra.db",
   ];
 
   static override flags = {
