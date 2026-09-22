@@ -138,7 +138,7 @@ test("renders all owners in generated indexes", () => {
   }
 });
 
-test("documents a runnable Codex command with its adapter workspace", () => {
+test("documents runnable Codex commands with their adapter workspace", () => {
   const readme = readFileSync(join(repositoryRoot, "README.md"), "utf8");
   const shellBlocks = [...readme.matchAll(/```sh\n([\s\S]*?)```/g)].map(
     (match) => match[1],
@@ -152,6 +152,24 @@ test("documents a runnable Codex command with its adapter workspace", () => {
         block.includes('--workspace "$PWD"'),
     ),
     "README must include a runnable Codex adapter command with an explicit workspace",
+  );
+
+  const workflowReadme = readFileSync(
+    join(repositoryRoot, "workflows/read-context/README.md"),
+    "utf8",
+  );
+  const workflowShellBlocks = [
+    ...workflowReadme.matchAll(/```sh\n([\s\S]*?)```/g),
+  ].map((match) => match[1]);
+
+  assert.ok(
+    workflowShellBlocks.some(
+      (block) =>
+        block.includes("seqlane run workflows/read-context/workflow.ts") &&
+        block.includes("--adapter codex") &&
+        block.includes('--workspace "$PWD"'),
+    ),
+    "Read-context README must include the Codex adapter and explicit workspace",
   );
 });
 
@@ -173,7 +191,7 @@ test("preserves partial historical supersession relationships", () => {
 
   assert.match(
     executorNeutralAdr,
-    /^supersedes:\n  - adr\.opencode-executor-integration$/m,
+    /^supersedes:\n {2}- adr\.opencode-executor-integration$/m,
   );
   assert.match(
     executorNeutralAdr,
@@ -181,7 +199,7 @@ test("preserves partial historical supersession relationships", () => {
   );
   assert.match(
     studioLifecycleAdr,
-    /^supersedes:\n  - adr\.local-read-only-execution-studio$/m,
+    /^supersedes:\n {2}- adr\.local-read-only-execution-studio$/m,
   );
   assert.match(
     studioLifecycleAdr,
