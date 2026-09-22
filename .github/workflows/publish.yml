@@ -51,7 +51,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify release tag
-        run: test "v$(node -p 'require("./apps/cli/package.json").version')" = "$GITHUB_REF_NAME"
+        run: |
+          expected_version="${GITHUB_REF_NAME#v}"
+          while IFS= read -r project; do
+            project_root="$(pnpm exec nx show project "$project" --json | jq -r '.root')"
+            package_version="$(jq -r '.version' "$project_root/package.json")"
+            if [[ "$package_version" != "$expected_version" ]]; then
+              echo "::error::$project has version $package_version; expected $expected_version"
+              exit 1
+            fi
+          done < <(pnpm exec nx show projects --projects=tag:release:npm)
 
       - name: Verify packages
         run: |

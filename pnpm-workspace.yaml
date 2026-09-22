@@ -14,7 +14,6 @@ allowBuilds:
 autoInstallPeers: false
 engineStrict: true
 ignoreScripts: false
-linkWorkspacePackages: true
 lockfileIncludeTarballUrl: true
 strictPeerDependencies: false
 

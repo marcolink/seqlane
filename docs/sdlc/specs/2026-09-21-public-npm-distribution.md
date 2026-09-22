@@ -42,7 +42,8 @@ Nx release group.
 The `release:npm` Nx tag defines the release group. The group contains
 `seqlane`, core, protocol, runtime, TUI, the shared adapter contract, and the
 Codex and OpenCode adapters. All members use version `0.0.1` for the first
-release and exact versions for group dependencies.
+release. Source manifests use `workspace:*` for group dependencies. Nx resolves
+them to exact versions during the version phase.
 
 ### requirement-supported-surface
 
@@ -59,8 +60,9 @@ directory, public npm access, and provenance.
 
 Nx uses fixed versioning and a `v{version}` tag. A tag push starts
 `publish.yml`. The workflow accepts only a public repository and a commit that
-is reachable from `main`. It installs dependencies, verifies and builds the
-release group, then runs `nx release publish`.
+is reachable from `main`. It verifies the tag against every release package,
+installs dependencies, verifies and builds the release group, then runs
+`nx release publish`.
 
 The publish target uses npm 11.5.1 or later. It supports Nx dry runs. The first
 release can use `NPM_TOKEN`. The workflow grants OIDC permission for trusted

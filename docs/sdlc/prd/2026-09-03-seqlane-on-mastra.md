@@ -52,7 +52,7 @@ The result should feel like Seqlane to workflow authors and like Mastra to runti
 7. Reuse Mastra for persistence, run state, retries, cancellation plumbing, workspaces and sandboxes, processes, agents and ACP, tracing, server APIs, MCP, and Studio.
 8. Materially reduce Seqlane's code, dependency, package, test, and maintenance footprint.
 9. Distribute the CLI and workflow-authoring API through the public npm registry.
-9. Remove obsolete implementations and concepts as part of each migrated slice.
+10. Remove obsolete implementations and concepts as part of each migrated slice.
 
 ## Non-goals
 

@@ -1,6 +1,6 @@
 {
   "name": "@seqlane/opencode-adapter",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "OpenCode adapter for Seqlane.",
   "license": "Apache-2.0",
   "type": "module",
@@ -31,9 +31,9 @@
   "dependencies": {
     "@mastra/core": "1.64.0",
     "@opencode-ai/sdk": "1.18.27",
-    "@seqlane/agent-adapter": "0.0.1",
-    "@seqlane/core": "0.0.1",
-    "@seqlane/protocol": "0.0.1",
+    "@seqlane/agent-adapter": "workspace:*",
+    "@seqlane/core": "workspace:*",
+    "@seqlane/protocol": "workspace:*",
     "zod": "4.5.4"
   },
   "files": [

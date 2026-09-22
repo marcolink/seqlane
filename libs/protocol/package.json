@@ -1,6 +1,6 @@
 {
   "name": "@seqlane/protocol",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Serialized execution and runner transport contracts for Seqlane.",
   "license": "Apache-2.0",
   "type": "module",
@@ -23,7 +23,7 @@
     ]
   },
   "dependencies": {
-    "@seqlane/core": "0.0.1",
+    "@seqlane/core": "workspace:*",
     "zod": "4.5.4"
   },
   "files": [

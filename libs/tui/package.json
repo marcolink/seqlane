@@ -1,6 +1,6 @@
 {
   "name": "@seqlane/tui",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Terminal rendering for Seqlane workflow runs.",
   "license": "Apache-2.0",
   "type": "module",
@@ -28,8 +28,8 @@
     ]
   },
   "dependencies": {
-    "@seqlane/core": "0.0.1",
-    "@seqlane/protocol": "0.0.1",
+    "@seqlane/core": "workspace:*",
+    "@seqlane/protocol": "workspace:*",
     "ink": "7.1.1",
     "react": "19.3.0"
   },

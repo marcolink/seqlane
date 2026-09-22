@@ -1,6 +1,6 @@
 {
   "name": "@seqlane/runtime",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Mastra runtime integration for Seqlane workflows.",
   "license": "Apache-2.0",
   "type": "module",
@@ -39,7 +39,7 @@
     ]
   },
   "dependencies": {
-    "@seqlane/agent-adapter": "0.0.1",
+    "@seqlane/agent-adapter": "workspace:*",
     "@mastra/core": "1.64.0",
     "@mastra/hono": "1.7.6",
     "@mastra/libsql": "1.22.3",
@@ -47,8 +47,8 @@
     "@mastra/observability": "1.17.4",
     "@mastra/server": "1.64.0",
     "@hono/node-server": "2.1.1",
-    "@seqlane/core": "0.0.1",
-    "@seqlane/protocol": "0.0.1",
+    "@seqlane/core": "workspace:*",
+    "@seqlane/protocol": "workspace:*",
     "hono": "4.13.5",
     "zod": "4.5.4"
   },

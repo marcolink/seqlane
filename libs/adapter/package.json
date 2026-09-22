@@ -1,6 +1,6 @@
 {
   "name": "@seqlane/agent-adapter",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Internal agent-adapter contracts for Seqlane runtimes.",
   "license": "Apache-2.0",
   "type": "module",
@@ -23,8 +23,8 @@
     ]
   },
   "dependencies": {
-    "@seqlane/core": "0.0.1",
-    "@seqlane/protocol": "0.0.1",
+    "@seqlane/core": "workspace:*",
+    "@seqlane/protocol": "workspace:*",
     "zod": "4.5.4"
   },
   "files": [

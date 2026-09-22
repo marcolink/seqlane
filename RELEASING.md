@@ -9,25 +9,26 @@ other group members are public registry dependencies.
 Use Node.js 24, pnpm 10.33.0, and npm 11.5.1 or later. Start from an updated
 `main` branch with a clean worktree.
 
-Run the repository checks. Then preview the version and publish operations:
+Run the repository checks. Then preview the version operation:
 
 ```sh
 pnpm test
 pnpm typecheck
 pnpm lint
-pnpm release:dry-run
-pnpm release:publish:dry-run
+pnpm exec nx release <version> --dry-run --skip-publish
 ```
 
-Run `pnpm exec nx release <version>` to update the fixed package version,
-changelog, commit, and `v<version>` tag. Review the result before pushing the
-commit and tag.
+Run `pnpm exec nx release <version> --skip-publish` to update the fixed package
+version, resolve internal `workspace:*` dependencies to that exact version,
+update the changelog, commit, and create the `v<version>` tag. Review the
+result, then run `pnpm release:publish:dry-run` from the versioned commit.
 
 ## Publish
 
-Pushing a `v<version>` tag starts `.github/workflows/publish.yml`. The workflow
-requires a public repository and a tagged commit reachable from `main`. It
-builds and tests the release group before `nx release publish` calls npm.
+Push the release commit to `main` before pushing its `v<version>` tag. The tag
+starts `.github/workflows/publish.yml`. The workflow requires a public
+repository and a tagged commit reachable from `main`. It builds and tests the
+release group before `nx release publish` calls npm.
 
 The first release uses the `NPM_TOKEN` repository secret. After all eight
 packages exist on npm, configure a trusted GitHub Actions publisher for each

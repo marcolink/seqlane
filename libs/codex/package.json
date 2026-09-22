@@ -1,6 +1,6 @@
 {
   "name": "@seqlane/codex-adapter",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Codex app-server adapter for Seqlane.",
   "license": "Apache-2.0",
   "type": "module",
@@ -29,8 +29,8 @@
     ]
   },
   "dependencies": {
-    "@seqlane/agent-adapter": "0.0.1",
-    "@seqlane/core": "0.0.1",
+    "@seqlane/agent-adapter": "workspace:*",
+    "@seqlane/core": "workspace:*",
     "zod": "4.5.4"
   },
   "files": [

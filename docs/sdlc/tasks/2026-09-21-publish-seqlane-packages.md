@@ -24,7 +24,8 @@ Implement all requirements in
 
 ## Scope
 
-- Public package metadata and exact internal versions.
+- Public package metadata and workspace dependency references that Nx resolves
+  to exact versions during release versioning.
 - Apache-2.0 licensing and Node.js 24 support.
 - Fixed Nx release configuration and npm publishing.
 - A tag-based GitHub publish workflow.
