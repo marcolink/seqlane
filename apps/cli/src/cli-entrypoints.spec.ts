@@ -76,14 +76,24 @@ function withoutNodeExperimentalWarnings(stderr: string): string {
   return stderr.replace(nodeTypeStrippingWarning, "");
 }
 
+interface RunCliOptions {
+  readonly onStarted?: (child: ChildProcess) => void;
+  readonly startMarker?: string;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly onSpawn?: (child: ChildProcess) => void;
+  readonly stdin?: string;
+}
+
 function runCli(
   entry: string,
   args: readonly string[],
-  onStarted?: (child: ChildProcess) => void,
-  startMarker = "started task=investigate-renovate-failure",
-  environment: NodeJS.ProcessEnv = {},
-  onSpawn?: (child: ChildProcess) => void,
-  stdin?: string,
+  {
+    onStarted,
+    startMarker = "started task=investigate-renovate-failure",
+    environment = {},
+    onSpawn,
+    stdin,
+  }: RunCliOptions = {},
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(entry, args, {
@@ -332,8 +342,10 @@ describe("seqlane CLI entrypoints", () => {
           "--user-root",
           fixture.userRoot,
         ],
-        (child) => child.kill("SIGTERM"),
-        "Seqlane operational host:",
+        {
+          onStarted: (child) => child.kill("SIGTERM"),
+          startMarker: "Seqlane operational host:",
+        },
       );
 
       expect(result.code).toBe(0);
@@ -588,11 +600,7 @@ describe("seqlane CLI entrypoints", () => {
     const result = await runCli(
       productionEntry,
       ["run", exampleWorkflowReference, "--input-file", "-", "--dry"],
-      undefined,
-      undefined,
-      {},
-      undefined,
-      builtinInput,
+      { stdin: builtinInput },
     );
 
     expect(result.code).toBe(0);
@@ -657,12 +665,12 @@ describe("seqlane CLI entrypoints", () => {
     const result = await runCli(
       productionEntry,
       ["run", exampleWorkflowReference, "--input", builtinInput],
-      undefined,
-      undefined,
       {
-        SEQLANE_CLI_DIRECT_ADAPTER_CONFIG: JSON.stringify({
-          adapter: "codex",
-        }),
+        environment: {
+          SEQLANE_CLI_DIRECT_ADAPTER_CONFIG: JSON.stringify({
+            adapter: "codex",
+          }),
+        },
       },
     );
 
@@ -714,11 +722,11 @@ describe("seqlane CLI entrypoints", () => {
           "--adapter",
           "opencode",
         ],
-        undefined,
-        undefined,
         {
-          PATH: `${bin}:${process.env.PATH ?? ""}`,
-          SEQLANE_TEST_OPENCODE_SPAWNED: spawnMarker,
+          environment: {
+            PATH: `${bin}:${process.env.PATH ?? ""}`,
+            SEQLANE_TEST_OPENCODE_SPAWNED: spawnMarker,
+          },
         },
       );
 
@@ -852,11 +860,11 @@ describe("seqlane CLI entrypoints", () => {
           "--opencode-port",
           String(fixture.port),
         ],
-        undefined,
-        undefined,
         {
-          PATH: `${bin}:${process.env.PATH ?? ""}`,
-          SEQLANE_TEST_OPENCODE_SPAWNED: managedSpawnMarker,
+          environment: {
+            PATH: `${bin}:${process.env.PATH ?? ""}`,
+            SEQLANE_TEST_OPENCODE_SPAWNED: managedSpawnMarker,
+          },
         },
       );
 

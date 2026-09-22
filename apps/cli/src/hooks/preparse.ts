@@ -2,7 +2,7 @@ import type { Hook } from "@oclif/core";
 import {
   findDottedInputFlagMissingValue,
   rewriteDottedInputFlags,
-} from "../input-parameters.js";
+} from "../dotted-input-arguments.js";
 
 const preparse: Hook.Preparse = async function ({ argv, options }) {
   if (options.context?.id !== "run") return argv;
