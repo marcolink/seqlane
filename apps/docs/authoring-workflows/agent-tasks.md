@@ -31,33 +31,57 @@ sends the request through the selected adapter.
 
 ## Prompt caching and task input
 
+### Seqlane adapter behavior
+
 Prompt caching can reduce input processing when requests reuse the same prompt
-prefix. The cache uses the prompt sent by the adapter, not the `defineAgentTask`
-fields directly. Seqlane does not expose a cache key or cache breakpoint for an
-agent task, so its field layout cannot guarantee a cache hit.
+prefix. Each adapter builds the prompt from the task goal, instructions, and
+references. Current adapters put the goal before both instructions and
+references. `defineAgentTask` has no setting to change this order or set a cache
+breakpoint.
 
-To make reuse more likely, keep shared content stable and put changing data at
-the end of the goal:
+If the goal contains changing data, later instructions and references do not
+extend the reusable prefix. Keep changing evidence compact. Keep the model and
+tool definitions stable across calls. Reuse a session when later turns can use
+its conversation history.
 
-- Put task rules in `instructions`.
-- Keep `references` and their contents stable across calls.
-- Put only run-specific facts in `goal(input)`. Keep them compact and relevant.
-- Keep the model and tool definitions stable. Reuse a session when later turns
-  can reuse its conversation history.
+These examples show how the prompt order affects caching. They show fields from
+a `defineAgentTask` definition.
 
-For example, keep the review rules and rubric fixed. Pass each change's ID and
-compact evidence through the goal. Do not repeat the rules there or include a
-full patch when a short evidence list is enough.
+Bad: The changing diff comes before the stable instructions and reference.
 
-**OpenAI** prompt caching requires at least 1,024 visible input tokens on GPT-5.6
-and later models. Do not add filler to reach this size. A one-off task may not
-reuse its cached prefix. See the
+```ts
+goal: ({ diff }) => `Review this diff:\n${diff}`,
+instructions: ["Report only supported findings."],
+references: ["docs/review-rubric.md"],
+```
+
+Better: If the agent can read the diff from its workspace, use a stable goal.
+Later workspace reads then do not change the initial prompt prefix.
+
+```ts
+goal: () => "Review the latest diff in the current workspace.",
+instructions: ["Report only supported findings."],
+references: ["docs/review-rubric.md"],
+```
+
+Use the second pattern only for tasks where the selected adapter gives the
+agent access to the required workspace data. If the task must pass changing
+evidence through the goal, current task fields cannot put instructions or
+references before it. An adapter change is required to order those fields
+differently.
+
+### Provider-specific behavior
+
+The **OpenAI** API requires at least 1,024 visible input tokens for caching on
+GPT-5.6 and later models. Do not add filler to reach this size. A one-off task
+may not reuse its cached prefix. See the
 [**OpenAI** prompt caching guide](https://developers.openai.com/api/docs/guides/prompt-caching).
 
-**Claude Code** also reuses prompt prefixes. It manages caching automatically,
-while direct Claude API requests use `cache_control` settings. Cache thresholds,
-lifetime, and pricing differ by model and platform. See the
-[**Claude Code** cost guidance](https://code.claude.com/docs/en/costs) and the
+**Claude Code** manages prompt caching automatically. Direct Anthropic API
+requests use `cache_control` settings. Cache thresholds, lifetime, and pricing
+differ by model and platform. These links describe provider behavior. They do
+not mean that Seqlane adapters expose the same cache controls or guarantee hits.
+See [**Claude Code** cost guidance](https://code.claude.com/docs/en/costs) and the
 [Claude API prompt caching guide](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
 
 ## Output and model requirements
