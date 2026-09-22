@@ -25,7 +25,7 @@ and tasks.
 
 [Publish Seqlane Packages](./tasks/2026-09-21-publish-seqlane-packages.md) is
 the next agreed deliverable. It implements the accepted
-[public release decision](./adrs/2026-09-21-public-npm-release.md) and active
+[public release decision](./adrs/2026-09-22-preserve-workspace-release-references.md) and active
 [distribution contract](./specs/2026-09-21-public-npm-distribution.md). The
 first eligible commit on `main` starts the automated release.
 
