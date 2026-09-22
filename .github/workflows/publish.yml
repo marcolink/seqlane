@@ -1,26 +1,19 @@
-name: Release npm packages
+name: Publish npm packages
 
 on:
-  push:
-    branches:
-      - main
+  workflow_call:
 
 permissions: {}
 
-concurrency:
-  group: npm-release-main
-  cancel-in-progress: false
-
 jobs:
-  verify:
-    if: github.event.repository.private == false
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
 
     steps:
-      - name: Check out repository
+      - name: Check out triggering revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -37,19 +30,15 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify packages
-        run: |
-          pnpm test:mapping
-          pnpm test:tooling
-          pnpm exec nx run-many -t lint,build,test --projects=tag:release:npm --output-style=static
+      - name: Build release packages
+        run: pnpm exec nx run-many -t build --projects=tag:release:npm --output-style=static
 
-      - name: Upload verified package builds
+      - name: Upload release package builds
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-release-builds-${{ github.sha }}
@@ -66,8 +55,7 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: verify
-    if: github.event.repository.private == false
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -101,7 +89,7 @@ jobs:
       - name: Install release tooling
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Download verified package builds
+      - name: Download release package builds
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: npm-release-builds-${{ github.sha }}
