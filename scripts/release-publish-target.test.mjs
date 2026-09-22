@@ -220,6 +220,7 @@ test("CI delegates release state after its quality gate", () => {
     /publish:\n    name: Publish npm packages\n    needs: quality/,
   );
   assert.match(ciWorkflow, /uses: \.\/\.github\/workflows\/publish\.yml/);
+  assert.doesNotMatch(ciWorkflow, /secrets: inherit/);
   assert.match(publishWorkflow, /workflow_call/);
   assert.match(publishWorkflow, /publish:\n    needs: build/);
   assert.match(
@@ -230,6 +231,11 @@ test("CI delegates release state after its quality gate", () => {
   assert.match(publishWorkflow, /GITHUB_OUTPUT/);
   assert.match(publishWorkflow, /GITHUB_STEP_SUMMARY/);
   assert.match(publishWorkflow, /GIT_CONFIG_KEY_0/);
+  assert.match(publishWorkflow, /id-token: write/);
+  assert.doesNotMatch(
+    publishWorkflow,
+    /NODE_AUTH_TOKEN|secrets\.NPM_TOKEN|registry-url:/,
+  );
   assert.doesNotMatch(publishWorkflow, /secrets\.RELEASE_GITHUB_TOKEN/);
   assert.equal(nxConfig.release.git.commit, false);
   assert.equal(nxConfig.release.git.tag, true);

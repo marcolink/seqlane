@@ -81,9 +81,9 @@ commits do not produce a release. The first eligible commit produces `0.0.1`.
 The publish target uses pnpm 10.33.0 to create each package archive. It passes
 the archive to npm 11.13.0 for publication. It requires an explicit live or
 dry-run intent and fails before packing when that intent is absent. The first
-release can use `NPM_TOKEN`. The workflow grants OIDC permission for trusted
-publishing after the initial package creation. A retry skips package-version
-pairs that already exist and publishes the missing pairs.
+release used `NPM_TOKEN`. The workflow grants OIDC permission for trusted
+publishing. It does not expose an npm token to the publish job. A retry skips
+package-version pairs that already exist and publishes the missing pairs.
 
 ## Detailed design or contracts
 
@@ -96,15 +96,17 @@ metadata.
 
 The workflow must serialize release attempts from `main`. Private repositories
 do not publish. A commit with no semantic version impact must finish without a
-release. Insufficient GitHub token permission must not alter `main`. Missing
-npm credentials must stop publication. A retry for a strict SemVer tag remains
-valid after `main` advances only when the remote tag points to the triggering
+release. Insufficient GitHub token permission must not alter `main`. An OIDC
+authentication failure must stop publication. A retry for a strict SemVer tag
+remains valid after `main` advances only when the remote tag points to the triggering
 commit and matches Nx's calculated version. It resumes after partial npm publication.
 
 ## Migration
 
-Configure `ci.yml` as the trusted publisher for all eight packages. Verify an
-OIDC release before you restrict or remove `NPM_TOKEN` access.
+Configure `ci.yml` as the trusted publisher for all eight packages. Run a
+release without an npm token. After it succeeds, require two-factor
+authentication and disallow bypass tokens on all eight packages. Then remove
+the `NPM_TOKEN` secret and revoke the token.
 
 ## Verification
 
@@ -135,8 +137,8 @@ this protocol.
 
 ## Delivery state
 
-Version `0.0.1` is available from npm. CI integration and trusted-publisher
-setup remain in progress.
+Version `0.0.2` is available from npm. CI integration and trusted-publisher
+setup are complete. Tokenless publication awaits a release from `main`.
 
 ## Traceability
 
