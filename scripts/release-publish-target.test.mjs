@@ -142,7 +142,7 @@ function runRelease({
 
     executable(
       join(binDirectory, "pnpm"),
-      `printf 'pnpm %s\\n' "$*" >> '${callsFile}'\nif [ "$*" = "exec nx release --skip-publish --first-release" ]; then\n  git tag v0.0.1\n  git push origin v0.0.1 >/dev/null\n  : > '${releaseState}'\nfi`,
+      `printf 'pnpm %s\\n' "$*" >> '${callsFile}'\nupstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)" || exit 1\nprintf 'upstream %s\\n' "$upstream" >> '${callsFile}'\n[ "$upstream" = "origin/main" ] || exit 1\nif [ "$*" = "exec nx release --skip-publish --first-release" ]; then\n  git tag v0.0.1\n  git push origin v0.0.1 >/dev/null\n  : > '${releaseState}'\nfi`,
     );
     executable(
       join(binDirectory, "gh"),
@@ -246,6 +246,7 @@ test("new state creates the first release", () => {
     execution.calls,
     /pnpm exec nx release --skip-publish --first-release/,
   );
+  assert.match(execution.calls, /upstream origin\/main/);
 });
 
 test("recover state supports the first release without a prior tag after main advances", () => {
