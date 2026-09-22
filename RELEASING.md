@@ -4,31 +4,35 @@ Seqlane uses one fixed Nx release group. The `release:npm` project tag selects
 its members. `seqlane` and `@seqlane/core` are the supported public APIs. The
 other group members are public registry dependencies.
 
-## Prepare a release
+## Release flow
+
+After the repository is public, every push to `main` starts
+`.github/workflows/publish.yml`. The workflow uses Conventional Commits to
+determine the next fixed version. For versions below `1.0.0`, `feat` and `fix`
+commits that affect the release group produce a patch release. A breaking
+change produces a minor release. Other commits do not create a release.
+
+The workflow verifies the release group, then runs the complete Nx release.
+Nx updates all package versions, resolves internal `workspace:*` dependencies,
+updates the changelog, creates and pushes the release commit and `v<version>`
+tag, creates the GitHub release, and publishes all eight packages.
+
+The first eligible commit creates `0.0.1`. Later versions derive from commits
+since the latest `v<version>` tag. GitHub Actions must have permission to write
+repository contents and push the generated release commit to `main`.
+
+## Preview locally
 
 Use Node.js 24, pnpm 10.33.0, and npm 11.5.1 or later. Start from an updated
-`main` branch with a clean worktree.
-
-Run the repository checks. Then preview the version operation:
+branch with a clean worktree. Run the repository checks, then preview without
+creating a release or publishing packages:
 
 ```sh
 pnpm test
 pnpm typecheck
 pnpm lint
-pnpm exec nx release <version> --dry-run --skip-publish
+pnpm exec nx release --dry-run --skip-publish
 ```
-
-Run `pnpm exec nx release <version> --skip-publish` to update the fixed package
-version, resolve internal `workspace:*` dependencies to that exact version,
-update the changelog, commit, and create the `v<version>` tag. Review the
-result, then run `pnpm release:publish:dry-run` from the versioned commit.
-
-## Publish
-
-Push the release commit to `main` before pushing its `v<version>` tag. The tag
-starts `.github/workflows/publish.yml`. The workflow requires a public
-repository and a tagged commit reachable from `main`. It builds and tests the
-release group before `nx release publish` calls npm.
 
 The first release uses the `NPM_TOKEN` repository secret. After all eight
 packages exist on npm, configure a trusted GitHub Actions publisher for each

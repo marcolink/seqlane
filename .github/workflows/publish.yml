@@ -1,16 +1,16 @@
-name: Publish npm packages
+name: Release npm packages
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 concurrency:
-  group: npm-publish-${{ github.ref }}
+  group: npm-release-main
   cancel-in-progress: false
 
 jobs:
@@ -24,12 +24,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          persist-credentials: false
-
-      - name: Require a release from main
-        run: |
-          git fetch origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          persist-credentials: true
+          ref: main
 
       - name: Set up pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -50,17 +46,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify release tag
+      - name: Configure release identity
         run: |
-          expected_version="${GITHUB_REF_NAME#v}"
-          while IFS= read -r project; do
-            project_root="$(pnpm exec nx show project "$project" --json | jq -r '.root')"
-            package_version="$(jq -r '.version' "$project_root/package.json")"
-            if [[ "$package_version" != "$expected_version" ]]; then
-              echo "::error::$project has version $package_version; expected $expected_version"
-              exit 1
-            fi
-          done < <(pnpm exec nx show projects --projects=tag:release:npm)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Verify packages
         run: |
@@ -68,8 +57,14 @@ jobs:
           pnpm test:tooling
           pnpm exec nx run-many -t lint,build,test --projects=tag:release:npm --output-style=static
 
-      - name: Publish packages
-        run: pnpm exec nx release publish --access public --output-style=static
+      - name: Create and publish release
+        run: |
+          release_args=(--yes)
+          if ! git tag --list "v*.*.*" | grep -q .; then
+            release_args+=(--first-release)
+          fi
+          pnpm exec nx release "${release_args[@]}"
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"

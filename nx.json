@@ -70,16 +70,21 @@
       "strictPreid": true
     },
     "version": {
+      "conventionalCommits": true,
+      "adjustSemverBumpsForZeroMajorVersion": true,
       "preserveLocalDependencyProtocols": false,
       "versionPrefix": ""
     },
     "changelog": {
-      "workspaceChangelog": true,
+      "workspaceChangelog": {
+        "createRelease": "github"
+      },
       "projectChangelogs": false
     },
     "git": {
       "commit": true,
-      "tag": true
+      "tag": true,
+      "push": true
     }
   },
   "analytics": false

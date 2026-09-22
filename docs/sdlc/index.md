@@ -27,7 +27,7 @@ and tasks.
 the next agreed deliverable. It implements the accepted
 [public release decision](./adrs/2026-09-21-public-npm-release.md) and active
 [distribution contract](./specs/2026-09-21-public-npm-distribution.md). The
-pull request prepares the release. It does not publish packages.
+first eligible commit on `main` starts the automated release.
 
 ## Authority
 

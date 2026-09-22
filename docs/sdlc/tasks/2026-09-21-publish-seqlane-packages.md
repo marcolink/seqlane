@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-22
 upstream:
   - spec.public-npm-distribution
 supersedes: []
@@ -28,13 +28,13 @@ Implement all requirements in
   to exact versions during release versioning.
 - Apache-2.0 licensing and Node.js 24 support.
 - Fixed Nx release configuration and npm publishing.
-- A tag-based GitHub publish workflow.
+- A main-branch semantic release workflow.
 - Removal of ACP and private workflow dependencies from the CLI closure.
 - Public and contributor documentation.
 
 ## Out of scope
 
-- Publishing `0.0.1` from this pull request.
+- Publishing `0.0.1` during pull-request validation.
 - npm trusted-publisher configuration after the first publish.
 - Independent package versions.
 
@@ -43,7 +43,7 @@ Implement all requirements in
 1. Mark the runtime closure with `release:npm`.
 2. Remove private dependencies from that closure.
 3. Configure Nx fixed releases and npm publishing.
-4. Add the tag workflow and release documentation.
+4. Add the semantic release workflow and release documentation.
 5. Build, test, pack, and install the release set.
 
 ## Affected areas
@@ -53,22 +53,25 @@ documentation, and the lockfile.
 
 ## Verification
 
-Run mapping checks, tooling tests, focused lint, builds, tests, release dry run,
-documentation checks, and an install smoke test from packed artifacts.
+Run mapping checks, tooling tests, focused lint, builds, tests, a complete
+semantic release dry run, documentation checks, and an install smoke test from
+packed artifacts.
 
 ## Completion criteria
 
 - All local verification passes.
 - The pull request is reviewable.
-- Registry publication remains an explicit post-merge action.
+- Publication starts only after an eligible commit reaches public `main`.
 
 ## Outcome
 
 The local branch defines an eight-package fixed release group through the
 `release:npm` tag. It removes ACP and private workflows from the CLI production
-closure. Nx publish dry runs use npm and pass for all eight packages. A fresh
-project can install the packed artifacts, import `@seqlane/core`, and run the
-`seqlane` executable.
+closure. Nx derives pre-1.0 fixed versions from Conventional Commits. The
+main-branch workflow creates the release commit, tag, and GitHub release before
+publishing. Nx publish dry runs use npm and pass for all eight packages. A
+fresh project can install the packed artifacts, import `@seqlane/core`, and
+run the `seqlane` executable.
 
 Two unchanged timing-sensitive integration tests fail in this macOS worktree:
 the non-cooperative MCP deadline test and the operational-route timeout test.

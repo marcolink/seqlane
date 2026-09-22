@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-22
 upstream:
   - adr.public-npm-release
 supersedes: []
@@ -58,11 +58,16 @@ directory, public npm access, and provenance.
 
 ### requirement-release-automation
 
-Nx uses fixed versioning and a `v{version}` tag. A tag push starts
-`publish.yml`. The workflow accepts only a public repository and a commit that
-is reachable from `main`. It verifies the tag against every release package,
-installs dependencies, verifies and builds the release group, then runs
-`nx release publish`.
+Nx uses fixed versioning, Conventional Commits, and a `v{version}` tag. A push
+to `main` starts `publish.yml`. The workflow accepts only a public repository,
+installs dependencies, and verifies and builds the release group. It then runs
+the complete Nx release to version the packages, update the changelog, create
+and push the release commit and tag, create the GitHub release, and publish the
+packages.
+
+For pre-1.0 versions, feature and fix commits that affect the release group
+produce a patch release. A breaking change produces a minor release. Other
+commits do not produce a release. The first eligible commit produces `0.0.1`.
 
 The publish target uses npm 11.5.1 or later. It supports Nx dry runs. The first
 release can use `NPM_TOKEN`. The workflow grants OIDC permission for trusted
@@ -76,9 +81,9 @@ metadata.
 
 ## Failure and edge cases
 
-The workflow must stop when the tag does not match every package version. npm
-must reject an existing package-version pair. Private repositories do not
-publish.
+The workflow must serialize release attempts from `main`. npm must reject an
+existing package-version pair. Private repositories do not publish. A commit
+with no semantic version impact must finish without a release.
 
 ## Migration
 
@@ -93,6 +98,8 @@ tarball and install the package set in an empty project.
 ## Acceptance criteria
 
 - Nx selects exactly the eight tagged projects.
+- A conventional-commit dry run infers `0.0.1` and previews the tag and GitHub
+  release.
 - A publish dry run succeeds with npm.
 - The CLI has no ACP or private workflow production dependency.
 - Published metadata and documentation match this specification.
