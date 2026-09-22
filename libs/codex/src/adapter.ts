@@ -447,6 +447,7 @@ function createAdapterForTransport(
       const model = modelParams(selection);
       const id = await ensureThread(signal, selection);
       const registration = dispatcher.begin(id);
+      request.onExecutionStarted?.();
       const turnStartPromise = withDeadline(
         transport.request("turn/start", {
           threadId: id,

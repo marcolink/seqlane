@@ -310,6 +310,7 @@ export function createAcpAdapter(
             });
             void interaction.catch(() => undefined);
             try {
+              if (attempts === 1) request.onExecutionStarted?.();
               text = await streamAgent(
                 agentState.agent,
                 prompt,

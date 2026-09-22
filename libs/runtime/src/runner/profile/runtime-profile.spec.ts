@@ -2,10 +2,11 @@
 // @test-scope ../../runtime/execution/abortable.ts
 import type { AgentAdapter, AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import type { TaskDefinition, TaskDefinitionRegistry } from "@seqlane/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   executeAgentAdapterRequest,
+  RuntimeAdapterExecutionStartError,
   resolveRuntimeProfile,
 } from "./runtime-profile.js";
 import type { ExecutorRequest } from "../../runtime/execution/executor.js";
@@ -103,7 +104,10 @@ describe("runtime profile agent runtime boundary", () => {
     let runtimeClosed = 0;
     const createAdapter = (): AgentAdapter => ({
       capabilities,
-      execute: async () => ({ value: "done" }),
+      execute: async (value) => {
+        value.onExecutionStarted?.();
+        return { value: "done" };
+      },
       close: async () => {
         adaptersClosed += 1;
       },
@@ -189,6 +193,7 @@ describe("runtime profile agent runtime boundary", () => {
     const adapter: AgentAdapter = {
       capabilities: { ...capabilities, modelSelection: false },
       execute: async (value) => {
+        value.onExecutionStarted?.();
         received = value;
         return { value: "done" };
       },
@@ -212,8 +217,9 @@ describe("runtime profile agent runtime boundary", () => {
     let completedAfterAbort = false;
     const adapter: AgentAdapter = {
       capabilities,
-      execute: async (value) =>
-        new Promise((resolve) => {
+      execute: async (value) => {
+        value.onExecutionStarted?.();
+        return new Promise((resolve) => {
           value.signal.addEventListener(
             "abort",
             () => {
@@ -224,7 +230,8 @@ describe("runtime profile agent runtime boundary", () => {
               once: true,
             },
           );
-        }),
+        });
+      },
       captureCheckpoint: async () => "checkpoint",
       fork: async () => adapter,
     };
@@ -236,5 +243,78 @@ describe("runtime profile agent runtime boundary", () => {
       }),
     ).rejects.toBeDefined();
     expect(completedAfterAbort).toBe(true);
+  });
+
+  it("rejects an adapter that completes without starting execution", async () => {
+    const definition = task();
+    const definitions = new Map([[definition.id, definition]]);
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async () => ({ value: "done" }),
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => adapter,
+    };
+
+    await expect(
+      executeAgentAdapterRequest(
+        adapter,
+        definitions,
+        undefined,
+        request(definition.id),
+      ),
+    ).rejects.toBeInstanceOf(RuntimeAdapterExecutionStartError);
+  });
+
+  it("starts the deadline after adapter queueing", async () => {
+    vi.useFakeTimers();
+    try {
+      const definition = task();
+      const definitions = new Map([[definition.id, definition]]);
+      let signal: AbortSignal | undefined;
+      let startExecution: (() => void) | undefined;
+      const adapter: AgentAdapter = {
+        capabilities,
+        execute: async (value) => {
+          signal = value.signal;
+          startExecution = value.onExecutionStarted;
+          return new Promise((_resolve, reject) => {
+            value.signal.addEventListener(
+              "abort",
+              () => reject(value.signal.reason),
+              {
+                once: true,
+              },
+            );
+          });
+        },
+        captureCheckpoint: async () => "checkpoint",
+        fork: async () => adapter,
+      };
+
+      const execution = executeAgentAdapterRequest(
+        adapter,
+        definitions,
+        undefined,
+        {
+          ...request(definition.id),
+          agent: { goal: "complete task", timeoutMs: 1 },
+        },
+      );
+      const executionFailure = execution.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(signal?.aborted).toBe(false);
+
+      startExecution?.();
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(executionFailure).resolves.toMatchObject({
+        name: "TimeoutError",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -122,6 +122,7 @@ describe("all-features workflow example", () => {
         goal: "Extract two keywords and a short focus hint for workflow design (authoring).",
         instructions: ["Return only two keywords and a short focus hint."],
         references: ["workflows/minimal-example/workflow.ts"],
+        timeoutMs: 120_000,
       },
     ]);
     expect(context).toMatchObject({
@@ -168,6 +169,7 @@ describe("all-features workflow example", () => {
           "Return the exact package name and version from the file.",
         ],
         references: ["package.json"],
+        timeoutMs: 120_000,
       },
     ]);
   });

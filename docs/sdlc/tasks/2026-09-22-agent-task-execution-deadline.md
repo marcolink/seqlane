@@ -28,7 +28,7 @@ it per task without adapter-specific configuration.
 ## Scope
 
 - Add validated `timeoutMs` to `defineAgentTask`.
-- Apply one runtime-owned deadline signal for each agent invocation.
+- Start one runtime-owned deadline when an adapter begins external execution.
 - Remove the Codex adapter execution timeout while retaining bounded cleanup.
 - Document the default and override behavior.
 - Set the Git diff example shell timeout to 30 seconds.
@@ -42,15 +42,16 @@ it per task without adapter-specific configuration.
 ## Implementation plan
 
 1. Define the public task option and default in core.
-2. Compose the task deadline with runtime cancellation.
-3. Make Codex rely on that signal for execution cancellation.
-4. Add contract and timeout tests.
+2. Give adapters one execution-start callback and compose the armed deadline
+   with runtime cancellation.
+3. Make Codex, OpenCode, and ACP report execution start after private queueing.
+4. Add contract, queueing, and timeout tests.
 5. Update public and canonical documentation.
 
 ## Affected areas
 
-`libs/core`, `libs/runtime`, `libs/codex`, workflow examples, and authoring
-documentation.
+`libs/core`, `libs/runtime`, concrete adapters, workflow examples, and
+authoring documentation.
 
 ## Verification
 
@@ -59,14 +60,17 @@ index and validation, public-doc build, and the quality delta check.
 
 ## Completion criteria
 
-- Default and override reach every selected adapter through one runtime signal.
+- Default and override reach every selected adapter through one runtime signal
+  armed after adapter queueing.
 - No adapter owns an execution default.
 - Timeout cleanup preserves uncertain-termination protection.
 - Shell tasks can retain explicit shorter limits.
 
 ## Outcome
 
-Implementation is in progress.
+Implementation is in progress in [PR #146](https://github.com/marcolink/seqlane/pull/146).
+The runtime now arms the task deadline only after the selected adapter reports
+external execution start.
 
 ## Delivery state
 

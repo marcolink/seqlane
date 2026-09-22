@@ -23,7 +23,8 @@ const review = defineAgentTask({
 
 Agent tasks have a two-minute execution limit by default. Set `timeoutMs` to a
 positive integer in milliseconds when one task needs a different limit. The
-limit covers the agent invocation, not workflow admission or queue time.
+timer begins when the selected adapter starts external agent execution. Workflow
+and adapter admission or queue time do not consume this limit.
 
 `defineAgentTask` does not accept an `execute` function. Seqlane creates it and
 sends the request through the selected adapter.

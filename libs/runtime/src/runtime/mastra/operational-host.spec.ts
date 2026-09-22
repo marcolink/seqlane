@@ -359,10 +359,13 @@ describe("Mastra operational host", () => {
     };
     const adapter: AgentAdapter = {
       capabilities,
-      execute: async () => ({
-        files: ["package.json"],
-        rootCause: `runtime=${receivedRuntimeId}`,
-      }),
+      execute: async ({ onExecutionStarted }) => {
+        onExecutionStarted?.();
+        return {
+          files: ["package.json"],
+          rootCause: `runtime=${receivedRuntimeId}`,
+        };
+      },
       close: async () => {
         closed += 1;
       },
@@ -658,10 +661,13 @@ describe("Mastra operational host", () => {
     let closed = 0;
     const adapter: AgentAdapter = {
       capabilities,
-      execute: async () => ({
-        files: ["package.json"],
-        rootCause: "direct-run",
-      }),
+      execute: async ({ onExecutionStarted }) => {
+        onExecutionStarted?.();
+        return {
+          files: ["package.json"],
+          rootCause: "direct-run",
+        };
+      },
       close: async () => {
         closed += 1;
       },
@@ -751,7 +757,8 @@ describe("Mastra operational host", () => {
     let closed = 0;
     const adapter: AgentAdapter = {
       capabilities,
-      execute: async ({ signal }) => {
+      execute: async ({ signal, onExecutionStarted }) => {
+        onExecutionStarted?.();
         started();
         await new Promise<never>((resolve, reject) => {
           const onAbort = () => reject(new Error("fixture adapter aborted"));
@@ -810,7 +817,8 @@ describe("Mastra operational host", () => {
     let closed = 0;
     const adapter: AgentAdapter = {
       capabilities,
-      execute: async ({ task }) => {
+      execute: async ({ task, onExecutionStarted }) => {
+        onExecutionStarted?.();
         if (task.id === "parallel.right") {
           rightStarted();
           await rightExecutionReleased;
@@ -873,7 +881,8 @@ describe("Mastra operational host", () => {
     let closed = 0;
     const adapter: AgentAdapter = {
       capabilities,
-      execute: async ({ task }) => {
+      execute: async ({ task, onExecutionStarted }) => {
+        onExecutionStarted?.();
         if (task.id === "parallel.left") {
           await rightExecutionStarted;
           leftFailed();

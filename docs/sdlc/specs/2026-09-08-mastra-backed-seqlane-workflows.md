@@ -85,10 +85,12 @@ must not expose Mastra, OpenCode, provider, client, connection, or other
 executor product types.
 
 `defineAgentTask` accepts an optional positive integer `timeoutMs`. It defaults
-to 120,000 milliseconds and bounds one agent invocation from `runAgent` to a
-terminal adapter outcome. A task can override that default. The runtime owns
-the deadline signal; adapter configuration cannot override it. `defineShellTask`
-retains its existing independent `timeoutMs` option.
+to 120,000 milliseconds and bounds one agent invocation from adapter-reported
+external execution start to a terminal adapter outcome. A task can override
+that default. Workflow and adapter admission or queue time do not consume the
+budget. The runtime owns the deadline signal; adapter configuration cannot
+override it. `defineShellTask` retains its existing independent `timeoutMs`
+option.
 
 The foundational execution shape is:
 

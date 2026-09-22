@@ -18,7 +18,10 @@ import {
   type AgentRuntimeFactory,
 } from "@seqlane/agent-adapter";
 import type { ExecutorResolvers } from "../../runtime/execution/executor.js";
-import { raceWithAbort } from "../../runtime/execution/abortable.js";
+import {
+  createExecutionDeadline,
+  raceWithAbort,
+} from "../../runtime/execution/abortable.js";
 import type {
   ExecutorRequest,
   SeqlaneExecutor,
@@ -118,6 +121,13 @@ export class RuntimeAdapterCheckpointError extends Error {
   }
 }
 
+export class RuntimeAdapterExecutionStartError extends Error {
+  constructor() {
+    super("Agent adapter completed without starting execution");
+    this.name = "RuntimeAdapterExecutionStartError";
+  }
+}
+
 export interface SessionCheckpointBinding {
   readonly adapter: string;
   readonly runId: RunId;
@@ -130,7 +140,7 @@ interface SessionCheckpointState {
   latest?: BoundCheckpoint;
 }
 
-export function executeAgentAdapterRequest(
+export async function executeAgentAdapterRequest(
   adapter: AgentAdapter,
   taskDefinitions: TaskDefinitionRegistry,
   effectiveSelection: ModelSelection | undefined,
@@ -140,33 +150,39 @@ export function executeAgentAdapterRequest(
   if (task === undefined) {
     throw new Error(`No task definition found for "${request.taskId}"`);
   }
-  const signal = AbortSignal.any([
+  const deadline = createExecutionDeadline(
     request.signal,
-    AbortSignal.timeout(
-      agentTaskTimeoutMsSchema.parse(request.agent?.timeoutMs),
-    ),
-  ]);
-  return raceWithAbort(
-    adapter.execute({
-      invocationId: request.invocationId,
-      observability: request.observability,
-      task,
-      input: request.input,
-      ...(request.agent === undefined ? {} : { agent: request.agent }),
-      ...(effectiveSelection === undefined ||
-      !adapter.capabilities.modelSelection
-        ? {}
-        : { modelSelection: effectiveSelection }),
-      signal,
-      onMetrics: request.onMetrics,
-      onDiagnostic: (diagnostic) => request.onDiagnostic?.(diagnostic.message),
-      onActivity: request.onActivity,
-      onObservation: request.onObservation,
-      onUncertainActivity: request.onUncertainActivity,
-      onBackgroundProcess: request.onBackgroundProcess,
-    }),
-    signal,
+    agentTaskTimeoutMsSchema.parse(request.agent?.timeoutMs),
   );
+  try {
+    const result = await raceWithAbort(
+      adapter.execute({
+        invocationId: request.invocationId,
+        observability: request.observability,
+        task,
+        input: request.input,
+        ...(request.agent === undefined ? {} : { agent: request.agent }),
+        ...(effectiveSelection === undefined ||
+        !adapter.capabilities.modelSelection
+          ? {}
+          : { modelSelection: effectiveSelection }),
+        signal: deadline.signal,
+        onExecutionStarted: deadline.start,
+        onMetrics: request.onMetrics,
+        onDiagnostic: (diagnostic) =>
+          request.onDiagnostic?.(diagnostic.message),
+        onActivity: request.onActivity,
+        onObservation: request.onObservation,
+        onUncertainActivity: request.onUncertainActivity,
+        onBackgroundProcess: request.onBackgroundProcess,
+      }),
+      deadline.signal,
+    );
+    if (!deadline.started) throw new RuntimeAdapterExecutionStartError();
+    return result;
+  } finally {
+    deadline.dispose();
+  }
 }
 
 export function createAgentSession(

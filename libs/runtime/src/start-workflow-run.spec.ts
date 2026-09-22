@@ -70,7 +70,10 @@ describe("startWorkflowRun", () => {
         adaptersCreated += 1;
         return {
           capabilities: agentRuntime.capabilities,
-          execute: async () => ({ value: "complete" }),
+          execute: async ({ onExecutionStarted }) => {
+            onExecutionStarted?.();
+            return { value: "complete" };
+          },
         };
       },
       redactAdapter: (adapter) => adapter,

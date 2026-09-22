@@ -334,6 +334,7 @@ describe("Codex AgentAdapter", () => {
     const activities: AgentActivity[] = [];
     const metrics: unknown[] = [];
     const backgroundProcesses: unknown[] = [];
+    let executionStarted = 0;
     const adapter = createCodexAdapterForTransport(transport, configuration, {
       modelSelection: selection,
     });
@@ -344,9 +345,13 @@ describe("Codex AgentAdapter", () => {
           onActivity: (value) => activities.push(value),
           onMetrics: (value) => metrics.push(value),
           onBackgroundProcess: (value) => backgroundProcesses.push(value),
+          onExecutionStarted: () => {
+            executionStarted += 1;
+          },
         }),
       ),
     ).resolves.toEqual({ result: "done" });
+    expect(executionStarted).toBe(1);
     expect(backgroundProcesses).toEqual([]);
     const checkpoint = await adapter.captureCheckpoint!();
     const child = await adapter.fork!({

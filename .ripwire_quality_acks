@@ -1,0 +1,5 @@
+# ripwire quality acks v1 — written by --quality-ack; a finding stays suppressed until it worsens past its acked magnitude
+# format: ack <kind> <16-hex-key> <ackNow> [cid=<16-hex-content-id>] [by=<scope that acked it>] <reason to end of line> — one per line, kept SORTED by (kind,key) on every write (merge-friendly)
+ack short-horizon-churn 453371b11250e5f6 5 cid=e90bd271a9d6daec Required execution-start lifecycle contract and fixture update
+ack short-horizon-churn 86cd2e305f577636 9 cid=b01750a87a62017d Required execution-start lifecycle contract and fixture update
+ack short-horizon-churn 9662f00d5bbdcd13 3 cid=ec99d07ef38d3573 Test seam mirrors the required execution-start lifecycle
