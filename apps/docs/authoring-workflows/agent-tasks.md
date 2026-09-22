@@ -29,6 +29,37 @@ and adapter admission or queue time do not consume this limit.
 `defineAgentTask` does not accept an `execute` function. Seqlane creates it and
 sends the request through the selected adapter.
 
+## Prompt caching and task input
+
+Prompt caching can reduce input processing when requests reuse the same prompt
+prefix. The cache uses the prompt sent by the adapter, not the `defineAgentTask`
+fields directly. Seqlane does not expose a cache key or cache breakpoint for an
+agent task, so its field layout cannot guarantee a cache hit.
+
+To make reuse more likely, keep shared content stable and put changing data at
+the end of the goal:
+
+- Put task rules in `instructions`.
+- Keep `references` and their contents stable across calls.
+- Put only run-specific facts in `goal(input)`. Keep them compact and relevant.
+- Keep the model and tool definitions stable. Reuse a session when later turns
+  can reuse its conversation history.
+
+For example, keep the review rules and rubric fixed. Pass each change's ID and
+compact evidence through the goal. Do not repeat the rules there or include a
+full patch when a short evidence list is enough.
+
+**OpenAI** prompt caching requires at least 1,024 visible input tokens on GPT-5.6
+and later models. Do not add filler to reach this size. A one-off task may not
+reuse its cached prefix. See the
+[**OpenAI** prompt caching guide](https://developers.openai.com/api/docs/guides/prompt-caching).
+
+**Claude Code** also reuses prompt prefixes. It manages caching automatically,
+while direct Claude API requests use `cache_control` settings. Cache thresholds,
+lifetime, and pricing differ by model and platform. See the
+[**Claude Code** cost guidance](https://code.claude.com/docs/en/costs) and the
+[Claude API prompt caching guide](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+
 ## Output and model requirements
 
 The agent result must match the output schema. Seqlane validates it before the
