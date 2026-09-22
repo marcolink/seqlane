@@ -3,6 +3,10 @@
 Reviews a supplied Git change using parallel correctness, maintainability, and
 risk lanes, then applies dispositions to the resulting report.
 
+The model-backed history verification, review lanes, and synthesis stages each
+have a five-minute execution deadline. Other agent tasks keep the two-minute
+default.
+
 Run: `seqlane run workflows/code-review/workflow.ts --input '<code-review input JSON>' --adapter opencode`
 
 `direct` selects Seqlane's built-in in-process agent-execution profile. The

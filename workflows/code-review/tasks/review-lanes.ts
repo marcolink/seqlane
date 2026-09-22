@@ -7,6 +7,7 @@ import {
 } from "../contracts.js";
 import { renderPromptData } from "./review-history.js";
 import { reviewProcessInstructions } from "./review-policy.js";
+import { CODE_REVIEW_AGENT_TIMEOUT_MS } from "./review-timeout.js";
 
 function createReviewLane(options: {
   readonly id: string;
@@ -15,6 +16,7 @@ function createReviewLane(options: {
 }) {
   return defineAgentTask({
     id: options.id,
+    timeoutMs: CODE_REVIEW_AGENT_TIMEOUT_MS,
     input: reviewLaneInputSchema,
     output: reviewLaneResultSchema,
     goal: ({ review }) =>
