@@ -42,10 +42,10 @@ it per task without adapter-specific configuration.
 ## Implementation plan
 
 1. Define the public task option and default in core.
-2. Give adapters one execution-start callback and compose the armed deadline
+2. Require one adapter execution-start callback and compose the armed deadline
    with runtime cancellation.
 3. Make Codex, OpenCode, and ACP report execution start after private queueing.
-4. Add contract, queueing, and timeout tests.
+4. Add contract, queueing, timeout, and deferred-termination reuse tests.
 5. Update public and canonical documentation.
 
 ## Affected areas
@@ -64,6 +64,8 @@ index and validation, public-doc build, and the quality delta check.
   armed after adapter queueing.
 - No adapter owns an execution default.
 - Timeout cleanup preserves uncertain-termination protection.
+- A timed-out adapter keeps its invocation and session unavailable until it
+  confirms termination.
 - Shell tasks can retain explicit shorter limits.
 
 ## Outcome

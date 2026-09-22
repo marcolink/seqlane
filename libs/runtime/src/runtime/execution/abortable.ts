@@ -18,6 +18,32 @@ export async function raceWithAbort<T>(
   }
 }
 
+/**
+ * Keeps execution ownership until the adapter settles, while preserving an
+ * abort as the task outcome. Use this for work whose cleanup protects a
+ * reusable external session.
+ */
+export async function awaitWithAbortPrecedence<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  let aborted = signal.aborted;
+  const onAbort = (): void => {
+    aborted = true;
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    const result = await promise;
+    if (aborted) throw signal.reason;
+    return result;
+  } catch (cause) {
+    if (aborted) throw signal.reason;
+    throw cause;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 export interface ExecutionDeadline {
   readonly signal: AbortSignal;
   readonly started: boolean;

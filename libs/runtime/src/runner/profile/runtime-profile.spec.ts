@@ -1,5 +1,6 @@
 // @test-scope ./runtime-profile.ts
 // @test-scope ../../runtime/execution/abortable.ts
+// @test-scope ../../runtime/session/session-lock.ts
 import type { AgentAdapter, AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import type { TaskDefinition, TaskDefinitionRegistry } from "@seqlane/core";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +11,7 @@ import {
   resolveRuntimeProfile,
 } from "./runtime-profile.js";
 import type { ExecutorRequest } from "../../runtime/execution/executor.js";
+import { SessionLockRegistry } from "../../runtime/session/session-lock.js";
 
 const capabilities = {
   execute: true as const,
@@ -105,7 +107,7 @@ describe("runtime profile agent runtime boundary", () => {
     const createAdapter = (): AgentAdapter => ({
       capabilities,
       execute: async (value) => {
-        value.onExecutionStarted?.();
+        value.onExecutionStarted();
         return { value: "done" };
       },
       close: async () => {
@@ -193,7 +195,7 @@ describe("runtime profile agent runtime boundary", () => {
     const adapter: AgentAdapter = {
       capabilities: { ...capabilities, modelSelection: false },
       execute: async (value) => {
-        value.onExecutionStarted?.();
+        value.onExecutionStarted();
         received = value;
         return { value: "done" };
       },
@@ -218,7 +220,7 @@ describe("runtime profile agent runtime boundary", () => {
     const adapter: AgentAdapter = {
       capabilities,
       execute: async (value) => {
-        value.onExecutionStarted?.();
+        value.onExecutionStarted();
         return new Promise((resolve) => {
           value.signal.addEventListener(
             "abort",
@@ -243,6 +245,74 @@ describe("runtime profile agent runtime boundary", () => {
       }),
     ).rejects.toBeDefined();
     expect(completedAfterAbort).toBe(true);
+  });
+
+  it("keeps a timed-out session unavailable until adapter termination confirms", async () => {
+    vi.useFakeTimers();
+    try {
+      const definition = task();
+      const definitions = new Map([[definition.id, definition]]);
+      let confirmTermination!: () => void;
+      let terminationStarted = false;
+      const adapter: AgentAdapter = {
+        capabilities,
+        execute: async (value) => {
+          value.onExecutionStarted();
+          return new Promise((_resolve, reject) => {
+            value.signal.addEventListener(
+              "abort",
+              () => {
+                terminationStarted = true;
+                confirmTermination = () =>
+                  reject(new Error("adapter termination confirmed"));
+              },
+              { once: true },
+            );
+          });
+        },
+        captureCheckpoint: async () => "checkpoint",
+        fork: async () => adapter,
+      };
+
+      const execution = executeAgentAdapterRequest(
+        adapter,
+        definitions,
+        undefined,
+        {
+          ...request(definition.id),
+          agent: { goal: "complete task", timeoutMs: 1 },
+        },
+      );
+      const outcome = execution.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      const locks = new SessionLockRegistry();
+      const session = {
+        key: Symbol("timed-out-agent-session"),
+        executor: { execute: async () => undefined },
+      };
+      const active = await locks.acquire(session);
+      void outcome.finally(() => active.release());
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(terminationStarted).toBe(true);
+
+      let reuseAdmitted = false;
+      const reuse = locks.acquire(session).then((lease) => {
+        reuseAdmitted = true;
+        lease.release();
+      });
+      await Promise.resolve();
+      expect(reuseAdmitted).toBe(false);
+
+      confirmTermination();
+      await expect(outcome).resolves.toMatchObject({ name: "TimeoutError" });
+      await reuse;
+      expect(reuseAdmitted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects an adapter that completes without starting execution", async () => {

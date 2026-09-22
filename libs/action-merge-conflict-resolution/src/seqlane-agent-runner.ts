@@ -72,6 +72,7 @@ function createOpenCodeExecutor(
             input: request.input,
             agent,
             signal: request.signal,
+            onExecutionStarted: () => undefined,
             onMetrics: request.onMetrics,
             onDiagnostic: (diagnostic) =>
               request.onDiagnostic?.(diagnostic.message),

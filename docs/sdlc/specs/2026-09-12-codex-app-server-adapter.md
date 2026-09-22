@@ -125,6 +125,8 @@ It must interrupt the active turn and terminate its owned process when the
 task-provided runtime deadline aborts its execution signal. It must not apply a
 separate Codex execution deadline. Its bounded interruption confirmation is
 cleanup only and does not replace the task timeout outcome.
+The runtime must await the adapter's confirmed termination before it releases
+the timed-out invocation for session reuse.
 After its private turn queue admits a request and immediately before
 `turn/start`, the adapter must report execution start to the runtime. This
 starts the task-owned deadline and excludes queue time from the task budget.

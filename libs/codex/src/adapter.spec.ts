@@ -46,6 +46,7 @@ function request(
     input: { value: "demo" },
     agent: { goal: "Return the result" },
     signal: new AbortController().signal,
+    onExecutionStarted: () => undefined,
     ...overrides,
   };
 }

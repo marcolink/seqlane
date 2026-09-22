@@ -360,7 +360,7 @@ describe("Mastra operational host", () => {
     const adapter: AgentAdapter = {
       capabilities,
       execute: async ({ onExecutionStarted }) => {
-        onExecutionStarted?.();
+        onExecutionStarted();
         return {
           files: ["package.json"],
           rootCause: `runtime=${receivedRuntimeId}`,
@@ -662,7 +662,7 @@ describe("Mastra operational host", () => {
     const adapter: AgentAdapter = {
       capabilities,
       execute: async ({ onExecutionStarted }) => {
-        onExecutionStarted?.();
+        onExecutionStarted();
         return {
           files: ["package.json"],
           rootCause: "direct-run",
@@ -758,7 +758,7 @@ describe("Mastra operational host", () => {
     const adapter: AgentAdapter = {
       capabilities,
       execute: async ({ signal, onExecutionStarted }) => {
-        onExecutionStarted?.();
+        onExecutionStarted();
         started();
         await new Promise<never>((resolve, reject) => {
           const onAbort = () => reject(new Error("fixture adapter aborted"));
@@ -818,7 +818,7 @@ describe("Mastra operational host", () => {
     const adapter: AgentAdapter = {
       capabilities,
       execute: async ({ task, onExecutionStarted }) => {
-        onExecutionStarted?.();
+        onExecutionStarted();
         if (task.id === "parallel.right") {
           rightStarted();
           await rightExecutionReleased;
@@ -882,7 +882,7 @@ describe("Mastra operational host", () => {
     const adapter: AgentAdapter = {
       capabilities,
       execute: async ({ task, onExecutionStarted }) => {
-        onExecutionStarted?.();
+        onExecutionStarted();
         if (task.id === "parallel.left") {
           await rightExecutionStarted;
           leftFailed();

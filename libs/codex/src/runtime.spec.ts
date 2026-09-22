@@ -200,6 +200,7 @@ describe("Codex agent runtime composition", () => {
         task,
         input: null,
         signal: new AbortController().signal,
+        onExecutionStarted: () => undefined,
         onDiagnostic: (diagnostic) => diagnostics.push(diagnostic.message),
       }),
     ).rejects.toThrow("execution failed in [REDACTED]");

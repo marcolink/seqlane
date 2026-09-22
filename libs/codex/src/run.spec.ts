@@ -173,6 +173,7 @@ describe("Codex run ownership", () => {
       input: {},
       agent: { goal: "Return JSON" },
       signal: new AbortController().signal,
+      onExecutionStarted: () => undefined,
     };
     const diagnostics: string[] = [];
     const firstAdapter = run.createAdapter(request.signal);
@@ -330,6 +331,7 @@ describe("Codex run ownership", () => {
       input: {},
       agent: { goal: "Return JSON" },
       signal: new AbortController().signal,
+      onExecutionStarted: () => undefined,
     };
     const hangingController = new AbortController();
 
@@ -427,6 +429,7 @@ describe("Codex run ownership", () => {
       input: {},
       agent: { goal: "Return JSON" },
       signal: new AbortController().signal,
+      onExecutionStarted: () => undefined,
     };
     const adapter = run.createAdapter(request.signal);
     await expect(adapter.execute(request)).resolves.toEqual({ result: "done" });

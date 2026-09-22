@@ -100,6 +100,7 @@ function request(
     input: "controlled input",
     agent,
     signal,
+    onExecutionStarted: () => undefined,
     ...overrides,
     observability: overrides.observability ?? {},
   };

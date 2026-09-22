@@ -447,7 +447,7 @@ function createAdapterForTransport(
       const model = modelParams(selection);
       const id = await ensureThread(signal, selection);
       const registration = dispatcher.begin(id);
-      request.onExecutionStarted?.();
+      request.onExecutionStarted();
       const turnStartPromise = withDeadline(
         transport.request("turn/start", {
           threadId: id,
@@ -678,19 +678,19 @@ export function createCodexAdapter(
     ).then((transport) =>
       createAdapterForTransport(transport, validated, options),
     ));
-  const lifecycleRequest = (): AgentAdapterRequest =>
-    ({
-      invocationId: "codex-lifecycle",
-      observability: {},
-      task: {
-        id: "codex-lifecycle",
-        input: z.unknown(),
-        output: z.unknown(),
-        execute: async () => undefined,
-      },
-      input: undefined,
-      signal: options.signal ?? new AbortController().signal,
-    }) as AgentAdapterRequest;
+  const lifecycleRequest = (): AgentAdapterRequest => ({
+    invocationId: "codex-lifecycle",
+    observability: {},
+    task: {
+      id: "codex-lifecycle",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async () => undefined,
+    },
+    input: undefined,
+    signal: options.signal ?? new AbortController().signal,
+    onExecutionStarted: () => undefined,
+  });
   return {
     get capabilities() {
       return CODEX_AGENT_CAPABILITIES;

@@ -19,8 +19,8 @@ import {
 } from "@seqlane/agent-adapter";
 import type { ExecutorResolvers } from "../../runtime/execution/executor.js";
 import {
+  awaitWithAbortPrecedence,
   createExecutionDeadline,
-  raceWithAbort,
 } from "../../runtime/execution/abortable.js";
 import type {
   ExecutorRequest,
@@ -155,7 +155,8 @@ export async function executeAgentAdapterRequest(
     agentTaskTimeoutMsSchema.parse(request.agent?.timeoutMs),
   );
   try {
-    const result = await raceWithAbort(
+    deadline.signal.throwIfAborted();
+    const result = await awaitWithAbortPrecedence(
       adapter.execute({
         invocationId: request.invocationId,
         observability: request.observability,

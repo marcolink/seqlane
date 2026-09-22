@@ -421,6 +421,7 @@ describe("OpenCode SDK adapter boundary", () => {
         agent: adapterAgent,
         input: "reuse",
         signal: new AbortController().signal,
+        onExecutionStarted: () => undefined,
       };
 
       await adapter.execute(request);
@@ -470,6 +471,7 @@ describe("OpenCode SDK adapter boundary", () => {
         agent: adapterAgent,
         input: "cancel",
         signal: controller.signal,
+        onExecutionStarted: () => undefined,
       });
       await cancellationServer.promptStarted;
       controller.abort(new Error("cancelled by test"));
@@ -496,6 +498,7 @@ describe("OpenCode SDK adapter boundary", () => {
           agent: adapterAgent,
           input: "permission",
           signal: new AbortController().signal,
+          onExecutionStarted: () => undefined,
         }),
       ).rejects.toMatchObject({
         name: "InteractionRequiredError",

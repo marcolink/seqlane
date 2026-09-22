@@ -87,16 +87,17 @@ positive safe integer no greater than `2_147_483_647`. Omission means
 `120_000` milliseconds. The value is not serialized into a Plan and does not
 select or configure an adapter.
 
-The runtime supplies caller cancellation and an `onExecutionStarted` callback
-to the selected adapter. The adapter must call the callback exactly once after
-its private admission or queue and immediately before external agent execution.
-The callback starts the runtime-owned deadline, so queue time does not consume
-the task budget. Caller cancellation can still abort the request before that
-callback. An adapter that completes without calling the callback is a runtime
-error. A deadline expiry keeps the task timeout outcome even when a terminal
-adapter event races with it. The adapter must still confirm termination before
-session, checkpoint, or workspace reuse. An unconfirmed termination remains
-uncertain activity.
+The runtime supplies caller cancellation and a required `onExecutionStarted`
+callback to the selected adapter. The adapter must call the callback exactly
+once after its private admission or queue and immediately before external agent
+execution. The callback starts the runtime-owned deadline, so queue time does
+not consume the task budget. Caller cancellation can still abort the request
+before that callback. An adapter that completes without calling the callback is
+a runtime error. A deadline expiry keeps the task timeout outcome even when a
+terminal adapter event races with it. Before it releases the invocation for
+session, checkpoint, or workspace reuse, the runtime must await the adapter's
+termination result. An unconfirmed termination remains uncertain activity and
+quarantines the affected session.
 
 This requirement does not change shell-task timeout behavior. Shell tasks keep
 their existing explicit `timeoutMs` option.

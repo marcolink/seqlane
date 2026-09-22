@@ -71,7 +71,7 @@ describe("startWorkflowRun", () => {
         return {
           capabilities: agentRuntime.capabilities,
           execute: async ({ onExecutionStarted }) => {
-            onExecutionStarted?.();
+            onExecutionStarted();
             return { value: "complete" };
           },
         };

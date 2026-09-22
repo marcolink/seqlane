@@ -73,6 +73,7 @@ describe("agent runtime contract", () => {
         task,
         input: null,
         signal: new AbortController().signal,
+        onExecutionStarted: () => undefined,
         onDiagnostic: (diagnostic) => diagnostics.push(diagnostic.message),
         onActivity: (activity) => activities.push(activity),
       }),
