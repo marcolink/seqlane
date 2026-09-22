@@ -38,11 +38,12 @@ import {
   type RunIdentity,
 } from "../run-result.js";
 import { writeSessionUiDiagnostic } from "../session-ui-diagnostic.js";
+import { parseDottedInputParameters } from "../input-parameters.js";
 import { z } from "zod";
 
 const localRuntimeId = "local";
 const directRuntimeId = "direct";
-const MAX_INPUT_FILE_BYTES = 1_048_576;
+const MAX_INPUT_BYTES = 1_048_576;
 const openCodeAdapterOnlyRelationships = [
   {
     type: "none" as const,
@@ -56,41 +57,44 @@ const openCodeAdapterOnlyRelationships = [
   },
 ];
 
-function parseJsonInput(value: string): JsonValue {
+function parseJsonInput(value: string, source: string): JsonValue {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(value) as unknown;
+    parsed = JSON.parse(value);
   } catch {
-    throw new Error("--input must be valid JSON");
+    throw new Error(`${source} must contain valid JSON`);
   }
 
-  if (!isJsonValue(parsed)) throw new Error("--input must be a JSON value");
+  if (!isJsonValue(parsed)) throw new Error(`${source} must be a JSON value`);
   return parsed;
 }
 
-const runInputSourceSchema = z.union([
-  z.strictObject({
-    input: z.string(),
-    inputFile: z.undefined().optional(),
-  }),
-  z.strictObject({
-    input: z.undefined().optional(),
-    inputFile: z.string(),
-  }),
-]);
+const runInputSourceSchema = z.strictObject({
+  input: z.string().optional(),
+  inputFile: z.string().optional(),
+  inputParameters: z.array(z.string()).optional(),
+});
 
 type RunInputSource = z.output<typeof runInputSourceSchema>;
 
 function parseRunInputSource(
   inlineInput: string | undefined,
   inputFile: string | undefined,
+  inputParameters: string[] | undefined,
 ): RunInputSource {
   const result = runInputSourceSchema.safeParse({
     input: inlineInput,
     inputFile,
+    inputParameters,
   });
-  if (!result.success) {
-    throw new Error("specify exactly one of --input or --input-file");
+  if (!result.success) throw new Error("invalid workflow input source");
+  const sourceCount = [
+    result.data.input,
+    result.data.inputFile,
+    result.data.inputParameters,
+  ].filter((source) => source !== undefined).length;
+  if (sourceCount > 1) {
+    throw new Error("use only one of --input, --input-file, or --input.<path>");
   }
   return result.data;
 }
@@ -98,14 +102,27 @@ function parseRunInputSource(
 function readJsonInput(
   inlineInput: string | undefined,
   inputFile: string | undefined,
+  inputParameters: string[] | undefined,
 ): string {
-  const source = parseRunInputSource(inlineInput, inputFile);
-  if (source.input !== undefined) return source.input;
+  const source = parseRunInputSource(inlineInput, inputFile, inputParameters);
+  if (source.input !== undefined) {
+    assertInputSize(source.input, "--input");
+    return source.input;
+  }
+  if (source.inputParameters !== undefined) {
+    const input = JSON.stringify(
+      parseDottedInputParameters(source.inputParameters),
+    );
+    assertInputSize(input, "--input.<path>");
+    return input;
+  }
+  if (source.inputFile === undefined) return "{}";
 
   let fileDescriptor: number | undefined;
+  const isStdin = source.inputFile === "-";
   try {
-    fileDescriptor = openSync(resolve(source.inputFile), "r");
-    const buffer = Buffer.allocUnsafe(MAX_INPUT_FILE_BYTES + 1);
+    fileDescriptor = isStdin ? 0 : openSync(resolve(source.inputFile), "r");
+    const buffer = Buffer.allocUnsafe(MAX_INPUT_BYTES + 1);
     let bytesRead = 0;
     while (bytesRead < buffer.length) {
       const result = readSync(
@@ -113,21 +130,33 @@ function readJsonInput(
         buffer,
         bytesRead,
         buffer.length - bytesRead,
-        bytesRead,
+        isStdin ? null : bytesRead,
       );
       if (result === 0) break;
       bytesRead += result;
     }
-    if (bytesRead > MAX_INPUT_FILE_BYTES) {
-      throw new Error(`file exceeds the ${MAX_INPUT_FILE_BYTES}-byte limit`);
+    if (bytesRead > MAX_INPUT_BYTES) {
+      const sourceName = isStdin ? "input" : "file";
+      throw new Error(
+        `${sourceName} exceeds the ${MAX_INPUT_BYTES}-byte limit`,
+      );
     }
-    return buffer.subarray(0, bytesRead).toString("utf8");
+    return new TextDecoder("utf-8", { fatal: true }).decode(
+      buffer.subarray(0, bytesRead),
+    );
   } catch (error) {
-    throw new Error(`--input-file could not be read: ${errorMessage(error)}`, {
+    const label = isStdin ? "--input-file -" : "--input-file";
+    throw new Error(`${label} could not be read: ${errorMessage(error)}`, {
       cause: error,
     });
   } finally {
-    if (fileDescriptor !== undefined) closeSync(fileDescriptor);
+    if (fileDescriptor !== undefined && !isStdin) closeSync(fileDescriptor);
+  }
+}
+
+function assertInputSize(input: string, source: string): void {
+  if (Buffer.byteLength(input, "utf8") > MAX_INPUT_BYTES) {
+    throw new Error(`${source} exceeds the ${MAX_INPUT_BYTES}-byte limit`);
   }
 }
 
@@ -146,7 +175,7 @@ export function createRunRequest(
   return {
     type: "run.start",
     workflow: parseWorkflowReference(workflow),
-    input: parseJsonInput(input),
+    input: parseJsonInput(input, "workflow input"),
     runtime: {
       id: adapter === undefined ? localRuntimeId : directRuntimeId,
       ...(workspace === undefined ? {} : { workspace }),
@@ -160,7 +189,7 @@ export default class RunCommand extends SeqlaneCommand {
   static override description = "Run one explicit workflow in a fresh runner";
 
   static override examples = [
-    '<%= config.bin %> run ./workflows/local-only-example/workflow.ts --input \'{"value":"Seqlane"}\'',
+    "<%= config.bin %> run ./workflows/local-only-example/workflow.ts --input.value Seqlane",
     '<%= config.bin %> run ./workflows/minimal-example/workflow.ts --input \'{"topic":"Seqlane"}\' --adapter opencode',
   ];
 
@@ -174,10 +203,20 @@ export default class RunCommand extends SeqlaneCommand {
   static override flags = {
     input: Flags.string({
       char: "i",
-      description: "JSON workflow input",
+      description:
+        "JSON workflow input (maximum 1 MiB); use --input.<path> to set fields",
+      exclusive: ["input-file"],
     }),
     "input-file": Flags.string({
-      description: "Path to a JSON workflow input file (maximum 1 MiB)",
+      description:
+        "Path to a JSON workflow input file, or - for stdin (maximum 1 MiB)",
+      exclusive: ["input"],
+    }),
+    "input-param": Flags.string({
+      description: "Internal dotted input field",
+      multiple: true,
+      multipleNonGreedy: true,
+      hidden: true,
     }),
     adapter: Flags.string({
       description: "Concrete adapter for agent tasks",
@@ -235,7 +274,7 @@ export default class RunCommand extends SeqlaneCommand {
     try {
       request = createRunRequest(
         args.workflow,
-        readJsonInput(flags.input, flags["input-file"]),
+        readJsonInput(flags.input, flags["input-file"], flags["input-param"]),
         flags.adapter,
         flags.workspace,
         flags.dry,

@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-22
 upstream:
   - prd.seqlane-on-mastra
   - rfc.mastra-runtime-and-operational-foundation
@@ -127,14 +127,35 @@ The command must not claim otherwise.
 
 ### requirement-input-workspace-environment
 
-`--input <json>` and `--input-file <path>` are mutually exclusive.
+`--input <json>`, `--input-file <path>`, and dotted `--input.<path> <value>`
+flags are mutually exclusive input sources.
 `--input-file -` reads JSON from stdin. Stdin is never consumed implicitly.
 An input file path resolves from the caller directory. Each explicit input
-source has a 1 MiB UTF-8 limit and must contain one valid JSON value.
+source has a 1 MiB UTF-8 limit and must produce one valid JSON value.
 
 With no input flag, validate `{}` against the workflow input schema. Apply
 schema defaults and transformations before task execution. A workflow that
 requires missing fields fails with an actionable validation error.
+
+#### Dotted input fields
+
+Each `--input.<path> <value>` flag sets one property in a generated JSON
+object. Separate path segments with dots. Each segment must be non-empty. A
+path can contain at most 64 segments. Numeric segments are object property
+names; they do not select array indexes. Dots and equals signs cannot appear
+inside a property name when using this syntax.
+
+Repeated dotted flags combine into the same object. Duplicate paths and
+parent/child path conflicts fail with an input error. Values that are valid
+JSON values use their JSON type; other values are strings. For example,
+`Marco` is a string, `42` is a number, and `true` is a boolean. To pass the
+string `true`, use the JSON string value `--input.state '"true"'`. Pass
+arrays or objects as JSON values. Use the equals form, such as
+`--input.note=--draft`, when a string begins with `--`.
+
+The dotted flags cannot express array indexes or escape dots and equals signs
+in property names. Use `--input` or `--input-file` for input that needs those
+JSON shapes.
 
 The execution workspace defaults to the caller directory. `--workspace <path>`
 overrides it and resolves relative to that directory. Validate that it exists
