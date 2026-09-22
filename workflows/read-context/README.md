@@ -11,7 +11,7 @@ not depend on this package build.
 Run with the Codex adapter and repository workspace:
 
 ```sh
-seqlane run workflows/read-context/workflow.ts \
+seqlane run ./workflows/read-context/workflow.ts \
   --input '{"question":"where is workflow loading implemented?"}' \
   --adapter codex \
   --workspace "$PWD"

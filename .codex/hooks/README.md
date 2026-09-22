@@ -19,11 +19,11 @@ hook decision as JSON to standard output.
 ## Use the workflow
 
 When the hook denies a broad read, use the command in its reason to run
-`workflows/read-context/workflow.ts` with a focused question and the needed
+`./workflows/read-context/workflow.ts` with a focused question and the needed
 paths. For example:
 
 ```sh
-pnpm exec node apps/cli/bin/run.js run workflows/read-context/workflow.ts \
+pnpm exec node apps/cli/bin/run.js run ./workflows/read-context/workflow.ts \
   --input '{"question":"Trace the workflow loading path","paths":["apps/cli/src"]}' \
   --adapter codex \
   --workspace "$PWD"

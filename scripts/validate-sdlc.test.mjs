@@ -165,7 +165,7 @@ test("documents runnable Codex commands with their adapter workspace", () => {
   assert.ok(
     workflowShellBlocks.some(
       (block) =>
-        block.includes("seqlane run workflows/read-context/workflow.ts") &&
+        block.includes("seqlane run ./workflows/read-context/workflow.ts") &&
         block.includes("--adapter codex") &&
         block.includes('--workspace "$PWD"'),
     ),
