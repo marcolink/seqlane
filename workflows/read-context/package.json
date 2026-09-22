@@ -11,6 +11,7 @@
     }
   },
   "nx": {
+    "name": "workflow-read-context",
     "tags": [
       "type:workflow",
       "workflow-kind:shipped",
@@ -19,7 +20,11 @@
   },
   "dependencies": {
     "@seqlane/core": "workspace:*",
-    "@seqlane/read-context": "workspace:*",
     "zod": "4.5.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcolink/seqlane.git",
+    "directory": "workflows/read-context"
   }
 }

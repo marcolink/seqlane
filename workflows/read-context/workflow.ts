@@ -16,7 +16,7 @@ import {
   validateReadContextReferences,
   type ReadContextRequest,
   type ReadContextResult,
-} from "@seqlane/read-context";
+} from "./src/index.js";
 import { readContextRetrievalWorkflow } from "./tasks/retrieval-workflow.js";
 
 const summarizeReadContextTask = defineAgentTask({

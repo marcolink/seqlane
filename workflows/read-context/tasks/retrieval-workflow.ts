@@ -12,7 +12,7 @@ import {
   retrieveEvidenceFromScrapes,
   ripwireSearchArguments,
   zvecSearchArguments,
-} from "@seqlane/read-context";
+} from "../src/index.js";
 
 const runAvailable = (command: string, args: readonly string[]): string[] => [
   "-c",

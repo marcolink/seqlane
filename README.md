@@ -512,7 +512,8 @@ points the active session to `seqlane run workflows/read-context/workflow.ts` fo
 `read-context` workflow. Trust the project-local hook through `/hooks`
 before enabling it. The hook fails open for commands it cannot classify as
 read-like. Read-context sends selected source to the configured endpoint, so
-review the endpoint's privacy and retention policy.
+review the endpoint's privacy and retention policy. See
+[the hook README](.codex/hooks/README.md) for setup and use.
 
 ## License
 

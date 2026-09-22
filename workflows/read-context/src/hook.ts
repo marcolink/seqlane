@@ -1,14 +1,14 @@
 import { lstatSync } from "node:fs";
 import { resolve } from "node:path";
-import { classifyCommand, type ClassifiedRead } from "./command-classifier.js";
-import { estimateFile } from "./size-estimator.js";
+import { classifyCommand, type ClassifiedRead } from "./command-classifier.ts";
+import { estimateFile } from "./size-estimator.ts";
 import {
   deniedPathReason,
   isPathWithinRoot,
   repositoryRelativePath,
   resolveSafePath,
-} from "./security.js";
-import { readContextInputSchema } from "./schemas.js";
+} from "./security.ts";
+import { readContextInputSchema } from "./schemas.ts";
 import { z } from "zod";
 
 const jsonTextSchema = z.string().transform((value, context) => {
