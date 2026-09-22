@@ -20,10 +20,9 @@ declares task dependencies, session use, and workspace coordination.
 
 ```mermaid
 flowchart LR
-  A[Actor] -->|seqlane run --adapter …| S[Seqlane]
-  S --> D[Selected adapter]
-  D --- O[OpenCode]
-  D --- C[Codex]
+  CLI[Seqlane CLI] --> Workflow[Seqlane workflow<br/>(input)]
+  Workflow --> Adapter[Seqlane adapter]
+  Adapter --> Agent[Agent]
 ```
 
 ## Workflow layer and runtime layer
