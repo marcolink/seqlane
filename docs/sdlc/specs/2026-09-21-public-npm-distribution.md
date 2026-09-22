@@ -61,8 +61,10 @@ complete Apache-2.0 license text.
 ### requirement-release-automation
 
 Nx uses fixed versioning, Conventional Commits, and a `v{version}` tag. A push
-to `main` starts `publish.yml`. The workflow accepts only a public repository,
-installs dependencies, and verifies and builds the release group. Nx then
+to `main` starts `ci.yml`. The publish job requires the quality job and calls
+the reusable `publish.yml` workflow. This workflow accepts only a public
+repository. Its read-only build job creates exact-revision package artifacts.
+The publish job consumes these artifacts. Nx then
 versions the packages, updates the changelog, creates and pushes the release
 tag, and creates the GitHub release without publishing. Version and changelog
 changes stay in the release runner; the workflow does not push a commit to
@@ -101,8 +103,8 @@ commit and matches Nx's calculated version. It resumes after partial npm publica
 
 ## Migration
 
-Publish `0.0.1` with `NPM_TOKEN`. Then configure `publish.yml` as the trusted
-publisher for all eight packages. Verify OIDC before restricting token access.
+Configure `ci.yml` as the trusted publisher for all eight packages. Verify an
+OIDC release before you restrict or remove `NPM_TOKEN` access.
 
 ## Verification
 
@@ -133,8 +135,8 @@ this protocol.
 
 ## Delivery state
 
-Implementation is in progress on `chore/public-readiness`. Registry publication
-and trusted-publisher setup remain pending.
+Version `0.0.1` is available from npm. CI integration and trusted-publisher
+setup remain in progress.
 
 ## Traceability
 

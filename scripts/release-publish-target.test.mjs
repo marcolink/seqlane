@@ -26,6 +26,10 @@ const prepareReleasePath = join(
 const nxConfig = JSON.parse(
   readFileSync(new URL("../nx.json", import.meta.url), "utf8"),
 );
+const ciWorkflow = readFileSync(
+  new URL("../.github/workflows/ci.yml", import.meta.url),
+  "utf8",
+);
 const publishWorkflow = readFileSync(
   new URL("../.github/workflows/publish.yml", import.meta.url),
   "utf8",
@@ -210,7 +214,18 @@ test("publish target checks before packing and publishing a missing version", ()
   assert.match(calls[2], /^npm publish .* --dry-run=false$/);
 });
 
-test("workflow delegates release state while retaining credentials and outputs", () => {
+test("CI delegates release state after its quality gate", () => {
+  assert.match(
+    ciWorkflow,
+    /publish:\n    name: Publish npm packages\n    needs: quality/,
+  );
+  assert.match(ciWorkflow, /uses: \.\/\.github\/workflows\/publish\.yml/);
+  assert.match(publishWorkflow, /workflow_call/);
+  assert.match(publishWorkflow, /publish:\n    needs: build/);
+  assert.match(
+    publishWorkflow,
+    /name: npm-release-builds-\$\{\{ github\.sha \}\}/,
+  );
   assert.match(publishWorkflow, /node scripts\/prepare-release\.mjs --output/);
   assert.match(publishWorkflow, /GITHUB_OUTPUT/);
   assert.match(publishWorkflow, /GITHUB_STEP_SUMMARY/);

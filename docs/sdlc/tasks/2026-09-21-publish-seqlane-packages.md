@@ -84,18 +84,20 @@ using only Nx's non-publishing choice during release creation and by tagging
 the triggering commit with the built-in short-lived workflow token. The same
 generated changelog appears in the Actions job summary and GitHub Release.
 
-PR #144 merged as `d1a3995`. CI and documentation deployment passed. The first
-release workflow stopped before versioning because it combined mutually
-exclusive Nx flags. No `0.0.1` tag, GitHub release, or npm package was created.
+PR #144 merged as `d1a3995`. PRs #145 and #147 repaired the release workflow.
+The `v0.0.1` release and all eight npm packages are now public. The CI workflow
+calls the reusable release workflow after its quality checks. The release
+workflow builds exact-revision artifacts before its publish job consumes them.
 
 ## Delivery state
 
-The public-readiness change merged in
-[pull request #144](https://github.com/marcolink/seqlane/pull/144). The workflow
-fix and first registry release remain pending.
+The public-readiness change and release fixes are reachable from `main`.
+Version `0.0.1` is available from npm. Trusted-publisher setup remains pending.
 
 ## Traceability
 
 - [spec.public-npm-distribution](../specs/2026-09-21-public-npm-distribution.md)
 - [adr.preserve-workspace-release-references](../adrs/2026-09-22-preserve-workspace-release-references.md)
 - [Delivery pull request #144](https://github.com/marcolink/seqlane/pull/144)
+- [Release fix pull request #145](https://github.com/marcolink/seqlane/pull/145)
+- [Main tracking fix pull request #147](https://github.com/marcolink/seqlane/pull/147)

@@ -6,15 +6,16 @@ other group members are public registry dependencies.
 
 ## Release flow
 
-After the repository is public, every push to `main` starts
-`.github/workflows/publish.yml`. The workflow uses Conventional Commits to
-determine the next fixed version. For versions below `1.0.0`, `feat` and `fix`
-commits that affect the release group produce a patch release. A breaking
-change produces a minor release. Other commits do not create a release.
+Every push to `main` starts `.github/workflows/ci.yml`. After its quality job
+passes, CI calls `.github/workflows/publish.yml`. This reusable workflow uses
+Conventional Commits to determine the next fixed version. For versions below
+`1.0.0`, `feat` and `fix` commits that affect the release group produce a patch
+release. A breaking change produces a minor release. Other commits do not
+create a release.
 
-The workflow verifies the release group in a read-only job. This job checks out
-the triggering commit without stored credentials. It uploads the verified
-package builds for the publish job.
+The quality job checks the triggering commit without stored credentials. The
+release workflow starts only after all quality gates pass. Its read-only build
+job uploads the release packages for the publish job.
 
 The publish job checks out the same commit and does not run dependency scripts.
 It stops a new release if `main` advanced after the workflow started. A retry
@@ -56,9 +57,8 @@ pnpm lint
 pnpm exec nx release --dry-run --skip-publish
 ```
 
-The first release uses the `NPM_TOKEN` repository secret. After all eight
-packages exist on npm, configure a trusted GitHub Actions publisher for each
-package. Use repository `marcolink/seqlane` and workflow `publish.yml`. Verify
-an OIDC release before restricting or removing token access.
+Configure a trusted GitHub Actions publisher for each package. Use repository
+`marcolink/seqlane` and workflow `ci.yml`. Verify an OIDC release before you
+restrict or remove the `NPM_TOKEN` repository secret.
 
 The pull request that prepares a release does not publish packages.
