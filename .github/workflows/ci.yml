@@ -78,8 +78,16 @@ jobs:
       - name: Test workflow helper
         run: pnpm test:workflow-helper
 
-      - name: Lint, build, and test affected projects
-        run: pnpm exec nx affected -t lint,build,test --output-style=static
+      - name: Lint affected projects
+        run: pnpm exec nx affected -t lint --output-style=static
+
+      - name: Build affected projects
+        if: ${{ !cancelled() }}
+        run: pnpm exec nx affected -t build --output-style=static
+
+      - name: Test affected projects
+        if: ${{ !cancelled() }}
+        run: pnpm exec nx affected -t test --output-style=static
 
       - name: Materialize Ripwire Action
         if: steps.classify.outputs.ripwire_relevant != 'false'
