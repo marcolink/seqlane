@@ -68,26 +68,31 @@ install smoke test from packed artifacts.
 The local branch defines an eight-package fixed release group through the
 `release:npm` tag. It removes ACP and private workflows from the CLI production
 closure. Nx derives pre-1.0 fixed versions from Conventional Commits. The
-main-branch workflow creates the release commit, tag, and GitHub release before
-publishing. Source manifests keep `workspace:*`. pnpm resolves these references
-in package archives, which npm publishes. Every package archive includes the
-complete Apache-2.0 license text. A fresh project can install the packed
-artifacts, import `@seqlane/core`, and run the `seqlane` executable.
+main-branch workflow versions packages in its runner, then creates the tag and
+GitHub release before publishing. It does not push version commits to `main`.
+Source manifests keep `workspace:*`. pnpm resolves these references in package
+archives, which npm publishes. Every package archive includes the complete
+Apache-2.0 license text. A fresh project can install the packed artifacts,
+import `@seqlane/core`, and run the `seqlane` executable.
 The release workflow verifies the triggering revision without write
 credentials. Its publish job consumes verified builds and stops if `main`
 advanced before release. It creates the release without publishing, validates
 the exact eight-package set and packed artifacts, and only then runs the Nx
 publish phase. The publish target requires explicit dry-run intent and has no
-recursive dependency scheduling.
+recursive dependency scheduling. A follow-up fixes the first release attempt by
+using only Nx's non-publishing choice during release creation and by tagging
+the triggering commit with the built-in short-lived workflow token. The same
+generated changelog appears in the Actions job summary and GitHub Release.
 
-Two unchanged timing-sensitive integration tests fail in this macOS worktree:
-the non-cooperative MCP deadline test and the operational-route timeout test.
-Remote Linux verification remains pending.
+PR #144 merged as `d1a3995`. CI and documentation deployment passed. The first
+release workflow stopped before versioning because it combined mutually
+exclusive Nx flags. No `0.0.1` tag, GitHub release, or npm package was created.
 
 ## Delivery state
 
-Work is under review in [pull request #144](https://github.com/marcolink/seqlane/pull/144).
-Remote checks, merge, and registry release remain pending.
+The public-readiness change merged in
+[pull request #144](https://github.com/marcolink/seqlane/pull/144). The workflow
+fix and first registry release remain pending.
 
 ## Traceability
 
