@@ -241,6 +241,13 @@ async function raceWithAbort<T>(
     promise.then(
       (value) => {
         signal.removeEventListener("abort", onAbort);
+        if (signal.aborted) {
+          reject(
+            signal.reason ??
+              new CodexAdapterError("cancellation", "Codex task was cancelled"),
+          );
+          return;
+        }
         resolve(value);
       },
       (cause) => {

@@ -463,6 +463,38 @@ describe("Codex AgentAdapter", () => {
     ).toBe(true);
   });
 
+  it("preserves cancellation when completion follows abort", async () => {
+    const transport = new FakeTransport();
+    transport.emitCompletion = false;
+    const controller = new AbortController();
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+    const execution = adapter.execute(request({ signal: controller.signal }));
+
+    for (
+      let index = 0;
+      index < 20 &&
+      !transport.requests.some((value) => value.method === "turn/start");
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    controller.abort(new Error("task deadline expired"));
+    transport.emit({
+      kind: "notification",
+      notification: {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: { id: "turn-1", status: "completed", items: [] },
+        },
+      },
+    });
+
+    await expect(execution).rejects.toThrow("task deadline expired");
+  });
+
   it("rejects checkpoint and fork reuse after an unconfirmed interruption", async () => {
     const transport = new FakeTransport();
     const adapter = createCodexAdapterForTransport(transport, configuration);

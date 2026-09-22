@@ -18,6 +18,7 @@ import {
   type AgentRuntimeFactory,
 } from "@seqlane/agent-adapter";
 import type { ExecutorResolvers } from "../../runtime/execution/executor.js";
+import { raceWithAbort } from "../../runtime/execution/abortable.js";
 import type {
   ExecutorRequest,
   SeqlaneExecutor,
@@ -145,23 +146,27 @@ export function executeAgentAdapterRequest(
       agentTaskTimeoutMsSchema.parse(request.agent?.timeoutMs),
     ),
   ]);
-  return adapter.execute({
-    invocationId: request.invocationId,
-    observability: request.observability,
-    task,
-    input: request.input,
-    ...(request.agent === undefined ? {} : { agent: request.agent }),
-    ...(effectiveSelection === undefined || !adapter.capabilities.modelSelection
-      ? {}
-      : { modelSelection: effectiveSelection }),
+  return raceWithAbort(
+    adapter.execute({
+      invocationId: request.invocationId,
+      observability: request.observability,
+      task,
+      input: request.input,
+      ...(request.agent === undefined ? {} : { agent: request.agent }),
+      ...(effectiveSelection === undefined ||
+      !adapter.capabilities.modelSelection
+        ? {}
+        : { modelSelection: effectiveSelection }),
+      signal,
+      onMetrics: request.onMetrics,
+      onDiagnostic: (diagnostic) => request.onDiagnostic?.(diagnostic.message),
+      onActivity: request.onActivity,
+      onObservation: request.onObservation,
+      onUncertainActivity: request.onUncertainActivity,
+      onBackgroundProcess: request.onBackgroundProcess,
+    }),
     signal,
-    onMetrics: request.onMetrics,
-    onDiagnostic: (diagnostic) => request.onDiagnostic?.(diagnostic.message),
-    onActivity: request.onActivity,
-    onObservation: request.onObservation,
-    onUncertainActivity: request.onUncertainActivity,
-    onBackgroundProcess: request.onBackgroundProcess,
-  });
+  );
 }
 
 export function createAgentSession(

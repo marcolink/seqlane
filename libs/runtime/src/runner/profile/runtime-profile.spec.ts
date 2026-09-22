@@ -1,4 +1,5 @@
 // @test-scope ./runtime-profile.ts
+// @test-scope ../../runtime/execution/abortable.ts
 import type { AgentAdapter, AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import type { TaskDefinition, TaskDefinitionRegistry } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
@@ -205,16 +206,20 @@ describe("runtime profile agent runtime boundary", () => {
     expect(received).not.toHaveProperty("modelSelection");
   });
 
-  it("aborts an adapter when its task execution timeout expires", async () => {
+  it("preserves the task deadline when an adapter completes after abort", async () => {
     const definition = task();
     const definitions = new Map([[definition.id, definition]]);
+    let completedAfterAbort = false;
     const adapter: AgentAdapter = {
       capabilities,
       execute: async (value) =>
-        new Promise((_resolve, reject) => {
+        new Promise((resolve) => {
           value.signal.addEventListener(
             "abort",
-            () => reject(value.signal.reason),
+            () => {
+              completedAfterAbort = true;
+              resolve({ value: "done" });
+            },
             {
               once: true,
             },
@@ -230,5 +235,6 @@ describe("runtime profile agent runtime boundary", () => {
         agent: { goal: "complete task", timeoutMs: 1 },
       }),
     ).rejects.toBeDefined();
+    expect(completedAfterAbort).toBe(true);
   });
 });
