@@ -20,7 +20,7 @@ declares task dependencies, session use, and workspace coordination.
 
 ```mermaid
 flowchart LR
-  CLI[Seqlane CLI] --> Workflow[Seqlane workflow<br/>(input)]
+  CLI[Seqlane CLI] --> Workflow["Seqlane workflow (input)"]
   Workflow --> Adapter[Seqlane adapter]
   Adapter --> Agent[Agent]
 ```
