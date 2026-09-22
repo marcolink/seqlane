@@ -89,14 +89,19 @@ The `v0.0.1` release and all eight npm packages are now public. The CI workflow
 calls the reusable release workflow after its quality checks. The release
 workflow builds exact-revision artifacts before its publish job consumes them.
 Version `0.0.2` is public with provenance for all eight packages. The publish
-workflow on this branch has no npm token fallback. The next eligible release
-will test tokenless publication on GitHub Actions after this change merges.
+workflow change in PR #151 removes the npm token fallback. `ci.yml` is the
+trusted-publisher caller identity; `publish.yml` is the reusable workflow that
+contains the npm publish job. Tokenless publication remains unverified until
+the next eligible release runs on `main`.
 
 ## Delivery state
 
 The public-readiness change and release fixes are reachable from `main`.
 Version `0.0.2` is available from npm. Trusted publishers are configured for
-all eight packages. Tokenless publication awaits a release from `main`.
+all eight packages for the `ci.yml` workflow. Tokenless publication awaits a
+release from `main`. Delivery-state statements in the linked ADRs record the
+state when those decisions were made; use this task and the active spec for
+current delivery status.
 
 ## Traceability
 
@@ -106,3 +111,4 @@ all eight packages. Tokenless publication awaits a release from `main`.
 - [Release fix pull request #145](https://github.com/marcolink/seqlane/pull/145)
 - [Main tracking fix pull request #147](https://github.com/marcolink/seqlane/pull/147)
 - [CI release integration pull request #148](https://github.com/marcolink/seqlane/pull/148)
+- [Tokenless publishing pull request #151](https://github.com/marcolink/seqlane/pull/151)
