@@ -6,7 +6,11 @@ import type {
 } from "@seqlane/core";
 import type { RuntimeProfileReference } from "@seqlane/protocol";
 import { randomUUID } from "node:crypto";
-import { InteractionRequiredError, plainRecordSchema } from "@seqlane/core";
+import {
+  agentTaskTimeoutMsSchema,
+  InteractionRequiredError,
+  plainRecordSchema,
+} from "@seqlane/core";
 import {
   assertAgentRuntimeCapabilities,
   type AgentAdapter,
@@ -135,6 +139,12 @@ export function executeAgentAdapterRequest(
   if (task === undefined) {
     throw new Error(`No task definition found for "${request.taskId}"`);
   }
+  const signal = AbortSignal.any([
+    request.signal,
+    AbortSignal.timeout(
+      agentTaskTimeoutMsSchema.parse(request.agent?.timeoutMs),
+    ),
+  ]);
   return adapter.execute({
     invocationId: request.invocationId,
     observability: request.observability,
@@ -144,7 +154,7 @@ export function executeAgentAdapterRequest(
     ...(effectiveSelection === undefined || !adapter.capabilities.modelSelection
       ? {}
       : { modelSelection: effectiveSelection }),
-    signal: request.signal,
+    signal,
     onMetrics: request.onMetrics,
     onDiagnostic: (diagnostic) => request.onDiagnostic?.(diagnostic.message),
     onActivity: request.onActivity,

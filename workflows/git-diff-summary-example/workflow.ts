@@ -17,7 +17,7 @@ const branchSchema = z
 const inputSchema = z.object({ branch: branchSchema });
 
 const MAX_GIT_EVIDENCE_BYTES = 512_000;
-const GIT_DIFF_TIMEOUT_MS = 300_000;
+const GIT_DIFF_TIMEOUT_MS = 30_000;
 const GIT_EVIDENCE_TRUNCATION_MARKER = "\n[git evidence truncated]\n";
 
 const diffSummarySchema = z.object({

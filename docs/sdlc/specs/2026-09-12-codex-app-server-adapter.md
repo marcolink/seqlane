@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-12
-updated: 2026-09-18
+updated: 2026-09-22
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
   - spec.autonomous-non-interactive-execution
@@ -121,7 +121,10 @@ It must restrict writable roots to the runtime workspace and disable network acc
 Private configuration can enable network access explicitly. It cannot select `dangerFullAccess` in this delivery.
 If Codex requests approval or user input, the adapter must fail with `InteractionRequiredError`.
 It must not approve, decline, or otherwise answer the request.
-It must interrupt the active turn and terminate its owned process if the turn cannot end within a bound.
+It must interrupt the active turn and terminate its owned process when the
+task-provided runtime deadline aborts its execution signal. It must not apply a
+separate Codex execution deadline. Its bounded interruption confirmation is
+cleanup only and does not replace the task timeout outcome.
 Cancellation and interaction failure must remain distinct Seqlane outcomes.
 
 ### requirement-codex-cancellation-and-disconnect

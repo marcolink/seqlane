@@ -198,6 +198,55 @@ describe("seqlane core", () => {
     expect(typeof task.execute).toBe("function");
   });
 
+  it("sets the default agent execution timeout and accepts an override", async () => {
+    const defaultTask = defineAgentTask({
+      id: "default-agent-timeout",
+      input: schema<{ readonly request: string }>(),
+      output: schema<{ readonly answer: string }>(),
+      goal: ({ request }) => `Answer ${request}`,
+    });
+    const overriddenTask = defineAgentTask({
+      id: "agent-timeout",
+      input: schema<{ readonly request: string }>(),
+      output: schema<{ readonly answer: string }>(),
+      goal: ({ request }) => `Answer ${request}`,
+      timeoutMs: 30_000,
+    });
+    const requests: unknown[] = [];
+
+    const context = {
+      exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      runAgent: async (value: unknown) => {
+        requests.push(value);
+        return { answer: "answer" };
+      },
+    };
+    await defaultTask.execute({
+      input: { request: "question" },
+      signal: new AbortController().signal,
+      context,
+    });
+    await overriddenTask.execute({
+      input: { request: "question" },
+      signal: new AbortController().signal,
+      context,
+    });
+
+    expect(requests).toMatchObject([
+      { goal: "Answer question", timeoutMs: 120_000 },
+      { goal: "Answer question", timeoutMs: 30_000 },
+    ]);
+    expect(() =>
+      defineAgentTask({
+        id: "invalid-agent-timeout",
+        input: schema<Record<never, never>>(),
+        output: schema<Record<never, never>>(),
+        goal: () => "answer",
+        timeoutMs: 0,
+      }),
+    ).toThrow();
+  });
+
   it("defines tasks with the unified execution contract", () => {
     const local = defineTask({
       id: "local-status",

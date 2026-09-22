@@ -271,3 +271,4 @@
 | [task.adapter-cli-flags](./2026-09-19-adapter-cli-flags.md) | Replace Direct-Run Runtime Flags with Adapter Flags | completed | 2026-09-19 | core |
 | [task.git-diff-summary-example](./2026-09-20-git-diff-summary-example.md) | Add Git Diff Summary Token Comparison Example | completed | 2026-09-20 | core |
 | [task.publish-seqlane-packages](./2026-09-21-publish-seqlane-packages.md) | Publish Seqlane Packages | in-progress | 2026-09-21 | core |
+| [task.agent-task-execution-deadline](./2026-09-22-agent-task-execution-deadline.md) | Add Task-Level Agent Execution Deadlines | in-progress | 2026-09-22 | core |

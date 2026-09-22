@@ -35,7 +35,7 @@ import {
   itemText,
 } from "./turn-tracker.js";
 
-const TURN_TIMEOUT_MS = 30_000;
+const TURN_TERMINATION_CONFIRM_TIMEOUT_MS = 30_000;
 const TURN_START_CONFIRM_TIMEOUT_MS = 5_000;
 const TURN_INTERRUPT_REQUEST_TIMEOUT_MS = 5_000;
 const PRE_TURN_REQUEST_TIMEOUT_MS = 5_000;
@@ -412,7 +412,10 @@ function createAdapterForTransport(
         transport.request("turn/interrupt", { threadId, turnId: id }),
         TURN_INTERRUPT_REQUEST_TIMEOUT_MS,
       );
-      await withTimeout(tracker.completion, TURN_TIMEOUT_MS);
+      await withTimeout(
+        tracker.completion,
+        TURN_TERMINATION_CONFIRM_TIMEOUT_MS,
+      );
     } catch (cause) {
       await invalidateUnconfirmedTurn(request);
       throw new CodexAdapterError(
@@ -507,14 +510,11 @@ function createAdapterForTransport(
         let completed: CompletedTurn;
         try {
           completed = await raceWithAbort(
-            withTimeout(
-              Promise.race([
-                tracker.completion,
-                tracker.interaction,
-                tracker.failure,
-              ]),
-              TURN_TIMEOUT_MS,
-            ),
+            Promise.race([
+              tracker.completion,
+              tracker.interaction,
+              tracker.failure,
+            ]),
             signal,
           );
         } catch (cause) {

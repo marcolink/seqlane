@@ -204,4 +204,31 @@ describe("runtime profile agent runtime boundary", () => {
 
     expect(received).not.toHaveProperty("modelSelection");
   });
+
+  it("aborts an adapter when its task execution timeout expires", async () => {
+    const definition = task();
+    const definitions = new Map([[definition.id, definition]]);
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async (value) =>
+        new Promise((_resolve, reject) => {
+          value.signal.addEventListener(
+            "abort",
+            () => reject(value.signal.reason),
+            {
+              once: true,
+            },
+          );
+        }),
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => adapter,
+    };
+
+    await expect(
+      executeAgentAdapterRequest(adapter, definitions, undefined, {
+        ...request(definition.id),
+        agent: { goal: "complete task", timeoutMs: 1 },
+      }),
+    ).rejects.toBeDefined();
+  });
 });

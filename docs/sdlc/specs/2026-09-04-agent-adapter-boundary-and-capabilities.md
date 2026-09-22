@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-16
+updated: 2026-09-22
 upstream:
   - adr.executor-neutral-workflow-authoring
   - adr.opencode-executor-integration
@@ -58,7 +58,7 @@ record, but its adapter design is no longer authoritative.
 - Emulate checkpoints or forks with prompts, summaries, or copied transcripts.
 - Combine ACP and OpenCode state in one logical session.
 - Add automatic fallback between adapters.
-- Change the public task, Plan, event, or output contracts.
+- Change Plans, events, or task outputs.
 
 ## Terminology
 
@@ -79,6 +79,23 @@ must not contain ACP, OpenCode, Mastra, or provider SDK types.
 The adapter receives validated Seqlane task input, output schema, model
 selection, cancellation signal, and observation callbacks. It returns a
 validated task result and normalized metrics.
+
+### requirement-agent-task-execution-deadline
+
+`defineAgentTask` accepts an optional task-local `timeoutMs`. It must be a
+positive safe integer no greater than `2_147_483_647`. Omission means
+`120_000` milliseconds. The value is not serialized into a Plan and does not
+select or configure an adapter.
+
+The runtime starts the deadline when the task calls `context.runAgent` and
+combines it with caller cancellation before it invokes the selected adapter.
+The adapter receives only that combined signal. A deadline expiry keeps the
+task timeout outcome even when a terminal adapter event races with it. The
+adapter must still confirm termination before session, checkpoint, or workspace
+reuse. An unconfirmed termination remains uncertain activity.
+
+This requirement does not change shell-task timeout behavior. Shell tasks keep
+their existing explicit `timeoutMs` option.
 
 ### requirement-composition-owned-adapters
 
@@ -322,6 +339,7 @@ configuration inference.
 3. [task.explicit-runtime-adapter-selection](../tasks/2026-09-04-explicit-runtime-adapter-selection.md)
 4. [task.session-checkpoint-fork-capabilities](../tasks/2026-09-04-session-checkpoint-fork-capabilities.md)
 5. [task.agent-adapter-integration-cleanup](../tasks/2026-09-04-agent-adapter-integration-cleanup.md)
+6. [task.agent-task-execution-deadline](../tasks/2026-09-22-agent-task-execution-deadline.md)
 
 ## Traceability
 

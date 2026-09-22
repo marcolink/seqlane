@@ -12,6 +12,7 @@ const review = defineAgentTask({
   input: z.object({ change: z.string() }),
   output: z.object({ summary: z.string(), approved: z.boolean() }),
   goal: ({ change }) => `Review this change: ${change}`,
+  timeoutMs: 30_000,
   instructions: ["Report only supported findings."],
   references: ["CONTRIBUTING.md"],
 });
@@ -19,6 +20,10 @@ const review = defineAgentTask({
 
 `goal` receives typed task input and returns the agent request. Optional
 `instructions` and `references` add fixed context.
+
+Agent tasks have a two-minute execution limit by default. Set `timeoutMs` to a
+positive integer in milliseconds when one task needs a different limit. The
+limit covers the agent invocation, not workflow admission or queue time.
 
 `defineAgentTask` does not accept an `execute` function. Seqlane creates it and
 sends the request through the selected adapter.
