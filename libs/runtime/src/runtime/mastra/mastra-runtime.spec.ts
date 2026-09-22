@@ -1543,7 +1543,8 @@ describe("private Mastra runtime spine", () => {
       .then(step)
       .commit();
     const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
-      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 10 },
+      // Let the second route finish; only the first invocation should time out.
+      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 1_000 },
     });
     const context = () => ({
       requestContext: new RequestContext([["user", { id: "fixture-user" }]]),
