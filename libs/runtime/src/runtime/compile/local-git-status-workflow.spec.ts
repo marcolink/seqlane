@@ -52,11 +52,6 @@ describe("local Git status workflow example", () => {
         return { exitCode: 0, stdout: "", stderr: "" };
       },
       runAgent: async () => ({}),
-      classify: async () => {
-        throw new Error(
-          "Unexpected classifier request in Git status workflow test",
-        );
-      },
     };
 
     const result = await localGitStatusTask.execute({

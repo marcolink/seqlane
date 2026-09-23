@@ -26,7 +26,7 @@ export interface TaskExecutionRequest {
   readonly signal: AbortSignal;
   readonly outputLimitBytes?: number;
   readonly runAgent: TaskContext["runAgent"];
-  readonly classify: TaskContext["classify"];
+  readonly classify?: NonNullable<TaskContext["classify"]>;
   readonly onUncertainActivity?: (activity: SeqlaneUncertainActivity) => void;
 }
 
@@ -37,10 +37,10 @@ function taskContext(
   signal: AbortSignal,
   outputLimitBytes: number,
   runAgent: TaskContext["runAgent"],
-  classify: TaskContext["classify"],
+  classify: NonNullable<TaskContext["classify"]> | undefined,
   onUncertainActivity: TaskExecutionRequest["onUncertainActivity"],
 ): TaskContext {
-  return {
+  const baseContext: TaskContext = {
     exec: async (request) => {
       try {
         return await runMastraProcess({
@@ -61,8 +61,8 @@ function taskContext(
       }
     },
     runAgent,
-    classify,
   };
+  return classify === undefined ? baseContext : { ...baseContext, classify };
 }
 
 export async function executeTask(

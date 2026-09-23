@@ -114,9 +114,6 @@ describe("all-features workflow example", () => {
           requests.push(request);
           return {};
         },
-        classify: async () => {
-          throw new Error("Unexpected classifier request in example test");
-        },
       },
     });
 
@@ -159,9 +156,6 @@ describe("all-features workflow example", () => {
         runAgent: async (request) => {
           requests.push(request);
           return {};
-        },
-        classify: async () => {
-          throw new Error("Unexpected classifier request in example test");
         },
       },
     });

@@ -249,15 +249,9 @@ export function createClassifierResultSchema<
       }
     },
   );
-  return z.custom<ClassifierResultFor<Questions>>((value) => {
-    const parsedResult = fixedKindsResultSchema.safeParse(value);
-    if (!parsedResult.success) return false;
-    const declaredIds = Object.keys(declaredQuestions).sort();
-    return declaredIds.every((id) => {
-      const answer = parsedResult.data.answers[id];
-      return (
-        answer !== undefined && answer.kind === declaredQuestions[id]?.kind
-      );
-    });
-  });
+  // The refinement proves the fixed answer keys and kinds at runtime. The
+  // no-op schema gives that runtime proof its narrower static output type.
+  return fixedKindsResultSchema.pipe(
+    z.custom<ClassifierResultFor<Questions>>(),
+  );
 }

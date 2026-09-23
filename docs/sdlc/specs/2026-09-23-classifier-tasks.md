@@ -263,17 +263,18 @@ SEQLANE_RUNNER_CLASSIFIER_MODEL variables; these values never enter
 workflow loading, then removes all three from `process.env`. No token CLI flag is
 allowed. Require a token for non-loopback URLs.
 
-When a classifier is requested without a connection, fail at
-`TaskContext.classify` before HTTP, following the lazy agent-adapter rule. Do not
-add a task discriminator or inspect task callbacks to predict classifier use.
-The public `RunRequest` IPC schema remains unchanged. `--dry` prints a Plan
-without calling `state`, requiring credentials, or sending HTTP requests.
+`TaskContext.classify` is an optional capability. `defineClassifierTask` fails
+with `MissingClassifierCapabilityError` before HTTP when the capability is not
+available. Do not add a task discriminator or inspect task callbacks to predict
+classifier use. The public `RunRequest` IPC schema remains unchanged. `--dry`
+prints a Plan without calling `state`, requiring credentials, or sending HTTP
+requests.
 
 The programmatic startWorkflowRun entrypoint accepts a private classifier
 connection from the trusted caller. It validates the same fields and uses the
 same client, deadline, and result schemas as the CLI. A run with no classifier
 request needs no classifier configuration. A classifier-only run needs no
-agent adapter. Resolve the connection lazily on the first classify request.
+agent adapter. Add the classifier capability only when the run has a connection.
 
 ### Observation and lifecycle
 

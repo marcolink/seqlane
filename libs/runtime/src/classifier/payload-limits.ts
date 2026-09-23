@@ -1,3 +1,4 @@
+import type { JsonValue } from "@seqlane/core";
 import { z } from "zod";
 import { ClassifierFailure, type ClassifierFailureCode } from "./types.js";
 
@@ -146,11 +147,12 @@ function inspectJson(value: unknown, exactString?: string): boolean {
 function boundedJsonDocumentSchema(
   message: string,
   exactString?: string,
-): z.ZodType<{ readonly value: unknown; readonly hasExactString: boolean }> {
+): z.ZodType<{ readonly value: JsonValue; readonly hasExactString: boolean }> {
   return z.unknown().transform((value, context) => {
     try {
       return {
-        value,
+        // inspectJson below proves the complete value satisfies JsonValue.
+        value: value as JsonValue,
         hasExactString: inspectJson(value, exactString),
       };
     } catch {
@@ -164,7 +166,7 @@ export function parseBoundedJson(
   value: unknown,
   label: string,
   code: Extract<ClassifierFailureCode, "request" | "response">,
-): unknown {
+): JsonValue {
   return parseBoundedJsonDocument(value, label, code).value;
 }
 
@@ -173,7 +175,7 @@ export function parseBoundedJsonDocument(
   label: string,
   code: Extract<ClassifierFailureCode, "request" | "response">,
   exactString?: string,
-): { readonly value: unknown; readonly hasExactString: boolean } {
+): { readonly value: JsonValue; readonly hasExactString: boolean } {
   const message = `Classifier ${label} exceeds the safe JSON limits`;
   const parsed = boundedJsonDocumentSchema(message, exactString).safeParse(
     value,
@@ -196,7 +198,7 @@ export function serializeBoundedJsonDocument(
   maximumBytes = CLASSIFIER_MAX_BODY_BYTES,
   exactString?: string,
 ): {
-  readonly value: unknown;
+  readonly value: JsonValue;
   readonly hasExactString: boolean;
   readonly text: string;
 } {

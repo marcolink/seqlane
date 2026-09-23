@@ -3,7 +3,11 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createClassifierResultSchema, defineClassifierTask } from "./index.js";
+import {
+  createClassifierResultSchema,
+  defineClassifierTask,
+  MissingClassifierCapabilityError,
+} from "./index.js";
 
 describe("defineClassifierTask", () => {
   it("rejects an empty question declaration", () => {
@@ -66,6 +70,28 @@ describe("defineClassifierTask", () => {
     expect(choice).toBe("noul");
   });
 
+  it("reports a typed failure when the task context has no classifier capability", async () => {
+    const task = defineClassifierTask({
+      id: "classifier-missing-capability",
+      input: z.object({}),
+      state: () => "example",
+      questions: {
+        check: { kind: "noul", instructions: "Is this valid?" },
+      },
+    });
+
+    await expect(
+      task.execute({
+        input: {},
+        signal: new AbortController().signal,
+        context: {
+          exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+          runAgent: async () => undefined,
+        },
+      }),
+    ).rejects.toBeInstanceOf(MissingClassifierCapabilityError);
+  });
+
   it("rejects a result whose answer IDs or kinds drift from the declaration", () => {
     const schema = createClassifierResultSchema({
       review: { kind: "noul", instructions: "Does this need review?" },
@@ -102,12 +128,18 @@ describe("defineClassifierTask", () => {
     };
 
     expect(schema.parse(result)).toEqual(result);
-    expect(() =>
-      schema.parse({
-        ...result,
-        answers: { ...result.answers, review: result.answers.area },
-      }),
-    ).toThrow();
+    const wrongKind = schema.safeParse({
+      ...result,
+      answers: { ...result.answers, review: result.answers.area },
+    });
+    expect(wrongKind.success).toBe(false);
+    if (!wrongKind.success) {
+      expect(wrongKind.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: ["answers", "review", "kind"] }),
+        ]),
+      );
+    }
     expect(() =>
       schema.parse({ ...result, answers: { review: result.answers.review } }),
     ).toThrow();

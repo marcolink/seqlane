@@ -11,7 +11,10 @@ import {
   CLASSIFIER_TRANSPORT_BUDGET_MS,
   SystemOneClient,
 } from "./system-one-client.js";
-import { CLASSIFIER_MAX_STATE_BYTES } from "./payload-limits.js";
+import {
+  CLASSIFIER_MAX_INSTRUCTIONS_BYTES,
+  CLASSIFIER_MAX_STATE_BYTES,
+} from "./payload-limits.js";
 import { ClassifierFailure } from "./types.js";
 
 const request: ClassifierRequest = {
@@ -84,7 +87,7 @@ describe("System One client", () => {
     const observations: unknown[] = [];
     const client = new SystemOneClient({
       url: fixture.url,
-      model: "jev-latest",
+      model: " jev-latest ",
       apiKey,
     });
 
@@ -166,6 +169,39 @@ describe("System One client", () => {
         () => undefined,
       ),
     ).rejects.toMatchObject({ code: "request" });
+    expect(requests).toBe(0);
+  });
+
+  it("rejects an oversized aggregate request before recursive question validation", async () => {
+    let requests = 0;
+    const questions = Object.fromEntries(
+      Array.from({ length: 17 }, (_value, index) => [
+        `question${index}`,
+        {
+          kind: "noul" as const,
+          instructions:
+            index === 0 ? "" : "x".repeat(CLASSIFIER_MAX_INSTRUCTIONS_BYTES),
+        },
+      ]),
+    );
+    const client = new SystemOneClient(
+      { url: "https://localhost/v1/systemone", model: "jev-latest" },
+      async () => {
+        requests += 1;
+        return new Response(JSON.stringify(responseBody), { status: 200 });
+      },
+    );
+
+    await expect(
+      client.classify(
+        { state: "example diff", questions },
+        new AbortController().signal,
+        () => undefined,
+      ),
+    ).rejects.toMatchObject({
+      code: "request",
+      message: expect.stringContaining("request body exceeds the byte"),
+    });
     expect(requests).toBe(0);
   });
 

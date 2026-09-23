@@ -25,6 +25,13 @@ export interface ClassifierTaskDefinitionInput<
   readonly observability?: TaskDefinition["observability"];
 }
 
+export class MissingClassifierCapabilityError extends Error {
+  constructor() {
+    super("Classifier capability is not available in this task context");
+    this.name = "MissingClassifierCapabilityError";
+  }
+}
+
 /** Defines a task with dynamic state and fixed classifier questions. */
 export function defineClassifierTask<
   Input,
@@ -55,6 +62,9 @@ export function defineClassifierTask<
       ? {}
       : { observability: definition.observability }),
     execute: async ({ input, context }) => {
+      if (context.classify === undefined) {
+        throw new MissingClassifierCapabilityError();
+      }
       const request: ClassifierRequestInput = {
         state: definition.state(input),
         questions,

@@ -33,8 +33,9 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
 - Generated output schema and ordinary TaskDefinition execute callback. The
   output preserves model, answers, usage, and bounded opaque extensions; it
   does not threshold.
-- Seqlane-owned classifier request/result types and `TaskContext.classify`. No
-  Mastra, HTTP, or provider wire type enters core.
+- Seqlane-owned classifier request/result types and optional
+  `TaskContext.classify`. `defineClassifierTask` owns the typed missing-capability
+  failure. No Mastra, HTTP, or provider wire type enters core.
 - Private client using native fetch, one POST to the configured System One
   endpoint, optional bearer header, bounded structural JSON, provider-to-core
   mapping, and typed failures. Use a local HTTP fixture.
@@ -81,11 +82,11 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
 1. Add provider-neutral core schemas/types, fixed question declarations, and
    the generated output schema. Do not add a task discriminator or inspect
    execute callbacks to predict classifier use.
-2. Add one private `SystemOneClient` and `TaskContext.classify` through the
-   existing executeTask path. Select state from parsed input, combine it with
-   the static questions, validate and serialize the request, then start the
-   20-second transport budget in the client. Pass the task abort signal through
-   the existing capability.
+2. Add one private `SystemOneClient` and optional `TaskContext.classify` through
+   the existing executeTask path. Select state from parsed input, combine it
+   with the static questions, validate and serialize the request, then start
+   the 20-second transport budget in the client. Pass the task abort signal
+   through the existing capability.
 3. Map System One fields into Seqlane results and opaque extensions. Capture
    the per-run connection in trusted direct/runner composition. Pass CLI URL
    and model over internal child environment values; capture then remove them

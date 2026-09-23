@@ -34,7 +34,12 @@ export const CLASSIFIER_TRANSPORT_BUDGET_MS = 20_000;
 const classifierRequestEnvelopeSchema = z
   .strictObject({
     state: z.unknown(),
-    questions: plainRecordSchema,
+    questions: plainRecordSchema.pipe(
+      z.record(
+        z.string(),
+        plainRecordSchema.pipe(z.record(z.string(), z.unknown())),
+      ),
+    ),
   })
   .superRefine((request, context) => {
     const questionIds = Object.keys(request.questions);
@@ -106,12 +111,29 @@ function validateConnection(
 ): ValidatedClassifierConnection {
   const parsed = privateClassifierConnectionSchema.safeParse(connection);
   if (!parsed.success) {
-    throw new ClassifierFailure(
-      "configuration",
-      "Classifier connection must contain a safe URL, model, and required API key",
-    );
+    throw invalidConnectionFailure();
   }
   return parsed.data;
+}
+
+function invalidConnectionFailure(): ClassifierFailure {
+  return new ClassifierFailure(
+    "configuration",
+    "Classifier connection must contain a safe URL, model, and required API key",
+  );
+}
+
+function requestModelFor(
+  connection: PrivateClassifierConnection | undefined,
+): string {
+  if (
+    connection === undefined ||
+    typeof connection.model !== "string" ||
+    connection.model.trim().length === 0
+  ) {
+    throw invalidConnectionFailure();
+  }
+  return connection.model.trim();
 }
 
 function safeTransportCause(
@@ -172,9 +194,9 @@ function safeTransportCause(
 }
 
 function providerRequestFor(
-  request: ClassifierRequest,
+  request: z.output<typeof classifierRequestEnvelopeSchema>,
   model: string,
-): Record<string, JsonValue> {
+): Record<string, unknown> {
   const questions = Object.fromEntries(
     Object.entries(request.questions).map(([id, question]) => {
       const { kind, ...fields } = question;
@@ -247,7 +269,14 @@ function parseResponseJson(text: string): unknown {
   );
 }
 
-function parseRequest(request: ClassifierRequestInput): ClassifierRequest {
+function prepareRequest(
+  request: ClassifierRequestInput,
+  model: string,
+): {
+  readonly request: ClassifierRequest;
+  readonly requestData: JsonValue;
+  readonly body: string;
+} {
   const preflight = parseBoundedJson(request, "request", "request");
   const envelope = classifierRequestEnvelopeSchema.safeParse(preflight);
   if (!envelope.success) {
@@ -262,8 +291,17 @@ function parseRequest(request: ClassifierRequestInput): ClassifierRequest {
       "Classifier state exceeds the 768 KiB limit",
     );
   }
+  const serializedRequest = serializeBoundedJsonDocument(
+    providerRequestFor(envelope.data, model),
+    "request body",
+    CLASSIFIER_MAX_BODY_BYTES,
+  );
   try {
-    return classifierRequestSchema.parse(preflight);
+    return {
+      request: classifierRequestSchema.parse(preflight),
+      requestData: serializedRequest.value,
+      body: serializedRequest.text,
+    };
   } catch {
     throw new ClassifierFailure(
       "request",
@@ -285,7 +323,11 @@ export class SystemOneClient {
     onObservation: ClassifierObservationSink,
   ): Promise<ClassifierResult> {
     signal.throwIfAborted();
-    const parsedRequest = parseRequest(input);
+    const preparedRequest = prepareRequest(
+      input,
+      requestModelFor(this.connection),
+    );
+    const parsedRequest = preparedRequest.request;
     const systemOneRequest =
       systemOneNoulRequestSchema.safeParse(parsedRequest);
     if (!systemOneRequest.success) {
@@ -300,14 +342,8 @@ export class SystemOneClient {
       connection.apiKey === undefined || connection.apiKey.length === 0
         ? undefined
         : connection.apiKey;
-    const providerRequest = providerRequestFor(request, connection.model);
-    const serializedRequest = serializeBoundedJsonDocument(
-      providerRequest,
-      "request body",
-      CLASSIFIER_MAX_BODY_BYTES,
-    );
-    const requestData: JsonValue = providerRequest;
-    const body = serializedRequest.text;
+    const requestData = preparedRequest.requestData;
+    const body = preparedRequest.body;
     const attempt = {
       observationId: randomUUID(),
       model: connection.model,

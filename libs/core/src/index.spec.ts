@@ -220,9 +220,6 @@ describe("seqlane core", () => {
         requests.push(value);
         return { answer: "answer" };
       },
-      classify: async () => {
-        throw new Error("Unexpected classifier request in agent task test");
-      },
     };
     await defaultTask.execute({
       input: { request: "question" },
