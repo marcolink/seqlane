@@ -58,6 +58,24 @@ references: ["docs/review-rubric.md"],
 ```
 :::
 
+::: info Dynamic input
+
+When the task must receive changing data, put it in the goal and keep the
+instructions and references fixed. This avoids repeating the data in the
+guidance, but the changing goal still means later fields do not extend the
+reusable prefix.
+
+```ts
+input: z.object({ title: z.string() }),
+goal: ({ title }) => `Review ${title}.`,
+instructions: [
+  "Check against the review rubric.",
+  "Report only supported findings.",
+],
+references: ["docs/review-rubric.md"],
+```
+:::
+
 ::: tip Good example
 
 If the agent can read the diff from its workspace, use a stable goal. Later
