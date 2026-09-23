@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-13
+updated: 2026-09-14
 upstream: []
 supersedes: []
 ---
@@ -57,8 +57,13 @@ unchanged and emits a clear workflow notice.
 ### requirement-serialized-publication
 
 Every authoritative-comment mutation uses one shared per-pull-request
-publication queue. The queue must not cancel an in-progress writer and must
-retain pending writers in arrival order.
+publication queue. Review computation and the final publisher use separate
+concurrency groups. The publication group uses GitHub Actions `queue: max`
+without `cancel-in-progress`; it does not cancel an in-progress writer.
+Pending writers run in order of when they entered the queue, not webhook
+dispatch order. GitHub's 100-pending limit can cancel overflow; the cancelled
+run is visible in Actions and cannot claim publication. No external lease or
+storage service coordinates these writers.
 
 After it acquires the queue, every writer reads the live trusted report and the
 latest bounded command ledger. It derives the next report from that data, not
@@ -68,6 +73,12 @@ durable source of human decisions; the trusted report is their projection.
 A full-review publisher must acquire the same queue after agent computation,
 then reconcile its result with any decisions that arrived during computation.
 It must not overwrite those decisions.
+
+Each mechanical write increments the shared state revision and records its
+own operation identity and body digest under the versioned-comment contract.
+It preserves the review manifest reference, reviewed revision, and scope
+checkpoint. A full review records a new operation identity after it reconciles
+the latest command ledger.
 
 ### requirement-state-migration
 
@@ -91,8 +102,8 @@ legacy-state compatibility.
 
 - A command posted after a publisher reads but before it patches is processed
   by its subsequent queued mechanical publisher. The command cannot be lost.
-- A disposition publisher preserves another run's progress marker.
-- Progress cleanup removes only the marker owned by its run.
+- A disposition publisher preserves a legacy v3 progress marker. V5 creates
+  no progress marker or cleanup write.
 - A full review still refuses to publish output for a different live head.
 
 ## Verification

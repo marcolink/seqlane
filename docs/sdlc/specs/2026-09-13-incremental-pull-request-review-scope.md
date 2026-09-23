@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-09-14
 upstream:
   - spec.versioned-pull-request-review-comments
+  - spec.review-run-manifest-and-provenance
 supersedes: []
 ---
 
@@ -16,14 +17,20 @@ supersedes: []
 ## Summary
 
 The first successful review of a pull request examines its complete diff against
-its target branch. A later review may create findings only for pull-request files
-whose Git tree entries changed since the last **published** review. Existing
-findings remain in the report and follow their established lifecycle.
+its target branch. Later reviews select only pull-request files changed since
+the last **published** review. A new finding must also have a verified cause
+anchor in that new change, not merely in an older hunk of a selected file.
+Existing findings remain in the report and follow their established lifecycle.
 
 The authoritative comment is the durable checkpoint. A run that fails, is
 cancelled, sees a stale head, or cannot cover its whole eligible scope does not
 advance that checkpoint. Scope selection and finding admission are deterministic
 Action-library behavior, not agent discretion.
+
+Each admitted run also produces one versioned, machine-readable manifest. The
+manifest records frozen input, provenance, coverage outcomes, limitations, and
+terminal status. The authoritative comment remains the trusted cross-run
+checkpoint; it is not the complete execution trace.
 
 This specification owns review scope and checkpoint semantics. The
 [versioned-comment specification](./2026-09-05-versioned-pull-request-review-comments.md)
@@ -34,12 +41,17 @@ owns the Action and runtime boundary.
 ## Goals
 
 - Review the full PR diff on the first successfully published review.
-- Prevent new findings for files unchanged since the last published review.
+- Prevent new findings whose cause is outside the change since the last
+  published review, including older hunks in a newly edited file.
 - Preserve previous finding IDs, statuses, dispositions, and the cumulative
   verdict across follow-up runs.
 - Make rebases, force-pushes, base movement, retries, and partial evidence
   deterministic.
 - Never turn an incomplete review into an apparently complete checkpoint.
+- Make coverage, finding validity, publication, and automation admission
+  independently visible.
+- Preserve enough bounded evidence to explain location, comparison, retry, and
+  failure decisions without trusting model assertions.
 
 ## Non-goals
 
@@ -84,6 +96,13 @@ owns the Action and runtime boundary.
   has an ordinal, path list, patch bytes, change-evidence bytes, and coverage
   counts. A batch result records completion, parsed paths, hunks, byte counts,
   and failure or limitation data.
+- **Run manifest**: the versioned, immutable machine-readable record of one
+  admitted review, including frozen input, provenance, coverage outcomes,
+  limitations, and terminal status.
+- **Finding evidence**: the bounded source excerpt and diff side used to support
+  a finding and derive its current presentation location.
+- **Not reviewed**: a comparison outcome for a prior finding whose path was not
+  in the later run's reviewable scope. It is never equivalent to resolved.
 
 ## Requirements
 
@@ -101,7 +120,11 @@ mutually exclusive:
 
 Only `absent` and `legacy` select baseline mode. `invalid-current` must never
 be relabeled as `absent` or `legacy`. Reuse this classifier without variation
-in scope selection, migration, publication, and marker cleanup.
+in scope selection, migration, and publication.
+
+A legacy v3 publication progress marker is not a v5 checkpoint. Scope
+selection ignores that notice and uses the last completed trusted state.
+The v5 path writes no progress marker or pending report.
 
 Baseline mode uses the complete current PR diff:
 
@@ -126,11 +149,14 @@ change evidence = two-tree diff C H, restricted to R
 
 The intersection uses paths, not commit dates, commit messages, GitHub event
 types, or prior finding locations. It excludes changes that no longer form part
-of the current PR. The `C H` diff selects files; the `B...H` diff shows the
-current PR contribution in those files. Agents must not treat changes imported
-from the target branch as PR-authored code. The two-tree comparison does not
-require `C` to be an ancestor of `H`; this is necessary for rebases and
-force-pushes. A file touched and then restored to the same tree entry is
+of the current PR. The `C H` diff selects files and supplies the required
+new-finding cause anchors; the `B...H` diff shows the complete current PR
+contribution in those files as review context. A path being in `R` alone does
+not authorize a new finding from an unchanged hunk of that file. Agents must
+not treat changes imported from the target branch as PR-authored code. The
+two-tree comparison does not require `C` to be an ancestor of `H`; this is
+necessary for rebases and force-pushes. A file touched and then restored to
+the same tree entry is
 unchanged for this purpose. A branch-base change alone does not make an
 unchanged head file eligible.
 
@@ -164,24 +190,129 @@ diff with an empty path list; it could otherwise select the full repository.
 ### requirement-new-finding-admission
 
 Each proposed new finding must have a workspace-relative path in `R`. A
-pathless finding cannot receive a new stable ID. A finding that describes an
-effect in an unchanged file must point to a reviewable changed file containing
-the cause, with evidence that connects the change to the effect. Context reads
-of unchanged files do not make those files eligible.
+pathless finding cannot receive a new stable ID. Its primary cause anchor
+must overlap a changed line or changed tree-entry record in the baseline
+`B...H` evidence or, for incremental mode, in the two-tree `C H` evidence.
+For incremental mode, the local gate must also verify that this same cause
+is part of the current PR contribution in `B...H`. A change imported from
+the target branch does not qualify, even when its file is in `R`. If the
+two evidence forms cannot establish that relation, show a limitation and
+allocate no new ID.
+For a text hunk, an old-side removed line or new-side added line qualifies;
+unchanged context lines alone do not. A finding that describes an effect in
+an unchanged file must point to the eligible changed cause and use the
+unchanged file only as supporting context. A no-change run admits no new
+findings.
 
 Review lanes and synthesis must receive the mode, exact revisions, `R`, the
-complete current-PR patch for `R`, change evidence, exclusions,
-and retained findings. They must propose only findings from the current scope
+complete current-PR patch for `R`, change evidence, exclusions, and retained
+findings. They must propose only findings from the current scope
 and reference an existing stable ID when they recognize a retained finding.
 Before stable-ID allocation, a deterministic local gate must reject or omit a
-newly proposed finding outside `R`; the run must report that limitation. The
-gate must not silently relabel it as a prior finding. Findings about excluded
-file contents cannot be inferred from metadata alone. An excluded-only change
+newly proposed finding outside `R` or without a verified current-change cause
+anchor; the run must report that limitation. The gate must not silently
+relabel it as a prior finding. Findings about excluded file contents cannot be
+inferred from metadata alone. An excluded-only change
 may produce a coverage limitation, not an invented content finding.
 
 The gate applies after synthesis and before lifecycle reconciliation. It must
-validate paths against the exact `R` calculated for that run, not a
-model-supplied list. Agent output cannot widen the scope or assign final IDs.
+validate paths against the exact `R` and cause anchors calculated for that
+run, not a model-supplied list. Agent output cannot widen the scope or assign
+final IDs.
+
+Every proposed new finding must have bounded evidence from a sealed
+ManifestItem. The trusted finalizer, not the agent, validates this strict model
+and persists it in both the sealed manifest and bounded trusted report state:
+
+```text
+FindingEvidence = {
+  itemId: sealed ManifestItem ID
+  evidenceForm: "pr-patch" | "change-evidence"
+  itemEvidenceDigest: lowercase SHA-256 matching that item
+  path: validated relative path matching that item
+  supportingEvidence: array of at most 4 {
+    role: "cause" | "source" | "sink" | "guard"
+    path: validated relative path
+    sourceRevision: full Git commit SHA
+    sourceDigest: lowercase SHA-256
+    excerpt: nonempty UTF-8 string, at most 500 bytes
+    excerptDigest: lowercase SHA-256
+  }
+} & (
+  | { anchorKind: "changed-text"
+      side: "old" | "new"
+      sourceRevision: full Git commit SHA
+      sourceDigest: lowercase SHA-256 of frozen source bytes
+      excerpt: nonempty UTF-8 string, at most 500 bytes
+      excerptDigest: lowercase SHA-256 of exact excerpt bytes
+      changedStartLine: positive integer
+      changedEndLine: integer >= changedStartLine }
+  | { anchorKind: "changed-tree-entry"
+      beforeEntryDigest: lowercase SHA-256 or absent
+      afterEntryDigest: lowercase SHA-256 or absent }
+)
+
+LocationStatus =
+  | { kind: "located"; side: "old" | "new";
+      startLine: positive integer; endLine: integer >= startLine }
+  | { kind: "unlocated"; reason: bounded nonempty string }
+  | { kind: "ambiguous"; reason: bounded nonempty string;
+      candidateCount: positive integer }
+```
+
+New-baseline and legacy-replacement findings reference a pr-patch item;
+incremental findings reference a change-evidence item. A no-change run cannot
+create one. The trusted
+finalizer proves that changedStartLine through changedEndLine overlaps added
+or removed lines in that exact frozen hunk and that the primary excerpt
+includes at least one of those lines. It derives these lines locally;
+model-supplied positions are untrusted. For a zero-hunk binary, mode, or
+tree-entry change, changed-tree-entry must reference the matching changed
+entry record and has no invented text line. The baseline old side is the
+merge-base tree; the incremental old side is C. The new side is H.
+
+The finalizer verifies the item, path, form, revisions, source bytes, excerpts,
+and digests against the frozen evidence and records each referenced source
+digest in the manifest. Supporting context may come from other readable files
+but cannot widen R or replace the primary changed anchor. A located range
+must be on the named changed side and revision; a tree-entry anchor is
+unlocated. If no unique safe range exists, the finding remains visible as
+unlocated or ambiguous with a limitation. Invalid or missing cause evidence
+makes finding validation fail.
+
+Finding identity is a matching aid, separate from presentation location and
+the publisher-assigned public ID. The finalizer computes a versioned
+identityKey from the trusted defect kind and a whitespace-normalized,
+evidence-verified text cause or changed tree-entry digests. It computes
+occurrenceKey from identityKey, the verified path, and ordered digests of
+validated supporting evidence.
+Line numbers, severity, summary, and recommendation are excluded. The trusted
+finalizer validates every input to these hashes. No AST parser, language-specific
+declaration resolver, or claimed data-flow proof is required in this
+iteration. Identical prose alone never merges findings.
+
+The identityKey is SHA-256 of canonical JSON containing schema
+review.finding-identity/v1, the trusted defect kind, anchor kind, and cause
+digest. For text, the cause digest hashes the excerpt after trimming and
+collapsing ASCII whitespace runs to one space. For a tree-entry change, it
+hashes the before and after entry digests, including an explicit absent side.
+The occurrenceKey is SHA-256 of canonical JSON containing identityKey, the
+validated primary path, and the ordered supporting-evidence roles, paths,
+source digests, and excerpt digests. Canonical JSON sorts object keys and
+preserves array order. The finalizer persists both keys and their typed
+inputs so a later reader can validate the derivation.
+
+Equal keys permit deduplication only when local evidence yields one
+unambiguous occurrence. Different supporting contexts or paths remain
+separate, including similar security defects. An agent may cite a retained
+public ID, but the finalizer accepts continuity only after a one-to-one
+evidence match against the retained finding. A verified one-to-one match may
+preserve that ID across path or line movement, rewording, or changed
+recommendations even when occurrenceKey changes. An ambiguous or unsupported
+match cannot silently merge findings or claim resolution; it is visible as
+a limitation and receives no new stable ID until evidence is sufficient.
+Normalizer versions are pinned for one generation, and a version change
+cannot silently rekey retained history.
 
 ### requirement-existing-findings
 
@@ -218,6 +349,36 @@ claimed *dependency revision range*: the review range records where the agent
 first observed the problem, not every file or commit on which the problem
 depends. Rebase can change that range without changing the defect. Current
 validity is established by current-head evidence, not range membership.
+
+Comparison must produce four disjoint outcomes: `new`, `persisting`, `resolved`,
+and `not_reviewed`. `comparisonOutcome` is a separate typed field from lifecycle
+status, severity, and disposition. A finding can be `resolved` only after the
+later run reviewed the relevant path and current-head verification supports that
+result. An incremental run that did not select a path must preserve the finding
+as `not_reviewed` and carry its lifecycle forward.
+
+The report state and machine-readable manifest must persist the outcome for each
+retained finding. The human projection must render `not_reviewed` distinctly
+from `resolved`, including the omitted scope. Verification and authorized
+dispositions have precedence over comparison presentation: a disposition can
+keep a finding addressed or dismissed, while `not_reviewed` cannot alter its
+lifecycle. Only current-head verification can establish `resolved` or
+`reopened`.
+
+### requirement-run-manifest-and-lifecycle
+
+Manifest schema, item identity, terminal outcomes, persistence, bounds,
+integrity, and provenance are defined by the canonical
+[spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md).
+This scope contract requires the manifest to carry the same immutable
+`ScopeIdentity`, selected paths, exclusions, and evidence-batch plan used here.
+
+### requirement-provenance-and-explainability
+
+Rule trust, precedence, configuration hashing, and bounded explanations are
+defined by [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md).
+Scope selection remains separate from rule resolution; this spec owns `E`, `X`,
+and `R`, while the manifest spec records why each path was selected or excluded.
 
 ### requirement-checkpoint-state
 
@@ -257,7 +418,9 @@ the new form. Old `SEQ-PR{number}-{index}` commands cannot resolve to a new
 finding, even when the numeric index repeats. The publisher must not migrate
 old finding aliases into the new generation.
 
-The run metrics ledger is unchanged and is never a checkpoint source.
+The run metrics ledger is unchanged and is never a checkpoint source. The
+manifest is the source for coverage and lifecycle evidence; the ledger remains
+the source for rendered run metrics.
 Previous-report timestamps, GitHub run IDs, and `previousReviewedRevision` are
 not eligibility anchors.
 
@@ -267,7 +430,7 @@ The schema-evolution matrix is canonical:
 | --- | --- | --- | --- |
 | v3 | Existing lifecycle state, v3 metadata marker, numeric finding IDs. | Current v3 reader. | Accepted as legacy when the scope feature is enabled; replaced by a new baseline. |
 | v4 | Transitional mechanical-disposition state: v3 fields plus monotonic state revision and writer identity; v4 marker. It has no scope checkpoint and is never an incremental checkpoint for this feature. | v4 disposition reader and the scope reader as legacy. | If published before v5, v3 migrates to v4 for disposition work. The first scope-capable publication replaces v4 with a fresh v5 baseline and discards v4 findings, dispositions, metrics, and checkpoint. |
-| v5 | Unified current state: v4 disposition fields plus `scopeCheckpoint`, generation-qualified finding IDs, and the v5 marker. | v5 reader only for current operation; older readers reject it. | v3 or v4 is legacy and is replaced by a fresh v5 baseline. Invalid v5 state is `invalid-current` and fails closed. |
+| v5 | Unified current state: v4 disposition fields plus `scopeCheckpoint`, generation-qualified finding IDs, typed identities and comparisons, strict run status, required sealed manifest and final-operation references with digests, and the v5 marker. | v5 reader only for current operation; older readers reject it. | v3 or v4 is legacy and is replaced by a fresh v5 baseline. Invalid v5 state, including a missing manifest reference, is `invalid-current` and fails closed. |
 
 The v5 schema is the only target for the incremental scope implementation.
 If incremental scope lands before mechanical dispositions, it still writes v5
@@ -385,11 +548,13 @@ the sum of hunk and byte counts matches the pre-model plan. It must preserve
 limitations in deterministic ordinal order.
 
 After batch aggregation, the orchestrator deduplicates findings by normalized
-stable ID, then by the existing finding identity key and finally by exact
-`path`, `line`, `axis`, and normalized summary when no ID exists. It retains
-the highest severity and deterministic first occurrence for duplicates. Only
-the aggregated result enters synthesis. A missing or ambiguous deduplication
-key is a limitation and cannot allocate a new stable ID.
+stable ID, then by the canonical `(identityKey, occurrenceKey)` pair with local
+same-occurrence verification. It retains the highest severity and deterministic
+first occurrence for exact duplicates;
+distinct occurrence keys remain independent. Only the aggregated result enters
+synthesis. A missing or ambiguous identity or occurrence key is a limitation and
+cannot allocate a new stable ID; path and line may be shown only as evidence and
+presentation metadata.
 
 The invocation policy is fixed: run history verification once for the retained
 current-generation findings, run each configured discovery lane once per
@@ -423,11 +588,11 @@ ceiling also fails without publication or checkpoint advancement.
 
 If complete evidence cannot fit or a required batch fails, the review fails
 without publishing new findings or a new checkpoint. The workflow removes only
-its own progress marker and leaves the previous authoritative report intact.
+no v5 report and leaves the previous authoritative report intact.
 It must expose a clear failure reason in the Action result. It must not compact
 away coverage metadata or silently fall back to a broader baseline.
 
-### requirement-publication-atomicity
+### requirement-scope-publication-guard
 
 Review scope is calculated from a specific trusted checkpoint `C`, target
 branch name, target commit `B`, and head `H`. Capture all four at admission.
@@ -472,32 +637,16 @@ variant mismatch, report-ID mismatch, legacy-marker mismatch, or a value that
 was reconstructed from model output. A legacy replacement must carry the exact
 trusted old-version marker identity read at admission; a new baseline must
 carry no prior report identity.
-Immediately before the final write, the publisher must re-read the trusted
-report and live PR. It must require the live head to equal `H`, the live target
-branch name and target commit to equal the captured values, and the current
-published checkpoint to equal `C` for incremental and no-change runs. For a
-new baseline, the authoritative report must still be absent. For a legacy
-replacement, the live report ID and legacy marker identity must still equal the
-captured values. If the target or head moved, the checkpoint changed, or any
-required report identity changed, the result is stale. Do not publish it; start
-a new review with the live PR revisions and recompute scope. The publisher must
-reconcile current-generation authorized dispositions under the existing
-publication rules. It must not attach findings from a stale scope.
-
-The final report, retained findings, scope checkpoint, and visible limitation
-text are one publication. A marker write, run start, successful agent result,
-or metrics-ledger update alone never advances `C`. A failed, cancelled,
-incomplete, or stale run leaves `C` unchanged. Existing per-PR concurrency and
-run-identity guards remain in force.
-
-An in-progress marker must be distinguishable from a published state marker.
-During a legacy replacement it may precede the old report, but it must not
-claim that a new-version checkpoint already exists. Publication and cleanup
-must check the marker's owning run and preserve the old report when that run
-does not publish. For a legacy replacement, the final publisher must verify the
-same trusted report ID and old-version marker identity it read at review start.
-A new baseline must verify that no authoritative report appeared after
-admission.
+The publisher revalidates this immutable scope identity before publication.
+The live head, target branch and commit, checkpoint when present, and
+variant-specific trusted report identity must still match. A new baseline
+requires an absent authoritative report; a legacy replacement requires the
+captured old report ID and marker. A mismatch is stale and requires a new scope
+calculation. Only a successful final authoritative report can establish the
+next checkpoint `C`. The
+[publisher-owned final write and shared queue](./2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-state-machine)
+define write ordering, stale guards, uncertain-result readback, and the
+one authoritative checkpoint update.
 
 ## Detailed design or contracts
 
@@ -519,12 +668,10 @@ The trusted sequence is:
    in bounded run evidence.
 5. Run historical-finding verification independently. Run discovery lanes only
    for complete eligible reviewable evidence. Synthesize and gate new findings.
-6. Reconcile retained findings and dispositions, then derive the cumulative
-   verdict mechanically.
-7. Re-read the live target branch, base revision, head, checkpoint, and
-   variant-specific report identity under the publication guard. Publish the
-   report and checkpoint together, or leave the old report authoritative and
-   recompute scope in a new run.
+6. Reconcile retained findings and dispositions, derive the cumulative verdict
+   mechanically, and validate findings. Finalize execution coverage and finding
+   statuses, then seal the run manifest. Pass the immutable scope identity and
+   sealed manifest to the publisher under its linked state-machine contract.
 
 No unchecked Git output may become a path, revision, or shell argument. Bounds
 on path count, path length, patch size, state size, and model output remain
@@ -551,6 +698,10 @@ is an incomplete review, not a smaller valid scope.
 | New finding lacks a path or names a path outside `R` | Reject it before ID allocation and show a scope limitation. |
 | Only excluded files change | Do not claim their contents were reviewed or invent a content finding. |
 | A planned or dynamic cumulative ceiling is exceeded | Fail without publication or checkpoint advancement. |
+| A selected item has no terminal outcome at finalization | Record a typed failure; coverage is incomplete and publication is blocked. |
+| A finding cannot be safely located | Preserve it as unlocated or ambiguous with a visible limitation. |
+| A later run omits a prior finding's path | Preserve it as `not_reviewed`; do not mark it resolved. |
+| An external write has an uncertain result | Re-read and reconcile before retry; do not duplicate or silently drop it. |
 
 ## Migration
 
@@ -594,6 +745,11 @@ force-push, retargeting, model change, or state parse failure.
   cannot publish.
 - Test the finalizer with out-of-scope and pathless agent findings. Prove that
   no new stable ID is allocated and a limitation is visible.
+- Test a file edited twice: an older PR hunk in that file is context only,
+  while a verified C-to-H added or removed line that remains part of the PR
+  can anchor a new finding. Test imported target-branch changes in the same
+  file, zero-hunk tree-entry changes, unchanged context lines, changed-line
+  range forgery, and a no-change run. No unverified anchor receives a new ID.
 - Test that retained findings, dispositions, fix verification, and verdict
   remain correct on both incremental and no-change runs.
 - Test old-version replacement, discarded old findings and metrics, old-command
@@ -605,8 +761,25 @@ force-push, retargeting, model change, or state parse failure.
 - Test failed, cancelled, incomplete, stale-head, moved-target, and
   changed-checkpoint runs. Assert that their authoritative checkpoint does not
   advance.
-- Test that the progress marker cannot be parsed as a published checkpoint and
-  that failed legacy replacement restores the old report.
+- Test manifest sealing, idempotent and conflicting transitions, finalization
+  backstop failures, per-item versus run-level failure classes, complete
+  batch-and-lane membership, deterministic ordering, and independent coverage, finding,
+  publication, and admission statuses.
+- Test evidence-backed positioning, unlocated and ambiguous findings,
+  location-independent deduplication, and `new`, `persisting`, `resolved`, and
+  `not_reviewed` comparison outcomes.
+- Test reworded summaries, changed recommendations, and moved source with the
+  same verified occurrence: retain keys, public IDs, dispositions, and history.
+  Distinct supporting contexts stay separate; ambiguous or unsupported
+  evidence cannot receive a guessed key. Reject model-supplied keys and
+  normalizer drift without requiring a language-specific source parser.
+- Test v5 missing or malformed manifest references as `invalid-current`, without
+  automatic baseline replacement. Expired artifacts leave a valid Git
+  checkpoint intact but disable old audit reads.
+- Test rule precedence, exclusion explanations, provenance hashes, the
+  single bounded summary, uncertain-write readback, and failed upload.
+- Test that a legacy v3 progress marker cannot be parsed as a v5 checkpoint
+  and that failed legacy replacement preserves the old report.
 - Run the repository test-mapping check before focused tests. Run focused
   Action-library integration tests, schema compatibility and malformed-input
   tests, workflow admission checks, documentation checks, and `git diff
@@ -638,6 +811,12 @@ force-push, retargeting, model change, or state parse failure.
 - No cumulative resource ceiling can be bypassed by adding batches or retries.
 - Rebase, force-push, and base movement do not silently reopen full-branch
   discovery.
+- Every selected item has one explicit outcome in an immutable versioned
+  manifest, and missing outcomes become visible failures.
+- Findings retain typed bounded evidence, safe location status, and identity
+  independent of line location.
+- Comparisons preserve `not_reviewed`, and coverage, finding, publication, and
+  admission statuses cannot collapse into one completion flag.
 - The human report identifies the review mode and scope and does not present
   incremental ratings as a fresh full-branch review.
 
@@ -650,6 +829,7 @@ does not gate new findings by a published checkpoint.
 ## Traceability
 
 - State, lifecycle, and publication: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
+- Manifest and provenance: [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md)
 - Action boundary: [spec.direct-runtime-code-review-action](./2026-09-08-direct-runtime-code-review-action.md)
 - Related draft disposition proposal: [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md)
 - Delivery: [task.incremental-pull-request-review-scope](../tasks/2026-09-13-incremental-pull-request-review-scope.md)
