@@ -27,9 +27,9 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
 
 ## Scope
 
-- @seqlane/core factory with id, Zod input, fixed questionKinds, and
-  build(parsedInput). Exercise one Noul question; define provider-neutral
-  discriminated contracts for all three kinds.
+- @seqlane/core factory with id, Zod input, `state(parsedInput)`, and static
+  questions. Exercise one Noul question; define provider-neutral discriminated
+  contracts for all three kinds.
 - Generated output schema and ordinary TaskDefinition execute callback. The
   output preserves model, answers, usage, and bounded opaque extensions; it
   does not threshold.
@@ -44,7 +44,7 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
   `SEQLANE_CLASSIFIER_API_KEY` in the child. Strip all three values before
   workflow import. Keep public runner IPC unchanged.
 - Classifier-only local execution without `--adapter`; cancellation and the
-  post-build 20-second transport budget.
+  post-state-construction 20-second transport budget.
 - Emit exact request and validated response through the existing
   `ExecutionObservationSink` and `invocation.observation` event. Never include
   credentials in the event.
@@ -55,7 +55,7 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
 
 ## Out of scope
 
-- Dynamic Choice/Score behavior and paired answer validation, transient retries,
+- Choice/Score transport and paired answer validation, transient retries,
   per-attempt observation lifecycle, the integrated Git diff example and
   expanded multi-kind guide, and Laya certification.
 - A config file, classifier profile registry, new Plan node, or agent session.
@@ -74,16 +74,17 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
   into imported workflow code, or bypass the established observation identity.
 - Evidence: CLI fixture test receives Noul probability 0.63, model and usage;
   observes exact request/response with no token; and asserts zero adapter
-  creation. `--dry` emits a Plan without build or HTTP.
-- Excluded: retries and dynamic Choice/Score execution.
+  creation. `--dry` emits a Plan without calling `state` or HTTP.
+- Excluded: retries and Choice/Score execution.
 
 1. Add provider-neutral core schemas/types, fixed question declarations, and
    the generated output schema. Do not add a task discriminator or inspect
    execute callbacks to predict classifier use.
 2. Add one private `SystemOneClient` and `TaskContext.classify` through the
-   existing executeTask path. Build the request, validate and serialize it
-   within the structural limits, then start the 20-second transport budget in
-   the client. Pass the task abort signal through the existing capability.
+   existing executeTask path. Select state from parsed input, combine it with
+   the static questions, validate and serialize the request, then start the
+   20-second transport budget in the client. Pass the task abort signal through
+   the existing capability.
 3. Map System One fields into Seqlane results and opaque extensions. Capture
    the per-run connection in trusted direct/runner composition. Pass CLI URL
    and model over internal child environment values; capture then remove them
@@ -126,8 +127,9 @@ client in a cohesive runtime classifier directory rather than an agent adapter.
 ## Verification
 
 - Run the test-mapping check before focused tests.
-- Core type tests prove parsed Input reaches build, fixed Noul answer type,
-  generated output schema, and rejection of caller execute/output.
+- Core type tests prove parsed input reaches `state`, static question kind
+  completion, fixed Noul answer keys and type, generated output schema, and
+  rejection of caller execute/output.
 - Fixture tests prove exact provider request/header, neutral full result and
   extensions, invalid JSON failure, cancellation, structural limits, unsafe
   URL and redirect rejection, one `invocation.observation` event, and no token
@@ -157,13 +159,21 @@ client in a cohesive runtime classifier directory rather than an agent adapter.
 Implementation and focused verification are complete on the delivery branch.
 The branch also contains a standalone Noul example and dedicated classifier
 authoring page, added during delivery at user request. The private System One
-path supports Noul questions; dynamic Choice/Score and retries remain with
-their later tasks. Target-branch delivery is pending.
+path supports static Noul questions and dynamic input-derived state. Choice,
+Score, and retries remain with their later tasks. Target-branch delivery is
+pending.
 
-PR preparation passed `pnpm typecheck`, `pnpm lint` (no errors), `pnpm build`,
-`pnpm docs:index`, `pnpm docs:validate` (367 documents), public docs build,
-Prettier, and `git diff --check` with Node 24. The standalone example also
-returned a Noul result from the live TypeSafe endpoint in a user-run smoke test.
+The final authoring API declares complete static questions beside the task and
+uses `state(parsedInput)` only to select the classified document. TypeScript
+rejects an empty question map, suggests all three question kinds, and infers the
+exact result answer keys. Definition-time Zod validation snapshots the static
+questions so later caller mutation cannot change the request or result schema.
+
+PR preparation passed test mapping, 24 focused core/runtime tests,
+`pnpm typecheck`, `pnpm lint` (no errors), `pnpm build`, `pnpm docs:index`,
+`pnpm docs:validate` (367 documents), public docs build, format check, and
+`git diff --check` with Node 24. The standalone example also returned a Noul
+result from the live TypeSafe endpoint in a user-run smoke test.
 
 ## Delivery state
 

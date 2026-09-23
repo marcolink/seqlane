@@ -1,4 +1,4 @@
-import type { JsonValue, SeqlaneSchema } from "./contracts.js";
+import type { SeqlaneSchema } from "./contracts.js";
 import { jsonValueSchema, plainRecordSchema } from "./json.js";
 import { z } from "zod";
 
@@ -89,12 +89,6 @@ const noulQuestionInputSchema = z.strictObject({
   instructions: classifierInstructionSchema,
   criteria: noulCriteriaSchema.optional(),
 });
-const classifierQuestionInputSchemaByKind = {
-  choice: choiceQuestionInputSchema,
-  score: scoreQuestionInputSchema,
-  noul: noulQuestionInputSchema,
-} satisfies Record<ClassifierQuestionKind, z.ZodType>;
-
 export const classifierQuestionSchema = z.discriminatedUnion("kind", [
   choiceQuestionInputSchema.extend({ kind: z.literal("choice") }),
   scoreQuestionInputSchema.extend({ kind: z.literal("score") }),
@@ -102,67 +96,44 @@ export const classifierQuestionSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type ClassifierQuestion = z.output<typeof classifierQuestionSchema>;
-export type ClassifierQuestionKinds = Readonly<
-  Record<string, ClassifierQuestionKind>
->;
 
-export type ClassifierQuestionFor<Kind extends ClassifierQuestionKind> =
-  Kind extends "choice"
-    ? Omit<Extract<ClassifierQuestion, { readonly kind: "choice" }>, "kind">
-    : Kind extends "score"
-      ? Omit<Extract<ClassifierQuestion, { readonly kind: "score" }>, "kind">
-      : Omit<Extract<ClassifierQuestion, { readonly kind: "noul" }>, "kind">;
+export const classifierQuestionsSchema = plainRecordSchema
+  .pipe(z.record(classifierIdSchema, classifierQuestionSchema))
+  .superRefine((questions, context) => {
+    const count = Object.keys(questions).length;
+    if (count === 0 || count > 256) {
+      context.addIssue({
+        code: "custom",
+        message: "Declare between 1 and 256 classifier questions",
+      });
+    }
+  });
 
-export type ClassifierRequestFor<Kinds extends ClassifierQuestionKinds> = {
-  readonly state: JsonValue;
-  readonly questions: {
-    readonly [Id in keyof Kinds]: ClassifierQuestionFor<Kinds[Id]>;
-  };
-};
+export type ClassifierQuestions = z.output<typeof classifierQuestionsSchema>;
 
-export type ClassifierRequest = {
-  readonly state: JsonValue;
-  readonly questions: Readonly<Record<string, ClassifierQuestion>>;
-};
-
-/** Runtime input accepted by TaskContext before its owning schema validates it. */
-export type ClassifierRequestInput = {
-  readonly state: JsonValue;
-  readonly questions: Readonly<Record<string, unknown>>;
-};
-
-const classifierStateSchema = z.union([
+export const classifierStateSchema = z.union([
   z.string(),
   z.array(jsonValueSchema),
   plainRecordSchema.pipe(z.record(z.string(), jsonValueSchema)),
 ]);
 
-export const classifierRequestSchema = z
-  .strictObject({
-    state: classifierStateSchema,
-    questions: plainRecordSchema.pipe(
-      z.record(classifierIdSchema, classifierQuestionSchema),
-    ),
-  })
-  .superRefine((request, context) => {
-    const entries = Object.entries(request.questions);
-    if (entries.length === 0 || entries.length > 256) {
-      context.addIssue({
-        code: "custom",
-        path: ["questions"],
-        message: "Classifier request needs 1 to 256 questions",
-      });
-    }
-    for (const [id] of entries) {
-      if (new TextEncoder().encode(id).byteLength > 256) {
-        context.addIssue({
-          code: "custom",
-          path: ["questions", id],
-          message: "Classifier question IDs cannot exceed 256 UTF-8 bytes",
-        });
-      }
-    }
-  });
+export type ClassifierState = z.output<typeof classifierStateSchema>;
+
+export type ClassifierRequest = {
+  readonly state: ClassifierState;
+  readonly questions: ClassifierQuestions;
+};
+
+/** Runtime input accepted by TaskContext before its owning schema validates it. */
+export type ClassifierRequestInput = {
+  readonly state: ClassifierState;
+  readonly questions: Readonly<Record<string, unknown>>;
+};
+
+export const classifierRequestSchema = z.strictObject({
+  state: classifierStateSchema,
+  questions: classifierQuestionsSchema,
+});
 
 const probabilitySchema = z.number().finite().min(0).max(1);
 const extensionSchema = plainRecordSchema.pipe(
@@ -233,21 +204,24 @@ export type ClassifierAnswerFor<Kind extends ClassifierQuestionKind> = Extract<
   { readonly kind: Kind }
 >;
 
-export type ClassifierResultFor<Kinds extends ClassifierQuestionKinds> = Omit<
+export type ClassifierResultFor<Questions extends ClassifierQuestions> = Omit<
   ClassifierResult,
   "answers"
 > & {
   readonly answers: {
-    readonly [Id in keyof Kinds]: ClassifierAnswerFor<Kinds[Id]>;
+    readonly [Id in keyof Questions]: ClassifierAnswerFor<
+      Questions[Id]["kind"]
+    >;
   };
 };
 
 export function createClassifierResultSchema<
-  Kinds extends ClassifierQuestionKinds,
->(questionKinds: Kinds): SeqlaneSchema<ClassifierResultFor<Kinds>> {
+  Questions extends ClassifierQuestions,
+>(questions: Questions): SeqlaneSchema<ClassifierResultFor<Questions>> {
+  const declaredQuestions = classifierQuestionsSchema.parse(questions);
   const fixedKindsResultSchema = classifierResultSchema.superRefine(
     (result, context) => {
-      const declaredIds = Object.keys(questionKinds).sort();
+      const declaredIds = Object.keys(declaredQuestions).sort();
       const answerIds = Object.keys(result.answers).sort();
       if (
         declaredIds.length !== answerIds.length ||
@@ -262,7 +236,10 @@ export function createClassifierResultSchema<
       }
       for (const id of declaredIds) {
         const answer = result.answers[id];
-        if (answer === undefined || answer.kind !== questionKinds[id]) {
+        if (
+          answer === undefined ||
+          answer.kind !== declaredQuestions[id]?.kind
+        ) {
           context.addIssue({
             code: "custom",
             path: ["answers", id, "kind"],
@@ -272,48 +249,15 @@ export function createClassifierResultSchema<
       }
     },
   );
-  return z.custom<ClassifierResultFor<Kinds>>((value) => {
-    const parsedKinds = z
-      .record(classifierIdSchema, classifierQuestionKindSchema)
-      .safeParse(questionKinds);
-    if (!parsedKinds.success || Object.keys(questionKinds).length === 0) {
-      return false;
-    }
+  return z.custom<ClassifierResultFor<Questions>>((value) => {
     const parsedResult = fixedKindsResultSchema.safeParse(value);
     if (!parsedResult.success) return false;
-    const declaredIds = Object.keys(questionKinds).sort();
+    const declaredIds = Object.keys(declaredQuestions).sort();
     return declaredIds.every((id) => {
       const answer = parsedResult.data.answers[id];
-      return answer !== undefined && answer.kind === questionKinds[id];
+      return (
+        answer !== undefined && answer.kind === declaredQuestions[id]?.kind
+      );
     });
-  });
-}
-
-export function classifierRequestSchemaFor<
-  Kinds extends ClassifierQuestionKinds,
->(questionKinds: Kinds): SeqlaneSchema<ClassifierRequestFor<Kinds>> {
-  const parsedKinds = z
-    .record(classifierIdSchema, classifierQuestionKindSchema)
-    .safeParse(questionKinds);
-  if (
-    !parsedKinds.success ||
-    Object.keys(parsedKinds.data).length === 0 ||
-    Object.keys(parsedKinds.data).length > 256
-  ) {
-    return z.custom<ClassifierRequestFor<Kinds>>(() => false);
-  }
-  const questionsShape = Object.fromEntries(
-    Object.entries(parsedKinds.data).map(([id, kind]) => [
-      id,
-      classifierQuestionInputSchemaByKind[kind],
-    ]),
-  );
-  const fixedBuilderRequestSchema = z.strictObject({
-    // Runtime owns bounded JSON preflight before recursive state validation.
-    state: z.unknown(),
-    questions: z.strictObject(questionsShape),
-  });
-  return z.custom<ClassifierRequestFor<Kinds>>((value) => {
-    return fixedBuilderRequestSchema.safeParse(value).success;
   });
 }

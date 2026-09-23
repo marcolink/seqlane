@@ -20,8 +20,9 @@ supersedes: []
 Jev and Laya evaluate a state against named Choice, Score, and Noul questions
 and return probabilities. Laya exposes a Jev-compatible System One HTTP
 endpoint. Workflow authors need these judgments as typed task outputs, with
-question wording and criteria built from each invocation's input. A classifier
-request does not need an agent goal, coding tools, or a conversation session.
+one state selected from each invocation's input and static questions declared
+with the task. A classifier request does not need an agent goal, coding tools,
+or a conversation session.
 
 Seqlane already uses one task/dataflow contract and Mastra as its only workflow
 runtime. Standalone runs do not require a Seqlane configuration file and do not
@@ -33,12 +34,12 @@ those foundations.
 ### decision-classifier-task-boundary
 
 `defineClassifierTask` creates an ordinary in-memory task definition. It fixes
-question IDs and kinds at definition time. Its `build` callback receives parsed
-task input and resolves one JSON state plus instructions and criteria for those
-questions at invocation time. Static requests use the same callback shape.
-The task executes as one Mastra step through a private classifier client. The
-Plan keeps its normal task ID and input binding, not a new node kind, callback,
-provider request, or credential. It creates no agent session or checkpoint.
+complete questions at definition time. Its `state` callback receives parsed
+task input and selects one JSON string, object, or array at invocation time.
+All questions evaluate that shared state. The task executes as one Mastra step
+through a private classifier client. The Plan keeps its normal task ID and
+input binding, not a new node kind, callback, provider request, or credential.
+It creates no agent session or checkpoint.
 
 ### decision-one-connection-per-run
 
@@ -94,8 +95,8 @@ contract.
 
 - Core gains a classifier authoring factory and a Seqlane-owned context request
   contract. Private runtime composition supplies the HTTP client.
-- Generated output schemas and response validation must check the resolved
-  options and levels, not only the static answer shape.
+- Generated output schemas and response validation must check the declared
+  options and levels, not only the generic answer shape.
 - Agent model/session policy remains separate from classifier model selection.
 - The first supported run has one classifier connection; there is no per-task
   provider routing or automatic fallback.

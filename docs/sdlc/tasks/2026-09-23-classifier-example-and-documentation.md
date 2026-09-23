@@ -30,15 +30,15 @@ Finish [spec.classifier-tasks, acceptance criteria](../specs/2026-09-23-classifi
   `workflows/git-diff-summary-example/workflow.ts`. It asks one Choice about
   review area, one Score about review urgency, and one Noul about security
   review. Give each criterion a concrete, readable description.
-- Let the example input optionally supply review-area options and ordered
-  urgency levels, with useful defaults. The `build` callback derives the
-  instructions and criteria from that parsed input and the bounded diff.
-  Question IDs and kinds remain fixed.
+- Declare all questions, instructions, Choice options, and Score levels in the
+  classifier task. Its `state` callback selects the bounded diff from parsed
+  input.
 - Return the complete classifier result alongside the two existing summary
   lanes. Do not use its probabilities to skip a lane or publish a review.
-- Extend the Noul tracer documentation with the JSON result fields, dynamic
-  question construction, 20-second transport budget, three retries, and the
-  difference between a probability and an application decision.
+- Extend the Noul tracer documentation with the JSON result fields, static
+  question definitions, dynamic state selection, 20-second transport budget,
+  three retries, and the difference between a probability and an application
+  decision.
 - Update nearby README/AGENTS material and the dedicated public classifier
   authoring and CLI pages for Choice, Score, and mixed agent/classifier runs.
 
@@ -54,13 +54,13 @@ Finish [spec.classifier-tasks, acceptance criteria](../specs/2026-09-23-classifi
 - **Outcome:** one Git diff example run returns its existing summaries plus
   complete Choice, Score, and Noul answers.
 - **Path:** CLI input → Git diff shell task → bounded evidence → classifier
-  `build` → private Jev-compatible HTTP fixture → workflow output/CI JSON.
-- **Risk:** the example may require large unbounded diffs, disturb existing
-  summary contracts, or fail to show why dynamic criteria matter.
-- **Evidence:** a focused example integration test uses two option/rubric sets,
-  confirms bounded evidence, and verifies existing summaries plus full
-  classifier output. One manual Jev run can be recorded separately if a key
-  is supplied; fixture evidence is the required gate.
+  `state` → private Jev-compatible HTTP fixture → workflow output/CI JSON.
+- **Risk:** the example may require large unbounded diffs or disturb existing
+  summary contracts.
+- **Evidence:** a focused example integration test confirms bounded evidence,
+  static questions, input-derived state, existing summaries, and full
+  classifier output. One manual Jev run can be recorded separately if a key is
+  supplied; fixture evidence is the required gate.
 - **Excluded:** production code-review routing and threshold policy.
 
 1. Add a cohesive classifier task file and extend the example input/output
@@ -91,8 +91,9 @@ tests. The production code-review graph stays unchanged in this task.
 
 ## Completion criteria
 
-- The example is runnable and shows dynamic options/levels and the full
-  probabilistic result without altering the agent summaries' meaning.
+- The example is runnable and shows static Choice, Score, and Noul questions
+  with the full probabilistic result, without altering the agent summaries'
+  meaning.
 - An author can copy the documented task pattern; an operator can configure
   the endpoint and token from the CLI documentation.
 - The full spec's acceptance criteria and documentation checks pass.

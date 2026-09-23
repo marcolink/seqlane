@@ -170,7 +170,7 @@ a sandbox.
 ### requirement-classifier-connection-extension
 
 Classifier tasks use the separate
-[dynamic classifier task contract](./2026-09-23-classifier-tasks.md#requirement-runtime-connection).
+[classifier task contract](./2026-09-23-classifier-tasks.md#requirement-runtime-connection).
 The CLI accepts paired URL/model flags and passes their parsed values to its
 runner child through private startup environment variables. The child captures
 these values and `SEQLANE_CLASSIFIER_API_KEY` before loading workflow modules,

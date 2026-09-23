@@ -1,6 +1,6 @@
 ---
 id: spec.classifier-tasks
-title: Dynamic Classifier Task Contract
+title: Classifier Task Contract
 status: active
 owners:
   - core
@@ -13,22 +13,22 @@ upstream:
 supersedes: []
 ---
 
-# Dynamic Classifier Task Contract
+# Classifier Task Contract
 
 ## Summary
 
-Add `defineClassifierTask` for one state and many fixed-kind questions whose
-wording and criteria can change per task invocation. Return a provider-neutral
-Seqlane result with validated answers, model identity, usage, and opaque,
-bounded provider extensions. The first private transport targets Jev System One
-HTTP. A standalone run supplies one connection without an agent adapter or
-configuration file.
+Add `defineClassifierTask` for one input-derived state and many static typed
+questions. Return a provider-neutral Seqlane result with validated answers,
+model identity, usage, and opaque, bounded provider extensions. The first
+private transport targets Jev System One HTTP. A standalone run supplies one
+connection without an agent adapter or configuration file.
 
 ## Goals
 
 - Preserve the existing `createFlow().task()` binding, Plan, Mastra step,
   validation, cancellation, and workflow-output paths.
-- Support Choice, Score, and Noul in one request with parsed dynamic input.
+- Support static Choice, Score, and Noul questions in one request over a state
+  selected from parsed input.
 - Expose full, validated probabilities to later tasks.
 - Resolve URL, model, and token once per run, outside authored workflow code.
 - Prove a real path in `git-diff-summary-example` before wider use.
@@ -45,9 +45,9 @@ configuration file.
 
 ## Terminology
 
-- **Question kind:** fixed `choice`, `score`, or `noul` for a named question.
-- **Resolved request:** the state and question payload produced by `build` for
-  one validated task input.
+- **Question kind:** `choice`, `score`, or `noul` for a named static question.
+- **Resolved request:** the state produced by `state` for one validated task
+  input, together with the task's static questions.
 - **Classifier connection:** the private endpoint, model ID, and bearer token
   available to one run.
 - **Attempt:** one HTTP POST. Up to three retries allow four attempts total.
@@ -56,12 +56,11 @@ configuration file.
 
 ### requirement-fixed-question-shape
 
-The author declares a nonempty map of stable question IDs to kinds. `build`
-must return exactly those IDs. It may change each question's instructions,
-Choice options, and Score levels using validated task input. It cannot change
-an ID or kind. A task with constant `build` output is a static classifier.
-All questions share one state and go in one provider request. Question answers
-do not become input to other questions in that request.
+The author declares a nonempty map of complete static questions. Each question
+has a stable ID, kind, instructions, and kind-specific criteria. The `state`
+callback receives validated task input and returns one JSON string, object, or
+array. All questions share that state and go in one provider request. Question
+answers do not become input to other questions in that request.
 
 ### requirement-full-result
 
@@ -99,12 +98,12 @@ object.
 ### requirement-deadline-and-retries
 
 Each classifier invocation has one 20-second transport budget. Start its
-monotonic clock after the synchronous builder has returned and the resolved
-request has passed validation and serialization. The budget covers HTTP
-attempts, response reading and validation, and backoff. Synchronous build and
-request validation are bounded by the payload limits but are outside this
-transport budget; do not claim a hard wall-clock bound over authored
-synchronous code.
+monotonic clock after the synchronous `state` callback has returned and the
+resolved request has passed validation and serialization. The budget covers
+HTTP attempts, response reading and validation, and backoff. Synchronous state
+selection and request validation are bounded by the payload limits but are
+outside this transport budget; do not claim a hard wall-clock bound over
+authored synchronous code.
 
 The first attempt may be followed by at most three retries on network failure,
 HTTP 429, 529, or 5xx. Retry only the same endpoint and model. Respect
@@ -142,29 +141,26 @@ split the types into cohesive files without changing the behavior.
 const classify = defineClassifierTask({
   id: "git-diff-classifier",
   input: classifierInputSchema,
-  questionKinds: {
-    area: "choice",
-    priority: "score",
-    needsSecurityReview: "noul",
-  },
-  build: ({ diff, candidateAreas, priorityLevels }) => ({
-    state: { diff },
-    questions: {
-      area: {
-        instructions: "Which area deserves the first review?",
-        criteria: Object.fromEntries(
-          candidateAreas.map((area) => [area.id, area.description]),
-        ),
-      },
-      priority: {
-        instructions: "How urgent is review of this change?",
-        criteria: priorityLevels,
-      },
-      needsSecurityReview: {
-        instructions: "Does this change need security review?",
+  state: ({ diff }) => ({ diff }),
+  questions: {
+    area: {
+      kind: "choice",
+      instructions: "Which area deserves the first review?",
+      criteria: {
+        runtime: "Runtime behavior or execution lifecycle.",
+        docs: "Documentation or examples.",
       },
     },
-  }),
+    priority: {
+      kind: "score",
+      instructions: "How urgent is review of this change?",
+      criteria: ["Low", "Medium", "High"],
+    },
+    needsSecurityReview: {
+      kind: "noul",
+      instructions: "Does this change need security review?",
+    },
+  },
 });
 
 const workflow = createFlow({
@@ -177,32 +173,30 @@ const workflow = createFlow({
   .define();
 ```
 
-`questionKinds` is an authoring declaration, not a provider/model selector.
 The factory generates a Zod output schema compatible with `TaskDefinition`.
-TypeScript maps each fixed ID to its answer kind; a Choice selected from
-runtime-built options has type `string` and is checked against that invocation's
-resolved option keys. `build` receives only `z.output<inputSchema>` after
-binding resolution and input parsing. It runs once per task invocation,
-including each workflow-level repeat; HTTP retries reuse its resolved request.
-It receives no token or provider client. The factory
-rejects caller-supplied `execute` and `output` fields to prevent divergence.
+TypeScript maps each static question ID to its answer kind. A Choice selection
+has type `string` and is checked against the declared option keys. `state`
+receives only `z.output<inputSchema>` after binding resolution and input
+parsing. It runs once per task invocation, including each workflow-level
+repeat. HTTP retries reuse the same resolved request. The callback receives no
+token or provider client. The factory rejects caller-supplied `execute` and
+`output` fields to prevent divergence.
 
 `createFlow().task()` runs its binding against workflow references when it
-builds the Plan. It does not call `build`; the runtime calls `build` after
+builds the Plan. It does not call `state`; the runtime calls `state` after
 resolving and validating the task's concrete input. A classifier definition is
 kept in the in-memory registry. The Plan node remains `type: "task"` with its
-existing task ID, input binding, dependencies, and policies. A classifier
-call does not use an agent session. Authors omit `session` for classifier
-tasks. Existing `createFlow().task()` session policy remains unchanged; do not
-add classifier-specific Plan inspection or task discrimination to enforce this
+existing task ID, input binding, dependencies, and policies. A classifier call
+does not use an agent session. Authors omit `session` for classifier tasks.
+Existing `createFlow().task()` session policy remains unchanged; do not add
+classifier-specific Plan inspection or task discrimination to enforce this
 authoring guidance.
 
 ### Resolved request and answer schemas
 
 Core owns Zod schemas for the provider-neutral Seqlane request and result.
-Input state must be a JSON string, object, or array. Question IDs and
-instruction strings must be nonempty. The resolved question map must exactly
-match questionKinds.
+Input state must be a JSON string, object, or array. Static question IDs and
+instruction strings must be nonempty.
 
 | Kind | Resolved fields | Constraints | Validated answer |
 | --- | --- | --- | --- |
@@ -211,10 +205,10 @@ match questionKinds.
 | Noul | instructions and optional true/false criteria | both descriptions when criteria is present | probability of yes in [0,1] |
 
 Choice and Score probabilities and confidence must be finite numbers in [0,1].
-Each distribution must cover exactly the resolved options or levels and sum
+Each distribution must cover exactly the declared options or levels and sum
 to 1 within 0.001. Choice must name one of its options. Score must be finite
 and lie in [0, levels.length - 1]; its legend must map zero-based indices to
-the resolved level descriptions. Noul has no separate confidence. Model
+the declared level descriptions. Noul has no separate confidence. Model
 identity must be a nonempty string; usage token counts must be nonnegative
 integers.
 
@@ -228,8 +222,8 @@ schemas.
 
 The private client sends POST to the configured full endpoint URL with
 Content-Type application/json, an optional bearer header, and the System One
-wire body containing model, state, and questions. It inserts the declared
-question type for each resolved question. It reads a bounded JSON response and
+wire body containing model, state, and questions. It maps each declared
+question `kind` to the provider `type`. It reads a bounded JSON response and
 validates it as untrusted data. The first implementation supports Jev's
 documented response shape. Use native fetch; do not add an SDK dependency.
 
@@ -273,7 +267,7 @@ When a classifier is requested without a connection, fail at
 `TaskContext.classify` before HTTP, following the lazy agent-adapter rule. Do not
 add a task discriminator or inspect task callbacks to predict classifier use.
 The public `RunRequest` IPC schema remains unchanged. `--dry` prints a Plan
-without calling build, requiring credentials, or sending HTTP requests.
+without calling `state`, requiring credentials, or sending HTTP requests.
 
 The programmatic startWorkflowRun entrypoint accepts a private classifier
 connection from the trusted caller. It validates the same fields and uses the
@@ -302,15 +296,16 @@ backoff, then the task settles before its Mastra step closes.
 
 - Missing or invalid connection fails when a classifier is requested, before
   HTTP, with a typed configuration error; a Plan-only dry run remains possible.
-- Invalid builder output, changed/missing question keys, empty Choice options,
-  invalid Score levels, or non-JSON state fails before HTTP.
+- Invalid static questions fail when the task is defined. Invalid state fails
+  before HTTP.
 - Empty question maps are rejected at definition time. An empty workflow input
   is valid only when its declared schema accepts it.
 - HTTP/auth/validation errors and malformed responses fail the task; they do
   not become `false`, zero, an empty distribution, or a different model.
 - Retry exhaustion and transport-budget expiration preserve the last cause in
   a typed error. Cancellation takes precedence over a concurrent provider response.
-- The transport budget starts after synchronous build, validation, and serialization.
+- The transport budget starts after synchronous state selection, validation,
+  and serialization.
 - A `Retry-After` longer than remaining time ends the invocation without an
   extra attempt.
 - Classifier result fields are data. Any later policy that promotes a
@@ -324,10 +319,10 @@ when implementation lands. Do not reclassify existing agent tasks silently.
 
 ## Verification
 
-1. Core tests: static and dynamic builders, inferred fixed answer keys/kinds,
-   exact question-key validation, input parsing before `build`, and runtime
-   options/levels validation. The generated output schema must parse the full
-   result and reject malformed or wrong-kind answers.
+1. Core tests: static question validation, inferred fixed answer keys/kinds,
+   input parsing before `state`, and state root validation. The generated
+   output schema must parse the full result and reject malformed, extra, or
+   wrong-kind answers.
 2. Private transport tests with a local HTTP fixture: exact Jev request and
    bearer header, all three answer kinds, missing/extra answers, malformed
    probabilities, wrong legend, bad JSON, response limits, redirects, auth
@@ -351,8 +346,8 @@ when implementation lands. Do not reclassify existing agent tasks silently.
 
 - A classifier-only workflow runs without `--adapter` and returns the full
   validated Jev result through the existing task and workflow output path.
-- Different inputs to one task produce different instructions, Choice options,
-  and Score levels while question IDs and kinds remain fixed.
+- Different inputs to one task can produce different states while all declared
+  questions remain fixed.
 - One invocation sends exactly one state and all declared questions in each
   attempt. No model call occurs during Plan construction or `--dry`.
 - Configuration and bearer token remain outside the Plan, runner IPC command,

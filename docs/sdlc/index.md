@@ -26,8 +26,8 @@ and tasks.
 [Run One Classifier Task Through Jev](./tasks/2026-09-23-classifier-system-one-tracer.md)
 is the active first delivery on top of [PR #160](https://github.com/marcolink/seqlane/pull/160).
 It delivers one provider-neutral Noul classifier path through the CLI, runtime,
-and existing observation event. Later classifier tasks extend it with dynamic
-question kinds and retries.
+and existing observation event. Later classifier tasks extend it with static
+Choice and Score questions and retries.
 
 ## Authority
 

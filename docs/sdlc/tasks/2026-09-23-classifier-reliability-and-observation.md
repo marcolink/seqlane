@@ -27,8 +27,8 @@ Implement [spec.classifier-tasks, deadline and retries](../specs/2026-09-23-clas
 ## Scope
 
 - Extend the 20-second transport budget across HTTP attempts, response
-  validation, and backoff. The budget starts after build, request validation,
-  and serialization.
+  validation, and backoff. The budget starts after state selection, request
+  validation, and serialization.
 - Retry network errors, 429, 529, and 5xx only. Allow at most four attempts
   total. Honor Retry-After only within the remaining budget.
 - Reuse the invocation abort signal. Stop fetch and backoff on cancellation or

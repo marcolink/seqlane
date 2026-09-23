@@ -12,8 +12,8 @@ describe("defineClassifierTask", () => {
       defineClassifierTask({
         id: "classifier-empty",
         input: z.object({}),
-        questionKinds: {},
-        build: () => ({ state: "example", questions: {} }),
+        state: () => "example",
+        questions: {},
       }),
     ).toThrow("Declare between 1 and 256 classifier questions");
   });
@@ -25,13 +25,13 @@ describe("defineClassifierTask", () => {
     const task = defineClassifierTask({
       id: "classifier-noul",
       input,
-      questionKinds: { needsReview: "noul" },
-      build: ({ diff }) => ({
-        state: diff,
-        questions: {
-          needsReview: { instructions: "Does this diff need review?" },
+      state: ({ diff }) => diff,
+      questions: {
+        needsReview: {
+          kind: "noul",
+          instructions: "Does this diff need review?",
         },
-      }),
+      },
     });
     const output = await task.execute({
       input: input.parse({ diff: "example diff" }),
@@ -66,11 +66,19 @@ describe("defineClassifierTask", () => {
     expect(choice).toBe("noul");
   });
 
-  it("rejects a dynamic result whose answer IDs or kinds drift from the declaration", () => {
+  it("rejects a result whose answer IDs or kinds drift from the declaration", () => {
     const schema = createClassifierResultSchema({
-      review: "noul",
-      area: "choice",
-      severity: "score",
+      review: { kind: "noul", instructions: "Does this need review?" },
+      area: {
+        kind: "choice",
+        instructions: "Which area changed?",
+        criteria: { code: "Code", docs: "Documentation" },
+      },
+      severity: {
+        kind: "score",
+        instructions: "How severe is the change?",
+        criteria: ["Low", "High"],
+      },
     });
     const result = {
       model: "jev-1.13.0",
@@ -109,11 +117,10 @@ describe("defineClassifierTask", () => {
     const common = {
       id: "invalid-classifier",
       input: z.object({ value: z.string() }),
-      questionKinds: { check: "noul" as const },
-      build: ({ value }: { readonly value: string }) => ({
-        state: value,
-        questions: { check: { instructions: "Is this valid?" } },
-      }),
+      state: ({ value }: { readonly value: string }) => value,
+      questions: {
+        check: { kind: "noul" as const, instructions: "Is this valid?" },
+      },
     };
     expect(() =>
       defineClassifierTask({
@@ -126,16 +133,16 @@ describe("defineClassifierTask", () => {
     ).toThrow("does not accept output");
   });
 
-  it("validates built question IDs and fields with the fixed Zod schema", async () => {
+  it("rejects a non-JSON state root before calling the classifier", async () => {
     const input = z.object({ value: z.string() });
     const task = defineClassifierTask({
-      id: "classifier-invalid-build",
+      id: "classifier-invalid-state",
       input,
-      questionKinds: { check: "noul" },
-      build: ({ value }) => ({
-        state: value,
-        questions: { extra: { instructions: "Is this valid?" } } as never,
-      }),
+      // @ts-expect-error A classifier state root cannot be a number.
+      state: () => 42,
+      questions: {
+        check: { kind: "noul", instructions: "Is this valid?" },
+      },
     });
 
     await expect(
@@ -153,5 +160,54 @@ describe("defineClassifierTask", () => {
         },
       }),
     ).rejects.toThrow();
+  });
+
+  it("validates static questions when the task is defined", () => {
+    expect(() =>
+      defineClassifierTask({
+        id: "classifier-invalid-question",
+        input: z.object({}),
+        state: () => "example",
+        questions: {
+          check: { kind: "noul", instructions: "" },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("snapshots static questions when the task is defined", async () => {
+    const questions = {
+      check: {
+        kind: "noul" as const,
+        instructions: "Is this valid?",
+      },
+    };
+    const task = defineClassifierTask({
+      id: "classifier-question-snapshot",
+      input: z.object({}),
+      state: () => "example",
+      questions,
+    });
+    questions.check.instructions = "Changed after task definition";
+
+    await task.execute({
+      input: {},
+      signal: new AbortController().signal,
+      context: {
+        exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+        runAgent: async () => undefined,
+        classify: async (request) => {
+          expect(request.questions.check).toEqual({
+            kind: "noul",
+            instructions: "Is this valid?",
+          });
+          return {
+            model: "jev-1.13.0",
+            answers: { check: { kind: "noul", probability: 0.5 } },
+            usage: { inputTokens: 4, outputTokens: 1 },
+          };
+        },
+      },
+    });
   });
 });

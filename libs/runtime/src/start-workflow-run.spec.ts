@@ -97,15 +97,13 @@ describe("startWorkflowRun", () => {
     const classifier = defineClassifierTask({
       id: "direct-classifier-noul",
       input: classifierInputSchema,
-      questionKinds: { needsReview: "noul" },
-      build: ({ diff }) => ({
-        state: diff,
-        questions: {
-          needsReview: {
-            instructions: "Does this diff need review?",
-          },
+      state: ({ diff }) => diff,
+      questions: {
+        needsReview: {
+          kind: "noul",
+          instructions: "Does this diff need review?",
         },
-      }),
+      },
     });
     const classifierWorkflow = createFlow({
       id: "direct-classifier-workflow",
