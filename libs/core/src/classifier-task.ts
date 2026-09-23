@@ -20,7 +20,7 @@ export interface ClassifierTaskDefinitionInput<
   readonly id: string;
   readonly input: z.ZodType<Input>;
   readonly questionKinds: Kinds;
-  readonly build: (input: Input) => ClassifierRequestFor<Kinds>;
+  readonly build: (input: Input) => ClassifierRequestFor<NoInfer<Kinds>>;
   readonly execute?: never;
   readonly output?: never;
   readonly observability?: TaskDefinition["observability"];
@@ -50,9 +50,14 @@ const classifierQuestionKindsSchema = z
 /** Defines a task whose fixed question kinds are resolved for each input. */
 export function defineClassifierTask<
   Input,
-  Kinds extends ClassifierQuestionKinds,
+  const Kinds extends ClassifierQuestionKinds,
 >(
-  definition: ClassifierTaskDefinitionInput<Input, Kinds>,
+  definition: ClassifierTaskDefinitionInput<Input, Kinds> &
+    (keyof Kinds extends never
+      ? never
+      : string extends keyof Kinds
+        ? never
+        : unknown),
 ): TaskDefinition<Input, ClassifierResultFor<Kinds>> {
   if (Object.hasOwn(definition, "execute")) {
     throw new TypeError("defineClassifierTask does not accept execute");

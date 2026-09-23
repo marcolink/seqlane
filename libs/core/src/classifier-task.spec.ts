@@ -6,6 +6,18 @@ import { z } from "zod";
 import { createClassifierResultSchema, defineClassifierTask } from "./index.js";
 
 describe("defineClassifierTask", () => {
+  it("rejects an empty question declaration", () => {
+    expect(() =>
+      // @ts-expect-error A classifier needs at least one fixed question.
+      defineClassifierTask({
+        id: "classifier-empty",
+        input: z.object({}),
+        questionKinds: {},
+        build: () => ({ state: "example", questions: {} }),
+      }),
+    ).toThrow("Declare between 1 and 256 classifier questions");
+  });
+
   it("builds a fixed Noul request from parsed input and returns the neutral result", async () => {
     const input = z.object({
       diff: z.string().transform((value) => `parsed:${value}`),

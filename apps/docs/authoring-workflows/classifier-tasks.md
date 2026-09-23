@@ -3,7 +3,8 @@
 Use `defineClassifierTask` when a task needs a model classification result.
 The `questionKinds` map fixes each question ID and answer kind. Its `build`
 callback receives parsed task input and returns a JSON state with question
-instructions.
+instructions. Declare at least one fixed question; TypeScript rejects an empty
+map, and runtime validation checks the declared IDs.
 
 The current runtime supports Noul questions. A Noul answer gives the
 probability that a condition is true, from 0 to 1. Choice and Score questions
