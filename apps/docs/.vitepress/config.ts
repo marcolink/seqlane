@@ -6,6 +6,9 @@ export default defineConfig({
   title: "Seqlane",
   description: "Typed workflows for software-engineering work.",
   themeConfig: {
+    search: {
+      provider: "local",
+    },
     nav: [
       { text: "Home", link: "/" },
       { text: "Introduction", link: "/introduction/what-is-seqlane" },
