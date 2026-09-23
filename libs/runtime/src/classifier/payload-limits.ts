@@ -21,9 +21,26 @@ function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
-function inspectJson(value: unknown): void {
+function recordExactStringMatch(
+  value: string,
+  match: { readonly expected: string | undefined; found: boolean },
+): void {
+  match.found =
+    match.found || (match.expected !== undefined && value === match.expected);
+}
+
+function inspectString(
+  value: string,
+  match: { readonly expected: string | undefined; found: boolean },
+): void {
+  if (utf8Bytes(value) > CLASSIFIER_MAX_STRING_BYTES) throw new Error();
+  recordExactStringMatch(value, match);
+}
+
+function inspectJson(value: unknown, exactString?: string): boolean {
   const pending: JsonFrame[] = [{ value, depth: 1 }];
   const ancestors = new Set<object>();
+  const match = { expected: exactString, found: false };
   let total = 0;
 
   while (pending.length > 0) {
@@ -38,7 +55,7 @@ function inspectJson(value: unknown): void {
     const candidate = frame.value;
     if (candidate === null || typeof candidate === "boolean") continue;
     if (typeof candidate === "string") {
-      if (utf8Bytes(candidate) > CLASSIFIER_MAX_STRING_BYTES) throw new Error();
+      inspectString(candidate, match);
       continue;
     }
     if (typeof candidate === "number") {
@@ -105,6 +122,7 @@ function inspectJson(value: unknown): void {
           ) {
             throw new Error();
           }
+          recordExactStringMatch(key, match);
           values.push([key, descriptor.value]);
         }
         entries = values;
@@ -122,20 +140,24 @@ function inspectJson(value: unknown): void {
       }
     }
   }
+  return match.found;
 }
 
-/** Iterative preflight runs before any recursive contract schema. */
-export function boundedJsonPreflightSchema(
+function boundedJsonDocumentSchema(
   message: string,
-): z.ZodType<unknown> {
-  return z.custom<unknown>((value) => {
+  exactString?: string,
+): z.ZodType<{ readonly value: unknown; readonly hasExactString: boolean }> {
+  return z.unknown().transform((value, context) => {
     try {
-      inspectJson(value);
-      return true;
+      return {
+        value,
+        hasExactString: inspectJson(value, exactString),
+      };
     } catch {
-      return false;
+      context.addIssue({ code: "custom", message });
+      return z.NEVER;
     }
-  }, message);
+  });
 }
 
 export function parseBoundedJson(
@@ -143,31 +165,21 @@ export function parseBoundedJson(
   label: string,
   code: Extract<ClassifierFailureCode, "request" | "response">,
 ): unknown {
-  const message = `Classifier ${label} exceeds the safe JSON limits`;
-  const parsed = boundedJsonPreflightSchema(message).safeParse(value);
-  if (!parsed.success) throw new ClassifierFailure(code, message);
-  return parsed.data;
+  return parseBoundedJsonDocument(value, label, code).value;
 }
 
-function boundedSerializedJsonSchema(
-  maximumBytes: number,
-  message: string,
-): z.ZodType<unknown> {
-  return z.custom<unknown>((value) => {
-    try {
-      inspectJson(value);
-      const serialized = JSON.stringify(value);
-      if (
-        serialized !== undefined &&
-        Buffer.byteLength(serialized, "utf8") <= maximumBytes
-      ) {
-        return true;
-      }
-    } catch {
-      // The schema reports one bounded payload failure to callers.
-    }
-    return false;
-  }, message);
+export function parseBoundedJsonDocument(
+  value: unknown,
+  label: string,
+  code: Extract<ClassifierFailureCode, "request" | "response">,
+  exactString?: string,
+): { readonly value: unknown; readonly hasExactString: boolean } {
+  const message = `Classifier ${label} exceeds the safe JSON limits`;
+  const parsed = boundedJsonDocumentSchema(message, exactString).safeParse(
+    value,
+  );
+  if (!parsed.success) throw new ClassifierFailure(code, message);
+  return parsed.data;
 }
 
 export function serializeBoundedJson(
@@ -175,10 +187,23 @@ export function serializeBoundedJson(
   label: string,
   maximumBytes = CLASSIFIER_MAX_BODY_BYTES,
 ): string {
+  return serializeBoundedJsonDocument(value, label, maximumBytes).text;
+}
+
+export function serializeBoundedJsonDocument(
+  value: unknown,
+  label: string,
+  maximumBytes = CLASSIFIER_MAX_BODY_BYTES,
+  exactString?: string,
+): {
+  readonly value: unknown;
+  readonly hasExactString: boolean;
+  readonly text: string;
+} {
   const code: Extract<ClassifierFailureCode, "request" | "response"> =
     label === "response" ? "response" : "request";
   const message = `Classifier ${label} exceeds the byte or JSON safety limit`;
-  const parsed = boundedSerializedJsonSchema(maximumBytes, message).safeParse(
+  const parsed = boundedJsonDocumentSchema(message, exactString).safeParse(
     value,
   );
   if (!parsed.success) throw new ClassifierFailure(code, message);
@@ -191,5 +216,8 @@ export function serializeBoundedJson(
   if (serialized === undefined) {
     throw new ClassifierFailure(code, `Classifier ${label} is not valid JSON`);
   }
-  return serialized;
+  if (Buffer.byteLength(serialized, "utf8") > maximumBytes) {
+    throw new ClassifierFailure(code, message);
+  }
+  return { ...parsed.data, text: serialized };
 }

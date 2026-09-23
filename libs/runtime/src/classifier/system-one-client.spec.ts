@@ -5,7 +5,10 @@ import { createServer, type RequestListener, type Server } from "node:http";
 import { once } from "node:events";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ClassifierRequest, JsonValue } from "@seqlane/core";
-import { SystemOneClient } from "./system-one-client.js";
+import {
+  CLASSIFIER_TRANSPORT_BUDGET_MS,
+  SystemOneClient,
+} from "./system-one-client.js";
 import { ClassifierFailure } from "./types.js";
 
 const request: ClassifierRequest = {
@@ -293,6 +296,81 @@ describe("System One client", () => {
         cause: (error as Error & { cause?: unknown }).cause,
       }),
     ).not.toContain("fixture-safe-cause-key");
+  });
+
+  it("allows credentials that are substrings of ordinary request data", async () => {
+    let requests = 0;
+    const client = new SystemOneClient(
+      {
+        url: "https://jev.example/v1/systemone",
+        model: "monkey-model",
+        apiKey: "key",
+      },
+      async () => {
+        requests += 1;
+        return new Response(JSON.stringify(responseBody), { status: 200 });
+      },
+    );
+
+    await expect(
+      client.classify(
+        { ...request, state: "keyboard change" },
+        new AbortController().signal,
+        () => undefined,
+      ),
+    ).resolves.toMatchObject({ model: "jev-1.13.0" });
+    expect(requests).toBe(1);
+  });
+
+  it("rejects credentials encoded in parsed response values", async () => {
+    const apiKey = "secret-key";
+    const escapedResponse =
+      '{"model":"jev-1.13.0","answers":{"needsReview":{"type":"noul","noul":0.63,"answer_note":"secret\\u002dkey"}},"usage":{"input_tokens":10,"output_tokens":2}}';
+    expect(escapedResponse).not.toContain(apiKey);
+    const observations: unknown[] = [];
+    const client = new SystemOneClient(
+      { url: "https://jev.example/v1/systemone", model: "jev-latest", apiKey },
+      async () => new Response(escapedResponse, { status: 200 }),
+    );
+
+    await expect(
+      client.classify(request, new AbortController().signal, (observation) =>
+        observations.push(observation),
+      ),
+    ).rejects.toMatchObject({ code: "response" });
+    expect(observations).toHaveLength(0);
+  });
+
+  it("enforces the deadline after observation delivery", async () => {
+    let now = 0;
+    const observations: unknown[] = [];
+    const client = new SystemOneClient(
+      { url: "https://localhost/v1/systemone", model: "jev-latest" },
+      async () => new Response(JSON.stringify(responseBody), { status: 200 }),
+      () => now,
+    );
+
+    await expect(
+      client.classify(request, new AbortController().signal, (observation) => {
+        observations.push(observation);
+        now = CLASSIFIER_TRANSPORT_BUDGET_MS;
+      }),
+    ).rejects.toMatchObject({ code: "deadline" });
+    expect(observations).toHaveLength(1);
+  });
+
+  it("propagates observation sink failures unchanged", async () => {
+    const sinkFailure = new Error("observation sink failed");
+    const client = new SystemOneClient(
+      { url: "https://localhost/v1/systemone", model: "jev-latest" },
+      async () => new Response(JSON.stringify(responseBody), { status: 200 }),
+    );
+
+    await expect(
+      client.classify(request, new AbortController().signal, () => {
+        throw sinkFailure;
+      }),
+    ).rejects.toBe(sinkFailure);
   });
 
   it("rejects malformed and oversized responses with a safe typed failure", async () => {

@@ -5,20 +5,18 @@ import type {
   ClassifierResult,
   JsonValue,
 } from "@seqlane/core";
-import {
-  classifierRequestSchema,
-  classifierResultSchema,
-  jsonValueSchema,
-  plainRecordSchema,
-} from "@seqlane/core";
+import { classifierRequestSchema, plainRecordSchema } from "@seqlane/core";
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import { z } from "zod";
 import {
   parseBoundedJson,
+  parseBoundedJsonDocument,
   CLASSIFIER_MAX_BODY_BYTES,
   CLASSIFIER_MAX_STATE_BYTES,
   serializeBoundedJson,
+  serializeBoundedJsonDocument,
 } from "./payload-limits.js";
+import { mapSystemOneResponse } from "./system-one-response.js";
 import {
   ClassifierFailure,
   type ClassifierObservationSink,
@@ -31,15 +29,6 @@ import {
 } from "./connection.js";
 
 export const CLASSIFIER_TRANSPORT_BUDGET_MS = 20_000;
-
-const knownResponseSchema = z.looseObject({
-  model: z.string().min(1),
-  answers: plainRecordSchema.pipe(z.record(z.string(), z.unknown())),
-  usage: z.looseObject({
-    input_tokens: z.number().int().nonnegative(),
-    output_tokens: z.number().int().nonnegative(),
-  }),
-});
 
 const classifierRequestEnvelopeSchema = z
   .strictObject({
@@ -110,15 +99,6 @@ const responseJsonSchema = z.string().transform((text, context): unknown => {
     return z.NEVER;
   }
 });
-
-const providerNoulAnswerSchema = z.looseObject({
-  type: z.literal("noul"),
-  noul: z.number().finite().min(0).max(1),
-});
-
-const extensionRecordSchema = plainRecordSchema.pipe(
-  z.record(z.string(), jsonValueSchema),
-);
 
 function validateConnection(
   connection: PrivateClassifierConnection | undefined,
@@ -203,90 +183,6 @@ function providerRequestFor(
   return { model, state: request.state, questions };
 }
 
-function extensionsFrom(
-  value: Record<string, unknown>,
-  knownFields: readonly string[],
-): Record<string, JsonValue> | undefined {
-  const known = new Set(knownFields);
-  const extensions = Object.fromEntries(
-    Object.entries(value).filter(([key]) => !known.has(key)),
-  );
-  if (Object.keys(extensions).length === 0) return undefined;
-  return extensionRecordSchema.parse(extensions);
-}
-
-function providerResponseSchemaFor(request: ClassifierRequest) {
-  return knownResponseSchema.superRefine((response, context) => {
-    const requestedIds = Object.keys(request.questions).sort();
-    const responseIds = Object.keys(response.answers).sort();
-    if (
-      requestedIds.length !== responseIds.length ||
-      requestedIds.some((id, index) => id !== responseIds[index])
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["answers"],
-        message: "Classifier answer IDs must match the request",
-      });
-      return;
-    }
-    for (const id of requestedIds) {
-      if (!providerNoulAnswerSchema.safeParse(response.answers[id]).success) {
-        context.addIssue({
-          code: "custom",
-          path: ["answers", id],
-          message: "System One Noul answer is malformed",
-        });
-      }
-    }
-  });
-}
-
-function mapAnswer(raw: unknown): ClassifierResult["answers"][string] {
-  const answer = providerNoulAnswerSchema.parse(raw);
-  const extensions = extensionsFrom(answer, ["type", "noul"]);
-  return {
-    kind: "noul",
-    probability: answer.noul,
-    ...(extensions === undefined ? {} : { extensions }),
-  };
-}
-
-function mapResponse(
-  raw: unknown,
-  request: ClassifierRequest,
-): ClassifierResult {
-  const providerResponse = providerResponseSchemaFor(request).parse(raw);
-  const answers = Object.fromEntries(
-    Object.keys(request.questions).map((id) => [
-      id,
-      mapAnswer(providerResponse.answers[id]),
-    ]),
-  );
-  const usageExtensions = extensionsFrom(providerResponse.usage, [
-    "input_tokens",
-    "output_tokens",
-  ]);
-  const responseExtensions = extensionsFrom(providerResponse, [
-    "model",
-    "answers",
-    "usage",
-  ]);
-  const result = {
-    model: providerResponse.model,
-    answers,
-    usage: {
-      inputTokens: providerResponse.usage.input_tokens,
-      outputTokens: providerResponse.usage.output_tokens,
-      ...(usageExtensions === undefined ? {} : { extensions: usageExtensions }),
-    },
-    ...(responseExtensions === undefined
-      ? {}
-      : { extensions: responseExtensions }),
-  };
-  return classifierResultSchema.parse(result);
-}
-
 function validateResponseText(text: string): string {
   const parsed = responseTextSchema.safeParse(text);
   if (!parsed.success) {
@@ -339,7 +235,7 @@ async function readResponseText(response: Response): Promise<string> {
   }
 }
 
-function parseResponseJson(text: string): unknown {
+function parseResponseJson(text: string, apiKey?: string): unknown {
   const parsed = responseJsonSchema.safeParse(text);
   if (!parsed.success) {
     throw new ClassifierFailure(
@@ -347,7 +243,19 @@ function parseResponseJson(text: string): unknown {
       "Classifier response is not valid JSON",
     );
   }
-  return parseBoundedJson(parsed.data, "response", "response");
+  const document = parseBoundedJsonDocument(
+    parsed.data,
+    "response",
+    "response",
+    apiKey,
+  );
+  if (document.hasExactString) {
+    throw new ClassifierFailure(
+      "response",
+      "Classifier response contains authentication data",
+    );
+  }
+  return document.value;
 }
 
 function parseRequest(request: ClassifierRequestInput): ClassifierRequest {
@@ -379,6 +287,7 @@ export class SystemOneClient {
   constructor(
     private readonly connection?: PrivateClassifierConnection,
     private readonly fetchImplementation: typeof fetch = fetch,
+    private readonly monotonicNow: () => number = () => performance.now(),
   ) {}
 
   async classify(
@@ -398,34 +307,48 @@ export class SystemOneClient {
     }
     const request = systemOneRequest.data;
     const connection = validateConnection(this.connection);
+    const credential =
+      connection.apiKey === undefined || connection.apiKey.length === 0
+        ? undefined
+        : connection.apiKey;
     const providerRequest = providerRequestFor(request, connection.model);
-    const body = serializeBoundedJson(providerRequest, "request body");
+    const serializedRequest = serializeBoundedJsonDocument(
+      providerRequest,
+      "request body",
+      CLASSIFIER_MAX_BODY_BYTES,
+      credential,
+    );
     const requestData: JsonValue = providerRequest;
-    if (
-      connection.apiKey !== undefined &&
-      connection.apiKey.length > 0 &&
-      body.includes(connection.apiKey)
-    ) {
+    if (serializedRequest.hasExactString) {
       throw new ClassifierFailure(
         "request",
         "Classifier request contains authentication data",
       );
     }
+    const body = serializedRequest.text;
     const requestStartedAt = Date.now();
-    const deadline = performance.now() + CLASSIFIER_TRANSPORT_BUDGET_MS;
+    const deadline = this.monotonicNow() + CLASSIFIER_TRANSPORT_BUDGET_MS;
     let timedOut = false;
     const timeoutController = new AbortController();
-    const remaining = Math.max(0, deadline - performance.now());
     const timer = setTimeout(() => {
       timedOut = true;
       timeoutController.abort();
-    }, remaining);
+    }, CLASSIFIER_TRANSPORT_BUDGET_MS);
     const abort = (): void => timeoutController.abort(signal.reason);
+    const assertActive = (): void => {
+      if (signal.aborted) signal.throwIfAborted();
+      if (timedOut || this.monotonicNow() >= deadline) {
+        throw new ClassifierFailure(
+          "deadline",
+          "Classifier request exceeded the 20-second transport budget",
+        );
+      }
+    };
     signal.addEventListener("abort", abort, { once: true });
     try {
       const headers = new Headers({ "content-type": "application/json" });
-      if (connection.apiKey !== undefined) {
-        headers.set("authorization", `Bearer ${connection.apiKey}`);
+      if (credential !== undefined) {
+        headers.set("authorization", `Bearer ${credential}`);
       }
       let response: Response;
       try {
@@ -437,60 +360,48 @@ export class SystemOneClient {
           signal: timeoutController.signal,
         });
       } catch (cause) {
-        if (signal.aborted) signal.throwIfAborted();
-        if (timedOut || performance.now() >= deadline) {
-          throw new ClassifierFailure(
-            "deadline",
-            "Classifier request exceeded the 20-second transport budget",
-          );
-        }
+        assertActive();
         throw new ClassifierFailure(
           "transport",
           "Classifier request could not be completed",
-          { cause: safeTransportCause(cause, connection.apiKey) },
+          { cause: safeTransportCause(cause, credential) },
         );
       }
+      assertActive();
       if (!response.ok) {
         await response.body?.cancel().catch(() => undefined);
+        assertActive();
         throw new ClassifierFailure(
           "transport",
           `Classifier endpoint returned HTTP ${response.status}`,
         );
       }
-      const responseText = await readResponseText(response);
-      signal.throwIfAborted();
-      if (
-        connection.apiKey !== undefined &&
-        connection.apiKey.length > 0 &&
-        responseText.includes(connection.apiKey)
-      ) {
+      let responseText: string;
+      try {
+        responseText = await readResponseText(response);
+      } catch (cause) {
+        assertActive();
+        if (cause instanceof ClassifierFailure) throw cause;
         throw new ClassifierFailure(
-          "response",
-          "Classifier response contains authentication data",
+          "transport",
+          "Classifier response could not be read",
+          { cause: safeTransportCause(cause, credential) },
         );
       }
-      const rawResponse = parseResponseJson(responseText);
-      let result: ClassifierResult;
+      assertActive();
+      const rawResponse = parseResponseJson(responseText, credential);
+      assertActive();
+      let mapped: ReturnType<typeof mapSystemOneResponse>;
       try {
-        result = mapResponse(rawResponse, request);
-      } catch {
+        mapped = mapSystemOneResponse(rawResponse, request);
+      } catch (cause) {
         throw new ClassifierFailure(
           "response",
           "Classifier response does not match the declared questions",
+          { cause },
         );
       }
-      if (timedOut || performance.now() >= deadline) {
-        throw new ClassifierFailure(
-          "deadline",
-          "Classifier request exceeded the 20-second transport budget",
-        );
-      }
-      signal.throwIfAborted();
-      const rawModel = plainRecordSchema.parse(rawResponse);
-      const rawUsage = plainRecordSchema
-        .pipe(z.record(z.string(), z.unknown()))
-        .parse(rawModel.usage);
-      const rawResponseData = jsonValueSchema.parse(rawResponse);
+      assertActive();
       const observation: SeqlaneObservation = {
         observationId: randomUUID(),
         kind: "model",
@@ -499,29 +410,18 @@ export class SystemOneClient {
         model: {
           operation: "classifier",
           provider: "typesafe",
-          model: result.model,
+          model: mapped.result.model,
           request: requestData,
-          response: rawResponseData,
-          usage: jsonValueSchema.parse(rawUsage),
+          response: mapped.rawResponse,
+          usage: mapped.rawUsage,
           startedAt: requestStartedAt,
           endedAt: Date.now(),
         },
       };
+      assertActive();
       onObservation(observation);
-      return result;
-    } catch (cause) {
-      if (signal.aborted) signal.throwIfAborted();
-      if (cause instanceof ClassifierFailure) throw cause;
-      if (timedOut || performance.now() >= deadline) {
-        throw new ClassifierFailure(
-          "deadline",
-          "Classifier request exceeded the 20-second transport budget",
-        );
-      }
-      throw new ClassifierFailure(
-        "response",
-        "Classifier response could not be validated",
-      );
+      assertActive();
+      return mapped.result;
     } finally {
       clearTimeout(timer);
       signal.removeEventListener("abort", abort);

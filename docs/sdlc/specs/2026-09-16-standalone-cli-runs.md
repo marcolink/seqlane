@@ -198,7 +198,7 @@ same boundary. Concurrent requests share one run-owned acquisition.
 For an installed and authenticated OpenCode adapter, this is sufficient:
 
 ```sh
-seqlane run ./myworkflow.ts `--adapter` opencode
+seqlane run ./myworkflow.ts --adapter opencode
 ```
 
 The example assumes the input schema accepts `{}`. Package entrypoints have
