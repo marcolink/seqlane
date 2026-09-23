@@ -22,3 +22,4 @@ libs/codex/fixtures/protocol-*.json
 .pnpm-store
 .zvec-grep
 .seqlane/
+/.ripwire_quality_acks
