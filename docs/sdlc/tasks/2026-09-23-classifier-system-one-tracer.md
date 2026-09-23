@@ -167,12 +167,13 @@ returned a Noul result from the live TypeSafe endpoint in a user-run smoke test.
 
 ## Delivery state
 
-Implementation is complete on `codex/classifier-system-one-tracer`, based on
-PR #160 head `d9fcb37e9ed2e109ed38a7524d0ebbfad6395f93`. Target-branch delivery
-is not claimed.
+Implementation is complete on `codex/classifier-system-one-tracer`, proposed in
+PR #161 and based on PR #160 head `d9fcb37e9ed2e109ed38a7524d0ebbfad6395f93`.
+Target-branch delivery is not claimed.
 
 ## Traceability
 
 - [spec.classifier-tasks](../specs/2026-09-23-classifier-tasks.md)
 - [adr.classifier-task-runtime-boundary](../adrs/2026-09-23-classifier-task-runtime-boundary.md)
 - [spec.standalone-cli-runs](../specs/2026-09-16-standalone-cli-runs.md)
+- [Tracer delivery PR #161](https://github.com/marcolink/seqlane/pull/161)
