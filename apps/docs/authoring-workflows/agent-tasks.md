@@ -29,6 +29,26 @@ and adapter admission or queue time do not consume this limit.
 `defineAgentTask` does not accept an `execute` function. Seqlane creates it and
 sends the request through the selected adapter.
 
+## Output and model requirements
+
+The agent result must match the output schema. Seqlane validates it before the
+task completes. OpenCode can use native structured output when the runtime and
+model support it. Otherwise, it requests JSON in the prompt and validates the
+result. The fallback can repair malformed output, but it is less reliable than
+native structured output.
+
+Read [Model selection](/authoring-workflows/models) and
+[adapter capabilities](/adapters/overview#capabilities) before you select a
+model.
+
+## Sessions, workspaces, and interaction
+
+Declare session and workspace policy where you invoke the task in a workflow.
+They do not belong in the task definition.
+
+The selected adapter owns permissions. Agent tasks follow the
+[execution convention](/cli/run#execution-convention).
+
 ## Prompt caching and task input
 
 ### Seqlane adapter behavior
@@ -107,23 +127,3 @@ differ by model and platform. These links describe provider behavior. They do
 not mean that Seqlane adapters expose the same cache controls or guarantee hits.
 See [**Claude Code** cost guidance](https://code.claude.com/docs/en/costs) and the
 [Claude API prompt caching guide](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
-
-## Output and model requirements
-
-The agent result must match the output schema. Seqlane validates it before the
-task completes. OpenCode can use native structured output when the runtime and
-model support it. Otherwise, it requests JSON in the prompt and validates the
-result. The fallback can repair malformed output, but it is less reliable than
-native structured output.
-
-Read [Model selection](/authoring-workflows/models) and
-[adapter capabilities](/adapters/overview#capabilities) before you select a
-model.
-
-## Sessions, workspaces, and interaction
-
-Declare session and workspace policy where you invoke the task in a workflow.
-They do not belong in the task definition.
-
-The selected adapter owns permissions. Agent tasks follow the
-[execution convention](/cli/run#execution-convention).
