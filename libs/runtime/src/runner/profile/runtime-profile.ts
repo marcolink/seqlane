@@ -44,7 +44,7 @@ import type {
   ClassifierTaskRunner,
   PrivateClassifierConnection,
 } from "../../classifier/types.js";
-import { createClassifierTaskRunner } from "../../classifier/system-one-client.js";
+import { createClassifierTaskRunnerOption } from "../../classifier/system-one-client.js";
 
 const fixtureInputSchema = plainRecordSchema.pipe(
   z.looseObject({ dependency: z.string().optional() }),
@@ -342,7 +342,9 @@ export async function resolveRuntimeProfile(
   if (!taskDefinitions) {
     throw new Error("Loaded workflow did not provide task definitions");
   }
-  const classifier = createClassifierTaskRunner(options.classifierConnection);
+  const classifierOption = createClassifierTaskRunnerOption(
+    options.classifierConnection,
+  );
   const workspacePath = profile.workspace;
 
   if (profile.id === "local") {
@@ -366,7 +368,7 @@ export async function resolveRuntimeProfile(
       taskDefinitions,
       workspaceIdentities,
       workspaceResources,
-      classifier,
+      ...classifierOption,
       close: async () => undefined,
     };
   }
@@ -383,7 +385,7 @@ export async function resolveRuntimeProfile(
       workspaceResources,
       signal,
       input,
-      classifier,
+      classifierOption,
     );
   }
 
@@ -465,7 +467,7 @@ export async function resolveRuntimeProfile(
     taskDefinitions,
     workspaceIdentities,
     workspaceResources,
-    classifier,
+    ...classifierOption,
     close,
   };
 }
@@ -476,7 +478,7 @@ async function createTestFixtureExecution(
   workspaceResources: WorkspaceResourceRegistry,
   signal: AbortSignal,
   input: JsonValue,
-  classifier: ClassifierTaskRunner,
+  classifierOption: { readonly classifier?: ClassifierTaskRunner },
 ): Promise<RuntimeExecution> {
   const fixtureInput = fixtureInputSchema.safeParse(input);
   const inputRecord = fixtureInput.success ? fixtureInput.data : undefined;
@@ -588,7 +590,7 @@ async function createTestFixtureExecution(
     taskDefinitions,
     workspaceIdentities,
     workspaceResources,
-    classifier,
+    ...classifierOption,
     close: async () => undefined,
   };
 }

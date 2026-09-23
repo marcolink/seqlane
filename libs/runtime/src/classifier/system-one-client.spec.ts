@@ -1,14 +1,17 @@
 // @test-scope ./system-one-client.ts
 // @test-scope ./payload-limits.ts
+// @test-scope ./system-one-observation.ts
 
 import { createServer, type RequestListener, type Server } from "node:http";
 import { once } from "node:events";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ClassifierRequest, JsonValue } from "@seqlane/core";
+import type { SeqlaneObservation } from "@seqlane/protocol";
 import {
   CLASSIFIER_TRANSPORT_BUDGET_MS,
   SystemOneClient,
 } from "./system-one-client.js";
+import { CLASSIFIER_MAX_STATE_BYTES } from "./payload-limits.js";
 import { ClassifierFailure } from "./types.js";
 
 const request: ClassifierRequest = {
@@ -134,7 +137,7 @@ describe("System One client", () => {
     expect(JSON.stringify(observations)).not.toContain(apiKey);
   });
 
-  it("rejects complex state before it sends a request", async () => {
+  it("rejects deeply nested and oversized state before it sends a request", async () => {
     let requests = 0;
     const fixture = await listen((_incoming, outgoing) => {
       requests += 1;
@@ -152,6 +155,13 @@ describe("System One client", () => {
     await expect(
       client.classify(
         deepRequest,
+        new AbortController().signal,
+        () => undefined,
+      ),
+    ).rejects.toMatchObject({ code: "request" });
+    await expect(
+      client.classify(
+        { ...request, state: "x".repeat(CLASSIFIER_MAX_STATE_BYTES + 1) },
         new AbortController().signal,
         () => undefined,
       ),
@@ -298,29 +308,32 @@ describe("System One client", () => {
     ).not.toContain("fixture-safe-cause-key");
   });
 
-  it("allows credentials that are substrings of ordinary request data", async () => {
-    let requests = 0;
-    const client = new SystemOneClient(
-      {
-        url: "https://jev.example/v1/systemone",
-        model: "monkey-model",
-        apiKey: "key",
-      },
-      async () => {
-        requests += 1;
-        return new Response(JSON.stringify(responseBody), { status: 200 });
-      },
-    );
+  it.each(["key", "model", "noul"])(
+    "allows credential %s to collide with ordinary protocol data",
+    async (apiKey) => {
+      let requests = 0;
+      const client = new SystemOneClient(
+        {
+          url: "https://jev.example/v1/systemone",
+          model: "monkey-model",
+          apiKey,
+        },
+        async () => {
+          requests += 1;
+          return new Response(JSON.stringify(responseBody), { status: 200 });
+        },
+      );
 
-    await expect(
-      client.classify(
-        { ...request, state: "keyboard change" },
-        new AbortController().signal,
-        () => undefined,
-      ),
-    ).resolves.toMatchObject({ model: "jev-1.13.0" });
-    expect(requests).toBe(1);
-  });
+      await expect(
+        client.classify(
+          { ...request, state: "keyboard change" },
+          new AbortController().signal,
+          () => undefined,
+        ),
+      ).resolves.toMatchObject({ model: "jev-1.13.0" });
+      expect(requests).toBe(1);
+    },
+  );
 
   it("rejects credentials encoded in parsed response values", async () => {
     const apiKey = "secret-key";
@@ -338,7 +351,75 @@ describe("System One client", () => {
         observations.push(observation),
       ),
     ).rejects.toMatchObject({ code: "response" });
-    expect(observations).toHaveLength(0);
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      kind: "model",
+      state: "failed",
+      model: { operation: "classifier", provider: "typesafe" },
+    });
+    expect(JSON.stringify(observations)).not.toContain(apiKey);
+  });
+
+  it("emits one failed observation for each provider failure phase", async () => {
+    const fixtures: readonly {
+      readonly phase: string;
+      readonly code: string;
+      readonly fetchImplementation: typeof fetch;
+    }[] = [
+      {
+        phase: "transport",
+        code: "transport",
+        fetchImplementation: async () => {
+          throw new Error("socket closed");
+        },
+      },
+      {
+        phase: "malformed response",
+        code: "response",
+        fetchImplementation: async () =>
+          new Response("{invalid", { status: 200 }),
+      },
+      {
+        phase: "mapping",
+        code: "response",
+        fetchImplementation: async () =>
+          new Response(
+            JSON.stringify({
+              ...responseBody,
+              answers: { extra: { type: "noul", noul: 0.5 } },
+            }),
+            { status: 200 },
+          ),
+      },
+    ];
+
+    for (const fixture of fixtures) {
+      const observations: SeqlaneObservation[] = [];
+      const client = new SystemOneClient(
+        { url: "https://localhost/v1/systemone", model: "jev-latest" },
+        fixture.fetchImplementation,
+      );
+      const error = await client
+        .classify(request, new AbortController().signal, (observation) =>
+          observations.push(observation),
+        )
+        .catch((cause: unknown) => cause);
+
+      expect(error, fixture.phase).toMatchObject({ code: fixture.code });
+      expect(observations, fixture.phase).toHaveLength(1);
+      expect(observations[0], fixture.phase).toMatchObject({
+        kind: "model",
+        state: "failed",
+        attemptIndex: 0,
+        model: {
+          operation: "classifier",
+          provider: "typesafe",
+          model: "jev-latest",
+          request: expect.any(Object),
+          error: expect.stringContaining(fixture.code),
+        },
+      });
+    }
   });
 
   it("enforces the deadline after observation delivery", async () => {
@@ -361,13 +442,25 @@ describe("System One client", () => {
 
   it("propagates observation sink failures unchanged", async () => {
     const sinkFailure = new Error("observation sink failed");
-    const client = new SystemOneClient(
+    const successfulClient = new SystemOneClient(
       { url: "https://localhost/v1/systemone", model: "jev-latest" },
       async () => new Response(JSON.stringify(responseBody), { status: 200 }),
     );
 
     await expect(
-      client.classify(request, new AbortController().signal, () => {
+      successfulClient.classify(request, new AbortController().signal, () => {
+        throw sinkFailure;
+      }),
+    ).rejects.toBe(sinkFailure);
+
+    const failedClient = new SystemOneClient(
+      { url: "https://localhost/v1/systemone", model: "jev-latest" },
+      async () => {
+        throw new Error("socket closed");
+      },
+    );
+    await expect(
+      failedClient.classify(request, new AbortController().signal, () => {
         throw sinkFailure;
       }),
     ).rejects.toBe(sinkFailure);

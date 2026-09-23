@@ -27,7 +27,7 @@ import {
   type StandaloneAdapterLeaseOptions,
 } from "./standalone-adapter.js";
 import type { PrivateClassifierConnection } from "../../classifier/types.js";
-import { createClassifierTaskRunner } from "../../classifier/system-one-client.js";
+import { createClassifierTaskRunnerOption } from "../../classifier/system-one-client.js";
 
 /** Supplied by application composition; no concrete adapter configuration. */
 export interface StandaloneAdapterBinding {
@@ -155,7 +155,7 @@ export async function createStandaloneExecution(
     taskDefinitions,
     workspaceIdentities,
     workspaceResources,
-    classifier: createClassifierTaskRunner(options.classifierConnection),
+    ...createClassifierTaskRunnerOption(options.classifierConnection),
     executors: { modelPolicy: "authored", agent: () => session().executor },
     sessionResolver: {
       resolve: async ({ effectiveSelection }) => session(effectiveSelection),

@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 upstream:
   - prd.seqlane-on-mastra
   - rfc.mastra-runtime-and-operational-foundation
@@ -277,13 +277,17 @@ agent adapter. Resolve the connection lazily on the first classify request.
 
 ### Observation and lifecycle
 
-The classifier client emits one typed model observation through the existing
-runtime `ExecutionObservationSink`. The runtime adds Work, Run, and Invocation
-identity and forwards it as `invocation.observation`. Include exact request JSON,
-validated response JSON, returned model and usage, start/end times, and an
-observationId. A single-attempt task emits `attemptIndex` 0. Retries in the later
-reliability task reuse the same observationId and add their own `attemptIndex`;
-they do not create new task invocations.
+The classifier client emits one terminal typed model observation through the
+existing runtime `ExecutionObservationSink`. The runtime adds Work, Run, and
+Invocation identity and forwards it as `invocation.observation`. A successful
+attempt includes exact request JSON, validated response JSON, returned model
+and usage, start/end times, and an observationId. A failed attempt includes the
+bounded request, safe error text, and timing. It excludes an invalid response
+and authentication data. Observation-sink errors propagate unchanged.
+
+A single-attempt task emits `attemptIndex` 0. Retries in the later reliability
+task reuse the same observationId and add their own `attemptIndex`; they do not
+create new task invocations.
 
 Keep raw JSON out of progress events, terminal output, and metrics labels.
 The existing bounded invocation.output channel remains unchanged. Hosted

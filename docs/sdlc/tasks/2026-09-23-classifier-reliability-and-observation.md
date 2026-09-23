@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 upstream:
   - spec.classifier-tasks
   - task.classifier-dynamic-questions
@@ -16,9 +16,9 @@ supersedes: []
 
 ## Objective
 
-Add bounded transient retries and per-attempt detail to the classifier
-transport budget established after synchronous request construction. Preserve
-one invocation identity and keep credentials out of observations.
+Add bounded transient retries and extend the single-attempt terminal
+observation into per-attempt detail. Preserve the classifier transport budget,
+one invocation identity, and credential isolation.
 
 ## Upstream requirements
 
@@ -35,9 +35,9 @@ Implement [spec.classifier-tasks, deadline and retries](../specs/2026-09-23-clas
   budget expiry; never retry auth, validation, or malformed responses.
 - Keep the 1 MiB body caps and enforce the structural limits in the active
   classifier spec before recursive validation and observation.
-- Extend the existing invocation observation with per-attempt request,
-  response, timing, model, and usage detail. Reuse one observationId and the
-  existing attemptIndex field.
+- Extend the existing terminal invocation observation across retries with
+  per-attempt request, response, timing, model, usage, and error detail. Reuse
+  one observationId and the existing attemptIndex field.
 - Confirm standalone runs retain no Seqlane-owned saved copy and direct/hosted
   runs use the existing tracing path.
 
@@ -68,8 +68,9 @@ Implement [spec.classifier-tasks, deadline and retries](../specs/2026-09-23-clas
    and 800 ms, raised to a valid Retry-After minimum when present. Parse
    delta-seconds and HTTP-date. If a delay cannot fit, stop without another
    request. Reuse the exact serialized body for each attempt.
-3. Extend the existing observation sink for attempt detail without adding a
-   protocol event or trace store. Do not flatten raw JSON into metrics labels.
+3. Extend the existing single-attempt terminal observation for retry detail
+   without adding a protocol event or trace store. Do not flatten raw JSON into
+   metrics labels.
 4. Add remaining failure and cancellation coverage after the retry path passes.
    Measure maximum elapsed transport time with a fake clock.
 

@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 upstream:
   - spec.classifier-tasks
 supersedes: []
@@ -45,9 +45,10 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
   workflow import. Keep public runner IPC unchanged.
 - Classifier-only local execution without `--adapter`; cancellation and the
   post-state-construction 20-second transport budget.
-- Emit exact request and validated response through the existing
-  `ExecutionObservationSink` and `invocation.observation` event. Never include
-  credentials in the event.
+- Emit one terminal observation through the existing
+  `ExecutionObservationSink` and `invocation.observation` event. Success
+  includes the exact request and validated response. Failure includes bounded,
+  credential-free request and error detail.
 - Update the public task and `seqlane run` reference pages for the supported
   Noul task and connection flags. Add a standalone Noul workflow example and a
   dedicated classifier authoring page. Leave the integrated Git diff example
@@ -56,7 +57,7 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
 ## Out of scope
 
 - Choice/Score transport and paired answer validation, transient retries,
-  per-attempt observation lifecycle, the integrated Git diff example and
+  multi-attempt observation lifecycle, the integrated Git diff example and
   expanded multi-kind guide, and Laya certification.
 - A config file, classifier profile registry, new Plan node, or agent session.
 
@@ -89,10 +90,10 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
    the per-run connection in trusted direct/runner composition. Pass CLI URL
    and model over internal child environment values; capture then remove them
    and the API key before workflow loading.
-4. Emit a one-attempt model observation through `ExecutionObservationSink` and
+4. Emit one terminal model observation through `ExecutionObservationSink` and
    the existing `invocation.observation` event. Preserve Work/Run/Invocation
-   identity, exact request/response JSON, model, usage, and timing; omit all
-   authentication data.
+   identity, request, timing, and safe terminal detail. Include validated
+   response, model, and usage on success. Omit all authentication data.
 5. Write the end-to-end fixture test before adding more question kinds. Fix any
    broken boundary exposed by the path, then proceed to the next task.
 
@@ -132,8 +133,8 @@ client in a cohesive runtime classifier directory rather than an agent adapter.
   rejection of caller execute/output.
 - Fixture tests prove exact provider request/header, neutral full result and
   extensions, invalid JSON failure, cancellation, structural limits, unsafe
-  URL and redirect rejection, one `invocation.observation` event, and no token
-  in errors/events.
+  URL and redirect rejection, one terminal `invocation.observation` event for
+  success and failure, and no token in errors/events.
 - CLI/direct tests prove classifier-only local execution, a typed missing
   connection error on the first classifier request, unchanged Plan and IPC,
   `--dry`, URL/model capture and credential removal before workflow import, and
@@ -169,11 +170,17 @@ rejects an empty question map, suggests all three question kinds, and infers the
 exact result answer keys. Definition-time Zod validation snapshots the static
 questions so later caller mutation cannot change the request or result schema.
 
-PR preparation passed test mapping, 24 focused core/runtime tests,
-`pnpm typecheck`, `pnpm lint` (no errors), `pnpm build`, `pnpm docs:index`,
-`pnpm docs:validate` (367 documents), public docs build, format check, and
-`git diff --check` with Node 24. The standalone example also returned a Noul
-result from the live TypeSafe endpoint in a user-run smoke test.
+Review hardening moved dynamic state validation behind the runtime's iterative
+JSON guard, permits ordinary protocol data to equal short credentials, emits a
+bounded failed observation for each started transport attempt, and omits the
+classifier runner when no connection is configured. Retry and multi-attempt
+observation work remains in the reliability task.
+
+PR preparation and review hardening passed test mapping, 34 focused tests, all
+93 core tests, all 397 runtime tests, source and specification typechecks,
+focused lint, `pnpm docs:index`, `pnpm docs:validate` (367 documents), format
+check, and `git diff --check` with Node 24. The standalone example also returned
+a Noul result from the live TypeSafe endpoint in a user-run smoke test.
 
 ## Delivery state
 

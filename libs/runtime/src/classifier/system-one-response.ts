@@ -9,6 +9,8 @@ import {
   plainRecordSchema,
 } from "@seqlane/core";
 import { z } from "zod";
+import { parseBoundedJsonDocument } from "./payload-limits.js";
+import { ClassifierFailure } from "./types.js";
 
 const knownResponseSchema = z.looseObject({
   model: z.string().min(1),
@@ -31,13 +33,29 @@ const extensionRecordSchema = plainRecordSchema.pipe(
 function extensionsFrom(
   value: Record<string, unknown>,
   knownFields: readonly string[],
+  credential?: string,
 ): Record<string, JsonValue> | undefined {
   const known = new Set(knownFields);
   const extensions = Object.fromEntries(
     Object.entries(value).filter(([key]) => !known.has(key)),
   );
   if (Object.keys(extensions).length === 0) return undefined;
-  return extensionRecordSchema.parse(extensions);
+  const parsed = extensionRecordSchema.parse(extensions);
+  if (
+    credential !== undefined &&
+    parseBoundedJsonDocument(
+      parsed,
+      "response extensions",
+      "response",
+      credential,
+    ).hasExactString
+  ) {
+    throw new ClassifierFailure(
+      "response",
+      "Classifier response contains authentication data",
+    );
+  }
+  return parsed;
 }
 
 function providerResponseSchemaFor(request: ClassifierRequest) {
@@ -67,9 +85,12 @@ function providerResponseSchemaFor(request: ClassifierRequest) {
   });
 }
 
-function mapAnswer(raw: unknown): ClassifierResult["answers"][string] {
+function mapAnswer(
+  raw: unknown,
+  credential?: string,
+): ClassifierResult["answers"][string] {
   const answer = providerNoulAnswerSchema.parse(raw);
-  const extensions = extensionsFrom(answer, ["type", "noul"]);
+  const extensions = extensionsFrom(answer, ["type", "noul"], credential);
   return {
     kind: "noul",
     probability: answer.noul,
@@ -80,6 +101,7 @@ function mapAnswer(raw: unknown): ClassifierResult["answers"][string] {
 export function mapSystemOneResponse(
   raw: unknown,
   request: ClassifierRequest,
+  credential?: string,
 ): {
   readonly result: ClassifierResult;
   readonly rawResponse: JsonValue;
@@ -89,18 +111,19 @@ export function mapSystemOneResponse(
   const answers = Object.fromEntries(
     Object.keys(request.questions).map((id) => [
       id,
-      mapAnswer(providerResponse.answers[id]),
+      mapAnswer(providerResponse.answers[id], credential),
     ]),
   );
-  const usageExtensions = extensionsFrom(providerResponse.usage, [
-    "input_tokens",
-    "output_tokens",
-  ]);
-  const responseExtensions = extensionsFrom(providerResponse, [
-    "model",
-    "answers",
-    "usage",
-  ]);
+  const usageExtensions = extensionsFrom(
+    providerResponse.usage,
+    ["input_tokens", "output_tokens"],
+    credential,
+  );
+  const responseExtensions = extensionsFrom(
+    providerResponse,
+    ["model", "answers", "usage"],
+    credential,
+  );
   const result = classifierResultSchema.parse({
     model: providerResponse.model,
     answers,

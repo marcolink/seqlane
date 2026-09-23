@@ -133,7 +133,7 @@ describe("defineClassifierTask", () => {
     ).toThrow("does not accept output");
   });
 
-  it("rejects a non-JSON state root before calling the classifier", async () => {
+  it("defers state validation to the bounded runtime boundary", async () => {
     const input = z.object({ value: z.string() });
     const task = defineClassifierTask({
       id: "classifier-invalid-state",
@@ -152,14 +152,13 @@ describe("defineClassifierTask", () => {
         context: {
           exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
           runAgent: async () => undefined,
-          classify: async () => {
-            throw new Error(
-              "Classifier must not be called for an invalid build",
-            );
+          classify: async (request) => {
+            expect(request.state).toBe(42);
+            throw new Error("runtime state guard");
           },
         },
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("runtime state guard");
   });
 
   it("validates static questions when the task is defined", () => {

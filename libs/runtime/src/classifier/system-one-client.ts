@@ -27,6 +27,7 @@ import {
   privateClassifierConnectionSchema,
   type ValidatedClassifierConnection,
 } from "./connection.js";
+import { emitFailedSystemOneObservation } from "./system-one-observation.js";
 
 export const CLASSIFIER_TRANSPORT_BUDGET_MS = 20_000;
 
@@ -235,27 +236,15 @@ async function readResponseText(response: Response): Promise<string> {
   }
 }
 
-function parseResponseJson(text: string, apiKey?: string): unknown {
+function parseResponseJson(text: string): unknown {
   const parsed = responseJsonSchema.safeParse(text);
-  if (!parsed.success) {
-    throw new ClassifierFailure(
-      "response",
-      "Classifier response is not valid JSON",
-    );
+  if (parsed.success) {
+    return parseBoundedJsonDocument(parsed.data, "response", "response").value;
   }
-  const document = parseBoundedJsonDocument(
-    parsed.data,
+  throw new ClassifierFailure(
     "response",
-    "response",
-    apiKey,
+    "Classifier response is not valid JSON",
   );
-  if (document.hasExactString) {
-    throw new ClassifierFailure(
-      "response",
-      "Classifier response contains authentication data",
-    );
-  }
-  return document.value;
 }
 
 function parseRequest(request: ClassifierRequestInput): ClassifierRequest {
@@ -316,17 +305,15 @@ export class SystemOneClient {
       providerRequest,
       "request body",
       CLASSIFIER_MAX_BODY_BYTES,
-      credential,
     );
     const requestData: JsonValue = providerRequest;
-    if (serializedRequest.hasExactString) {
-      throw new ClassifierFailure(
-        "request",
-        "Classifier request contains authentication data",
-      );
-    }
     const body = serializedRequest.text;
-    const requestStartedAt = Date.now();
+    const attempt = {
+      observationId: randomUUID(),
+      model: connection.model,
+      request: requestData,
+      startedAt: Date.now(),
+    };
     const deadline = this.monotonicNow() + CLASSIFIER_TRANSPORT_BUDGET_MS;
     let timedOut = false;
     const timeoutController = new AbortController();
@@ -344,6 +331,7 @@ export class SystemOneClient {
         );
       }
     };
+    let attemptFinalized = false;
     signal.addEventListener("abort", abort, { once: true });
     try {
       const headers = new Headers({ "content-type": "application/json" });
@@ -389,11 +377,11 @@ export class SystemOneClient {
         );
       }
       assertActive();
-      const rawResponse = parseResponseJson(responseText, credential);
+      const rawResponse = parseResponseJson(responseText);
       assertActive();
       let mapped: ReturnType<typeof mapSystemOneResponse>;
       try {
-        mapped = mapSystemOneResponse(rawResponse, request);
+        mapped = mapSystemOneResponse(rawResponse, request, credential);
       } catch (cause) {
         throw new ClassifierFailure(
           "response",
@@ -403,7 +391,7 @@ export class SystemOneClient {
       }
       assertActive();
       const observation: SeqlaneObservation = {
-        observationId: randomUUID(),
+        observationId: attempt.observationId,
         kind: "model",
         state: "succeeded",
         attemptIndex: 0,
@@ -411,17 +399,27 @@ export class SystemOneClient {
           operation: "classifier",
           provider: "typesafe",
           model: mapped.result.model,
-          request: requestData,
+          request: attempt.request,
           response: mapped.rawResponse,
           usage: mapped.rawUsage,
-          startedAt: requestStartedAt,
+          startedAt: attempt.startedAt,
           endedAt: Date.now(),
         },
       };
       assertActive();
+      attemptFinalized = true;
       onObservation(observation);
       assertActive();
       return mapped.result;
+    } catch (cause) {
+      emitFailedSystemOneObservation({
+        finalized: attemptFinalized,
+        ...attempt,
+        cause,
+        cancelled: signal.aborted,
+        onObservation,
+      });
+      throw cause;
     } finally {
       clearTimeout(timer);
       signal.removeEventListener("abort", abort);
@@ -430,9 +428,16 @@ export class SystemOneClient {
 }
 
 export function createClassifierTaskRunner(
-  connection?: PrivateClassifierConnection,
+  connection: PrivateClassifierConnection,
 ): ClassifierTaskRunner {
   const client = new SystemOneClient(connection);
   return (request, signal, onObservation) =>
     client.classify(request, signal, onObservation);
+}
+
+export function createClassifierTaskRunnerOption(
+  connection?: PrivateClassifierConnection,
+): { readonly classifier?: ClassifierTaskRunner } {
+  if (connection === undefined) return {};
+  return { classifier: createClassifierTaskRunner(connection) };
 }

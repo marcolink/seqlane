@@ -6,7 +6,6 @@ import type {
 import type { ClassifierRequestInput } from "./classifier.js";
 import {
   classifierQuestionsSchema,
-  classifierStateSchema,
   createClassifierResultSchema,
 } from "./classifier.js";
 import type { TaskDefinition } from "./contracts.js";
@@ -57,7 +56,7 @@ export function defineClassifierTask<
       : { observability: definition.observability }),
     execute: async ({ input, context }) => {
       const request: ClassifierRequestInput = {
-        state: classifierStateSchema.parse(definition.state(input)),
+        state: definition.state(input),
         questions,
       };
       return output.parse(await context.classify(request));
