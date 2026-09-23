@@ -41,3 +41,4 @@
 | [adr.engine-opaque-agent-adapter-contracts](./2026-09-18-engine-opaque-agent-adapter-contracts.md) | Keep Generic Agent Adapter Contracts Engine-Opaque | accepted | 2026-09-18 | core |
 | [adr.public-npm-release](./2026-09-21-public-npm-release.md) | Publish Seqlane Packages to npm | superseded | 2026-09-21 | core |
 | [adr.preserve-workspace-release-references](./2026-09-22-preserve-workspace-release-references.md) | Preserve Workspace References During npm Releases | accepted | 2026-09-22 | core |
+| [adr.classifier-task-runtime-boundary](./2026-09-23-classifier-task-runtime-boundary.md) | Add Classifier Tasks Through a Private Decision Connection | accepted | 2026-09-23 | core |

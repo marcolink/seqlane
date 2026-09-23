@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-21
+updated: 2026-09-23
 upstream:
   - prd.seqlane-on-mastra
 supersedes:
@@ -47,6 +47,7 @@ The boundary is asymmetric:
 | Schemas and data flow | Public input/output contracts and reference validation | Step schema/runtime enforcement where usable |
 | Graph | Dependency intent plus session/workspace constraints | Scheduling and execution |
 | Agent task | Task contract, prompt/input construction, executor selection | Agent/ACP invocation machinery |
+| Classifier task | Typed questions, request validation, result contract, private connection | Step execution, cancellation, run state, tracing |
 | Shell task | Deterministic task contract and result normalization | Workspace/Sandbox process execution |
 | Sessions | `isolated`, `shared`, and `branch` semantics | Runtime thread/session mechanisms |
 | Workspaces | Compatibility and serialization policy | Filesystem, sandbox, and process primitives |
@@ -133,6 +134,21 @@ The normalized result should include, at minimum:
 - the task and invocation identity.
 
 Commands execute without an intermediate shell unless shell semantics are explicitly requested. This prevents accidental quoting differences and makes the command contract testable.
+
+### Classifier tasks
+
+A classifier task is an ordinary Seqlane task and Mastra step. Its in-memory
+definition builds one state and a fixed set of typed question identities from
+validated invocation input. The wording, Choice options, and Score rubric can
+vary per invocation. The Plan retains the ordinary task reference and input
+binding; it contains neither the callback nor the resolved model request.
+
+Application composition provides one private classifier connection per run.
+The task context invokes that connection directly, without an agent session or
+coding-agent adapter. Mastra remains the sole workflow runtime; Seqlane owns
+only the classifier-specific request, response, and failure translation. The
+resolved request and full response follow the existing observation and
+retention policy. Standalone runs do not gain a persistent Seqlane store.
 
 ## Session semantics
 
@@ -406,6 +422,8 @@ Mastra APIs are version-sensitive. Contributors must verify every touched API ag
 
 ## Traceability
 
+- [adr.classifier-task-runtime-boundary](../adrs/2026-09-23-classifier-task-runtime-boundary.md)
+- [spec.classifier-tasks](../specs/2026-09-23-classifier-tasks.md)
 - [adr.public-npm-release](../adrs/2026-09-21-public-npm-release.md)
 - [spec.public-npm-distribution](../specs/2026-09-21-public-npm-distribution.md)
 - [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)

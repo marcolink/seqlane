@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-21
+updated: 2026-09-23
 upstream:
   - brd.seqlane
 supersedes:
@@ -93,6 +93,26 @@ Migration verification uses representative agent and deterministic-task fixtures
 - `shell()` represents deterministic process execution and must not invoke a model.
 - Dependency references must be validated before execution.
 - Repository- and user-scoped workflow discovery must remain possible without silent ambiguity.
+
+### requirement-classifier-tasks
+
+Workflow authors can add a classifier task that evaluates one state against
+multiple named Choice, Score, and Noul questions in one model request. The
+question IDs and kinds remain fixed in the task definition. Instructions,
+Choice options, and Score levels can depend on the validated task input at each
+invocation. Static definitions use the same interface.
+
+The task returns the complete validated probabilistic result, including the
+selected Choice, distributions, Score value and legend, Noul probability,
+model identity, and usage. Seqlane does not convert probabilities into Boolean
+decisions or impose application thresholds. A later task can interpret them.
+
+An operator supplies one classifier endpoint, model ID, and any required
+credential for a run. Workflow definitions and Plans contain no endpoint or
+credential. A classifier task does not require a coding-agent adapter or agent
+session. The first delivery targets Jev's System One API and demonstrates the
+capability in an existing example workflow. Compatible providers can follow
+without changing the authoring contract.
 
 ### Execution
 
@@ -216,6 +236,8 @@ can add meaning, but the interface must remain clear without either feature.
 
 ## Traceability
 
+- [adr.classifier-task-runtime-boundary](../adrs/2026-09-23-classifier-task-runtime-boundary.md)
+- [spec.classifier-tasks](../specs/2026-09-23-classifier-tasks.md)
 - [adr.public-npm-release](../adrs/2026-09-21-public-npm-release.md)
 - [spec.public-npm-distribution](../specs/2026-09-21-public-npm-distribution.md)
 - [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)

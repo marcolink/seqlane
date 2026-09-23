@@ -47,3 +47,4 @@
 | [spec.adapter-cli-flags](./2026-09-19-adapter-cli-flags.md) | Direct-Run Adapter CLI Flags | active | 2026-09-19 | core |
 | [spec.otel-aligned-observation-contract](./2026-09-19-otel-aligned-observation-contract.md) | OTel-Aligned Seqlane Observation Contract | draft | 2026-09-19 | core |
 | [spec.public-npm-distribution](./2026-09-21-public-npm-distribution.md) | Public npm Distribution | active | 2026-09-21 | core |
+| [spec.classifier-tasks](./2026-09-23-classifier-tasks.md) | Dynamic Classifier Task Contract | active | 2026-09-23 | core |
