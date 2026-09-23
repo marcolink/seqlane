@@ -171,11 +171,16 @@ a sandbox.
 
 Classifier tasks use the separate
 [dynamic classifier task contract](./2026-09-23-classifier-tasks.md#requirement-runtime-connection).
-Their explicit URL/model flags and environment token configure a private
-classifier request, not a coding-agent adapter. A classifier-only run does not
-require `--adapter`. Missing classifier configuration fails when the task
-requests classification; `--dry` still requires no connection. This extension
-adds no Seqlane configuration file or persistent run store.
+The CLI accepts paired URL/model flags and passes their parsed values to its
+runner child through private startup environment variables. The child captures
+these values and `SEQLANE_CLASSIFIER_API_KEY` before loading workflow modules,
+then removes them from `process.env`. The runner IPC request remains unchanged,
+and authored workflow code cannot read the private connection or credential.
+
+A classifier-only run does not require `--adapter`. Missing classifier
+configuration fails when the task requests classification; `--dry` still needs
+no connection. This extension adds no Seqlane configuration file or persistent
+run store.
 
 ### requirement-adapter-lifecycle
 
@@ -193,7 +198,7 @@ same boundary. Concurrent requests share one run-owned acquisition.
 For an installed and authenticated OpenCode adapter, this is sufficient:
 
 ```sh
-seqlane run ./myworkflow.ts --adapter opencode
+seqlane run ./myworkflow.ts `--adapter` opencode
 ```
 
 The example assumes the input schema accepts `{}`. Package entrypoints have

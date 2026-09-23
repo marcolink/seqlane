@@ -67,6 +67,7 @@ import {
 import { resolveTaskSession } from "../session/session-resolution.js";
 import { validateRepeatOutput } from "./repeat-validation.js";
 import { workspaceResourcesForExecution } from "./workspace-resources.js";
+import type { ClassifierTaskRunner } from "../../classifier/types.js";
 
 export interface MastraPlanExecutionOptions {
   readonly plan: Plan;
@@ -87,6 +88,7 @@ export interface MastraPlanExecutionOptions {
   readonly onObservation?: (
     event: Omit<InvocationObservationEvent, "metadata">,
   ) => void;
+  readonly classifier?: ClassifierTaskRunner;
   readonly repeatBudget?: RepeatExecutionBudget;
 }
 
@@ -636,6 +638,7 @@ export function createMastraPlanExecution(
         observation,
         iteration,
       ),
+    classifier: options.classifier,
   });
   const executeInvocation = createMastraPlanInvocationHandler(
     prepared,

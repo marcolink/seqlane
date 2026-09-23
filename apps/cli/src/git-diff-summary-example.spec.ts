@@ -100,6 +100,9 @@ describe("git diff summary workflow example", () => {
           return { exitCode: 0, stdout: "diff", stderr: "" };
         },
         runAgent: async () => ({}),
+        classify: async () => {
+          throw new Error("Unexpected classifier request in example test");
+        },
       },
     });
 
@@ -135,6 +138,9 @@ describe("git diff summary workflow example", () => {
     const context = {
       exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
       runAgent: async () => ({}),
+      classify: async () => {
+        throw new Error("Unexpected classifier request in example test");
+      },
     };
 
     await expect(

@@ -176,6 +176,11 @@ async function executeTask<Input, Output>(
         return context.exec({ command: executable, args: argv });
       },
       runAgent: context.runAgent ?? (async () => ({})),
+      classify: async () => {
+        throw new Error(
+          "Unexpected classifier request in code review example test",
+        );
+      },
     },
   });
 }

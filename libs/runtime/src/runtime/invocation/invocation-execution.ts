@@ -51,6 +51,7 @@ import {
   type ValidationExecutionOptions,
 } from "./invocation-support.js";
 import { executeTask } from "../local/task-execution.js";
+import { ClassifierFailure } from "../../classifier/types.js";
 
 function effectiveModelSelection(
   context: ExecutionContext,
@@ -379,6 +380,21 @@ export async function executeTaskNode(
               : resource.key,
           signal: abortSignal,
           runAgent,
+          classify: (request) => {
+            if (context.classifier === undefined) {
+              throw new ClassifierFailure(
+                "configuration",
+                "Classifier connection is not configured",
+              );
+            }
+            return context.classifier(request, abortSignal, (observation) =>
+              context.onObservation?.(
+                invocationId,
+                observation,
+                options.iteration,
+              ),
+            );
+          },
           onUncertainActivity: reportUncertainActivity,
         });
       } catch (cause) {

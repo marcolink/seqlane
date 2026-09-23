@@ -144,6 +144,8 @@ export async function startRun(
       request.input,
       (notification) => sendRuntimeSessionUi(host, notification),
       { runId },
+      // The classifier connection is process-private startup state, never part
+      // of the public runner command.
     );
     const mastraExecution = createMastraPlanExecution({
       plan: loadedWorkflow.plan,
@@ -159,6 +161,7 @@ export async function startRun(
       workflow: loadedWorkflow.workflow,
       events,
       onObservation: (event) => events.emitObservation(event),
+      classifier: execution.classifier,
       createInvocationId,
     });
     // Topology is already compiled and does not depend on model/session

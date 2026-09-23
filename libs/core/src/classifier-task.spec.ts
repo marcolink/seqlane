@@ -1,0 +1,145 @@
+// @test-scope ./classifier-task.ts
+// @test-scope ./classifier.ts
+
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { createClassifierResultSchema, defineClassifierTask } from "./index.js";
+
+describe("defineClassifierTask", () => {
+  it("builds a fixed Noul request from parsed input and returns the neutral result", async () => {
+    const input = z.object({
+      diff: z.string().transform((value) => `parsed:${value}`),
+    });
+    const task = defineClassifierTask({
+      id: "classifier-noul",
+      input,
+      questionKinds: { needsReview: "noul" },
+      build: ({ diff }) => ({
+        state: diff,
+        questions: {
+          needsReview: { instructions: "Does this diff need review?" },
+        },
+      }),
+    });
+    const output = await task.execute({
+      input: input.parse({ diff: "example diff" }),
+      signal: new AbortController().signal,
+      context: {
+        exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+        runAgent: async () => undefined,
+        classify: async (request) => {
+          expect(request).toEqual({
+            state: "parsed:example diff",
+            questions: {
+              needsReview: {
+                kind: "noul",
+                instructions: "Does this diff need review?",
+              },
+            },
+          });
+          return {
+            model: "jev-1.13.0",
+            answers: { needsReview: { kind: "noul", probability: 0.63 } },
+            usage: { inputTokens: 10, outputTokens: 2 },
+          };
+        },
+      },
+    });
+
+    expect(output.answers.needsReview.kind).toBe("noul");
+    expect(output.answers.needsReview.probability).toBe(0.63);
+    expect(task.output.parse(output)).toEqual(output);
+    // @ts-expect-error A fixed Noul question cannot return a Choice answer.
+    const choice: "choice" = output.answers.needsReview.kind;
+    expect(choice).toBe("noul");
+  });
+
+  it("rejects a dynamic result whose answer IDs or kinds drift from the declaration", () => {
+    const schema = createClassifierResultSchema({
+      review: "noul",
+      area: "choice",
+      severity: "score",
+    });
+    const result = {
+      model: "jev-1.13.0",
+      answers: {
+        review: { kind: "noul", probability: 0.5 },
+        area: {
+          kind: "choice",
+          selected: "code",
+          probabilities: { code: 0.7, docs: 0.3 },
+          confidence: 0.7,
+        },
+        severity: {
+          kind: "score",
+          value: 1,
+          legend: { "0": "low", "1": "high" },
+          probabilities: { "0": 0.2, "1": 0.8 },
+          confidence: 0.8,
+        },
+      },
+      usage: { inputTokens: 4, outputTokens: 2 },
+    };
+
+    expect(schema.parse(result)).toEqual(result);
+    expect(() =>
+      schema.parse({
+        ...result,
+        answers: { ...result.answers, review: result.answers.area },
+      }),
+    ).toThrow();
+    expect(() =>
+      schema.parse({ ...result, answers: { review: result.answers.review } }),
+    ).toThrow();
+  });
+
+  it("rejects caller-supplied execution or output contracts", () => {
+    const common = {
+      id: "invalid-classifier",
+      input: z.object({ value: z.string() }),
+      questionKinds: { check: "noul" as const },
+      build: ({ value }: { readonly value: string }) => ({
+        state: value,
+        questions: { check: { instructions: "Is this valid?" } },
+      }),
+    };
+    expect(() =>
+      defineClassifierTask({
+        ...common,
+        execute: async () => ({}),
+      } as never),
+    ).toThrow("does not accept execute");
+    expect(() =>
+      defineClassifierTask({ ...common, output: z.unknown() } as never),
+    ).toThrow("does not accept output");
+  });
+
+  it("validates built question IDs and fields with the fixed Zod schema", async () => {
+    const input = z.object({ value: z.string() });
+    const task = defineClassifierTask({
+      id: "classifier-invalid-build",
+      input,
+      questionKinds: { check: "noul" },
+      build: ({ value }) => ({
+        state: value,
+        questions: { extra: { instructions: "Is this valid?" } } as never,
+      }),
+    });
+
+    await expect(
+      task.execute({
+        input: { value: "example" },
+        signal: new AbortController().signal,
+        context: {
+          exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+          runAgent: async () => undefined,
+          classify: async () => {
+            throw new Error(
+              "Classifier must not be called for an invalid build",
+            );
+          },
+        },
+      }),
+    ).rejects.toThrow();
+  });
+});

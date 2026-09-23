@@ -15,6 +15,10 @@ Use `defineShellTask` for a local executable and argument list. Read
 [Shell tasks](/authoring-workflows/shell-tasks) for process behavior and
 failure handling.
 
+Use `defineClassifierTask` for model classification. Read
+[Classifier tasks](/authoring-workflows/classifier-tasks) for its question
+contract and runtime requirements.
+
 Each `.task()` binding callback can access the workflow input and outputs from
 earlier task handles. Bind task input from `input`, a prior task output, or a
 value that combines both.

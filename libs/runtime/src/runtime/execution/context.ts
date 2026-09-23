@@ -24,6 +24,7 @@ import type { TaskSchemaRegistry } from "../plan/task-schema.js";
 import { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import { JointAdmissionRegistry } from "../invocation/joint-admission.js";
+import type { ClassifierTaskRunner } from "../../classifier/types.js";
 
 export type ExecutionEventSink = SeqlaneEventSink;
 export type ExecutionObservationSink = (
@@ -62,6 +63,7 @@ export interface ExecutionContext {
   readonly taskSchemas?: TaskSchemaRegistry;
   readonly events: ExecutionEventSink;
   readonly onObservation?: ExecutionObservationSink;
+  readonly classifier?: ClassifierTaskRunner;
   workflowResult?: unknown;
   failure?: SeqlaneError;
 }
@@ -83,6 +85,7 @@ export interface ExecutionContextOptions {
   readonly taskSchemas?: TaskSchemaRegistry;
   readonly events?: SeqlaneEventSink;
   readonly onObservation?: ExecutionObservationSink;
+  readonly classifier?: ClassifierTaskRunner;
 }
 
 export function createExecutionContext(
@@ -119,6 +122,7 @@ export function createExecutionContext(
     taskSchemas: options.taskSchemas,
     events: options.events ?? { emit: () => undefined },
     onObservation: options.onObservation,
+    classifier: options.classifier,
   };
 }
 

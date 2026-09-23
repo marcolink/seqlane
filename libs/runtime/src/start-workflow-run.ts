@@ -29,6 +29,8 @@ import { resolveRuntimeProfile } from "./runner/profile/runtime-profile.js";
 import type { RuntimeSessionUiNotifier } from "./runner/profile/runtime-profile.js";
 import type { RuntimeSessionUiAvailable } from "./runner/runtime-session-ui.js";
 import type { RuntimeExecution } from "./runner/profile/runtime-profile.js";
+import type { PrivateClassifierConnection } from "./classifier/types.js";
+import type { InvocationObservationEvent } from "@seqlane/protocol";
 
 export interface StartWorkflowRunRequest<Input = unknown, Output = unknown> {
   readonly workflow: BuiltWorkflow<Input, Output>;
@@ -38,6 +40,11 @@ export interface StartWorkflowRunRequest<Input = unknown, Output = unknown> {
   /** Workspace for direct execution. */
   readonly workspace?: string;
   readonly standalone?: StandaloneRunOptions;
+  /** Private run-scoped classifier endpoint and credential. */
+  readonly classifierConnection?: PrivateClassifierConnection;
+  readonly onObservation?: (
+    event: Omit<InvocationObservationEvent, "metadata">,
+  ) => void;
   readonly onDiagnostic?: (message: string) => void;
   readonly events: SeqlaneEventSink;
   readonly signal?: AbortSignal;
@@ -69,6 +76,12 @@ function identityFor<Input, Output>(
   return request.identity;
 }
 
+function classifierConnectionOptions(
+  connection: PrivateClassifierConnection | undefined,
+): { readonly classifierConnection?: PrivateClassifierConnection } {
+  return connection === undefined ? {} : { classifierConnection: connection };
+}
+
 /** Runs a trusted built workflow directly through the private Mastra runtime. */
 export function startWorkflowRun<Input, Output>(
   request: StartWorkflowRunRequest<Input, Output>,
@@ -88,6 +101,9 @@ export function startWorkflowRun<Input, Output>(
   const onAbort = (): void => void cancel().catch(() => undefined);
   if (request.signal?.aborted) onAbort();
   else request.signal?.addEventListener("abort", onAbort, { once: true });
+  const classifierOptions = classifierConnectionOptions(
+    request.classifierConnection,
+  );
 
   const outcome = (async (): Promise<SeqlaneRunOutcome> => {
     let execution: RuntimeExecution | undefined;
@@ -107,7 +123,10 @@ export function startWorkflowRun<Input, Output>(
             "Select standalone execution or a direct agent runtime, not both",
           );
         execution = await createStandaloneExecution(
-          request.standalone,
+          {
+            ...request.standalone,
+            ...classifierOptions,
+          },
           request.workflow.taskDefinitions,
           abortController.signal,
           runId,
@@ -131,6 +150,7 @@ export function startWorkflowRun<Input, Output>(
             ...(agentRuntime === undefined
               ? {}
               : { agentRuntime: async () => agentRuntime }),
+            ...classifierOptions,
           },
         );
       }
@@ -152,6 +172,8 @@ export function startWorkflowRun<Input, Output>(
           output: request.workflow.workflow.output,
         },
         events: request.events,
+        onObservation: request.onObservation,
+        classifier: execution.classifier,
         createInvocationId: () => randomUUID(),
       });
       preflightCompiledWorkflowSessionCapabilities(mastraExecution.prepared);

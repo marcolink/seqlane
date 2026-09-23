@@ -26,6 +26,7 @@ export interface TaskExecutionRequest {
   readonly signal: AbortSignal;
   readonly outputLimitBytes?: number;
   readonly runAgent: TaskContext["runAgent"];
+  readonly classify: TaskContext["classify"];
   readonly onUncertainActivity?: (activity: SeqlaneUncertainActivity) => void;
 }
 
@@ -36,6 +37,7 @@ function taskContext(
   signal: AbortSignal,
   outputLimitBytes: number,
   runAgent: TaskContext["runAgent"],
+  classify: TaskContext["classify"],
   onUncertainActivity: TaskExecutionRequest["onUncertainActivity"],
 ): TaskContext {
   return {
@@ -59,6 +61,7 @@ function taskContext(
       }
     },
     runAgent,
+    classify,
   };
 }
 
@@ -72,6 +75,7 @@ export async function executeTask(
     request.signal,
     request.outputLimitBytes ?? DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES,
     request.runAgent,
+    request.classify,
     request.onUncertainActivity,
   );
   const output = await request.definition.execute({

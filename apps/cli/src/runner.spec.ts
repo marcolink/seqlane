@@ -4,6 +4,11 @@ import {
   agentRuntimeConfigurationEnvironment,
   directRunAdapterConfigurationEnvironment,
 } from "./agent-runtime.js";
+import {
+  classifierApiKeyEnvironment,
+  classifierModelEnvironment,
+  classifierUrlEnvironment,
+} from "./classifier-environment.js";
 
 vi.mock("@seqlane/runtime/runner", () => ({
   startRunnerProcess: vi.fn(),
@@ -38,5 +43,25 @@ describe("CLI runner composition", () => {
     });
 
     expect(options.createAgentRuntimeFactory?.()).toEqual(expect.any(Function));
+  });
+
+  it("captures and removes classifier startup values before workflow loading", () => {
+    const environment: NodeJS.ProcessEnv = {
+      [classifierUrlEnvironment]: "https://classifier.example/v1/systemone",
+      [classifierModelEnvironment]: "jev-latest",
+      [classifierApiKeyEnvironment]: "private-token",
+    };
+
+    const options = createRunnerProcessOptions(environment);
+
+    expect(options.classifierConnection).toEqual({
+      url: "https://classifier.example/v1/systemone",
+      model: "jev-latest",
+      apiKey: "private-token",
+    });
+    expect(environment).not.toHaveProperty(classifierUrlEnvironment);
+    expect(environment).not.toHaveProperty(classifierModelEnvironment);
+    expect(environment).not.toHaveProperty(classifierApiKeyEnvironment);
+    expect(options.createAgentRuntimeFactory).toBeUndefined();
   });
 });

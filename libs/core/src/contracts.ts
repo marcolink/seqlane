@@ -105,6 +105,9 @@ export interface TaskContext {
     readonly timeoutMs?: number;
   }): Promise<TaskExecResult>;
   runAgent(request: AgentTaskRequest): Promise<unknown>;
+  classify(
+    request: import("./classifier.js").ClassifierRequestInput,
+  ): Promise<import("./classifier.js").ClassifierResult>;
 }
 
 export interface TaskDefinition<

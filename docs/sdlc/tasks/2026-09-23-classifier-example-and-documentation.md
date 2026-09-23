@@ -36,11 +36,11 @@ Finish [spec.classifier-tasks, acceptance criteria](../specs/2026-09-23-classifi
   Question IDs and kinds remain fixed.
 - Return the complete classifier result alongside the two existing summary
   lanes. Do not use its probabilities to skip a lane or publish a review.
-- Document the CLI flags and environment token, the JSON result fields,
-  dynamic question construction, 20-second total deadline, three retries,
-  and the difference between a probability and an application decision.
-- Update nearby README/AGENTS material and public VitePress authoring/CLI
-  pages. Document both classifier-only and mixed agent/classifier runs.
+- Extend the Noul tracer documentation with the JSON result fields, dynamic
+  question construction, 20-second transport budget, three retries, and the
+  difference between a probability and an application decision.
+- Update nearby README/AGENTS material and the dedicated public classifier
+  authoring and CLI pages for Choice, Score, and mixed agent/classifier runs.
 
 ## Out of scope
 

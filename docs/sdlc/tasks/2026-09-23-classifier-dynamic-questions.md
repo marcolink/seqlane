@@ -44,7 +44,8 @@ Implement [spec.classifier-tasks, fixed question shape](../specs/2026-09-23-clas
 - Thresholds, Boolean or tri-state policy, item-list batching, Laya routing,
   dynamic question IDs or kinds, structured object instructions, and model
   fallback.
-- Deadline/retry/observation behavior owned by the next task.
+- Transient retries and per-attempt observation detail belong to the next task.
+  The tracer already provides the transport budget and one-attempt observation.
 
 ## Implementation plan
 

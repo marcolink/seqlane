@@ -197,6 +197,38 @@ seqlane run \
   --help
 ```
 
+## Classifier flags
+
+Classifier tasks use one URL and model for the run. Supply both flags when a
+task calls the classifier. A classifier-only workflow does not need `--adapter`.
+
+### `--classifier-url`
+
+Set the classifier endpoint URL. Remote endpoints require HTTPS. HTTP is
+allowed only for a loopback server.
+
+### `--classifier-model`
+
+Set the model ID sent with classifier requests. Supply this flag together with
+`--classifier-url`.
+
+```sh
+seqlane run ./workflow.ts \
+  --input '{"diff":"example change"}' \
+  --classifier-url https://classifier.example/v1/classify \
+  --classifier-model model-id
+```
+
+`--dry` does not call the classifier and requires neither flag.
+
+::: info API key
+
+For HTTPS or a non-loopback endpoint, set `SEQLANE_CLASSIFIER_API_KEY` in the
+shell running Seqlane. The CLI has no token flag. Keep the key out of workflow
+source and command arguments.
+
+:::
+
 ## OpenCode adapter-specific flags
 
 Codex has no adapter-specific flags. Use `--workspace` with `--adapter codex`.

@@ -80,6 +80,11 @@ function createOpenCodeExecutor(
             onUncertainActivity: request.onUncertainActivity,
             onBackgroundProcess: request.onBackgroundProcess,
           }),
+        classify: async () => {
+          throw new Error(
+            "The merge-conflict resolution executor does not support classifier tasks.",
+          );
+        },
       };
       return task.execute({
         input: request.input,
