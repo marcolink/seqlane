@@ -272,7 +272,7 @@
 | [task.git-diff-summary-example](./2026-09-20-git-diff-summary-example.md) | Add Git Diff Summary Token Comparison Example | completed | 2026-09-20 | core |
 | [task.publish-seqlane-packages](./2026-09-21-publish-seqlane-packages.md) | Publish Seqlane Packages | in-progress | 2026-09-21 | core |
 | [task.agent-task-execution-deadline](./2026-09-22-agent-task-execution-deadline.md) | Add Task-Level Agent Execution Deadlines | in-progress | 2026-09-22 | core |
-| [task.classifier-reliability-and-observation](./2026-09-23-classifier-reliability-and-observation.md) | Bound Classifier Retries and Retain Full Observations | planned | 2026-09-23 | core |
+| [task.classifier-reliability-and-observation](./2026-09-23-classifier-reliability-and-observation.md) | Bound Classifier Retries and Retain Full Observations | completed | 2026-09-23 | core |
 | [task.classifier-example-and-documentation](./2026-09-23-classifier-example-and-documentation.md) | Demonstrate Classifier Tasks in Git Diff Summary | planned | 2026-09-23 | core |
 | [task.classifier-system-one-tracer](./2026-09-23-classifier-system-one-tracer.md) | Run One Classifier Task Through Jev | completed | 2026-09-23 | core |
 | [task.classifier-dynamic-questions](./2026-09-23-classifier-dynamic-questions.md) | Validate Static Choice Score and Noul Questions | completed | 2026-09-23 | core |

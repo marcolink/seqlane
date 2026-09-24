@@ -28,9 +28,13 @@ import {
   type ValidatedClassifierConnection,
 } from "./connection.js";
 import { emitFailedSystemOneObservation } from "./system-one-observation.js";
+import {
+  isRetryableHttpStatus,
+  RetryableSystemOneAttempt,
+  runSystemOneAttempts,
+} from "./system-one-retry.js";
 
 export const CLASSIFIER_TRANSPORT_BUDGET_MS = 20_000;
-
 const classifierRequestEnvelopeSchema = z
   .strictObject({
     state: z.unknown(),
@@ -296,6 +300,150 @@ function prepareRequest(
   }
 }
 
+interface SystemOneAttemptOptions {
+  readonly attemptIndex: number;
+  readonly observationId: string;
+  readonly connection: ValidatedClassifierConnection;
+  readonly credential?: string;
+  readonly fetchImplementation: typeof fetch;
+  readonly request: ClassifierRequest;
+  readonly requestData: JsonValue;
+  readonly body: string;
+  readonly signal: AbortSignal;
+  readonly callerSignal: AbortSignal;
+  readonly assertActive: (lastCause?: unknown) => void;
+  readonly onObservation: ClassifierObservationSink;
+}
+
+async function fetchSystemOneResponse(
+  options: SystemOneAttemptOptions,
+): Promise<Response> {
+  const headers = new Headers({ "content-type": "application/json" });
+  if (options.credential !== undefined) {
+    headers.set("authorization", `Bearer ${options.credential}`);
+  }
+  let response: Response;
+  try {
+    response = await options.fetchImplementation(options.connection.url, {
+      method: "POST",
+      headers,
+      body: options.body,
+      redirect: "error",
+      signal: options.signal,
+    });
+  } catch (cause) {
+    options.assertActive(cause);
+    throw new RetryableSystemOneAttempt(
+      new ClassifierFailure(
+        "transport",
+        "Classifier request could not be completed",
+        { cause: safeTransportCause(cause, options.credential) },
+      ),
+    );
+  }
+  options.assertActive();
+  if (response.ok) return response;
+
+  const retryAfter = response.headers.get("retry-after");
+  const status = response.status;
+  await response.body?.cancel().catch(() => undefined);
+  options.assertActive();
+  const failure = new ClassifierFailure(
+    "transport",
+    `Classifier endpoint returned HTTP ${status}`,
+  );
+  if (isRetryableHttpStatus(status)) {
+    throw new RetryableSystemOneAttempt(failure, retryAfter ?? undefined);
+  }
+  throw failure;
+}
+
+async function readMappedSystemOneResponse(
+  response: Response,
+  options: SystemOneAttemptOptions,
+): Promise<ReturnType<typeof mapSystemOneResponse>> {
+  let responseText: string;
+  try {
+    responseText = await readResponseText(response);
+  } catch (cause) {
+    options.assertActive(cause);
+    if (cause instanceof ClassifierFailure) throw cause;
+    throw new RetryableSystemOneAttempt(
+      new ClassifierFailure(
+        "transport",
+        "Classifier response could not be read",
+        { cause: safeTransportCause(cause, options.credential) },
+      ),
+    );
+  }
+  options.assertActive();
+  const rawResponse = parseResponseJson(responseText);
+  options.assertActive();
+  try {
+    return mapSystemOneResponse(
+      rawResponse,
+      options.request,
+      options.credential,
+    );
+  } catch (cause) {
+    throw new ClassifierFailure(
+      "response",
+      "Classifier response does not match the declared questions",
+      { cause },
+    );
+  }
+}
+
+async function executeSystemOneAttempt(
+  options: SystemOneAttemptOptions,
+): Promise<ClassifierResult> {
+  const startedAt = Date.now();
+  let finalized = false;
+  try {
+    options.assertActive();
+    const response = await fetchSystemOneResponse(options);
+    const mapped = await readMappedSystemOneResponse(response, options);
+    options.assertActive();
+    const observation: SeqlaneObservation = {
+      observationId: options.observationId,
+      kind: "model",
+      state: "succeeded",
+      attemptIndex: options.attemptIndex,
+      model: {
+        operation: "classifier",
+        provider: "typesafe",
+        model: mapped.result.model,
+        request: options.requestData,
+        response: mapped.rawResponse,
+        usage: mapped.rawUsage,
+        startedAt,
+        endedAt: Date.now(),
+      },
+    };
+    options.assertActive();
+    finalized = true;
+    options.onObservation(observation);
+    options.assertActive();
+    return mapped.result;
+  } catch (cause) {
+    if (!finalized) {
+      finalized = true;
+      emitFailedSystemOneObservation({
+        observationId: options.observationId,
+        attemptIndex: options.attemptIndex,
+        model: options.connection.model,
+        request: options.requestData,
+        startedAt,
+        cause:
+          cause instanceof RetryableSystemOneAttempt ? cause.failure : cause,
+        cancelled: options.callerSignal.aborted,
+        onObservation: options.onObservation,
+      });
+    }
+    throw cause;
+  }
+}
+
 export class SystemOneClient {
   constructor(
     private readonly connection?: PrivateClassifierConnection,
@@ -319,14 +467,7 @@ export class SystemOneClient {
       connection.apiKey === undefined || connection.apiKey.length === 0
         ? undefined
         : connection.apiKey;
-    const requestData = preparedRequest.requestData;
-    const body = preparedRequest.body;
-    const attempt = {
-      observationId: randomUUID(),
-      model: connection.model,
-      request: requestData,
-      startedAt: Date.now(),
-    };
+    const observationId = randomUUID();
     const deadline = this.monotonicNow() + CLASSIFIER_TRANSPORT_BUDGET_MS;
     let timedOut = false;
     const timeoutController = new AbortController();
@@ -335,104 +476,50 @@ export class SystemOneClient {
       timeoutController.abort();
     }, CLASSIFIER_TRANSPORT_BUDGET_MS);
     const abort = (): void => timeoutController.abort(signal.reason);
-    const assertActive = (): void => {
+    const assertActive = (lastCause?: unknown): void => {
       if (signal.aborted) signal.throwIfAborted();
       if (timedOut || this.monotonicNow() >= deadline) {
+        const previousCause =
+          lastCause instanceof RetryableSystemOneAttempt
+            ? lastCause.failure
+            : lastCause;
         throw new ClassifierFailure(
           "deadline",
           "Classifier request exceeded the 20-second transport budget",
+          previousCause === undefined
+            ? undefined
+            : {
+                cause:
+                  previousCause instanceof ClassifierFailure
+                    ? previousCause
+                    : safeTransportCause(previousCause, credential),
+              },
         );
       }
     };
-    let attemptFinalized = false;
     signal.addEventListener("abort", abort, { once: true });
     try {
-      const headers = new Headers({ "content-type": "application/json" });
-      if (credential !== undefined) {
-        headers.set("authorization", `Bearer ${credential}`);
-      }
-      let response: Response;
-      try {
-        response = await this.fetchImplementation(connection.url, {
-          method: "POST",
-          headers,
-          body,
-          redirect: "error",
-          signal: timeoutController.signal,
-        });
-      } catch (cause) {
-        assertActive();
-        throw new ClassifierFailure(
-          "transport",
-          "Classifier request could not be completed",
-          { cause: safeTransportCause(cause, credential) },
-        );
-      }
-      assertActive();
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => undefined);
-        assertActive();
-        throw new ClassifierFailure(
-          "transport",
-          `Classifier endpoint returned HTTP ${response.status}`,
-        );
-      }
-      let responseText: string;
-      try {
-        responseText = await readResponseText(response);
-      } catch (cause) {
-        assertActive();
-        if (cause instanceof ClassifierFailure) throw cause;
-        throw new ClassifierFailure(
-          "transport",
-          "Classifier response could not be read",
-          { cause: safeTransportCause(cause, credential) },
-        );
-      }
-      assertActive();
-      const rawResponse = parseResponseJson(responseText);
-      assertActive();
-      let mapped: ReturnType<typeof mapSystemOneResponse>;
-      try {
-        mapped = mapSystemOneResponse(rawResponse, request, credential);
-      } catch (cause) {
-        throw new ClassifierFailure(
-          "response",
-          "Classifier response does not match the declared questions",
-          { cause },
-        );
-      }
-      assertActive();
-      const observation: SeqlaneObservation = {
-        observationId: attempt.observationId,
-        kind: "model",
-        state: "succeeded",
-        attemptIndex: 0,
-        model: {
-          operation: "classifier",
-          provider: "typesafe",
-          model: mapped.result.model,
-          request: attempt.request,
-          response: mapped.rawResponse,
-          usage: mapped.rawUsage,
-          startedAt: attempt.startedAt,
-          endedAt: Date.now(),
-        },
-      };
-      assertActive();
-      attemptFinalized = true;
-      onObservation(observation);
-      assertActive();
-      return mapped.result;
-    } catch (cause) {
-      emitFailedSystemOneObservation({
-        finalized: attemptFinalized,
-        ...attempt,
-        cause,
-        cancelled: signal.aborted,
-        onObservation,
+      return await runSystemOneAttempts({
+        attempt: (attemptIndex) =>
+          executeSystemOneAttempt({
+            attemptIndex,
+            observationId,
+            connection,
+            credential,
+            fetchImplementation: this.fetchImplementation,
+            request,
+            requestData: preparedRequest.requestData,
+            body: preparedRequest.body,
+            signal: timeoutController.signal,
+            callerSignal: signal,
+            assertActive,
+            onObservation,
+          }),
+        signal: timeoutController.signal,
+        deadline,
+        monotonicNow: this.monotonicNow,
+        assertActive,
       });
-      throw cause;
     } finally {
       clearTimeout(timer);
       signal.removeEventListener("abort", abort);

@@ -1,7 +1,7 @@
 ---
 id: task.classifier-reliability-and-observation
 title: Bound Classifier Retries and Retain Full Observations
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-23
@@ -105,11 +105,34 @@ tests.
 
 ## Outcome
 
-Pending implementation.
+The private client now retries network failures and HTTP 429, 529, and 5xx
+responses up to four attempts within one 20-second transport budget. It reuses
+the serialized request and observation ID, honors a valid `Retry-After` only
+when its delay fits the remaining budget, and emits one indexed terminal
+observation for each attempt. Cancellation and the deadline stop both requests
+and backoff. Authentication, malformed responses, other HTTP failures, and
+observation-sink failures do not trigger retries. The existing observation
+path remains in use; no protocol event or store was added.
+
+Fake-clock coverage reaches the 20,000 ms deadline during backoff, response
+reading, and an in-flight request. The retry cap test observes exactly four
+attempts; a local HTTP fixture and the workflow integration test prove a
+429-then-success path retains one invocation identity.
+
+Verification: 47 focused classifier/workflow tests pass; all 50 runtime test
+files pass (422 tests); test mapping passes (318 mappings); `pnpm run typecheck`,
+`pnpm build` (23 projects), runtime lint, formatting, SDLC validation (367
+documents), and `git diff --check` pass. The repository-wide `pnpm test`
+reaches project tests but exits on six unrelated `action-service-lifecycle`
+failures because the sandbox rejects spawning `ps` with `EPERM`. Ripwire
+reports short-horizon churn on the recently extended classifier client; no
+complexity regression remains.
 
 ## Delivery state
 
-Planned. No implementation or target-branch delivery is claimed.
+Implemented and locally verified on branch
+`codex/classifier-reliability-and-observation`, based on `main` at `1e3b915`.
+Target-branch delivery is not claimed.
 
 ## Traceability
 

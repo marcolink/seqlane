@@ -3,8 +3,8 @@ import type { SeqlaneObservation } from "@seqlane/protocol";
 import { ClassifierFailure, type ClassifierObservationSink } from "./types.js";
 
 export function emitFailedSystemOneObservation(options: {
-  readonly finalized: boolean;
   readonly observationId: string;
+  readonly attemptIndex: number;
   readonly model: string;
   readonly request: JsonValue;
   readonly startedAt: number;
@@ -12,7 +12,6 @@ export function emitFailedSystemOneObservation(options: {
   readonly cancelled: boolean;
   readonly onObservation: ClassifierObservationSink;
 }): void {
-  if (options.finalized) return;
   const error = options.cancelled
     ? "Classifier request was cancelled"
     : options.cause instanceof ClassifierFailure
@@ -22,7 +21,7 @@ export function emitFailedSystemOneObservation(options: {
     observationId: options.observationId,
     kind: "model",
     state: options.cancelled ? "cancelled" : "failed",
-    attemptIndex: 0,
+    attemptIndex: options.attemptIndex,
     model: {
       operation: "classifier",
       provider: "typesafe",

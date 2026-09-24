@@ -185,9 +185,8 @@ a Noul result from the live TypeSafe endpoint in a user-run smoke test.
 
 ## Delivery state
 
-Implementation is complete on `codex/classifier-system-one-tracer`, proposed in
-PR #161 and based on PR #160 head `d9fcb37e9ed2e109ed38a7524d0ebbfad6395f93`.
-Target-branch delivery is not claimed.
+Delivered to `main` in commit `200acf2` (PR #161), following the classifier
+contract in PR #160.
 
 ## Traceability
 
