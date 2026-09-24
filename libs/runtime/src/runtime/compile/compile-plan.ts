@@ -45,6 +45,7 @@ import {
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import type { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
+import type { ClassifierTaskRunner } from "../../classifier/types.js";
 import { validatePlan } from "../validation/plan-validation.js";
 import {
   lowerReuseSessionOrdering,
@@ -87,6 +88,7 @@ export interface CompileWorkflowOptions {
     observation: SeqlaneObservation,
     iteration?: number,
   ) => void;
+  readonly classifier?: ClassifierTaskRunner;
 }
 
 /** Validate definition registries before any runtime lookup can use them. */
@@ -206,6 +208,7 @@ export class PlanCompiler {
       taskSchemas: options.taskSchemas,
       events: options.events,
       onObservation: options.onObservation,
+      classifier: options.classifier,
     });
 
     for (const node of orderedNodes) {

@@ -5,6 +5,10 @@ import { resolve } from "node:path";
 import { closeSync, openSync, readSync } from "node:fs";
 import { createEventDispatcher } from "../event-dispatcher.js";
 import {
+  createClassifierStartupEnvironment,
+  parseClassifierCliOptions,
+} from "../classifier-environment.js";
+import {
   createCliRenderer,
   createOutputCapabilities,
   resolveRendererMode,
@@ -244,6 +248,12 @@ export default class RunCommand extends SeqlaneCommand {
     workspace: Flags.string({
       description: "Workspace path for file-accessing tasks",
     }),
+    "classifier-url": Flags.string({
+      description: "Full System One HTTP endpoint URL for classifier tasks",
+    }),
+    "classifier-model": Flags.string({
+      description: "System One model ID for classifier tasks",
+    }),
     output: Flags.string({
       description: "Execution output mode",
       options: outputModeOptions,
@@ -271,7 +281,12 @@ export default class RunCommand extends SeqlaneCommand {
       this.error("--json cannot be combined with --dry", { exit: 1 });
     }
     let request: RunRequest;
+    let classifierOptions: ReturnType<typeof parseClassifierCliOptions>;
     try {
+      classifierOptions = parseClassifierCliOptions(
+        flags["classifier-url"],
+        flags["classifier-model"],
+      );
       request = createRunRequest(
         args.workflow,
         readJsonInput(flags.input, flags["input-file"], flags["input-param"]),
@@ -350,8 +365,13 @@ export default class RunCommand extends SeqlaneCommand {
       const {
         [agentRuntimeConfigurationEnvironment]: _legacy,
         [directRunAdapterConfigurationEnvironment]: _inheritedDirect,
-        ...environment
+        ...baseEnvironment
       } = process.env;
+      const environment = createClassifierStartupEnvironment(
+        baseEnvironment,
+        classifierOptions.url,
+        classifierOptions.model,
+      );
       let adapterConfiguration: string | undefined;
       if (flags.adapter !== undefined) {
         try {

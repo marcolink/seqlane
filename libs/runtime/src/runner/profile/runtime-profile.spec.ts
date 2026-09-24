@@ -45,6 +45,19 @@ function request(taskId: string): ExecutorRequest {
 }
 
 describe("runtime profile agent runtime boundary", () => {
+  it("omits the classifier runner when no connection is configured", async () => {
+    const definition = task();
+    const execution = await resolveRuntimeProfile(
+      { id: "local", workspace: process.cwd() },
+      new Map([[definition.id, definition]]),
+      new AbortController().signal,
+      null,
+    );
+
+    expect(execution.classifier).toBeUndefined();
+    await execution.close?.();
+  });
+
   it("requires an injected runtime for an agent profile", async () => {
     const definition = task();
 

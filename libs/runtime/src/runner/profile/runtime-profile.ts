@@ -40,6 +40,11 @@ import {
 } from "../../runtime/session/session-resolution.js";
 import type { RuntimeSessionUiAvailable } from "../runtime-session-ui.js";
 import { z } from "zod";
+import type {
+  ClassifierTaskRunner,
+  PrivateClassifierConnection,
+} from "../../classifier/types.js";
+import { createClassifierTaskRunnerOption } from "../../classifier/system-one-client.js";
 
 const fixtureInputSchema = plainRecordSchema.pipe(
   z.looseObject({ dependency: z.string().optional() }),
@@ -50,6 +55,7 @@ export interface RuntimeExecution {
   readonly taskDefinitions: TaskDefinitionRegistry;
   readonly workspaceIdentities: WorkspaceIdentityRegistry;
   readonly workspaceResources: WorkspaceResourceRegistry;
+  readonly classifier?: ClassifierTaskRunner;
   readonly close?: () => Promise<void>;
 }
 
@@ -321,6 +327,7 @@ export interface RuntimeProfileResolutionOptions {
   readonly runId?: RunId;
   /** Opaque execution context retained for concrete adapter integrations. */
   readonly requestContext?: unknown;
+  readonly classifierConnection?: PrivateClassifierConnection;
 }
 
 /** Resolves private adapter state after the generic profile crosses IPC. */
@@ -335,6 +342,9 @@ export async function resolveRuntimeProfile(
   if (!taskDefinitions) {
     throw new Error("Loaded workflow did not provide task definitions");
   }
+  const classifierOption = createClassifierTaskRunnerOption(
+    options.classifierConnection,
+  );
   const workspacePath = profile.workspace;
 
   if (profile.id === "local") {
@@ -358,6 +368,7 @@ export async function resolveRuntimeProfile(
       taskDefinitions,
       workspaceIdentities,
       workspaceResources,
+      ...classifierOption,
       close: async () => undefined,
     };
   }
@@ -374,6 +385,7 @@ export async function resolveRuntimeProfile(
       workspaceResources,
       signal,
       input,
+      classifierOption,
     );
   }
 
@@ -455,6 +467,7 @@ export async function resolveRuntimeProfile(
     taskDefinitions,
     workspaceIdentities,
     workspaceResources,
+    ...classifierOption,
     close,
   };
 }
@@ -465,6 +478,7 @@ async function createTestFixtureExecution(
   workspaceResources: WorkspaceResourceRegistry,
   signal: AbortSignal,
   input: JsonValue,
+  classifierOption: { readonly classifier?: ClassifierTaskRunner },
 ): Promise<RuntimeExecution> {
   const fixtureInput = fixtureInputSchema.safeParse(input);
   const inputRecord = fixtureInput.success ? fixtureInput.data : undefined;
@@ -576,6 +590,7 @@ async function createTestFixtureExecution(
     taskDefinitions,
     workspaceIdentities,
     workspaceResources,
+    ...classifierOption,
     close: async () => undefined,
   };
 }

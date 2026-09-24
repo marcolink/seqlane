@@ -1,4 +1,6 @@
 export * from "./contracts.js";
+export * from "./classifier.js";
+export * from "./classifier-task.js";
 export {
   WORKFLOW_INPUT_NODE_ID,
   createSessionCheckpointRef,

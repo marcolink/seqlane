@@ -319,6 +319,7 @@ export async function executeTaskNode(
         if (definition === undefined) {
           throw new Error(`No task definition registered for "${node.taskId}"`);
         }
+        const classifier = context.classifier;
         const runAgent = async (
           agentRequest: AgentTaskRequest,
         ): Promise<unknown> => {
@@ -379,6 +380,18 @@ export async function executeTaskNode(
               : resource.key,
           signal: abortSignal,
           runAgent,
+          ...(classifier === undefined
+            ? {}
+            : {
+                classify: (request) =>
+                  classifier(request, abortSignal, (observation) =>
+                    context.onObservation?.(
+                      invocationId,
+                      observation,
+                      options.iteration,
+                    ),
+                  ),
+              }),
           onUncertainActivity: reportUncertainActivity,
         });
       } catch (cause) {

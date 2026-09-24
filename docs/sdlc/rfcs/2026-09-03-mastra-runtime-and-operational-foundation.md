@@ -138,10 +138,11 @@ Commands execute without an intermediate shell unless shell semantics are explic
 ### Classifier tasks
 
 A classifier task is an ordinary Seqlane task and Mastra step. Its in-memory
-definition builds one state and a fixed set of typed question identities from
-validated invocation input. The wording, Choice options, and Score rubric can
-vary per invocation. The Plan retains the ordinary task reference and input
-binding; it contains neither the callback nor the resolved model request.
+definition contains a fixed set of typed questions. A `state` callback selects
+one JSON string, object, or array from validated invocation input. Every
+question evaluates that shared state. The Plan retains the ordinary task
+reference and input binding; it contains neither the callback nor the resolved
+model request.
 
 Application composition provides one private classifier connection per run.
 The task context invokes that connection directly, without an agent session or

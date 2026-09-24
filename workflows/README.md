@@ -26,6 +26,7 @@ See [AGENTS.md](./AGENTS.md) for local workflow conventions.
 ## Workflow index
 
 - [all-features example](./all-features-example/README.md)
+- [classifier example](./classifier-example/README.md)
 - [code review](./code-review/README.md)
 - [git diff summary example](./git-diff-summary-example/README.md)
 - [local Git status example](./local-git-status-example/README.md)

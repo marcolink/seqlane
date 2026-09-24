@@ -2,13 +2,16 @@
 import {
   buildWorkflow,
   createFlow,
+  defineClassifierTask,
   defineAgentTask,
   defineTask,
   type SeqlaneEvent,
 } from "@seqlane/core";
 import type { AgentRuntime } from "@seqlane/agent-adapter";
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { createServer, type Server } from "node:http";
+import { once } from "node:events";
+import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
 
@@ -37,7 +40,123 @@ function createSink() {
   };
 }
 
+const servers: Server[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    servers.splice(0).map(async (server) => {
+      server.closeAllConnections();
+      if (server.listening) {
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    }),
+  );
+});
+
 describe("startWorkflowRun", () => {
+  it("runs a Noul classifier through TaskContext and reports one identified observation", async () => {
+    const apiKey = "direct-classifier-private-key";
+    const responseBody = {
+      model: "jev-1.13.0",
+      answers: { needsReview: { type: "noul", noul: 0.63 } },
+      usage: { input_tokens: 10, output_tokens: 2 },
+    };
+    const requestData = {
+      model: "jev-latest",
+      state: "example diff",
+      questions: {
+        needsReview: {
+          type: "noul",
+          instructions: "Does this diff need review?",
+        },
+      },
+    };
+    let capturedRequest = "";
+    let capturedAuthorization: string | undefined;
+    const server = createServer((incoming, outgoing) => {
+      const chunks: Buffer[] = [];
+      incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+      incoming.on("end", () => {
+        capturedRequest = Buffer.concat(chunks).toString("utf8");
+        capturedAuthorization = incoming.headers.authorization;
+        outgoing.writeHead(200, { "content-type": "application/json" });
+        outgoing.end(JSON.stringify(responseBody));
+      });
+    });
+    servers.push(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Classifier fixture did not bind a TCP port");
+    }
+
+    const classifierInputSchema = z.object({ diff: z.string() });
+    const classifier = defineClassifierTask({
+      id: "direct-classifier-noul",
+      input: classifierInputSchema,
+      state: ({ diff }) => diff,
+      questions: {
+        needsReview: {
+          kind: "noul",
+          instructions: "Does this diff need review?",
+        },
+      },
+    });
+    const classifierWorkflow = createFlow({
+      id: "direct-classifier-workflow",
+      input: classifierInputSchema,
+      output: classifier.output,
+    })
+      .task("classify", classifier, ({ input }) => input)
+      .output(({ tasks }) => tasks.classify.output)
+      .define();
+    const observations: unknown[] = [];
+    const handle = startWorkflowRun({
+      workflow: buildWorkflow(classifierWorkflow),
+      input: { diff: "example diff" },
+      workspace: process.cwd(),
+      classifierConnection: {
+        url: `http://127.0.0.1:${address.port}/v1/systemone`,
+        model: "jev-latest",
+        apiKey,
+      },
+      identity: { workId: "work-classifier", runId: "run-classifier" },
+      events: { emit: () => undefined },
+      onObservation: (event) => observations.push(event),
+    });
+
+    await expect(handle.outcome).resolves.toMatchObject({
+      status: "succeeded",
+      result: {
+        answers: { needsReview: { kind: "noul", probability: 0.63 } },
+      },
+    });
+    expect(capturedAuthorization).toBe(`Bearer ${apiKey}`);
+    expect(capturedRequest).toBe(JSON.stringify(requestData));
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      type: "invocation.observation",
+      workId: "work-classifier",
+      runId: "run-classifier",
+      invocationId: expect.any(String),
+      observationId: expect.any(String),
+      kind: "model",
+      state: "succeeded",
+      attemptIndex: 0,
+      model: {
+        operation: "classifier",
+        model: "jev-1.13.0",
+        request: requestData,
+        response: responseBody,
+        usage: responseBody.usage,
+      },
+    });
+    expect(JSON.stringify(observations)).not.toContain(apiKey);
+  });
+
   it("accepts a pre-bootstrapped agent runtime without adapter configuration", async () => {
     const agentTask = defineAgentTask({
       id: "direct.agent",

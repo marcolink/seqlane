@@ -326,4 +326,25 @@ describe("workflow discovery", () => {
       exportName: "renovateWorkflow",
     });
   });
+
+  it("keeps classifier endpoint flags out of runner IPC", () => {
+    const request = createRunRequest(
+      "./workflows/minimal-example/workflow.ts",
+      "null",
+      undefined,
+      undefined,
+      false,
+    );
+
+    expect(request.runtime).toEqual({ id: "local" });
+    expect(request).not.toHaveProperty("classifierUrl");
+    expect(request).not.toHaveProperty("classifierModel");
+    expect(request).not.toHaveProperty("classifierConnection");
+    expect(Object.keys(request)).toEqual([
+      "type",
+      "workflow",
+      "input",
+      "runtime",
+    ]);
+  });
 });

@@ -98,9 +98,9 @@ Migration verification uses representative agent and deterministic-task fixtures
 
 Workflow authors can add a classifier task that evaluates one state against
 multiple named Choice, Score, and Noul questions in one model request. The
-question IDs and kinds remain fixed in the task definition. Instructions,
-Choice options, and Score levels can depend on the validated task input at each
-invocation. Static definitions use the same interface.
+complete questions remain fixed in the task definition. A `state` callback
+selects a JSON string, object, or array from the validated task input for each
+invocation. All declared questions evaluate that shared state.
 
 The task returns the complete validated probabilistic result, including the
 selected Choice, distributions, Score value and legend, Noul probability,

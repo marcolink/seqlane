@@ -23,11 +23,11 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Publish Seqlane Packages](./tasks/2026-09-21-publish-seqlane-packages.md) is
-the next agreed deliverable. It implements the accepted
-[public release decision](./adrs/2026-09-22-preserve-workspace-release-references.md) and active
-[distribution contract](./specs/2026-09-21-public-npm-distribution.md). The
-first eligible commit on `main` starts the automated release.
+[Run One Classifier Task Through Jev](./tasks/2026-09-23-classifier-system-one-tracer.md)
+is the active first delivery on top of [PR #160](https://github.com/marcolink/seqlane/pull/160).
+It delivers one provider-neutral Noul classifier path through the CLI, runtime,
+and existing observation event. Later classifier tasks extend it with static
+Choice and Score questions and retries.
 
 ## Authority
 

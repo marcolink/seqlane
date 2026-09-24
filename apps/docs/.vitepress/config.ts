@@ -39,6 +39,10 @@ export default defineConfig({
           },
           { text: "Plan", link: "/authoring-workflows/plan" },
           { text: "Agent tasks", link: "/authoring-workflows/agent-tasks" },
+          {
+            text: "Classifier tasks",
+            link: "/authoring-workflows/classifier-tasks",
+          },
           { text: "Shell tasks", link: "/authoring-workflows/shell-tasks" },
           {
             text: "Dependencies",

@@ -11,6 +11,7 @@ import {
 } from "./run.js";
 import { resolveRuntimeProfile } from "./profile/runtime-profile.js";
 import type { LoadedWorkflow } from "./workflow/load-workflow.js";
+import type { PrivateClassifierConnection } from "../classifier/types.js";
 
 export interface RunnerSignalSource {
   on(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
@@ -28,7 +29,10 @@ export interface RunnerProcessOptions {
   /** Set only by an application-owned child-process entrypoint. */
   readonly workerEntrypoint?: boolean;
   readonly createAgentRuntimeFactory?: () => AgentRuntimeFactory;
+  readonly classifierConnection?: PrivateClassifierConnection;
 }
+
+export type { PrivateClassifierConnection } from "../classifier/types.js";
 
 function requiresAgentRuntime(profileId: string): boolean {
   return profileId !== "local" && profileId !== "test-fixture";
@@ -58,6 +62,9 @@ export function createRunnerExecutionResolver(
         options.createAgentRuntimeFactory !== undefined
           ? { agentRuntime: options.createAgentRuntimeFactory() }
           : {}),
+        ...(options.classifierConnection === undefined
+          ? {}
+          : { classifierConnection: options.classifierConnection }),
       },
     );
 }

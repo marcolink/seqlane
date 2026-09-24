@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 upstream:
   - spec.classifier-tasks
   - task.classifier-dynamic-questions
@@ -16,9 +16,9 @@ supersedes: []
 
 ## Objective
 
-Give the dynamic Jev path a 20-second total deadline, at most three transient
-retries, typed failures, cancellation, and full request/response inspection
-without exposing credentials.
+Add bounded transient retries and extend the single-attempt terminal
+observation into per-attempt detail. Preserve the classifier transport budget,
+one invocation identity, and credential isolation.
 
 ## Upstream requirements
 
@@ -26,18 +26,20 @@ Implement [spec.classifier-tasks, deadline and retries](../specs/2026-09-23-clas
 
 ## Scope
 
-- One 20-second wall-clock deadline across `build`, all HTTP attempts,
-  response validation, and backoff. At most four attempts total. Respect the
-  run's cancellation signal and stop retries immediately on cancellation.
-- Retry network errors, 429, 529, and 5xx only. Honor `Retry-After` within
-  the remaining budget. Never retry auth, validation, or malformed responses.
-- Enforce 1 MiB UTF-8 request and response limits; no silent truncation.
-- Reject unsafe endpoint URLs and redirects before a bearer token can leak.
-- Emit the exact resolved state/questions and full validated response at the
-  invocation's local observation boundary. Capture attempt count, timings,
-  returned model, and usage as bounded metadata. Preserve the current split
-  between full detail and narrow CLI/protocol progress.
-- Test standalone no-persistence and direct/hosted tracing behavior separately.
+- Extend the 20-second transport budget across HTTP attempts, response
+  validation, and backoff. The budget starts after state selection, request
+  validation, and serialization.
+- Retry network errors, 429, 529, and 5xx only. Allow at most four attempts
+  total. Honor Retry-After only within the remaining budget.
+- Reuse the invocation abort signal. Stop fetch and backoff on cancellation or
+  budget expiry; never retry auth, validation, or malformed responses.
+- Keep the 1 MiB body caps and enforce the structural limits in the active
+  classifier spec before recursive validation and observation.
+- Extend the existing terminal invocation observation across retries with
+  per-attempt request, response, timing, model, usage, and error detail. Reuse
+  one observationId and the existing attemptIndex field.
+- Confirm standalone runs retain no Seqlane-owned saved copy and direct/hosted
+  runs use the existing tracing path.
 
 ## Out of scope
 
@@ -49,34 +51,28 @@ Implement [spec.classifier-tasks, deadline and retries](../specs/2026-09-23-clas
 ### Tracer bullet
 
 - **Outcome:** a fixture returns 429 once, then a valid full result; the task
-  succeeds within its original deadline and records both attempts under one
-  invocation.
+  succeeds within its original transport budget and records both attempts under
+  one invocation.
 - **Path:** Mastra task abort signal → classifier client deadline/backoff →
-  local HTTP fixture → validated result → invocation observation.
+  local HTTP fixture → validated result → existing invocation observation.
 - **Risk:** a retry can outlive cancellation or create a second task identity,
-  while raw state/credential handling can leak through progress or errors.
+  while raw state or credential handling can leak through progress or errors.
 - **Evidence:** fake-clock and integration assertions show two attempts under
   one invocation, exact request/response detail, no token in serialized
   observations, and no raw payload in CLI progress.
 - **Excluded:** other retry categories until this path passes.
 
-1. Add typed configuration, request, response, timeout, and cancellation errors
-   with original causes at private package boundaries.
-2. Start a monotonic deadline before the synchronous builder runs; pass its
-   remaining budget into the fetch/retry loop. Check budget after building and
-   validation, and abort fetch/backoff at expiry. Bound body reads and disable
-   redirects. Keep abort listeners and timers scoped to the invocation and
-   release them on every exit path.
-   Use delays of 200, 400, and 800 ms for retries, each raised to a valid
-   `Retry-After` minimum when present. Parse both delta-seconds and HTTP-date;
-   invalid values use the normal delay. If a delay cannot fit the remaining
-   budget, fail at the deadline without another request. Reuse the exact
-   serialized body for every HTTP attempt.
-3. Wire full request/result observation through the existing Mastra/protocol
-   detail path. Do not create a second trace store or flatten raw JSON into
-   OTel metric labels.
-4. Add the remaining failure and cancellation tests after the first retry path
-   passes; measure worst-case elapsed time with a fake clock.
+1. Extend the tracer's typed failures for retry and backoff paths. Preserve
+   original causes at private package boundaries.
+2. Add retries inside the existing transport budget. Use delays of 200, 400,
+   and 800 ms, raised to a valid Retry-After minimum when present. Parse
+   delta-seconds and HTTP-date. If a delay cannot fit, stop without another
+   request. Reuse the exact serialized body for each attempt.
+3. Extend the existing single-attempt terminal observation for retry detail
+   without adding a protocol event or trace store. Do not flatten raw JSON into
+   metrics labels.
+4. Add remaining failure and cancellation coverage after the retry path passes.
+   Measure maximum elapsed transport time with a fake clock.
 
 ## Affected areas
 
@@ -101,11 +97,10 @@ tests.
 
 ## Completion criteria
 
-- No HTTP attempt or retry continues beyond the 20-second invocation deadline;
-  synchronous builder overrun fails before HTTP as soon as the builder returns.
-- Cancellation wins over a concurrent response.
+- No HTTP attempt or retry continues past the 20-second transport budget.
+- Cancellation wins over a concurrent provider response.
 - Full permitted detail is inspectable; credentials and raw values stay out of
-  progress/metrics labels.
+  progress and metrics labels.
 - Every failure remains a failure, never a negative classification.
 
 ## Outcome
