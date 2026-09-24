@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-22
+updated: 2026-09-23
 upstream:
   - prd.seqlane-on-mastra
   - rfc.mastra-runtime-and-operational-foundation
@@ -37,6 +37,7 @@ Existing output specifications own terminal rendering and final result schemas.
 - Persistent history, logs, recording, result files, or resumable runs.
 - Automatic dependency installation, package builds, or watch mode.
 - New output formats, model overrides, or custom adapter endpoint flags.
+- Classifier task semantics, which are owned by `spec.classifier-tasks`.
 
 ## Terminology
 
@@ -165,6 +166,16 @@ The command inherits the caller's environment. It does not automatically load
 `.env` files. Adapter-native configuration loading remains adapter-owned.
 The execution workspace does not restrict trusted module access or establish
 a sandbox.
+
+### requirement-classifier-connection-extension
+
+Classifier tasks use the separate
+[dynamic classifier task contract](./2026-09-23-classifier-tasks.md#requirement-runtime-connection).
+Their explicit URL/model flags and environment token configure a private
+classifier request, not a coding-agent adapter. A classifier-only run does not
+require `--adapter`. Missing classifier configuration fails when the task
+requests classification; `--dry` still requires no connection. This extension
+adds no Seqlane configuration file or persistent run store.
 
 ### requirement-adapter-lifecycle
 
@@ -363,3 +374,4 @@ delivered runtime behavior.
 - [Run terminal rendering](./2026-09-15-run-terminal-rendering.md)
 - [Run machine output](./2026-09-15-run-machine-output.md)
 - [Delivery task](../tasks/2026-09-16-deliver-standalone-cli-runs.md)
+- [spec.classifier-tasks](./2026-09-23-classifier-tasks.md)
