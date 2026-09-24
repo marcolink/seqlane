@@ -20,7 +20,6 @@ export const classifierFailureCodeSchema = z.enum([
   "transport",
   "response",
   "deadline",
-  "unsupported-kind",
 ]);
 
 export type ClassifierFailureCode = z.infer<typeof classifierFailureCodeSchema>;

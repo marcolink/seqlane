@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  classifierQuestionsSchema,
   createClassifierResultSchema,
   defineClassifierTask,
   MissingClassifierCapabilityError,
@@ -119,7 +120,7 @@ describe("defineClassifierTask", () => {
         severity: {
           kind: "score",
           value: 1,
-          legend: { "0": "low", "1": "high" },
+          legend: { "0": "Low", "1": "High" },
           probabilities: { "0": 0.2, "1": 0.8 },
           confidence: 0.8,
         },
@@ -127,7 +128,17 @@ describe("defineClassifierTask", () => {
       usage: { inputTokens: 4, outputTokens: 2 },
     };
 
-    expect(schema.parse(result)).toEqual(result);
+    const parsedResult = schema.parse(result);
+    expect(parsedResult).toEqual(result);
+    const areaKind: "choice" = parsedResult.answers.area.kind;
+    const severityKind: "score" = parsedResult.answers.severity.kind;
+    // @ts-expect-error The declared Noul question has a Noul answer.
+    const wrongReviewKind: "choice" = parsedResult.answers.review.kind;
+    expect([areaKind, severityKind, wrongReviewKind]).toEqual([
+      "choice",
+      "score",
+      "noul",
+    ]);
     const wrongKind = schema.safeParse({
       ...result,
       answers: { ...result.answers, review: result.answers.area },
@@ -143,6 +154,128 @@ describe("defineClassifierTask", () => {
     expect(() =>
       schema.parse({ ...result, answers: { review: result.answers.review } }),
     ).toThrow();
+    expect(
+      schema.safeParse({
+        ...result,
+        answers: { ...result.answers, extra: result.answers.review },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      schema.safeParse({
+        ...result,
+        answers: {
+          ...result.answers,
+          area: { ...result.answers.area, selected: "security" },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        ...result,
+        answers: {
+          ...result.answers,
+          area: {
+            ...result.answers.area,
+            probabilities: { code: 0.7005, docs: 0.3 },
+          },
+        },
+      }).success,
+    ).toBe(true);
+    const invalidNumbers: readonly [
+      string,
+      keyof typeof result.answers,
+      unknown,
+    ][] = [
+      [
+        "Choice NaN probability",
+        "area",
+        {
+          ...result.answers.area,
+          probabilities: { code: Number.NaN, docs: 1 },
+        },
+      ],
+      [
+        "Choice infinite confidence",
+        "area",
+        { ...result.answers.area, confidence: Number.POSITIVE_INFINITY },
+      ],
+      [
+        "Score NaN value",
+        "severity",
+        { ...result.answers.severity, value: Number.NaN },
+      ],
+      [
+        "Noul probability above one",
+        "review",
+        { ...result.answers.review, probability: 1.01 },
+      ],
+      [
+        "probabilities outside the sum tolerance",
+        "area",
+        {
+          ...result.answers.area,
+          probabilities: { code: 0.7011, docs: 0.3 },
+        },
+      ],
+    ];
+    for (const [name, id, answer] of invalidNumbers) {
+      expect(
+        schema.safeParse({
+          ...result,
+          answers: { ...result.answers, [id]: answer },
+        }).success,
+        name,
+      ).toBe(false);
+    }
+    expect(
+      schema.safeParse({
+        ...result,
+        answers: {
+          ...result.answers,
+          area: {
+            ...result.answers.area,
+            probabilities: { code: 0.7, security: 0.3 },
+          },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        ...result,
+        answers: {
+          ...result.answers,
+          severity: {
+            ...result.answers.severity,
+            value: 1.1,
+          },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        ...result,
+        answers: {
+          ...result.answers,
+          severity: {
+            ...result.answers.severity,
+            legend: { "0": "Low", "1": "Severe" },
+          },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        ...result,
+        answers: {
+          ...result.answers,
+          severity: {
+            ...result.answers.severity,
+            probabilities: { "0": 0.2, "2": 0.8 },
+          },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects caller-supplied execution or output contracts", () => {
@@ -204,6 +337,134 @@ describe("defineClassifierTask", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("validates Choice, Score, and Noul criteria boundaries", () => {
+    const choiceQuestion = (criteria: Record<string, string>) => ({
+      kind: "choice" as const,
+      instructions: "Which area?",
+      criteria,
+    });
+    const scoreQuestion = (criteria: string[]) => ({
+      kind: "score" as const,
+      instructions: "How urgent?",
+      criteria,
+    });
+    expect(
+      classifierQuestionsSchema.safeParse({
+        area: choiceQuestion({ runtime: "Runtime", docs: "Docs" }),
+        priority: scoreQuestion(["Low", "High"]),
+      }).success,
+    ).toBe(true);
+    expect(
+      classifierQuestionsSchema.safeParse({
+        area: choiceQuestion(
+          Object.fromEntries(
+            Array.from({ length: 255 }, (_value, index) => [
+              `option${index}`,
+              `Option ${index}`,
+            ]),
+          ),
+        ),
+        priority: scoreQuestion(
+          Array.from({ length: 10 }, (_value, index) => `Level ${index}`),
+        ),
+      }).success,
+    ).toBe(true);
+    const invalidChoiceCriteria: Record<string, string>[] = [
+      { only: "One option" },
+      {
+        ...Object.fromEntries(
+          Array.from({ length: 256 }, (_v, i) => [`o${i}`, `Option ${i}`]),
+        ),
+      },
+      { "": "Runtime", docs: "Docs" },
+      { runtime: "", docs: "Docs" },
+    ];
+    for (const criteria of invalidChoiceCriteria) {
+      expect(
+        classifierQuestionsSchema.safeParse({
+          area: choiceQuestion(criteria),
+        }).success,
+      ).toBe(false);
+    }
+    const invalidScoreCriteria: string[][] = [
+      ["Only one"],
+      Array.from({ length: 11 }, (_value, index) => `Level ${index}`),
+      ["Low", "Low"],
+    ];
+    for (const criteria of invalidScoreCriteria) {
+      expect(
+        classifierQuestionsSchema.safeParse({
+          priority: scoreQuestion(criteria),
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      classifierQuestionsSchema.safeParse({
+        needsReview: {
+          kind: "noul",
+          instructions: "Does this need review?",
+          criteria: { true: "Yes" },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("selects a new state for each invocation while keeping questions fixed", async () => {
+    const input = z.object({ diff: z.string() });
+    const task = defineClassifierTask({
+      id: "classifier-dynamic-state",
+      input,
+      state: ({ diff }) => ({ diff }),
+      questions: {
+        needsReview: {
+          kind: "noul",
+          instructions: "Does this diff need review?",
+        },
+      },
+    });
+    const requests: unknown[] = [];
+
+    for (const diff of ["first diff", "second diff"]) {
+      await task.execute({
+        input: input.parse({ diff }),
+        signal: new AbortController().signal,
+        context: {
+          exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+          runAgent: async () => undefined,
+          classify: async (request) => {
+            requests.push(request);
+            return {
+              model: "jev-1.13.0",
+              answers: { needsReview: { kind: "noul", probability: 0.5 } },
+              usage: { inputTokens: 4, outputTokens: 1 },
+            };
+          },
+        },
+      });
+    }
+
+    expect(requests).toEqual([
+      {
+        state: { diff: "first diff" },
+        questions: {
+          needsReview: {
+            kind: "noul",
+            instructions: "Does this diff need review?",
+          },
+        },
+      },
+      {
+        state: { diff: "second diff" },
+        questions: {
+          needsReview: {
+            kind: "noul",
+            instructions: "Does this diff need review?",
+          },
+        },
+      },
+    ]);
   });
 
   it("snapshots static questions when the task is defined", async () => {

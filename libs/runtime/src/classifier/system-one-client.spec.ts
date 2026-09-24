@@ -40,6 +40,48 @@ const responseBody = {
   request_trace: { fixture: true },
 };
 
+const mixedRequest: ClassifierRequest = {
+  state: { diff: "example diff" },
+  questions: {
+    area: {
+      kind: "choice",
+      instructions: "Which area should review this diff?",
+      criteria: { security: "Security", runtime: "Runtime" },
+    },
+    priority: {
+      kind: "score",
+      instructions: "How urgent is review?",
+      criteria: ["Low", "High"],
+    },
+    needsReview: {
+      kind: "noul",
+      instructions: "Does this diff need review?",
+    },
+  },
+};
+
+const mixedResponseBody = {
+  model: "jev-1.13.0",
+  answers: {
+    area: {
+      type: "choice",
+      choice: "runtime",
+      probabilities: { security: 0.2, runtime: 0.8 },
+      confidence: 0.8,
+      note: "choice extension",
+    },
+    priority: {
+      type: "score",
+      score: 0.8,
+      legend: { "0": "Low", "1": "High" },
+      probabilities: { "0": 0.2, "1": 0.8 },
+      confidence: 0.8,
+    },
+    needsReview: { type: "noul", noul: 0.63 },
+  },
+  usage: { input_tokens: 14, output_tokens: 7 },
+};
+
 const servers: Server[] = [];
 
 afterEach(async () => {
@@ -238,34 +280,112 @@ describe("System One client", () => {
     expect(redirectedRequests).toBe(0);
   });
 
-  it("rejects Choice and Score until their System One mapping is delivered", async () => {
-    let requests = 0;
-    const client = new SystemOneClient(
-      { url: "https://jev.example/v1/systemone", model: "jev-latest" },
-      async () => {
-        requests += 1;
-        return new Response(JSON.stringify(responseBody), { status: 200 });
-      },
+  it("sends and maps Choice, Score, and Noul in one request", async () => {
+    let capturedBody = "";
+    const fixture = await listen((incoming, outgoing) => {
+      const chunks: Buffer[] = [];
+      incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+      incoming.on("end", () => {
+        capturedBody = Buffer.concat(chunks).toString("utf8");
+        outgoing.writeHead(200, { "content-type": "application/json" });
+        outgoing.end(JSON.stringify(mixedResponseBody));
+      });
+    });
+    const observations: SeqlaneObservation[] = [];
+    const client = new SystemOneClient({
+      url: fixture.url,
+      model: "jev-latest",
+    });
+
+    const result = await client.classify(
+      mixedRequest,
+      new AbortController().signal,
+      (observation) => observations.push(observation),
     );
-    const choiceRequest = {
-      state: "example diff",
+
+    expect(JSON.parse(capturedBody)).toEqual({
+      model: "jev-latest",
+      state: { diff: "example diff" },
       questions: {
-        needsReview: {
-          kind: "choice" as const,
+        area: {
+          type: "choice",
           instructions: "Which area should review this diff?",
           criteria: { security: "Security", runtime: "Runtime" },
         },
+        priority: {
+          type: "score",
+          instructions: "How urgent is review?",
+          criteria: ["Low", "High"],
+        },
+        needsReview: {
+          type: "noul",
+          instructions: "Does this diff need review?",
+        },
+      },
+    });
+    expect(result).toEqual({
+      model: "jev-1.13.0",
+      answers: {
+        area: {
+          kind: "choice",
+          selected: "runtime",
+          probabilities: { security: 0.2, runtime: 0.8 },
+          confidence: 0.8,
+          extensions: { note: "choice extension" },
+        },
+        priority: {
+          kind: "score",
+          value: 0.8,
+          legend: { "0": "Low", "1": "High" },
+          probabilities: { "0": 0.2, "1": 0.8 },
+          confidence: 0.8,
+        },
+        needsReview: { kind: "noul", probability: 0.63 },
+      },
+      usage: { inputTokens: 14, outputTokens: 7 },
+    });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      kind: "model",
+      state: "succeeded",
+      model: {
+        operation: "classifier",
+        request: JSON.parse(capturedBody),
+        response: mixedResponseBody,
+      },
+    });
+  });
+
+  it("reports a mismatched answer as a typed failure before success observation", async () => {
+    const invalidResponse = {
+      ...mixedResponseBody,
+      answers: {
+        ...mixedResponseBody.answers,
+        area: { ...mixedResponseBody.answers.area, choice: "billing" },
       },
     };
+    const observations: SeqlaneObservation[] = [];
+    const client = new SystemOneClient(
+      { url: "https://localhost/v1/systemone", model: "jev-latest" },
+      async () =>
+        new Response(JSON.stringify(invalidResponse), { status: 200 }),
+    );
 
     await expect(
-      client.classify(
-        choiceRequest,
-        new AbortController().signal,
-        () => undefined,
+      client.classify(mixedRequest, new AbortController().signal, (event) =>
+        observations.push(event),
       ),
-    ).rejects.toMatchObject({ code: "unsupported-kind" });
-    expect(requests).toBe(0);
+    ).rejects.toMatchObject({ code: "response" });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      kind: "model",
+      state: "failed",
+      attemptIndex: 0,
+      model: {
+        operation: "classifier",
+        error: expect.stringContaining("response"),
+      },
+    });
   });
 
   it("allows an HTTPS loopback endpoint without a token", async () => {

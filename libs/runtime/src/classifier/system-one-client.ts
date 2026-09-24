@@ -70,20 +70,6 @@ const classifierStateSizeSchema = z.custom<unknown>((value) => {
   }
 }, "Classifier state exceeds the 768 KiB limit");
 
-const systemOneNoulRequestSchema = classifierRequestSchema.superRefine(
-  (request, context) => {
-    for (const [id, question] of Object.entries(request.questions)) {
-      if (question.kind !== "noul") {
-        context.addIssue({
-          code: "custom",
-          path: ["questions", id, "kind"],
-          message: "System One Choice and Score mapping is not implemented yet",
-        });
-      }
-    }
-  },
-);
-
 const responseTextSchema = z.string().superRefine((text, context) => {
   if (Buffer.byteLength(text, "utf8") > CLASSIFIER_MAX_BODY_BYTES) {
     context.addIssue({
@@ -327,16 +313,7 @@ export class SystemOneClient {
       input,
       requestModelFor(this.connection),
     );
-    const parsedRequest = preparedRequest.request;
-    const systemOneRequest =
-      systemOneNoulRequestSchema.safeParse(parsedRequest);
-    if (!systemOneRequest.success) {
-      throw new ClassifierFailure(
-        "unsupported-kind",
-        "System One Choice and Score mapping is not implemented yet",
-      );
-    }
-    const request = systemOneRequest.data;
+    const request = preparedRequest.request;
     const connection = validateConnection(this.connection);
     const credential =
       connection.apiKey === undefined || connection.apiKey.length === 0

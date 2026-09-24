@@ -1,11 +1,11 @@
 ---
 id: task.classifier-dynamic-questions
 title: Validate Static Choice Score and Noul Questions
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 upstream:
   - spec.classifier-tasks
   - task.classifier-system-one-tracer
@@ -50,24 +50,34 @@ Implement [spec.classifier-tasks, fixed question shape](../specs/2026-09-23-clas
 
 ### Tracer bullet
 
-- **Outcome:** one task sends static Choice, Score, and Noul questions over an
-  input-derived state and returns correctly typed full answers for every ID.
-- **Path:** validated task input → `state` → request schema → existing System
-  One client → fixture response → paired answer validation → task output.
-- **Risk:** a generic answer union cannot prove that a returned Choice key or
-  Score legend matches the declared criteria.
-- **Evidence:** one positive fixture run and negative runs for a foreign Choice
-  key, missing probability, wrong Score legend, and changed question key. All
-  negative cases fail before downstream tasks consume output.
+- **Outcome:** one workflow sends static Choice, Score, and Noul questions over
+  an input-derived state and returns complete, question-validated answers.
+- **Path:** validated task input → `state` → request schema → System One client
+  → provider response mapper → paired Core result validation → success
+  observation → task output.
+- **Risk:** generic answer validation can accept a Choice key or Score legend
+  that does not match the declared criteria. Validation after the success
+  observation would also report malformed provider data as a successful call.
+- **Evidence:** one mixed positive fixture run and negative runs for a foreign
+  Choice key, mismatched probability keys, wrong Score legend or range, and
+  changed question ID or kind. Invalid responses become typed response
+  failures, emit no success observation, and do not invoke downstream tasks.
 - **Excluded:** retry policy and production endpoint.
 
-1. Complete the static question and inferred result schemas in core. Keep casts
-   only at narrow, documented interop edges. Never coerce an unknown response
-   into a typed answer.
-2. Extend paired response validation after the owning Zod schema parses the
-   body.
-3. Extend core, runtime, and workflow tests for all static question kinds and
-   malformed cases. Use a second task's output as classifier input in one test.
+1. Reuse the existing static question schemas and inferred answer kinds in
+   core. Extend `createClassifierResultSchema` to validate each answer against
+   its declared question: Choice selection and exact probability keys, Score
+   range, zero-based legend and exact probability keys, and Noul range. Keep
+   the shared finite-number and probability-sum checks.
+2. Add private Jev Choice and Score response schemas and mappings. Before the
+   client emits a success observation, validate the mapped result with the
+   question-aware Core schema. Translate validation failures to a typed
+   classifier response error so the existing failed-observation path handles
+   them. Keep provider wire fields private and never coerce unknown data into
+   an answer.
+3. Extend core, runtime, and workflow coverage for the mixed response and
+   malformed cases. Use a second task's output as classifier input and verify
+   that repeated invocations can select different state with fixed questions.
 
 ## Affected areas
 
@@ -95,11 +105,20 @@ fixture. Keep existing Plan validation and session policy unchanged.
 
 ## Outcome
 
-Pending implementation.
+Core now validates each answer against its declared Choice, Score, or Noul
+question. The Jev runtime maps all three kinds and validates the paired result
+before emitting a success observation. Mixed workflow coverage confirms that
+invalid provider answers fail before downstream tasks run, while each task
+invocation can select new state with fixed questions.
+
+Focused classifier and workflow specs pass (41 tests). Test mapping, full
+typecheck, workspace build, and workspace lint also pass. Lint reports existing
+warnings in unrelated files.
 
 ## Delivery state
 
-Planned. No implementation or target-branch delivery is claimed.
+Implemented and validated in the current worktree. No commit, pull request, or
+target-branch delivery is claimed.
 
 ## Traceability
 

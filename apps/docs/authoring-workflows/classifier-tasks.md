@@ -7,9 +7,12 @@ has one fixed ID and kind. TypeScript uses them to type the returned answers.
 The state can be a JSON string, object, or array. All questions in the task
 evaluate the same state in one classifier request.
 
-The current runtime supports Noul questions. A Noul answer gives the
-probability that a condition is true, from 0 to 1. Choice and Score questions
-are not supported by the current runtime.
+The runtime supports Noul, Choice, and Score questions in one request. A Noul
+answer gives the probability that a condition is true, from 0 to 1. A Choice
+answer includes the selected option and its probability distribution. A Score
+answer includes a weighted value, its level legend, and the probability for
+each level. Question criteria stay fixed in the task definition while the
+`state` callback can select different input data for each invocation.
 
 ```ts
 import { createFlow, defineClassifierTask } from "@seqlane/core";

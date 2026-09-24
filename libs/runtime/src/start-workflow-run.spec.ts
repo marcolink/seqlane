@@ -56,17 +56,42 @@ afterEach(async () => {
 });
 
 describe("startWorkflowRun", () => {
-  it("runs a Noul classifier through TaskContext and reports one identified observation", async () => {
+  it("runs mixed classifier questions from prior task output and reports one identified observation", async () => {
     const apiKey = "direct-classifier-private-key";
     const responseBody = {
       model: "jev-1.13.0",
-      answers: { needsReview: { type: "noul", noul: 0.63 } },
-      usage: { input_tokens: 10, output_tokens: 2 },
+      answers: {
+        area: {
+          type: "choice",
+          choice: "runtime",
+          probabilities: { runtime: 0.8, docs: 0.2 },
+          confidence: 0.8,
+        },
+        priority: {
+          type: "score",
+          score: 0.8,
+          legend: { "0": "Low", "1": "High" },
+          probabilities: { "0": 0.2, "1": 0.8 },
+          confidence: 0.8,
+        },
+        needsReview: { type: "noul", noul: 0.63 },
+      },
+      usage: { input_tokens: 14, output_tokens: 7 },
     };
     const requestData = {
       model: "jev-latest",
-      state: "example diff",
+      state: { diff: "prepared:example diff" },
       questions: {
+        area: {
+          type: "choice",
+          instructions: "Which area changed?",
+          criteria: { runtime: "Runtime", docs: "Documentation" },
+        },
+        priority: {
+          type: "score",
+          instructions: "How urgent is review?",
+          criteria: ["Low", "High"],
+        },
         needsReview: {
           type: "noul",
           instructions: "Does this diff need review?",
@@ -94,11 +119,28 @@ describe("startWorkflowRun", () => {
     }
 
     const classifierInputSchema = z.object({ diff: z.string() });
-    const classifier = defineClassifierTask({
-      id: "direct-classifier-noul",
+    const preparedSchema = z.object({ diff: z.string() });
+    const prepare = defineTask({
+      id: "direct.prepare-classifier-input",
       input: classifierInputSchema,
-      state: ({ diff }) => diff,
+      output: preparedSchema,
+      execute: async ({ input }) => ({ diff: `prepared:${input.diff}` }),
+    });
+    const classifier = defineClassifierTask({
+      id: "direct-classifier-mixed",
+      input: preparedSchema,
+      state: ({ diff }) => ({ diff }),
       questions: {
+        area: {
+          kind: "choice",
+          instructions: "Which area changed?",
+          criteria: { runtime: "Runtime", docs: "Documentation" },
+        },
+        priority: {
+          kind: "score",
+          instructions: "How urgent is review?",
+          criteria: ["Low", "High"],
+        },
         needsReview: {
           kind: "noul",
           instructions: "Does this diff need review?",
@@ -110,7 +152,8 @@ describe("startWorkflowRun", () => {
       input: classifierInputSchema,
       output: classifier.output,
     })
-      .task("classify", classifier, ({ input }) => input)
+      .task("prepare", prepare, ({ input }) => input)
+      .task("classify", classifier, ({ tasks }) => tasks.prepare.output)
       .output(({ tasks }) => tasks.classify.output)
       .define();
     const observations: unknown[] = [];
@@ -131,7 +174,22 @@ describe("startWorkflowRun", () => {
     await expect(handle.outcome).resolves.toMatchObject({
       status: "succeeded",
       result: {
-        answers: { needsReview: { kind: "noul", probability: 0.63 } },
+        answers: {
+          area: {
+            kind: "choice",
+            selected: "runtime",
+            probabilities: { runtime: 0.8, docs: 0.2 },
+            confidence: 0.8,
+          },
+          priority: {
+            kind: "score",
+            value: 0.8,
+            legend: { "0": "Low", "1": "High" },
+            probabilities: { "0": 0.2, "1": 0.8 },
+            confidence: 0.8,
+          },
+          needsReview: { kind: "noul", probability: 0.63 },
+        },
       },
     });
     expect(capturedAuthorization).toBe(`Bearer ${apiKey}`);
@@ -155,6 +213,95 @@ describe("startWorkflowRun", () => {
       },
     });
     expect(JSON.stringify(observations)).not.toContain(apiKey);
+  });
+
+  it("does not invoke downstream tasks when a Choice answer violates its criteria", async () => {
+    const invalidResponse = {
+      model: "jev-1.13.0",
+      answers: {
+        area: {
+          type: "choice",
+          choice: "billing",
+          probabilities: { runtime: 0.8, docs: 0.2 },
+          confidence: 0.8,
+        },
+      },
+      usage: { input_tokens: 10, output_tokens: 4 },
+    };
+    const server = createServer((_incoming, outgoing) => {
+      outgoing.writeHead(200, { "content-type": "application/json" });
+      outgoing.end(JSON.stringify(invalidResponse));
+    });
+    servers.push(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Classifier fixture did not bind a TCP port");
+    }
+
+    const classifierInputSchema = z.object({ diff: z.string() });
+    const classifier = defineClassifierTask({
+      id: "direct-classifier-invalid-choice",
+      input: classifierInputSchema,
+      state: ({ diff }) => diff,
+      questions: {
+        area: {
+          kind: "choice",
+          instructions: "Which area changed?",
+          criteria: { runtime: "Runtime", docs: "Documentation" },
+        },
+      },
+    });
+    let downstreamCalls = 0;
+    const downstream = defineTask({
+      id: "direct-classifier-downstream",
+      input: classifier.output,
+      output: z.object({ consumed: z.boolean() }),
+      execute: async () => {
+        downstreamCalls += 1;
+        return { consumed: true };
+      },
+    });
+    const classifierWorkflow = createFlow({
+      id: "direct-classifier-invalid-choice-workflow",
+      input: classifierInputSchema,
+      output: downstream.output,
+    })
+      .task("classify", classifier, ({ input }) => input)
+      .task("downstream", downstream, ({ tasks }) => tasks.classify.output)
+      .output(({ tasks }) => tasks.downstream.output)
+      .define();
+    const observations: unknown[] = [];
+    const handle = startWorkflowRun({
+      workflow: buildWorkflow(classifierWorkflow),
+      input: { diff: "example diff" },
+      workspace: process.cwd(),
+      classifierConnection: {
+        url: `http://127.0.0.1:${address.port}/v1/systemone`,
+        model: "jev-latest",
+      },
+      identity: {
+        workId: "work-classifier-invalid",
+        runId: "run-classifier-invalid",
+      },
+      events: { emit: () => undefined },
+      onObservation: (event) => observations.push(event),
+    });
+
+    const outcome = await handle.outcome;
+    expect(outcome.status).toBe("failed");
+    expect(downstreamCalls).toBe(0);
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      type: "invocation.observation",
+      kind: "model",
+      state: "failed",
+      model: {
+        operation: "classifier",
+        error: expect.stringContaining("response"),
+      },
+    });
   });
 
   it("accepts a pre-bootstrapped agent runtime without adapter configuration", async () => {
