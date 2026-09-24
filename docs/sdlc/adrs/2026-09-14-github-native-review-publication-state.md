@@ -1,17 +1,19 @@
 ---
 id: adr.github-native-review-publication-state
 title: Keep Review Publication State in a Comment and Evidence in Artifacts
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-15
+updated: 2026-09-24
 upstream:
   - adr.direct-runtime-code-review-action
 supersedes: []
 ---
 
 # Keep Review Publication State in a Comment and Evidence in Artifacts
+
+Superseded by [adr.review-publication-without-comment-commands](./2026-09-24-review-publication-without-comment-commands.md). This document records the earlier proposal, including its mechanical writer.
 
 ## Context
 

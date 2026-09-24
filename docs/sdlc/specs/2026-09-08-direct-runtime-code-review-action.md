@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-17
+updated: 2026-09-24
 upstream:
   - adr.direct-runtime-code-review-action
   - adr.runner-built-action-bundles
@@ -26,7 +26,7 @@ the workflow.
 
 This specification defines the new runtime and Action boundary. The active
 [Versioned Pull Request Review Comments](./2026-09-05-versioned-pull-request-review-comments.md)
-spec remains authoritative for review state, dispositions, finding lifecycle,
+spec remains authoritative for review state, finding lifecycle,
 metrics ledger, publication order, bounds, trust, and marker semantics.
 
 ## Goals
@@ -47,7 +47,7 @@ metrics ledger, publication order, bounds, trust, and marker semantics.
 - Create a generic Action framework, scheduler, or GitHub support library.
 - Move service startup or cleanup out of the existing service Actions.
 - Execute pull-request code, tests, builds, scripts, or checks.
-- Change pull-request admission, permissions, or concurrency policy.
+- Change pull-request permissions or concurrency policy.
 - Define a new review-state or publication model.
 
 ## Terminology
@@ -234,10 +234,10 @@ active review-comment spec.
 The migration must preserve the active review-comment contract, including:
 
 - trusted bot identity and strict state validation;
-- bounded comments, history, commands, findings, verification, and state;
+- bounded comments, history, findings, verification, and state;
 - no pull-request code, tests, builds, scripts, or checks execution;
-- stable finding identifiers and lifecycle dispositions;
-- current-head fixed-claim verification;
+- stable finding identifiers and lifecycle status;
+- current-head verification of retained findings;
 - deterministic verdict, severity, status, and limitation rendering;
 - one run metrics ledger with idempotent run identity;
 - stale-write checks for revision and same-head run ordering;
@@ -382,8 +382,7 @@ service or to a dynamic importer.
   post entrypoint to retry it and report the failure.
 - If a service Action fails, let its own lifecycle and post hook report the
   failure. The code-review Action must not perform service cleanup.
-- If an irrelevant or ineligible event reaches the job, preserve the existing
-  admission guard and do not start review execution.
+- If an ineligible event reaches the job, do not start review execution.
 
 ## Migration
 
@@ -395,8 +394,9 @@ inline publication, and separate marker cleanup implementation.
 
 Retain the trusted source checkout because it supplies and builds the local
 Action. Retain the untrusted review-target checkout and all service Action
-composition. Keep the current workflow admission, permissions, concurrency,
-timeout, and closed-pull-request cancellation behavior.
+composition. Keep permissions, concurrency, timeout, and closed-pull-request
+cancellation. Admit eligible pull-request events in the review job and do not
+subscribe to issue comments.
 
 Keep the review graph and its typed task modules in `workflows/code-review/`.
 Keep GitHub publication and Action orchestration in the Action consumer. Keep
@@ -427,8 +427,9 @@ service and Action tests for the consumer path.
   the trusted workflow revision before local invocation.
 - `libs/action-code-review` owns review application behavior and narrow I/O
   adapters without becoming a generic support package.
-- The workflow retains admission, trust, permissions, concurrency, checkout,
-  service composition, timeout, and closed-event behavior.
+- The workflow retains trust, permissions, concurrency, checkout, service
+  composition, timeout, and closed-event behavior, with one review job for
+  eligible pull-request events and manual dispatch.
 - The review Action preserves the active review-comment contract and cleans
   up only its own marker after every terminal path through main and post
   entrypoints.
@@ -456,3 +457,4 @@ service and Action tests for the consumer path.
 - [spec.dedicated-runner-process](./2026-09-02-dedicated-runner-process.md)
 - [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
 - [task.deliver-direct-runtime-code-review-action](../tasks/2026-09-08-deliver-direct-runtime-code-review-action.md)
+- [task.simplify-pull-request-review-triggers](../tasks/2026-09-24-simplify-pull-request-review-triggers.md)

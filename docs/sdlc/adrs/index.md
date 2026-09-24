@@ -34,7 +34,7 @@
 | [adr.runner-built-action-bundles](./2026-09-11-runner-built-action-bundles.md) | Build Repository-Local GitHub Actions on the Runner | accepted | 2026-09-11 | core |
 | [adr.use-runner-local-nx-cache](./2026-09-11-use-runner-local-nx-cache.md) | Use Runner-Local Nx Cache | accepted | 2026-09-11 | core |
 | [adr.separate-seqlane-protocol-package](./2026-09-13-separate-seqlane-protocol-package.md) | Separate Seqlane Protocol Contracts from Core Authoring | accepted | 2026-09-13 | core |
-| [adr.github-native-review-publication-state](./2026-09-14-github-native-review-publication-state.md) | Keep Review Publication State in a Comment and Evidence in Artifacts | accepted | 2026-09-14 | core |
+| [adr.github-native-review-publication-state](./2026-09-14-github-native-review-publication-state.md) | Keep Review Publication State in a Comment and Evidence in Artifacts | superseded | 2026-09-14 | core |
 | [adr.run-terminal-presentation-boundary](./2026-09-15-run-terminal-presentation-boundary.md) | Separate Run Terminal Presentation from Machine Results | superseded | 2026-09-15 | core |
 | [adr.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md) | Execute Standalone CLI Runs Without an Operational Host | accepted | 2026-09-16 | core |
 | [adr.passive-run-output](./2026-09-16-passive-run-output.md) | Use Passive Run Output | accepted | 2026-09-16 | core |
@@ -42,3 +42,4 @@
 | [adr.public-npm-release](./2026-09-21-public-npm-release.md) | Publish Seqlane Packages to npm | superseded | 2026-09-21 | core |
 | [adr.preserve-workspace-release-references](./2026-09-22-preserve-workspace-release-references.md) | Preserve Workspace References During npm Releases | accepted | 2026-09-22 | core |
 | [adr.classifier-task-runtime-boundary](./2026-09-23-classifier-task-runtime-boundary.md) | Add Classifier Tasks Through a Private Decision Connection | accepted | 2026-09-23 | core |
+| [adr.review-publication-without-comment-commands](./2026-09-24-review-publication-without-comment-commands.md) | Publish Review State Without Comment Commands | accepted | 2026-09-24 | core |

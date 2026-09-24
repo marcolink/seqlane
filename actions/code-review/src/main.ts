@@ -128,15 +128,6 @@ function createGitHubReviewClient(
           ...commentPageOptions(page),
         }),
       ),
-    listReviewComments: (number, page = 1) =>
-      fetchCommentPage(() =>
-        client.rest.pulls.listReviewComments({
-          owner,
-          repo,
-          pull_number: number,
-          ...commentPageOptions(page),
-        }),
-      ),
     ...createIssueCommentMethods(client, owner, repo),
   };
 }

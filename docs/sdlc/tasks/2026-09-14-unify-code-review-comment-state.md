@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-15
+updated: 2026-09-24
 upstream:
   - spec.github-native-review-publication
 supersedes: []
@@ -28,7 +28,7 @@ Implement `requirement-comment-authority`, `requirement-hidden-transport`,
 ## Scope
 
 - Define one strict v5 state schema for the scope checkpoint, findings,
-  dispositions, artifact references, publication identity, cost aggregate,
+  artifact references, publication identity, cost aggregate,
   and period start. If a conflicting v5 state has shipped, use a new version.
 - Replace the collapsed machine-data section and visible JSON metrics ledger
   with one bounded base64/gzip HTML comment block.

@@ -523,7 +523,7 @@ describe("runCodeReview", () => {
       "<!-- seqlane-review-in-progress-run:",
     );
     expect(markerAtWorkflowStart).toContain(
-      "<!-- seqlane-code-review-meta-v3:",
+      "<!-- seqlane-code-review-meta-v4:",
     );
     expect(publicationInput).toMatchObject({
       existingReportId: "created-marker",

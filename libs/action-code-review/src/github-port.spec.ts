@@ -4,9 +4,7 @@ import {
   findAuthoritativeReport,
   GitHubReviewAdapter,
   readNewestComments,
-  selectNewestDispositionCommands,
   type CommentSource,
-  type DispositionCommandCandidate,
   type GitHubReviewClient,
 } from "./github-port.js";
 
@@ -101,8 +99,6 @@ describe("GitHubReviewAdapter", () => {
           line: null,
           commit_id: null,
         },
-      ],
-      listReviewComments: async () => [
         {
           id: 2,
           user: { login: "octo" },
@@ -138,7 +134,7 @@ describe("GitHubReviewAdapter", () => {
     });
   });
 
-  it("preserves disposition reasons in omitted commands", async () => {
+  it("treats former command text as ordinary comment context", async () => {
     const client: GitHubReviewClient = {
       getPullRequest: async () => ({}),
       listIssueComments: async () => [
@@ -150,7 +146,6 @@ describe("GitHubReviewAdapter", () => {
           created_at: "2026-09-09T00:00:00Z",
         },
       ],
-      listReviewComments: async () => [],
       getIssueComment: async () => ({}),
       createIssueComment: async () => ({}),
       updateIssueComment: async () => ({}),
@@ -159,21 +154,18 @@ describe("GitHubReviewAdapter", () => {
 
     const history = await new GitHubReviewAdapter(client).readComments(1);
 
-    expect(history.comments[0]?.omittedDispositionCommands).toEqual([
-      {
-        findingId: "F-1",
-        action: "fixed",
-        authorized: true,
-        reason: "already covered by the new guard",
-      },
-    ]);
+    expect(history.comments[0]?.body).toBe(
+      "/seqlane fixed F-1 reason: already covered by the new guard",
+    );
+    expect(history.comments[0]).not.toHaveProperty(
+      "omittedDispositionCommands",
+    );
   });
 
   it("returns the created marker comment ID", async () => {
     const client: GitHubReviewClient = {
       getPullRequest: async () => ({}),
       listIssueComments: async () => [],
-      listReviewComments: async () => [],
       getIssueComment: async () => ({}),
       createIssueComment: async () => ({ id: 42 }),
       updateIssueComment: async () => ({}),
@@ -183,34 +175,5 @@ describe("GitHubReviewAdapter", () => {
     await expect(
       new GitHubReviewAdapter(client).createMarker(1, "marker"),
     ).resolves.toBe("42");
-  });
-
-  it("retains newest disposition commands with deterministic tie-breaking", () => {
-    const candidate = (
-      commentTime: string,
-      commentIdentity: string,
-      line: number,
-      findingId: string,
-    ): DispositionCommandCandidate => ({
-      commentTime,
-      commentIdentity,
-      line,
-      command: {
-        findingId,
-        action: "fixed",
-        authorized: true,
-      },
-    });
-
-    const retained = selectNewestDispositionCommands(
-      [
-        candidate("2026-09-09T00:00:00Z", "issue:2", 1, "F-old"),
-        candidate("2026-09-09T00:00:01Z", "issue:1", 1, "F-newer"),
-        candidate("2026-09-09T00:00:01Z", "issue:1", 2, "F-newest"),
-      ],
-      2,
-    );
-
-    expect(retained).toEqual(new Set(["issue:1:1", "issue:1:2"]));
   });
 });

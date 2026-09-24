@@ -56,7 +56,7 @@ function marker(runId: string, runUrl: string | undefined): string {
 
 function markerReport(request: CodeReviewRunRequest, runId: string): string {
   const metadata = JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
     pullRequestNumber: request.pullRequestNumber,
     reviewedRevision: request.headRevision,
     run: {
@@ -66,7 +66,7 @@ function markerReport(request: CodeReviewRunRequest, runId: string): string {
   });
   return [
     "<!-- seqlane-code-review -->",
-    `<!-- seqlane-code-review-meta-v3: ${metadata} -->`,
+    `<!-- seqlane-code-review-meta-v4: ${metadata} -->`,
     marker(
       runId,
       githubActionsRunUrl(request.repository, request.githubRunId ?? ""),

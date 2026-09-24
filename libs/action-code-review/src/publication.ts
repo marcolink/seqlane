@@ -21,7 +21,7 @@ export type {
 };
 export { derivePublicationMetrics } from "./publication-metrics.js";
 
-/** Deterministically renders one bounded v3 report from frozen review data. */
+/** Deterministically renders one bounded v4 report from frozen review data. */
 export function renderPublication(
   snapshot: PublicationSnapshot,
   metrics: ReviewRunMetrics,

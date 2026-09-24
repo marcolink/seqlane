@@ -11,40 +11,13 @@ import {
 export const reviewFindingSchema = z.strictObject({
   id: z.string().min(1).max(128),
   severity: z.enum(["critical", "required", "optional", "nit"]),
-  effectiveSeverity: z.enum(["critical", "required", "optional", "nit"]),
-  disposition: z.enum([
-    "open",
-    "fixed",
-    "wont-fix",
-    "downgraded",
-    "not-reproducible",
-  ]),
-  status: z.enum([
-    "new",
-    "open",
-    "addressed",
-    "resolved",
-    "reopened",
-    "dismissed",
-  ]),
+  status: z.enum(["new", "open", "addressed", "resolved", "reopened"]),
   axis: z.string().min(1).max(64),
   summary: z.string().min(1).max(2_000),
   recommendation: z.string().min(1).max(2_000),
   file: z.string().max(512).optional(),
   line: z.number().int().positive().optional(),
   aliases: z.array(z.string().min(1).max(128)).max(8),
-  dispositionReason: z.string().max(2_000).optional(),
-  dispositionBy: z.string().min(1).max(256).optional(),
-  dispositionAt: z.string().min(1).max(64).optional(),
-  dispositionCommentId: z.string().min(1).max(128).optional(),
-  dispositionCommit: z
-    .string()
-    .regex(/^[0-9a-f]{40,64}$/i)
-    .optional(),
-  evidenceHeadRevision: z
-    .string()
-    .regex(/^[0-9a-f]{40,64}$/i)
-    .optional(),
 });
 
 export const ratingSchema = z.strictObject({

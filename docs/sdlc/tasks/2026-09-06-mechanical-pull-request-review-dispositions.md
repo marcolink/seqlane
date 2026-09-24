@@ -1,17 +1,21 @@
 ---
 id: task.mechanical-pull-request-review-dispositions
 title: Apply Pull Request Review Dispositions Without Agent Runs
-status: planned
+status: cancelled
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-17
+updated: 2026-09-24
 upstream:
   - spec.mechanical-pull-request-review-dispositions
 supersedes: []
 ---
 
 # Apply Pull Request Review Dispositions Without Agent Runs
+
+Cancelled on 2026-09-24. The repository no longer accepts comment commands
+as review decisions. The active review contract is
+[spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md).
 
 Historical path note: `examples/pr-code-review.ts` was superseded by `workflows/code-review/workflow.ts`; `examples/README.md` by `workflows/README.md`.
 
@@ -122,7 +126,12 @@ Implement [spec.mechanical-pull-request-review-dispositions](../specs/2026-09-06
 
 ## Outcome
 
-Planned.
+Cancelled before delivery. Comment commands are no longer part of the review
+process.
+
+## Delivery state
+
+No delivery claim. The historical requirements above are withdrawn.
 
 ## Traceability
 

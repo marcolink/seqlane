@@ -1,10 +1,15 @@
+import { z } from "zod";
 import {
   reviewPublicationMetadataSchema,
   type ReviewComment,
 } from "./contracts.js";
 
 const BOT_AUTHORS = new Set(["github-actions", "github-actions[bot]"]);
-const METADATA_PATTERN = /<!-- seqlane-code-review-meta-v3: ([^\r\n]+) -->/g;
+const METADATA_PATTERN =
+  /<!-- seqlane-code-review-meta-v([34]): ([^\r\n]+) -->/g;
+const priorPublicationMetadataSchema = reviewPublicationMetadataSchema.extend({
+  schemaVersion: z.literal(3),
+});
 
 export interface PublicationGuardInput {
   readonly pullRequestNumber: number;
@@ -30,9 +35,12 @@ export function readPublicationIdentity(body: string) {
   const matches = [...body.matchAll(METADATA_PATTERN)];
   if (matches.length !== 1) return undefined;
   try {
-    const parsed = reviewPublicationMetadataSchema.safeParse(
-      JSON.parse(matches[0]![1]!),
-    );
+    const value: unknown = JSON.parse(matches[0]![2]!);
+    const parsed = (
+      matches[0]![1] === "4"
+        ? reviewPublicationMetadataSchema
+        : priorPublicationMetadataSchema
+    ).safeParse(value);
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;

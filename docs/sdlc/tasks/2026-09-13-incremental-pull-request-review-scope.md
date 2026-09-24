@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-09-24
 upstream:
   - spec.incremental-pull-request-review-scope
 supersedes: []
@@ -28,7 +28,7 @@ Preserve the state, lifecycle, trust, and publication rules in
 
 - Add strict scope-checkpoint state and a new finding-ID generation.
 - Replace a trusted old-version report with a fresh full-diff baseline, without
-  carrying its findings, dispositions, or metrics.
+  carrying its findings or metrics.
 - Select baseline or incremental scope from immutable Git revisions and the
   last published trusted checkpoint.
 - Collect complete eligible paths and scoped patch evidence with literal Git
@@ -36,7 +36,7 @@ Preserve the state, lifecycle, trust, and publication rules in
   and hard cumulative batch, model, and time limits.
 - Restrict review lanes to the selected scope and gate new findings locally
   before stable-ID allocation.
-- Preserve retained finding lifecycle, dispositions, and cumulative verdict.
+- Preserve retained finding lifecycle and the cumulative verdict.
 - Publish the report and checkpoint together only after the live target branch,
   base revision, head, and previous-checkpoint guards pass.
 - Show review mode, scope, and limitations in the human report.
@@ -50,9 +50,9 @@ Preserve the state, lifecycle, trust, and publication rules in
 
 ## Implementation plan
 
-1. Extend the existing report-state schema, metadata marker, finding-ID parser,
-   and reader. Coordinate the next outer schema revision with the draft
-   mechanical-disposition work so one version has one meaning.
+1. Extend the current report-state schema, metadata marker, finding-ID parser,
+   and reader. Keep the new version independent of the retired mechanical
+   disposition contract.
 2. Add a pure report-state classifier and scope selector for
    `P(B,H) ∩ D(C,H)`, then apply exclusions before finding admission. Test
    invalid current state, exact checkpoint object validation, Git path records,

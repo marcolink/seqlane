@@ -1,7 +1,7 @@
 name: Seqlane code review
 
 on:
-  # Normal pull-request and comment events use the trusted workflow definition
+  # Pull-request events use the trusted workflow definition
   # from the repository's base/default branch (main for this project). Keep
   # branch-specific execution explicit through workflow_dispatch below.
   pull_request_target:
@@ -11,10 +11,6 @@ on:
       - synchronize
       - ready_for_review
       - closed
-  issue_comment:
-    types:
-      - created
-      - edited
   workflow_dispatch:
     # To test this workflow from a PR branch, dispatch it with:
     # gh workflow run "Seqlane code review" --ref <branch> -f pull_request_number=<number>
@@ -29,92 +25,61 @@ permissions:
   issues: read
 
 jobs:
-  admit-review:
-    name: Admit review request
-    # GitHub evaluates job conditions before assigning a runner. Keep ordinary
-    # issue comments from consuming a runner; the step below retains the exact
-    # command grammar because expressions do not support the required regex.
-    if: >-
-      github.event_name != 'issue_comment' ||
-      (github.event.issue.pull_request != null &&
-       (github.event.action == 'created' || github.event.action == 'edited') &&
-       (github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR') &&
-       (contains(github.event.comment.body, '/seqlane') ||
-        contains(github.event.changes.body.from, '/seqlane')))
+  validate-dispatch:
+    name: Validate manual review
+    if: github.event_name == 'workflow_dispatch'
     permissions:
       contents: none
-      issues: none
-      pull-requests: none
+      pull-requests: read
     outputs:
-      eligible: ${{ steps.admission.outputs.eligible }}
-      pull_request_number: ${{ steps.admission.outputs.pull_request_number }}
+      eligible: ${{ steps.pull-request.outputs.eligible }}
+      number: ${{ steps.pull-request.outputs.number }}
     runs-on: ubuntu-latest
     steps:
-      - name: Validate review admission
-        id: admission
+      - name: Check pull request
+        id: pull-request
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_ACTION: ${{ github.event.action }}
-          EVENT_PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pull_request_number }}
-          EVENT_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          EVENT_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          ISSUE_IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
-          COMMENT_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          PREVIOUS_COMMENT_BODY: ${{ github.event.changes.body.from }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "$EVENT_NAME" = "pull_request_target" ]; then
-            if [ "$EVENT_ACTION" != "closed" ] &&
-               [ "$EVENT_DRAFT" = "false" ] &&
-               [ "$EVENT_REPOSITORY" = "$GITHUB_REPOSITORY" ]; then
-              echo "eligible=true" >> "$GITHUB_OUTPUT"
-              echo "pull_request_number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
-            else
-              echo "eligible=false" >> "$GITHUB_OUTPUT"
-            fi
-            exit 0
-          fi
-
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ "$EVENT_PR_NUMBER" != "" ]; then
-              echo "eligible=true" >> "$GITHUB_OUTPUT"
-              echo "pull_request_number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
-            else
-              echo "eligible=false" >> "$GITHUB_OUTPUT"
-            fi
-            exit 0
-          fi
-
-          if [ "$EVENT_NAME" != "issue_comment" ] ||
-             [ "$ISSUE_IS_PULL_REQUEST" != "true" ] ||
-             { [ "$EVENT_ACTION" != "created" ] && [ "$EVENT_ACTION" != "edited" ]; } ||
-             { [ "$COMMENT_AUTHOR_ASSOCIATION" != "OWNER" ] &&
-               [ "$COMMENT_AUTHOR_ASSOCIATION" != "MEMBER" ] &&
-               [ "$COMMENT_AUTHOR_ASSOCIATION" != "COLLABORATOR" ]; }; then
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
             echo "eligible=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if printf '%s\n%s\n' "$COMMENT_BODY" "$PREVIOUS_COMMENT_BODY" | grep -Eqi '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|(fixed|wont-fix|downgrade)[[:space:]]+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})([[:space:]]|$))' ; then
+          if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/seqlane-dispatch-pr.json"; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if jq --exit-status --arg repository "$GITHUB_REPOSITORY" \
+            '.state == "open" and .draft == false and .head.repo.full_name == $repository' \
+            "$RUNNER_TEMP/seqlane-dispatch-pr.json" > /dev/null; then
             echo "eligible=true" >> "$GITHUB_OUTPUT"
-            echo "pull_request_number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           else
             echo "eligible=false" >> "$GITHUB_OUTPUT"
           fi
 
   code-review:
     name: Review pull request
-    needs: admit-review
-    if: needs.admit-review.outputs.eligible == 'true'
+    needs: validate-dispatch
+    if: >-
+      always() &&
+      ((github.event_name == 'workflow_dispatch' &&
+        needs.validate-dispatch.result == 'success' &&
+        needs.validate-dispatch.outputs.eligible == 'true') ||
+       (github.event_name == 'pull_request_target' &&
+        github.event.action != 'closed' &&
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository))
     permissions:
       contents: read
       issues: read
       pull-requests: write
     concurrency:
-      group: seqlane-code-review-${{ needs.admit-review.outputs.pull_request_number }}
+      group: seqlane-code-review-${{ github.event.pull_request.number || needs.validate-dispatch.outputs.number }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -151,7 +116,7 @@ jobs:
         id: pull-request
         env:
           EVENT_NAME: ${{ github.event_name }}
-          EVENT_PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pull_request_number }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request_number }}
           EVENT_BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           EVENT_BASE_REVISION: ${{ github.event.pull_request.base.sha }}
           EVENT_HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
@@ -161,7 +126,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             gh api "repos/$GITHUB_REPOSITORY/pulls/$EVENT_PR_NUMBER" \
               > "$RUNNER_TEMP/seqlane-pull-request.json"
             BASE_BRANCH=$(jq --raw-output '.base.ref' "$RUNNER_TEMP/seqlane-pull-request.json")
@@ -179,7 +144,7 @@ jobs:
             STATE="$EVENT_STATE"
           fi
 
-          if [ "$EVENT_NAME" = "issue_comment" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             jq '{number, title: (.title // ""), description: (.body // "")}' \
               "$RUNNER_TEMP/seqlane-pull-request.json" \
               > "$RUNNER_TEMP/seqlane-pull-request-context.json"
@@ -208,7 +173,7 @@ jobs:
           path: seqlane-source
           persist-credentials: false
           # Build and run Seqlane from the immutable revision of this workflow.
-          # pull_request_target and issue_comment can otherwise select an older
+          # pull_request_target can otherwise select an older
           # PR base whose CLI does not support the workflow's current flags.
           # To temporarily test a workflow change from a PR branch, dispatch
           # it explicitly from that branch with the command shown above.

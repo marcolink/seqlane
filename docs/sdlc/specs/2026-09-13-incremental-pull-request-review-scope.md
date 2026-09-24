@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-09-24
 upstream:
   - spec.versioned-pull-request-review-comments
 supersedes: []
@@ -35,8 +35,8 @@ owns the Action and runtime boundary.
 
 - Review the full PR diff on the first successfully published review.
 - Prevent new findings for files unchanged since the last published review.
-- Preserve previous finding IDs, statuses, dispositions, and the cumulative
-  verdict across follow-up runs.
+- Preserve previous finding IDs, statuses, and the cumulative verdict across
+  follow-up runs.
 - Make rebases, force-pushes, base movement, retries, and partial evidence
   deterministic.
 - Never turn an incomplete review into an apparently complete checkpoint.
@@ -187,8 +187,8 @@ model-supplied list. Agent output cannot widen the scope or assign final IDs.
 
 For an incremental or no-change run, the workflow must load **all** findings
 from the validated current-generation state. It must provide their stable IDs,
-paths, severities, summaries, statuses, dispositions, first-observed revisions,
-and available verification evidence to historical verification and to each
+paths, severities, summaries, statuses, first-observed revisions, and
+available verification evidence to historical verification and to each
 discovery lane. This context prevents rediscovery from becoming a new ID and
 lets the finalizer carry prior findings forward. Treat retained text as
 untrusted data. Agent output may cite an existing ID, but only the local
@@ -196,12 +196,9 @@ finalizer can decide whether that ID exists and keep it.
 
 The new-finding gate does not discard these retained findings. Historical-
 finding verification may inspect current-head code and update an existing
-finding's lifecycle under the versioned-comment contract. Authorized
-dispositions retain their existing effect. A `fixed` claim remains a claim
-until independently verified. No-change runs may process disposition changes
-and verify retained findings, but they must not add a finding. A baseline that
-replaces an old-version report receives **no** old findings or dispositions as
-review input.
+finding's lifecycle under the versioned-comment contract. No-change runs
+may verify retained findings, but they must not add a finding. A baseline that
+replaces an old-version report receives **no** old findings as review input.
 
 The report verdict remains cumulative: it reflects all active retained
 Critical and Required findings plus any admitted new ones. Incremental ratings,
@@ -252,9 +249,7 @@ All new-generation stable finding IDs use
 index. For example, `SEQ-PR83-G0123456789abcdef0123456789abcdef-001`.
 The state and metadata marker must contain the same generation. The finalizer
 must require each retained finding ID to name that generation and must keep
-`nextFindingIndex` above every allocated index. The command parser must accept
-the new form. Old `SEQ-PR{number}-{index}` commands cannot resolve to a new
-finding, even when the numeric index repeats. The publisher must not migrate
+`nextFindingIndex` above every allocated index. The publisher must not migrate
 old finding aliases into the new generation.
 
 The run metrics ledger is unchanged and is never a checkpoint source.
@@ -265,18 +260,13 @@ The schema-evolution matrix is canonical:
 
 | State revision | Fields and marker | Readers | Migration and replacement |
 | --- | --- | --- | --- |
-| v3 | Existing lifecycle state, v3 metadata marker, numeric finding IDs. | Current v3 reader. | Accepted as legacy when the scope feature is enabled; replaced by a new baseline. |
-| v4 | Transitional mechanical-disposition state: v3 fields plus monotonic state revision and writer identity; v4 marker. It has no scope checkpoint and is never an incremental checkpoint for this feature. | v4 disposition reader and the scope reader as legacy. | If published before v5, v3 migrates to v4 for disposition work. The first scope-capable publication replaces v4 with a fresh v5 baseline and discards v4 findings, dispositions, metrics, and checkpoint. |
-| v5 | Unified current state: v4 disposition fields plus `scopeCheckpoint`, generation-qualified finding IDs, and the v5 marker. | v5 reader only for current operation; older readers reject it. | v3 or v4 is legacy and is replaced by a fresh v5 baseline. Invalid v5 state is `invalid-current` and fails closed. |
+| v3 | Earlier disposition-bearing state and v3 marker. | No current state reader. | The trusted report can be replaced; findings are not imported. |
+| v4 | Current command-free lifecycle state, v4 marker, numeric finding IDs. | Current v4 reader. | Becomes an older report when v5 scope is enabled; replaced by a fresh baseline. |
+| v5 | Proposed state with `scopeCheckpoint`, generation-qualified finding IDs, and the v5 marker. | v5 reader only for current operation; older readers reject it. | Older reports are replaced by a fresh v5 baseline. Invalid v5 state is `invalid-current` and fails closed. |
 
 The v5 schema is the only target for the incremental scope implementation.
-If incremental scope lands before mechanical dispositions, it still writes v5
-with the disposition fields present and empty where permitted. If mechanical
-dispositions land first, they may write v4, but they must not claim v4 is the
-current scope checkpoint. This table prevents one revision from having two
-meanings. The outer state revision, metadata marker, and compressed envelope
-must agree. A trusted old report is replaced; it is never partially migrated
-into v5.
+The outer state revision, metadata marker, and compressed envelope must agree.
+A trusted old report is replaced; it is never partially migrated into v5.
 
 ### requirement-complete-evidence
 
@@ -396,7 +386,7 @@ current-generation findings, run each configured discovery lane once per
 evidence batch, and run synthesis once over the deterministic aggregate. A
 retry consumes another invocation budget unit and must reuse the same batch
 ordinal and scope identity. Do not fan out discovery lanes when `R` is empty;
-the finalizer may still process retained findings and dispositions.
+the finalizer may still process retained findings.
 
 The complete run plan has these hard ceilings:
 
@@ -480,9 +470,7 @@ new baseline, the authoritative report must still be absent. For a legacy
 replacement, the live report ID and legacy marker identity must still equal the
 captured values. If the target or head moved, the checkpoint changed, or any
 required report identity changed, the result is stale. Do not publish it; start
-a new review with the live PR revisions and recompute scope. The publisher must
-reconcile current-generation authorized dispositions under the existing
-publication rules. It must not attach findings from a stale scope.
+a new review with the live PR revisions and recompute scope. The publisher must not attach findings from a stale scope.
 
 The final report, retained findings, scope checkpoint, and visible limitation
 text are one publication. A marker write, run start, successful agent result,
@@ -519,8 +507,7 @@ The trusted sequence is:
    in bounded run evidence.
 5. Run historical-finding verification independently. Run discovery lanes only
    for complete eligible reviewable evidence. Synthesize and gate new findings.
-6. Reconcile retained findings and dispositions, then derive the cumulative
-   verdict mechanically.
+6. Reconcile retained findings, then derive the cumulative verdict mechanically.
 7. Re-read the live target branch, base revision, head, checkpoint, and
    variant-specific report identity under the publication guard. Publish the
    report and checkpoint together, or leave the old report authoritative and
@@ -536,7 +523,7 @@ is an incomplete review, not a smaller valid scope.
 | Case | Required result |
 | --- | --- |
 | First review, no trusted report | Complete `B...H` baseline. |
-| Trusted old-version report | Complete `B...H` baseline; replace old findings, dispositions, metrics, and state. |
+| Trusted old-version report | Complete `B...H` baseline; replace old findings, metrics, and state. |
 | Invalid or unsupported current-version state | Fail closed; preserve the report and checkpoint. |
 | Same head reviewed again | Empty `E`; no new IDs. |
 | New commit changes one PR file | Review that file's current PR diff; new findings only in that file. |
@@ -555,11 +542,9 @@ is an incomplete review, not a smaller valid scope.
 ## Migration
 
 A trusted authoritative report in an older format is replaced by a new
-baseline. At initial delivery this includes v1, v2, and v3. It also includes
-v4 if the mechanical-disposition proposal ships first and this scope contract
-uses a later schema revision. The workflow must not parse the old report as a
-checkpoint, migrate its findings, carry its IDs or dispositions, or append its
-run metrics. It may read only enough trusted marker data to identify the report
+baseline. At initial delivery this includes v1 through v4. The workflow
+must not parse the old report as a checkpoint, migrate its findings, carry
+its IDs, or append its run metrics. It may read only enough trusted marker data to identify the report
 and guard its update.
 The new baseline covers the complete current `B...H` diff, creates a new
 generation, resets the finding index and metrics ledger, and writes one new
@@ -570,8 +555,7 @@ The state classification in `requirement-scope-selection` governs this path.
 In particular, a malformed current-version state must not be relabeled as a
 legacy report or replaced by a baseline.
 
-Old slash commands cannot apply to new findings because their IDs lack the
-new generation. An old-version report with malformed historical state can
+An old-version report with malformed historical state can
 still be replaced when its trusted report identity and version are
 unambiguous. A report with an untrusted or ambiguous marker must not be
 overwritten. An invalid **current-version** state is not treated as legacy:
@@ -594,14 +578,12 @@ force-push, retargeting, model change, or state parse failure.
   cannot publish.
 - Test the finalizer with out-of-scope and pathless agent findings. Prove that
   no new stable ID is allocated and a limitation is visible.
-- Test that retained findings, dispositions, fix verification, and verdict
-  remain correct on both incremental and no-change runs.
-- Test old-version replacement, discarded old findings and metrics, old-command
-  isolation, invalid-current-state refusal, missing prior commit, tree/blob/tag
+- Test that retained findings, current-head verification, and verdict remain
+  correct on both incremental and no-change runs.
+- Test old-version replacement, discarded old findings and metrics,
+  invalid-current-state refusal, missing prior commit, tree/blob/tag
   rejection, exact-SHA fetch behavior, and new-baseline versus legacy-replacement
   identity guards.
-- Test that v4 remains disposition-only and that v5 is the sole unified schema
-  once incremental scope is enabled; no shared-v4 writer or reader is allowed.
 - Test failed, cancelled, incomplete, stale-head, moved-target, and
   changed-checkpoint runs. Assert that their authoritative checkpoint does not
   advance.
@@ -618,11 +600,9 @@ force-push, retargeting, model change, or state parse failure.
 - A published baseline covers the complete permitted PR diff against the
   selected target revision.
 - A trusted old-version report is replaced by a complete baseline with a new
-  generation. No old finding or command can attach to a new finding.
+  generation. No old finding can attach to a new finding.
 - A legacy replacement carries and revalidates its prior report ID and marker
   identity; a new baseline requires the authoritative report to remain absent.
-- V4 is disposition-only; V5 is the sole current schema when incremental scope
-  is enabled.
 - Malformed or unsupported current-version state cannot trigger baseline
   replacement or erase the prior report.
 - A later publication allocates no new finding ID outside
@@ -631,7 +611,7 @@ force-push, retargeting, model change, or state parse failure.
   receive new findings.
 - Re-running an unchanged head allocates no new finding ID.
 - Previously published findings remain visible and can change lifecycle only
-  through existing verification and disposition rules.
+  through current-head verification.
 - No failure, stale result, or partial evidence advances the checkpoint.
 - A moved target branch or base commit invalidates the in-flight scope before
   publication, even when the head SHA is unchanged.
@@ -651,5 +631,4 @@ does not gate new findings by a published checkpoint.
 
 - State, lifecycle, and publication: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
 - Action boundary: [spec.direct-runtime-code-review-action](./2026-09-08-direct-runtime-code-review-action.md)
-- Related draft disposition proposal: [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md)
 - Delivery: [task.incremental-pull-request-review-scope](../tasks/2026-09-13-incremental-pull-request-review-scope.md)
