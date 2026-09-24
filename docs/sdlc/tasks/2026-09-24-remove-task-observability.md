@@ -57,7 +57,8 @@ preserves full validation evidence above the former 32 KiB limit.
 
 ## Delivery state
 
-Working tree only. No commit or default-branch delivery is claimed.
+Open PR [#167](https://github.com/marcolink/seqlane/pull/167) on
+`fix/remove-task-observability`; not yet merged to the default branch.
 
 ## Traceability
 
