@@ -7,7 +7,7 @@ owners:
 created: 2026-09-14
 updated: 2026-09-24
 upstream:
-  - adr.github-native-review-publication-state
+  - adr.review-publication-without-comment-commands
   - spec.versioned-pull-request-review-comments
   - spec.incremental-pull-request-review-scope
 supersedes: []
@@ -24,8 +24,8 @@ comment once, through the shared per-PR queue.
 
 This draft proposes changes to the storage and projection parts of
 [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md).
-It also narrows the accepted publication ADR's mechanical-disposition writer;
-the ADR needs a superseding decision before this draft becomes active.
+It follows the superseding publication ADR, which removes the mechanical
+disposition writer.
 The existing active specification remains the current contract. PR #112 must
 reconcile that specification and its incremental-scope and manifest
 specifications with this draft before the new publication path can become
@@ -81,7 +81,7 @@ lifecycle, cost, and artifact references. Visible
 Markdown and old metrics ledgers are never parsed as independent authority.
 
 The new scope-capable state version starts a fresh baseline and cost period.
-It does not migrate v1-v3 findings, IDs, checkpoints, or visible metrics
+It does not migrate v1-v4 findings, IDs, checkpoints, or visible metrics
 ledger entries. A new version must label the start of its cost period.
 The version number and schema must have one meaning across review publishers.
 
@@ -260,7 +260,7 @@ without verified source evidence.
 
 The new review path makes one final authoritative-comment mutation. Job and
 step status show progress. It creates no progress notice or inline finding
-comment. The existing v3 progress path remains legacy until replacement.
+comment. The existing v4 progress path remains legacy until replacement.
 Review computation may be cancelled when a newer revision arrives. Final review publication uses a non-cancelling per-PR Actions queue. Every publisher uses the exact case-normalized key
 `seqlane-review-publication-<repository-id>-<pr-number>`. It uses `queue: max`
 without `cancel-in-progress: true`.
@@ -468,7 +468,7 @@ it published.
 ## Migration
 
 PR #112's v5 proposal must include this hidden transport and cost shape when
-it first writes v5. Legacy v1-v3 content is classified but not migrated into
+it first writes v5. Earlier v1-v4 content is classified but not migrated into
 the new checkpoint. Old visible metrics ledgers are ignored for new cost
 totals. If v5 was already written without this shape, introduce a distinct
 new state version rather than treating two schemas as v5.
@@ -521,7 +521,7 @@ the single v5 schema. No delivery is claimed here.
 
 ## Traceability
 
-- Architecture: [adr.github-native-review-publication-state](../adrs/2026-09-14-github-native-review-publication-state.md)
+- Architecture: [adr.review-publication-without-comment-commands](../adrs/2026-09-24-review-publication-without-comment-commands.md)
 - Finding lifecycle: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
 - Incremental scope: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Proposed scope and manifest: [PR #112](https://github.com/marcolink/seqlane/pull/112)

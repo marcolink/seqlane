@@ -19,30 +19,11 @@ const finalizeReviewInputSchema = z.object({
 
 type ReviewReportFinding = z.infer<typeof reviewReportFindingSchema>;
 
-function clearDispositionMetadata(
-  finding: ReviewReportFinding,
-): ReviewReportFinding {
-  const clean = { ...finding };
-  delete clean.dispositionReason;
-  delete clean.dispositionBy;
-  delete clean.dispositionAt;
-  delete clean.dispositionCommentId;
-  delete clean.dispositionCommit;
-  delete clean.evidenceHeadRevision;
-  return clean;
-}
-
-function openFinding(
+function setFindingStatus(
   finding: ReviewReportFinding,
   status: z.infer<typeof reviewFindingStatusSchema>,
 ): ReviewReportFinding {
-  const openFindingBase = clearDispositionMetadata(finding);
-  return {
-    ...openFindingBase,
-    effectiveSeverity: finding.severity,
-    disposition: "open",
-    status,
-  };
+  return { ...finding, status };
 }
 
 function findingMatchesId(finding: ReviewReportFinding, id: string): boolean {
@@ -63,17 +44,9 @@ const finalizeReviewTask = defineTask({
       stableFindingId(review.pullRequest.number, nextFindingIndex++);
     const previousSource: ReviewReportFinding[] =
       review.reviewHistory.previousState?.findings.map((finding) => ({
-        ...openFinding(
-          finding,
-          finding.disposition === "open" ? finding.status : "open",
-        ),
+        ...finding,
         aliases: [...finding.aliases],
-      })) ??
-      review.reviewHistory.previousSnapshot?.findings.map((finding) => ({
-        ...openFinding({ ...finding, status: "open", aliases: [] }, "open"),
-        aliases: [],
-      })) ??
-      [];
+      })) ?? [];
     const previousIdentities = new Set<string>();
     let duplicateHistoricalFindings = 0;
     const uniquePreviousSource = previousSource.filter((finding) => {
@@ -133,33 +106,31 @@ const finalizeReviewTask = defineTask({
         ...synthesized,
         id,
         severity: previous?.severity ?? synthesized.severity,
-        effectiveSeverity: previous?.severity ?? synthesized.severity,
-        disposition: "open",
         status:
-          previous?.status === "resolved" || previous?.status === "dismissed"
+          previous?.status === "resolved"
             ? "reopened"
             : previous === undefined
               ? "new"
               : "open",
         aliases: [...new Set(aliases)].slice(0, 8),
       };
-      findings.push(openFinding(current, current.status));
+      findings.push(current);
     }
 
     for (const previous of previousFindings) {
       if (currentIds.has(previous.id)) continue;
       const verifiedOutcome = verifiedOutcomeFor(previous);
       if (verifiedOutcome === "resolved") {
-        findings.push(openFinding(previous, "resolved"));
+        findings.push(setFindingStatus(previous, "resolved"));
       } else if (verifiedOutcome === "present") {
-        findings.push(openFinding(previous, "reopened"));
+        findings.push(setFindingStatus(previous, "reopened"));
       } else if (verifiedOutcome === "addressed") {
-        findings.push(openFinding(previous, "addressed"));
+        findings.push(setFindingStatus(previous, "addressed"));
       } else if (previous.status === "resolved") {
-        findings.push(openFinding(previous, "reopened"));
+        findings.push(setFindingStatus(previous, "reopened"));
       } else {
         findings.push(
-          openFinding(
+          setFindingStatus(
             previous,
             previous.status === "new" ? "open" : previous.status,
           ),
@@ -174,8 +145,7 @@ const finalizeReviewTask = defineTask({
         index,
         blocking:
           ["new", "open", "addressed", "reopened"].includes(finding.status) &&
-          (finding.effectiveSeverity === "critical" ||
-            finding.effectiveSeverity === "required"),
+          (finding.severity === "critical" || finding.severity === "required"),
         current: currentIds.has(finding.id),
       }))
       .sort(
@@ -191,8 +161,7 @@ const finalizeReviewTask = defineTask({
     const verdict = boundedFindings.some(
       (finding) =>
         ["new", "open", "addressed", "reopened"].includes(finding.status) &&
-        (finding.effectiveSeverity === "critical" ||
-          finding.effectiveSeverity === "required"),
+        (finding.severity === "critical" || finding.severity === "required"),
     )
       ? "request-changes"
       : "approve";
@@ -217,11 +186,6 @@ const finalizeReviewTask = defineTask({
     if (review.reviewHistory.truncated) {
       limitations.push(
         "Review history was truncated; only bounded comment context was available.",
-      );
-    }
-    if (review.reviewHistory.previousSnapshot?.truncated) {
-      limitations.push(
-        "The previous Seqlane report snapshot was compacted; omitted historical text was not restored.",
       );
     }
     if (review.reviewHistory.previousState?.truncated) {
@@ -270,8 +234,7 @@ const finalizeReviewTask = defineTask({
       stateTruncated:
         findingsOverflow > 0 ||
         duplicateHistoricalFindings > 0 ||
-        review.reviewHistory.previousState?.truncated === true ||
-        review.reviewHistory.previousSnapshot?.truncated === true,
+        review.reviewHistory.previousState?.truncated === true,
     };
   },
 });

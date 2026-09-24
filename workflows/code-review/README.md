@@ -17,6 +17,8 @@ Input and output are defined in `contracts.ts`; the input supplies repository,
 revision, pull-request, and prior-review data, and the output is a review
 report. It requires a checkout and configured model runtime. GitHub event
 parsing, checkout, credentials, and publication remain in the Action consumer.
+The current finding contract has one severity and a lifecycle status; it does
+not accept comment decisions or older disposition-bearing state.
 
 New plans use the `code-review` workflow ID and `code-review-*` task IDs.
 Existing plans, recordings, and metrics retain their historical IDs and remain

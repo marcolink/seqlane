@@ -17,7 +17,7 @@ function parseLedger(value: unknown): z.infer<typeof ledgerSchema> {
 function encodeState(report: z.infer<typeof reportSchema>): string {
   return gzipSync(
     JSON.stringify({
-      schemaVersion: 3,
+      schemaVersion: 4,
       pullRequestNumber: report.pullRequestNumber ?? 1,
       baseRevision: report.baseRevision ?? report.headRevision,
       reviewedRevision: report.headRevision,
@@ -90,7 +90,6 @@ function stateReport(
       recommendation: "Re-evaluate this finding against the current head.",
       file: undefined,
       line: undefined,
-      dispositionReason: undefined,
     })),
     limitations: [
       ...candidate.limitations

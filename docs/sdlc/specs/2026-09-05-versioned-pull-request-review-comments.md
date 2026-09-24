@@ -50,7 +50,7 @@ or change finding status or severity.
 
 Review-scope selection and checkpoint advancement are defined in
 [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md).
-The version 3 state below describes the existing transport and lifecycle
+The version 4 state below describes the current transport and lifecycle
 contract. A new strict state revision must add that spec's scope checkpoint
 without changing the trusted-comment or run-metrics ownership here.
 
@@ -131,12 +131,12 @@ The finalizer must not reuse an index. A retained or reopened finding keeps its
 identifier. Review agents can reference prior identifiers but cannot allocate
 new final identifiers.
 
-The finalizer must collapse duplicate temporary and legacy identifiers before
-it assigns stable identifiers. Legacy deduplication must mark the state as
-truncated and add a limitation.
+The finalizer must collapse duplicate temporary identifiers before it assigns
+stable identifiers. Previously published identifiers remain stable only when
+the prior state passes the current strict schema.
 
 The incremental-review scope contract uses generation-qualified IDs for new
-baseline reports. The numeric format above remains the version 3 contract.
+baseline reports. The numeric format above remains the version 4 contract.
 
 ### requirement-lifecycle
 
@@ -146,11 +146,11 @@ Each retained finding has one lifecycle status:
 - `open`: the current review detected an active prior finding;
 - `addressed`: current-head evidence suggests a fix, but verification is incomplete;
 - `resolved`: current-head verification found that the problem is absent;
-- `reopened`: the current review detected a previously resolved finding;
-- `dismissed`: a legacy state value; new reviews do not assign it.
+- `reopened`: the current review detected a previously resolved finding.
 
-New reviews set effective severity from the finding's original severity and
-ignore any legacy comment disposition. Finding identifiers are case-insensitive.
+A finding has one severity. The current finding and persisted state schemas
+reject disposition and effective-severity fields. Finding identifiers are
+case-insensitive.
 
 ### requirement-fixed-verification
 
@@ -163,8 +163,7 @@ evidence.
 
 Only a `resolved` result for the current head can set the finding to
 `resolved` or keep it resolved. A missing, stale, or uncertain result keeps the
-finding active. New reviews clear legacy comment dispositions before they
-finalize findings.
+finding active.
 
 ### requirement-human-projection
 
@@ -195,7 +194,7 @@ The state and human projection must have explicit size and item limits. The
 retention policy must keep active blockers before non-blocking or inactive
 findings.
 
-The publisher must reject an oversized final comment. Snapshot decompression
+The publisher must reject an oversized final comment. State decompression
 must stop at the configured output limit.
 
 If the publisher compacts state, it must add the compaction limitation to the
@@ -213,8 +212,11 @@ workflow performed no Git operations.
 ### requirement-workflow-admission-and-concurrency
 
 One review job must admit non-closed `pull_request_target` events only for
-non-draft pull requests whose head repository is the current repository. It
-must admit `workflow_dispatch` only when a pull-request number is present.
+non-draft pull requests whose head repository is the current repository. A
+read-only, dispatch-only job must verify that a manual request names a live,
+open, non-draft pull request in the current repository before the review job
+enters its cancellable concurrency group. Invalid dispatches must not enter
+that group or cancel active reviews.
 The workflow must not subscribe to `issue_comment` events.
 
 The review job uses the `seqlane-code-review-<pull-request>` concurrency group
@@ -224,7 +226,7 @@ review work without starting review or publisher steps.
 
 ## Detailed design or contracts
 
-The state block uses schema version 3. The publisher places the state in a
+The state block uses schema version 4. The publisher places the state in a
 collapsed Markdown details element after the human projection.
 
 The state payload uses compact JSON. The publisher can use a bounded
@@ -250,8 +252,7 @@ start/end markers. Its JSON shape is:
 
 The ledger must satisfy the existing final-comment byte limit. The publisher
 must reject an oversized ledger rather than silently dropping retained runs.
-The previous v3 `run`, `runs`, and `runSummary` state fields are not inputs to
-the ledger and are not migrated.
+The state schema rejects embedded `run`, `runs`, and `runSummary` fields.
 
 Run timestamps and identifiers are audit data. They do not decide publication
 order across revisions. The live pull-request head and full Git revisions
@@ -285,19 +286,15 @@ counts.
 
 ## Migration
 
-The reader accepts legacy v1 and v2 snapshots during migration. The first v3
-publication converts retained legacy findings to publisher-owned identifiers.
-
-This describes the version 3 migration. Under the incremental-review scope
-contract, the first new-version publication replaces a trusted older-version
-report with a fresh baseline and does not migrate its findings or metrics.
-
-The v3 reader accepts legacy disposition fields in trusted state, but the
-finalizer clears them. New reports use the v3 identifier.
+The reader accepts only the current strict version 4 state shape. It does not
+import v1 or v2 snapshots, disposition-bearing v3 state, or embedded run history.
+If the existing trusted report has unsupported state, the next review starts
+a new finding baseline in that same bot comment. Valid run metrics remain
+independent of finding state.
 
 ## Verification
 
-- Add schema compatibility and malformed-state tests.
+- Add strict-schema and malformed-state tests.
 - Add lifecycle transition and stable-identifier tests.
 - Add current-head finding-verification tests.
 - Add trusted-author and stale-head publication tests.
@@ -313,6 +310,7 @@ finalizer clears them. New reports use the v3 identifier.
 - The next review restores validated state from the trusted bot comment.
 - Stable finding identifiers survive open, resolved, and reopened transitions.
 - A comment cannot resolve, dismiss, or downgrade a finding.
+- Unsupported earlier finding state does not enter the next review.
 - An old or untrusted run cannot replace the authoritative comment.
 - Mandatory limitation notices remain visible after output bounds apply.
 - The authoritative comment contains one strict, human-readable run metrics
@@ -330,3 +328,4 @@ finalizer clears them. New reports use the v3 identifier.
 - Delivery: [task.prevent-comment-triggered-review-cancellation](../tasks/2026-09-05-prevent-comment-triggered-review-cancellation.md)
 - Delivery: [task.consolidate-pull-request-review-run-metrics](../tasks/2026-09-06-consolidate-pull-request-review-run-metrics.md)
 - Simplification: [task.simplify-pull-request-review-triggers](../tasks/2026-09-24-simplify-pull-request-review-triggers.md)
+- Architecture: [adr.review-publication-without-comment-commands](../adrs/2026-09-24-review-publication-without-comment-commands.md)

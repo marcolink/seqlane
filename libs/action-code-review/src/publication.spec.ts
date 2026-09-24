@@ -80,8 +80,6 @@ describe("model-free publication", () => {
         findings: Array.from({ length: 40 }, (_, index) => ({
           id: `F-${index + 1}`,
           severity: "required" as const,
-          effectiveSeverity: "required" as const,
-          disposition: "open" as const,
           status: "open" as const,
           summary: "x".repeat(2_000),
           recommendation: "y".repeat(2_000),
@@ -136,8 +134,6 @@ describe("model-free publication", () => {
           {
             id: "F-1",
             severity: "required",
-            effectiveSeverity: "required",
-            disposition: "open",
             status: "open",
             summary: malicious,
             recommendation: malicious,
@@ -199,16 +195,16 @@ describe("model-free publication", () => {
       new TextEncoder().encode(result.publication.body).length,
     ).toBeLessThanOrEqual(60_000);
     expect(result.publication.body).toContain(
-      "<!-- seqlane-code-review-meta-v3:",
+      "<!-- seqlane-code-review-meta-v4:",
     );
     expect(result.publication.body).toContain(
       "<!-- seqlane-code-review-run-metrics-v1-start -->",
     );
     expect(result.publication.body).toContain(
-      "<!-- seqlane-code-review-state-v3-start -->",
+      "<!-- seqlane-code-review-state-v4-start -->",
     );
     expect(result.publication.body).toContain(
-      "<!-- seqlane-code-review-state-v3-end -->",
+      "<!-- seqlane-code-review-state-v4-end -->",
     );
   });
 

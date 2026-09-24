@@ -5,6 +5,10 @@ import { gzipSync } from "node:zlib";
 import { readFile } from "node:fs/promises";
 import type { TaskContext, TaskDefinition } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
+import {
+  reviewStateSchema,
+  synthesizedReviewFindingSchema,
+} from "@seqlane/code-review-workflow/contracts";
 import { normalizeReviewHistory } from "./review-history.js";
 import { describe, expect, it } from "vitest";
 
@@ -102,17 +106,17 @@ function createReport(findings: readonly object[]) {
   };
 }
 
-function createV3ReviewComment(
+function createV4ReviewComment(
   state: Record<string, unknown>,
   metadataOverrides: Record<string, unknown> = {},
 ): string {
   const envelope = JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
     encoding: "gzip+base64",
     data: gzipSync(JSON.stringify(state)).toString("base64"),
   });
   const metadata = JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
     pullRequestNumber: state.pullRequestNumber,
     reviewedRevision: state.reviewedRevision,
     ...(state.previousReviewedRevision === undefined
@@ -122,12 +126,12 @@ function createV3ReviewComment(
   });
   return [
     "<!-- seqlane-code-review -->",
-    `<!-- seqlane-code-review-meta-v3: ${metadata} -->`,
-    "<!-- seqlane-code-review-state-v3-start -->",
+    `<!-- seqlane-code-review-meta-v4: ${metadata} -->`,
+    "<!-- seqlane-code-review-state-v4-start -->",
     "```json",
     envelope,
     "```",
-    "<!-- seqlane-code-review-state-v3-end -->",
+    "<!-- seqlane-code-review-state-v4-end -->",
   ].join("\n");
 }
 
@@ -256,6 +260,7 @@ describe("pull-request code review example workflow", () => {
       "utf8",
     );
     const review = workflowJobBlock(workflow, "code-review");
+    const manualAdmission = workflowJobBlock(workflow, "validate-dispatch");
     const closeCancellation = workflowJobBlock(
       workflow,
       "cancel-closed-review",
@@ -263,13 +268,25 @@ describe("pull-request code review example workflow", () => {
 
     expect(workflow).not.toMatch(/^concurrency:/m);
     expect(workflow).not.toContain("admit-review:");
+    expect(manualAdmission).toContain(
+      "if: github.event_name == 'workflow_dispatch'",
+    );
+    expect(manualAdmission).toContain('.state == "open" and .draft == false');
+    expect(manualAdmission).toContain(".head.repo.full_name == $repository");
+    expect(manualAdmission).not.toContain("concurrency:");
+    expect(manualAdmission).not.toContain("pull-requests: write");
+    expect(review).toContain("needs: validate-dispatch");
+    expect(review).toContain("always() &&");
+    expect(review).toContain(
+      "needs.validate-dispatch.outputs.eligible == 'true'",
+    );
     expect(review).toContain("github.event_name == 'workflow_dispatch'");
     expect(review).toContain("github.event.pull_request.draft == false");
     expect(review).toContain(
       "github.event.pull_request.head.repo.full_name == github.repository",
     );
     expect(review).toContain(
-      "group: seqlane-code-review-${{ github.event.pull_request.number || inputs.pull_request_number }}",
+      "group: seqlane-code-review-${{ github.event.pull_request.number || needs.validate-dispatch.outputs.number }}",
     );
     expect(review).toContain("cancel-in-progress: true");
     expect(review).toContain("pull-requests: write");
@@ -451,11 +468,11 @@ describe("pull-request code review example workflow", () => {
     );
   });
 
-  it("reads strict version 3 state from the trusted bot comment", async () => {
+  it("reads strict version 4 state from the trusted bot comment", async () => {
     const task = reviewContextTask;
 
     const state = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       pullRequestNumber: 44,
       baseRevision: REVIEW_TEST_BASE_REVISION,
       reviewedRevision: REVIEW_TEST_HEAD_REVISION,
@@ -465,8 +482,6 @@ describe("pull-request code review example workflow", () => {
           id: "SEQ-PR44-001",
           axis: "correctness",
           severity: "required",
-          effectiveSeverity: "required",
-          disposition: "open",
           status: "open",
           aliases: ["F-old"],
           summary: "Previous finding",
@@ -475,45 +490,6 @@ describe("pull-request code review example workflow", () => {
       ],
       limitations: [],
       truncated: false,
-      run: {
-        id: "123",
-        attempt: 1,
-        completedAt: "2026-09-05T10:00:00.000Z",
-        metrics: {
-          schemaVersion: 1,
-          runId: "run-1",
-          outcome: "succeeded",
-          durationMs: 42,
-          totalCost: 0.0042,
-          totalTokens: {
-            input: 20,
-            output: 12,
-            reasoning: 8,
-            cacheRead: 2,
-            cacheWrite: 0,
-            total: 42,
-          },
-          tasks: [
-            {
-              invocationId: "review-1",
-              task: "Correctness review",
-              resultState: "succeeded",
-              durationMs: 42,
-              model: "gpt-5.6-luna",
-              provider: "openai",
-              tokens: {
-                input: 20,
-                output: 12,
-                reasoning: 8,
-                cacheRead: 2,
-                cacheWrite: 0,
-                total: 42,
-              },
-              cost: 0.0042,
-            },
-          ],
-        },
-      },
     };
     const result = await executeTask<any, any>(
       task,
@@ -526,7 +502,7 @@ describe("pull-request code review example workflow", () => {
               kind: "issue",
               author: "github-actions[bot]",
               authorAssociation: "NONE",
-              body: createV3ReviewComment(state),
+              body: createV4ReviewComment(state),
               createdAt: "2026-09-05T10:00:00Z",
             },
           ],
@@ -537,15 +513,14 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(result.previousState).toEqual(state);
-    expect(result.previousSnapshot).toBeUndefined();
     expect(result.previousReviewedRevision).toBe(REVIEW_TEST_HEAD_REVISION);
   });
 
-  it("reads appended run history and validates metadata against its latest run", async () => {
+  it("rejects prior state with embedded run history", async () => {
     const task = reviewContextTask;
 
     const state = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       pullRequestNumber: 44,
       baseRevision: REVIEW_TEST_BASE_REVISION,
       reviewedRevision: REVIEW_TEST_HEAD_REVISION,
@@ -569,7 +544,7 @@ describe("pull-request code review example workflow", () => {
               kind: "issue",
               author: "github-actions[bot]",
               authorAssociation: "NONE",
-              body: createV3ReviewComment(state, {
+              body: createV4ReviewComment(state, {
                 run: { id: "101", attempt: 1 },
               }),
               createdAt: "2026-09-05T11:00:00Z",
@@ -581,13 +556,13 @@ describe("pull-request code review example workflow", () => {
       {},
     );
 
-    expect(result.previousState).toEqual(state);
+    expect(result.previousState).toBeUndefined();
   });
 
   it("reads a strict run metrics ledger independently of review state", async () => {
     const task = reviewContextTask;
     const state = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       pullRequestNumber: 44,
       baseRevision: REVIEW_TEST_BASE_REVISION,
       reviewedRevision: REVIEW_TEST_HEAD_REVISION,
@@ -636,7 +611,7 @@ describe("pull-request code review example workflow", () => {
               author: "github-actions[bot]",
               authorAssociation: "NONE",
               body: appendRunMetricsLedger(
-                createV3ReviewComment(state),
+                createV4ReviewComment(state),
                 ledger,
               ),
               createdAt: "2026-09-05T10:00:00Z",
@@ -657,7 +632,7 @@ describe("pull-request code review example workflow", () => {
   it("starts an empty ledger for malformed, legacy, or unsupported metrics data", async () => {
     const task = reviewContextTask;
     const state = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       pullRequestNumber: 44,
       baseRevision: REVIEW_TEST_BASE_REVISION,
       reviewedRevision: REVIEW_TEST_HEAD_REVISION,
@@ -666,7 +641,7 @@ describe("pull-request code review example workflow", () => {
       limitations: [],
       truncated: false,
     };
-    const base = createV3ReviewComment(state);
+    const base = createV4ReviewComment(state);
     const comments = [
       appendRunMetricsLedger(base, { schemaVersion: 1, runs: "invalid" }),
       `${base}\n<!-- seqlane-code-review-run-metrics-v1: {"schemaVersion":1} -->`,
@@ -702,10 +677,10 @@ describe("pull-request code review example workflow", () => {
     }
   });
 
-  it("rejects version 3 state with unknown fields", async () => {
+  it("rejects version 4 state with unknown fields", async () => {
     const task = reviewContextTask;
     const invalidState = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       pullRequestNumber: 44,
       baseRevision: REVIEW_TEST_BASE_REVISION,
       reviewedRevision: REVIEW_TEST_HEAD_REVISION,
@@ -726,7 +701,7 @@ describe("pull-request code review example workflow", () => {
               kind: "issue",
               author: "github-actions[bot]",
               authorAssociation: "NONE",
-              body: createV3ReviewComment(invalidState),
+              body: createV4ReviewComment(invalidState),
               createdAt: "2026-09-05T10:00:00Z",
             },
           ],
@@ -740,10 +715,10 @@ describe("pull-request code review example workflow", () => {
     expect(result.previousReviewedRevision).toBeUndefined();
   });
 
-  it("rejects version 3 state with both legacy and history run fields", async () => {
+  it("rejects version 4 state with both legacy and history run fields", async () => {
     const task = reviewContextTask;
     const invalidState = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       pullRequestNumber: 44,
       baseRevision: REVIEW_TEST_BASE_REVISION,
       reviewedRevision: REVIEW_TEST_HEAD_REVISION,
@@ -765,7 +740,7 @@ describe("pull-request code review example workflow", () => {
               kind: "issue",
               author: "github-actions[bot]",
               authorAssociation: "NONE",
-              body: createV3ReviewComment(invalidState, {
+              body: createV4ReviewComment(invalidState, {
                 run: { id: "100", attempt: 1 },
               }),
               createdAt: "2026-09-05T10:00:00Z",
@@ -780,10 +755,10 @@ describe("pull-request code review example workflow", () => {
     expect(result.previousState).toBeUndefined();
   });
 
-  it("rejects ambiguous or mismatched version 3 state framing", async () => {
+  it("rejects ambiguous or mismatched version 4 state framing", async () => {
     const task = reviewContextTask;
     const state = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       pullRequestNumber: 44,
       baseRevision: REVIEW_TEST_BASE_REVISION,
       reviewedRevision: REVIEW_TEST_HEAD_REVISION,
@@ -792,16 +767,16 @@ describe("pull-request code review example workflow", () => {
       limitations: [],
       truncated: false,
     };
-    const validComment = createV3ReviewComment(state);
+    const validComment = createV4ReviewComment(state);
     const stateBlock = validComment.match(
-      /<!-- seqlane-code-review-state-v3-start -->[\s\S]*?<!-- seqlane-code-review-state-v3-end -->/,
+      /<!-- seqlane-code-review-state-v4-start -->[\s\S]*?<!-- seqlane-code-review-state-v4-end -->/,
     )?.[0];
     if (stateBlock === undefined) throw new Error("Expected state block");
 
     const comments = [
       `${validComment}\n${stateBlock}`,
-      createV3ReviewComment(state, { reviewedRevision: "c".repeat(40) }),
-      createV3ReviewComment(state, { run: { id: "123", attempt: 1 } }),
+      createV4ReviewComment(state, { reviewedRevision: "c".repeat(40) }),
+      createV4ReviewComment(state, { run: { id: "123", attempt: 1 } }),
     ];
 
     for (const [index, body] of comments.entries()) {
@@ -836,10 +811,19 @@ describe("pull-request code review example workflow", () => {
     }
   });
 
-  it("rejects compressed snapshots that exceed the decompression bound", async () => {
+  it("rejects review state that exceeds the decompression bound", async () => {
     const task = reviewContextTask;
-
-    const oversizedSnapshot = gzipSync("x".repeat(512_001)).toString("base64");
+    const oversizedState = {
+      schemaVersion: 4,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 1,
+      findings: [],
+      limitations: [],
+      truncated: false,
+      overflow: "x".repeat(512_001),
+    };
     const result = await executeTask<any, any>(
       task,
       {
@@ -847,14 +831,11 @@ describe("pull-request code review example workflow", () => {
         reviewHistory: {
           comments: [
             {
-              id: "oversized-report",
+              id: "oversized-state",
               kind: "issue",
               author: "github-actions",
               authorAssociation: "NONE",
-              body: [
-                "<!-- seqlane-code-review -->",
-                `<!-- seqlane-code-review-report-v2: ${oversizedSnapshot} -->`,
-              ].join("\n"),
+              body: createV4ReviewComment(oversizedState),
               createdAt: "2026-09-05T10:00:00Z",
             },
           ],
@@ -864,7 +845,7 @@ describe("pull-request code review example workflow", () => {
       {},
     );
 
-    expect(result.previousSnapshot).toBeUndefined();
+    expect(result.previousState).toBeUndefined();
   });
 
   it("collects deterministic Git review evidence with command-level bounds", async () => {
@@ -1243,73 +1224,55 @@ describe("pull-request code review example workflow", () => {
     }
   });
 
-  it("ignores comment decisions for a previously dismissed finding", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-finalize",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected review finalizer");
-    }
-    const previous = {
+  it("rejects former command decisions from current findings and state", () => {
+    const finding = {
       id: "SEQ-PR44-001",
       aliases: ["F-9"],
       axis: "correctness",
       severity: "required",
-      effectiveSeverity: "optional",
-      disposition: "wont-fix",
-      status: "dismissed",
+      status: "open",
       summary: "Broken boundary",
       recommendation: "Restore validation",
-      dispositionCommentId: "decision",
     };
-    const history = {
-      comments: [
-        {
-          id: "decision",
-          kind: "issue",
-          author: "maintainer",
-          authorAssociation: "OWNER",
-          body: "/seqlane wont-fix SEQ-PR44-001",
-          createdAt: "2026-09-24T00:00:00Z",
-        },
-      ],
+    expect(
+      synthesizedReviewFindingSchema.safeParse({
+        ...finding,
+        disposition: "wont-fix",
+      }).success,
+    ).toBe(false);
+    const previousState = {
+      schemaVersion: 4,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 2,
+      findings: [{ ...finding, disposition: "wont-fix" }],
+      limitations: [],
       truncated: false,
-      previousState: {
-        schemaVersion: 3,
-        pullRequestNumber: 44,
-        baseRevision: REVIEW_TEST_BASE_REVISION,
-        reviewedRevision: REVIEW_TEST_HEAD_REVISION,
-        nextFindingIndex: 2,
-        findings: [previous],
-        limitations: [],
-        truncated: false,
-      },
     };
-    const result = await executeTask<any, any>(task, {
-      review: createReviewInput(history),
-      report: createReport([
-        {
-          id: "F-9",
-          axis: "correctness",
-          severity: "required",
-          effectiveSeverity: "required",
-          disposition: "open",
-          summary: "Broken boundary",
-          recommendation: "Restore validation",
-        },
-      ]),
-    });
-
-    expect(result.verdict).toBe("request-changes");
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        effectiveSeverity: "required",
-        disposition: "open",
-        status: "open",
-      }),
-    ]);
-    expect(result.findings[0]).not.toHaveProperty("dispositionCommentId");
+    expect(reviewStateSchema.safeParse(previousState).success).toBe(false);
+    expect(
+      reviewStateSchema.safeParse({
+        ...previousState,
+        schemaVersion: 3,
+        findings: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      normalizeReviewHistory(44, {
+        comments: [
+          {
+            id: "prior-report",
+            kind: "issue",
+            author: "github-actions[bot]",
+            authorAssociation: "NONE",
+            body: createV4ReviewComment(previousState),
+            createdAt: "2026-09-24T00:00:00Z",
+          },
+        ],
+        truncated: false,
+      }).reviewHistory.previousState,
+    ).toBeUndefined();
   });
 
   it("bounds merged current and historical findings", async () => {
@@ -1321,11 +1284,11 @@ describe("pull-request code review example workflow", () => {
     }
 
     const historicalFindings = Array.from({ length: 40 }, (_, index) => ({
-      id: `F-H${index}`,
+      id: `SEQ-PR44-${String(index + 1).padStart(3, "0")}`,
+      aliases: [],
       axis: "architecture",
       severity: "optional",
-      effectiveSeverity: "optional",
-      disposition: "wont-fix",
+      status: "open",
       summary: "Historical finding",
       recommendation: "Re-evaluate the finding.",
     }));
@@ -1333,8 +1296,6 @@ describe("pull-request code review example workflow", () => {
       id: `F-C${index}`,
       axis: "correctness",
       severity: "optional",
-      effectiveSeverity: "optional",
-      disposition: "open",
       summary: "Current finding",
       recommendation: "Review the current change.",
     }));
@@ -1344,9 +1305,15 @@ describe("pull-request code review example workflow", () => {
         review: createReviewInput({
           comments: [],
           truncated: false,
-          previousSnapshot: {
-            headRevision: REVIEW_TEST_HEAD_REVISION,
+          previousState: {
+            schemaVersion: 4,
+            pullRequestNumber: 44,
+            baseRevision: REVIEW_TEST_BASE_REVISION,
+            reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+            nextFindingIndex: 41,
             findings: historicalFindings,
+            limitations: [],
+            truncated: false,
           },
         }),
         report: createReport(currentFindings),
@@ -1389,8 +1356,6 @@ describe("pull-request code review example workflow", () => {
       id: "F-duplicate",
       axis: "correctness",
       severity: "required",
-      effectiveSeverity: "required",
-      disposition: "open",
       summary: "Duplicate current finding",
       recommendation: "Keep one stable finding.",
     };
@@ -1416,51 +1381,156 @@ describe("pull-request code review example workflow", () => {
     expect(result.nextFindingIndex).toBe(2);
   });
 
-  it("deduplicates legacy identities during version 3 migration", async () => {
+  it("reconciles retained findings from current-head evidence", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
       "code-review-finalize",
     );
     if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
+      throw new Error("Expected review finalizer");
     }
-    const duplicate = {
-      id: "F-legacy",
+    const previousFinding = (index: number, status: "open" | "resolved") => ({
+      id: `SEQ-PR44-${String(index).padStart(3, "0")}`,
+      aliases: [],
       axis: "correctness",
       severity: "required",
-      effectiveSeverity: "required",
-      disposition: "open",
-      summary: "Duplicate legacy finding",
-      recommendation: "Migrate one stable finding.",
+      status,
+      summary: `Finding ${index}`,
+      recommendation: "Restore the guard.",
+    });
+    const previousState = {
+      schemaVersion: 4,
+      pullRequestNumber: 44,
+      baseRevision: REVIEW_TEST_BASE_REVISION,
+      reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+      nextFindingIndex: 7,
+      findings: [
+        previousFinding(1, "open"),
+        previousFinding(2, "open"),
+        previousFinding(3, "open"),
+        previousFinding(4, "open"),
+        previousFinding(5, "resolved"),
+        previousFinding(6, "open"),
+      ],
+      limitations: [],
+      truncated: false,
     };
+    const verifications = (
+      [
+        [1, "present"],
+        [2, "addressed"],
+        [3, "resolved"],
+        [4, "uncertain"],
+      ] as const
+    ).map(([index, outcome]) => ({
+      findingId: previousFinding(index, "open").id,
+      headRevision: REVIEW_TEST_HEAD_REVISION,
+      outcome,
+      evidence: `Current-head evidence for ${index}`,
+    }));
 
     const result = await executeTask<any, any>(
       task,
       {
-        review: createReviewInput({
-          comments: [],
-          truncated: false,
-          previousSnapshot: {
-            headRevision: REVIEW_TEST_BASE_REVISION,
-            findings: [duplicate, duplicate],
+        review: {
+          ...createReviewInput({
+            comments: [],
             truncated: false,
+            previousState,
+          }),
+          historyVerification: {
+            headRevision: REVIEW_TEST_HEAD_REVISION,
+            verifications,
+            limitations: [],
           },
-        }),
-        report: createReport([]),
+        },
+        report: createReport([
+          {
+            id: "SEQ-PR44-005",
+            axis: "correctness",
+            severity: "required",
+            summary: "Finding 5 persists",
+            recommendation: "Restore the guard.",
+          },
+          {
+            id: "SEQ-PR44-006",
+            axis: "correctness",
+            severity: "optional",
+            summary: "Finding 6 persists",
+            recommendation: "Restore the guard.",
+          },
+        ]),
       },
       {},
     );
 
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        aliases: ["F-legacy"],
-      }),
+    expect(
+      task.output.parse(result).findings.map((finding) => finding.status),
+    ).toEqual([
+      "reopened",
+      "open",
+      "reopened",
+      "addressed",
+      "resolved",
+      "open",
     ]);
-    expect(result.nextFindingIndex).toBe(2);
-    expect(result.stateTruncated).toBe(true);
-    expect(result.limitations).toContain(
-      "1 duplicate historical finding(s) were omitted during state migration.",
+    expect(
+      result.findings.find(
+        (finding: { id: string }) => finding.id === "SEQ-PR44-006",
+      ).severity,
+    ).toBe("required");
+    expect(result.verdict).toBe("request-changes");
+  });
+
+  it("ignores stale-head verification when retaining a finding", async () => {
+    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
+      "code-review-finalize",
     );
+    if (task === undefined || typeof task.execute !== "function") {
+      throw new Error("Expected review finalizer");
+    }
+    const finding = {
+      id: "SEQ-PR44-001",
+      aliases: [],
+      axis: "correctness",
+      severity: "required",
+      status: "open",
+      summary: "Previous finding",
+      recommendation: "Restore the guard.",
+    };
+    const result = await executeTask<any, any>(task, {
+      review: {
+        ...createReviewInput({
+          comments: [],
+          truncated: false,
+          previousState: {
+            schemaVersion: 4,
+            pullRequestNumber: 44,
+            baseRevision: REVIEW_TEST_BASE_REVISION,
+            reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+            nextFindingIndex: 2,
+            findings: [finding],
+            limitations: [],
+            truncated: false,
+          },
+        }),
+        historyVerification: {
+          headRevision: "c".repeat(40),
+          verifications: [
+            {
+              findingId: finding.id,
+              headRevision: "c".repeat(40),
+              outcome: "resolved",
+              evidence: "Evidence from an older run.",
+            },
+          ],
+          limitations: [],
+        },
+      },
+      report: createReport([]),
+    });
+
+    expect(task.output.parse(result).findings[0].status).toBe("open");
+    expect(result.verdict).toBe("request-changes");
   });
 
   it("returns the complete validated lifecycle report", () => {

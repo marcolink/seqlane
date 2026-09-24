@@ -25,20 +25,61 @@ permissions:
   issues: read
 
 jobs:
+  validate-dispatch:
+    name: Validate manual review
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: none
+      pull-requests: read
+    outputs:
+      eligible: ${{ steps.pull-request.outputs.eligible }}
+      number: ${{ steps.pull-request.outputs.number }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check pull request
+        id: pull-request
+        env:
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/seqlane-dispatch-pr.json"; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if jq --exit-status --arg repository "$GITHUB_REPOSITORY" \
+            '.state == "open" and .draft == false and .head.repo.full_name == $repository' \
+            "$RUNNER_TEMP/seqlane-dispatch-pr.json" > /dev/null; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+            echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          else
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+          fi
+
   code-review:
     name: Review pull request
+    needs: validate-dispatch
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request_target' &&
-       github.event.action != 'closed' &&
-       github.event.pull_request.draft == false &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+      always() &&
+      ((github.event_name == 'workflow_dispatch' &&
+        needs.validate-dispatch.result == 'success' &&
+        needs.validate-dispatch.outputs.eligible == 'true') ||
+       (github.event_name == 'pull_request_target' &&
+        github.event.action != 'closed' &&
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository))
     permissions:
       contents: read
       issues: read
       pull-requests: write
     concurrency:
-      group: seqlane-code-review-${{ github.event.pull_request.number || inputs.pull_request_number }}
+      group: seqlane-code-review-${{ github.event.pull_request.number || needs.validate-dispatch.outputs.number }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 30

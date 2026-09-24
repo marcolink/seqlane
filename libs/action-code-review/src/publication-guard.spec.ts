@@ -21,10 +21,26 @@ const report = (overrides: Partial<{ author: string; body: string }> = {}) => ({
 });
 
 describe("publication guard", () => {
-  it("reconciles a report that appears between admission and create", () => {
+  it("replaces a prior report without importing its finding state", () => {
     expect(guardPublicationTarget(report(), input)).toMatchObject({
       status: "eligible",
     });
+  });
+
+  it("accepts current metadata and rejects ambiguous version markers", () => {
+    const current = report().body.replace(
+      'meta-v3: {"schemaVersion":3',
+      'meta-v4: {"schemaVersion":4',
+    );
+    expect(
+      guardPublicationTarget(report({ body: current }), input),
+    ).toMatchObject({ status: "eligible" });
+    expect(
+      guardPublicationTarget(
+        report({ body: `${current}\n${report().body}` }),
+        input,
+      ),
+    ).toEqual({ status: "stale" });
   });
 
   it("rejects an unowned, wrong-PR, malformed, or newer same-head report", () => {

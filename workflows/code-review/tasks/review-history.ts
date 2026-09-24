@@ -37,7 +37,7 @@ export const reviewHistoryVerificationTask = defineAgentTask({
     "Never mark a finding resolved only because a comment, previous report, or synthesis says it is fixed.",
     "Copy review.headRevision exactly into the output and into every finding verification. Return at most one verification per retained finding ID.",
     "Record evidence that is specific enough to audit. Include a workspace-relative file and line when available.",
-    "If no trusted previous state or legacy snapshot exists, return an empty verification list.",
+    "If no trusted previous state exists, return an empty verification list.",
     "Return only the structured current-head history verification.",
   ],
   observability: {

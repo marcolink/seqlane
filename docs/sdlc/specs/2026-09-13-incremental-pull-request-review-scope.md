@@ -260,8 +260,9 @@ The schema-evolution matrix is canonical:
 
 | State revision | Fields and marker | Readers | Migration and replacement |
 | --- | --- | --- | --- |
-| v3 | Existing lifecycle state, v3 metadata marker, numeric finding IDs. | Current v3 reader. | Accepted as legacy when the scope feature is enabled; replaced by a new baseline. |
-| v5 | Current state with `scopeCheckpoint`, generation-qualified finding IDs, and the v5 marker. | v5 reader only for current operation; older readers reject it. | v3 is legacy and is replaced by a fresh v5 baseline. Invalid v5 state is `invalid-current` and fails closed. |
+| v3 | Earlier disposition-bearing state and v3 marker. | No current state reader. | The trusted report can be replaced; findings are not imported. |
+| v4 | Current command-free lifecycle state, v4 marker, numeric finding IDs. | Current v4 reader. | Becomes an older report when v5 scope is enabled; replaced by a fresh baseline. |
+| v5 | Proposed state with `scopeCheckpoint`, generation-qualified finding IDs, and the v5 marker. | v5 reader only for current operation; older readers reject it. | Older reports are replaced by a fresh v5 baseline. Invalid v5 state is `invalid-current` and fails closed. |
 
 The v5 schema is the only target for the incremental scope implementation.
 The outer state revision, metadata marker, and compressed envelope must agree.
@@ -541,7 +542,7 @@ is an incomplete review, not a smaller valid scope.
 ## Migration
 
 A trusted authoritative report in an older format is replaced by a new
-baseline. At initial delivery this includes v1, v2, and v3. The workflow
+baseline. At initial delivery this includes v1 through v4. The workflow
 must not parse the old report as a checkpoint, migrate its findings, carry
 its IDs, or append its run metrics. It may read only enough trusted marker data to identify the report
 and guard its update.

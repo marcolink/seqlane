@@ -66,18 +66,16 @@ function severityLabel(severity: string): string {
         : "🔵 Informational";
 }
 
-function statusLabel(status: string): string {
-  return status === "new"
-    ? "🆕 New"
-    : status === "open"
-      ? "⏳ Open"
-      : status === "addressed"
-        ? "🛠️ Addressed"
-        : status === "resolved"
-          ? "✅ Resolved"
-          : status === "reopened"
-            ? "🔁 Reopened"
-            : "➖ Dismissed";
+const STATUS_LABELS = {
+  new: "🆕 New",
+  open: "⏳ Open",
+  addressed: "🛠️ Addressed",
+  resolved: "✅ Resolved",
+  reopened: "🔁 Reopened",
+} as const;
+
+function statusLabel(status: keyof typeof STATUS_LABELS): string {
+  return STATUS_LABELS[status];
 }
 
 function areaLabel(axis: string): string {
@@ -98,8 +96,7 @@ function sortFindings(
   return [...findings].sort(
     (left, right) =>
       (active(left.status) ? 0 : 1) - (active(right.status) ? 0 : 1) ||
-      severityRank(left.effectiveSeverity) -
-        severityRank(right.effectiveSeverity) ||
+      severityRank(left.severity) - severityRank(right.severity) ||
       left.id.localeCompare(right.id),
   );
 }
@@ -121,11 +118,7 @@ function renderFindingRows(
         safeText(finding.id) +
         mark +
         " | " +
-        (finding.severity === finding.effectiveSeverity
-          ? severityLabel(finding.effectiveSeverity)
-          : severityLabel(finding.severity) +
-            " → " +
-            severityLabel(finding.effectiveSeverity)) +
+        severityLabel(finding.severity) +
         " | " +
         statusLabel(finding.status) +
         " | " +
@@ -152,8 +145,7 @@ function renderReviewDelta(
       `⏳ ${count("open")} open · ` +
       `🛠️ ${count("addressed")} addressed · ` +
       `✅ ${count("resolved")} resolved · ` +
-      `🔁 ${count("reopened")} reopened · ` +
-      `➖ ${count("dismissed")} dismissed`,
+      `🔁 ${count("reopened")} reopened`,
     "",
   ];
 }
@@ -206,11 +198,11 @@ function renderStateSection(stateEnvelope: string, fence: string): string[] {
     "<details>",
     "<summary>Machine-readable review state</summary>",
     "",
-    "<!-- seqlane-code-review-state-v3-start -->",
+    "<!-- seqlane-code-review-state-v4-start -->",
     fence + "json",
     stateEnvelope,
     fence,
-    "<!-- seqlane-code-review-state-v3-end -->",
+    "<!-- seqlane-code-review-state-v4-end -->",
     "",
     "</details>",
     "",
@@ -227,7 +219,7 @@ function renderPublicationHeader(
 ): string[] {
   return [
     "<!-- seqlane-code-review -->",
-    "<!-- seqlane-code-review-meta-v3: " + metadata + " -->",
+    "<!-- seqlane-code-review-meta-v4: " + metadata + " -->",
     "# Seqlane review",
     "",
     "**" +
@@ -289,7 +281,7 @@ function renderPublicationBody(
   const mark = String.fromCharCode(96);
   const fence = mark.repeat(3);
   const metadata = JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
     pullRequestNumber: report.pullRequestNumber,
     reviewedRevision: report.headRevision,
     ...(report.previousReviewedRevision === undefined
@@ -298,7 +290,7 @@ function renderPublicationBody(
     run: { id: githubRunId, attempt },
   });
   const stateEnvelope = JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
     encoding: "gzip+base64",
     data: encodeState(report),
   });
@@ -306,11 +298,10 @@ function renderPublicationBody(
   const blockers = findings.filter(
     (finding) =>
       active(finding.status) &&
-      ["critical", "required"].includes(finding.effectiveSeverity),
+      ["critical", "required"].includes(finding.severity),
   ).length;
   const advisories = findings.filter(
-    (finding) =>
-      active(finding.status) && finding.effectiveSeverity === "optional",
+    (finding) => active(finding.status) && finding.severity === "optional",
   ).length;
   const runUrl = githubActionsRunUrl(report.repository, githubRunId);
   return [

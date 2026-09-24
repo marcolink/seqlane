@@ -9,6 +9,7 @@ updated: 2026-09-24
 upstream:
   - spec.versioned-pull-request-review-comments
   - spec.direct-runtime-code-review-action
+  - adr.review-publication-without-comment-commands
 supersedes: []
 ---
 
@@ -27,9 +28,14 @@ and [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-
 ## Scope
 
 - Admit eligible same-repository, non-draft PR events in the review job.
-- Keep manual dispatch and close-event cancellation.
+- Admit manual dispatch through a read-only live-PR check before review
+  concurrency. Keep close-event cancellation.
 - Remove comment events, command extraction, and command-based finding changes.
-- Clear legacy disposition effects when a new review reconciles findings.
+- Publish strict version 4 state and reject old disposition-bearing state
+  instead of importing it. Remove decision fields from current finding and
+  publication contracts.
+- Restore focused current-head lifecycle tests.
+- Supersede the obsolete mechanical-writer ADR.
 - Update tests and current review documentation.
 
 ## Out of scope
@@ -39,7 +45,7 @@ and [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-
 
 ## Implementation plan
 
-1. Combine review admission and execution in one job.
+1. Admit automatic PR events in one review job; validate manual dispatch first.
 2. Remove command parsing and decisions across the Action and workflow.
 3. Reconcile active and planned review documents.
 4. Verify the workflow, tests, types, and SDLC documents.
@@ -63,23 +69,27 @@ and [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-
 - Automatic and manual reviews use one review job.
 - Comments do not trigger reviews or change findings.
 - Closed PRs still cancel in-progress review work.
-- Legacy disposition data does not remain active after a new review.
+- Old disposition-bearing finding state is rejected and not imported.
 
 ## Outcome
 
-One review job now admits eligible pull-request events and manual dispatches.
-Issue comments no longer trigger reviews. Comment commands no longer change
-finding status or severity. Legacy disposition effects are cleared when a new
-review reconciles findings.
+One review job admits eligible pull-request events. Manual dispatch passes a
+read-only admission job before entering review concurrency. Issue comments no
+longer trigger reviews. Current finding contracts reject command decisions and
+old state is not imported. Current-head reconciliation tests cover retained
+findings and stale verification.
 
-Local verification passed: `pnpm test:mapping`, the Action library and Action
-test targets, Action build and typecheck, and `actionlint` for the workflow.
+Local verification passed: `pnpm test:mapping`, 76 Action-library tests, 4
+Action tests, Action build and typecheck, workflow `actionlint`,
+`pnpm docs:index`, and `pnpm docs:validate`.
 
 ## Delivery state
 
-Local work only. No target-branch delivery claim.
+PR [#168](https://github.com/marcolink/seqlane/pull/168) is open. No
+target-branch delivery claim.
 
 ## Traceability
 
 - Review state: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md)
 - Action boundary: [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-code-review-action.md)
+- Architecture: [adr.review-publication-without-comment-commands](../adrs/2026-09-24-review-publication-without-comment-commands.md)

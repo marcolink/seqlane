@@ -28,20 +28,12 @@ export const reviewSeveritySchema = z.enum([
 export const reviewFindingIdSchema = z
   .string()
   .regex(/^(?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-\d{3,})$/i);
-export const reviewFindingDispositionSchema = z.enum([
-  "open",
-  "fixed",
-  "wont-fix",
-  "downgraded",
-  "not-reproducible",
-]);
 export const reviewFindingStatusSchema = z.enum([
   "new",
   "open",
   "addressed",
   "resolved",
   "reopened",
-  "dismissed",
 ]);
 export const gitRevisionSchema = z
   .string()
@@ -103,7 +95,7 @@ export const reviewRatingSchema = z.object({
   rationale: z.string().min(1).max(2_000),
 });
 
-export const reviewFindingSchema = z.object({
+export const reviewFindingSchema = z.strictObject({
   id: reviewFindingIdSchema,
   axis: reviewAxisSchema,
   severity: reviewSeveritySchema,
@@ -113,26 +105,9 @@ export const reviewFindingSchema = z.object({
   line: z.number().int().positive().optional(),
 });
 
-export const synthesizedReviewFindingSchema = reviewFindingSchema.extend({
-  effectiveSeverity: reviewSeveritySchema,
-  disposition: reviewFindingDispositionSchema,
-  dispositionReason: z.string().max(2_000).optional(),
-  dispositionBy: z.string().min(1).max(256).optional(),
-  dispositionAt: z.string().min(1).max(64).optional(),
-  dispositionCommentId: z.string().min(1).max(128).optional(),
-  dispositionCommit: gitRevisionSchema.optional(),
-  evidenceHeadRevision: gitRevisionSchema.optional(),
-});
+export const synthesizedReviewFindingSchema = reviewFindingSchema;
 
-export const reviewSnapshotFindingSchema = synthesizedReviewFindingSchema;
-
-export const reviewSnapshotSchema = z.object({
-  headRevision: gitRevisionSchema,
-  findings: z.array(reviewSnapshotFindingSchema).max(40),
-  truncated: z.boolean().default(false),
-});
-
-export const reviewReportFindingSchema = synthesizedReviewFindingSchema.extend({
+export const reviewReportFindingSchema = reviewFindingSchema.extend({
   status: reviewFindingStatusSchema,
   aliases: z.array(reviewFindingIdSchema).max(8).default([]),
 });
@@ -185,18 +160,9 @@ export const reviewRunMetricsSchema = z
   })
   .strict();
 
-export const reviewRunAuditSchema = z
-  .object({
-    id: z.string().min(1).max(128),
-    attempt: z.number().int().positive(),
-    completedAt: z.string().min(1).max(64),
-    metrics: reviewRunMetricsSchema.optional(),
-  })
-  .strict();
-
 export const reviewStateSchema = z
   .object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
     pullRequestNumber: z.number().int().positive(),
     baseRevision: gitRevisionSchema,
     reviewedRevision: gitRevisionSchema,
@@ -205,27 +171,9 @@ export const reviewStateSchema = z
     findings: z.array(reviewReportFindingSchema.strict()).max(40),
     limitations: z.array(z.string().min(1).max(1_000)).max(20),
     truncated: z.boolean(),
-    // These fields are accepted only so an older valid review state remains
-    // readable. They are not used as metrics-ledger input or emitted again.
-    run: reviewRunAuditSchema.optional(),
-    runs: z.array(reviewRunAuditSchema).optional(),
-    runSummary: z
-      .object({
-        runCount: z.number().int().nonnegative(),
-        totalCost: z.number().nonnegative(),
-      })
-      .strict()
-      .optional(),
   })
   .strict()
   .superRefine((state, context) => {
-    if (state.run !== undefined && state.runs !== undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["runs"],
-        message: "State cannot contain both run and runs",
-      });
-    }
     const identities = new Set<string>();
     let highestIndex = 0;
     for (const [findingIndex, finding] of state.findings.entries()) {
@@ -263,7 +211,7 @@ export const reviewStateSchema = z
 
 export const reviewStateEnvelopeSchema = z
   .object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
     encoding: z.literal("gzip+base64"),
     data: z
       .string()
@@ -274,7 +222,7 @@ export const reviewStateEnvelopeSchema = z
 
 export const reviewCommentMetadataSchema = z
   .object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
     pullRequestNumber: z.number().int().positive(),
     reviewedRevision: gitRevisionSchema,
     previousReviewedRevision: gitRevisionSchema.optional(),
@@ -293,7 +241,6 @@ export const reviewHistoryOutputSchema = z.object({
   truncated: z.boolean(),
   previousReport: reviewCommentSchema.optional(),
   previousState: reviewStateSchema.optional(),
-  previousSnapshot: reviewSnapshotSchema.optional(),
   previousReviewedRevision: gitRevisionSchema.optional(),
 });
 

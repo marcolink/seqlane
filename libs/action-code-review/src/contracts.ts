@@ -78,7 +78,7 @@ export type ReviewPublication = z.infer<typeof reviewPublicationSchema>;
 
 /** Trusted identity metadata embedded in one authoritative review report. */
 export const reviewPublicationMetadataSchema = z.strictObject({
-  schemaVersion: z.literal(3),
+  schemaVersion: z.literal(4),
   pullRequestNumber: z.number().int().positive(),
   reviewedRevision: gitRevisionSchema,
   previousReviewedRevision: gitRevisionSchema.optional(),
