@@ -5,11 +5,10 @@ status: draft
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-15
+updated: 2026-09-24
 upstream:
   - adr.github-native-review-publication-state
   - spec.versioned-pull-request-review-comments
-  - spec.mechanical-pull-request-review-dispositions
   - spec.incremental-pull-request-review-scope
 supersedes: []
 ---
@@ -25,10 +24,12 @@ comment once, through the shared per-PR queue.
 
 This draft proposes changes to the storage and projection parts of
 [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md).
+It also narrows the accepted publication ADR's mechanical-disposition writer;
+the ADR needs a superseding decision before this draft becomes active.
 The existing active specification remains the current contract. PR #112 must
-reconcile that specification, the mechanical-disposition contract, and its
-incremental-scope and manifest specifications with this draft before the new
-publication path can become active. The manifest specification must land with
+reconcile that specification and its incremental-scope and manifest
+specifications with this draft before the new publication path can become
+active. The manifest specification must land with
 a stable identity and complete item, path, finding, and string limits. This
 draft alone does not authorize a second active transport or state schema.
 
@@ -39,7 +40,7 @@ draft alone does not authorize a second active transport or state schema.
 - Show overall known published cost and last published run cost without a
   visible per-run JSON ledger.
 - Warn before the comment reaches its size limits.
-- Preserve dispositions and published state across concurrent review events.
+- Preserve published state across concurrent review events.
 
 ## Non-goals
 
@@ -76,18 +77,17 @@ uniqueness, publication fails closed.
 The marker, decoded state, PR number, and full reviewed revision must agree.
 An invalid current-version state fails closed; it must not become a fresh
 baseline. The state is the sole source for the checkpoint, retained findings,
-lifecycle, disposition projection, cost, and artifact references. Visible
+lifecycle, cost, and artifact references. Visible
 Markdown and old metrics ledgers are never parsed as independent authority.
 
 The new scope-capable state version starts a fresh baseline and cost period.
-It does not migrate v1-v4 findings, dispositions, IDs, checkpoints, or visible
-metrics ledger entries. A new version must label the start of its cost period.
-The version number and schema must have one meaning across review and
-mechanical-disposition publishers.
+It does not migrate v1-v3 findings, IDs, checkpoints, or visible metrics
+ledger entries. A new version must label the start of its cost period.
+The version number and schema must have one meaning across review publishers.
 
 The strict `EmptyReviewState` has `stateRevision: 0`, no checkpoint, no
-findings, no dispositions, no artifact references, no consumed source
-identities, and no accumulated cost. Initial creation reads this state and
+findings, no artifact references, no consumed source identities, and no
+accumulated cost. Initial creation reads this state and
 writes revision 1. A single valid legacy bot comment can be replaced from the
 same empty baseline when the migration rules authorize the new state version;
 legacy data is not copied. A malformed current-version comment is not legacy
@@ -115,9 +115,7 @@ decodes UTF-8 with fatal error handling and parses JSON. It never calls an
 unbounded whole-buffer decompressor. These limits apply to every readback and
 reconciliation path.
 
-The publisher renders visible text only from the same state it writes. A
-mechanical disposition changes that state and regenerates the entire
-projection. No separate per-run JSON metrics block appears in the comment.
+The publisher renders visible text only from the same state it writes. No separate per-run JSON metrics block appears in the comment.
 Bounded detailed metrics belong in the run artifact.
 
 The trusted renderer treats model output, PR text, paths, provenance, and
@@ -143,8 +141,7 @@ The publisher derives each run's cost from validated execution events; a model
 does not calculate it. It adds a GitHub run ID and attempt at most once. The
 state retains a high-water pair for published review attempts, so an older or
 duplicate attempt cannot add cost after bounded recent history is compacted.
-The aggregate carries older known costs and incompleteness forward. The
-mechanical-disposition writer preserves cost data unchanged. The projection
+The aggregate carries older known costs and incompleteness forward. The projection
 does not render task-by-task JSON or a per-run ledger.
 
 ### requirement-size-warning
@@ -264,22 +261,19 @@ without verified source evidence.
 The new review path makes one final authoritative-comment mutation. Job and
 step status show progress. It creates no progress notice or inline finding
 comment. The existing v3 progress path remains legacy until replacement.
-Review computation may be cancelled when a newer revision arrives. Final
-review publication and mechanical dispositions use the **same** non-cancelling
-per-PR Actions queue. Every publisher uses the exact case-normalized key
+Review computation may be cancelled when a newer revision arrives. Final review publication uses a non-cancelling per-PR Actions queue. Every publisher uses the exact case-normalized key
 `seqlane-review-publication-<repository-id>-<pr-number>`. It uses `queue: max`
 without `cancel-in-progress: true`.
 GitHub allows up to 100 pending jobs in that group; overflow is cancelled and
 must be visible. Queue admission alone is not durable delivery. A cancelled
-pending publisher is recovered from its GitHub-owned source: the sealed
-candidate artifact for a review, or the authorized issue-comment command
-ledger for a disposition. The default-branch recovery dispatcher handles
-producer and publisher `workflow_run: completed` events and sweeps terminal
+pending publisher is recovered from its sealed GitHub Actions candidate
+artifact. The default-branch recovery dispatcher handles producer and
+publisher `workflow_run: completed` events and sweeps terminal
 runs and candidate artifacts on a schedule. It re-dispatches a trusted
 publisher only after proving the earlier attempt did not send a comment
-write. The replay retains the original review run ID and attempt or
-disposition command identity, but uses its own writer run ID. It checks the
-current head and state; a superseded review becomes stale. Duplicate recovery
+write. The replay retains the original review run ID and attempt, but uses
+its own writer run ID. It checks the current head and state; a superseded
+review becomes stale. Duplicate recovery
 events can dispatch duplicate attempts, but the shared queue and source
 identity check make them idempotent. A cancelled replay is eligible for the
 same recovery. Recovery failure remains visible and retains a review
@@ -293,29 +287,25 @@ authoritative comment. The queued publisher only consumes and revalidates
 that existing candidate; it never creates a second review artifact. A
 producer cancellation before verified upload has no recoverable publication.
 A cancellation after upload is recoverable from the candidate even if the
-initial dispatch was never sent. A disposition publisher derives its stable
-source identity from the authorized comment ID, effective update time, and
-canonical command digest. The hidden state records consumed source identities,
-so a replay or duplicate dispatch becomes a no-op after publication.
+initial dispatch was never sent. The hidden state records consumed source
+identities, so a replay or duplicate dispatch becomes a no-op after publication.
 
-A queued publisher re-reads the live PR, trusted comment,
-and authorized command ledger. It validates the captured
-scope, report identity, checkpoint, head, base, and target. It merges decisions
-made during computation before rendering. A stale attempt makes no write.
+A queued publisher re-reads the live PR and trusted comment. It validates
+the captured scope, report identity, checkpoint, head, base, and target. A
+stale attempt makes no write.
 
 The hidden state stores one typed `PublicationOperation`:
 
 ```text
 PublicationOperation = {
   schemaVersion: 1,
-  writerKind: "full-review" | "mechanical-disposition",
+  writerKind: "full-review",
   pullRequestNumber: positive integer,
   stateRevision: positive integer,
   writerRunId: decimal GitHub workflow run ID,
   writerAttempt: positive integer,
   source: { kind: "review", sourceRunId: decimal GitHub run ID,
-            sourceAttempt: positive integer, scopeIdentityDigest: SHA-256 }
-        | { kind: "disposition", commandLedgerDigest: SHA-256 },
+            sourceAttempt: positive integer, scopeIdentityDigest: SHA-256 },
   payloadDigest: lowercase SHA-256
 }
 ```
@@ -391,12 +381,11 @@ through the GitHub API. It requires the run and artifact to belong to the
 current repository; an allowlisted workflow ID and file path whose definition
 commit is reachable from the trusted default branch; matching run ID, attempt,
 PR number, artifact name, and artifact owner; an event of
-`pull_request_target`, `issue_comment`, or `workflow_dispatch`; and the
+`pull_request_target` or `workflow_dispatch`; and the
 allowlisted publisher job belonging to that run. It compares the event hint
 with the fetched run before trusting either.
-For `pull_request_target` and
-`issue_comment`, it rechecks the live PR, excludes fork-origin reviews, and
-revalidates disposition authors and current command text. A
+For `pull_request_target`, it rechecks the live PR and excludes fork-origin
+reviews. A
 `workflow_dispatch` run is eligible only from the trusted default-branch
 definition; PR-branch dispatches are excluded. A replay dispatch also has to
 match its validated original source identity. Event payloads and artifacts
@@ -473,15 +462,13 @@ it published.
 - A queue overflow or platform cancellation starts replay only when its
   comment write was provably never sent. If that cannot be proved, keep the
   candidate and report an unresolved effect instead of risking a second write.
-- If an authorized disposition arrives during model work, the final
-  publisher incorporates it from the live command ledger.
 - A size breach fails visibly. No compaction changes the cost total or hides
   active blocking findings.
 
 ## Migration
 
 PR #112's v5 proposal must include this hidden transport and cost shape when
-it first writes v5. Legacy v1-v4 content is classified but not migrated into
+it first writes v5. Legacy v1-v3 content is classified but not migrated into
 the new checkpoint. Old visible metrics ledgers are ignored for new cost
 totals. If v5 was already written without this shape, introduce a distinct
 new state version rather than treating two schemas as v5.
@@ -492,8 +479,7 @@ new state version rather than treating two schemas as v5.
   bounded decompression tests at 512,000 and 512,001 decoded bytes, including
   a high-expansion gzip payload and malformed UTF-8.
 - Deterministic projection and cost tests: missing provider cost,
-  duplicate attempt, compacted history, mechanical disposition, and new
-  cost-period label.
+  duplicate attempt, compacted history, and new cost-period label.
 - Render at 79%, 80%, and hard limits with multibyte text; show warning
   and preserve old checkpoint on rejection.
 - Verify one sealed artifact, 90-day retention, direct-ID retrieval,
@@ -501,12 +487,11 @@ new state version rather than treating two schemas as v5.
 - Test upload-before-comment ordering, exact readback, definite and
   uncertain failures, producer cancellation before and after upload, and
   cleanup of a proven unpublished artifact.
-- Test full-review and disposition writers in one queue, decisions arriving
-  during computation, stale updates, queue overflow, cancelled replay,
-  duplicate recovery dispatch, and one final write.
+- Test review writers in one queue, stale updates, queue overflow,
+  cancelled replay, duplicate recovery dispatch, and one final write.
 - Reject wrong-repository, fork, PR-branch workflow dispatch, untrusted
-  workflow file/ref, mismatched run and artifact, unauthorized command, and
-  ambiguous in-flight writes before recovery mutation.
+  workflow file/ref, mismatched run and artifact, and ambiguous in-flight
+  writes before recovery mutation.
 - Verify zero, one, and multiple authoritative comment matches. Exercise
   recovery cursor pagination, time and page budgets, boundary overlap,
   overfull-shard bisection, restart after expiry, and incomplete coverage.
@@ -523,22 +508,21 @@ new state version rather than treating two schemas as v5.
   limit, the prior checkpoint remains and the Action fails clearly.
 - Each confirmed published review references one verified, 90-day run
   artifact. Failed and cancelled runs add no published artifact.
-- Review and disposition publishers share one queue and cannot overwrite
-  newer state with an old checkpoint or disposition set.
+- Review publishers share one queue and cannot overwrite newer state with
+  an old checkpoint.
 
 ## Delivery state
 
 This is a draft future contract, not an amendment to the current active
 review-comment specification. Implementation is pending. It cannot become
 active until PR #112 lands a canonical manifest specification with stable ID
-and complete bounds, updates the existing review-comment and mechanical
-contracts, and aligns the single v5 schema. No delivery is claimed here.
+and complete bounds, updates the existing review-comment contract, and aligns
+the single v5 schema. No delivery is claimed here.
 
 ## Traceability
 
 - Architecture: [adr.github-native-review-publication-state](../adrs/2026-09-14-github-native-review-publication-state.md)
 - Finding lifecycle: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
-- Mechanical writers: [spec.mechanical-pull-request-review-dispositions](./2026-09-06-mechanical-pull-request-review-dispositions.md)
 - Incremental scope: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Proposed scope and manifest: [PR #112](https://github.com/marcolink/seqlane/pull/112)
 - Queue semantics: [GitHub Actions concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)

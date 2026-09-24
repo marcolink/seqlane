@@ -200,7 +200,7 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(workflow).toContain("pull_request_target:");
-    expect(workflow).toContain("issue_comment:");
+    expect(workflow).not.toContain("issue_comment:");
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("path: seqlane-source");
     expect(workflow).toContain("ref: ${{ github.workflow_sha }}");
@@ -247,7 +247,7 @@ describe("pull-request code review example workflow", () => {
     expect(workflow).not.toContain("- `/seqlane review`");
   });
 
-  it("admits only real review requests before per-pull-request concurrency", async () => {
+  it("runs one review job for eligible pull requests and manual dispatch", async () => {
     const workflow = await readFile(
       new URL(
         "../../../.github/workflows/seqlane-code-review.yml",
@@ -255,7 +255,6 @@ describe("pull-request code review example workflow", () => {
       ),
       "utf8",
     );
-    const admission = workflowJobBlock(workflow, "admit-review");
     const review = workflowJobBlock(workflow, "code-review");
     const closeCancellation = workflowJobBlock(
       workflow,
@@ -263,42 +262,14 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(workflow).not.toMatch(/^concurrency:/m);
-    expect(admission).toContain("contents: none");
-    expect(admission).toContain("issues: none");
-    expect(admission).toContain("pull-requests: none");
-    expect(admission).toContain("github.event_name != 'issue_comment' ||");
-    expect(admission).toContain("github.event.issue.pull_request != null");
-    expect(admission).toContain("github.event.comment.author_association");
-    expect(admission).toContain(
-      "contains(github.event.comment.body, '/seqlane')",
-    );
-    expect(admission).toContain(
-      "contains(github.event.changes.body.from, '/seqlane')",
-    );
-    expect(admission).toContain("PREVIOUS_COMMENT_BODY");
-    expect(admission).toContain("COMMENT_BODY");
-    expect(admission).toContain('[ "$EVENT_NAME" != "issue_comment" ]');
-    expect(admission).toContain('[ "$ISSUE_IS_PULL_REQUEST" != "true" ]');
-    expect(admission).toContain('[ "$EVENT_ACTION" != "created" ]');
-    expect(admission).toContain('[ "$EVENT_ACTION" != "edited" ]');
-    expect(admission).toContain("$COMMENT_AUTHOR_ASSOCIATION");
-    expect(admission).toContain('[ "$EVENT_ACTION" != "closed" ]');
-    expect(admission).toContain('[ "$EVENT_DRAFT" = "false" ]');
-    expect(admission).toContain(
-      '[ "$EVENT_REPOSITORY" = "$GITHUB_REPOSITORY" ]',
-    );
-    expect(admission).toContain('[ "$EVENT_PR_NUMBER" != "" ]');
-    expect(admission).toContain(
-      "grep -Eqi '(^|[[:space:]])/seqlane[[:space:]]+(review([[:space:]]|$)|(fixed|wont-fix|downgrade)[[:space:]]+(F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9][0-9]*-[0-9]{3,})([[:space:]]|$))'",
-    );
-    expect(admission).not.toContain("actions/checkout");
-
-    expect(review).toContain("needs: admit-review");
+    expect(workflow).not.toContain("admit-review:");
+    expect(review).toContain("github.event_name == 'workflow_dispatch'");
+    expect(review).toContain("github.event.pull_request.draft == false");
     expect(review).toContain(
-      "if: needs.admit-review.outputs.eligible == 'true'",
+      "github.event.pull_request.head.repo.full_name == github.repository",
     );
     expect(review).toContain(
-      "group: seqlane-code-review-${{ needs.admit-review.outputs.pull_request_number }}",
+      "group: seqlane-code-review-${{ github.event.pull_request.number || inputs.pull_request_number }}",
     );
     expect(review).toContain("cancel-in-progress: true");
     expect(review).toContain("pull-requests: write");
@@ -317,14 +288,6 @@ describe("pull-request code review example workflow", () => {
     expect(closeCancellation).toContain("pull-requests: none");
     expect(closeCancellation).not.toContain("actions/checkout");
     expect(closeCancellation).not.toContain("Publish code review");
-
-    const reviewConcurrency = workflow.indexOf(
-      "\n    concurrency:",
-      workflow.indexOf("\n  code-review:"),
-    );
-    expect(workflow.indexOf("\n  admit-review:")).toBeLessThan(
-      reviewConcurrency,
-    );
   });
 
   it("requires explicit revisions and pull-request context", () => {
@@ -340,10 +303,7 @@ describe("pull-request code review example workflow", () => {
       },
       reviewHistory: {
         comments: [],
-        commentIds: [],
         truncated: false,
-        dispositionsTruncated: false,
-        dispositions: [],
       },
     };
 
@@ -372,7 +332,7 @@ describe("pull-request code review example workflow", () => {
         "code-review-maintainability",
         "code-review-risk",
         "code-review-summarize",
-        "code-review-apply-dispositions",
+        "code-review-finalize",
       ]),
     );
   });
@@ -399,24 +359,22 @@ describe("pull-request code review example workflow", () => {
       (node) =>
         node.type === "task" && node.taskId === "code-review-verify-history",
     );
-    const applyDispositions = plan.nodes.find(
-      (node) =>
-        node.type === "task" &&
-        node.taskId === "code-review-apply-dispositions",
+    const finalizeReview = plan.nodes.find(
+      (node) => node.type === "task" && node.taskId === "code-review-finalize",
     );
     expect(gitEvidence).toMatchObject({
       workspace: "shared",
       dependsOn: [],
     });
     expect(gitEvidence).not.toHaveProperty("execution");
-    expect(applyDispositions?.dependsOn).toEqual(
+    expect(finalizeReview?.dependsOn).toEqual(
       expect.arrayContaining([
         gitEvidence?.nodeId,
         historyVerification?.nodeId,
         summarize?.nodeId,
       ]),
     );
-    expect(applyDispositions?.dependsOn).toHaveLength(3);
+    expect(finalizeReview?.dependsOn).toHaveLength(3);
     expect(historyVerification).toMatchObject({
       workspace: "shared",
       dependsOn: expect.arrayContaining([gitEvidence?.nodeId]),
@@ -489,197 +447,6 @@ describe("pull-request code review example workflow", () => {
           taskId: "code-review-correctness",
           workspace: "shared",
         }),
-      ]),
-    );
-  });
-
-  it("normalizes review history and authorizes disposition commands", async () => {
-    const task = reviewContextTask;
-
-    const result = await executeTask<any, any>(
-      task,
-      {
-        pullRequestNumber: 44,
-        reviewHistory: {
-          comments: [
-            {
-              id: "2",
-              kind: "issue",
-              author: "contributor",
-              authorAssociation: "CONTRIBUTOR",
-              body: "/seqlane wont-fix F-123 reason: not authorized",
-              createdAt: "2026-09-05T10:00:00Z",
-            },
-            {
-              id: "3",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              body: "/seqlane downgrade F-123 optional reason: low impact",
-              createdAt: "2026-09-05T11:00:00Z",
-              commitId: "a".repeat(40),
-            },
-            {
-              id: "4",
-              kind: "issue",
-              author: "github-actions",
-              authorAssociation: "NONE",
-              body: [
-                "<!-- seqlane-code-review -->",
-                `<!-- seqlane-code-review-report-v1: ${Buffer.from(
-                  JSON.stringify({
-                    headRevision: "a".repeat(40),
-                    findings: [
-                      {
-                        id: "F-456",
-                        axis: "correctness",
-                        severity: "required",
-                        effectiveSeverity: "required",
-                        disposition: "open",
-                        summary: "Old finding",
-                        recommendation: "Fix the old finding.",
-                      },
-                    ],
-                  }),
-                ).toString("base64")} -->`,
-              ].join("\n"),
-              createdAt: "2026-09-05T12:00:00Z",
-            },
-            {
-              id: "5",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "OWNER",
-              body: "/seqlane fixed F-456",
-              createdAt: "2026-09-05T12:30:00Z",
-            },
-            {
-              id: "6",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              body: "/SEQLANE wont-fix seq-pr44-001 reason: accepted",
-              createdAt: "2026-09-05T13:00:00Z",
-            },
-          ],
-          truncated: false,
-        },
-      },
-      {},
-    );
-
-    expect(result.dispositions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          findingId: "F-123",
-          action: "wont-fix",
-          authorized: false,
-          author: "contributor",
-        }),
-        expect.objectContaining({
-          findingId: "F-123",
-          action: "downgrade",
-          effectiveSeverity: "optional",
-          authorized: true,
-          commitId: "a".repeat(40),
-        }),
-        expect.objectContaining({
-          findingId: "F-456",
-          action: "fixed",
-          authorized: true,
-        }),
-        expect.objectContaining({
-          findingId: "seq-pr44-001",
-          action: "wont-fix",
-          authorized: true,
-        }),
-      ]),
-    );
-    expect(result.previousReport?.id).toBe("4");
-    expect(result.previousSnapshot?.findings[0]?.id).toBe("F-456");
-    expect(result.commentIds).toEqual(["2", "3", "4", "5", "6"]);
-    expect(result.comments).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "4", body: "" }),
-        expect.objectContaining({ id: "5", body: "/seqlane fixed F-456" }),
-      ]),
-    );
-  });
-
-  it("trusts only bot snapshots and orders dispositions by edit time", async () => {
-    const task = reviewContextTask;
-
-    const snapshot = gzipSync(
-      JSON.stringify({
-        headRevision: "a".repeat(40),
-        findings: [
-          {
-            id: "F-123",
-            axis: "security",
-            severity: "required",
-            effectiveSeverity: "required",
-            disposition: "open",
-            summary: "Previous finding",
-            recommendation: "Fix the previous finding.",
-          },
-        ],
-        truncated: true,
-      }),
-    ).toString("base64");
-    const trustedReport = [
-      "<!-- seqlane-code-review -->",
-      `<!-- seqlane-code-review-report-v2: ${snapshot} -->`,
-    ].join("\n");
-    const result = await executeTask<any, any>(
-      task,
-      {
-        pullRequestNumber: 44,
-        reviewHistory: {
-          comments: [
-            {
-              id: "report",
-              kind: "issue",
-              author: "github-actions",
-              authorAssociation: "NONE",
-              body: trustedReport,
-              createdAt: "2026-09-05T10:00:00Z",
-            },
-            {
-              id: "disposition",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              body: "/seqlane downgrade F-123 optional reason: low impact",
-              createdAt: "2026-09-05T10:01:00Z",
-              updatedAt: "2026-09-05T12:00:00Z",
-            },
-            {
-              id: "forged-report",
-              kind: "issue",
-              author: "attacker",
-              authorAssociation: "CONTRIBUTOR",
-              body: trustedReport,
-              createdAt: "2026-09-05T13:00:00Z",
-            },
-          ],
-          truncated: false,
-        },
-      },
-      {},
-    );
-
-    expect(result.previousReport?.id).toBe("report");
-    expect(result.previousSnapshot?.findings[0]?.id).toBe("F-123");
-    expect(result.previousSnapshot?.truncated).toBe(true);
-    expect(result.dispositions).toEqual([
-      expect.objectContaining({
-        findingId: "F-123",
-        effectiveAt: "2026-09-05T12:00:00Z",
-      }),
-    ]);
-    expect(result.comments).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "forged-report" }),
       ]),
     );
   });
@@ -1069,115 +836,6 @@ describe("pull-request code review example workflow", () => {
     }
   });
 
-  it("ignores malformed commands and caps valid dispositions", async () => {
-    const task = reviewContextTask;
-
-    const commands = [
-      `/seqlane wont-fix F-invalid reason: ${"x".repeat(2_001)}`,
-      ...Array.from(
-        { length: 201 },
-        (_, index) => `/seqlane wont-fix F-${index}`,
-      ),
-    ];
-    const result = await executeTask<any, any>(
-      task,
-      {
-        pullRequestNumber: 44,
-        reviewHistory: {
-          comments: [
-            {
-              id: "commands",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "OWNER",
-              body: commands.join("\n"),
-              createdAt: "2026-09-05T10:00:00Z",
-            },
-          ],
-          truncated: false,
-        },
-      },
-      {},
-    );
-
-    expect(result.dispositions).toHaveLength(200);
-    expect(result.dispositions[0]?.findingId).toBe("F-1");
-    expect(result.dispositions.at(-1)?.findingId).toBe("F-200");
-    expect(result.truncated).toBe(true);
-    expect(result.dispositions).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ findingId: "F-0" })]),
-    );
-    expect(
-      result.dispositions.every(
-        (disposition: { readonly reason?: string }) =>
-          disposition.reason === undefined,
-      ),
-    ).toBe(true);
-  });
-
-  it("retains dispositions for persisted findings when the global bound overflows", async () => {
-    const task = reviewContextTask;
-    const snapshot = gzipSync(
-      JSON.stringify({
-        headRevision: REVIEW_TEST_BASE_REVISION,
-        findings: [
-          {
-            id: "F-0",
-            axis: "correctness",
-            severity: "required",
-            effectiveSeverity: "required",
-            disposition: "wont-fix",
-            summary: "Retained finding",
-            recommendation: "Keep its policy decision.",
-          },
-        ],
-        truncated: false,
-      }),
-    ).toString("base64");
-    const result = await executeTask<any, any>(
-      task,
-      {
-        pullRequestNumber: 44,
-        reviewHistory: {
-          comments: [
-            {
-              id: "report",
-              kind: "issue",
-              author: "github-actions[bot]",
-              authorAssociation: "NONE",
-              body: [
-                "<!-- seqlane-code-review -->",
-                `<!-- seqlane-code-review-report-v2: ${snapshot} -->`,
-              ].join("\n"),
-              createdAt: "2026-09-05T09:00:00Z",
-            },
-            {
-              id: "commands",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "OWNER",
-              body: Array.from(
-                { length: 201 },
-                (_, index) => `/seqlane wont-fix F-${index}`,
-              ).join("\n"),
-              createdAt: "2026-09-05T10:00:00Z",
-            },
-          ],
-          truncated: false,
-        },
-      },
-      {},
-    );
-
-    expect(result.dispositions).toHaveLength(200);
-    expect(result.dispositions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ findingId: "F-0", action: "wont-fix" }),
-      ]),
-    );
-    expect(result.truncated).toBe(true);
-  });
-
   it("rejects compressed snapshots that exceed the decompression bound", async () => {
     const task = reviewContextTask;
 
@@ -1344,9 +1002,7 @@ describe("pull-request code review example workflow", () => {
         },
         normalizedReviewHistory: {
           comments: [],
-          commentIds: [],
           truncated: false,
-          dispositions: [],
           previousReviewedRevision: previousRevision,
         },
       },
@@ -1571,7 +1227,7 @@ describe("pull-request code review example workflow", () => {
       "code-review-maintainability",
       "code-review-risk",
       "code-review-summarize",
-      "code-review-apply-dispositions",
+      "code-review-finalize",
     ];
     for (const taskId of sharedReviewTaskIds) {
       expect(workflow.taskDefinitions.get(taskId)).toBeDefined();
@@ -1587,650 +1243,81 @@ describe("pull-request code review example workflow", () => {
     }
   });
 
-  it("applies authorized wont-fix and downgrade decisions before the verdict", async () => {
+  it("ignores comment decisions for a previously dismissed finding", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
+      "code-review-finalize",
     );
     if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
+      throw new Error("Expected review finalizer");
     }
-
-    const revision = "a".repeat(40);
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: {
-          repository: "/repo",
-          baseBranch: "release/2026.09",
-          baseRevision: revision,
-          headRevision: "b".repeat(40),
-          pullRequest: {
-            number: 44,
-            title: "Add automated review",
-            description: "Run Seqlane for every pull request.",
-          },
-          gitEvidence: {
-            baseRevision: revision,
-            headRevision: "b".repeat(40),
-            changedFiles: ["src/review.ts"],
-            changedFileCount: 1,
-            changedFilesTruncated: false,
-            diffStat: "1 file changed",
-            diffStatTruncated: false,
-            patch: "diff",
-            patchByteLength: 4,
-            patchTruncated: false,
-            diffCheck: {
-              exitCode: 0,
-              stdout: "",
-              stderr: "",
-              stdoutTruncated: false,
-              stderrTruncated: false,
-            },
-            previousRevisionComparable: false,
-          },
-          reviewHistory: {
-            comments: [],
-            commentIds: ["comment-1", "comment-2", "comment-3"],
-            truncated: false,
-            dispositions: [
-              {
-                findingId: "F-123",
-                action: "wont-fix",
-                reason: "Accepted risk",
-                commentId: "comment-1",
-                author: "maintainer",
-                authorAssociation: "MEMBER",
-                authorized: true,
-                createdAt: "2026-09-05T12:00:00Z",
-                effectiveAt: "2026-09-05T12:00:00Z",
-              },
-              {
-                findingId: "F-124",
-                action: "downgrade",
-                effectiveSeverity: "optional",
-                reason: "Low impact",
-                commentId: "comment-2",
-                author: "maintainer",
-                authorAssociation: "OWNER",
-                authorized: true,
-                createdAt: "2026-09-05T13:00:00Z",
-                effectiveAt: "2026-09-05T13:00:00Z",
-              },
-              {
-                findingId: "F-125",
-                action: "wont-fix",
-                reason: "Previously accepted risk",
-                commentId: "comment-3",
-                author: "maintainer",
-                authorAssociation: "MEMBER",
-                authorized: true,
-                createdAt: "2026-09-05T14:00:00Z",
-                effectiveAt: "2026-09-05T14:00:00Z",
-              },
-            ],
-            previousState: {
-              schemaVersion: 3,
-              pullRequestNumber: 44,
-              baseRevision: revision,
-              reviewedRevision: "b".repeat(40),
-              nextFindingIndex: 3,
-              findings: [
-                {
-                  id: "SEQ-PR44-001",
-                  axis: "architecture",
-                  severity: "required",
-                  effectiveSeverity: "required",
-                  disposition: "open",
-                  status: "open",
-                  aliases: ["F-125"],
-                  summary: "Previously found concern",
-                  recommendation: "Document the accepted risk.",
-                },
-                {
-                  id: "SEQ-PR44-002",
-                  axis: "readability",
-                  severity: "required",
-                  effectiveSeverity: "required",
-                  disposition: "open",
-                  status: "open",
-                  aliases: ["F-124"],
-                  summary: "Low impact issue",
-                  recommendation: "Simplify the branch.",
-                },
-              ],
-              limitations: [],
-              truncated: false,
-              runs: [
-                {
-                  id: "100",
-                  attempt: 1,
-                  completedAt: "2026-09-05T11:00:00Z",
-                },
-              ],
-            },
-            previousSnapshot: {
-              headRevision: revision,
-              findings: [
-                {
-                  id: "F-125",
-                  axis: "architecture",
-                  severity: "required",
-                  effectiveSeverity: "required",
-                  disposition: "open",
-                  summary: "Previously found concern",
-                  recommendation: "Document the accepted risk.",
-                },
-                {
-                  id: "F-124",
-                  axis: "readability",
-                  severity: "required",
-                  effectiveSeverity: "required",
-                  disposition: "open",
-                  summary: "Low impact issue",
-                  recommendation: "Simplify the branch.",
-                },
-              ],
-            },
-          },
-          historyVerification: {
-            headRevision: "b".repeat(40),
-            verifications: [],
-            limitations: [],
-          },
+    const previous = {
+      id: "SEQ-PR44-001",
+      aliases: ["F-9"],
+      axis: "correctness",
+      severity: "required",
+      effectiveSeverity: "optional",
+      disposition: "wont-fix",
+      status: "dismissed",
+      summary: "Broken boundary",
+      recommendation: "Restore validation",
+      dispositionCommentId: "decision",
+    };
+    const history = {
+      comments: [
+        {
+          id: "decision",
+          kind: "issue",
+          author: "maintainer",
+          authorAssociation: "OWNER",
+          body: "/seqlane wont-fix SEQ-PR44-001",
+          createdAt: "2026-09-24T00:00:00Z",
         },
-        report: {
-          repository: "/repo",
-          baseBranch: "release/2026.09",
-          baseRevision: revision,
-          headRevision: "b".repeat(40),
-          overallRating: 3,
-          verdict: "request-changes",
-          summary: "Two findings require a decision.",
-          ratings: [
-            "correctness",
-            "readability",
-            "architecture",
-            "security",
-            "performance",
-          ].map((axis) => ({ axis, rating: 3, rationale: "Moderate concern" })),
-          findings: [
-            {
-              id: "F-123",
-              axis: "security",
-              severity: "required",
-              effectiveSeverity: "required",
-              disposition: "open",
-              summary: "Accepted risk",
-              recommendation: "Document the risk.",
-            },
-            {
-              id: "F-124",
-              axis: "readability",
-              severity: "optional",
-              effectiveSeverity: "optional",
-              disposition: "open",
-              summary: "Low impact issue",
-              recommendation: "Simplify the branch.",
-            },
-          ],
-          verification: [],
-        },
+      ],
+      truncated: false,
+      previousState: {
+        schemaVersion: 3,
+        pullRequestNumber: 44,
+        baseRevision: REVIEW_TEST_BASE_REVISION,
+        reviewedRevision: REVIEW_TEST_HEAD_REVISION,
+        nextFindingIndex: 2,
+        findings: [previous],
+        limitations: [],
+        truncated: false,
       },
-      {},
-    );
-
-    expect(result.verdict).toBe("approve");
-    expect(() => JSON.stringify(result)).not.toThrow();
-    expect(result.findings).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: "SEQ-PR44-003",
-          aliases: ["F-123"],
-          disposition: "wont-fix",
-          status: "dismissed",
+    };
+    const result = await executeTask<any, any>(task, {
+      review: createReviewInput(history),
+      report: createReport([
+        {
+          id: "F-9",
+          axis: "correctness",
+          severity: "required",
           effectiveSeverity: "required",
-          dispositionBy: "maintainer",
-        }),
-        expect.objectContaining({
-          id: "SEQ-PR44-002",
-          aliases: ["F-124"],
-          disposition: "downgraded",
-          status: "open",
-          effectiveSeverity: "optional",
-          dispositionBy: "maintainer",
-        }),
-        expect.objectContaining({
-          id: "SEQ-PR44-001",
-          aliases: ["F-125"],
-          disposition: "wont-fix",
-          status: "dismissed",
-          dispositionReason: "Previously accepted risk",
-        }),
+          disposition: "open",
+          summary: "Broken boundary",
+          recommendation: "Restore validation",
+        },
       ]),
-    );
-  });
-
-  it("keeps an omitted fixed finding open until current evidence confirms it", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-
-    const baseRevision = "a".repeat(40);
-    const headRevision = "b".repeat(40);
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: {
-          repository: "/repo",
-          baseBranch: "main",
-          baseRevision,
-          headRevision,
-          pullRequest: {
-            number: 44,
-            title: "Fix review history",
-            description: "Keep historical findings visible.",
-          },
-          gitEvidence: {
-            baseRevision,
-            headRevision,
-            changedFiles: ["src/review.ts"],
-            changedFileCount: 1,
-            changedFilesTruncated: false,
-            diffStat: "1 file changed",
-            diffStatTruncated: false,
-            patch: "diff",
-            patchByteLength: 4,
-            patchTruncated: false,
-            diffCheck: {
-              exitCode: 0,
-              stdout: "",
-              stderr: "",
-              stdoutTruncated: false,
-              stderrTruncated: false,
-            },
-            previousRevisionComparable: false,
-          },
-          reviewHistory: {
-            comments: [],
-            commentIds: ["fixed-comment"],
-            truncated: false,
-            dispositions: [
-              {
-                findingId: "F-126",
-                action: "fixed",
-                commentId: "fixed-comment",
-                author: "maintainer",
-                authorAssociation: "MEMBER",
-                authorized: true,
-                createdAt: "2026-09-05T10:00:00Z",
-                effectiveAt: "2026-09-05T10:00:00Z",
-              },
-            ],
-            previousSnapshot: {
-              headRevision,
-              findings: [
-                {
-                  id: "F-126",
-                  axis: "correctness",
-                  severity: "required",
-                  effectiveSeverity: "required",
-                  disposition: "open",
-                  summary: "Historical correctness finding",
-                  recommendation: "Fix the historical finding.",
-                },
-              ],
-            },
-          },
-          historyVerification: {
-            headRevision,
-            verifications: [],
-            limitations: [],
-          },
-        },
-        report: {
-          repository: "/repo",
-          baseBranch: "main",
-          baseRevision,
-          headRevision,
-          overallRating: 4,
-          verdict: "approve",
-          summary: "No current findings were synthesized.",
-          ratings: [
-            "correctness",
-            "readability",
-            "architecture",
-            "security",
-            "performance",
-          ].map((axis) => ({ axis, rating: 4, rationale: "No new concern." })),
-          findings: [],
-          verification: [],
-        },
-      },
-      {},
-    );
+    });
 
     expect(result.verdict).toBe("request-changes");
     expect(result.findings).toEqual([
       expect.objectContaining({
         id: "SEQ-PR44-001",
-        aliases: ["F-126"],
-        disposition: "fixed",
-        status: "addressed",
         effectiveSeverity: "required",
+        disposition: "open",
+        status: "open",
       }),
     ]);
-  });
-
-  it("resolves a fixed finding only with finding-specific current-head verification", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-    const previousFinding = {
-      id: "SEQ-PR44-001",
-      axis: "correctness",
-      severity: "required",
-      effectiveSeverity: "required",
-      disposition: "open",
-      status: "open",
-      aliases: ["F-126"],
-      summary: "Historical correctness finding",
-      recommendation: "Fix the historical finding.",
-    };
-    const review = createReviewInput({
-      comments: [],
-      commentIds: ["fixed-comment"],
-      truncated: false,
-      dispositions: [
-        {
-          findingId: "SEQ-PR44-001",
-          action: "fixed",
-          commentId: "fixed-comment",
-          author: "maintainer",
-          authorAssociation: "MEMBER",
-          authorized: true,
-          createdAt: "2026-09-05T10:00:00Z",
-          effectiveAt: "2026-09-05T10:00:00Z",
-        },
-      ],
-      previousState: {
-        schemaVersion: 3,
-        pullRequestNumber: 44,
-        baseRevision: REVIEW_TEST_BASE_REVISION,
-        reviewedRevision: REVIEW_TEST_BASE_REVISION,
-        nextFindingIndex: 2,
-        findings: [previousFinding],
-        limitations: [],
-        truncated: false,
-      },
-    });
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: {
-          ...review,
-          historyVerification: {
-            headRevision: REVIEW_TEST_HEAD_REVISION,
-            verifications: [
-              {
-                findingId: "SEQ-PR44-001",
-                headRevision: REVIEW_TEST_HEAD_REVISION,
-                outcome: "resolved",
-                evidence: "The guarded branch now rejects the invalid input.",
-              },
-            ],
-            limitations: [],
-          },
-        },
-        report: createReport([]),
-      },
-      {},
-    );
-
-    expect(result.verdict).toBe("approve");
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        disposition: "fixed",
-        status: "resolved",
-        dispositionBy: "maintainer",
-      }),
-    ]);
-  });
-
-  it("applies a lowercase disposition ID to its canonical finding", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: createReviewInput({
-          comments: [],
-          commentIds: ["lowercase-command"],
-          truncated: false,
-          dispositions: [
-            {
-              findingId: "seq-pr44-001",
-              action: "wont-fix",
-              commentId: "lowercase-command",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              authorized: true,
-              createdAt: "2026-09-05T10:00:00Z",
-              effectiveAt: "2026-09-05T10:00:00Z",
-            },
-          ],
-          previousState: {
-            schemaVersion: 3,
-            pullRequestNumber: 44,
-            baseRevision: REVIEW_TEST_BASE_REVISION,
-            reviewedRevision: REVIEW_TEST_BASE_REVISION,
-            nextFindingIndex: 2,
-            findings: [
-              {
-                id: "SEQ-PR44-001",
-                axis: "correctness",
-                severity: "required",
-                effectiveSeverity: "required",
-                disposition: "open",
-                status: "open",
-                aliases: [],
-                summary: "Canonical finding",
-                recommendation: "Apply the maintainer decision.",
-              },
-            ],
-            limitations: [],
-            truncated: false,
-          },
-        }),
-        report: createReport([]),
-      },
-      {},
-    );
-
-    expect(result.verdict).toBe("approve");
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        disposition: "wont-fix",
-        status: "dismissed",
-      }),
-    ]);
-  });
-
-  it("requires fresh current-head proof to retain a resolved fixed finding", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-    const previousFinding = {
-      id: "SEQ-PR44-001",
-      axis: "correctness",
-      severity: "required",
-      effectiveSeverity: "required",
-      disposition: "fixed",
-      dispositionBy: "maintainer",
-      dispositionAt: "2026-09-05T10:00:00Z",
-      dispositionCommentId: "fixed-comment",
-      status: "resolved",
-      aliases: [],
-      summary: "Historical correctness finding",
-      recommendation: "Fix the historical finding.",
-    };
-    const reviewHistory = {
-      comments: [],
-      commentIds: ["fixed-comment"],
-      truncated: false,
-      dispositions: [
-        {
-          findingId: "SEQ-PR44-001",
-          action: "fixed",
-          commentId: "fixed-comment",
-          author: "maintainer",
-          authorAssociation: "MEMBER",
-          authorized: true,
-          createdAt: "2026-09-05T10:00:00Z",
-          effectiveAt: "2026-09-05T10:00:00Z",
-        },
-      ],
-      previousState: {
-        schemaVersion: 3,
-        pullRequestNumber: 44,
-        baseRevision: REVIEW_TEST_BASE_REVISION,
-        reviewedRevision: REVIEW_TEST_BASE_REVISION,
-        nextFindingIndex: 2,
-        findings: [previousFinding],
-        limitations: [],
-        truncated: false,
-      },
-    };
-
-    for (const verifications of [
-      [],
-      [
-        {
-          findingId: "SEQ-PR44-001",
-          headRevision: REVIEW_TEST_HEAD_REVISION,
-          outcome: "uncertain",
-          evidence: "The bounded evidence could not confirm the fix.",
-        },
-      ],
-    ]) {
-      const review = createReviewInput(reviewHistory);
-      const result = await executeTask<any, any>(
-        task,
-        {
-          review: {
-            ...review,
-            historyVerification: {
-              headRevision: REVIEW_TEST_HEAD_REVISION,
-              verifications,
-              limitations: [],
-            },
-          },
-          report: createReport([]),
-        },
-        {},
-      );
-
-      expect(result.verdict).toBe("request-changes");
-      expect(result.findings).toEqual([
-        expect.objectContaining({
-          id: "SEQ-PR44-001",
-          disposition: "fixed",
-          status: "addressed",
-        }),
-      ]);
-    }
-  });
-
-  it("replaces stale disposition reason and commit metadata", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: createReviewInput({
-          comments: [],
-          commentIds: ["decision"],
-          truncated: false,
-          dispositions: [
-            {
-              findingId: "SEQ-PR44-001",
-              action: "wont-fix",
-              reason: "New reason",
-              commentId: "decision",
-              author: "maintainer",
-              authorAssociation: "OWNER",
-              authorized: true,
-              createdAt: "2026-09-05T10:00:00Z",
-              effectiveAt: "2026-09-05T11:00:00Z",
-            },
-          ],
-          previousState: {
-            schemaVersion: 3,
-            pullRequestNumber: 44,
-            baseRevision: REVIEW_TEST_BASE_REVISION,
-            reviewedRevision: REVIEW_TEST_BASE_REVISION,
-            nextFindingIndex: 2,
-            findings: [
-              {
-                id: "SEQ-PR44-001",
-                axis: "security",
-                severity: "required",
-                effectiveSeverity: "required",
-                disposition: "wont-fix",
-                dispositionReason: "Old reason",
-                dispositionBy: "maintainer",
-                dispositionAt: "2026-09-05T10:00:00Z",
-                dispositionCommentId: "decision",
-                dispositionCommit: REVIEW_TEST_BASE_REVISION,
-                status: "dismissed",
-                aliases: [],
-                summary: "Accepted risk",
-                recommendation: "Document the risk.",
-              },
-            ],
-            limitations: [],
-            truncated: false,
-          },
-        }),
-        report: createReport([]),
-      },
-      {},
-    );
-
-    expect(result.findings[0]).toMatchObject({
-      disposition: "wont-fix",
-      dispositionReason: "New reason",
-      status: "dismissed",
-    });
-    expect(result.findings[0]?.dispositionCommit).toBeUndefined();
+    expect(result.findings[0]).not.toHaveProperty("dispositionCommentId");
   });
 
   it("bounds merged current and historical findings", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
+      "code-review-finalize",
     );
     if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
+      throw new Error("Expected review finalizer");
     }
 
     const historicalFindings = Array.from({ length: 40 }, (_, index) => ({
@@ -2256,9 +1343,7 @@ describe("pull-request code review example workflow", () => {
       {
         review: createReviewInput({
           comments: [],
-          commentIds: [],
           truncated: false,
-          dispositions: [],
           previousSnapshot: {
             headRevision: REVIEW_TEST_HEAD_REVISION,
             findings: historicalFindings,
@@ -2295,10 +1380,10 @@ describe("pull-request code review example workflow", () => {
 
   it("deduplicates temporary finding identifiers before allocating stable IDs", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
+      "code-review-finalize",
     );
     if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
+      throw new Error("Expected review finalizer");
     }
     const duplicate = {
       id: "F-duplicate",
@@ -2315,9 +1400,7 @@ describe("pull-request code review example workflow", () => {
       {
         review: createReviewInput({
           comments: [],
-          commentIds: [],
           truncated: false,
-          dispositions: [],
         }),
         report: createReport([duplicate, duplicate]),
       },
@@ -2335,7 +1418,7 @@ describe("pull-request code review example workflow", () => {
 
   it("deduplicates legacy identities during version 3 migration", async () => {
     const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
+      "code-review-finalize",
     );
     if (task === undefined || typeof task.execute !== "function") {
       throw new Error("Expected disposition task definition");
@@ -2355,9 +1438,7 @@ describe("pull-request code review example workflow", () => {
       {
         review: createReviewInput({
           comments: [],
-          commentIds: [],
           truncated: false,
-          dispositions: [],
           previousSnapshot: {
             headRevision: REVIEW_TEST_BASE_REVISION,
             findings: [duplicate, duplicate],
@@ -2382,547 +1463,11 @@ describe("pull-request code review example workflow", () => {
     );
   });
 
-  it("reopens a historical finding when an edited command targets another finding", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: createReviewInput({
-          comments: [
-            {
-              id: "edited-comment",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              body: "/seqlane wont-fix F-129",
-              createdAt: "2026-09-05T10:00:00Z",
-              updatedAt: "2026-09-05T11:00:00Z",
-            },
-          ],
-          commentIds: ["edited-comment"],
-          truncated: false,
-          dispositions: [
-            {
-              findingId: "F-129",
-              action: "wont-fix",
-              commentId: "edited-comment",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              authorized: true,
-              createdAt: "2026-09-05T10:00:00Z",
-              effectiveAt: "2026-09-05T11:00:00Z",
-            },
-          ],
-          previousSnapshot: {
-            headRevision: REVIEW_TEST_HEAD_REVISION,
-            findings: [
-              {
-                id: "F-128",
-                axis: "security",
-                severity: "required",
-                effectiveSeverity: "required",
-                disposition: "wont-fix",
-                dispositionReason: "Old policy decision",
-                dispositionBy: "maintainer",
-                dispositionAt: "2026-09-05T10:00:00Z",
-                dispositionCommentId: "edited-comment",
-                summary: "Historical security finding",
-                recommendation: "Address the security finding.",
-              },
-            ],
-          },
-        }),
-        report: createReport([]),
-      },
-      {},
-    );
-
-    expect(result.verdict).toBe("request-changes");
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        aliases: ["F-128"],
-        disposition: "open",
-        effectiveSeverity: "required",
-      }),
-    ]);
-  });
-
-  it("lets current-head evidence override a truncated stale fixed disposition", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-    const review = createReviewInput({
-      comments: [],
-      commentIds: [],
-      truncated: true,
-      dispositions: [],
-      previousState: {
-        schemaVersion: 3,
-        pullRequestNumber: 44,
-        baseRevision: REVIEW_TEST_BASE_REVISION,
-        reviewedRevision: REVIEW_TEST_BASE_REVISION,
-        nextFindingIndex: 2,
-        findings: [
-          {
-            id: "SEQ-PR44-001",
-            axis: "correctness",
-            severity: "required",
-            effectiveSeverity: "required",
-            disposition: "fixed",
-            dispositionBy: "maintainer",
-            dispositionAt: "2026-09-05T10:00:00Z",
-            dispositionCommentId: "old-fixed-command",
-            status: "resolved",
-            aliases: [],
-            summary: "Previously resolved finding",
-            recommendation: "Restore the missing guard.",
-          },
-        ],
-        limitations: ["Earlier state was compacted."],
-        truncated: true,
-      },
-    });
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: {
-          ...review,
-          historyVerification: {
-            headRevision: REVIEW_TEST_HEAD_REVISION,
-            verifications: [
-              {
-                findingId: "SEQ-PR44-001",
-                headRevision: REVIEW_TEST_HEAD_REVISION,
-                outcome: "present",
-                evidence: "The current branch no longer contains the guard.",
-              },
-            ],
-            limitations: [],
-          },
-        },
-        report: createReport([]),
-      },
-      {},
-    );
-
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        disposition: "open",
-        status: "reopened",
-      }),
-    ]);
-    expect(result.stateTruncated).toBe(true);
-    expect(result.limitations).toContain(
-      "The previous Seqlane state was compacted; omitted historical detail was not restored.",
-    );
-  });
-
-  it("preserves a disposition omitted by bounded command projection", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: createReviewInput({
-          comments: [
-            {
-              id: "bounded-command-comment",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              body: "",
-              omittedDispositionCommands: [
-                {
-                  findingId: "SEQ-PR44-001",
-                  action: "wont-fix",
-                  authorized: true,
-                },
-              ],
-              createdAt: "2026-09-05T10:00:00Z",
-            },
-          ],
-          commentIds: ["bounded-command-comment"],
-          truncated: true,
-          dispositions: [],
-          previousState: {
-            schemaVersion: 3,
-            pullRequestNumber: 44,
-            baseRevision: REVIEW_TEST_BASE_REVISION,
-            reviewedRevision: REVIEW_TEST_BASE_REVISION,
-            nextFindingIndex: 2,
-            findings: [
-              {
-                id: "SEQ-PR44-001",
-                axis: "correctness",
-                severity: "required",
-                effectiveSeverity: "required",
-                disposition: "wont-fix",
-                dispositionBy: "maintainer",
-                dispositionAt: "2026-09-05T10:00:00Z",
-                dispositionCommentId: "bounded-command-comment",
-                status: "dismissed",
-                aliases: [],
-                summary: "Accepted historical finding",
-                recommendation: "Keep the explicit policy decision.",
-              },
-            ],
-            limitations: [],
-            truncated: false,
-          },
-        }),
-        report: createReport([]),
-      },
-      {},
-    );
-
-    expect(result.verdict).toBe("approve");
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        disposition: "wont-fix",
-        status: "dismissed",
-      }),
-    ]);
-  });
-
-  it("applies an omitted disposition to a current finding", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-
-    const normalizedHistory = normalizeReviewHistory(44, {
-      comments: [
-        {
-          id: "bounded-current-command",
-          kind: "issue",
-          author: "maintainer",
-          authorAssociation: "MEMBER",
-          body: "",
-          omittedDispositionCommands: [
-            {
-              findingId: "SEQ-PR44-001",
-              action: "wont-fix",
-              authorized: true,
-            },
-          ],
-          createdAt: "2026-09-05T10:00:00Z",
-        },
-      ],
-      truncated: true,
-    });
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: createReviewInput(normalizedHistory.reviewHistory),
-        report: createReport([
-          {
-            id: "SEQ-PR44-001",
-            axis: "correctness",
-            severity: "required",
-            effectiveSeverity: "required",
-            disposition: "open",
-            status: "new",
-            aliases: [],
-            summary: "Current finding",
-            recommendation: "Review the accepted risk.",
-          },
-        ]),
-      },
-      {},
-    );
-
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        disposition: "wont-fix",
-        status: "dismissed",
-      }),
-    ]);
-  });
-
-  it("reopens a removed disposition when another command was omitted", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: createReviewInput({
-          comments: [
-            {
-              id: "edited-command-comment",
-              kind: "issue",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              body: "",
-              omittedDispositionCommands: [
-                {
-                  findingId: "SEQ-PR44-002",
-                  action: "wont-fix",
-                  authorized: true,
-                },
-              ],
-              createdAt: "2026-09-05T10:00:00Z",
-            },
-          ],
-          commentIds: ["edited-command-comment"],
-          truncated: true,
-          dispositions: [],
-          previousState: {
-            schemaVersion: 3,
-            pullRequestNumber: 44,
-            baseRevision: REVIEW_TEST_BASE_REVISION,
-            reviewedRevision: REVIEW_TEST_BASE_REVISION,
-            nextFindingIndex: 3,
-            findings: [
-              {
-                id: "SEQ-PR44-001",
-                axis: "correctness",
-                severity: "required",
-                effectiveSeverity: "required",
-                disposition: "wont-fix",
-                dispositionBy: "maintainer",
-                dispositionAt: "2026-09-05T10:00:00Z",
-                dispositionCommentId: "edited-command-comment",
-                status: "dismissed",
-                aliases: [],
-                summary: "Removed decision",
-                recommendation: "Reopen the removed decision.",
-              },
-            ],
-            limitations: [],
-            truncated: false,
-          },
-        }),
-        report: createReport([]),
-      },
-      {},
-    );
-
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        disposition: "open",
-        status: "reopened",
-      }),
-    ]);
-  });
-
-  it("does not accept a fixed finding without current-head evidence", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: createReviewInput({
-          comments: [],
-          commentIds: ["fixed-comment"],
-          truncated: false,
-          dispositions: [
-            {
-              findingId: "F-130",
-              action: "fixed",
-              commentId: "fixed-comment",
-              author: "maintainer",
-              authorAssociation: "MEMBER",
-              authorized: true,
-              createdAt: "2026-09-05T10:00:00Z",
-              effectiveAt: "2026-09-05T10:00:00Z",
-            },
-          ],
-        }),
-        report: createReport([
-          {
-            id: "F-130",
-            axis: "correctness",
-            severity: "required",
-            effectiveSeverity: "required",
-            disposition: "fixed",
-            evidenceHeadRevision: REVIEW_TEST_BASE_REVISION,
-            summary: "Current correctness finding",
-            recommendation: "Fix the current finding.",
-          },
-        ]),
-      },
-      {},
-    );
-
-    expect(result.verdict).toBe("request-changes");
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        aliases: ["F-130"],
-        disposition: "fixed",
-        status: "addressed",
-        effectiveSeverity: "required",
-      }),
-    ]);
-  });
-
-  it("reopens a finding when its disposition command is removed despite resolved verification", async () => {
-    const task = buildWorkflow(prCodeReviewWorkflow).taskDefinitions.get(
-      "code-review-apply-dispositions",
-    );
-    if (task === undefined || typeof task.execute !== "function") {
-      throw new Error("Expected disposition task definition");
-    }
-
-    const revision = "a".repeat(40);
-    const result = await executeTask<any, any>(
-      task,
-      {
-        review: {
-          repository: "/repo",
-          baseBranch: "main",
-          baseRevision: revision,
-          headRevision: "b".repeat(40),
-          pullRequest: {
-            number: 44,
-            title: "Reconcile edited comments",
-            description: "Remove stale policy decisions.",
-          },
-          gitEvidence: {
-            baseRevision: revision,
-            headRevision: "b".repeat(40),
-            changedFiles: ["src/review.ts"],
-            changedFileCount: 1,
-            changedFilesTruncated: false,
-            diffStat: "1 file changed",
-            diffStatTruncated: false,
-            patch: "diff",
-            patchByteLength: 4,
-            patchTruncated: false,
-            diffCheck: {
-              exitCode: 0,
-              stdout: "",
-              stderr: "",
-              stdoutTruncated: false,
-              stderrTruncated: false,
-            },
-            previousRevisionComparable: false,
-          },
-          reviewHistory: {
-            comments: [
-              {
-                id: "edited-comment",
-                kind: "issue",
-                author: "maintainer",
-                authorAssociation: "MEMBER",
-                body: "The old command was removed.",
-                createdAt: "2026-09-05T10:00:00Z",
-                updatedAt: "2026-09-05T11:00:00Z",
-              },
-            ],
-            commentIds: ["edited-comment"],
-            truncated: false,
-            dispositions: [],
-            previousState: {
-              schemaVersion: 3,
-              pullRequestNumber: 44,
-              baseRevision: revision,
-              reviewedRevision: revision,
-              nextFindingIndex: 2,
-              findings: [
-                {
-                  id: "SEQ-PR44-001",
-                  axis: "security",
-                  severity: "required",
-                  effectiveSeverity: "required",
-                  disposition: "wont-fix",
-                  dispositionReason: "Old policy decision",
-                  dispositionBy: "maintainer",
-                  dispositionAt: "2026-09-05T10:00:00Z",
-                  dispositionCommentId: "edited-comment",
-                  status: "resolved",
-                  aliases: [],
-                  summary: "Historical security finding",
-                  recommendation: "Address the security finding.",
-                },
-              ],
-              limitations: [],
-              truncated: false,
-            },
-          },
-          historyVerification: {
-            headRevision: "b".repeat(40),
-            verifications: [
-              {
-                findingId: "SEQ-PR44-001",
-                headRevision: "b".repeat(40),
-                outcome: "resolved",
-                evidence: "The old implementation is no longer present.",
-              },
-            ],
-            limitations: [],
-          },
-        },
-        report: {
-          repository: "/repo",
-          baseBranch: "main",
-          baseRevision: revision,
-          headRevision: "b".repeat(40),
-          overallRating: 4,
-          verdict: "approve",
-          summary: "No current findings were synthesized.",
-          ratings: [
-            "correctness",
-            "readability",
-            "architecture",
-            "security",
-            "performance",
-          ].map((axis) => ({ axis, rating: 4, rationale: "No new concern." })),
-          findings: [],
-          verification: [],
-        },
-      },
-      {},
-    );
-
-    expect(result.verdict).toBe("request-changes");
-    expect(result.findings).toEqual([
-      expect.objectContaining({
-        id: "SEQ-PR44-001",
-        aliases: [],
-        disposition: "open",
-        status: "reopened",
-        effectiveSeverity: "required",
-      }),
-    ]);
-  });
-
   it("returns the complete validated lifecycle report", () => {
     const output = buildWorkflow(prCodeReviewWorkflow).plan.output;
     expect(output).toEqual({
       type: "ref",
-      nodeId: "code-review-apply-dispositions:1",
+      nodeId: "code-review-finalize:1",
       path: ["output"],
     });
   });

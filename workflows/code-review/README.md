@@ -1,7 +1,7 @@
 # Code review
 
 Reviews a supplied Git change using parallel correctness, maintainability, and
-risk lanes, then applies dispositions to the resulting report.
+risk lanes, then reconciles findings with prior review state.
 
 The model-backed history verification, review lanes, and synthesis stages each
 have a five-minute execution deadline. Other agent tasks keep the two-minute

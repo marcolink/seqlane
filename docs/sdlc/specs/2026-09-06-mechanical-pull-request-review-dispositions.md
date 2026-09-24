@@ -1,16 +1,21 @@
 ---
 id: spec.mechanical-pull-request-review-dispositions
 title: Mechanical Pull Request Review Dispositions
-status: draft
+status: superseded
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-13
+updated: 2026-09-24
 upstream: []
 supersedes: []
 ---
 
 # Mechanical Pull Request Review Dispositions
+
+Retired on 2026-09-24. Pull-request comments no longer trigger reviews or
+change findings. The current contract is
+[spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md).
+The requirements below record the withdrawn proposal and are not planned work.
 
 ## Summary
 

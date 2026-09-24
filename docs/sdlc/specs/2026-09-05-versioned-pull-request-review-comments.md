@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-05
-updated: 2026-09-13
+updated: 2026-09-24
 upstream: []
 supersedes: []
 ---
@@ -24,7 +24,7 @@ state.
 - Preserve bounded lifecycle state between review runs.
 - Prevent an old run from replacing a review for a newer head revision.
 - Give each finding one stable publisher-owned identifier.
-- Preserve human dispositions without treating a claim as verified evidence.
+- Verify retained findings against the current head without trusting comments as decisions.
 - Show when a new review is refreshing an existing authoritative comment.
 - Preserve deterministic per-run task cost and usage metrics for reviewers.
 
@@ -44,8 +44,9 @@ state.
   authoritative comment that retains completed review-run metrics.
 - **Comparable predecessor:** A prior reviewed revision that Git identifies as
   an ancestor of the current reviewed revision.
-- **Disposition:** An authorized human decision, such as `wont-fix` or
-  `downgrade`.
+
+Issue and review comments are untrusted context. They do not trigger reviews
+or change finding status or severity.
 
 Review-scope selection and checkpoint advancement are defined in
 [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md).
@@ -135,9 +136,7 @@ it assigns stable identifiers. Legacy deduplication must mark the state as
 truncated and add a limitation.
 
 The incremental-review scope contract uses generation-qualified IDs for new
-baseline reports. This prevents a disposition aimed at an older report from
-applying to a new finding after that report is replaced. The numeric format
-above remains the version 3 contract.
+baseline reports. The numeric format above remains the version 3 contract.
 
 ### requirement-lifecycle
 
@@ -145,20 +144,18 @@ Each retained finding has one lifecycle status:
 
 - `new`: the current review detected the finding for the first time;
 - `open`: the current review detected an active prior finding;
-- `addressed`: an authorized fix claim exists, but verification is incomplete;
+- `addressed`: current-head evidence suggests a fix, but verification is incomplete;
 - `resolved`: current-head verification found that the problem is absent;
 - `reopened`: the current review detected a previously resolved finding;
-- `dismissed`: an authorized decision accepts the finding or rejects its
-  applicability.
+- `dismissed`: a legacy state value; new reviews do not assign it.
 
-A downgrade changes effective severity. It does not dismiss the finding.
-Command names and finding identifiers are case-insensitive.
+New reviews set effective severity from the finding's original severity and
+ignore any legacy comment disposition. Finding identifiers are case-insensitive.
 
 ### requirement-fixed-verification
 
-A `/seqlane fixed` command is a claim and sets an unresolved finding to
-`addressed`. A separate review task must inspect each claimed fix against the
-current head.
+A separate review task must inspect retained findings against the current
+head. A comment claiming a fix does not change the finding or start a review.
 
 The task must return a typed result for each inspected finding. Each result
 must contain the finding identifier, head revision, outcome, and bounded
@@ -166,30 +163,13 @@ evidence.
 
 Only a `resolved` result for the current head can set the finding to
 `resolved` or keep it resolved. A missing, stale, or uncertain result keeps the
-finding active. Removing or retargeting the authorizing disposition reopens a
-previously resolved finding, even when current-head verification reports that
-the original implementation is absent.
-
-An edited comment triggers review only when its current or previous body has a
-recognized command. This permits command removal without running reviews for
-unrelated comment edits.
-
-Comment collection must preserve recognized command lines even when it bounds
-the surrounding comment body. It must retain the latest commands before
-optional context when it applies the final comment bound. It must mark history
-as truncated if older command lines do not fit. The collector must enforce one
-aggregate command-count and text budget across the retained history. Before it
-applies that budget, it must retain only the latest command for each finding
-and authorization class. The collector must mark each comment that loses a
-command to the aggregate budget. Lifecycle reconciliation must preserve a
-prior disposition when its authorizing comment has this marker. It must still
-reopen the finding when the command was removed or retargeted without
-projection loss.
+finding active. New reviews clear legacy comment dispositions before they
+finalize findings.
 
 ### requirement-human-projection
 
 The human projection must show the verdict, active counts, reviewed revision,
-and one findings table. It must not render slash-command syntax. It must show
+and one findings table. It must show
 plain Markdown sections for active Critical and Required findings. Each section
 must show the finding ID, severity, area, location, explanation, and
 resolution.
@@ -232,22 +212,15 @@ workflow performed no Git operations.
 
 ### requirement-workflow-admission-and-concurrency
 
-The workflow must admit an event before it enters the shared per-pull-request
-concurrency group. The admission job must not check out source or receive
-write permissions. It must admit non-closed `pull_request_target` events only
-for non-draft pull requests whose head repository is the current repository. It
-must admit `workflow_dispatch` only when a pull-request number is present. It
-must admit `issue_comment` only for pull requests, created or edited comments,
-and `OWNER`, `MEMBER`, or `COLLABORATOR` authors whose current or previous body
-contains the recognized `/seqlane review`, `/seqlane fixed`, `/seqlane wont-fix`,
-or `/seqlane downgrade` command under the existing command-matching rules.
+One review job must admit non-closed `pull_request_target` events only for
+non-draft pull requests whose head repository is the current repository. It
+must admit `workflow_dispatch` only when a pull-request number is present.
+The workflow must not subscribe to `issue_comment` events.
 
-Only admitted review jobs may use the `seqlane-code-review-<pull-request>`
-concurrency group with `cancel-in-progress: true`. An irrelevant or
-unrecognized comment must not enter that group, cancel an active review, or
-queue behind one. A closed `pull_request_target` event must run a separate
-no-op cancellation job in the same group so it interrupts active review work
-without starting review or publisher steps.
+The review job uses the `seqlane-code-review-<pull-request>` concurrency group
+with `cancel-in-progress: true`. A closed `pull_request_target` event runs a
+separate no-op cancellation job in the same group so it interrupts active
+review work without starting review or publisher steps.
 
 ## Detailed design or contracts
 
@@ -306,9 +279,9 @@ counts.
 - Do not publish when the live pull request is closed, draft, or ineligible.
 - Do not publish when the live head differs from the report head.
 - Do not show a predecessor or delta when Git ancestry is not comparable.
-- Keep a claimed fix active when verification is absent or uncertain.
+- Keep a retained finding active when verification is absent or uncertain.
 - Keep all retained blocking findings before lower-priority history.
-- Do not let an irrelevant issue comment cancel or queue an active review.
+- Do not start or cancel reviews from issue comments.
 
 ## Migration
 
@@ -319,16 +292,16 @@ This describes the version 3 migration. Under the incremental-review scope
 contract, the first new-version publication replaces a trusted older-version
 report with a fresh baseline and does not migrate its findings or metrics.
 
-The v3 state stores legacy aliases when an existing disposition uses an old
-identifier. New reports and commands use the v3 identifier.
+The v3 reader accepts legacy disposition fields in trusted state, but the
+finalizer clears them. New reports use the v3 identifier.
 
 ## Verification
 
 - Add schema compatibility and malformed-state tests.
 - Add lifecycle transition and stable-identifier tests.
-- Add current-head fix-verification tests.
+- Add current-head finding-verification tests.
 - Add trusted-author and stale-head publication tests.
-- Add workflow admission and concurrency regression tests.
+- Add workflow event and concurrency regression tests.
 - Add ledger parsing, malformed-ledger, duplicate-run, and rendered-derived
   cost tests.
 - Execute the exact publisher script with bounded representative state.
@@ -339,15 +312,15 @@ identifier. New reports and commands use the v3 identifier.
 - The comment contains a concise human projection and one bounded state block.
 - The next review restores validated state from the trusted bot comment.
 - Stable finding identifiers survive open, resolved, and reopened transitions.
-- A fix claim cannot resolve a finding without current-head verification.
+- A comment cannot resolve, dismiss, or downgrade a finding.
 - An old or untrusted run cannot replace the authoritative comment.
 - Mandatory limitation notices remain visible after output bounds apply.
 - The authoritative comment contains one strict, human-readable run metrics
   ledger and no per-run audit comments.
 - A legacy or invalid ledger starts a fresh metrics ledger without changing the
   valid review state.
-- Irrelevant comments cannot enter review concurrency, while recognized
-  commands and pull-request updates remain serialized per pull request.
+- Eligible pull-request updates and manual dispatches remain serialized per
+  pull request. Comments do not trigger review.
 
 ## Traceability
 
@@ -356,3 +329,4 @@ identifier. New reports and commands use the v3 identifier.
 - Delivery: [task.publish-versioned-pull-request-review-comments](../tasks/2026-09-05-publish-versioned-pull-request-review-comments.md)
 - Delivery: [task.prevent-comment-triggered-review-cancellation](../tasks/2026-09-05-prevent-comment-triggered-review-cancellation.md)
 - Delivery: [task.consolidate-pull-request-review-run-metrics](../tasks/2026-09-06-consolidate-pull-request-review-run-metrics.md)
+- Simplification: [task.simplify-pull-request-review-triggers](../tasks/2026-09-24-simplify-pull-request-review-triggers.md)

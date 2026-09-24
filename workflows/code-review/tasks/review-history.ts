@@ -34,7 +34,7 @@ export const reviewHistoryVerificationTask = defineAgentTask({
     "This task runs before the three specialist review lanes. Verify each retained previous finding independently against current-head evidence.",
     ...gitEvidenceInstructions,
     "Use present when the problem still exists. Use addressed when the patch appears intended to fix it but the available evidence is insufficient. Use resolved only when finding-specific current-head evidence demonstrates that the problem no longer exists. Use uncertain when bounded evidence cannot decide.",
-    "A human fixed command is a claim, not proof. Never mark a finding resolved only because a comment, previous report, or synthesis says it is fixed.",
+    "Never mark a finding resolved only because a comment, previous report, or synthesis says it is fixed.",
     "Copy review.headRevision exactly into the output and into every finding verification. Return at most one verification per retained finding ID.",
     "Record evidence that is specific enough to audit. Include a workspace-relative file and line when available.",
     "If no trusted previous state or legacy snapshot exists, return an empty verification list.",

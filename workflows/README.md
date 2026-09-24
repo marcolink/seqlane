@@ -62,8 +62,9 @@ gh workflow run "Seqlane code review" --ref my-review-branch \
   -f pull_request_number=123
 ```
 
-The Action owns GitHub event admission, concurrency, credentials, checkouts,
-and final publication. Review tasks receive bounded Git evidence and
+The GitHub workflow admits eligible pull-request events and owns concurrency,
+credentials, and checkouts. The Action owns final publication. Comments do not
+trigger reviews or change findings. Review tasks receive bounded Git evidence and
 workspace-relative read access only: they do not run shell commands, package
 managers, tests, or builds. The runtime blocks environment files and paths
 outside the review workspace. Modified or new repository skills are excluded;

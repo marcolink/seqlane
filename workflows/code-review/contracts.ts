@@ -28,20 +28,6 @@ export const reviewSeveritySchema = z.enum([
 export const reviewFindingIdSchema = z
   .string()
   .regex(/^(?:F-[A-Za-z0-9][A-Za-z0-9_-]{0,63}|SEQ-PR[1-9]\d*-\d{3,})$/i);
-export const reviewDispositionActionSchema = z.enum([
-  "fixed",
-  "wont-fix",
-  "downgrade",
-]);
-export const omittedDispositionCommandSchema = z
-  .object({
-    findingId: reviewFindingIdSchema,
-    action: reviewDispositionActionSchema,
-    authorized: z.boolean(),
-    reason: z.string().max(2_000).optional(),
-    effectiveSeverity: reviewSeveritySchema.optional(),
-  })
-  .strict();
 export const reviewFindingDispositionSchema = z.enum([
   "open",
   "fixed",
@@ -73,11 +59,6 @@ export const reviewCommentSchema = z.object({
   authorAssociation: z.string().min(1).max(64),
   body: z.string().max(65_536),
   bodyTruncated: z.boolean().optional(),
-  omittedDispositionCommandsTruncated: z.boolean().optional(),
-  omittedDispositionCommands: z
-    .array(omittedDispositionCommandSchema)
-    .max(200)
-    .optional(),
   createdAt: z.string().min(1).max(64),
   updatedAt: z.string().min(1).max(64).optional(),
   url: z.string().url().max(2_000).optional(),
@@ -90,20 +71,6 @@ export const reviewCommentSchema = z.object({
 export const reviewHistoryInputSchema = z.object({
   comments: z.array(reviewCommentSchema).max(200),
   truncated: z.boolean().default(false),
-});
-
-export const reviewDispositionSchema = z.object({
-  findingId: reviewFindingIdSchema,
-  action: reviewDispositionActionSchema,
-  effectiveSeverity: reviewSeveritySchema.optional(),
-  reason: z.string().max(2_000).optional(),
-  commentId: z.string().min(1).max(128),
-  author: z.string().min(1).max(256),
-  authorAssociation: z.string().min(1).max(64),
-  authorized: z.boolean(),
-  createdAt: z.string().min(1).max(64),
-  effectiveAt: z.string().min(1).max(64),
-  commitId: gitRevisionSchema.optional(),
 });
 
 export const gitCommandResultSchema = z.object({
@@ -323,16 +290,11 @@ export const reviewCommentMetadataSchema = z
 
 export const reviewHistoryOutputSchema = z.object({
   comments: z.array(reviewCommentSchema).max(200),
-  commentIds: z.array(z.string().min(1).max(128)).max(200),
   truncated: z.boolean(),
-  // Explicitly distinguishes a bounded disposition set from complete history
-  // so prompts and the final report can preserve the limitation safely.
-  dispositionsTruncated: z.boolean().default(false),
   previousReport: reviewCommentSchema.optional(),
   previousState: reviewStateSchema.optional(),
   previousSnapshot: reviewSnapshotSchema.optional(),
   previousReviewedRevision: gitRevisionSchema.optional(),
-  dispositions: z.array(reviewDispositionSchema).max(200),
 });
 
 export const codeReviewInputSchema = z.object({

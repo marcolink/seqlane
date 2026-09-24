@@ -9,7 +9,7 @@ import {
   riskReviewTask,
 } from "./tasks/review-lanes.js";
 import { synthesizeReviewTask } from "./tasks/review-synthesis.js";
-import { applyReviewDispositionTask } from "./tasks/review-finalization.js";
+import { finalizeReviewTask } from "./tasks/review-finalization.js";
 
 export default createFlow({
   id: "code-review",
@@ -148,8 +148,8 @@ export default createFlow({
     },
   )
   .task(
-    "applyDispositions",
-    applyReviewDispositionTask,
+    "finalizeReview",
+    finalizeReviewTask,
     ({ input, tasks }) => ({
       review: {
         repository: input.repository,
@@ -165,5 +165,5 @@ export default createFlow({
     }),
     { workspace: "shared" },
   )
-  .output(({ tasks }) => tasks.applyDispositions.output)
+  .output(({ tasks }) => tasks.finalizeReview.output)
   .define();

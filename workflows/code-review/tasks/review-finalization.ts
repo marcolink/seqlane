@@ -2,21 +2,17 @@ import { defineTask } from "@seqlane/core";
 import { z } from "zod";
 import {
   MAX_REVIEW_FINDINGS,
-  REVIEW_SEVERITY_RANK,
   findingIdentityKey,
   isStableFindingId,
   stableFindingId,
   reviewContextSchema,
-  reviewDispositionSchema,
-  reviewFindingDispositionSchema,
   reviewFindingStatusSchema,
   reviewReportFindingSchema,
-  reviewSnapshotFindingSchema,
   codeReviewReportSchema,
   synthesizedReviewReportSchema,
 } from "../contracts.js";
 
-const applyReviewDispositionInputSchema = z.object({
+const finalizeReviewInputSchema = z.object({
   review: reviewContextSchema,
   report: synthesizedReviewReportSchema,
 });
@@ -34,31 +30,6 @@ function clearDispositionMetadata(
   delete clean.dispositionCommit;
   delete clean.evidenceHeadRevision;
   return clean;
-}
-
-function addDispositionMetadata(
-  finding: ReviewReportFinding,
-  disposition: z.infer<typeof reviewDispositionSchema>,
-  nextDisposition: z.infer<typeof reviewFindingDispositionSchema>,
-  status: z.infer<typeof reviewFindingStatusSchema>,
-  effectiveSeverity = finding.effectiveSeverity,
-): ReviewReportFinding {
-  const clean = clearDispositionMetadata(finding);
-  return {
-    ...clean,
-    effectiveSeverity,
-    disposition: nextDisposition,
-    status,
-    ...(disposition.reason === undefined
-      ? {}
-      : { dispositionReason: disposition.reason }),
-    dispositionBy: disposition.author,
-    dispositionAt: disposition.effectiveAt,
-    dispositionCommentId: disposition.commentId,
-    ...(disposition.commitId === undefined
-      ? {}
-      : { dispositionCommit: disposition.commitId }),
-  };
 }
 
 function openFinding(
@@ -81,46 +52,25 @@ function findingMatchesId(finding: ReviewReportFinding, id: string): boolean {
   );
 }
 
-function legacyFindingStatus(
-  finding: z.infer<typeof reviewSnapshotFindingSchema>,
-): z.infer<typeof reviewFindingStatusSchema> {
-  if (finding.disposition === "fixed") return "resolved";
-  if (finding.disposition === "wont-fix") return "dismissed";
-  return "open";
-}
-
-const applyReviewDispositionTask = defineTask({
-  id: "code-review-apply-dispositions",
-  input: applyReviewDispositionInputSchema,
+const finalizeReviewTask = defineTask({
+  id: "code-review-finalize",
+  input: finalizeReviewInputSchema,
   output: codeReviewReportSchema,
   execute: async ({ input: { review, report } }) => {
-    const latestAuthorized = new Map<
-      string,
-      z.infer<typeof reviewDispositionSchema>
-    >();
-    for (const disposition of review.reviewHistory.dispositions) {
-      if (!disposition.authorized) continue;
-      const dispositionKey = findingIdentityKey(disposition.findingId);
-      const existing = latestAuthorized.get(dispositionKey);
-      if (
-        existing === undefined ||
-        existing.effectiveAt.localeCompare(disposition.effectiveAt) <= 0
-      ) {
-        latestAuthorized.set(dispositionKey, disposition);
-      }
-    }
     let nextFindingIndex =
       review.reviewHistory.previousState?.nextFindingIndex ?? 1;
     const allocateFindingId = () =>
       stableFindingId(review.pullRequest.number, nextFindingIndex++);
     const previousSource: ReviewReportFinding[] =
       review.reviewHistory.previousState?.findings.map((finding) => ({
-        ...finding,
+        ...openFinding(
+          finding,
+          finding.disposition === "open" ? finding.status : "open",
+        ),
         aliases: [...finding.aliases],
       })) ??
       review.reviewHistory.previousSnapshot?.findings.map((finding) => ({
-        ...finding,
-        status: legacyFindingStatus(finding),
+        ...openFinding({ ...finding, status: "open", aliases: [] }, "open"),
         aliases: [],
       })) ??
       [];
@@ -154,19 +104,6 @@ const applyReviewDispositionTask = defineTask({
 
     const findPrevious = (id: string) =>
       previousFindings.find((finding) => findingMatchesId(finding, id));
-    const dispositionFor = (finding: ReviewReportFinding) =>
-      [finding.id, ...finding.aliases]
-        .map((id) => latestAuthorized.get(findingIdentityKey(id)))
-        .filter(
-          (value): value is z.infer<typeof reviewDispositionSchema> =>
-            value !== undefined,
-        )
-        .sort(
-          (left, right) =>
-            left.effectiveAt.localeCompare(right.effectiveAt) ||
-            left.commentId.localeCompare(right.commentId),
-        )
-        .at(-1);
     const verifiedOutcomeFor = (finding: ReviewReportFinding) => {
       if (review.historyVerification.headRevision !== review.headRevision)
         return undefined;
@@ -176,79 +113,6 @@ const applyReviewDispositionTask = defineTask({
           findingMatchesId(finding, verification.findingId),
       )?.outcome;
     };
-    const previousDispositionStillActive = (finding: ReviewReportFinding) => {
-      if (finding.dispositionCommentId === undefined) return false;
-      if (dispositionFor(finding)?.commentId === finding.dispositionCommentId)
-        return true;
-      const expectedAction =
-        finding.disposition === "downgraded"
-          ? "downgrade"
-          : finding.disposition === "fixed" ||
-              finding.disposition === "wont-fix"
-            ? finding.disposition
-            : undefined;
-      if (
-        expectedAction !== undefined &&
-        review.reviewHistory.comments.some((comment) => {
-          if (comment.id !== finding.dispositionCommentId) return false;
-          return comment.omittedDispositionCommands?.some(
-            (command) =>
-              command.authorized &&
-              command.action === expectedAction &&
-              findingMatchesId(finding, command.findingId) &&
-              (expectedAction !== "downgrade" ||
-                command.effectiveSeverity === finding.effectiveSeverity),
-          );
-        })
-      ) {
-        return true;
-      }
-      return (
-        review.reviewHistory.truncated &&
-        !review.reviewHistory.commentIds.includes(finding.dispositionCommentId)
-      );
-    };
-    const applyDisposition = (
-      finding: ReviewReportFinding,
-      status: z.infer<typeof reviewFindingStatusSchema>,
-      disposition: z.infer<typeof reviewDispositionSchema> | undefined,
-    ): ReviewReportFinding => {
-      if (disposition?.action === "wont-fix") {
-        return addDispositionMetadata(
-          finding,
-          disposition,
-          "wont-fix",
-          "dismissed",
-          finding.severity,
-        );
-      }
-      if (disposition?.action === "fixed") {
-        return addDispositionMetadata(
-          finding,
-          disposition,
-          "fixed",
-          status === "resolved" ? "resolved" : "addressed",
-        );
-      }
-      if (disposition?.action === "downgrade") {
-        const effectiveSeverity = disposition.effectiveSeverity;
-        if (
-          effectiveSeverity !== undefined &&
-          REVIEW_SEVERITY_RANK[effectiveSeverity] <
-            REVIEW_SEVERITY_RANK[finding.severity]
-        ) {
-          return addDispositionMetadata(
-            finding,
-            disposition,
-            "downgraded",
-            status,
-            effectiveSeverity,
-          );
-        }
-      }
-      return openFinding(finding, status);
-    };
-
     const currentIds = new Set<string>();
     const currentSourceIds = new Set<string>();
     const findings: ReviewReportFinding[] = [];
@@ -279,55 +143,12 @@ const applyReviewDispositionTask = defineTask({
               : "open",
         aliases: [...new Set(aliases)].slice(0, 8),
       };
-      findings.push(
-        applyDisposition(current, current.status, dispositionFor(current)),
-      );
+      findings.push(openFinding(current, current.status));
     }
 
     for (const previous of previousFindings) {
       if (currentIds.has(previous.id)) continue;
-      const disposition = dispositionFor(previous);
       const verifiedOutcome = verifiedOutcomeFor(previous);
-      if (disposition !== undefined) {
-        const status =
-          verifiedOutcome === "resolved"
-            ? "resolved"
-            : verifiedOutcome === "present"
-              ? "reopened"
-              : verifiedOutcome === "addressed"
-                ? "addressed"
-                : previous.status === "resolved"
-                  ? "reopened"
-                  : previous.status;
-        findings.push(applyDisposition(previous, status, disposition));
-        continue;
-      }
-      if (
-        previous.disposition !== "open" &&
-        !previousDispositionStillActive(previous)
-      ) {
-        findings.push(openFinding(previous, "reopened"));
-        continue;
-      }
-      if (
-        verifiedOutcome === "present" &&
-        previous.disposition !== "wont-fix"
-      ) {
-        findings.push(openFinding(previous, "reopened"));
-        continue;
-      }
-      if (previousDispositionStillActive(previous)) {
-        findings.push(
-          previous.status === "resolved" && verifiedOutcome !== "resolved"
-            ? {
-                ...previous,
-                status:
-                  previous.disposition === "fixed" ? "addressed" : "reopened",
-              }
-            : previous,
-        );
-        continue;
-      }
       if (verifiedOutcome === "resolved") {
         findings.push(openFinding(previous, "resolved"));
       } else if (verifiedOutcome === "present") {
@@ -336,8 +157,6 @@ const applyReviewDispositionTask = defineTask({
         findings.push(openFinding(previous, "addressed"));
       } else if (previous.status === "resolved") {
         findings.push(openFinding(previous, "reopened"));
-      } else if (previous.status === "dismissed") {
-        findings.push(openFinding(previous, "open"));
       } else {
         findings.push(
           openFinding(
@@ -400,11 +219,6 @@ const applyReviewDispositionTask = defineTask({
         "Review history was truncated; only bounded comment context was available.",
       );
     }
-    if (review.reviewHistory.dispositionsTruncated) {
-      limitations.push(
-        "Disposition commands were truncated; only the bounded decision set was retained.",
-      );
-    }
     if (review.reviewHistory.previousSnapshot?.truncated) {
       limitations.push(
         "The previous Seqlane report snapshot was compacted; omitted historical text was not restored.",
@@ -462,4 +276,4 @@ const applyReviewDispositionTask = defineTask({
   },
 });
 
-export { applyReviewDispositionTask };
+export { finalizeReviewTask };

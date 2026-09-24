@@ -35,13 +35,10 @@ describe("normalizeReviewHistory", () => {
       truncated: false,
     });
 
-    expect(history.reviewHistory.dispositions).toEqual([
-      expect.objectContaining({
-        action: "fixed",
-        authorized: true,
-        findingId: "SEQ-PR125-010",
-      }),
-    ]);
+    expect(history.reviewHistory).not.toHaveProperty("dispositions");
+    expect(history.reviewHistory.comments.map((comment) => comment.id)).toEqual(
+      ["report"],
+    );
     expect(history.reviewHistory).not.toHaveProperty("runMetricsLedger");
     expect(history.runMetricsLedger).toEqual({ schemaVersion: 1, runs: [] });
   });
