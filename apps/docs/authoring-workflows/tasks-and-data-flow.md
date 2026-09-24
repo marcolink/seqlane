@@ -3,6 +3,10 @@
 A task has an ID, input schema, output schema, and execution function.
 Seqlane validates inputs and outputs at each task boundary.
 
+Observability includes full JSON inputs, results, and executor activity by
+default. Task definitions have no `observability` field. The runtime does not
+filter fields or truncate these values.
+
 Use `defineTask` for deterministic TypeScript. A task can use
 `context.runAgent()` when it needs an agent. Deterministic work makes no model
 call unless its task function makes one.

@@ -184,7 +184,7 @@ describe("execution event bridge", () => {
     expect(() => bridge.emitObservation(malformed)).toThrow();
   });
 
-  it("bounds validation failure evidence while preserving canonical error shape", async () => {
+  it("preserves full validation failure evidence while preserving canonical error shape", async () => {
     const events: SeqlaneExecutionEvent[] = [];
     const bridge = createExecutionEventBridge(async (event) => {
       events.push(event);
@@ -213,8 +213,8 @@ describe("execution event bridge", () => {
           validationNodeId: "validation.gate:1",
           sourceId: "title-quality",
           evidence: {
-            state: "truncated",
-            summary: { kind: "object", size: 1, fields: ["details"] },
+            state: "present",
+            value: { details: "x".repeat(33 * 1024) },
           },
         },
       },

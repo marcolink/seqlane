@@ -219,11 +219,7 @@ export async function executeTaskNode(
         workId: context.workId,
         runId: context.runId,
         invocationId,
-        input: toSeqlaneDisplayValue(
-          input,
-          context.taskDefinitions?.get(node.taskId)?.observability?.studio
-            ?.input,
-        ),
+        input: toSeqlaneDisplayValue(input),
         ...optionalIteration(options.iteration),
       });
 
@@ -264,8 +260,6 @@ export async function executeTaskNode(
           termination: registeredChild.termination,
         });
       };
-      const activitySelection = context.taskDefinitions?.get(node.taskId)
-        ?.observability?.studio?.activity;
       const emitActivity = (activity: SeqlaneExecutorActivity): void => {
         effects.observeActivity(activity);
         context.events.emit({
@@ -280,26 +274,17 @@ export async function executeTaskNode(
           ...(activity.input === undefined
             ? {}
             : {
-                input: toSeqlaneDisplayValue(
-                  activity.input,
-                  activitySelection?.input,
-                ),
+                input: toSeqlaneDisplayValue(activity.input),
               }),
           ...(activity.output === undefined
             ? {}
             : {
-                output: toSeqlaneDisplayValue(
-                  activity.output,
-                  activitySelection?.output,
-                ),
+                output: toSeqlaneDisplayValue(activity.output),
               }),
           ...(activity.metadata === undefined
             ? {}
             : {
-                activityMetadata: toSeqlaneDisplayValue(
-                  activity.metadata,
-                  activitySelection?.metadata,
-                ),
+                activityMetadata: toSeqlaneDisplayValue(activity.metadata),
               }),
           ...(activity.startedAt === undefined
             ? {}
@@ -438,11 +423,7 @@ export async function executeTaskNode(
         workId: context.workId,
         runId: context.runId,
         invocationId,
-        result: toSeqlaneDisplayValue(
-          output,
-          context.taskDefinitions?.get(node.taskId)?.observability?.studio
-            ?.result,
-        ),
+        result: toSeqlaneDisplayValue(output),
         ...optionalIteration(options.iteration),
       });
       results.set(node.nodeId, output);
@@ -714,7 +695,7 @@ export async function executeValidationCheckNode(
       workId: context.workId,
       runId: context.runId,
       invocationId,
-      input: toSeqlaneDisplayValue(input, undefined),
+      input: toSeqlaneDisplayValue(input),
       ...optionalIteration(options.iteration),
     });
 
@@ -724,7 +705,7 @@ export async function executeValidationCheckNode(
       workId: context.workId,
       runId: context.runId,
       invocationId,
-      result: toSeqlaneDisplayValue(result, undefined),
+      result: toSeqlaneDisplayValue(result),
       ...optionalIteration(options.iteration),
     });
     results.set(node.nodeId, result);
@@ -818,7 +799,7 @@ export async function executeValidationGateNode(
       workId: context.workId,
       runId: context.runId,
       invocationId,
-      result: toSeqlaneDisplayValue(parsedValidation, undefined),
+      result: toSeqlaneDisplayValue(parsedValidation),
       ...optionalIteration(options.iteration),
     });
     context.events.emit({

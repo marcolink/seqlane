@@ -375,21 +375,13 @@ describe("Seqlane lifecycle events and outcomes", () => {
     ).toMatchObject({ metrics: { modelSelection } });
   });
 
-  it("emits redacted executor activity in invocation order", async () => {
+  it("emits full executor activity in invocation order", async () => {
     const events: SeqlaneEvent[] = [];
     const taskDefinition: TaskDefinition = {
       id: "a",
       input: z.unknown(),
       output: z.unknown(),
       execute: async ({ context }) => context.runAgent({ goal: "test" }),
-      observability: {
-        studio: {
-          activity: {
-            input: { includePaths: ["/path"] },
-            output: { includePaths: ["/bytes"] },
-          },
-        },
-      },
     };
     const compiled = compile(plan([task("a")]), {
       events: { emit: (event) => events.push(event) },
@@ -423,12 +415,12 @@ describe("Seqlane lifecycle events and outcomes", () => {
         state: "started",
         input: {
           state: "present",
-          value: { path: "/repo/package.json" },
+          value: { path: "/repo/package.json", secret: "hidden" },
         },
       }),
       expect.objectContaining({
         state: "succeeded",
-        output: { state: "present", value: { bytes: 12 } },
+        output: { state: "present", value: { bytes: 12, content: "hidden" } },
       }),
     ]);
   });
@@ -476,7 +468,7 @@ describe("Seqlane lifecycle events and outcomes", () => {
     );
   });
 
-  it("emits skill activity with bounded metadata and timing", async () => {
+  it("emits skill activity with full metadata and timing", async () => {
     const events: SeqlaneEvent[] = [];
     const taskDefinition: TaskDefinition = {
       id: "a",
@@ -526,19 +518,13 @@ describe("Seqlane lifecycle events and outcomes", () => {
     );
   });
 
-  it("emits selected input and result projections in lifecycle order", async () => {
+  it("emits full input and result values in lifecycle order", async () => {
     const events: SeqlaneEvent[] = [];
     const taskDefinition: TaskDefinition = {
       id: "a",
       input: z.unknown(),
       output: z.unknown(),
       execute: async ({ context }) => context.runAgent({ goal: "test" }),
-      observability: {
-        studio: {
-          input: { includePaths: ["/value"] },
-          result: { includePaths: ["/value"] },
-        },
-      },
     };
     const compiled = compile(
       plan([
@@ -570,7 +556,7 @@ describe("Seqlane lifecycle events and outcomes", () => {
       workId: "test-work",
       runId: "run-1",
       invocationId: "a",
-      result: { state: "present", value: { value: "safe" } },
+      result: { state: "present", value: { value: "safe", secret: "hidden" } },
     });
     expect(events.indexOf(input!)).toBeLessThan(events.indexOf(result!));
     expect(

@@ -50,24 +50,6 @@ export type JsonValue =
 
 export type SeqlaneJsonPointer = string;
 
-export interface SeqlaneStudioValueSelection {
-  readonly includePaths: readonly SeqlaneJsonPointer[];
-}
-
-export interface SeqlaneActivityObservability {
-  readonly input?: SeqlaneStudioValueSelection;
-  readonly output?: SeqlaneStudioValueSelection;
-  readonly metadata?: SeqlaneStudioValueSelection;
-}
-
-export interface SeqlaneTaskObservability {
-  readonly studio?: {
-    readonly input?: SeqlaneStudioValueSelection;
-    readonly result?: SeqlaneStudioValueSelection;
-    readonly activity?: SeqlaneActivityObservability;
-  };
-}
-
 /** Runtime schema used by public authoring contracts. */
 export type SeqlaneSchema<T = unknown> = z.ZodType<T>;
 
@@ -80,7 +62,6 @@ interface TaskDefinitionBase<Input = unknown, Output = unknown> {
   readonly id: TaskId;
   readonly input: SeqlaneSchema<Input>;
   readonly output: SeqlaneSchema<Output>;
-  readonly observability?: SeqlaneTaskObservability;
 }
 
 export interface AgentTaskRequest {

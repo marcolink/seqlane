@@ -45,10 +45,7 @@ function toExecutionEvent(
           error.evidence === undefined
             ? {}
             : {
-                validationEvidence: toSeqlaneDisplayValue(
-                  error.evidence,
-                  undefined,
-                ),
+                validationEvidence: toSeqlaneDisplayValue(error.evidence),
               },
         )
       : serializeSeqlaneError(error);

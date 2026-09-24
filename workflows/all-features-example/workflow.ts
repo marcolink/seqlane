@@ -133,17 +133,7 @@ const contextTask = defineAgentTask({
   goal: ({ topic, focus }) =>
     `Extract two keywords and a short focus hint for ${topic} (${focus}).`,
   instructions: ["Return only two keywords and a short focus hint."],
-  observability: {
-    studio: {
-      input: { includePaths: ["/topic", "/focus"] },
-      result: { includePaths: ["/keywords", "/hint"] },
-      activity: {
-        input: { includePaths: ["/topic"] },
-        output: { includePaths: ["/keywords"] },
-        metadata: { includePaths: ["/tool"] },
-      },
-    },
-  },
+  references: ["workflows/minimal-example/workflow.ts"],
 });
 
 const packageInspectionTask = defineAgentTask({

@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-16
+updated: 2026-09-24
 upstream:
   - rfc.mastra-runtime-and-operational-foundation
   - adr.standalone-cli-runs
@@ -117,6 +117,16 @@ permitted only when the constraint cannot be known before execution.
 Work, Run, and Invocation identities must propagate through Mastra context or
 metadata, steps, traces, executor calls, and normalized Seqlane events. The CLI
 continues to consume the stable Seqlane event and result contracts.
+
+### requirement-task-display-values
+
+Task definitions and task factories do not expose an `observability` field.
+The runtime emits full JSON inputs, validated results, and executor activity
+values by default. It does not filter fields, truncate values, or suppress data
+through task-level policy. JSON size, depth, and entry counts do not cause
+replacement with summaries. Values that cannot satisfy the JSON event contract
+remain unavailable; the runtime does not coerce them into partial JSON.
+Adapter observability context remains a separate private runtime concern.
 
 ### requirement-storage-tracing
 
