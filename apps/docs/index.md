@@ -17,10 +17,10 @@ hero:
       link: https://github.com/marcolink/seqlane
 
 features:
-  - title: Introduction
-    details: Learn what Seqlane controls and how to start.
-    link: /introduction/what-is-seqlane
-    linkText: Read introduction
+  - title: Classifier tasks
+    details: Ask typed questions and keep the full probabilistic result.
+    link: /authoring-workflows/classifier-tasks
+    linkText: Explore classifiers
   - title: Authoring workflows
     details: Define typed tasks, dependencies, sessions, and workspaces.
     link: /authoring-workflows/overview

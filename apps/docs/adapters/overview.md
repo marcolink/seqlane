@@ -7,6 +7,9 @@ agent activity.
 The workflow does not name an adapter. For `seqlane run`, deterministic
 workflows need no adapter. Select one for agent tasks.
 
+Classifier tasks use a separate
+[classifier connection](/authoring-workflows/classifier-tasks).
+
 ```sh
 seqlane run ./workflow.ts --input '{}' --adapter opencode
 ```

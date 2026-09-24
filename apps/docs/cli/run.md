@@ -201,6 +201,18 @@ seqlane run \
 
 Classifier tasks use one URL and model for the run. Supply both flags when a
 task calls the classifier. A classifier-only workflow does not need `--adapter`.
+For a workflow with both agent and classifier tasks, supply `--adapter` for the
+agent tasks and the classifier flags for the classifier tasks. Read
+[Classifier tasks](/authoring-workflows/classifier-tasks) for authoring and
+result details.
+
+::: tip When these flags are needed
+
+These flags are only relevant if your workflow contains at least one classifier
+task. Workflows without classifier tasks need neither flag. Supply both when a
+run executes a classifier task.
+
+:::
 
 ### `--classifier-url`
 
@@ -213,13 +225,29 @@ Set the model ID sent with classifier requests. Supply this flag together with
 `--classifier-url`.
 
 ```sh
-seqlane run ./workflow.ts \
-  --input '{"diff":"example change"}' \
-  --classifier-url https://classifier.example/v1/classify \
-  --classifier-model model-id
+seqlane run ./classifier-workflow.ts \
+  --input '{"change":"example change"}' \
+  --classifier-url https://api.typesafe.ai/v1/systemone \
+  --classifier-model jev-latest \
+  --json
 ```
 
-`--dry` does not call the classifier and requires neither flag.
+For a workflow that also has agent tasks:
+
+```sh
+seqlane run ./mixed-workflow.ts \
+  --input '{"change":"example change"}' \
+  --adapter opencode \
+  --workspace ./repository \
+  --classifier-url https://api.typesafe.ai/v1/systemone \
+  --classifier-model jev-latest
+```
+
+Replace each workflow path with your authored workflow. The classifier
+connection is selected once for the run; it is not part of workflow source or
+the Plan. `--dry` does not call the classifier and requires neither classifier
+flag nor an API key. Without a connection, execution fails when a classifier
+task requests one.
 
 ::: info API key
 

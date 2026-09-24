@@ -132,7 +132,7 @@ complexity regression remains.
 
 Implemented and locally verified on branch
 `codex/classifier-reliability-and-observation`, based on `main` at `1e3b915`.
-Target-branch delivery is not claimed.
+Delivered to `main` in commit `ae11ebf` (PR #165).
 
 ## Traceability
 

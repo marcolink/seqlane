@@ -1,11 +1,11 @@
 ---
 id: task.classifier-example-and-documentation
 title: Demonstrate Classifier Tasks in Git Diff Summary
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 upstream:
   - spec.classifier-tasks
   - task.classifier-reliability-and-observation
@@ -35,12 +35,22 @@ Finish [spec.classifier-tasks, acceptance criteria](../specs/2026-09-23-classifi
   input.
 - Return the complete classifier result alongside the two existing summary
   lanes. Do not use its probabilities to skip a lane or publish a review.
-- Extend the Noul tracer documentation with the JSON result fields, static
-  question definitions, dynamic state selection, 20-second transport budget,
-  three retries, and the difference between a probability and an application
-  decision.
-- Update nearby README/AGENTS material and the dedicated public classifier
-  authoring and CLI pages for Choice, Score, and mixed agent/classifier runs.
+- Complete the public classifier authoring page with runnable Choice, Score,
+  and Noul definitions; input-derived state; and a representative JSON result
+  showing model, answers, distributions, confidence, Score legend, Noul
+  probability, usage, and preserved extensions. Explain that probabilities are
+  results, while a downstream task owns any application decision.
+- Document the 20-second transport budget, up to three retries after the first
+  attempt, retryable failures, `Retry-After`, and cancellation. State that the
+  budget starts after synchronous state selection, validation, and
+  serialization.
+- Update the public CLI page and nearby README/AGENTS material with both
+  classifier-only and mixed agent/classifier commands. Show paired URL/model
+  flags, the API key environment variable, adapter use for agent tasks, and
+  the absence of a token CLI flag.
+- Replace the homepage Introduction feature card in `apps/docs/index.md` with
+  a Classifier tasks card linking to the public authoring page. The hero and
+  navigation already link to the introduction.
 
 ## Out of scope
 
@@ -67,23 +77,30 @@ Finish [spec.classifier-tasks, acceptance criteria](../specs/2026-09-23-classifi
    schemas. Keep all existing summaries and their schemas readable.
 2. Add the focused integration test through the existing workflow loader and
    Mastra runtime. Follow the repository test-to-implementation mapping rule.
-3. Update `workflows/git-diff-summary-example/README.md`, public authoring
-   pages, CLI run page, and package README material affected by new flags.
+3. Update `workflows/git-diff-summary-example/README.md`, the public classifier
+   authoring page, CLI run page, and nearby README/AGENTS material. Show the
+   complete output and both run modes. Replace the homepage Introduction card
+   with a Classifier tasks card.
 4. Run full feature verification and docs checks. Record exact commands and
    distinguish fixture proof from any live API proof.
 
 ## Affected areas
 
-`workflows/git-diff-summary-example/`, `apps/docs/authoring-workflows/`,
-`apps/docs/cli/run.md`, nearby READMEs, CLI help text, and focused integration
-tests. The production code-review graph stays unchanged in this task.
+`workflows/git-diff-summary-example/`, `apps/docs/index.md`,
+`apps/docs/authoring-workflows/classifier-tasks.md`,
+`apps/docs/authoring-workflows/models.md`, `apps/docs/cli/run.md`,
+`apps/docs/introduction/`, `apps/docs/adapters/overview.md`, nearby READMEs,
+CLI help text, and focused integration tests. The production code-review graph
+stays unchanged in this task.
 
 ## Verification
 
 - Run test mapping, example integration tests, CLI flag tests, core/runtime
   focused suites, typecheck, lint, build, and public API boundary checks.
-- Run `pnpm docs:index`, `pnpm docs:validate`, public docs build, and
-  `git diff --check`.
+- Run `pnpm docs:index`, `pnpm docs:validate`, public docs build, public docs
+  formatting, and `git diff --check`. Check the homepage card link and both
+  documented command forms against the CLI parser. Point the mixed command to
+  the runnable Git diff example when its classifier stage lands.
 - Verify neither the docs nor the example puts a token in a workflow source,
   Plan, CLI argument, trace, or checked-in fixture.
 - If a live Jev smoke test is available, record endpoint model/version,
@@ -94,17 +111,24 @@ tests. The production code-review graph stays unchanged in this task.
 - The example is runnable and shows static Choice, Score, and Noul questions
   with the full probabilistic result, without altering the agent summaries'
   meaning.
-- An author can copy the documented task pattern; an operator can configure
-  the endpoint and token from the CLI documentation.
+- An author can copy the documented three-kind task pattern and interpret the
+  complete result. An operator can configure a classifier-only or mixed run
+  from the CLI documentation.
+- The public homepage advertises classifier tasks through a working card link.
 - The full spec's acceptance criteria and documentation checks pass.
 
 ## Outcome
 
-Pending implementation.
+Public classifier documentation now covers all three question kinds, the full
+result, run configuration, and retry behavior. The public homepage has a
+Classifier tasks card, and nearby model and introduction pages distinguish
+classifier calls from agent adapters. This work is local. The Git diff summary
+example and its integration test remain pending.
 
 ## Delivery state
 
-Planned. No implementation or target-branch delivery is claimed.
+Public docs implemented locally. The complete task has no target-branch
+delivery claim.
 
 ## Traceability
 
