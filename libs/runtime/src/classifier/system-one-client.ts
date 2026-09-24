@@ -313,8 +313,7 @@ export class SystemOneClient {
       input,
       requestModelFor(this.connection),
     );
-    const parsedRequest = preparedRequest.request;
-    const request = parsedRequest;
+    const request = preparedRequest.request;
     const connection = validateConnection(this.connection);
     const credential =
       connection.apiKey === undefined || connection.apiKey.length === 0
