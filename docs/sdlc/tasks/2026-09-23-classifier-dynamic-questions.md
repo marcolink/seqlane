@@ -117,8 +117,7 @@ warnings in unrelated files.
 
 ## Delivery state
 
-Implemented and validated in the current worktree. No commit, pull request, or
-target-branch delivery is claimed.
+Delivered to `main` in commit `1e3b915` (PR #164).
 
 ## Traceability
 

@@ -11,6 +11,7 @@ import type { AgentRuntime } from "@seqlane/agent-adapter";
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
+import type { InvocationObservationEvent } from "@seqlane/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
@@ -98,14 +99,21 @@ describe("startWorkflowRun", () => {
         },
       },
     };
-    let capturedRequest = "";
+    const capturedRequests: string[] = [];
+    let requestCount = 0;
     let capturedAuthorization: string | undefined;
     const server = createServer((incoming, outgoing) => {
       const chunks: Buffer[] = [];
       incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
       incoming.on("end", () => {
-        capturedRequest = Buffer.concat(chunks).toString("utf8");
+        requestCount += 1;
+        capturedRequests.push(Buffer.concat(chunks).toString("utf8"));
         capturedAuthorization = incoming.headers.authorization;
+        if (requestCount === 1) {
+          outgoing.writeHead(429, { "retry-after": "0" });
+          outgoing.end("busy");
+          return;
+        }
         outgoing.writeHead(200, { "content-type": "application/json" });
         outgoing.end(JSON.stringify(responseBody));
       });
@@ -156,7 +164,7 @@ describe("startWorkflowRun", () => {
       .task("classify", classifier, ({ tasks }) => tasks.prepare.output)
       .output(({ tasks }) => tasks.classify.output)
       .define();
-    const observations: unknown[] = [];
+    const observations: Omit<InvocationObservationEvent, "metadata">[] = [];
     const handle = startWorkflowRun({
       workflow: buildWorkflow(classifierWorkflow),
       input: { diff: "example diff" },
@@ -193,8 +201,11 @@ describe("startWorkflowRun", () => {
       },
     });
     expect(capturedAuthorization).toBe(`Bearer ${apiKey}`);
-    expect(capturedRequest).toBe(JSON.stringify(requestData));
-    expect(observations).toHaveLength(1);
+    expect(capturedRequests).toEqual([
+      JSON.stringify(requestData),
+      JSON.stringify(requestData),
+    ]);
+    expect(observations).toHaveLength(2);
     expect(observations[0]).toMatchObject({
       type: "invocation.observation",
       workId: "work-classifier",
@@ -202,8 +213,24 @@ describe("startWorkflowRun", () => {
       invocationId: expect.any(String),
       observationId: expect.any(String),
       kind: "model",
-      state: "succeeded",
+      state: "failed",
       attemptIndex: 0,
+      model: {
+        operation: "classifier",
+        model: "jev-latest",
+        request: requestData,
+        error: expect.stringContaining("HTTP 429"),
+      },
+    });
+    expect(observations[1]).toMatchObject({
+      type: "invocation.observation",
+      workId: "work-classifier",
+      runId: "run-classifier",
+      invocationId: observations[0]?.invocationId,
+      observationId: observations[0]?.observationId,
+      kind: "model",
+      state: "succeeded",
+      attemptIndex: 1,
       model: {
         operation: "classifier",
         model: "jev-1.13.0",

@@ -1,10 +1,11 @@
 // @test-scope ./system-one-client.ts
 // @test-scope ./payload-limits.ts
 // @test-scope ./system-one-observation.ts
+// @test-scope ./system-one-retry.ts
 
 import { createServer, type RequestListener, type Server } from "node:http";
 import { once } from "node:events";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClassifierRequest, JsonValue } from "@seqlane/core";
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import {
@@ -15,30 +16,11 @@ import {
   CLASSIFIER_MAX_INSTRUCTIONS_BYTES,
   CLASSIFIER_MAX_STATE_BYTES,
 } from "./payload-limits.js";
+import {
+  classifierRequest as request,
+  classifierResponseBody as responseBody,
+} from "./system-one-client-fixtures.js";
 import { ClassifierFailure } from "./types.js";
-
-const request: ClassifierRequest = {
-  state: "example diff",
-  questions: {
-    needsReview: {
-      kind: "noul",
-      instructions: "Does this diff need review?",
-    },
-  },
-};
-
-const responseBody = {
-  model: "jev-1.13.0",
-  answers: {
-    needsReview: {
-      type: "noul",
-      noul: 0.63,
-      answer_note: "fixture-extension",
-    },
-  },
-  usage: { input_tokens: 10, output_tokens: 2, cached_tokens: 4 },
-  request_trace: { fixture: true },
-};
 
 const mixedRequest: ClassifierRequest = {
   state: { diff: "example diff" },
@@ -85,6 +67,7 @@ const mixedResponseBody = {
 const servers: Server[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(
     servers.splice(0).map(async (server) => {
       server.closeAllConnections();
@@ -180,6 +163,63 @@ describe("System One client", () => {
       },
     });
     expect(JSON.stringify(observations)).not.toContain(apiKey);
+  });
+
+  it("retries a 429 through HTTP and emits indexed observations for one exchange", async () => {
+    const requestBodies: string[] = [];
+    let requests = 0;
+    const fixture = await listen((incoming, outgoing) => {
+      const chunks: Buffer[] = [];
+      incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+      incoming.on("end", () => {
+        requests += 1;
+        requestBodies.push(Buffer.concat(chunks).toString("utf8"));
+        if (requests === 1) {
+          outgoing.writeHead(429, { "retry-after": "0" });
+          outgoing.end("busy");
+          return;
+        }
+        outgoing.writeHead(200, { "content-type": "application/json" });
+        outgoing.end(JSON.stringify(responseBody));
+      });
+    });
+    const observations: SeqlaneObservation[] = [];
+    const client = new SystemOneClient({
+      url: fixture.url,
+      model: "jev-latest",
+    });
+
+    const result = await client.classify(
+      request,
+      new AbortController().signal,
+      (observation) => observations.push(observation),
+    );
+
+    expect(result.model).toBe("jev-1.13.0");
+    expect(requests).toBe(2);
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[0]).toBe(requestBodies[1]);
+    expect(observations).toHaveLength(2);
+    expect(observations.map(({ attemptIndex }) => attemptIndex)).toEqual([
+      0, 1,
+    ]);
+    expect(observations[0]?.observationId).toBe(observations[1]?.observationId);
+    expect(observations).toMatchObject([
+      {
+        state: "failed",
+        model: {
+          request: JSON.parse(requestBodies[0] ?? "{}"),
+          error: expect.stringContaining("HTTP 429"),
+        },
+      },
+      {
+        state: "succeeded",
+        model: {
+          request: JSON.parse(requestBodies[1] ?? "{}"),
+          response: responseBody,
+        },
+      },
+    ]);
   });
 
   it("rejects deeply nested and oversized state before it sends a request", async () => {
@@ -411,7 +451,9 @@ describe("System One client", () => {
   });
 
   it("keeps transport causes private when the original error includes the key", async () => {
+    vi.useFakeTimers();
     const apiKey = "transport-private-key";
+    const observations: SeqlaneObservation[] = [];
     const client = new SystemOneClient(
       { url: "https://jev.example/v1/systemone", model: "jev-latest", apiKey },
       async () => {
@@ -419,9 +461,14 @@ describe("System One client", () => {
       },
     );
 
-    const error = await client
-      .classify(request, new AbortController().signal, () => undefined)
-      .catch((cause: unknown) => cause);
+    const classification = client.classify(
+      request,
+      new AbortController().signal,
+      (observation) => observations.push(observation),
+    );
+    const errorPromise = classification.catch((cause: unknown) => cause);
+    await vi.advanceTimersByTimeAsync(1_400);
+    const error = await errorPromise;
     expect(error).toBeInstanceOf(ClassifierFailure);
     expect(String(error)).not.toContain(apiKey);
     expect(JSON.stringify(error)).not.toContain(apiKey);
@@ -436,9 +483,12 @@ describe("System One client", () => {
         cause: failureCause,
       }),
     ).not.toContain(apiKey);
+    expect(observations).toHaveLength(4);
+    expect(JSON.stringify(observations)).not.toContain(apiKey);
   });
 
   it("retains harmless transport causes", async () => {
+    vi.useFakeTimers();
     const client = new SystemOneClient(
       {
         url: "https://jev.example/v1/systemone",
@@ -449,9 +499,14 @@ describe("System One client", () => {
         throw new Error("socket closed before headers");
       },
     );
-    const error = await client
-      .classify(request, new AbortController().signal, () => undefined)
-      .catch((cause: unknown) => cause);
+    const classification = client.classify(
+      request,
+      new AbortController().signal,
+      () => undefined,
+    );
+    const errorPromise = classification.catch((cause: unknown) => cause);
+    await vi.advanceTimersByTimeAsync(1_400);
+    const error = await errorPromise;
 
     expect((error as Error & { cause?: unknown }).cause).toMatchObject({
       message: "socket closed before headers",
@@ -522,13 +577,6 @@ describe("System One client", () => {
       readonly code: string;
       readonly fetchImplementation: typeof fetch;
     }[] = [
-      {
-        phase: "transport",
-        code: "transport",
-        fetchImplementation: async () => {
-          throw new Error("socket closed");
-        },
-      },
       {
         phase: "malformed response",
         code: "response",

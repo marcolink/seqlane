@@ -23,10 +23,11 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Bound Classifier Retries and Retain Full Observations](./tasks/2026-09-23-classifier-reliability-and-observation.md)
-is the next classifier delivery after static Choice, Score, and Noul support.
-The dynamic-question implementation is complete and validated in the current
-worktree; target-branch delivery is not claimed.
+[Demonstrate Classifier Tasks in Git Diff Summary](./tasks/2026-09-23-classifier-example-and-documentation.md)
+is next after [classifier retries and observations](./tasks/2026-09-23-classifier-reliability-and-observation.md)
+are delivered. The retry and observation implementation is complete and
+locally verified on its feature branch; target-branch delivery remains pending.
+Static Choice, Score, and Noul support are on `main` at `1e3b915`.
 
 ## Authority
 
