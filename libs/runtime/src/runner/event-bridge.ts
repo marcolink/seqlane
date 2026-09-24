@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  encodeSeqlaneExecutionEvent,
   isJsonValue,
   serializeSeqlaneError,
   seqlaneExecutionEventSchema,
@@ -30,6 +31,64 @@ export interface ExecutionEventBridgeOptions {
   readonly skipRunStarted?: boolean;
   readonly createEventId?: () => string;
   readonly clock?: () => Date;
+  /** Maximum serialized bytes queued or being sent for one run. */
+  readonly maxPendingBytes?: number;
+}
+
+const DEFAULT_MAX_PENDING_BYTES = 16 * 1024 * 1024;
+
+class ExecutionEventQueueOverflowError extends Error {
+  constructor(maxPendingBytes: number) {
+    super(`Execution event queue exceeded ${maxPendingBytes} bytes`);
+    this.name = "ExecutionEventQueueOverflowError";
+  }
+}
+
+class BoundedExecutionEventQueue {
+  private pending = Promise.resolve();
+  private pendingBytes = 0;
+  private failure: Error | undefined;
+
+  constructor(
+    private readonly send: SendExecutionEvent,
+    private readonly maxPendingBytes: number,
+  ) {
+    if (!Number.isSafeInteger(maxPendingBytes) || maxPendingBytes < 1) {
+      throw new RangeError("maxPendingBytes must be a positive safe integer");
+    }
+  }
+
+  enqueue(event: SeqlaneExecutionEvent): void {
+    if (this.failure !== undefined) throw this.failure;
+
+    const eventBytes = Buffer.byteLength(
+      encodeSeqlaneExecutionEvent(event),
+      "utf8",
+    );
+    if (this.pendingBytes + eventBytes > this.maxPendingBytes) {
+      this.failure = new ExecutionEventQueueOverflowError(this.maxPendingBytes);
+      throw this.failure;
+    }
+
+    this.pendingBytes += eventBytes;
+    this.pending = this.pending.then(async () => {
+      try {
+        await this.send(event);
+      } catch (cause) {
+        this.failure ??=
+          cause instanceof Error ? cause : new Error("Event delivery failed");
+        throw this.failure;
+      } finally {
+        this.pendingBytes -= eventBytes;
+      }
+    });
+  }
+
+  flush(): Promise<void> {
+    return this.pending.then(() => {
+      if (this.failure !== undefined) throw this.failure;
+    });
+  }
 }
 
 function toExecutionEvent(
@@ -100,10 +159,13 @@ export function createExecutionEventBridge(
   send: SendExecutionEvent,
   options: ExecutionEventBridgeOptions = {},
 ): ExecutionEventBridge {
-  let pending = Promise.resolve();
   let sequence = 0;
   const createEventId = options.createEventId ?? randomUUID;
   const clock = options.clock ?? (() => new Date());
+  const queue = new BoundedExecutionEventQueue(
+    send,
+    options.maxPendingBytes ?? DEFAULT_MAX_PENDING_BYTES,
+  );
 
   return {
     emitPlan(plan, workId, runId) {
@@ -114,7 +176,7 @@ export function createExecutionEventBridge(
         runId,
         plan,
       };
-      pending = pending.then(() => send(event));
+      queue.enqueue(event);
     },
     emit(event) {
       if (options.skipRunStarted && event.type === "run.started") return;
@@ -122,7 +184,7 @@ export function createExecutionEventBridge(
         event,
         createMetadata(++sequence, createEventId, clock),
       );
-      pending = pending.then(() => send(canonical));
+      queue.enqueue(canonical);
     },
     emitObservation(event) {
       const canonical = {
@@ -133,10 +195,8 @@ export function createExecutionEventBridge(
       if (!parsed.success) {
         throw new TypeError("Invalid invocation observation event");
       }
-      pending = pending.then(() => send(parsed.data));
+      queue.enqueue(parsed.data);
     },
-    flush() {
-      return pending;
-    },
+    flush: () => queue.flush(),
   };
 }

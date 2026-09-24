@@ -129,6 +129,11 @@ export interface RunNode {
   readonly skillUsage: ReadonlyMap<string, number>;
   /** Latest live event for each active tool or skill activity. */
   readonly liveActivities: ReadonlyMap<string, InvocationActivityEvent>;
+  /** Latest complete activity record for each logical tool or skill activity. */
+  readonly activityDetails: ReadonlyMap<string, InvocationActivityEvent>;
+  /** Full task input and result display values from canonical invocation events. */
+  readonly input?: SeqlaneDisplayValue;
+  readonly result?: SeqlaneDisplayValue;
   /** Complete latest lifecycle record for each logical observation. */
   readonly observations: ReadonlyMap<string, InvocationObservationEvent>;
   readonly phase?: string;
@@ -285,6 +290,7 @@ function emptyNode(
     toolUsage: new Map(),
     skillUsage: new Map(),
     liveActivities: new Map(),
+    activityDetails: new Map(),
     observations: new Map(),
     seenActivityIds: new Set(),
     aggregate: EMPTY_AGGREGATE,
@@ -952,19 +958,23 @@ export function reduceRunViewModel(
       };
     }
     case "invocation.input":
-      return next;
+      return updateNode(next, event.invocationId, (node) => ({
+        ...node,
+        input: event.input,
+      }));
     case "invocation.result":
-      return updateNode(next, event.invocationId, (node) =>
-        node.validation === undefined
-          ? node
+      return updateNode(next, event.invocationId, (node) => ({
+        ...node,
+        result: event.result,
+        ...(node.validation === undefined
+          ? {}
           : {
-              ...node,
               validation: projectValidationResult(
                 event.result,
                 node.validation,
               ),
-            },
-      );
+            }),
+      }));
     case "invocation.retrying":
       return updateNode(next, event.invocationId, (node) => ({
         ...withState(node, "retrying", timestamp),

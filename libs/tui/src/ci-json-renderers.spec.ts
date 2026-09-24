@@ -200,14 +200,54 @@ describe("CI renderer", () => {
     expect(output).toContain("iteration=2");
   });
 
-  it("renders terminal tool and skill activity lines", () => {
+  it("writes complete task inputs, results, and activity events", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
+      redactions: ["classified"],
     });
     renderer.handle({ type: "run.started", ...run });
     renderer.handle(created("a", "Task A", 0));
-    renderer.handle({
+    const input: SeqlaneExecutionEvent = {
+      type: "invocation.input",
+      ...run,
+      invocationId: "a",
+      input: {
+        state: "present",
+        value: { secret: "classified input", long: "x".repeat(1_200) },
+      },
+    };
+    const result: SeqlaneExecutionEvent = {
+      type: "invocation.result",
+      ...run,
+      invocationId: "a",
+      result: { state: "present", value: { answer: "classified result" } },
+    };
+    const activityStarted: SeqlaneExecutionEvent = {
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool",
+      name: "filesystem.read",
+      state: "started",
+      input: { state: "present", value: { path: "classified/path" } },
+      activityMetadata: {
+        state: "present",
+        value: { requestId: "classified-request" },
+      },
+    };
+    const activityProgress: SeqlaneExecutionEvent = {
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool",
+      name: "filesystem.read",
+      state: "progress",
+      output: { state: "present", value: { result: "classified output" } },
+    };
+    const activitySucceeded: SeqlaneExecutionEvent = {
       type: "invocation.activity",
       ...run,
       invocationId: "a",
@@ -215,9 +255,17 @@ describe("CI renderer", () => {
       kind: "tool",
       name: "filesystem.read",
       state: "succeeded",
-    });
-
-    renderer.handle({
+    };
+    for (const event of [
+      input,
+      result,
+      activityStarted,
+      activityProgress,
+      activitySucceeded,
+    ]) {
+      renderer.handle(event);
+    }
+    const skillActivity: SeqlaneExecutionEvent = {
       type: "invocation.activity",
       ...run,
       invocationId: "a",
@@ -225,11 +273,34 @@ describe("CI renderer", () => {
       kind: "skill",
       name: "web-perf",
       state: "succeeded",
+    };
+    renderer.handle(skillActivity);
+    const longValue = "x".repeat(1_200);
+    renderer.handle({
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "unsafe-1",
+      kind: "tool",
+      name: "read_file",
+      state: "progress",
+      output: {
+        state: "present",
+        value: { control: "row\u0085" },
+      },
     });
 
     const output = stdout.writes.join("");
-    expect(output).toContain("activity=filesystem.read succeeded");
-    expect(output).toContain("activity=web-perf succeeded");
+    expect(output).toContain(JSON.stringify(input));
+    expect(output).toContain(JSON.stringify(result));
+    expect(output).toContain(JSON.stringify(activityStarted));
+    expect(output).toContain(JSON.stringify(activityProgress));
+    expect(output).toContain(JSON.stringify(activitySucceeded));
+    expect(output).toContain(JSON.stringify(skillActivity));
+    expect(output).toContain(longValue);
+    expect(output).toContain("classified");
+    expect(output).toContain('"control":"row\\u0085"');
+    expect(output).not.toContain("\u0085");
   });
 
   it("summarizes model observations without printing payload details", () => {
@@ -268,7 +339,7 @@ describe("CI renderer", () => {
     expect(output).not.toContain("private response");
   });
 
-  it("logs the bounded command for failed tool activity", async () => {
+  it("keeps all failed tool activity values despite configured redactions", async () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -296,14 +367,12 @@ describe("CI renderer", () => {
     await renderer.finish();
 
     const output = stdout.writes.join("");
-    expect(output).toContain(
-      "activity=bash command=printf *** failed error=Tool failed: ***",
-    );
-    expect(output).not.toContain("top-secret-value");
-    expect(output).not.toContain("must not be emitted separately");
+    expect(output).toContain('"command":"printf top-secret-value"');
+    expect(output).toContain('"secret":"must not be emitted separately"');
+    expect(output).toContain('"message":"Tool failed: top-secret-value"');
   });
 
-  it("logs the bounded path for failed read activity", async () => {
+  it("keeps all failed read activity values", async () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -330,9 +399,11 @@ describe("CI renderer", () => {
     });
     await renderer.finish();
 
-    expect(stdout.writes.join("")).toContain(
-      "activity=read path=/repo/src/review.ts failed error=Tool failed",
-    );
+    const output = stdout.writes.join("");
+    expect(output).toContain('"filePath":"/repo/src/review.ts"');
+    expect(output).toContain('"offset":1');
+    expect(output).toContain('"limit":200');
+    expect(output).toContain('"message":"Tool failed"');
   });
 
   it("emits a heartbeat while active", () => {
@@ -540,7 +611,7 @@ describe("CI renderer", () => {
     expect(output).toContain("::error title=Seqlane run failed::");
   });
 
-  it("does not print input, transient output, or multiline content", () => {
+  it("prints full task input but keeps transient output on its separate channel", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -571,7 +642,7 @@ describe("CI renderer", () => {
     });
 
     const output = stdout.writes.join("");
-    expect(output).not.toContain("secret input");
+    expect(output).toContain('"value":"secret input"');
     expect(output).not.toContain("transient secret");
     expect(output).toContain("output=line one line two");
     expect(output).not.toContain("\u001b");

@@ -213,6 +213,9 @@ export async function startRun(
     host.exit(0);
   } catch (cause) {
     await execution?.close?.().catch(() => undefined);
+    // Drain events accepted before an overflow or transport failure before the
+    // runner exits. The bridge rejects only after the accepted queue settles.
+    await events.flush();
     if (control.cancellationRequested && control.activeRun === undefined) {
       events.emit({ type: "run.cancelled", workId, runId });
       await events.flush();

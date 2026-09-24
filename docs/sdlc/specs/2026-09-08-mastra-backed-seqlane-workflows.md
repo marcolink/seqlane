@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-22
+updated: 2026-09-24
 upstream:
   - adr.mastra-backed-seqlane-workflows
   - adr.separate-seqlane-protocol-package
@@ -328,7 +328,8 @@ The current event categories map as follows:
 | --- | --- | --- |
 | `run.started`, `invocation.started`, `invocation.progress`, `invocation.succeeded`, `invocation.failed`, `invocation.cancelled`, `run.heartbeat` | Runner notification | Preserve IDs, bounded fields, and run-local sequence semantics. |
 | `run.succeeded`, `run.failed`, `run.cancelled` | Serialized run outcome | Emit exactly one terminal outcome. |
-| `invocation.created`, `invocation.input`, `invocation.result`, `invocation.output`, `invocation.activity`, `invocation.retrying`, `invocation.skipped` | Mastra observability or bounded runner notification where a consumer needs lifecycle state | Do not expose raw values. |
+| `invocation.created`, `invocation.input`, `invocation.result`, `invocation.activity`, `invocation.retrying`, `invocation.skipped` | Canonical Seqlane events for the local TUI and event recording | Preserve complete JSON input, result, and executor activity values. Do not redact, truncate, or suppress these values through task policy. Treat local terminal output and recordings as sensitive. |
+| `invocation.output` | Mastra observability or the bounded runner output channel | Keep the existing output policy and bounded presentation behavior. |
 | `run.plan` and Plan-node topology | Strict `PlanSnapshot` compatibility projection for Studio, recording, and replay | Preserve static identity and topology. Exclude values and executable data. |
 | Error metadata and consumer diagnostics | Serialized error category/code or bounded local diagnostic | Omit causes, stacks, credentials, prompts, and unrestricted payloads. |
 

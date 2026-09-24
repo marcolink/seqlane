@@ -126,7 +126,14 @@ values by default. It does not filter fields, truncate values, or suppress data
 through task-level policy. JSON size, depth, and entry counts do not cause
 replacement with summaries. Values that cannot satisfy the JSON event contract
 remain unavailable; the runtime does not coerce them into partial JSON.
-Adapter observability context remains a separate private runtime concern.
+The TUI projection, CI output, and local event recordings preserve these values.
+Terminal output does not redact or truncate them. These local sinks can contain
+sensitive task data. Adapter observability context remains a separate private
+runtime concern.
+
+The runner event bridge limits queued and in-flight serialized events to 16 MiB
+per run. It preserves accepted events and fails the run when the next event
+would exceed the limit. The runner drains accepted events before it exits.
 
 ### requirement-storage-tracing
 

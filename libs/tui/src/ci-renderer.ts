@@ -1,6 +1,4 @@
-import { isPlainRecord } from "@seqlane/core";
 import type {
-  InvocationActivityEvent,
   InvocationObservationEvent,
   SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
@@ -25,6 +23,7 @@ import {
 } from "./output-details.js";
 import { redactOutput } from "./redaction.js";
 import { formatModelObservationSummary } from "./observation-details.js";
+import { encodeTerminalJson } from "./terminal-field.js";
 
 export interface CIRendererOptions {
   readonly now?: () => Date;
@@ -154,36 +153,6 @@ function boldCI(value: string, supportsAnsi: boolean): string {
   return supportsAnsi ? ANSI_BOLD + value + ANSI_RESET : value;
 }
 
-function activityDetail(event: InvocationActivityEvent): string | undefined {
-  if (event.kind !== "tool" || event.input?.state !== "present") {
-    return undefined;
-  }
-  const value = event.input.value;
-  if (!isPlainRecord(value)) return undefined;
-  if (event.name === "bash") {
-    const command = value.command;
-    return typeof command === "string"
-      ? "command=" + compactCI(command, 500)
-      : undefined;
-  }
-  if (event.name === "read") {
-    const filePath = value.filePath ?? value.path;
-    return typeof filePath === "string"
-      ? "path=" + compactCI(filePath, 500)
-      : undefined;
-  }
-  if (event.name === "glob" || event.name === "grep") {
-    const pattern = value.pattern;
-    const path = value.path;
-    const details = [
-      typeof pattern === "string" ? "pattern=" + compactCI(pattern, 300) : "",
-      typeof path === "string" ? "path=" + compactCI(path, 300) : "",
-    ].filter((detail) => detail.length > 0);
-    return details.length === 0 ? undefined : details.join(" ");
-  }
-  return undefined;
-}
-
 function observationSummary(event: InvocationObservationEvent): string {
   return (
     "run=" +
@@ -278,7 +247,15 @@ export class CIRenderer implements ExecutionRenderer {
       this.runFinishedAt = timestamp;
       this.stopHeartbeat();
     }
-    this.writeLine(this.lineFor(event, previousView, this.view));
+    if (
+      event.type === "invocation.input" ||
+      event.type === "invocation.result" ||
+      event.type === "invocation.activity"
+    ) {
+      this.writeObservabilityEvent(event);
+    } else {
+      this.writeLine(this.lineFor(event, previousView, this.view));
+    }
     this.writeAnnotation(event, this.view);
   }
 
@@ -407,24 +384,7 @@ export class CIRenderer implements ExecutionRenderer {
         );
       }
       case "invocation.activity":
-        if (event.state !== "succeeded" && event.state !== "failed") return "";
-        {
-          const detail = activityDetail(event);
-          return (
-            "run=" +
-            event.runId +
-            " invocation=" +
-            event.invocationId +
-            " activity=" +
-            compactCI(event.name, 200) +
-            (detail === undefined ? "" : " " + detail) +
-            " " +
-            event.state +
-            (event.message === undefined
-              ? ""
-              : " error=" + compactCI(event.message))
-          );
-        }
+        return "";
       case "invocation.observation":
         return compactCI(observationSummary(event), 1_000);
       case "invocation.output":
@@ -443,17 +403,8 @@ export class CIRenderer implements ExecutionRenderer {
         }
       case "invocation.input":
         return "";
-      case "invocation.result": {
-        const validation = view.nodes.get(event.invocationId)?.validation;
-        return validation === undefined
-          ? ""
-          : "run=" +
-              event.runId +
-              " invocation=" +
-              event.invocationId +
-              " " +
-              formatValidationDetails(validation);
-      }
+      case "invocation.result":
+        return "";
       case "invocation.retrying":
         return (
           "run=" +
@@ -781,6 +732,10 @@ export class CIRenderer implements ExecutionRenderer {
     const sanitized = sanitizeCILine(line, this.options.redactions ?? []);
     if (sanitized === "") return;
     this.safeWrite(this.capabilities.stdout, sanitized + "\n");
+  }
+
+  private writeObservabilityEvent(event: SeqlaneExecutionEvent): void {
+    this.safeWrite(this.capabilities.stdout, encodeTerminalJson(event) + "\n");
   }
 
   private safeWrite(sink: OutputSink, value: string): void {

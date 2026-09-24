@@ -425,7 +425,7 @@ describe("Seqlane lifecycle events and outcomes", () => {
     ]);
   });
 
-  it("includes full bounded executor activity by default", async () => {
+  it("includes full executor activity by default", async () => {
     const events: SeqlaneEvent[] = [];
     const taskDefinition: TaskDefinition = {
       id: "a",

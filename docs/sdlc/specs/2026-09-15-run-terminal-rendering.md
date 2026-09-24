@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-16
+updated: 2026-09-24
 upstream:
   - prd.seqlane-on-mastra
   - rfc.execution-observability-and-debugging
@@ -172,6 +172,11 @@ and records truncation separately from payload bytes. Later content is dropped;
 metrics can still update. One node marker and one run notice report truncation
 without consuming the payload budget. Tests can inject smaller limits.
 
+These detail limits apply to output text and summaries. They do not apply to
+task input, result, or executor activity values. The projection retains those
+complete JSON values, and human and CI output do not redact or truncate them.
+This can retain and display sensitive task data.
+
 ### requirement-root-elapsed-time
 
 The root workflow always shows total elapsed time. An active run uses the
@@ -192,14 +197,16 @@ Failures and waiting reasons appear under the affected row. Session URLs do not
 appear in the human tree. There is no inspector, selected row, key guide,
 identity banner, or routine tool-event tally.
 
-Active rows show fixed workspace mode, session label, and model when available,
-plus only the current progress, tool, and skill activity. Updates for one
-activity ID replace its live line. Completed activity lines disappear; the
-retained counts are shown only after the task completes. Tool calls count
+Rows show fixed workspace mode, session label, and model when available. They
+show complete task input and result values and the latest complete activity
+record for each activity ID, including its input, output, and metadata when
+present. Activity payloads remain visible after activity and task completion.
+Active rows also show current progress and live activity status. Updates for one
+activity ID replace its live line. Tool calls count
 unique activity IDs, not streaming event counts. The retained count is capped
 at 1,000 per invocation and displays a lower bound at that limit. Tree rails
-span all wrapped detail lines. Successful rows keep fixed context and replace
-live details with four summary lines: fixed metadata; total token and cost
+span all wrapped detail lines. Successful rows keep full task values and fixed
+context, then show four summary lines: fixed metadata; total token and cost
 values; input/output/reasoning/cached token values; and per-tool and per-skill
 counts. Duration remains right-aligned with the task title. Keys are muted and
 values use stronger ANSI contrast.
@@ -265,6 +272,12 @@ and aggregate counts.
 ANSI styling is disabled unless the CLI explicitly reports support. GitHub
 Actions annotations and step-summary output require explicit sinks.
 
+For every `invocation.input`, `invocation.result`, and `invocation.activity`
+event, CI mode writes the full canonical event as one JSON line. It includes all
+activity lifecycle states and bypasses configured redaction and field-length
+limits. JSON encoding escapes terminal control characters. These lines can
+contain sensitive task data.
+
 Each CI line follows this grammar:
 
 ```text
@@ -294,7 +307,9 @@ Fields use this order:
 ### requirement-terminal-field-encoding
 
 The terminal package uses one canonical encoder for each dynamic CI field.
-Protocol redaction occurs before this encoder.
+Protocol redaction occurs before this encoder for ordinary status fields.
+Complete task input, result, and activity events use JSON encoding without
+redaction or truncation; unsafe terminal controls are escaped in the JSON text.
 
 The encoder:
 

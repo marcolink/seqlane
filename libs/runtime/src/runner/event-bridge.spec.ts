@@ -7,6 +7,7 @@ import type {
   SeqlaneExecutionEvent,
   SeqlanePlanSnapshot,
 } from "@seqlane/protocol";
+import { encodeSeqlaneExecutionEvent } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import { createExecutionEventBridge } from "./event-bridge.js";
 
@@ -90,6 +91,55 @@ describe("execution event bridge", () => {
         output: new Date(),
       }),
     ).toThrow("JSON serializable");
+  });
+
+  it("bounds queued bytes and drains accepted events before failing", async () => {
+    const events: SeqlaneExecutionEvent[] = [];
+    let releaseFirst!: () => void;
+    const firstSend = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const sample: SeqlaneExecutionEvent = {
+      type: "run.started",
+      workId: "work-1",
+      runId: "run-1",
+      metadata: {
+        schemaVersion: 1,
+        eventId: "event-1",
+        sequence: 1,
+        occurredAt: metadata.occurredAt,
+      },
+    };
+    const bridge = createExecutionEventBridge(
+      async (event) => {
+        events.push(event);
+        if (events.length === 1) await firstSend;
+      },
+      {
+        maxPendingBytes:
+          Buffer.byteLength(encodeSeqlaneExecutionEvent(sample), "utf8") * 2,
+        createEventId: () => "event-1",
+        clock: () => new Date(metadata.occurredAt),
+      },
+    );
+    const event: SeqlaneEvent = {
+      type: "run.started",
+      workId: "work-1",
+      runId: "run-1",
+    };
+
+    bridge.emit(event);
+    bridge.emit(event);
+    expect(() => bridge.emit(event)).toThrow("Execution event queue exceeded");
+
+    const flushed = bridge.flush();
+    releaseFirst();
+    await expect(flushed).rejects.toMatchObject({
+      name: "ExecutionEventQueueOverflowError",
+    });
+    expect(
+      events.map(({ metadata: eventMetadata }) => eventMetadata?.sequence),
+    ).toEqual([1, 2]);
   });
 
   it("emits a canonical plan event in the same sequence", async () => {

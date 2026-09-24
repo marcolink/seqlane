@@ -67,6 +67,68 @@ function terminal(
 }
 
 describe("human execution view model", () => {
+  it("retains full task input, result, and completed activity payloads", () => {
+    const input = {
+      state: "present" as const,
+      value: { prompt: "private task input", options: { trace: true } },
+    };
+    const result = {
+      state: "present" as const,
+      value: { answer: "private task result", metadata: { score: 0.9 } },
+    };
+    const activityInput = {
+      state: "present" as const,
+      value: { command: "inspect", nested: { token: "full-value" } },
+    };
+    const activityOutput = {
+      state: "present" as const,
+      value: { exitCode: 0, stdout: "complete stdout" },
+    };
+    const activityMetadata = {
+      state: "present" as const,
+      value: { tool: "shell", requestId: "request-1" },
+    };
+    const view = reduceRunEvents([
+      created("a", "A", 0),
+      { type: "invocation.input", ...run, invocationId: "a", input },
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-1",
+        kind: "tool",
+        name: "shell",
+        state: "started",
+        input: activityInput,
+        activityMetadata,
+      },
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-1",
+        kind: "tool",
+        name: "shell",
+        state: "succeeded",
+        output: activityOutput,
+      },
+      { type: "invocation.result", ...run, invocationId: "a", result },
+    ]);
+    const node = view.nodes.get("a");
+
+    expect(node?.input).toEqual(input);
+    expect(node?.result).toEqual(result);
+    expect(
+      node?.activityDetails.get(JSON.stringify(["a", "tool", "call-1"])),
+    ).toMatchObject({
+      state: "succeeded",
+      input: activityInput,
+      output: activityOutput,
+      activityMetadata,
+    });
+    expect(node?.liveActivities.size).toBe(0);
+  });
+
   it("retains complete model observations and merges lifecycle updates", () => {
     const first = {
       type: "invocation.observation" as const,
