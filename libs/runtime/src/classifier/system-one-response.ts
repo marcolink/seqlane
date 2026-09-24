@@ -1,10 +1,11 @@
 import type {
+  ClassifierQuestion,
   ClassifierRequest,
   ClassifierResult,
   JsonValue,
 } from "@seqlane/core";
 import {
-  classifierResultSchema,
+  createClassifierResultSchema,
   jsonValueSchema,
   plainRecordSchema,
 } from "@seqlane/core";
@@ -24,6 +25,27 @@ const knownResponseSchema = z.looseObject({
 const providerNoulAnswerSchema = z.looseObject({
   type: z.literal("noul"),
   noul: z.number().finite().min(0).max(1),
+});
+
+const probabilitySchema = z.number().finite().min(0).max(1);
+
+const providerChoiceAnswerSchema = z.looseObject({
+  type: z.literal("choice"),
+  choice: z.string().min(1),
+  probabilities: plainRecordSchema.pipe(
+    z.record(z.string(), probabilitySchema),
+  ),
+  confidence: probabilitySchema,
+});
+
+const providerScoreAnswerSchema = z.looseObject({
+  type: z.literal("score"),
+  score: z.number().finite(),
+  legend: plainRecordSchema.pipe(z.record(z.string(), z.string())),
+  probabilities: plainRecordSchema.pipe(
+    z.record(z.string(), probabilitySchema),
+  ),
+  confidence: probabilitySchema,
 });
 
 const extensionRecordSchema = plainRecordSchema.pipe(
@@ -74,28 +96,80 @@ function providerResponseSchemaFor(request: ClassifierRequest) {
       return;
     }
     for (const id of requestedIds) {
-      if (!providerNoulAnswerSchema.safeParse(response.answers[id]).success) {
+      const question = request.questions[id];
+      if (
+        question === undefined ||
+        !providerAnswerSchemaFor(question.kind).safeParse(response.answers[id])
+          .success
+      ) {
         context.addIssue({
           code: "custom",
           path: ["answers", id],
-          message: "System One Noul answer is malformed",
+          message: "System One answer does not match its question kind",
         });
       }
     }
   });
 }
 
+function providerAnswerSchemaFor(kind: ClassifierQuestion["kind"]) {
+  switch (kind) {
+    case "choice":
+      return providerChoiceAnswerSchema;
+    case "score":
+      return providerScoreAnswerSchema;
+    case "noul":
+      return providerNoulAnswerSchema;
+  }
+}
+
 function mapAnswer(
   raw: unknown,
+  question: ClassifierQuestion,
   credential?: string,
 ): ClassifierResult["answers"][string] {
-  const answer = providerNoulAnswerSchema.parse(raw);
-  const extensions = extensionsFrom(answer, ["type", "noul"], credential);
-  return {
-    kind: "noul",
-    probability: answer.noul,
-    ...(extensions === undefined ? {} : { extensions }),
-  };
+  switch (question.kind) {
+    case "choice": {
+      const answer = providerChoiceAnswerSchema.parse(raw);
+      const extensions = extensionsFrom(
+        answer,
+        ["type", "choice", "probabilities", "confidence"],
+        credential,
+      );
+      return {
+        kind: "choice",
+        selected: answer.choice,
+        probabilities: answer.probabilities,
+        confidence: answer.confidence,
+        ...(extensions === undefined ? {} : { extensions }),
+      };
+    }
+    case "score": {
+      const answer = providerScoreAnswerSchema.parse(raw);
+      const extensions = extensionsFrom(
+        answer,
+        ["type", "score", "legend", "probabilities", "confidence"],
+        credential,
+      );
+      return {
+        kind: "score",
+        value: answer.score,
+        legend: answer.legend,
+        probabilities: answer.probabilities,
+        confidence: answer.confidence,
+        ...(extensions === undefined ? {} : { extensions }),
+      };
+    }
+    case "noul": {
+      const answer = providerNoulAnswerSchema.parse(raw);
+      const extensions = extensionsFrom(answer, ["type", "noul"], credential);
+      return {
+        kind: "noul",
+        probability: answer.noul,
+        ...(extensions === undefined ? {} : { extensions }),
+      };
+    }
+  }
 }
 
 export function mapSystemOneResponse(
@@ -109,9 +183,9 @@ export function mapSystemOneResponse(
 } {
   const providerResponse = providerResponseSchemaFor(request).parse(raw);
   const answers = Object.fromEntries(
-    Object.keys(request.questions).map((id) => [
+    Object.entries(request.questions).map(([id, question]) => [
       id,
-      mapAnswer(providerResponse.answers[id], credential),
+      mapAnswer(providerResponse.answers[id], question, credential),
     ]),
   );
   const usageExtensions = extensionsFrom(
@@ -124,7 +198,7 @@ export function mapSystemOneResponse(
     ["model", "answers", "usage"],
     credential,
   );
-  const result = classifierResultSchema.parse({
+  const result = createClassifierResultSchema(request.questions).parse({
     model: providerResponse.model,
     answers,
     usage: {

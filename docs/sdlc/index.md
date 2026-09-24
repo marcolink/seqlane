@@ -23,11 +23,10 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Run One Classifier Task Through Jev](./tasks/2026-09-23-classifier-system-one-tracer.md)
-is the active first delivery on top of [PR #160](https://github.com/marcolink/seqlane/pull/160).
-It delivers one provider-neutral Noul classifier path through the CLI, runtime,
-and existing observation event. Later classifier tasks extend it with static
-Choice and Score questions and retries.
+[Bound Classifier Retries and Retain Full Observations](./tasks/2026-09-23-classifier-reliability-and-observation.md)
+is the next classifier delivery after static Choice, Score, and Noul support.
+The dynamic-question implementation is complete and validated in the current
+worktree; target-branch delivery is not claimed.
 
 ## Authority
 

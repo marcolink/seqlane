@@ -215,6 +215,96 @@ export type ClassifierResultFor<Questions extends ClassifierQuestions> = Omit<
   };
 };
 
+function hasExactKeys(
+  value: Record<string, unknown>,
+  expectedKeys: readonly string[],
+): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  return (
+    actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index])
+  );
+}
+
+function choiceAnswerIssues(
+  id: string,
+  question: Extract<ClassifierQuestion, { kind: "choice" }>,
+  answer: Extract<ClassifierAnswer, { kind: "choice" }>,
+): { path: (string | number)[]; message: string }[] {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  const optionIds = Object.keys(question.criteria);
+  if (!optionIds.includes(answer.selected)) {
+    issues.push({
+      path: ["answers", id, "selected"],
+      message: "Choice selection must match a declared option",
+    });
+  }
+  if (!hasExactKeys(answer.probabilities, optionIds)) {
+    issues.push({
+      path: ["answers", id, "probabilities"],
+      message: "Choice probabilities must match the declared options",
+    });
+  }
+  return issues;
+}
+
+function scoreAnswerIssues(
+  id: string,
+  question: Extract<ClassifierQuestion, { kind: "score" }>,
+  answer: Extract<ClassifierAnswer, { kind: "score" }>,
+): { path: (string | number)[]; message: string }[] {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  const levelKeys = question.criteria.map((_level, index) => String(index));
+  const expectedLegend = Object.fromEntries(
+    question.criteria.map((level, index) => [String(index), level]),
+  );
+  if (answer.value > question.criteria.length - 1) {
+    issues.push({
+      path: ["answers", id, "value"],
+      message: "Score value must be within the declared levels",
+    });
+  }
+  if (
+    !hasExactKeys(answer.legend, levelKeys) ||
+    levelKeys.some((key) => answer.legend[key] !== expectedLegend[key])
+  ) {
+    issues.push({
+      path: ["answers", id, "legend"],
+      message: "Score legend must match the declared levels",
+    });
+  }
+  if (!hasExactKeys(answer.probabilities, levelKeys)) {
+    issues.push({
+      path: ["answers", id, "probabilities"],
+      message: "Score probabilities must match the declared levels",
+    });
+  }
+  return issues;
+}
+
+function answerCriteriaIssues(
+  id: string,
+  question: ClassifierQuestion,
+  answer: ClassifierAnswer,
+): { path: (string | number)[]; message: string }[] {
+  if (answer.kind !== question.kind) {
+    return [
+      {
+        path: ["answers", id, "kind"],
+        message: "Classifier answer kind must match its declaration",
+      },
+    ];
+  }
+  if (question.kind === "choice" && answer.kind === "choice") {
+    return choiceAnswerIssues(id, question, answer);
+  }
+  if (question.kind === "score" && answer.kind === "score") {
+    return scoreAnswerIssues(id, question, answer);
+  }
+  return [];
+}
+
 export function createClassifierResultSchema<
   Questions extends ClassifierQuestions,
 >(questions: Questions): SeqlaneSchema<ClassifierResultFor<Questions>> {
@@ -236,14 +326,15 @@ export function createClassifierResultSchema<
       }
       for (const id of declaredIds) {
         const answer = result.answers[id];
-        if (
-          answer === undefined ||
-          answer.kind !== declaredQuestions[id]?.kind
-        ) {
+        const question = declaredQuestions[id];
+        if (answer === undefined || question === undefined) {
+          continue;
+        }
+        for (const issue of answerCriteriaIssues(id, question, answer)) {
           context.addIssue({
             code: "custom",
-            path: ["answers", id, "kind"],
-            message: "Classifier answer kind must match its declaration",
+            path: issue.path,
+            message: issue.message,
           });
         }
       }
