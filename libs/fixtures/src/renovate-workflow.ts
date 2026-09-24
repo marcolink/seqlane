@@ -63,8 +63,8 @@ const investigateTask = defineAgentTask({
     `Investigate why the ${dependency} update from ${fromVersion} to ${toVersion} failed: ${failure}.`,
   instructions: [
     "Identify the files that need review and state the root cause.",
+    "Use package.json and pnpm-lock.yaml as sources for dependency versions.",
   ],
-  references: ["package.json", "pnpm-lock.yaml"],
 });
 
 const planTask = defineAgentTask({

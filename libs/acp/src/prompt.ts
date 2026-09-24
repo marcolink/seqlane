@@ -20,9 +20,6 @@ export function buildAgentPrompt(
     ...(agent?.instructions ?? []).map(
       (instruction) => `Task instruction: ${instruction}`,
     ),
-    ...(agent?.references ?? []).map(
-      (reference) => `Task reference: ${reference}`,
-    ),
   ].join("\n");
 }
 

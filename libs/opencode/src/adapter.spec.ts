@@ -28,7 +28,6 @@ const task: TaskDefinition = {
 const agent: AgentTaskRequest = {
   goal: "Process demo",
   instructions: ["Keep the change small"],
-  references: ["AGENTS.md"],
 };
 
 function request(
