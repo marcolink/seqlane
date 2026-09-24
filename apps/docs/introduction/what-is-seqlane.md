@@ -1,13 +1,15 @@
 # What is Seqlane?
 
-Seqlane is a TypeScript workflow controller for software-engineering agents.
-It turns workflows into typed graphs of agent and deterministic tasks.
+Seqlane is a TypeScript workflow controller for software-engineering work.
+It turns workflows into typed graphs of agent, classifier, and deterministic
+tasks.
 
 ## A controller for coding agents
 
 Seqlane has a different role from general async AI runners such as Trigger.dev
-and Mastra. It does not make model calls. An adapter sends each agent task to
-an external coding agent.
+and Mastra. An adapter sends each agent task to an external coding agent.
+[Classifier tasks](/authoring-workflows/classifier-tasks) call a configured
+classification model through a separate connection.
 
 Seqlane controls task order, session use, workspace use, and parallel
 execution. It keeps task boundaries explicit and reserves agent time for agent

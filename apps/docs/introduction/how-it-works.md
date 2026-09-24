@@ -27,11 +27,15 @@
   </g>
 </svg>
 
+The diagram shows agent adapter selection. Classifier tasks use a separate
+[classifier connection](/authoring-workflows/classifier-tasks).
+
 1. Author a workflow as a typed graph of tasks.
 2. Bind inputs. Declare dependencies, sessions, workspaces, and models.
 3. Start one workflow run.
 4. Seqlane validates the Plan before it starts tasks.
-5. Seqlane runs deterministic work locally. It sends agent work to the selected adapter.
+5. Seqlane runs deterministic work locally, sends agent work to the selected
+   adapter, and calls the configured endpoint for classifier tasks.
 6. Seqlane validates task outputs and returns the workflow result.
 
 Independent tasks can run in parallel. Session and workspace policy determines

@@ -1,8 +1,9 @@
 # Model selection
 
-Model selection belongs to a session. Set a model where a task starts an
+Agent model selection belongs to a session. Set a model where a task starts an
 isolated or branched session. A workflow-level model is only the default for
-new sessions.
+new agent sessions. Classifier tasks use a separate model ID selected for the
+run with [classifier flags](/cli/run#classifier-flags).
 
 ::: info Session rule
 
