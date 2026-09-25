@@ -111,16 +111,12 @@ function buildPrompt(request: AgentAdapterRequest): string {
   const instructions = request.agent?.instructions?.map((value) =>
     component(`Instruction: ${value}`, "agent instruction"),
   );
-  const references = request.agent?.references?.map((value) =>
-    component(`Reference: ${value}`, "agent reference"),
-  );
   const prompt = [
     component(
       request.agent?.goal ?? `Complete task ${request.task.id}`,
       "agent goal",
     ),
     ...(instructions ?? []),
-    ...(references ?? []),
     `Task input JSON: ${boundedInput}`,
     "Return only the JSON value required by the task output schema.",
   ].join("\n");

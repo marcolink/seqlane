@@ -192,7 +192,6 @@ describe("seqlane core", () => {
       output: schema<{ readonly answer: string }>(),
       goal: ({ request }) => `Answer ${request}`,
       instructions: ["Return a concise answer."],
-      references: ["README.md"],
     });
 
     expect(typeof task.execute).toBe("function");

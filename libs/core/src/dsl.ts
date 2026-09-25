@@ -50,7 +50,6 @@ interface AgentTaskFactoryInput<Input, Output> extends Omit<
 > {
   readonly goal: (input: Input) => string;
   readonly instructions?: readonly string[];
-  readonly references?: readonly string[];
   /** Maximum agent execution time in milliseconds. Defaults to two minutes. */
   readonly timeoutMs?: number;
 }
@@ -61,7 +60,7 @@ export function defineAgentTask<Input, Output>(
   if (Object.hasOwn(definition, "execute")) {
     throw new TypeError("defineAgentTask does not accept execute");
   }
-  const { goal, instructions, references, timeoutMs, ...base } = definition;
+  const { goal, instructions, timeoutMs, ...base } = definition;
   const effectiveTimeoutMs = agentTaskTimeoutMsSchema.parse(timeoutMs);
   const task: TaskDefinition<Input, Output> = {
     ...base,
@@ -69,7 +68,6 @@ export function defineAgentTask<Input, Output>(
       context.runAgent({
         goal: goal(input),
         ...(instructions === undefined ? {} : { instructions }),
-        ...(references === undefined ? {} : { references }),
         timeoutMs: effectiveTimeoutMs,
       }) as Promise<Output>,
   };

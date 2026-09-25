@@ -44,7 +44,6 @@ function task(): TaskDefinition {
 const agent: AgentTaskRequest = {
   goal: "Complete the input",
   instructions: ["Keep the change small"],
-  references: ["AGENTS.md"],
 };
 
 function configuration(

@@ -86,7 +86,6 @@ interface TaskDefinitionBase<Input = unknown, Output = unknown> {
 export interface AgentTaskRequest {
   readonly goal: string;
   readonly instructions?: readonly string[];
-  readonly references?: readonly string[];
   /** Maximum agent execution time in milliseconds. */
   readonly timeoutMs?: number;
 }

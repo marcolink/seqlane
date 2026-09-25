@@ -147,8 +147,8 @@ export default createFlow({ id: "local", input, output })
 ### `defineAgentTask`
 
 Use `defineAgentTask` when a configured runtime agent must produce the result.
-The factory turns `goal`, `instructions`, and optional `references` into an
-agent execution. The task's output schema validates the structured result.
+The factory turns `goal` and optional `instructions` into an agent execution.
+The task's output schema validates the structured result.
 
 ```ts
 import { defineAgentTask } from "@seqlane/core";

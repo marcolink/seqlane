@@ -13,13 +13,16 @@ const review = defineAgentTask({
   output: z.object({ summary: z.string(), approved: z.boolean() }),
   goal: ({ change }) => `Review this change: ${change}`,
   timeoutMs: 30_000,
-  instructions: ["Report only supported findings."],
-  references: ["CONTRIBUTING.md"],
+  instructions: [
+    "Consult CONTRIBUTING.md for repository guidance.",
+    "Report only supported findings.",
+  ],
 });
 ```
 
 `goal` receives typed task input and returns the agent request. Optional
-`instructions` and `references` add fixed context.
+`instructions` add fixed guidance to the agent request. Include file paths in
+the instructions when the agent should consult files in its workspace.
 
 Agent tasks have a two-minute execution limit by default. Set `timeoutMs` to a
 positive integer in milliseconds when one task needs a different limit. The
@@ -54,36 +57,33 @@ The selected adapter owns permissions. Agent tasks follow the
 ### Seqlane adapter behavior
 
 Prompt caching can reduce input processing when requests reuse the same prompt
-prefix. Each adapter builds the prompt from the task goal, instructions, and
-references. Current adapters put the goal before both instructions and
-references. `defineAgentTask` has no setting to change this order or set a cache
-breakpoint.
+prefix. Each adapter builds the prompt from the task goal and instructions.
+Current adapters put the goal before instructions. `defineAgentTask` has no
+setting to change this order or set a cache breakpoint.
 
-If the goal contains changing data, later instructions and references do not
-extend the reusable prefix. Keep changing evidence compact. Keep the model and
-tool definitions stable across calls. Reuse a session when later turns can use
-its conversation history.
+If the goal contains changing data, later instructions do not extend the
+reusable prefix. Keep changing evidence compact. Keep the model and tool
+definitions stable across calls. Reuse a session when later turns can use its
+conversation history.
 
 These examples show how the prompt order affects caching. They show fields from
 a `defineAgentTask` definition.
 
 ::: danger Bad example
 
-The changing diff comes before the stable instructions and reference.
+The changing diff comes before the stable instructions.
 
 ```ts
 goal: ({ diff }) => `Review this diff:\n${diff}`,
 instructions: ["Report only supported findings."],
-references: ["docs/review-rubric.md"],
 ```
 :::
 
 ::: info Dynamic input
 
 When the task must receive changing data, put it in the goal and keep the
-instructions and references fixed. This avoids repeating the data in the
-guidance, but the changing goal still means later fields do not extend the
-reusable prefix.
+instructions fixed. This avoids repeating the data in the guidance, but the
+changing goal still means later fields do not extend the reusable prefix.
 
 ```ts
 input: z.object({ title: z.string() }),
@@ -91,8 +91,8 @@ goal: ({ title }) => `Review ${title}.`,
 instructions: [
   "Check against the review rubric.",
   "Report only supported findings.",
+  "Consult docs/review-rubric.md.",
 ],
-references: ["docs/review-rubric.md"],
 ```
 :::
 
@@ -103,16 +103,17 @@ workspace reads then do not change the initial prompt prefix.
 
 ```ts
 goal: () => "Review the latest diff in the current workspace.",
-instructions: ["Report only supported findings."],
-references: ["docs/review-rubric.md"],
+instructions: [
+  "Consult docs/review-rubric.md.",
+  "Report only supported findings.",
+],
 ```
 :::
 
 Use the second pattern only for tasks where the selected adapter gives the
 agent access to the required workspace data. If the task must pass changing
-evidence through the goal, current task fields cannot put instructions or
-references before it. An adapter change is required to order those fields
-differently.
+evidence through the goal, current task fields cannot put instructions before
+it. An adapter change is required to order those fields differently.
 
 ### Provider-specific behavior
 
