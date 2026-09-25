@@ -131,7 +131,7 @@ const contextTask = defineAgentTask({
   input: inputSchema,
   output: contextSchema,
   goal: ({ topic, focus }) =>
-  `Extract two keywords and a short focus hint for ${topic} (${focus}).`,
+    `Extract two keywords and a short focus hint for ${topic} (${focus}).`,
   instructions: ["Return only two keywords and a short focus hint."],
   observability: {
     studio: {
