@@ -14,9 +14,9 @@ does not depend on a runtime adapter or executor.
   no-color, and ASCII support. Each task keeps fixed model, workspace, and
   session metadata visible when available. Active rows show only the current
   progress, tool, and skill events. It shows complete task input and result
-  values and keeps the latest full activity payload visible after completion.
+  values and keeps recent full activity payloads visible after completion.
   A live activity update replaces the prior event with the same activity ID.
-  Completed rows retain full task and activity values beside a four-line
+  Completed rows retain recent complete task and activity values beside a four-line
   summary: fixed metadata;
   total tokens and cost; input/output/reasoning/cache-read/cache-write token
   buckets; and
@@ -29,7 +29,10 @@ does not depend on a runtime adapter or executor.
   A task duration starts when the task becomes active. It excludes queue time and
   dependency wait time.
   Missing optional fields stay hidden. Successful rows retain task values and
-  show duration and usage totals.
+  show duration and usage totals. The human projection retains at most 1,000
+  complete JSON records and 16 MiB of their encoded values per run. It evicts
+  oldest whole records when either limit is reached and shows an eviction
+  notice. Retained values are not shortened or redacted.
 - `ci` writes concise, append-only status and failure output for automation.
 
 The CLI selects these modes with `--output auto|human|ci`. Final run results

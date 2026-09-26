@@ -291,6 +291,19 @@ describe("CI renderer", () => {
     });
 
     const output = stdout.writes.join("");
+    const lines = output.trimEnd().split("\n");
+    expect(lines).toContain("run=run-1 started");
+    const inputLine = lines.find((line) =>
+      line.includes('"type":"invocation.input"'),
+    );
+    expect(inputLine).toBeDefined();
+    expect(inputLine?.startsWith("{")).toBe(true);
+    expect(inputLine).not.toContain("run=");
+    expect(JSON.parse(inputLine ?? "{}")).toMatchObject({
+      runId: "run-1",
+      invocationId: "a",
+      metadata: { sequence: 1 },
+    });
     expect(output).toContain(JSON.stringify(input));
     expect(output).toContain(JSON.stringify(result));
     expect(output).toContain(JSON.stringify(activityStarted));

@@ -140,6 +140,20 @@ describe("execution event bridge", () => {
     expect(
       events.map(({ metadata: eventMetadata }) => eventMetadata?.sequence),
     ).toEqual([1, 2]);
+
+    expect(await bridge.settle()).toMatchObject({
+      name: "ExecutionEventQueueOverflowError",
+    });
+    await bridge.sendTerminal({
+      type: "run.failed",
+      workId: "work-1",
+      runId: "run-1",
+      error: new ExecutorError("task", new Error("overflow")),
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "run.failed",
+      metadata: { sequence: 3 },
+    });
   });
 
   it("emits a canonical plan event in the same sequence", async () => {

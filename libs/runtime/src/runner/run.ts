@@ -213,22 +213,26 @@ export async function startRun(
     host.exit(0);
   } catch (cause) {
     await execution?.close?.().catch(() => undefined);
-    // Drain events accepted before an overflow or transport failure before the
-    // runner exits. The bridge rejects only after the accepted queue settles.
-    await events.flush();
-    if (control.cancellationRequested && control.activeRun === undefined) {
-      events.emit({ type: "run.cancelled", workId, runId });
-      await events.flush();
-      host.exit(0);
-      return;
+    // Accepted events settle before a terminal outcome bypasses the failed
+    // queue. A broken IPC channel still exits nonzero for supervisor fallback.
+    const deliveryFailure = await events.settle();
+    const terminal =
+      control.cancellationRequested &&
+      control.activeRun === undefined &&
+      deliveryFailure === undefined
+        ? ({ type: "run.cancelled", workId, runId } as const)
+        : ({
+            type: "run.failed",
+            workId,
+            runId,
+            error: new RuntimeError(cause),
+          } as const);
+    let exitCode = 0;
+    try {
+      await events.sendTerminal(terminal);
+    } catch {
+      exitCode = 1;
     }
-    events.emit({
-      type: "run.failed",
-      workId,
-      runId,
-      error: new RuntimeError(cause),
-    });
-    await events.flush();
-    host.exit(0);
+    host.exit(exitCode);
   }
 }

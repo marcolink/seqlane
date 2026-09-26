@@ -63,7 +63,12 @@ export function projectNodeActivity(
     }
   } else {
     const nextLiveActivities = new Map(node.liveActivities);
-    nextLiveActivities.set(event.activityId, event);
+    nextLiveActivities.set(event.activityId, {
+      ...event,
+      input: undefined,
+      output: undefined,
+      activityMetadata: undefined,
+    });
     liveActivities = nextLiveActivities;
   }
   const usage = new Map(

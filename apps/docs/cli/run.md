@@ -156,9 +156,10 @@ seqlane run ./workflow.ts \
 ```
 
 Human output keeps fixed task metadata, such as the model, workspace, and
-session policy, visible when available. It also shows complete task input and
-result values, plus the latest full activity payload for each activity ID.
-These values remain visible after completion and are not redacted or
+session policy, visible when available. It also shows recent complete task
+input, result, and activity values. These remain visible after completion
+until the TUI's in-memory limit evicts the oldest whole records. An eviction
+notice appears when this happens. Retained values are not redacted or
 truncated. They can contain sensitive task data. Completed tasks also show four
 compact summary lines: fixed metadata; total tokens and cost;
 input/output/reasoning/cache-read/cache-write token counts; and

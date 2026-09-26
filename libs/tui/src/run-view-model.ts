@@ -3,9 +3,11 @@ import {
   isPlainRecord,
   validationResultSchema,
 } from "@seqlane/core";
-import { projectNodeActivity } from "./run-activity.js";
+import { activityIdentity, projectNodeActivity } from "./run-activity.js";
 import { outputBytes, retainOutput } from "./run-output.js";
 import { withMapChanges } from "./run-node-map.js";
+import { retainRunValue } from "./run-value-retention.js";
+import type { RetainedValueEntry } from "./run-value-retention.js";
 import {
   indexPlanPlaceholders,
   planNodeKind,
@@ -197,6 +199,9 @@ export interface RunViewModel {
   readonly retainedDetailBytes: number;
   readonly omittedDetailBytes: number;
   readonly detailsTruncated?: boolean;
+  readonly retainedValueEntries: ReadonlyMap<string, RetainedValueEntry>;
+  readonly retainedValueBytes: number;
+  readonly evictedValueCount: number;
   readonly now: () => Date;
 }
 
@@ -205,6 +210,8 @@ export interface RunProjectionLimits {
   readonly dependencyEdges: number;
   readonly nodeDetailBytes: number;
   readonly runDetailBytes: number;
+  readonly runValueBytes: number;
+  readonly runValueEntries: number;
 }
 
 export const DEFAULT_RUN_PROJECTION_LIMITS: RunProjectionLimits = {
@@ -212,6 +219,8 @@ export const DEFAULT_RUN_PROJECTION_LIMITS: RunProjectionLimits = {
   dependencyEdges: 50_000,
   nodeDetailBytes: 32 * 1024,
   runDetailBytes: 16 * 1024 * 1024,
+  runValueBytes: 16 * 1024 * 1024,
+  runValueEntries: 1_000,
 };
 
 export interface RunViewModelOptions {
@@ -594,8 +603,19 @@ function projectActivity(
 ): RunViewModel {
   const node = view.nodes.get(event.invocationId);
   if (node === undefined) return view;
-  return updateNode(view, event.invocationId, (current) =>
+  const updated = updateNode(view, event.invocationId, (current) =>
     projectNodeActivity(current, event),
+  );
+  return retainRunValue(
+    updated,
+    {
+      invocationId: event.invocationId,
+      kind: "activity",
+      id: activityIdentity(event),
+    },
+    updated.nodes
+      .get(event.invocationId)
+      ?.activityDetails.get(activityIdentity(event)),
   );
 }
 
@@ -620,6 +640,9 @@ export function createRunViewModel(
     retainedDependencyEdgeCount: 0,
     retainedDetailBytes: 0,
     omittedDetailBytes: 0,
+    retainedValueEntries: new Map(),
+    retainedValueBytes: 0,
+    evictedValueCount: 0,
     now: options.now ?? (() => new Date()),
   };
   return rebuildTopology(view, view.nodes);
@@ -914,8 +937,8 @@ export function reduceRunViewModel(
     case "invocation.activity": {
       return projectActivity(next, event);
     }
-    case "invocation.observation":
-      return updateNode(next, event.invocationId, (node) => {
+    case "invocation.observation": {
+      const updated = updateNode(next, event.invocationId, (node) => {
         const observations = new Map(node.observations);
         observations.set(
           event.observationId,
@@ -926,6 +949,18 @@ export function reduceRunViewModel(
         );
         return { ...node, observations };
       });
+      return retainRunValue(
+        updated,
+        {
+          invocationId: event.invocationId,
+          kind: "observation",
+          id: event.observationId,
+        },
+        updated.nodes
+          .get(event.invocationId)
+          ?.observations.get(event.observationId) ?? event,
+      );
+    }
     case "invocation.output": {
       const node = next.nodes.get(event.invocationId);
       if (node === undefined) return next;
@@ -958,23 +993,31 @@ export function reduceRunViewModel(
       };
     }
     case "invocation.input":
-      return updateNode(next, event.invocationId, (node) => ({
-        ...node,
-        input: event.input,
-      }));
+      return retainRunValue(
+        updateNode(next, event.invocationId, (node) => ({
+          ...node,
+          input: event.input,
+        })),
+        { invocationId: event.invocationId, kind: "input" },
+        event.input,
+      );
     case "invocation.result":
-      return updateNode(next, event.invocationId, (node) => ({
-        ...node,
-        result: event.result,
-        ...(node.validation === undefined
-          ? {}
-          : {
-              validation: projectValidationResult(
-                event.result,
-                node.validation,
-              ),
-            }),
-      }));
+      return retainRunValue(
+        updateNode(next, event.invocationId, (node) => ({
+          ...node,
+          result: event.result,
+          ...(node.validation === undefined
+            ? {}
+            : {
+                validation: projectValidationResult(
+                  event.result,
+                  node.validation,
+                ),
+              }),
+        })),
+        { invocationId: event.invocationId, kind: "result" },
+        event.result,
+      );
     case "invocation.retrying":
       return updateNode(next, event.invocationId, (node) => ({
         ...withState(node, "retrying", timestamp),
@@ -993,26 +1036,30 @@ export function reduceRunViewModel(
       );
     case "invocation.failed":
       return revealAncestors(
-        updateNode(next, event.invocationId, (node) => ({
-          ...withState(node, "failed", timestamp),
-          ...(event.error.validation === undefined
-            ? {}
-            : {
-                validation: projectValidationFailure(
-                  node.validation,
-                  event.error.validation,
-                ),
-              }),
-          failure: {
-            category: event.error.category,
-            message: event.error.message,
-            disposition: event.disposition,
-          },
-          continuationReason:
-            event.disposition === "continue_siblings"
-              ? "Execution continued after this failure"
-              : undefined,
-        })),
+        retainRunValue(
+          updateNode(next, event.invocationId, (node) => ({
+            ...withState(node, "failed", timestamp),
+            ...(event.error.validation === undefined
+              ? {}
+              : {
+                  validation: projectValidationFailure(
+                    node.validation,
+                    event.error.validation,
+                  ),
+                }),
+            failure: {
+              category: event.error.category,
+              message: event.error.message,
+              disposition: event.disposition,
+            },
+            continuationReason:
+              event.disposition === "continue_siblings"
+                ? "Execution continued after this failure"
+                : undefined,
+          })),
+          { invocationId: event.invocationId, kind: "validation" },
+          event.error.validation?.evidence,
+        ),
         event.invocationId,
       );
     case "invocation.skipped":
@@ -1248,7 +1295,8 @@ export function getRunProjectionLimitNotice(
   if (
     view.omittedNodeCount === 0 &&
     view.omittedDependencyEdgeCount === 0 &&
-    !view.detailsTruncated
+    !view.detailsTruncated &&
+    view.evictedValueCount === 0
   ) {
     return undefined;
   }
@@ -1258,8 +1306,12 @@ export function getRunProjectionLimitNotice(
     " edges=" +
     view.omittedDependencyEdgeCount +
     (view.detailsTruncated
-      ? " details truncated omitted_bytes=" + view.omittedDetailBytes + "]"
-      : "]")
+      ? " details truncated omitted_bytes=" + view.omittedDetailBytes
+      : "") +
+    (view.evictedValueCount > 0
+      ? " full values evicted=" + view.evictedValueCount
+      : "") +
+    "]"
   );
 }
 

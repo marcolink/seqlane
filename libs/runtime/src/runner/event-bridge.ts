@@ -25,6 +25,12 @@ export interface ExecutionEventBridge extends SeqlaneEventSink {
   emitPlan(plan: SeqlanePlanSnapshot, workId: string, runId: string): void;
   emitObservation(event: Omit<InvocationObservationEvent, "metadata">): void;
   flush(): Promise<void>;
+  /** Wait for accepted sends even when delivery has failed. */
+  settle(): Promise<Error | undefined>;
+  /** Send a terminal outcome after settling, outside a failed event queue. */
+  sendTerminal(
+    event: Extract<SeqlaneEvent, { type: "run.failed" | "run.cancelled" }>,
+  ): Promise<void>;
 }
 
 export interface ExecutionEventBridgeOptions {
@@ -48,6 +54,8 @@ class BoundedExecutionEventQueue {
   private pending = Promise.resolve();
   private pendingBytes = 0;
   private failure: Error | undefined;
+  private transportFailed = false;
+  private lastDeliveredSequence = 0;
 
   constructor(
     private readonly send: SendExecutionEvent,
@@ -73,21 +81,31 @@ class BoundedExecutionEventQueue {
     this.pendingBytes += eventBytes;
     this.pending = this.pending.then(async () => {
       try {
+        if (this.transportFailed) return;
         await this.send(event);
+        this.lastDeliveredSequence = event.metadata.sequence;
       } catch (cause) {
+        this.transportFailed = true;
         this.failure ??=
           cause instanceof Error ? cause : new Error("Event delivery failed");
-        throw this.failure;
       } finally {
         this.pendingBytes -= eventBytes;
       }
     });
   }
 
-  flush(): Promise<void> {
-    return this.pending.then(() => {
-      if (this.failure !== undefined) throw this.failure;
-    });
+  async settle(): Promise<Error | undefined> {
+    await this.pending;
+    return this.failure;
+  }
+
+  async flush(): Promise<void> {
+    const failure = await this.settle();
+    if (failure !== undefined) throw failure;
+  }
+
+  nextDeliverySequence(): number {
+    return this.lastDeliveredSequence + 1;
   }
 }
 
@@ -169,34 +187,48 @@ export function createExecutionEventBridge(
 
   return {
     emitPlan(plan, workId, runId) {
+      const nextSequence = sequence + 1;
       const event: SeqlaneExecutionEvent = {
         type: "run.plan",
-        metadata: createMetadata(++sequence, createEventId, clock),
+        metadata: createMetadata(nextSequence, createEventId, clock),
         workId,
         runId,
         plan,
       };
       queue.enqueue(event);
+      sequence = nextSequence;
     },
     emit(event) {
       if (options.skipRunStarted && event.type === "run.started") return;
+      const nextSequence = sequence + 1;
       const canonical = toExecutionEvent(
         event,
-        createMetadata(++sequence, createEventId, clock),
+        createMetadata(nextSequence, createEventId, clock),
       );
       queue.enqueue(canonical);
+      sequence = nextSequence;
     },
     emitObservation(event) {
+      const nextSequence = sequence + 1;
       const canonical = {
         ...event,
-        metadata: createMetadata(++sequence, createEventId, clock),
+        metadata: createMetadata(nextSequence, createEventId, clock),
       };
       const parsed = seqlaneExecutionEventSchema.safeParse(canonical);
       if (!parsed.success) {
         throw new TypeError("Invalid invocation observation event");
       }
       queue.enqueue(parsed.data);
+      sequence = nextSequence;
     },
     flush: () => queue.flush(),
+    settle: () => queue.settle(),
+    sendTerminal: (event) =>
+      send(
+        toExecutionEvent(
+          event,
+          createMetadata(queue.nextDeliverySequence(), createEventId, clock),
+        ),
+      ),
   };
 }
