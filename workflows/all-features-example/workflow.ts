@@ -133,7 +133,6 @@ const contextTask = defineAgentTask({
   goal: ({ topic, focus }) =>
     `Extract two keywords and a short focus hint for ${topic} (${focus}).`,
   instructions: ["Return only two keywords and a short focus hint."],
-  references: ["workflows/minimal-example/workflow.ts"],
 });
 
 const packageInspectionTask = defineAgentTask({
