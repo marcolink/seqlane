@@ -69,16 +69,18 @@ and shows an eviction notice. The runner limits queued and in-flight events to
 directly when IPC permits. CI status lines and complete JSON event lines use
 their distinct documented formats.
 
-Test mapping passes (320 mappings). The full CLI, TUI, and runtime suites pass
-under Node 24: 131, 129, and 431 tests. Repository typechecking, SDLC
-validation (368 documents), and the public documentation build pass. The TUI
-README, CLI run guide, and active specs describe the observability behavior and
-its local-data risk.
+Test mapping passes (320 mappings). The full core, CLI, TUI, and runtime suites
+pass under Node 24; package builds and the public documentation build pass.
+SDLC validation passes (370 documents). Repository `pnpm typecheck` fails on
+three errors in `libs/action-code-review/src/pr-code-review-example.spec.ts`,
+which is unchanged from `origin/main`. The TUI README, CLI run guide, and
+active specs describe the observability behavior and its local-data risk.
 
 ## Delivery state
 
 Open PR [#167](https://github.com/marcolink/seqlane/pull/167) on
-`fix/remove-task-observability`; not yet merged to the default branch.
+`fix/remove-task-observability`, rebased onto `origin/main` at `f7dc05e`; not
+yet merged to the default branch.
 
 ## Traceability
 
