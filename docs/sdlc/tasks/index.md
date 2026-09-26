@@ -276,4 +276,5 @@
 | [task.classifier-example-and-documentation](./2026-09-23-classifier-example-and-documentation.md) | Demonstrate Classifier Tasks in Git Diff Summary | in-progress | 2026-09-23 | core |
 | [task.classifier-system-one-tracer](./2026-09-23-classifier-system-one-tracer.md) | Run One Classifier Task Through Jev | completed | 2026-09-23 | core |
 | [task.classifier-dynamic-questions](./2026-09-23-classifier-dynamic-questions.md) | Validate Static Choice Score and Noul Questions | completed | 2026-09-23 | core |
+| [task.remove-task-observability](./2026-09-24-remove-task-observability.md) | Remove Task Observability Configuration | completed | 2026-09-24 | core |
 | [task.simplify-pull-request-review-triggers](./2026-09-24-simplify-pull-request-review-triggers.md) | Simplify Pull Request Review Triggers and Decisions | completed | 2026-09-24 | core |

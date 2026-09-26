@@ -13,9 +13,11 @@ does not depend on a runtime adapter or executor.
   type colors, bright running rows, muted inactive rows, branch rails, right-aligned timing, resize,
   no-color, and ASCII support. Each task keeps fixed model, workspace, and
   session metadata visible when available. Active rows show only the current
-  progress, tool, and skill events. A live activity update replaces the prior
-  event with the same activity ID; completed activity lines disappear.
-  Completed rows replace live data with a four-line summary: fixed metadata;
+  progress, tool, and skill events. It shows complete task input and result
+  values and keeps recent full activity payloads visible after completion.
+  A live activity update replaces the prior event with the same activity ID.
+  Completed rows retain recent complete task and activity values beside a four-line
+  summary: fixed metadata;
   total tokens and cost; input/output/reasoning/cache-read/cache-write token
   buckets; and
   per-tool/per-skill counts. Duration stays right-aligned with the task title.
@@ -26,7 +28,11 @@ does not depend on a runtime adapter or executor.
   Rails stretch with wrapped details.
   A task duration starts when the task becomes active. It excludes queue time and
   dependency wait time.
-  Missing fields stay hidden. Successful rows collapse to duration and usage totals.
+  Missing optional fields stay hidden. Successful rows retain task values and
+  show duration and usage totals. The human projection retains at most 1,000
+  complete JSON records and 16 MiB of their encoded values per run. It evicts
+  oldest whole records when either limit is reached and shows an eviction
+  notice. Retained values are not shortened or redacted.
 - `ci` writes concise, append-only status and failure output for automation.
 
 The CLI selects these modes with `--output auto|human|ci`. Final run results
@@ -36,16 +42,15 @@ replay `--events ndjson`.
 Validation invocations retain their identity, verdict, issues, and bounded
 evidence in human and CI output.
 
-CI mode consumes the complete event stream but renders only meaningful state
-changes, retries, waits, skips, persistent output, failures, heartbeats, and
-the final summary. It does not print invocation input, transient output, or
-routine successful tool and skill activity. Task start and terminal lines use
+CI mode consumes the complete event stream and writes each invocation input,
+result, and activity event as a complete JSON line. These values are not
+redacted or truncated and can contain sensitive task data. Transient output
+remains on its separate channel. Task start and terminal lines use
 bold ANSI styling only when the CLI reports ANSI support. Terminal task lines
 include elapsed time and available token totals with input, output, reasoning,
 and cache breakdowns. When the caller explicitly enables the GitHub Actions
-capability, failed tool activity includes a bounded command, path, or search
-detail when available, and invocation and run failures also produce workflow
-annotations. The final log and GitHub summary include one duration entry for
+capability, invocation and run failures also produce workflow annotations. The
+final log and GitHub summary include one duration entry for
 each completed leaf task; workflow and loop aggregates are excluded to avoid
 double-counting. Runner supervision failures are also rendered as failed
 outcomes before finalization.

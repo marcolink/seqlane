@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-09
+updated: 2026-09-26
 upstream:
   - adr.mastra-local-mechanical-tasks
   - spec.mastra-backed-seqlane-workflows
@@ -58,8 +58,9 @@ that computes in the Seqlane process. It is not a separate public task type.
 - A shell process must terminate before its task releases the workspace lease.
   If termination cannot be confirmed, the runtime quarantines the lease.
 - Standard output and standard error have bounded capture.
-- In-process tasks emit bounded runner notifications and observability data without
-  model metrics.
+- In-process tasks emit bounded runner notifications and complete JSON
+  invocation input, result, and executor activity events. They produce no model
+  metrics unless they call `TaskContext.runAgent()`.
 - V1 supports foreground, non-interactive commands only.
 
 ## Subprocess contract
@@ -139,9 +140,12 @@ background-process API requires a separate decision.
 
 ## Notifications and errors
 
-Tasks use the core-owned runner protocol and the bounded observability
-projection. A task that does not call `TaskContext.runAgent()` produces no
-token or model metrics.
+Tasks publish through the versioned runner protocol. Runner notifications
+remain bounded. Canonical `invocation.input`, `invocation.result`, and
+`invocation.activity` events preserve complete JSON values for the local TUI
+and event recording. Mastra operational observability remains a separate
+bounded projection. A task that does not call `TaskContext.runAgent()`
+produces no token or model metrics.
 
 Spawn, timeout, interruption, output-limit, uncertain-termination, and invalid
 output errors become typed invocation errors. Domain errors retain the cause.

@@ -802,4 +802,96 @@ describe("seqlane runner entry point", () => {
     ).toBe(false);
     expect(host.events.at(-1)).toMatchObject({ type: "run.failed" });
   });
+
+  it("reports the original delivery failure after the event queue settles", async () => {
+    useLoadedWorkflow({
+      workflow: { id: "delivery-failure" },
+      nodes: [],
+      output: null,
+    });
+    class RecoveringHost extends FakeRunnerHost {
+      private sendCount = 0;
+
+      override send(
+        message: string,
+        callback?: (error?: Error) => void,
+      ): boolean {
+        this.sendCount += 1;
+        if (this.sendCount === 1) {
+          callback?.(new Error("initial IPC delivery failed"));
+          return true;
+        }
+        return super.send(message, callback);
+      }
+    }
+    const host = new RecoveringHost();
+
+    await startRun(
+      host,
+      {
+        type: "run.start",
+        workflow: {
+          id: "delivery-failure",
+          moduleSpecifier: "test:delivery-failure",
+          exportName: "workflow",
+        },
+        input: null,
+        runtime: { id: "local" },
+        dryRun: true,
+      },
+      () => "work-1",
+      () => "run-1",
+      () => undefined,
+      { cancellationRequested: false },
+    );
+
+    expect(host.exitCode).toBe(0);
+    expect(host.events.at(-1)).toMatchObject({
+      type: "run.failed",
+      metadata: { sequence: 1 },
+      error: {
+        message: expect.stringContaining("initial IPC delivery failed"),
+      },
+    });
+  });
+
+  it("exits nonzero when even the direct terminal failure cannot be delivered", async () => {
+    useLoadedWorkflow({
+      workflow: { id: "broken-ipc" },
+      nodes: [],
+      output: null,
+    });
+    class BrokenHost extends FakeRunnerHost {
+      override send(
+        _message: string,
+        callback?: (error?: Error) => void,
+      ): boolean {
+        callback?.(new Error("IPC unavailable"));
+        return false;
+      }
+    }
+    const host = new BrokenHost();
+
+    await startRun(
+      host,
+      {
+        type: "run.start",
+        workflow: {
+          id: "broken-ipc",
+          moduleSpecifier: "test:broken-ipc",
+          exportName: "workflow",
+        },
+        input: null,
+        runtime: { id: "local" },
+        dryRun: true,
+      },
+      () => "work-1",
+      () => "run-1",
+      () => undefined,
+      { cancellationRequested: false },
+    );
+
+    expect(host.exitCode).toBe(1);
+    expect(host.events).toEqual([]);
+  });
 });

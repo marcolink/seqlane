@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-16
+updated: 2026-09-26
 upstream:
   - prd.seqlane-on-mastra
   - rfc.execution-observability-and-debugging
@@ -151,6 +151,8 @@ The default projection limits are:
 | retained dependency edges | 50,000 |
 | retained detail text for one node | 32 KiB |
 | retained detail text for one run | 16 MiB |
+| retained complete JSON values per run | 16 MiB |
+| retained complete JSON records per run | 1,000 |
 | persistent output chunks per node | 128 |
 | pending render frames | 1 |
 | retained raw-event backlog | 0 |
@@ -172,6 +174,14 @@ and records truncation separately from payload bytes. Later content is dropped;
 metrics can still update. One node marker and one run notice report truncation
 without consuming the payload budget. Tests can inject smaller limits.
 
+Text limits apply to output text and summaries. The separate JSON limits apply
+to task inputs, results, activity records, and observations in the human
+projection. It evicts the oldest complete records when either limit is reached.
+An oversized record is omitted as a whole. One run notice reports cumulative
+evictions; retained records are never redacted or truncated. CI output consumes
+the canonical events before projection and retains their complete JSON values.
+These outputs can display sensitive task data.
+
 ### requirement-root-elapsed-time
 
 The root workflow always shows total elapsed time. An active run uses the
@@ -192,14 +202,17 @@ Failures and waiting reasons appear under the affected row. Session URLs do not
 appear in the human tree. There is no inspector, selected row, key guide,
 identity banner, or routine tool-event tally.
 
-Active rows show fixed workspace mode, session label, and model when available,
-plus only the current progress, tool, and skill activity. Updates for one
-activity ID replace its live line. Completed activity lines disappear; the
-retained counts are shown only after the task completes. Tool calls count
+Rows show fixed workspace mode, session label, and model when available. They
+show complete retained task inputs, results, and the latest complete activity
+record for each activity ID, including its input, output, and metadata when
+present. These records remain visible after completion until the projection
+evicts them under the JSON limits.
+Active rows also show current progress and live activity status. Updates for one
+activity ID replace its live line. Tool calls count
 unique activity IDs, not streaming event counts. The retained count is capped
 at 1,000 per invocation and displays a lower bound at that limit. Tree rails
-span all wrapped detail lines. Successful rows keep fixed context and replace
-live details with four summary lines: fixed metadata; total token and cost
+span all wrapped detail lines. Successful rows keep full task values and fixed
+context, then show four summary lines: fixed metadata; total token and cost
 values; input/output/reasoning/cached token values; and per-tool and per-skill
 counts. Duration remains right-aligned with the task title. Keys are muted and
 values use stronger ANSI contrast.
@@ -257,62 +270,42 @@ CI mode writes permanent lines for meaningful transitions and periodic
 heartbeats. It never reads terminal input. It emits no cursor movement,
 carriage-return redraw, or interactive control sequence.
 
-Every line contains `run=<full-run-id>`. Invocation lines also contain
-`invocation=<full-invocation-id>`. Labels and paths add context but do not
-replace identity. The final summary contains the outcome, root elapsed time,
-and aggregate counts.
+Every status line contains `run=<full-run-id>`. Invocation status lines also
+contain `invocation=<full-invocation-id>`. Labels and paths add context but do
+not replace identity. The final summary contains the outcome, root elapsed
+time, and aggregate counts.
 
 ANSI styling is disabled unless the CLI explicitly reports support. GitHub
 Actions annotations and step-summary output require explicit sinks.
 
-Each CI line follows this grammar:
+For every `invocation.input`, `invocation.result`, and `invocation.activity`
+event, CI mode writes the full canonical event as one JSON object per line. It
+includes `runId`, `invocationId`, and `metadata.sequence`, plus all activity
+lifecycle states. It has no status prefix or `run=` token. It bypasses
+configured redaction and field-length limits. JSON encoding escapes terminal
+control characters. These lines can contain sensitive task data.
+
+Status lines use compact key-value text. Run transitions start with `run=<id>`;
+invocation transitions start with `run=<id> invocation=<id>`. Heartbeats
+start with `heartbeat run=<id>`. For example:
 
 ```text
-[elapsed] KIND run=<run-id> [invocation=<invocation-id>] message key=value...
+run=run-1 started
+run=run-1 invocation=task-1 started task=build label=Build
+heartbeat run=run-1 elapsed=30000ms active=task-1
 ```
 
-`KIND` is one of `RUN`, `TASK`, `FLOW`, `PASS`, `RETRY`, `WAIT`, `FAIL`,
-`SKIP`, `CANCEL`, `LIVE`, or `DONE`. Values with whitespace use JSON string
-encoding. Fields use stable order. Unknown optional fields are omitted.
-
-Fields use this order:
-
-1. elapsed time
-2. kind
-3. full run ID
-4. full invocation ID, when applicable
-5. label
-6. lifecycle action
-7. path
-8. attempt and delay
-9. duration
-10. aggregate counts
-11. metrics
-12. reason
-13. error
+Optional fields follow the transition and are omitted when unavailable.
+Complete JSON event lines use the protocol schema instead of this text format.
 
 ### requirement-terminal-field-encoding
 
-The terminal package uses one canonical encoder for each dynamic CI field.
-Protocol redaction occurs before this encoder.
-
-The encoder:
-
-- removes complete ANSI and ECMA-48 control sequences
-- represents a remaining escape character as `\\u001b`
-- represents tab, carriage return, and newline as `\\t`, `\\r`, and `\\n`
-- represents other C0, DEL, and C1 controls as `\\u00xx`
-- JSON-quotes values that contain whitespace or delimiters
-- limits each encoded field to 1,024 UTF-8 bytes
-- preserves a valid UTF-8 boundary during truncation
-- adds `[truncated original_bytes=<count>]` after truncated data
-
-The original byte count is measured after protocol redaction and before
-terminal encoding. The 1,024-byte limit includes quotes and the truncation
-marker. The encoder truncates enough prefix data to keep the marker complete.
-
-The encoder applies to labels, paths, reasons, errors, output summaries,
-commands, model names, provider names, and other event-derived values.
+CI status lines remove ANSI and control sequences, collapse whitespace, and
+apply configured redactions. Individual dynamic status fields use
+call-specific character limits. Human fields use `encodeTerminalField`, which
+escapes unsafe controls. Complete task input, result, and activity JSON lines
+use `encodeTerminalJson` instead: they escape unsafe controls but bypass
+redaction and field-length limits.
 
 GitHub Actions commands use a separate encoder. Command data escapes `%`, CR,
 and LF as `%25`, `%0D`, and `%0A`. Command properties also escape `:` and `,`
@@ -410,20 +403,17 @@ affected task. Successful branches stay collapsed. No selection is required.
 ### CI frame
 
 ```text
-[00:00] RUN run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 repository:review started runtime=codex
-[00:13] TASK run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=05a55f55-bf46-43cf-8212-c71137f53df6 inspect-boundaries started path=review-changes/runtime-package/inspect-boundaries
-[00:22] PASS run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=05a55f55-bf46-43cf-8212-c71137f53df6 inspect-boundaries duration=8.7s
-[00:23] TASK run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=4f0d927e-6a04-4d29-9404-1632c0d9f01b integration-tests started attempt=1/3
-[00:42] RETRY run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=4f0d927e-6a04-4d29-9404-1632c0d9f01b integration-tests attempt=1/3 delay=5s error="runner disconnected before terminal event"
-[00:47] TASK run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=4f0d927e-6a04-4d29-9404-1632c0d9f01b integration-tests started attempt=2/3
-[01:17] LIVE run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 elapsed=01:17 complete=5/12 active=2 waiting=2 retrying=1
-[01:42] PASS run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 invocation=6ec1a42e-b7d9-458b-b17c-4477f0faf19b runtime-package tasks=3/3 duration=01:29 tokens=18.4k cost=$0.21
-[02:18] DONE run=7f2c1ab4-c68e-4f69-a9a9-5447e5b420b3 status=succeeded tasks=12/12 retries=1 total=02:18
+run=run-1 started
+run=run-1 invocation=task-1 started task=build label=Build
+{"type":"invocation.input","workId":"work-1","runId":"run-1","invocationId":"task-1","input":{"state":"present","value":{"source":"main"}},"metadata":{"schemaVersion":1,"eventId":"input-1","sequence":3,"occurredAt":"2026-09-26T00:00:00.000Z"}}
+run=run-1 invocation=task-1 succeeded label=Build duration=2000ms
+run=run-1 succeeded
+task-duration run=run-1 invocation=task-1 label=Build state=succeeded duration=2.0s
+summary run=run-1 outcome=succeeded total=1 succeeded=1 failed=0 skipped=0 failures=0 duration=2000ms cost=0
 ```
 
-Golden fixtures can replace identifiers and timing values with deterministic
-tokens. They must preserve all spacing, glyphs, field order, and layout rules
-shown here.
+The example uses deterministic identifiers. Tests verify status fields and
+complete JSON event lines separately.
 
 ## Failure and edge cases
 
@@ -471,13 +461,16 @@ Tests must prove:
 - status symbols, disclosure symbols, and colors remain semantically
   consistent
 - human golden frames match the normative active, compact, and failed frames
-- CI golden lines match the normative kind, spacing, and field order
-- every CI line has full run identity
-- every invocation CI line has full invocation identity
+- CI status lines match their lifecycle-specific field order
+- every CI status line has full run identity; JSON event lines have `runId`
+- every invocation status line has full invocation identity; JSON event lines
+  have `invocationId`
+- complete JSON event lines parse without a status prefix or field limit
 - ANSI, C0, C1, CR, LF, `%`, `::`, HTML, Markdown pipes, long text, and invalid
   UTF-8 boundary cases use the required encoding
 - truncation always includes the original byte count
-- node, edge, per-node text, and total-text limits produce visible diagnostics
+- node, edge, per-node text, total-text, and complete-value limits produce
+  visible diagnostics
 - deep trees use iterative traversal and bounded indentation
 - the reducer retains no raw-event backlog
 - aggregate updates do not scan the complete projection on each frame

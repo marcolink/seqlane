@@ -55,11 +55,9 @@ A branch without an explicit selection also inherits its source model.
 
 Use `defineTask` and `createFlow(...).task(...).output(...).define()` to declare
 typed, core-owned workflows. Workflow authoring callbacks stay private and are
-not part of the serializable Plan IR. Local Studio displays bounded input,
-result, and executor-activity values by default. Optional
-`observability.studio` metadata selects
-JSON Pointer paths for stricter field-level display; it does not add executor
-data to a Plan.
+not part of the serializable Plan IR. Observability includes full JSON input,
+result, and executor-activity values without filtering or truncation. Task
+definitions have no `observability` field.
 
 Every task has one `execute({ input, signal, context })` contract. Use
 `defineAgentTask` and `defineShellTask` as ergonomic factories; factory inputs

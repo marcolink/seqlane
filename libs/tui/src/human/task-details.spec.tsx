@@ -184,6 +184,80 @@ it("keeps accumulated summary out of active task details", () => {
   expect(app.lastFrame()).not.toContain('"text":"input"');
   expect(app.lastFrame()).not.toContain('"text":"output"');
 });
+
+it("shows full task values and completed activity data without redaction", () => {
+  let view = activeView();
+  view = reduceRunViewModel(view, {
+    ...identity,
+    type: "invocation.input",
+    invocationId: "live",
+    input: {
+      state: "present",
+      value: { token: "classified\u001b[2J\u0085", nested: [1, false] },
+    },
+  });
+  view = reduceRunViewModel(view, {
+    ...identity,
+    type: "invocation.result",
+    invocationId: "live",
+    result: {
+      state: "present",
+      value: { summary: "classified result", facts: { count: 3 } },
+    },
+  });
+  view = reduceRunViewModel(view, {
+    ...identity,
+    type: "invocation.activity",
+    invocationId: "live",
+    activityId: "call-1",
+    kind: "tool",
+    name: "read_file",
+    state: "started",
+    input: { state: "present", value: { path: "classified/path" } },
+    activityMetadata: {
+      state: "present",
+      value: { requestId: "classified-request" },
+    },
+  });
+  view = reduceRunViewModel(view, {
+    ...identity,
+    type: "invocation.activity",
+    invocationId: "live",
+    activityId: "call-1",
+    kind: "tool",
+    name: "read_file",
+    state: "succeeded",
+    output: { state: "present", value: { content: "classified output" } },
+  });
+  view = reduceRunViewModel(view, {
+    ...identity,
+    type: "invocation.succeeded",
+    invocationId: "live",
+  });
+
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{
+        supportsAnsi: false,
+        supportsUnicode: false,
+        width: 1_000,
+        redactions: ["classified"],
+      }}
+      spinnerFrame={0}
+    />,
+  );
+  const frame = app.lastFrame() ?? "";
+
+  expect(frame).toContain("classified");
+  expect(frame).toContain("classified result");
+  expect(frame).toContain("classified/path");
+  expect(frame).toContain("classified-request");
+  expect(frame).toContain("classified output");
+  expect(frame).toContain("\\u001b[2J\\u0085");
+  expect(frame).not.toContain("\u001b");
+  expect(frame).not.toContain("\u0085");
+});
 it("shows reported context and aligned usage, preserves wrapped rails, then collapses", async () => {
   const view = activeView();
   const node = view.nodes.get("live");

@@ -156,16 +156,21 @@ seqlane run ./workflow.ts \
 ```
 
 Human output keeps fixed task metadata, such as the model, workspace, and
-session policy, visible when available. While a task is running, its detail
-area shows only the current progress, tool, and skill activity. Updates replace
-the live activity with the same activity ID, and completed activity lines are
-removed. When the task completes, the live details are replaced by four compact
-summary lines: fixed metadata; total tokens and cost;
+session policy, visible when available. It also shows recent complete task
+input, result, and activity values. These remain visible after completion
+until the TUI's in-memory limit evicts the oldest whole records. An eviction
+notice appears when this happens. Retained values are not redacted or
+truncated. They can contain sensitive task data. Completed tasks also show four
+compact summary lines: fixed metadata; total tokens and cost;
 input/output/reasoning/cache-read/cache-write token counts; and
   per-tool/per-skill counts. Cache counts remain separate from the total when
   the source does not provide a total.
 Duration stays right-aligned with the task title. ANSI colors mute keys and
 separators while giving values stronger contrast.
+
+CI output writes each task input, result, and activity event as a full JSON
+line, including progress events. These lines are not redacted or truncated.
+Transient output remains on its separate channel.
 
 ### `--json`
 

@@ -54,13 +54,6 @@ const synthesizeReviewTask = defineAgentTask({
     "Do not claim that a previous finding is resolved. The independent history-verification task and local lifecycle policy own that decision.",
     "Return only the complete structured review report.",
   ],
-  observability: {
-    studio: {
-      result: {
-        includePaths: ["/overallRating", "/verdict", "/summary", "/findings"],
-      },
-    },
-  },
 });
 
 export { synthesizeReviewTask };

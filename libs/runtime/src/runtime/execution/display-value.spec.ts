@@ -2,62 +2,31 @@ import { describe, expect, it } from "vitest";
 import { toSeqlaneDisplayValue } from "./display-value.js";
 
 describe("Seqlane display values", () => {
-  it("includes bounded values without an explicit Studio selection", () => {
-    expect(
-      toSeqlaneDisplayValue({ safe: "ok", secret: "no" }, undefined),
-    ).toEqual({ state: "present", value: { safe: "ok", secret: "no" } });
-    expect(toSeqlaneDisplayValue({ safe: "ok" }, { includePaths: [] })).toEqual(
-      { state: "omitted", reason: "policy" },
-    );
-  });
-
-  it("truncates oversized default values", () => {
-    const value = { text: "x".repeat(33 * 1024) };
-    expect(toSeqlaneDisplayValue(value, undefined)).toEqual({
-      state: "truncated",
-      summary: { kind: "object", size: 1, fields: ["text"] },
+  it("includes full values without task configuration", () => {
+    expect(toSeqlaneDisplayValue({ safe: "ok", secret: "no" })).toEqual({
+      state: "present",
+      value: { safe: "ok", secret: "no" },
     });
   });
 
-  it("projects only selected RFC 6901 paths", () => {
-    expect(
-      toSeqlaneDisplayValue(
-        { safe: { name: "task", secret: "no" }, other: true },
-        { includePaths: ["/safe/name"] },
-      ),
-    ).toEqual({ state: "present", value: { safe: { name: "task" } } });
-    expect(
-      toSeqlaneDisplayValue(
-        { "a/b": { "~key": 1 } },
-        { includePaths: ["/a~1b/~0key"] },
-      ),
-    ).toEqual({ state: "present", value: { "a/b": { "~key": 1 } } });
-    expect(
-      toSeqlaneDisplayValue(
-        { safe: "ok", unsupported: new Date() },
-        { includePaths: ["/safe"] },
-      ),
-    ).toEqual({ state: "present", value: { safe: "ok" } });
-  });
-
-  it("allows the root pointer and omits unavailable paths", () => {
-    expect(
-      toSeqlaneDisplayValue({ value: true }, { includePaths: [""] }),
-    ).toEqual({ state: "present", value: { value: true } });
-    expect(
-      toSeqlaneDisplayValue({ value: true }, { includePaths: ["/missing"] }),
-    ).toEqual({ state: "omitted", reason: "unavailable" });
-  });
-
-  it("truncates oversized projections without sending partial values", () => {
+  it("preserves values larger than the former byte limit", () => {
     const value = { text: "x".repeat(33 * 1024) };
-    expect(toSeqlaneDisplayValue(value, { includePaths: [""] })).toEqual({
-      state: "truncated",
-      summary: { kind: "object", size: 1, fields: ["text"] },
+    expect(toSeqlaneDisplayValue(value)).toEqual({
+      state: "present",
+      value,
     });
   });
 
-  it("truncates projections that exceed shape limits", () => {
+  it("omits non-JSON values", () => {
+    for (const value of [undefined, new Date(), { unsupported: new Date() }]) {
+      expect(toSeqlaneDisplayValue(value)).toEqual({
+        state: "omitted",
+        reason: "unavailable",
+      });
+    }
+  });
+
+  it("preserves values deeper and wider than the former shape limits", () => {
     const deep: Record<string, unknown> = {};
     let current = deep;
     for (let index = 0; index < 17; index += 1) {
@@ -65,16 +34,11 @@ describe("Seqlane display values", () => {
       current = current.next as Record<string, unknown>;
     }
 
-    expect(toSeqlaneDisplayValue(deep, { includePaths: [""] }).state).toBe(
-      "truncated",
+    const wide = Object.fromEntries(
+      Array.from({ length: 101 }, (_, index) => [String(index), index]),
     );
-    expect(
-      toSeqlaneDisplayValue(
-        Object.fromEntries(
-          Array.from({ length: 101 }, (_, index) => [String(index), index]),
-        ),
-        { includePaths: [""] },
-      ).state,
-    ).toBe("truncated");
+    for (const value of [deep, wide]) {
+      expect(toSeqlaneDisplayValue(value)).toEqual({ state: "present", value });
+    }
   });
 });

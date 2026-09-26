@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-16
+updated: 2026-09-26
 upstream:
   - rfc.mastra-runtime-and-operational-foundation
   - adr.standalone-cli-runs
@@ -117,6 +117,27 @@ permitted only when the constraint cannot be known before execution.
 Work, Run, and Invocation identities must propagate through Mastra context or
 metadata, steps, traces, executor calls, and normalized Seqlane events. The CLI
 continues to consume the stable Seqlane event and result contracts.
+
+### requirement-task-display-values
+
+Task definitions and task factories do not expose an `observability` field.
+The runtime emits full JSON inputs, validated results, and executor activity
+values by default. It does not filter fields, truncate values, or suppress data
+through task-level policy. JSON size, depth, and entry counts do not cause
+replacement with summaries. Values that cannot satisfy the JSON event contract
+remain unavailable; the runtime does not coerce them into partial JSON.
+CI output and local event recordings, when enabled, preserve these values.
+The human TUI retains complete recent records within its projection limits and
+reports whole-record evictions. It does not redact or truncate retained values.
+These local sinks can contain sensitive task data. Adapter observability
+context remains a separate private runtime concern.
+
+The runner event bridge limits queued and in-flight serialized events to 16 MiB
+per run. It preserves accepted events and fails the run when the next event
+would exceed the limit. The runner drains accepted events before it exits.
+If normal IPC delivery fails, it waits for the queue to settle and tries to
+send `run.failed` directly. If that fails too, it exits nonzero so the parent
+can report the runner failure.
 
 ### requirement-storage-tracing
 

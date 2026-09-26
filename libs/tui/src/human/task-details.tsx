@@ -3,7 +3,7 @@ import type { InvocationActivityEvent } from "@seqlane/protocol";
 import type { RunNode, RunVisibleRow } from "../run-view-model.js";
 import type { HumanDisplayCapabilities } from "./format.js";
 import { activityTone, workTone } from "./theme.js";
-import { encodeTerminalField } from "../terminal-field.js";
+import { encodeTerminalField, encodeTerminalJson } from "../terminal-field.js";
 import { formatValidationDetails } from "../output-details.js";
 import { HumanModelObservationDetails } from "./observation-details.js";
 
@@ -56,6 +56,42 @@ function taskDetailLines(node: RunNode): string[] {
       `[output truncated original_bytes=${node.output.originalBytes ?? 0} omitted_bytes=${node.output.omittedBytes ?? 0}]`,
     );
   return lines.filter((line): line is string => Boolean(line));
+}
+
+function observabilityLines(node: RunNode): string[] {
+  const lines: string[] = [];
+  if (node.input !== undefined) {
+    lines.push("input: " + encodeTerminalJson(node.input));
+  }
+  if (node.result !== undefined) {
+    lines.push("result: " + encodeTerminalJson(node.result));
+  }
+  for (const activity of node.activityDetails.values()) {
+    if (
+      activity.input === undefined &&
+      activity.output === undefined &&
+      activity.activityMetadata === undefined
+    ) {
+      continue;
+    }
+    lines.push("activity: " + encodeTerminalJson(activity));
+  }
+  return lines;
+}
+
+function HumanObservabilityDetails({
+  lines,
+}: {
+  readonly lines: readonly string[];
+}): React.JSX.Element | null {
+  if (lines.length === 0) return null;
+  return (
+    <>
+      {lines.map((line, index) => (
+        <Text key={index}>{line}</Text>
+      ))}
+    </>
+  );
 }
 
 function isTerminal(node: RunNode): boolean {
@@ -203,11 +239,18 @@ export function HumanTaskDetails({
   const terminal = isTerminal(node);
   const context = contextParts(node);
   const details = taskDetailLines(node);
+  const observability = observabilityLines(node);
   const hasContext = context.model !== undefined || context.metadata.length > 0;
   const hasLive =
     !terminal && (node.activity !== undefined || node.liveActivities.size > 0);
   const hasSummary = terminal && (node.observations.size > 0 || hasUsage);
-  if (!hasContext && details.length === 0 && !hasLive && !hasSummary)
+  if (
+    !hasContext &&
+    details.length === 0 &&
+    observability.length === 0 &&
+    !hasLive &&
+    !hasSummary
+  )
     return null;
   const limit = Math.min(
     32,
@@ -255,6 +298,7 @@ export function HumanTaskDetails({
             {encodeTerminalField(line, capabilities.redactions)}
           </Text>
         ))}
+        <HumanObservabilityDetails lines={observability} />
         {terminal ? (
           <HumanModelObservationDetails
             capabilities={capabilities}
