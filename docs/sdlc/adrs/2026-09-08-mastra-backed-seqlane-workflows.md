@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-26
 upstream:
   - rfc.seqlane-technical-architecture
   - rfc.execution-observability-and-debugging
@@ -56,16 +56,19 @@ workflow. Composition uses the same invocation and output contracts.
 
 Seqlane owns a small, serializable, Mastra-independent Plan. Authors do not
 build Plans directly. The Plan is the boundary between authoring, compilation,
-runtime inspection, and serialization. It contains only these node kinds:
+runtime inspection, and serialization. The initial cutover contained these
+node kinds:
 
 - task invocation;
 - workflow invocation;
 - the current validation check and validation gate nodes;
 - bounded repeat.
 
-The Plan does not become a second author API. Branch, choose, parallel,
-foreach, retries, suspend or resume, persistence, and generic conditional
-nodes remain out of this delivery.
+The Plan does not become a second author API. A later decision,
+[adr.exclusive-flow-choice](./2026-09-26-exclusive-flow-choice.md), adds one
+exclusive choice node. General branching, parallel authoring, foreach,
+retries, suspend or resume, persistence, and other conditionals remain outside
+the initial cutover decision.
 
 The private runtime compiles the Seqlane Plan to Mastra. Mastra establishes
 graph eligibility. Seqlane admission decides when eligible work starts. The
@@ -139,6 +142,8 @@ admission policy. Seqlane must control the start boundary.
 - Shell tasks cannot parse workflow data as command strings.
 
 ## Traceability
+
+- [adr.exclusive-flow-choice](./2026-09-26-exclusive-flow-choice.md)
 
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)

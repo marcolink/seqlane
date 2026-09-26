@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-23
+updated: 2026-09-26
 upstream:
   - brd.seqlane
 supersedes:
@@ -93,6 +93,19 @@ Migration verification uses representative agent and deterministic-task fixtures
 - `shell()` represents deterministic process execution and must not invoke a model.
 - Dependency references must be validated before execution.
 - Repository- and user-scoped workflow discovery must remain possible without silent ambiguity.
+
+### requirement-exclusive-flow-choice
+
+Workflow authors can select exactly one of two declared task or child-workflow
+paths from a Boolean value in workflow input or an earlier task result. Both
+paths are required. The unselected path does not run, and a successful choice
+provides one typed result to later tasks. Authors can put multiple steps in a
+path by using a child workflow.
+
+The choice is visible during inspection and execution. The selected task or
+workflow keeps its own identity and existing session, workspace, failure, and
+cancellation behavior. The unselected path is reported as not selected and
+does not make a successful run fail.
 
 ### requirement-classifier-tasks
 
@@ -236,6 +249,9 @@ can add meaning, but the interface must remain clear without either feature.
 
 ## Traceability
 
+- [adr.exclusive-flow-choice](../adrs/2026-09-26-exclusive-flow-choice.md)
+- [spec.mastra-backed-seqlane-workflows, choice contract](../specs/2026-09-08-mastra-backed-seqlane-workflows.md#req-choice-001-route-one-runnable)
+- [task.deliver-exclusive-flow-choice](../tasks/2026-09-26-deliver-exclusive-flow-choice.md)
 - [adr.classifier-task-runtime-boundary](../adrs/2026-09-23-classifier-task-runtime-boundary.md)
 - [spec.classifier-tasks](../specs/2026-09-23-classifier-tasks.md)
 - [adr.public-npm-release](../adrs/2026-09-21-public-npm-release.md)

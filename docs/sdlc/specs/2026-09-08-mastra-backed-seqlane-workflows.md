@@ -5,9 +5,10 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-22
+updated: 2026-09-26
 upstream:
   - adr.mastra-backed-seqlane-workflows
+  - adr.exclusive-flow-choice
   - adr.separate-seqlane-protocol-package
 supersedes:
   - spec.effect-runtime-integration
@@ -44,8 +45,9 @@ authoring, Plan IR, and consumer-agnostic event specifications.
 
 - Adding a second workflow engine.
 - Exposing Mastra types from `@seqlane/core` or public authoring APIs.
-- Adding branch, choose, parallel, foreach, retries, suspend or resume,
-  persistence, or generic conditional nodes.
+- Adding general branching, parallel authoring, foreach, retries, suspend or
+  resume, persistence, or conditionals beyond the exclusive binary choice
+  defined below.
 - Adding a new concurrency feature or changing the active admission policy.
 - Deleting Studio, recording, or replay.
 - Changing active session, model, admission, or runner semantics beyond making
@@ -132,16 +134,48 @@ Every location that accepts a task or runnable must accept a workflow. A
 workflow invocation must have a typed input and output contract. Nested
 workflow invocations must retain node identity and input binding information.
 
+### REQ-CHOICE-001: Route one runnable
+
+A named Flow choice uses `.when(...).task(...).otherwise(...)`. `when` accepts
+the condition callback and returns a builder that requires `.task()` next.
+That `.task()` supplies the true runnable, binding, name, and optional policy;
+it does not create a separate ordinary task node. It returns a builder that
+requires `.otherwise()` before another declaration or Flow output.
+`.otherwise()` supplies the false runnable, binding, and optional policy.
+Each arm contains one task or child workflow with its own typed input binding
+and ordinary invocation policy.
+
+The condition callback returns one `ValueRef<boolean>` from workflow input or
+an earlier task result. It cannot reference the pending choice or a later
+declaration. The callback runs only during Plan construction; it is not a
+runtime predicate. Authors who need a computed condition use a normal
+deterministic task to produce the Boolean result.
+
+The choice must execute exactly one arm: `then` for `true`, `else` for `false`.
+The other arm starts no work and is reported as not selected. It must not
+consume session or workspace admission or cause a successful run to fail.
+Failure or cancellation of the selected arm must not start the other arm as a
+fallback. The selected arm keeps its own task or workflow identity, nested
+invocation behavior, and existing session and workspace policies.
+
+Both runnables must declare output schemas. The named choice output has the
+union of their inferred output types. Each runnable parses its output once
+through its own schema. The choice forwards the selected validated value
+through its `.task()` name. A downstream binding must accept or narrow the
+union. The workflow output schema validates the final resolved value.
+Downstream bindings refer to this handle, not to either arm. The choice is
+control flow, not a new task definition or model invocation.
+
 ### REQ-PLAN-001: Keep a small Seqlane Plan boundary
 
 The Plan must be serializable and independent of Mastra. It must not contain
 Effect values or types. Authors
 must receive a workflow or runnable; they must not hand-build a Plan.
 
-The final Plan must contain only task invocation, workflow invocation,
-validation check, validation gate, and bounded repeat nodes. A registry must
-resolve runnable references without placing executable functions in serialized
-data.
+The Plan must contain only task invocation, workflow invocation, validation
+check, validation gate, bounded repeat, and exclusive choice nodes. A registry
+must resolve runnable references without placing executable functions in
+serialized data.
 
 ### REQ-PLAN-002: Validate Plan data at runtime
 
@@ -415,6 +449,39 @@ normative:
 - A bounded repeat is authored by chaining `.until(...)` immediately after
   `.task(...)`. The task can invoke a task definition or child workflow.
   Ordinary `.task(...)` still invokes its runnable once.
+- An exclusive choice is authored by chaining
+  `.when(...).task(...).otherwise(...)`. `when` starts the choice. The following
+  task is its true arm, and `otherwise` supplies the false arm. The task name
+  is the result handle; both runnables retain their own IDs.
+
+The choice authoring shape is:
+
+```ts
+const decisionSchema = z.discriminatedUnion("kind", [
+  securityDecisionSchema,
+  standardDecisionSchema,
+]);
+
+createFlow({ id, input: workflowInputSchema, output: decisionSchema })
+  .task("triage", triageTask, ({ input }) => ({ change: input.change }))
+  .when(({ tasks }) => tasks.triage.output.needsSecurityReview)
+  .task("decision", securityReviewTask, ({ input }) => ({
+    change: input.change,
+  }))
+  .otherwise(standardApprovalTask, ({ input }) => ({
+    change: input.change,
+  }))
+  .output(({ tasks }) => tasks.decision.output)
+  .define();
+```
+
+`securityReviewTask` and `standardApprovalTask` may declare different output
+schemas. Their inferred output types form the type of `tasks.decision.output`.
+That type is the union of `z.output<typeof securityDecisionSchema>` and
+`z.output<typeof standardDecisionSchema>`.
+With no downstream task, `.output(...)` binds that union directly to the
+workflow result. `decisionSchema` validates either result. The condition is a
+reference to an already validated Boolean.
 
 ### Plan node and registry boundary
 
@@ -430,12 +497,61 @@ type PlanNode =
   | WorkflowInvocationNode
   | ValidationCheckNode
   | ValidationGateNode
-  | BoundedRepeatNode;
+  | BoundedRepeatNode
+  | ChoiceNode;
 ```
 
 The implementation must keep node addresses separate from invocation
 identities. The Plan records dependencies and bindings. Runtime state records
 attempt, session, workspace, admission, outcome, and error data.
+
+### Exclusive choice
+
+`ChoiceNode` records a stable node ID, one Boolean reference, `then` and
+`else` task-or-workflow invocation descriptors, and outer dependencies. It
+stores no executable callback, Zod schema, Mastra object, or decision result.
+Its serializable shape is:
+
+```ts
+interface ChoiceNode {
+  readonly type: "choice";
+  readonly nodeId: PlanNodeId;
+  readonly condition: ValueRefData;
+  readonly then: TaskNode | WorkflowNode;
+  readonly else: TaskNode | WorkflowNode;
+  readonly dependsOn: readonly PlanNodeId[];
+}
+```
+
+Its chosen output is addressable through the choice node ID. Arm node IDs are
+distinct and stable for execution and inspection. The in-memory registry
+resolves both runnable definitions and their output schemas.
+
+The builder collects dependencies from the condition, both arm input bindings,
+declared dependencies, and session policies. It rejects self, later, missing,
+or non-Boolean references. Static prerequisites must finish before selection;
+authors put work needed only by one arm inside that arm's child workflow.
+Plan validation rejects malformed arm nodes, duplicate IDs, cycles, and missing
+definitions. The authoring handle carries the union of both inferred output
+types. The runtime validates the resolved condition as a Boolean before
+selection.
+
+The private compiler maps the choice to Mastra control flow with complementary
+conditions. It must prove against the pinned installed Mastra version that
+exactly one arm runs, an unselected arm is observable as not selected, and a
+join step yields the selected output. The selected arm uses the existing
+invocation kernel and admission; the other acquires no resources and emits no
+start event. A selected arm failure or cancellation remains terminal under the
+existing policy, with no fallback to the other arm. The choice forwards the
+selected runnable's already parsed output for downstream binding resolution.
+The result reference uses the ordinary `["output"]` path. The choice does not
+parse the selected value a second time.
+
+Plan snapshots contain the choice and both arm nodes. The arms have the choice
+as parent. Runtime topology creates both arm invocations with their original
+task or workflow identities. Selection emits `invocation.skipped` for the other
+arm with a reason that identifies it as unselected. The choice completes after
+the selected arm, and its output remains available to downstream bindings.
 
 ### Shell task boundary
 
@@ -543,6 +659,10 @@ their boundaries.
 - Reject a task definition that lacks required schemas or `execute`.
 - Reject a specialized factory call that supplies `execute`.
 - Reject malformed Plan nodes, bindings, registry entries, and inputs.
+- Reject malformed choice conditions or arms before work starts. Fail a
+  resolved non-Boolean condition without treating it as `false` or starting
+  either arm. Selected-arm output, downstream input, and workflow output
+  validation follow their existing schema contracts.
 - Reject unsupported node kinds before Mastra execution.
 - Report policy denial before task execution starts.
 - Release every acquired resource after success, error, cancellation, or
@@ -594,6 +714,12 @@ The Mastra cutover and final event deletion also run `pnpm run test`,
 `pnpm run typecheck`, and `pnpm run lint`. Documentation changes run
 `pnpm docs:index` and `pnpm docs:validate`.
 
+Exclusive-choice delivery additionally typechecks valid and invalid fluent
+chains, including distinct branch output types, and runs a real-Mastra test
+for both selections, selected-arm failure, cancellation, unselected-arm
+reporting, and downstream output resolution.
+Protocol, CLI, and TUI tests cover the new Plan topology and skipped arm.
+
 ## Acceptance criteria
 
 - Public authors use one task contract and one flow API.
@@ -616,12 +742,16 @@ The Mastra cutover and final event deletion also run `pnpm run test`,
 - Shell tasks use direct executable-plus-argv spawning with `shell: false`.
 - Telemetry uses the bounded allowlist and exporter-failure behavior.
 - Repeat limits accept 1..1,000 and enforce the 1,000 run-wide budget.
+- An exclusive choice starts one arm, reports the other as not selected, and
+  exposes one validated result through its named handle.
 - CLI, output, Studio, recording, and replay behavior remains available.
 - Each completed task records its verification and traceability. Planned tasks
   retain their own completion criteria.
 
 ## Traceability
 
+- [adr.exclusive-flow-choice: Route One Flow Branch Through an Exclusive Choice](../adrs/2026-09-26-exclusive-flow-choice.md)
+- [task.deliver-exclusive-flow-choice: Deliver Exclusive Flow Choice](../tasks/2026-09-26-deliver-exclusive-flow-choice.md)
 - [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
 - [adr.separate-seqlane-protocol-package: Separate Seqlane Protocol Contracts from Core Authoring](../adrs/2026-09-13-separate-seqlane-protocol-package.md)
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
