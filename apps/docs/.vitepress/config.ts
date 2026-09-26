@@ -49,6 +49,7 @@ export default defineConfig({
             link: "/authoring-workflows/dependencies",
           },
           { text: "Repetition", link: "/authoring-workflows/repetition" },
+          { text: "Branching", link: "/authoring-workflows/branching" },
           { text: "Sessions", link: "/authoring-workflows/sessions" },
           { text: "Workspaces", link: "/authoring-workflows/workspaces" },
           { text: "Model selection", link: "/authoring-workflows/models" },

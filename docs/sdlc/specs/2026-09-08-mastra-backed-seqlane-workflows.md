@@ -166,6 +166,10 @@ union. The workflow output schema validates the final resolved value.
 Downstream bindings refer to this handle, not to either arm. The choice is
 control flow, not a new task definition or model invocation.
 
+Task arms can declare their ordinary output validator. Only the selected
+arm's validator runs. A model requirement on an unselected arm does not block
+the run; the selected arm's model is checked when that arm becomes eligible.
+
 ### REQ-PLAN-001: Keep a small Seqlane Plan boundary
 
 The Plan must be serializable and independent of Mastra. It must not contain

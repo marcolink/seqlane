@@ -522,6 +522,7 @@ export class CIRenderer implements ExecutionRenderer {
         (node) =>
           node.kind !== "workflow" &&
           node.kind !== "loop" &&
+          node.kind !== "choice" &&
           node.elapsedMs !== undefined,
       )
       .sort((left, right) => left.createdSequence - right.createdSequence);

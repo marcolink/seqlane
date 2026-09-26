@@ -106,6 +106,13 @@ it("derives planned subjects with the same identities as runtime invocations", (
             dependsOn: [],
           },
           {
+            planNodeId: "choice",
+            type: "choice",
+            label: "decision",
+            siblingOrder: 2,
+            dependsOn: [],
+          },
+          {
             planNodeId: "task-check",
             type: "validation.check",
             taskId: "source-task",
@@ -134,6 +141,11 @@ it("derives planned subjects with the same identities as runtime invocations", (
 
   expect(view.nodes.get("plan:workflow")?.taskId).toBe("nested-workflow");
   expect(view.nodes.get("plan:repeat")?.taskId).toBe("repeat:1");
+  expect(view.nodes.get("plan:choice")).toMatchObject({
+    kind: "choice",
+    taskId: "choice",
+    label: "decision",
+  });
   expect(view.nodes.get("plan:task-check")?.validation?.sourceType).toBe(
     "evaluator",
   );

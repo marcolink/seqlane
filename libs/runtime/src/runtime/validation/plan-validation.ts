@@ -1,5 +1,6 @@
 import type {
   Plan,
+  ChoiceNode,
   PlanNode,
   RepeatNode,
   TaskDefinitionRegistry,
@@ -21,7 +22,10 @@ import {
   type ModelSelection,
 } from "@seqlane/core";
 import { z } from "zod";
-import { WORKFLOW_INPUT_NODE_ID } from "../plan/binding-resolution.js";
+import {
+  referencedNodeIds,
+  WORKFLOW_INPUT_NODE_ID,
+} from "../plan/binding-resolution.js";
 
 const valueRefNodeIdSchema = z.string();
 const valueRefPathSchema = z.array(z.string());
@@ -62,6 +66,8 @@ export type PlanValidationIssueCode =
   | "repeat-postcondition-not-final"
   | "repeat-postcondition-check-out-of-scope"
   | "invalid-repeat-postcondition"
+  | "invalid-choice-condition"
+  | "invalid-choice-arm-reference"
   | "invalid-validation-source"
   | "invalid-validation-policy"
   | "unknown-validation-check"
@@ -569,9 +575,117 @@ function dependencyKind(node: PlanNode, dependency: string): string {
   ) {
     return `session:${node.session.type}`;
   }
-  return bindingReferencesNode(node.input, dependency)
+  return (
+    node.type === "choice"
+      ? bindingReferencesNode(node.condition, dependency) ||
+        bindingReferencesNode(node.then.input, dependency) ||
+        bindingReferencesNode(node.else.input, dependency)
+      : bindingReferencesNode(node.input, dependency)
+  )
     ? "dataflow"
     : "explicit";
+}
+
+function validateChoice(
+  node: ChoiceNode,
+  outerNodes: ReadonlyMap<string, PlanNode>,
+  taskDefinitions: TaskDefinitionRegistry | undefined,
+  workflowDefinitions: WorkflowDefinitionRegistry | undefined,
+  validateDefinitions: boolean,
+  issues: PlanValidationIssue[],
+): void {
+  const priorIds = new Set<string>();
+  for (const id of outerNodes.keys()) {
+    if (id === node.nodeId) break;
+    priorIds.add(id);
+  }
+  const condition = valueRefSchema.safeParse(node.condition);
+  if (
+    !condition.success ||
+    (condition.data.nodeId !== WORKFLOW_INPUT_NODE_ID &&
+      (!priorIds.has(condition.data.nodeId) ||
+        condition.data.path[0] !== "output"))
+  ) {
+    addIssue(
+      issues,
+      "invalid-choice-condition",
+      `Choice "${node.nodeId}" condition must reference workflow input or an earlier output`,
+      node.nodeId,
+    );
+  } else {
+    validateReferences(node.condition, node, outerNodes, issues);
+  }
+
+  const arms = [
+    { key: "then" as const, arm: node.then },
+    { key: "else" as const, arm: node.else },
+  ];
+  for (const { key, arm } of arms) {
+    if (arm.nodeId !== `${node.nodeId}:${key}` || outerNodes.has(arm.nodeId)) {
+      addIssue(
+        issues,
+        "duplicate-node-id",
+        `Choice "${node.nodeId}" ${key} arm has an invalid or duplicate node ID`,
+        node.nodeId,
+      );
+    }
+    for (const dependency of arm.dependsOn) {
+      if (!priorIds.has(dependency) || !node.dependsOn.includes(dependency)) {
+        addIssue(
+          issues,
+          "invalid-choice-arm-reference",
+          `Choice "${node.nodeId}" ${key} arm depends on an out-of-scope node "${dependency}"`,
+          node.nodeId,
+        );
+      }
+    }
+    for (const reference of referencedNodeIds(arm.input)) {
+      if (
+        reference !== WORKFLOW_INPUT_NODE_ID &&
+        (!priorIds.has(reference) ||
+          !arm.dependsOn.includes(reference) ||
+          !node.dependsOn.includes(reference))
+      ) {
+        addIssue(
+          issues,
+          "invalid-choice-arm-reference",
+          `Choice "${node.nodeId}" ${key} arm has an out-of-scope input reference "${reference}"`,
+          node.nodeId,
+        );
+      }
+    }
+    if (arm.type === "task") {
+      validateTaskWorkspace(arm, issues);
+      validateTaskDefinition(arm, taskDefinitions, issues, validateDefinitions);
+      resolveSessionSelections(
+        [arm],
+        new Map([...outerNodes, [arm.nodeId, arm]]),
+        issues,
+      );
+      if (arm.session?.type === "reuse" || arm.session?.type === "branch") {
+        const source = outerNodes.get(arm.session.from);
+        if (
+          !priorIds.has(arm.session.from) ||
+          source?.type !== "task" ||
+          !arm.dependsOn.includes(arm.session.from)
+        ) {
+          addIssue(
+            issues,
+            "invalid-session-source",
+            `Choice "${node.nodeId}" ${key} arm has an invalid session source`,
+            arm.nodeId,
+          );
+        }
+      }
+    } else {
+      validateWorkflowNode(
+        arm,
+        workflowDefinitions,
+        issues,
+        validateDefinitions,
+      );
+    }
+  }
 }
 
 function describeCycle(
@@ -893,6 +1007,15 @@ function isSemanticallyTraversableNode(value: unknown): boolean {
     return isRecord(value.source);
   }
 
+  if (value.type === "choice") {
+    return (
+      isRecord(value.then) &&
+      isRecord(value.else) &&
+      isSemanticallyTraversableNode(value.then) &&
+      isSemanticallyTraversableNode(value.else)
+    );
+  }
+
   if (value.type !== "repeat") return true;
   return (
     isRecord(value.attempt) && isSemanticallyTraversableNode(value.attempt)
@@ -968,7 +1091,9 @@ function validatePlanWithCanonicalIssues(
       }
     }
 
-    validateReferences(node.input, node, nodesById, issues);
+    if (node.type !== "choice") {
+      validateReferences(node.input, node, nodesById, issues);
+    }
     if (node.type === "task") {
       validateTaskWorkspace(node, issues);
       validateTaskDefinition(
@@ -1005,6 +1130,16 @@ function validatePlanWithCanonicalIssues(
         taskDefinitions,
         workflowDefinitions,
         validateDefinitions,
+      );
+    }
+    if (node.type === "choice") {
+      validateChoice(
+        node,
+        nodesById,
+        taskDefinitions,
+        workflowDefinitions,
+        validateDefinitions,
+        issues,
       );
     }
   }

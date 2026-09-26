@@ -6,6 +6,7 @@ const TYPE_COLORS = {
   task: ["cyan", "cyanBright"],
   validation: ["magenta", "magentaBright"],
   loop: ["yellow", "yellowBright"],
+  choice: ["yellow", "yellowBright"],
 } as const;
 
 export function activityTone(kind: "tool" | "skill", supportsAnsi: boolean) {

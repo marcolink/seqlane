@@ -129,7 +129,13 @@ function assertValidationRegistries(
 function computeRemainingConsumers(plan: Plan): Map<string, number> {
   const remainingConsumers = new Map<string, number>();
   for (const node of plan.nodes) {
-    addBindingConsumers(remainingConsumers, node.input);
+    if (node.type === "choice") {
+      addBindingConsumers(remainingConsumers, node.condition);
+      addBindingConsumers(remainingConsumers, node.then.input);
+      addBindingConsumers(remainingConsumers, node.else.input);
+    } else {
+      addBindingConsumers(remainingConsumers, node.input);
+    }
     if (node.type === "validation.gate") {
       remainingConsumers.set(
         node.checkNodeId,
@@ -215,6 +221,13 @@ export class PlanCompiler {
       const invocationId = context.createInvocationId(node.nodeId);
       context.invocationIds.set(node.nodeId, invocationId);
       invocationCreationOrdinal(context, invocationId);
+      if (node.type === "choice") {
+        for (const arm of [node.then, node.else]) {
+          const armInvocationId = context.createInvocationId(arm.nodeId);
+          context.invocationIds.set(arm.nodeId, armInvocationId);
+          invocationCreationOrdinal(context, armInvocationId);
+        }
+      }
     }
 
     return {
@@ -248,6 +261,11 @@ export class PlanCompiler {
           if (node.type === "repeat") {
             throw new Error(
               `Sequential Plan compiler does not support repeat node "${node.nodeId}"`,
+            );
+          }
+          if (node.type === "choice") {
+            throw new Error(
+              `Sequential Plan compiler does not support choice node "${node.nodeId}"`,
             );
           }
           if (node.type === "task") {

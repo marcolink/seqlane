@@ -70,9 +70,14 @@ const validationGateSubjectSchema = strictRecord({
   type: z.literal("validation-gate"),
   planNodeId: nonEmptyStringSchema,
 });
+const choiceSubjectSchema = strictRecord({
+  type: z.literal("choice"),
+  planNodeId: nonEmptyStringSchema,
+});
 const subjectSchema = z.union([
   taskSubjectSchema,
   validatorSubjectSchema,
+  choiceSubjectSchema,
   validationGateSubjectSchema,
 ]);
 
@@ -188,6 +193,7 @@ const planNodeShapeSchema = strictRecord({
     "validation.check",
     "validation.gate",
     "repeat",
+    "choice",
   ]),
   label: boundedString(512),
   taskId: boundedString(256).optional(),
@@ -298,7 +304,7 @@ const invocationCreatedShapeSchema = eventSchema("invocation.created", {
   planNodeId: nonEmptyStringSchema,
   subject: subjectSchema,
   taskId: nonEmptyStringSchema.optional(),
-  kind: z.enum(["workflow", "loop", "task", "validation"]),
+  kind: z.enum(["workflow", "loop", "choice", "task", "validation"]),
   label: nonEmptyStringSchema,
   parentInvocationId: nonEmptyStringSchema.optional(),
   iteration: iterationSchema.optional(),

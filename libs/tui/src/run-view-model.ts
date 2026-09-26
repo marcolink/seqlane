@@ -382,7 +382,9 @@ function updateNode(
     .map((dependencyId) => view.nodes.get(dependencyId)?.label)
     .filter((label): label is string => label !== undefined);
   const stored =
-    updated.kind === "workflow" || updated.kind === "loop"
+    updated.kind === "workflow" ||
+    updated.kind === "loop" ||
+    updated.kind === "choice"
       ? { ...updated, waitingDependencyLabels }
       : {
           ...updated,
@@ -398,7 +400,11 @@ function updateNode(
   while (parentId !== undefined && !isEmptyAggregate(delta)) {
     const parent = changes.get(parentId) ?? view.nodes.get(parentId);
     if (parent === undefined) break;
-    if (parent.kind === "workflow" || parent.kind === "loop") {
+    if (
+      parent.kind === "workflow" ||
+      parent.kind === "loop" ||
+      parent.kind === "choice"
+    ) {
       changes.set(parentId, {
         ...parent,
         aggregate: addAggregate(parent.aggregate, delta),
@@ -511,7 +517,11 @@ function applyAncestorAggregateDelta(
   while (parentId !== undefined) {
     const parent = nodes.get(parentId);
     if (parent === undefined) break;
-    if (parent.kind === "workflow" || parent.kind === "loop") {
+    if (
+      parent.kind === "workflow" ||
+      parent.kind === "loop" ||
+      parent.kind === "choice"
+    ) {
       nodes.set(parentId, {
         ...parent,
         aggregate: addAggregate(parent.aggregate, delta),
@@ -766,7 +776,10 @@ function reduceCreated(
   nodes.set(event.invocationId, node);
   const presentation = new Map(view.presentation);
   presentation.set(event.invocationId, {
-    isExpanded: event.kind === "workflow" || event.kind === "loop",
+    isExpanded:
+      event.kind === "workflow" ||
+      event.kind === "loop" ||
+      event.kind === "choice",
   });
   const dependentsByDependency = new Map(view.dependentsByDependency);
   for (const dependencyId of dependencyIds) {
@@ -843,7 +856,10 @@ function reducePlan(
       session: node.session,
     });
     presentation.set(created.invocationId, {
-      isExpanded: created.kind === "workflow" || created.kind === "loop",
+      isExpanded:
+        created.kind === "workflow" ||
+        created.kind === "loop" ||
+        created.kind === "choice",
     });
   }
   const projected = rebuildTopology(
