@@ -198,6 +198,12 @@ interface PendingTask<Input> {
   readonly declaration: FlowDeclaration<Input>;
 }
 
+interface PendingChoiceArm<Input> {
+  readonly definition: RunnableDefinition<unknown, unknown>;
+  readonly binding: RuntimeTaskBinding<Input>;
+  readonly options: RuntimeTaskOptions<Input>;
+}
+
 function resolveTaskBinding<Input>(
   binding: RuntimeTaskBinding<Input>,
   authoringContext: RuntimeFlowAuthoringContext<Input>,
@@ -308,6 +314,45 @@ function createUntilDeclaration<Input>(
   };
 }
 
+function resolveChoiceArm<Input>(
+  arm: PendingChoiceArm<Input>,
+  authoringContext: RuntimeFlowAuthoringContext<Input>,
+): import("./workflow-authoring-internal.js").ChoiceArmBuildOptions<
+  unknown,
+  unknown
+> {
+  const taskOptions = arm.options as
+    FlowTaskOptions<unknown, Input, Record<string, FlowHandle>> | undefined;
+  return {
+    runnable: arm.definition,
+    input: resolveTaskBinding(arm.binding, authoringContext),
+    dependsOn: resolveFlowDependencies(
+      arm.options?.dependsOn,
+      authoringContext,
+    ),
+    workspace: arm.options?.workspace,
+    session: resolveSessionOption(arm.options, authoringContext),
+    validateOutput: taskOptions?.validateOutput,
+  };
+}
+
+function createChoiceDeclaration<Input>(
+  name: string,
+  condition: (context: RuntimeFlowAuthoringContext<Input>) => ValueRef<boolean>,
+  thenArm: PendingChoiceArm<Input>,
+  elseArm: PendingChoiceArm<Input>,
+): FlowDeclaration<Input> {
+  return {
+    name,
+    declare: (context, authoringContext) =>
+      context.choose({
+        condition: condition(authoringContext),
+        then: resolveChoiceArm(thenArm, authoringContext),
+        else: resolveChoiceArm(elseArm, authoringContext),
+      }),
+  };
+}
+
 /**
  * Starts a typed Flow definition. Its declarations lower directly to the
  * private Plan builder when define() is called.
@@ -353,6 +398,41 @@ export function createFlow<Input, Output>(
   };
   let pendingTask: PendingTask<Input> | undefined;
   const builder = {
+    when: (
+      condition: (
+        context: RuntimeFlowAuthoringContext<Input>,
+      ) => ValueRef<boolean>,
+    ) => {
+      pendingTask = undefined;
+      return {
+        task: (
+          name: string,
+          definition: RunnableDefinition<unknown, unknown>,
+          binding: RuntimeTaskBinding<Input>,
+          options?: RuntimeTaskOptions<Input>,
+        ) => ({
+          otherwise: (
+            falseDefinition: RunnableDefinition<unknown, unknown>,
+            falseBinding: RuntimeTaskBinding<Input>,
+            falseOptions?: RuntimeTaskOptions<Input>,
+          ) => {
+            declarations.push(
+              createChoiceDeclaration(
+                name,
+                condition,
+                { definition, binding, options },
+                {
+                  definition: falseDefinition,
+                  binding: falseBinding,
+                  options: falseOptions,
+                },
+              ),
+            );
+            return builder as never;
+          },
+        }),
+      };
+    },
     task: (
       name: string,
       definition: RunnableDefinition<unknown, unknown>,

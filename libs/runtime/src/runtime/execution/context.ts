@@ -17,6 +17,7 @@ import type {
   ResolvedExecutorSession,
   SessionConsumer,
   SessionResolver,
+  DeferredSessionSource,
 } from "../session/session-resolution.js";
 import { SessionLockRegistry } from "../session/session-lock.js";
 import type { SharedSessionTaskPair } from "../session/shared-session-order.js";
@@ -50,6 +51,7 @@ export interface ExecutionContext {
   readonly effectiveModelSelections: Map<InvocationId, ModelSelection>;
   readonly effectiveModelSelectionsByNode: Map<PlanNodeId, ModelSelection>;
   readonly sessionConsumers: Map<string, readonly SessionConsumer[]>;
+  readonly deferredSessionSources: Map<string, DeferredSessionSource>;
   readonly sessionLocks: SessionLockRegistry;
   readonly childSessions: ChildSessionRegistry;
   readonly workspaceResources: WorkspaceResourceRegistry;
@@ -109,6 +111,7 @@ export function createExecutionContext(
     effectiveModelSelections: new Map(),
     effectiveModelSelectionsByNode: new Map(),
     sessionConsumers: new Map(),
+    deferredSessionSources: new Map(),
     sessionLocks,
     childSessions: new ChildSessionRegistry(),
     workspaceResources: options.workspaceResources ?? new Map(),

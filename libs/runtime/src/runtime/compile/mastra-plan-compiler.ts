@@ -7,6 +7,7 @@ import type {
   InvocationId,
   Plan,
   PlanNode,
+  ChoiceNode,
   PlanNodeId,
   RepeatNode,
   RunId,
@@ -15,6 +16,7 @@ import type {
   TaskId,
   TaskDefinitionRegistry,
   ValidatorDefinitionRegistry,
+  ValidationSource,
   WorkId,
   WorkflowDefinition,
   WorkflowDefinitionRegistry,
@@ -48,6 +50,10 @@ import {
   type RepeatExecutionBudget,
 } from "./mastra-repeat-compiler.js";
 import { resolveMastraPlanRunContext } from "./mastra-run-context.js";
+import {
+  buildChoiceStep,
+  type ChoiceCompilerDependencies,
+} from "./mastra-choice-compiler.js";
 
 export type { RepeatExecutionBudget } from "./mastra-repeat-compiler.js";
 
@@ -61,8 +67,12 @@ export interface MastraPlanInvocationContext {
   readonly runId: string;
   readonly invocationId: InvocationId;
   readonly iteration?: number;
+  /** Selected choice arms acquire workspace resources at runtime. */
+  readonly dynamicWorkspaceAdmission?: boolean;
   /** Validation attached to a repeat body, applied before its condition. */
   readonly repeatValidation?: RepeatNode["validation"];
+  /** Validation attached to the selected choice task arm. */
+  readonly choiceValidation?: NonNullable<ChoiceNode["validation"]>["then"];
   readonly resourceId?: string;
   readonly workflowId: string;
   readonly abortSignal: AbortSignal;
@@ -208,8 +218,9 @@ function schemaForNodeOutput(
 
 function invocationKind(
   node: PlanNode,
-): "workflow" | "task" | "validation" | "loop" {
+): "workflow" | "task" | "validation" | "loop" | "choice" {
   if (node.type === "repeat") return "loop";
+  if (node.type === "choice") return "choice";
   if (node.type === "workflow") return "workflow";
   if (node.type === "task") return "task";
   return "validation";
@@ -290,6 +301,9 @@ function resolveStepInput(
   workflowInput: unknown,
   getStepResult: <Output = unknown>(nodeId: string) => Output,
 ): unknown {
+  if (node.type === "choice") {
+    throw new Error("Choice input must be resolved by the choice compiler");
+  }
   const results = new Map<string, unknown>();
   for (const nodeId of referencedNodeIds(node.input)) {
     if (nodeId === "__seqlane_input") continue;
@@ -299,7 +313,7 @@ function resolveStepInput(
 }
 
 function buildInvocationStep(
-  node: PlanNode,
+  node: Exclude<PlanNode, ChoiceNode>,
   invocationId: InvocationId,
   options: MastraPlanCompilerOptions,
 ): Step {
@@ -422,23 +436,35 @@ function assertMastraSupportedPlan(plan: Plan): void {
   }
 }
 
+function assertValidationSourceRegistered(
+  source: ValidationSource,
+  options: MastraPlanCompilerOptions,
+): void {
+  if (source.type === "mechanical") {
+    if (!options.validatorDefinitions?.has(source.validatorId)) {
+      throw new Error(`No validator "${source.validatorId}" is registered`);
+    }
+  } else if (!options.taskDefinitions?.has(source.taskId)) {
+    throw new Error(
+      `No evaluator task definition registered for "${source.taskId}"`,
+    );
+  }
+}
+
 function assertValidationRegistries(
   plan: Plan,
   options: MastraPlanCompilerOptions,
 ): void {
   for (const node of plan.nodes) {
-    if (node.type !== "validation.check") continue;
-
-    if (node.source.type === "mechanical") {
-      if (!options.validatorDefinitions?.has(node.source.validatorId)) {
-        throw new Error(
-          `No validator "${node.source.validatorId}" is registered`,
-        );
+    if (node.type === "validation.check") {
+      assertValidationSourceRegistered(node.source, options);
+    }
+    if (node.type === "choice") {
+      for (const validation of [node.validation?.then, node.validation?.else]) {
+        if (validation !== undefined) {
+          assertValidationSourceRegistered(validation.source, options);
+        }
       }
-    } else if (!options.taskDefinitions?.has(node.source.taskId)) {
-      throw new Error(
-        `No evaluator task definition registered for "${node.source.taskId}"`,
-      );
     }
   }
 }
@@ -474,6 +500,16 @@ export function compilePlanToMastra(
       options.createInvocationId?.(node.nodeId) ??
         `${parsedPlan.workflow.id}:${node.nodeId}`,
     );
+    if (node.type === "choice") {
+      for (const [armOrder, arm] of [node.then, node.else].entries()) {
+        siblingOrders.set(arm.nodeId, armOrder);
+        invocationIds.set(
+          arm.nodeId,
+          options.createInvocationId?.(arm.nodeId) ??
+            `${parsedPlan.workflow.id}:${arm.nodeId}`,
+        );
+      }
+    }
   }
   const repeatBudget = options.repeatBudget ?? { executed: 0 };
   const repeatCompilerDependencies: RepeatCompilerDependencies = {
@@ -484,6 +520,11 @@ export function compilePlanToMastra(
     reportFailure,
     invocationIdForNode: (nodeId) => invocationIds.get(nodeId),
     siblingOrderForNode: (nodeId) => siblingOrders.get(nodeId),
+  };
+  const choiceCompilerDependencies: ChoiceCompilerDependencies = {
+    schemaForNodeInput,
+    reportFailure,
+    invocationIdForNode: (nodeId) => invocationIds.get(nodeId),
   };
   const invocationSteps = orderedNodes.map((node) => {
     const invocationId = invocationIds.get(node.nodeId);
@@ -504,6 +545,17 @@ export function compilePlanToMastra(
           },
           invocationId,
           repeatCompilerDependencies,
+        ),
+      };
+    }
+    if (node.type === "choice") {
+      return {
+        nodeId: node.nodeId,
+        step: buildChoiceStep(
+          node,
+          { ...options, workflowId: parsedPlan.workflow.id },
+          invocationId,
+          choiceCompilerDependencies,
         ),
       };
     }

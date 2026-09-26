@@ -6,6 +6,7 @@
 import type {
   ModelRef,
   ModelSelection,
+  ChoiceNode,
   Plan,
   PlanNode,
   RepeatNode,
@@ -18,6 +19,7 @@ import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js
 import {
   MissingWorkflowModelSelectionError,
   preflightCompiledWorkflowModels,
+  preflightSelectedChoiceModel,
   requireStandaloneModelSelection,
   UnavailableExecutorModelError,
   validateStandaloneModelAvailability,
@@ -101,6 +103,49 @@ function fakeExecutor(
 }
 
 describe("executor model preflight", () => {
+  it("checks only the selected choice arm's model", async () => {
+    const available = { model: model("openai/available") };
+    const unavailable = { model: model("openai/unavailable") };
+    const listModels = vi.fn(async () => [available.model]);
+    const executor = fakeExecutor(
+      { ...capabilities([available.model], available), listModels },
+      () => undefined,
+    );
+    const thenArm = task("choice:1:then", {
+      type: "isolated",
+      model: available,
+    });
+    const elseArm = task("choice:1:else", {
+      type: "isolated",
+      model: unavailable,
+    });
+    const choice: ChoiceNode = {
+      type: "choice",
+      nodeId: "choice:1",
+      condition: { type: "ref", nodeId: "__seqlane_input", path: ["pick"] },
+      then: thenArm,
+      else: elseArm,
+      dependsOn: [],
+    };
+    const compiled = new PlanCompiler().compileWorkflow(plan([choice]), {
+      createInvocationId: (nodeId) => nodeId,
+      executors: new Map([
+        ["choice:1:then", executor],
+        ["choice:1:else", executor],
+      ]),
+    });
+    await preflightCompiledWorkflowModels(compiled);
+    expect(listModels).not.toHaveBeenCalled();
+    await preflightSelectedChoiceModel(compiled, thenArm);
+    expect(
+      compiled.context.effectiveModelSelectionsByNode.get("choice:1:then"),
+    ).toEqual(available);
+    expect(listModels).toHaveBeenCalledTimes(1);
+    await expect(
+      preflightSelectedChoiceModel(compiled, elseArm),
+    ).rejects.toBeInstanceOf(UnavailableExecutorModelError);
+  });
+
   it("uses a workflow model default without consulting an adapter default", async () => {
     const selection = { model: model("openai/gpt-5.6-sol") };
     const resolveDefaultModel = vi.fn(async () => selection);

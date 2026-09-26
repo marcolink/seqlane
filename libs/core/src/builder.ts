@@ -24,6 +24,7 @@ import {
 } from "./bindings.js";
 import type {
   BuiltWorkflow,
+  ChoiceNode,
   Plan,
   PlanNode,
   PlanSessionPolicy,
@@ -42,7 +43,11 @@ import {
   getWorkflowPlanBuilder,
   isAuthoredWorkflow,
 } from "./workflow-internal.js";
-import type { RepeatBuildOptions } from "./workflow-authoring-internal.js";
+import type {
+  ChoiceArmBuildOptions,
+  ChoiceBuildOptions,
+  RepeatBuildOptions,
+} from "./workflow-authoring-internal.js";
 
 function serializeSessionPolicy(
   policy: TaskInvocationOptions<unknown, unknown>["session"],
@@ -267,6 +272,108 @@ function buildRepeatNode<TaskInput, TaskOutput>(
   };
 }
 
+function buildChoiceArm<Input, Output>(
+  nodeId: string,
+  options: ChoiceArmBuildOptions<Input, Output>,
+  context: RepeatConstructionContext,
+): {
+  readonly node: TaskNode | WorkflowNode;
+  readonly validation?: { readonly source: ValidationSource };
+} {
+  const dependencies = new Set<string>();
+  collectDependencies(options.input, dependencies);
+  for (const dependency of options.dependsOn ?? []) {
+    dependencies.add(dependency.nodeId);
+  }
+  if (isAuthoredWorkflow(options.runnable)) {
+    if (options.session !== undefined || options.validateOutput !== undefined) {
+      throw new TypeError("Workflow choice arms do not accept task options");
+    }
+    const nested = registerWorkflowDefinition(
+      context.workflowDefinitions,
+      options.runnable as AuthoredWorkflow<unknown, unknown>,
+      context.building,
+    );
+    registerNestedDefinitions(nested, context);
+    return {
+      node: {
+        type: "workflow",
+        workflowId: options.runnable.id,
+        nodeId,
+        workspace: options.workspace ?? "exclusive",
+        input: serializeBinding(options.input),
+        dependsOn: [...dependencies],
+      },
+    };
+  }
+
+  taskDefinitionSchema.parse(options.runnable);
+  const session = serializeSessionPolicy(options.session);
+  if (session !== undefined && session.type !== "isolated") {
+    dependencies.add(session.from);
+  }
+  registerTaskDefinition(
+    context.taskDefinitions,
+    options.runnable as TaskDefinition<unknown, unknown>,
+  );
+  return {
+    node: {
+      type: "task",
+      taskId: options.runnable.id,
+      nodeId,
+      workspace: options.workspace ?? "exclusive",
+      ...(session === undefined ? {} : { session }),
+      input: serializeBinding(options.input),
+      dependsOn: [...dependencies],
+    },
+    ...(options.validateOutput === undefined
+      ? {}
+      : {
+          validation: registerRepeatValidation(options.validateOutput, context),
+        }),
+  };
+}
+
+function buildChoiceNode<TrueInput, TrueOutput, FalseInput, FalseOutput>(
+  nodeId: string,
+  options: ChoiceBuildOptions<TrueInput, TrueOutput, FalseInput, FalseOutput>,
+  context: RepeatConstructionContext,
+): {
+  readonly node: ChoiceNode;
+  readonly output: MechanicalTaskRef<TrueOutput | FalseOutput>;
+} {
+  const thenArm = buildChoiceArm(`${nodeId}:then`, options.then, context);
+  const elseArm = buildChoiceArm(`${nodeId}:else`, options.else, context);
+  const dependencies = new Set<string>();
+  collectDependencies(options.condition, dependencies);
+  for (const arm of [thenArm.node, elseArm.node]) {
+    for (const dependency of arm.dependsOn) dependencies.add(dependency);
+  }
+  return {
+    node: {
+      type: "choice",
+      nodeId,
+      condition: serializeBinding(options.condition) as ValueRef<boolean>,
+      then: thenArm.node,
+      else: elseArm.node,
+      dependsOn: [...dependencies],
+      ...(thenArm.validation === undefined && elseArm.validation === undefined
+        ? {}
+        : {
+            validation: {
+              ...(thenArm.validation === undefined
+                ? {}
+                : { then: thenArm.validation }),
+              ...(elseArm.validation === undefined
+                ? {}
+                : { else: elseArm.validation }),
+            },
+          }),
+    },
+    output: { nodeId, output: createValueRef(nodeId, ["output"]) },
+  };
+}
+
 export function buildWorkflow<Input, Output>(
   workflow: AuthoredWorkflow<Input, Output>,
 ): BuiltWorkflow<Input, Output> {
@@ -287,6 +394,7 @@ function buildWorkflowInternal<Input, Output>(
   const invocationCounts = new Map<string, number>();
   const validationCounts = new Map<string, number>();
   let repeatCount = 0;
+  let choiceCount = 0;
   const taskDefinitions = new Map<TaskId, TaskDefinition<unknown, unknown>>();
   const validatorDefinitions = new Map<string, ValidatorDefinition<unknown>>();
   const workflowDefinitions = new Map<
@@ -461,11 +569,26 @@ function buildWorkflowInternal<Input, Output>(
     return built.output;
   };
 
+  const choose = <TrueInput, TrueOutput, FalseInput, FalseOutput>(
+    options: ChoiceBuildOptions<TrueInput, TrueOutput, FalseInput, FalseOutput>,
+  ): MechanicalTaskRef<TrueOutput | FalseOutput> => {
+    const nodeId = `choice:${(choiceCount += 1)}`;
+    const built = buildChoiceNode(nodeId, options, {
+      building,
+      taskDefinitions,
+      validatorDefinitions,
+      workflowDefinitions,
+    });
+    nodes.push(built.node);
+    return built.output;
+  };
+
   const output = workflowBuilder({
     input: createWorkflowInputRef<Input>(),
     run,
     validate,
     repeat,
+    choose,
   });
 
   const plan: Plan = {

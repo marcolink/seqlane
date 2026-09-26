@@ -55,16 +55,24 @@ import {
   type MastraWorkflowResult,
 } from "./mastra-runtime.js";
 import { taskIdCompatibility } from "../invocation/invocation-support.js";
+import { toSeqlaneInvocationError } from "../execution/errors.js";
 import type { ExecutorResolvers } from "../execution/executor.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import type { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
-import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
+import {
+  preflightCompiledWorkflowModels,
+  preflightSelectedChoiceModel,
+} from "../execution/model-preflight.js";
 import {
   preflightCompiledWorkflowSessionCapabilities,
+  preflightSelectedChoiceSessionCapabilities,
   resolveCompiledWorkflowSessions,
 } from "../session/session-preflight.js";
-import { resolveTaskSession } from "../session/session-resolution.js";
+import {
+  materializeDeferredSessionConsumer,
+  resolveTaskSession,
+} from "../session/session-resolution.js";
 import { validateRepeatOutput } from "./repeat-validation.js";
 import { workspaceResourcesForExecution } from "./workspace-resources.js";
 import type { ClassifierTaskRunner } from "../../classifier/types.js";
@@ -122,7 +130,7 @@ function nestedRunContext(
 }
 
 function dependencyResults(
-  node: PlanNode,
+  node: Exclude<PlanNode, { type: "choice" }>,
   getStepResult: <Output = unknown>(nodeId: string) => Output,
 ): Map<string, unknown> {
   const results = new Map<string, unknown>();
@@ -215,6 +223,25 @@ export function emitMastraInvocationTopology(
         dependencyIds: dependencyInvocationIds(context, compiled, node),
       });
     }
+    if (node.type === "choice") {
+      for (const [armOrder, arm] of [node.then, node.else].entries()) {
+        const armSubject = invocationSubject(arm);
+        events.emit({
+          type: "invocation.created",
+          workId: context.workId,
+          runId: context.runId,
+          invocationId: invocationIdForNode(context, arm),
+          planNodeId: arm.nodeId,
+          subject: armSubject,
+          ...taskIdCompatibility(armSubject),
+          kind: invocationKind(arm),
+          label: invocationTaskId(arm),
+          parentInvocationId: invocationId,
+          siblingOrder: armOrder,
+          dependencyIds: dependencyInvocationIds(context, compiled, arm),
+        });
+      }
+    }
   }
 }
 
@@ -297,28 +324,28 @@ interface InvocationDispatchOptions {
   readonly observability: MastraPlanInvocationContext["observability"];
   readonly iteration?: number;
   readonly repeatValidation?: RepeatNode["validation"];
+  readonly choiceValidation?: MastraPlanInvocationContext["choiceValidation"];
+  readonly dynamicWorkspaceAdmission?: boolean;
 }
 
 async function validateInvocationOutput(
   options: InvocationDispatchOptions,
   output: unknown,
 ): Promise<void> {
-  if (
-    options.repeatValidation === undefined ||
-    options.iteration === undefined
-  ) {
-    return;
-  }
+  const validation = options.choiceValidation ?? options.repeatValidation;
+  if (validation === undefined) return;
   await validateRepeatOutput(
     options.context,
     options.node,
     output,
-    options.repeatValidation,
+    validation,
     options.abortSignal,
     {
       invocationId: options.invocationId,
       observability: options.observability,
-      iteration: options.iteration,
+      ...(options.iteration === undefined
+        ? {}
+        : { iteration: options.iteration }),
     },
   );
 }
@@ -380,7 +407,10 @@ async function executeWorkflowInvocationNode(
       observability: options.observability,
       results: options.context.results,
       remainingConsumers: options.context.remainingConsumers,
-      workspaceAdmission: options.iteration === undefined ? "graph" : "dynamic",
+      workspaceAdmission:
+        options.dynamicWorkspaceAdmission || options.iteration !== undefined
+          ? "dynamic"
+          : "graph",
       execute: async () =>
         executeWorkflowInvocation?.({
           node: options.node,
@@ -398,6 +428,8 @@ async function executeWorkflowInvocationNode(
           observability: options.observability,
           iteration: options.iteration,
           repeatValidation: options.repeatValidation,
+          choiceValidation: options.choiceValidation,
+          dynamicWorkspaceAdmission: options.dynamicWorkspaceAdmission,
           getStepResult,
         }) ??
         Promise.reject(
@@ -417,9 +449,22 @@ export function createMastraPlanInvocationHandler(
   executeWorkflowInvocation?: MastraPlanInvocation,
 ): MastraPlanInvocation {
   const checks = checkNodes(plan);
-  const repeatAttemptNodeIds = new Set(
+  const dynamicSessionNodeIds = new Set(
     plan.nodes.flatMap((entry) =>
-      entry.type === "repeat" ? [entry.attempt.nodeId] : [],
+      entry.type === "repeat"
+        ? [entry.attempt.nodeId]
+        : entry.type === "choice"
+          ? [entry.then.nodeId, entry.else.nodeId]
+          : [],
+    ),
+  );
+  const choiceTaskNodeIds = new Set(
+    plan.nodes.flatMap((entry) =>
+      entry.type === "choice"
+        ? [entry.then, entry.else]
+            .filter((arm) => arm.type === "task")
+            .map((arm) => arm.nodeId)
+        : [],
     ),
   );
   return async ({
@@ -436,7 +481,12 @@ export function createMastraPlanInvocationHandler(
     observability,
     iteration,
     repeatValidation,
+    choiceValidation,
+    dynamicWorkspaceAdmission,
   }) => {
+    if (node.type === "choice") {
+      throw new Error("Choice node must be lowered through Mastra branch");
+    }
     const results = dependencyResults(node, getStepResult);
     const context = {
       ...prepared.context,
@@ -446,6 +496,58 @@ export function createMastraPlanInvocationHandler(
       failure: undefined,
     };
     if (node.type === "task") {
+      if (choiceTaskNodeIds.has(node.nodeId)) {
+        try {
+          await preflightSelectedChoiceModel(prepared, node);
+          preflightSelectedChoiceSessionCapabilities(context, node);
+          const policy = node.session;
+          if (policy?.type === "reuse" || policy?.type === "branch") {
+            const consumer = context.sessionConsumers
+              .get(policy.from)
+              ?.find((entry) => entry.invocationId === invocationId);
+            if (consumer === undefined) {
+              throw new Error(
+                `No session consumer for choice arm "${node.nodeId}"`,
+              );
+            }
+            await materializeDeferredSessionConsumer({
+              sourceNodeId: policy.from,
+              source: context.deferredSessionSources.get(policy.from),
+              consumer: {
+                ...consumer,
+                effectiveSelection: context.effectiveModelSelectionsByNode.get(
+                  node.nodeId,
+                ),
+              },
+              resolvedSessions: context.resolvedSessions,
+            });
+          }
+        } catch (cause) {
+          const error = toSeqlaneInvocationError(
+            cause,
+            "executor",
+            node.taskId,
+          );
+          const subject = invocationSubject(node);
+          context.events.emit({
+            type: "invocation.started",
+            workId,
+            runId,
+            invocationId,
+            subject,
+            ...taskIdCompatibility(subject),
+          });
+          context.events.emit({
+            type: "invocation.failed",
+            workId,
+            runId,
+            invocationId,
+            error,
+            disposition: "fail_run",
+          });
+          throw error;
+        }
+      }
       return executeTaskInvocation(
         {
           context,
@@ -461,8 +563,10 @@ export function createMastraPlanInvocationHandler(
           observability,
           iteration,
           repeatValidation,
+          choiceValidation,
+          dynamicWorkspaceAdmission,
         },
-        repeatAttemptNodeIds,
+        dynamicSessionNodeIds,
       );
     }
     if (node.type === "validation.check") {
@@ -502,6 +606,8 @@ export function createMastraPlanInvocationHandler(
           observability,
           iteration,
           repeatValidation,
+          choiceValidation,
+          dynamicWorkspaceAdmission,
         },
         executeWorkflowInvocation,
       );
@@ -714,7 +820,10 @@ export function createMastraPlanExecution(
           // have several resources, and the set is not represented by the
           // parent graph's static edge for each new attempt.
           workspaceAdmission:
-            invocation.iteration === undefined ? "graph" : "dynamic",
+            invocation.dynamicWorkspaceAdmission ||
+            invocation.iteration !== undefined
+              ? "dynamic"
+              : "graph",
           execute: () =>
             executeNestedMastraWorkflow({
               parent: prepared,

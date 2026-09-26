@@ -1,7 +1,7 @@
 ---
 id: task.deliver-exclusive-flow-choice
 title: Deliver Exclusive Flow Choice
-status: planned
+status: completed
 owners:
   - core
 created: 2026-09-26
@@ -90,11 +90,15 @@ Mastra version.
 
 ## Outcome
 
-Planned; no implementation result yet.
+Implemented typed Flow choice, Plan validation, Mastra branch execution,
+selected-arm policy and output validation, event and TUI projection, and
+public authoring documentation. Both routes succeeded in standalone CLI
+runs. Focused tests cover downstream results, child workflows, cancellation,
+concurrency, malformed conditions and references, and distinct output types.
 
 ## Delivery state
 
-No delivery commit or merged pull request is claimed.
+Implementation is in PR #170. The target branch remains pending until merge.
 
 ## Traceability
 

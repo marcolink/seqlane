@@ -27,8 +27,8 @@ const taskOutput = z.object({ value: z.number() });
 function task(
   nodeId: string,
   dependsOn: readonly string[] = [],
-  input: PlanNode["input"] = {},
-): PlanNode {
+  input: Extract<PlanNode, { type: "task" }>["input"] = {},
+): Extract<PlanNode, { type: "task" }> {
   return {
     type: "task",
     taskId: nodeId,

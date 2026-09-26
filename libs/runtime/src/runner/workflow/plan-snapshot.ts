@@ -71,6 +71,7 @@ function nodeLabel(node: PlanNode): string {
         : node.source.validatorId;
     case "validation.gate":
     case "repeat":
+    case "choice":
       return node.nodeId;
   }
 }
@@ -108,6 +109,7 @@ export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
     for (const node of nodes) {
       allNodes.push(node);
       if (node.type === "repeat") collectNodes([node.attempt]);
+      if (node.type === "choice") collectNodes([node.then, node.else]);
     }
   };
   collectNodes(topLevelNodes);
@@ -160,6 +162,9 @@ export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
 
     for (const node of orderedNodes) {
       if (node.type === "repeat") appendNodes([node.attempt], node.nodeId);
+      if (node.type === "choice") {
+        appendNodes([node.then, node.else], node.nodeId);
+      }
     }
   };
 

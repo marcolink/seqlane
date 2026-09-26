@@ -22,6 +22,49 @@ const started = {
 };
 
 describe("event validation schemas", () => {
+  it("accepts choice topology and rejects malformed choice subjects", () => {
+    const choice = {
+      type: "invocation.created",
+      metadata,
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "choice-1",
+      planNodeId: "choice-1",
+      subject: { type: "choice", planNodeId: "choice-1" },
+      kind: "choice",
+      label: "decision",
+      siblingOrder: 0,
+      dependencyIds: [],
+    };
+    expect(isSeqlaneExecutionEvent(choice)).toBe(true);
+    expect(
+      isSeqlaneExecutionEvent({
+        ...choice,
+        subject: { type: "choice", taskId: "choice-1" },
+      }),
+    ).toBe(false);
+    expect(
+      isSeqlaneExecutionEvent({
+        type: "run.plan",
+        metadata,
+        workId: "work-1",
+        runId: "run-1",
+        plan: {
+          workflow: { id: "workflow-1" },
+          nodes: [
+            {
+              planNodeId: "choice-1",
+              type: "choice",
+              label: "decision",
+              dependsOn: [],
+              siblingOrder: 0,
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+  });
+
   it("derives the public event contract from the canonical schema", () => {
     expectTypeOf<SeqlaneExecutionEvent>().toEqualTypeOf<
       ReadonlySchemaOutput<typeof seqlaneExecutionEventSchema>

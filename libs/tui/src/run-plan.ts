@@ -15,11 +15,15 @@ type StartedSubject = Extract<
 export function planNodeKind(node: PlanNode): RunNode["kind"] {
   if (node.type === "workflow") return "workflow";
   if (node.type === "repeat") return "loop";
+  if (node.type === "choice") return "choice";
   if (node.type.startsWith("validation.")) return "validation";
   return "task";
 }
 
 function planNodeSubject(node: PlanNode): CreatedEvent["subject"] {
+  if (node.type === "choice") {
+    return { type: "choice", planNodeId: node.planNodeId };
+  }
   if (node.type === "validation.gate") {
     return { type: "validation-gate", planNodeId: node.planNodeId };
   }
@@ -70,6 +74,7 @@ export function planPlaceholderForSubject(
   subject: StartedSubject,
 ): RunNode | undefined {
   switch (subject.type) {
+    case "choice":
     case "validation-gate":
       return placeholders.find(
         (node) => node.planNodeId === subject.planNodeId,
@@ -133,7 +138,7 @@ export function plannedInvocationForSubject(
   view: RunViewModel,
   subject: StartedSubject,
 ): string | undefined {
-  if (subject.type === "validation-gate") {
+  if (subject.type === "validation-gate" || subject.type === "choice") {
     return view.plannedInvocationByNodeId.get(subject.planNodeId);
   }
   const identity =

@@ -1,7 +1,7 @@
 import type { PreparedPlanExecution } from "../compile/compile-plan.js";
 import { invocationIdForNode } from "../execution/context.js";
 import type { AgentAdapterCapabilities } from "@seqlane/agent-adapter";
-import type { PlanNode, TaskNode } from "@seqlane/core";
+import type { ModelSelection, PlanNode, TaskNode } from "@seqlane/core";
 import {
   resolveTaskSession,
   type SessionConsumer,
@@ -45,6 +45,7 @@ function agentTaskNodes(compiled: PreparedPlanExecution): readonly TaskNode[] {
       visit(node.attempt);
       return;
     }
+    // Choice arms are checked only after the condition selects one.
   };
   for (const node of compiled.plan.nodes) visit(node);
   return nodes;
@@ -65,33 +66,56 @@ function requireCapability(
 }
 
 /** Checks static session and model requirements before creating any session. */
+function checkTaskSessionCapabilities(
+  node: TaskNode,
+  capabilities: AgentAdapterCapabilities,
+  effectiveSelection: ModelSelection | undefined,
+): void {
+  requireCapability(node.nodeId, capabilities, "execute");
+  requireCapability(node.nodeId, capabilities, "structuredOutput");
+  const policy = node.session ?? { type: "isolated" as const };
+  const explicitSelection =
+    (policy.type === "isolated" || policy.type === "branch"
+      ? policy.model
+      : undefined) ?? effectiveSelection;
+  if (explicitSelection !== undefined) {
+    requireCapability(node.nodeId, capabilities, "modelSelection");
+  }
+  if (policy.type === "reuse") {
+    requireCapability(node.nodeId, capabilities, "sessionReuse");
+  }
+  if (policy.type === "branch") {
+    requireCapability(node.nodeId, capabilities, "checkpoint");
+    requireCapability(node.nodeId, capabilities, "fork");
+  }
+}
+
+export function preflightSelectedChoiceSessionCapabilities(
+  context: PreparedPlanExecution["context"],
+  node: TaskNode,
+): void {
+  const capabilities = context.sessionResolver?.adapterCapabilities;
+  if (capabilities === undefined || node.session === undefined) return;
+  checkTaskSessionCapabilities(
+    node,
+    capabilities,
+    context.effectiveModelSelectionsByNode.get(node.nodeId),
+  );
+}
+
 export function preflightCompiledWorkflowSessionCapabilities(
   compiled: PreparedPlanExecution,
 ): void {
   const capabilities = compiled.context.sessionResolver?.adapterCapabilities;
   if (capabilities === undefined) return;
-
   for (const node of agentTaskNodes(compiled)) {
-    requireCapability(node.nodeId, capabilities, "execute");
-    requireCapability(node.nodeId, capabilities, "structuredOutput");
-    const policy = node.session ?? { type: "isolated" as const };
-    const explicitSelection =
-      (policy.type === "isolated" || policy.type === "branch"
-        ? policy.model
-        : undefined) ??
-      compiled.context.effectiveModelSelections.get(
-        compiled.context.invocationIds.get(node.nodeId) ?? node.nodeId,
-      );
-    if (explicitSelection !== undefined) {
-      requireCapability(node.nodeId, capabilities, "modelSelection");
-    }
-    if (policy.type === "reuse") {
-      requireCapability(node.nodeId, capabilities, "sessionReuse");
-    }
-    if (policy.type === "branch") {
-      requireCapability(node.nodeId, capabilities, "checkpoint");
-      requireCapability(node.nodeId, capabilities, "fork");
-    }
+    const invocationId =
+      compiled.context.invocationIds.get(node.nodeId) ?? node.nodeId;
+    checkTaskSessionCapabilities(
+      node,
+      capabilities,
+      compiled.context.effectiveModelSelections.get(invocationId),
+    );
   }
 }
 
@@ -105,6 +129,35 @@ export async function resolveCompiledWorkflowSessions(
     readonly taskId: string;
   }> = [];
   for (const node of compiled.orderedNodes) {
+    if (node.type === "choice") {
+      for (const arm of [node.then, node.else]) {
+        if (
+          arm.type !== "task" ||
+          arm.session === undefined ||
+          arm.session.type === "isolated"
+        ) {
+          continue;
+        }
+        const invocationId = invocationIdForNode(context, arm);
+        const task = context.taskDefinitions?.get(arm.taskId);
+        if (task === undefined) {
+          throw new Error(`No task definition registered for "${arm.taskId}"`);
+        }
+        const consumers = context.sessionConsumers.get(arm.session.from) ?? [];
+        context.sessionConsumers.set(arm.session.from, [
+          ...consumers,
+          {
+            invocationId,
+            task,
+            type: arm.session.type,
+            deferred: true,
+            effectiveSelection:
+              arm.session.type === "branch" ? arm.session.model : undefined,
+          } satisfies SessionConsumer,
+        ]);
+      }
+      continue;
+    }
     const invocationId = invocationIdForNode(context, node);
     if (node.type === "task" && node.session !== undefined) {
       const policy = node.session ?? { type: "isolated" as const };

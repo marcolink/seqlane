@@ -34,6 +34,26 @@ export interface RepeatBuildOptions<TaskInput, TaskOutput> {
   readonly validateOutput?: Validator<TaskOutput>;
 }
 
+export interface ChoiceArmBuildOptions<Input, Output> {
+  readonly runnable: RunnableDefinition<Input, Output>;
+  readonly input: InputBinding<Input>;
+  readonly dependsOn?: readonly { readonly nodeId: string }[];
+  readonly session?: import("./contracts.js").SessionPolicy;
+  readonly workspace?: WorkspacePolicy;
+  readonly validateOutput?: Validator<Output>;
+}
+
+export interface ChoiceBuildOptions<
+  TrueInput,
+  TrueOutput,
+  FalseInput,
+  FalseOutput,
+> {
+  readonly condition: ValueRef<boolean>;
+  readonly then: ChoiceArmBuildOptions<TrueInput, TrueOutput>;
+  readonly else: ChoiceArmBuildOptions<FalseInput, FalseOutput>;
+}
+
 export interface WorkflowBuildContext<Input = unknown> {
   readonly input: ValueRef<Input>;
   readonly run: {
@@ -61,6 +81,9 @@ export interface WorkflowBuildContext<Input = unknown> {
   readonly repeat: <TaskInput, TaskOutput>(
     options: RepeatBuildOptions<TaskInput, TaskOutput>,
   ) => MechanicalTaskRef<TaskOutput>;
+  readonly choose: <TrueInput, TrueOutput, FalseInput, FalseOutput>(
+    options: ChoiceBuildOptions<TrueInput, TrueOutput, FalseInput, FalseOutput>,
+  ) => MechanicalTaskRef<TrueOutput | FalseOutput>;
 }
 
 export type WorkflowBuilder<Input = unknown, Output = unknown> = (

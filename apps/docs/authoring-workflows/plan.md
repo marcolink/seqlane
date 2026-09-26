@@ -4,7 +4,7 @@ Seqlane turns a workflow DSL definition into a Plan before it starts work. The
 Plan is the serializable execution graph for that run.
 
 Seqlane uses the Plan to validate dependencies, sessions, workspaces,
-repetition, and the final output binding before execution. Task inputs and
+repetition, branching, and the final output binding before execution. Task inputs and
 outputs validate at each task boundary. The runtime uses the validated Plan to
 schedule work.
 
@@ -96,7 +96,7 @@ to a prior task output creates the dependency that controls execution order.
 
 A Plan node records the task or child workflow, its input binding, dependencies,
 and workspace policy. Agent task nodes can also record session policy and model
-selection. Repeat and validation nodes record their own execution rules.
+selection. Repeat, choice, and validation nodes record their own execution rules.
 
 Read [Dependencies](/authoring-workflows/dependencies) for binding references
 and [Workflow composition](/authoring-workflows/workflow-composition) for child

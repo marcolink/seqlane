@@ -30,4 +30,5 @@ The input and output schemas define the workflow boundary. Task bindings define
 data flow. Session and workspace options define execution policy.
 
 Read [Tasks and data flow](/authoring-workflows/tasks-and-data-flow) for task
-definitions and typed bindings.
+definitions and typed bindings. Read [Branching](/authoring-workflows/branching)
+to select one of two tasks or child workflows.

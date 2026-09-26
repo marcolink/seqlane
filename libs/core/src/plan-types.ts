@@ -110,7 +110,21 @@ export interface RepeatNode {
   readonly nextInput?: ValueBinding;
 }
 
-export type PlanNode = TaskNode | WorkflowNode | ValidationNode | RepeatNode;
+export interface ChoiceNode {
+  readonly type: "choice";
+  readonly nodeId: PlanNodeId;
+  readonly condition: ValueRefData;
+  readonly then: TaskNode | WorkflowNode;
+  readonly else: TaskNode | WorkflowNode;
+  readonly validation?: {
+    readonly then?: { readonly source: ValidationSource };
+    readonly else?: { readonly source: ValidationSource };
+  };
+  readonly dependsOn: readonly PlanNodeId[];
+}
+
+export type PlanNode =
+  TaskNode | WorkflowNode | ValidationNode | RepeatNode | ChoiceNode;
 
 export interface Plan {
   readonly workflow: WorkflowIdentity;
@@ -191,12 +205,28 @@ export const repeatNodeSchema = z.strictObject({
   nextInput: valueBindingSchema.optional(),
 });
 
+export const choiceNodeSchema = z.strictObject({
+  type: z.literal("choice"),
+  nodeId: planNodeIdSchema,
+  condition: valueRefSchema,
+  then: z.discriminatedUnion("type", [taskNodeSchema, workflowNodeSchema]),
+  else: z.discriminatedUnion("type", [taskNodeSchema, workflowNodeSchema]),
+  validation: z
+    .strictObject({
+      then: z.strictObject({ source: validationSourceSchema }).optional(),
+      else: z.strictObject({ source: validationSourceSchema }).optional(),
+    })
+    .optional(),
+  dependsOn: dependencySchema,
+});
+
 export const planNodeSchema = z.discriminatedUnion("type", [
   taskNodeSchema,
   workflowNodeSchema,
   validationCheckNodeSchema,
   validationGateNodeSchema,
   repeatNodeSchema,
+  choiceNodeSchema,
 ]);
 
 export const planSchema = z.strictObject({

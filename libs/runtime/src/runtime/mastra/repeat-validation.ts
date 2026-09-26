@@ -28,19 +28,20 @@ interface RepeatValidationNodes {
 interface RepeatValidationOptions {
   readonly invocationId: InvocationId;
   readonly observability: Partial<ObservabilityContext>;
-  readonly iteration: number;
+  readonly iteration?: number;
 }
 
 function createValidationNodes(
   attempt: PlanNode,
   validation: RepeatNode["validation"],
-  iteration: number,
+  iteration?: number,
 ): RepeatValidationNodes {
   if (validation === undefined) {
-    throw new Error("Repeat validation is not configured");
+    throw new Error("Output validation is not configured");
   }
-  const inputNodeId = `${attempt.nodeId}:validation-input:${iteration}`;
-  const checkNodeId = `${attempt.nodeId}:validation.check:${iteration}`;
+  const suffix = iteration ?? "choice";
+  const inputNodeId = `${attempt.nodeId}:validation-input:${suffix}`;
+  const checkNodeId = `${attempt.nodeId}:validation.check:${suffix}`;
   const input = { type: "ref" as const, nodeId: inputNodeId, path: [] };
   return {
     inputNodeId,
@@ -53,7 +54,7 @@ function createValidationNodes(
     },
     gate: {
       type: "validation.gate",
-      nodeId: `${attempt.nodeId}:validation.gate:${iteration}`,
+      nodeId: `${attempt.nodeId}:validation.gate:${suffix}`,
       input,
       checkNodeId,
       policy: "fail",
@@ -70,7 +71,7 @@ function emitCreated(
   parentInvocationId: InvocationId,
   siblingOrder: number,
   dependencyIds: readonly InvocationId[],
-  iteration: number,
+  iteration?: number,
 ): void {
   const subject = invocationSubject(node);
   events.emit({
@@ -86,7 +87,7 @@ function emitCreated(
     parentInvocationId,
     siblingOrder,
     dependencyIds,
-    iteration,
+    ...(iteration === undefined ? {} : { iteration }),
   });
 }
 
@@ -95,7 +96,7 @@ function emitGateTerminal(
   context: PreparedPlanExecution["context"],
   invocationId: InvocationId,
   checkInvocationId: InvocationId,
-  iteration: number,
+  iteration: number | undefined,
   aborted: boolean,
 ): void {
   if (aborted) {
@@ -105,7 +106,7 @@ function emitGateTerminal(
       runId: context.runId,
       invocationId,
       reason: "Validation check cancelled before gate execution",
-      iteration,
+      ...(iteration === undefined ? {} : { iteration }),
     });
     return;
   }
@@ -116,7 +117,7 @@ function emitGateTerminal(
     invocationId,
     reason: "Validation check failed before gate execution",
     dependencyIds: [checkInvocationId],
-    iteration,
+    ...(iteration === undefined ? {} : { iteration }),
   });
 }
 

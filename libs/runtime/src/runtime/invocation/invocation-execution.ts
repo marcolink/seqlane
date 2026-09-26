@@ -452,6 +452,7 @@ export async function executeTaskNode(
           sourceSession: session,
           consumers: context.sessionConsumers.get(node.nodeId),
           resolvedSessions: context.resolvedSessions,
+          deferredSources: context.deferredSessionSources,
         });
       }
       context.events.emit({

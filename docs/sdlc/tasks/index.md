@@ -276,4 +276,4 @@
 | [task.classifier-example-and-documentation](./2026-09-23-classifier-example-and-documentation.md) | Demonstrate Classifier Tasks in Git Diff Summary | in-progress | 2026-09-23 | core |
 | [task.classifier-system-one-tracer](./2026-09-23-classifier-system-one-tracer.md) | Run One Classifier Task Through Jev | completed | 2026-09-23 | core |
 | [task.classifier-dynamic-questions](./2026-09-23-classifier-dynamic-questions.md) | Validate Static Choice Score and Noul Questions | completed | 2026-09-23 | core |
-| [task.deliver-exclusive-flow-choice](./2026-09-26-deliver-exclusive-flow-choice.md) | Deliver Exclusive Flow Choice | planned | 2026-09-26 | core |
+| [task.deliver-exclusive-flow-choice](./2026-09-26-deliver-exclusive-flow-choice.md) | Deliver Exclusive Flow Choice | completed | 2026-09-26 | core |
