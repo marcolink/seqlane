@@ -52,11 +52,10 @@ export function invocationTaskId(node: PlanNode): string {
 }
 
 export function invocationSubject(node: PlanNode): SeqlaneInvocationSubject {
-  if (
-    node.type === "task" ||
-    node.type === "workflow" ||
-    node.type === "repeat"
-  ) {
+  if (node.type === "workflow") {
+    return { type: "workflow", workflowId: node.workflowId };
+  }
+  if (node.type === "task" || node.type === "repeat") {
     return { type: "task", taskId: invocationTaskId(node) };
   }
   if (node.type === "choice") {

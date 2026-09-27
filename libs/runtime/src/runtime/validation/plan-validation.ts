@@ -630,7 +630,16 @@ function validateChoice(
       );
     }
     for (const dependency of arm.dependsOn) {
-      if (!priorIds.has(dependency) || !node.dependsOn.includes(dependency)) {
+      const sessionOnly =
+        arm.type === "task" &&
+        arm.session?.type !== undefined &&
+        arm.session.type !== "isolated" &&
+        arm.session.from === dependency &&
+        !referencedNodeIds(arm.input).has(dependency);
+      if (
+        !priorIds.has(dependency) ||
+        (!sessionOnly && !node.dependsOn.includes(dependency))
+      ) {
         addIssue(
           issues,
           "invalid-choice-arm-reference",

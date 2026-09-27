@@ -245,66 +245,77 @@ export function emitMastraInvocationTopology(
   }
 }
 
+function nonTerminalDisposition(
+  workflowStatus: MastraWorkflowResult["status"],
+  stepStatus: string | undefined,
+):
+  | { readonly type: "invocation.cancelled"; readonly reason: string }
+  | { readonly type: "invocation.skipped"; readonly reason: string }
+  | undefined {
+  if (
+    stepStatus === "canceled" ||
+    stepStatus === "cancelled" ||
+    ((workflowStatus === "canceled" || workflowStatus === "cancelled") &&
+      (stepStatus === undefined || stepStatus === "skipped"))
+  ) {
+    return {
+      type: "invocation.cancelled",
+      reason: "Mastra cancelled invocation before execution completed",
+    };
+  }
+  if (workflowStatus === "failed" && stepStatus === undefined) {
+    return {
+      type: "invocation.skipped",
+      reason: "Mastra did not execute invocation after an upstream failure",
+    };
+  }
+  if (stepStatus === "skipped") {
+    return {
+      type: "invocation.skipped",
+      reason: "Mastra skipped invocation after an upstream failure",
+    };
+  }
+  return undefined;
+}
+
 function emitMastraNonTerminalInvocations(
   compiled: CompiledMastraPlan,
   prepared: PreparedPlanExecution,
   result: MastraWorkflowResult,
   events: SeqlaneEventSink,
+  terminalInvocationIds: ReadonlySet<InvocationId>,
 ): void {
-  const workflowCancelled =
-    result.status === "canceled" || result.status === "cancelled";
   for (const node of compiled.orderedNodes) {
-    const status = result.steps?.[node.nodeId]?.status;
-    const skippedAfterFailure =
-      result.status === "failed" && status === undefined;
-    const cancelledBeforeTerminal =
-      workflowCancelled &&
-      (status === undefined ||
-        status === "skipped" ||
-        status === "canceled" ||
-        status === "cancelled");
-    if (
-      !skippedAfterFailure &&
-      !cancelledBeforeTerminal &&
-      status !== "skipped" &&
-      status !== "canceled" &&
-      status !== "cancelled"
-    ) {
-      continue;
-    }
+    const disposition = nonTerminalDisposition(
+      result.status,
+      result.steps?.[node.nodeId]?.status,
+    );
+    if (disposition === undefined) continue;
 
-    const invocationId = invocationIdForNode(prepared.context, node);
-    if (cancelledBeforeTerminal) {
-      events.emit({
-        type: "invocation.cancelled",
-        workId: prepared.context.workId,
-        runId: prepared.context.runId,
-        invocationId,
-        reason: "Mastra cancelled invocation before execution completed",
-      });
-    } else if (status === "skipped" || skippedAfterFailure) {
-      events.emit({
-        type: "invocation.skipped",
-        workId: prepared.context.workId,
-        runId: prepared.context.runId,
-        invocationId,
-        reason: skippedAfterFailure
-          ? "Mastra did not execute invocation after an upstream failure"
-          : "Mastra skipped invocation after an upstream failure",
-        dependencyIds: dependencyInvocationIds(
-          prepared.context,
-          compiled,
-          node,
-        ),
-      });
-    } else {
-      events.emit({
-        type: "invocation.cancelled",
-        workId: prepared.context.workId,
-        runId: prepared.context.runId,
-        invocationId,
-        reason: "Mastra cancelled invocation",
-      });
+    const targets =
+      node.type === "choice" ? [node, node.then, node.else] : [node];
+    for (const target of targets) {
+      const invocationId = invocationIdForNode(prepared.context, target);
+      if (terminalInvocationIds.has(invocationId)) continue;
+      if (disposition.type === "invocation.cancelled") {
+        events.emit({
+          ...disposition,
+          workId: prepared.context.workId,
+          runId: prepared.context.runId,
+          invocationId,
+        });
+      } else {
+        events.emit({
+          ...disposition,
+          workId: prepared.context.workId,
+          runId: prepared.context.runId,
+          invocationId,
+          dependencyIds:
+            target === node
+              ? dependencyInvocationIds(prepared.context, compiled, node)
+              : [invocationIdForNode(prepared.context, node)],
+        });
+      }
     }
   }
 }
@@ -359,7 +370,8 @@ async function executeTaskInvocation(
   }
   if (
     options.node.session !== undefined &&
-    repeatAttemptNodeIds.has(options.node.nodeId)
+    repeatAttemptNodeIds.has(options.node.nodeId) &&
+    !options.context.resolvedSessions.has(options.invocationId)
   ) {
     await resolveTaskSession(
       options.context.resolvedSessions,
@@ -502,6 +514,7 @@ export function createMastraPlanInvocationHandler(
           preflightSelectedChoiceSessionCapabilities(context, node);
           const policy = node.session;
           if (policy?.type === "reuse" || policy?.type === "branch") {
+            await context.choiceSourceGate.wait(policy.from, abortSignal);
             const consumer = context.sessionConsumers
               .get(policy.from)
               ?.find((entry) => entry.invocationId === invocationId);
@@ -709,10 +722,32 @@ export async function executeNestedMastraWorkflow(options: {
   return result;
 }
 
+function terminalTrackingSink(
+  downstream: SeqlaneEventSink,
+  terminalInvocationIds: Set<InvocationId>,
+): SeqlaneEventSink {
+  return {
+    emit(event) {
+      downstream.emit(event);
+      if (
+        event.type === "invocation.succeeded" ||
+        event.type === "invocation.skipped" ||
+        event.type === "invocation.cancelled" ||
+        (event.type === "invocation.failed" &&
+          event.disposition !== "retry_scheduled")
+      ) {
+        terminalInvocationIds.add(event.invocationId);
+      }
+    },
+  };
+}
+
 export function createMastraPlanExecution(
   options: MastraPlanExecutionOptions,
 ): MastraPlanExecution {
   const repeatBudget = options.repeatBudget ?? { executed: 0 };
+  const terminalInvocationIds = new Set<InvocationId>();
+  const events = terminalTrackingSink(options.events, terminalInvocationIds);
   let typedFailure: SeqlaneError | undefined;
   const captureFailure = (failure: SeqlaneError): void => {
     typedFailure ??= failure;
@@ -734,7 +769,7 @@ export function createMastraPlanExecution(
     taskDefinitions: options.taskDefinitions,
     validatorDefinitions: options.validatorDefinitions,
     workflowDefinitions: options.workflowDefinitions,
-    events: options.events,
+    events,
     onObservation: (invocationId, observation, iteration) =>
       forwardObservation(
         options.onObservation,
@@ -766,7 +801,7 @@ export function createMastraPlanExecution(
     workspaceResources,
     workflow: options.workflow,
     repeatBudget,
-    events: options.events,
+    events,
     onFailure: captureFailure,
     onInputValidationFailure: ({
       node,
@@ -776,7 +811,7 @@ export function createMastraPlanExecution(
       error,
     }) => {
       const subject = invocationSubject(node);
-      options.events.emit({
+      events.emit({
         type: "invocation.started",
         workId,
         runId,
@@ -784,7 +819,7 @@ export function createMastraPlanExecution(
         subject,
         ...taskIdCompatibility(subject),
       });
-      options.events.emit({
+      events.emit({
         type: "invocation.failed",
         workId,
         runId,
@@ -832,7 +867,7 @@ export function createMastraPlanExecution(
               executors: options.executors,
               sessionResolver: options.sessionResolver,
               workspaceResources,
-              events: options.events,
+              events,
               onObservation: options.onObservation,
               onFailure: captureFailure,
               repeatBudget,
@@ -863,7 +898,8 @@ export function createMastraPlanExecution(
             compiled,
             prepared,
             result,
-            options.events,
+            events,
+            terminalInvocationIds,
           );
         },
       },

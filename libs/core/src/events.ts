@@ -15,6 +15,7 @@ export type SeqlaneInvocationKind =
 
 export type SeqlaneInvocationSubject =
   | { readonly type: "task"; readonly taskId: TaskId }
+  | { readonly type: "workflow"; readonly workflowId: string }
   | { readonly type: "validator"; readonly validatorId: string }
   | { readonly type: "choice"; readonly planNodeId: PlanNodeId }
   | { readonly type: "validation-gate"; readonly planNodeId: PlanNodeId };

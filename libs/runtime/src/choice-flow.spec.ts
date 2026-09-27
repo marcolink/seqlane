@@ -147,7 +147,7 @@ describe("exclusive Flow choice through the runtime", () => {
         type: "invocation.created",
         planNodeId: "choice:1:then",
         kind: "workflow",
-        subject: { type: "task", taskId: "review-child" },
+        subject: { type: "workflow", workflowId: "review-child" },
       }),
     );
   });

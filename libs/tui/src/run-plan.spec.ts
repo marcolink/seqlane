@@ -111,6 +111,26 @@ it("derives planned subjects with the same identities as runtime invocations", (
             label: "decision",
             siblingOrder: 2,
             dependsOn: [],
+            thenPlanNodeId: "choice:then",
+            elsePlanNodeId: "choice:else",
+          },
+          {
+            planNodeId: "choice:then",
+            type: "task",
+            label: "review",
+            parentPlanNodeId: "choice",
+            choiceArm: "then",
+            siblingOrder: 0,
+            dependsOn: [],
+          },
+          {
+            planNodeId: "choice:else",
+            type: "workflow",
+            label: "approval",
+            parentPlanNodeId: "choice",
+            choiceArm: "else",
+            siblingOrder: 1,
+            dependsOn: [],
           },
           {
             planNodeId: "task-check",
@@ -145,7 +165,32 @@ it("derives planned subjects with the same identities as runtime invocations", (
     kind: "choice",
     taskId: "choice",
     label: "decision",
+    thenPlanNodeId: "choice:then",
+    elsePlanNodeId: "choice:else",
   });
+  expect(view.nodes.get("plan:choice:else")).toMatchObject({
+    kind: "workflow",
+    taskId: "approval",
+    choiceArm: "else",
+    parentInvocationId: "plan:choice",
+  });
+  const live = reduceRunViewModel(view, {
+    ...identity,
+    type: "invocation.created",
+    invocationId: "live-else",
+    planNodeId: "choice:else",
+    subject: { type: "workflow", workflowId: "approval" },
+    kind: "workflow",
+    label: "approval",
+    parentInvocationId: "plan:choice",
+    siblingOrder: 1,
+    dependencyIds: [],
+  });
+  expect(live.nodes.get("live-else")).toMatchObject({
+    choiceArm: "else",
+    parentInvocationId: "plan:choice",
+  });
+  expect(live.nodes.has("plan:choice:else")).toBe(false);
   expect(view.nodes.get("plan:task-check")?.validation?.sourceType).toBe(
     "evaluator",
   );

@@ -62,6 +62,10 @@ const taskSubjectSchema = strictRecord({
   type: z.literal("task"),
   taskId: nonEmptyStringSchema,
 });
+const workflowSubjectSchema = strictRecord({
+  type: z.literal("workflow"),
+  workflowId: nonEmptyStringSchema,
+});
 const validatorSubjectSchema = strictRecord({
   type: z.literal("validator"),
   validatorId: nonEmptyStringSchema,
@@ -76,6 +80,7 @@ const choiceSubjectSchema = strictRecord({
 });
 const subjectSchema = z.union([
   taskSubjectSchema,
+  workflowSubjectSchema,
   validatorSubjectSchema,
   choiceSubjectSchema,
   validationGateSubjectSchema,
@@ -202,6 +207,9 @@ const planNodeShapeSchema = strictRecord({
   parentPlanNodeId: boundedString(256).optional(),
   siblingOrder: nonNegativeIntegerSchema,
   maximumIterations: positiveIntegerSchema.optional(),
+  thenPlanNodeId: boundedString(256).optional(),
+  elsePlanNodeId: boundedString(256).optional(),
+  choiceArm: z.enum(["then", "else"]).optional(),
 });
 const planNodeSchema = planNodeShapeSchema.pipe(
   z.custom<z.output<typeof planNodeShapeSchema>>((value) => {
@@ -210,6 +218,9 @@ const planNodeSchema = planNodeShapeSchema.pipe(
       result.success &&
       (result.data.type === "repeat" ||
         result.data.maximumIterations === undefined) &&
+      (result.data.type === "choice" ||
+        (result.data.thenPlanNodeId === undefined &&
+          result.data.elsePlanNodeId === undefined)) &&
       (result.data.type === "task" || result.data.session === undefined)
     );
   }),
@@ -230,6 +241,9 @@ export const seqlanePlanSnapshotSchema = planSnapshotShapeSchema.pipe(
     if (!result.success) return false;
     const snapshot = result.data;
     const nodeIds = new Set<string>();
+    const nodesById = new Map(
+      snapshot.nodes.map((node) => [node.planNodeId, node]),
+    );
     for (const node of snapshot.nodes) {
       if (nodeIds.has(node.planNodeId)) return false;
       nodeIds.add(node.planNodeId);
@@ -259,6 +273,36 @@ export const seqlanePlanSnapshotSchema = planSnapshotShapeSchema.pipe(
           !nodeIds.has(node.parentPlanNodeId))
       ) {
         return false;
+      }
+      if (node.type === "choice") {
+        if (
+          node.thenPlanNodeId === undefined ||
+          node.elsePlanNodeId === undefined ||
+          node.thenPlanNodeId === node.elsePlanNodeId
+        )
+          return false;
+        for (const [arm, id] of [
+          ["then", node.thenPlanNodeId],
+          ["else", node.elsePlanNodeId],
+        ] as const) {
+          const child = nodesById.get(id);
+          if (
+            child?.parentPlanNodeId !== node.planNodeId ||
+            child.choiceArm !== arm ||
+            (child.type !== "task" && child.type !== "workflow")
+          )
+            return false;
+        }
+      }
+      if (node.choiceArm !== undefined) {
+        const parent = nodesById.get(node.parentPlanNodeId ?? "");
+        if (
+          parent?.type !== "choice" ||
+          (node.choiceArm === "then"
+            ? parent.thenPlanNodeId !== node.planNodeId
+            : parent.elsePlanNodeId !== node.planNodeId)
+        )
+          return false;
       }
     }
 

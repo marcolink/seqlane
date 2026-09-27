@@ -39,3 +39,5 @@ The false path is required. A failed or cancelled selected task does not run
 the other task as a fallback. Each path can also run a child workflow. Task
 paths accept the ordinary session, workspace, and output validation options;
 child workflows accept workspace options.
+If a task path uses a session from an earlier task, the choice can select a
+path while that source runs. The selected path waits for the source to finish.

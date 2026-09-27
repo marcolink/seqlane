@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-26
+updated: 2026-10-04
 upstream:
   - adr.mastra-backed-seqlane-workflows
   - adr.exclusive-flow-choice
@@ -157,6 +157,12 @@ consume session or workspace admission or cause a successful run to fail.
 Failure or cancellation of the selected arm must not start the other arm as a
 fallback. The selected arm keeps its own task or workflow identity, nested
 invocation behavior, and existing session and workspace policies.
+The choice waits for its condition, arm input references, and declared
+dependencies before selection. A session source used only by an arm remains
+an arm dependency. The selected arm waits for that source to complete before
+it materializes the session. The other arm's session source does not delay
+selection. If an upstream failure or cancellation prevents the choice from
+starting, both created arm invocations receive terminal events.
 
 Both runnables must declare output schemas. The named choice output has the
 union of their inferred output types. Each runnable parses its output once
@@ -532,9 +538,10 @@ Its chosen output is addressable through the choice node ID. Arm node IDs are
 distinct and stable for execution and inspection. The in-memory registry
 resolves both runnable definitions and their output schemas.
 
-The builder collects dependencies from the condition, both arm input bindings,
-declared dependencies, and session policies. It rejects self, later, missing,
-or non-Boolean references. Static prerequisites must finish before selection;
+The builder collects choice dependencies from the condition, both arm input
+bindings, and declared dependencies. Session sources remain on their arms.
+It rejects self, later, missing, or non-Boolean references. Static
+prerequisites must finish before selection;
 authors put work needed only by one arm inside that arm's child workflow.
 Plan validation rejects malformed arm nodes, duplicate IDs, cycles, and missing
 definitions. The authoring handle carries the union of both inferred output
@@ -553,10 +560,17 @@ The result reference uses the ordinary `["output"]` path. The choice does not
 parse the selected value a second time.
 
 Plan snapshots contain the choice and both arm nodes. The arms have the choice
-as parent. Runtime topology creates both arm invocations with their original
-task or workflow identities. Selection emits `invocation.skipped` for the other
-arm with a reason that identifies it as unselected. The choice completes after
-the selected arm, and its output remains available to downstream bindings.
+as parent. Typed `thenPlanNodeId` and `elsePlanNodeId` links and each arm's
+`choiceArm` role preserve the two routes through serialization and replay.
+Arm dependencies and session sources remain visible in the snapshot. Runtime
+topology creates both arm invocations with their original task or workflow
+identities; a child workflow uses a workflow subject in created and started
+events. Selection emits `invocation.skipped` for the other arm with a reason
+that identifies it as unselected. If the choice never starts after upstream
+failure or cancellation, both arms terminate as skipped or cancelled. The
+choice completes after the selected arm, and its output remains available to
+downstream bindings. Its result event preserves the full selected JSON value,
+consistent with ordinary task result events.
 
 ### Shell task boundary
 

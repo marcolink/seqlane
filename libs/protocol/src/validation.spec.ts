@@ -62,6 +62,24 @@ describe("event validation schemas", () => {
     expect(
       isSeqlaneExecutionEvent({
         ...choice,
+        invocationId: "workflow-arm",
+        planNodeId: "choice-1:then",
+        subject: { type: "workflow", workflowId: "review-child" },
+        kind: "workflow",
+        parentInvocationId: "choice-1",
+      }),
+    ).toBe(true);
+    expect(
+      isSeqlaneExecutionEvent({
+        ...choice,
+        subject: { type: "workflow", workflowId: "review-child" },
+        kind: "workflow",
+        taskId: "review-child",
+      }),
+    ).toBe(false);
+    expect(
+      isSeqlaneExecutionEvent({
+        ...choice,
         subject: { type: "choice", taskId: "choice-1" },
       }),
     ).toBe(false);
@@ -80,11 +98,53 @@ describe("event validation schemas", () => {
               label: "decision",
               dependsOn: [],
               siblingOrder: 0,
+              thenPlanNodeId: "choice-1:then",
+              elsePlanNodeId: "choice-1:else",
+            },
+            {
+              planNodeId: "choice-1:then",
+              type: "task",
+              label: "then",
+              dependsOn: [],
+              parentPlanNodeId: "choice-1",
+              choiceArm: "then",
+              siblingOrder: 0,
+            },
+            {
+              planNodeId: "choice-1:else",
+              type: "workflow",
+              label: "else",
+              dependsOn: [],
+              parentPlanNodeId: "choice-1",
+              choiceArm: "else",
+              siblingOrder: 1,
             },
           ],
         },
       }),
     ).toBe(true);
+    expect(
+      isSeqlaneExecutionEvent({
+        type: "run.plan",
+        metadata,
+        workId: "work-1",
+        runId: "run-1",
+        plan: {
+          workflow: { id: "workflow-1" },
+          nodes: [
+            {
+              planNodeId: "choice-1",
+              type: "choice",
+              label: "decision",
+              dependsOn: [],
+              siblingOrder: 0,
+              thenPlanNodeId: "missing",
+              elsePlanNodeId: "also-missing",
+            },
+          ],
+        },
+      }),
+    ).toBe(false);
   });
 
   it("derives the public event contract from the canonical schema", () => {

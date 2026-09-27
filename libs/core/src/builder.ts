@@ -278,6 +278,7 @@ function buildChoiceArm<Input, Output>(
   context: RepeatConstructionContext,
 ): {
   readonly node: TaskNode | WorkflowNode;
+  readonly eligibilityDependencies: readonly string[];
   readonly validation?: { readonly source: ValidationSource };
 } {
   const dependencies = new Set<string>();
@@ -296,6 +297,7 @@ function buildChoiceArm<Input, Output>(
     );
     registerNestedDefinitions(nested, context);
     return {
+      eligibilityDependencies: [...dependencies],
       node: {
         type: "workflow",
         workflowId: options.runnable.id,
@@ -308,6 +310,7 @@ function buildChoiceArm<Input, Output>(
   }
 
   taskDefinitionSchema.parse(options.runnable);
+  const eligibilityDependencies = [...dependencies];
   const session = serializeSessionPolicy(options.session);
   if (session !== undefined && session.type !== "isolated") {
     dependencies.add(session.from);
@@ -317,6 +320,7 @@ function buildChoiceArm<Input, Output>(
     options.runnable as TaskDefinition<unknown, unknown>,
   );
   return {
+    eligibilityDependencies,
     node: {
       type: "task",
       taskId: options.runnable.id,
@@ -346,8 +350,10 @@ function buildChoiceNode<TrueInput, TrueOutput, FalseInput, FalseOutput>(
   const elseArm = buildChoiceArm(`${nodeId}:else`, options.else, context);
   const dependencies = new Set<string>();
   collectDependencies(options.condition, dependencies);
-  for (const arm of [thenArm.node, elseArm.node]) {
-    for (const dependency of arm.dependsOn) dependencies.add(dependency);
+  for (const arm of [thenArm, elseArm]) {
+    for (const dependency of arm.eligibilityDependencies) {
+      dependencies.add(dependency);
+    }
   }
   return {
     node: {

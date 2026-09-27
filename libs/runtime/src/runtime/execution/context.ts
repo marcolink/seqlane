@@ -13,6 +13,7 @@ import type {
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import type { ExecutorRegistry } from "./executor.js";
 import { ChildSessionRegistry } from "../session/child-session.js";
+import { ChoiceSourceGate } from "../session/choice-source-gate.js";
 import type {
   ResolvedExecutorSession,
   SessionConsumer,
@@ -52,6 +53,7 @@ export interface ExecutionContext {
   readonly effectiveModelSelectionsByNode: Map<PlanNodeId, ModelSelection>;
   readonly sessionConsumers: Map<string, readonly SessionConsumer[]>;
   readonly deferredSessionSources: Map<string, DeferredSessionSource>;
+  readonly choiceSourceGate: ChoiceSourceGate;
   readonly sessionLocks: SessionLockRegistry;
   readonly childSessions: ChildSessionRegistry;
   readonly workspaceResources: WorkspaceResourceRegistry;
@@ -95,6 +97,7 @@ export function createExecutionContext(
 ): ExecutionContext {
   const workspaceLocks = options.workspaceLocks ?? new WorkspaceLockRegistry();
   const sessionLocks = new SessionLockRegistry();
+  const choiceSourceGate = new ChoiceSourceGate();
   return {
     workId: options.workId,
     runId: options.runId,
@@ -112,6 +115,7 @@ export function createExecutionContext(
     effectiveModelSelectionsByNode: new Map(),
     sessionConsumers: new Map(),
     deferredSessionSources: new Map(),
+    choiceSourceGate,
     sessionLocks,
     childSessions: new ChildSessionRegistry(),
     workspaceResources: options.workspaceResources ?? new Map(),
@@ -123,7 +127,12 @@ export function createExecutionContext(
     taskDefinitions: options.taskDefinitions,
     validatorDefinitions: options.validatorDefinitions,
     taskSchemas: options.taskSchemas,
-    events: options.events ?? { emit: () => undefined },
+    events: {
+      emit: (event) => {
+        options.events?.emit(event);
+        choiceSourceGate.observe(event);
+      },
+    },
     onObservation: options.onObservation,
     classifier: options.classifier,
   };

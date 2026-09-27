@@ -17,7 +17,9 @@ import type {
 } from "@seqlane/core";
 import {
   buildWorkflow,
+  branch,
   createFlow,
+  defineAgentTask,
   defineTask,
   defineValidator,
   ExecutorError,
@@ -33,7 +35,10 @@ import { mastraRuntimeSpineWorkflow } from "../../../fixtures/mastra-runtime-spi
 import { MAX_REPEAT_WORKFLOW_STATE_BYTES } from "../compile/mastra-repeat-envelope.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
-import { createMastraPlanExecution } from "./mastra-execution.js";
+import {
+  createMastraPlanExecution,
+  type MastraPlanExecutionOptions,
+} from "./mastra-execution.js";
 import { emitMastraInvocationTopology } from "./mastra-execution.js";
 import { createMastraRuntime, type MastraRuntime } from "./mastra-runtime.js";
 import type { ExecutorRequest } from "../execution/executor.js";
@@ -140,6 +145,7 @@ async function runMastraPlan(options: {
   readonly workflowInput?: unknown;
   readonly resolvedSessionInvocationIds?: string[];
   readonly executor?: (request: ExecutorRequest) => Promise<unknown>;
+  readonly sessionResolver?: MastraPlanExecutionOptions["sessionResolver"];
   readonly events?: SeqlaneEvent[];
 }) {
   const active = await startMastraPlan(options);
@@ -155,6 +161,7 @@ async function startMastraPlan(options: {
   readonly workflowInput?: unknown;
   readonly resolvedSessionInvocationIds?: string[];
   readonly executor?: (request: ExecutorRequest) => Promise<unknown>;
+  readonly sessionResolver?: MastraPlanExecutionOptions["sessionResolver"];
   readonly events?: SeqlaneEvent[];
 }) {
   const executor = {
@@ -172,7 +179,7 @@ async function startMastraPlan(options: {
     runId: "fixture-run",
     createInvocationId: (nodeId) => nodeId ?? "fixture-invocation",
     executors: { agent: () => executor },
-    sessionResolver: {
+    sessionResolver: options.sessionResolver ?? {
       resolve: async ({ invocationId }) => {
         options.resolvedSessionInvocationIds?.push(invocationId);
         return { key: Symbol("fixture-session"), executor };
@@ -312,7 +319,7 @@ describe("private Mastra runtime spine", () => {
     ).toMatchObject({
       kind: "workflow",
       label: "nested-runtime-child",
-      subject: { type: "task", taskId: "nested-runtime-child" },
+      subject: { type: "workflow", workflowId: "nested-runtime-child" },
     });
     expect(
       events.find(
@@ -2205,4 +2212,347 @@ describe("private Mastra runtime spine", () => {
       }),
     );
   });
+
+  it("terminalizes both choice arms when an upstream condition task fails", async () => {
+    const events: SeqlaneEvent[] = [];
+    const condition = defineTask({
+      id: "failing-condition",
+      input: z.object({}),
+      output: z.object({ select: z.boolean() }),
+      execute: async () => {
+        throw new Error("condition failed");
+      },
+    });
+    const arm = defineTask({
+      id: "unreached-arm",
+      input: z.object({}),
+      output: z.object({ value: z.number() }),
+      execute: async () => ({ value: 1 }),
+    });
+    const flow = createFlow({
+      id: "unreached-choice",
+      input: z.object({}),
+      output: arm.output,
+    })
+      .task("condition", condition, () => ({}))
+      .when(({ tasks }) => tasks.condition.output.select)
+      .task("decision", arm, () => ({}))
+      .otherwise(arm, () => ({}))
+      .output(({ tasks }) => tasks.decision.output)
+      .define();
+    const built = buildWorkflow(flow);
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: {},
+      taskDefinitions: built.taskDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+    });
+    expect(outcome.status).toBe("failed");
+    for (const armId of ["choice:1:then", "choice:1:else"]) {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "invocation.created",
+          planNodeId: armId,
+        }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "invocation.skipped",
+          invocationId: armId,
+        }),
+      );
+    }
+  });
+
+  it("cancels both choice arms when their upstream condition is cancelled", async () => {
+    const events: SeqlaneEvent[] = [];
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const condition = defineAgentTask({
+      id: "cancelled-condition",
+      input: z.object({}),
+      output: z.object({ select: z.boolean() }),
+      goal: () => "Wait",
+    });
+    const arm = defineTask({
+      id: "cancelled-choice-arm",
+      input: z.object({}),
+      output: z.object({ value: z.number() }),
+      execute: async () => ({ value: 1 }),
+    });
+    const flow = createFlow({
+      id: "cancelled-choice",
+      input: z.object({}),
+      output: arm.output,
+    })
+      .task("condition", condition, () => ({}))
+      .when(({ tasks }) => tasks.condition.output.select)
+      .task("decision", arm, () => ({}))
+      .otherwise(arm, () => ({}))
+      .output(({ tasks }) => tasks.decision.output)
+      .define();
+    const built = buildWorkflow(flow);
+    const active = await startMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: {},
+      taskDefinitions: built.taskDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+      executor: async ({ signal }) => {
+        started();
+        return new Promise<never>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+      },
+    });
+    await startedPromise;
+    await active.cancel();
+    await expect(active.outcome).resolves.toMatchObject({
+      status: "cancelled",
+    });
+    for (const armId of ["choice:1:then", "choice:1:else"]) {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "invocation.cancelled",
+          invocationId: armId,
+        }),
+      );
+    }
+  });
+
+  it("preserves the full selected task result in the choice result event", async () => {
+    const events: SeqlaneEvent[] = [];
+    const output = z.object({ summary: z.string(), details: z.string() });
+    const selectedTask = defineTask({
+      id: "full-choice-task",
+      input: z.object({}),
+      output,
+      execute: async () => ({ summary: "reviewed", details: "complete" }),
+    });
+    const flow = createFlow({
+      id: "full-choice",
+      input: z.object({ select: z.boolean() }),
+      output,
+    })
+      .when(({ input }) => input.select)
+      .task("decision", selectedTask, () => ({}))
+      .otherwise(selectedTask, () => ({}))
+      .output(({ tasks }) => tasks.decision.output)
+      .define();
+    const built = buildWorkflow(flow);
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { select: true },
+      taskDefinitions: built.taskDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+    });
+    expect(outcome).toMatchObject({ status: "succeeded" });
+    expect(
+      events.filter((event) => event.type === "invocation.result"),
+    ).toEqual([
+      expect.objectContaining({
+        invocationId: "choice:1:then",
+        result: {
+          state: "present",
+          value: { summary: "reviewed", details: "complete" },
+        },
+      }),
+      expect.objectContaining({
+        invocationId: "choice:1",
+        result: {
+          state: "present",
+          value: { summary: "reviewed", details: "complete" },
+        },
+      }),
+    ]);
+  });
+
+  it("reports a selected child-workflow arm with workflow identity", async () => {
+    const events: SeqlaneEvent[] = [];
+    const schema = z.object({ value: z.string() });
+    const childTask = defineTask({
+      id: "choice-child-task",
+      input: schema,
+      output: schema,
+      execute: async ({ input }) => input,
+    });
+    const child = createFlow({
+      id: "choice-child",
+      input: schema,
+      output: schema,
+    })
+      .task("work", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.work.output)
+      .define();
+    const fallback = defineTask({
+      id: "choice-child-fallback",
+      input: schema,
+      output: schema,
+      execute: async ({ input }) => input,
+    });
+    const parent = createFlow({
+      id: "choice-child-parent",
+      input: z.object({ select: z.boolean(), value: z.string() }),
+      output: schema,
+    })
+      .when(({ input }) => input.select)
+      .task("decision", child, ({ input }) => ({ value: input.value }))
+      .otherwise(fallback, ({ input }) => ({ value: input.value }))
+      .output(({ tasks }) => tasks.decision.output)
+      .define();
+    const built = buildWorkflow(parent);
+    const outcome = await runMastraPlan({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { select: true, value: "ok" },
+      taskDefinitions: built.taskDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      events,
+    });
+    expect(outcome).toMatchObject({
+      status: "succeeded",
+      result: { value: "ok" },
+    });
+    for (const type of ["invocation.created", "invocation.started"]) {
+      const arm = events.find(
+        (event) =>
+          "invocationId" in event &&
+          event.type === type &&
+          event.invocationId === "choice:1:then",
+      );
+      expect(arm).toMatchObject({
+        subject: { type: "workflow", workflowId: "choice-child" },
+      });
+      expect(arm).not.toHaveProperty("taskId");
+    }
+  });
+
+  it.each([false, true])(
+    "waits for a session source only when its choice arm is selected (%s)",
+    async (selectBranch) => {
+      let releaseSource!: () => void;
+      const sourceReleased = new Promise<void>((resolve) => {
+        releaseSource = resolve;
+      });
+      let sourceStarted!: () => void;
+      const sourceStartedPromise = new Promise<void>((resolve) => {
+        sourceStarted = resolve;
+      });
+      let fallbackStarted!: () => void;
+      const fallbackStartedPromise = new Promise<void>((resolve) => {
+        fallbackStarted = resolve;
+      });
+      const events: SeqlaneEvent[] = [];
+      const resultSchema = z.object({ value: z.string() });
+      const source = defineAgentTask({
+        id: "choice-session-source",
+        input: z.object({}),
+        output: resultSchema,
+        goal: () => "Create a checkpoint",
+      });
+      const branchTask = defineAgentTask({
+        id: "choice-session-branch",
+        input: z.object({}),
+        output: resultSchema,
+        goal: () => "Use the source session",
+      });
+      const fallback = defineTask({
+        id: "choice-session-fallback",
+        input: z.object({}),
+        output: resultSchema,
+        execute: async () => {
+          fallbackStarted();
+          return { value: "fallback" };
+        },
+      });
+      const flow = createFlow({
+        id: `choice-source-${selectBranch}`,
+        input: z.object({ select: z.boolean() }),
+        output: resultSchema,
+      })
+        .task("source", source, () => ({}), {
+          session: { type: "isolated" },
+          workspace: "shared",
+        })
+        .when(({ input }) => input.select)
+        .task("decision", branchTask, () => ({}), {
+          session: ({ tasks }) => branch(tasks.source.session),
+          workspace: "shared",
+        })
+        .otherwise(fallback, () => ({}), { workspace: "shared" })
+        .output(({ tasks }) => tasks.decision.output)
+        .define();
+      const built = buildWorkflow(flow);
+      const choice = built.plan.nodes.find((node) => node.type === "choice");
+      expect(choice?.dependsOn).toEqual([]);
+      const executeAgent = async (
+        request: ExecutorRequest,
+      ): Promise<unknown> => {
+        if (request.taskId === source.id) {
+          sourceStarted();
+          await sourceReleased;
+          return { value: "source" };
+        }
+        return { value: "branch" };
+      };
+      const active = await startMastraPlan({
+        plan: built.plan,
+        workflow: built.workflow,
+        workflowInput: { select: selectBranch },
+        taskDefinitions: built.taskDefinitions,
+        workflowDefinitions: built.workflowDefinitions,
+        events,
+        executor: executeAgent,
+        sessionResolver: {
+          resolve: async () => ({
+            key: Symbol("choice-session"),
+            executor: { execute: executeAgent },
+            checkpoint: async () => "source-checkpoint",
+            fork: async () => ({
+              key: Symbol("choice-branch"),
+              executor: { execute: executeAgent },
+            }),
+          }),
+        },
+      });
+      await sourceStartedPromise;
+      if (selectBranch) {
+        expect(events).not.toContainEqual(
+          expect.objectContaining({
+            type: "invocation.started",
+            invocationId: "choice:1:then",
+          }),
+        );
+        releaseSource();
+        const outcome = await active.outcome;
+        if (outcome.status === "failed") throw outcome.error;
+        expect(outcome).toMatchObject({
+          status: "succeeded",
+          result: { value: "branch" },
+        });
+      } else {
+        await fallbackStartedPromise;
+        expect(events).not.toContainEqual(
+          expect.objectContaining({
+            type: "invocation.succeeded",
+            invocationId: "choice-session-source:1",
+          }),
+        );
+        releaseSource();
+        await expect(active.outcome).resolves.toMatchObject({
+          status: "succeeded",
+          result: { value: "fallback" },
+        });
+      }
+    },
+  );
 });

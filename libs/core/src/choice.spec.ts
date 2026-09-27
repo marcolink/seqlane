@@ -5,7 +5,14 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { buildWorkflow, createFlow, defineTask, planSchema } from "./index.js";
+import {
+  branch,
+  buildWorkflow,
+  createFlow,
+  defineAgentTask,
+  defineTask,
+  planSchema,
+} from "./index.js";
 
 const input = z.object({ review: z.boolean(), change: z.string() });
 const reviewed = z.object({ kind: z.literal("reviewed"), risk: z.number() });
@@ -26,6 +33,51 @@ const approveTask = defineTask({
 });
 
 describe("exclusive Flow choice", () => {
+  it("keeps a choice arm session source off the choice's eligibility edges", () => {
+    const source = defineAgentTask({
+      id: "session-source",
+      input: z.object({ change: z.string() }),
+      output: z.object({ change: z.string() }),
+      goal: () => "Create source checkpoint",
+    });
+    const selected = defineAgentTask({
+      id: "selected-branch",
+      input: z.object({ change: z.string() }),
+      output: reviewed,
+      goal: () => "Review change",
+    });
+    const workflow = createFlow({ id: "choice-session", input, output: result })
+      .task(
+        "source",
+        source,
+        ({ input: value }) => ({ change: value.change }),
+        {
+          session: { type: "isolated" },
+        },
+      )
+      .when(({ input: value }) => value.review)
+      .task(
+        "decision",
+        selected,
+        ({ input: value }) => ({ change: value.change }),
+        {
+          session: ({ tasks }) => branch(tasks.source.session),
+        },
+      )
+      .otherwise(approveTask, ({ input: value }) => ({ change: value.change }))
+      .output(({ tasks }) => tasks.decision.output)
+      .define();
+    const choice = buildWorkflow(workflow).plan.nodes[1];
+    expect(choice).toMatchObject({
+      type: "choice",
+      dependsOn: [],
+      then: {
+        session: { type: "branch", from: "session-source:1" },
+        dependsOn: ["session-source:1"],
+      },
+    });
+  });
+
   it("builds one choice with distinct arm schemas and a union output", () => {
     const workflow = createFlow({ id: "choice-flow", input, output: result })
       .when(({ input: value }) => value.review)

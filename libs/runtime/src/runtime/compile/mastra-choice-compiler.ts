@@ -339,7 +339,7 @@ export function buildChoiceStep(
           workId: runContext.workId,
           runId: runContext.runId,
           invocationId,
-          result: toSeqlaneDisplayValue(result.result, undefined),
+          result: toSeqlaneDisplayValue(result.result),
         });
         runContext.events.emit({
           type: "invocation.succeeded",

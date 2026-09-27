@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-10-04
 upstream:
   - spec.mastra-backed-seqlane-workflows
   - adr.exclusive-flow-choice
@@ -95,6 +95,9 @@ selected-arm policy and output validation, event and TUI projection, and
 public authoring documentation. Both routes succeeded in standalone CLI
 runs. Focused tests cover downstream results, child workflows, cancellation,
 concurrency, malformed conditions and references, and distinct output types.
+PR #170 review hardening preserves typed arm roles and dependencies in Plan
+snapshots, workflow subjects in events, selected-only session waits, terminal
+events for unreached arms, and complete selected-task results in choice events.
 
 ## Delivery state
 

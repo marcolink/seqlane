@@ -124,6 +124,12 @@ export async function resolveCompiledWorkflowSessions(
   compiled: PreparedPlanExecution,
 ): Promise<void> {
   const { context } = compiled;
+  const sourceInvocations = new Map(
+    compiled.orderedNodes.map((node) => [
+      node.nodeId,
+      invocationIdForNode(context, node),
+    ]),
+  );
   const isolatedSessions: Array<{
     readonly invocationId: string;
     readonly taskId: string;
@@ -144,6 +150,12 @@ export async function resolveCompiledWorkflowSessions(
           throw new Error(`No task definition registered for "${arm.taskId}"`);
         }
         const consumers = context.sessionConsumers.get(arm.session.from) ?? [];
+        const sourceNodeId = arm.session.from;
+        const sourceInvocationId = sourceInvocations.get(sourceNodeId);
+        if (sourceInvocationId === undefined) {
+          throw new Error(`No choice session source "${sourceNodeId}"`);
+        }
+        context.choiceSourceGate.register(sourceNodeId, sourceInvocationId);
         context.sessionConsumers.set(arm.session.from, [
           ...consumers,
           {

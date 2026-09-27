@@ -571,8 +571,7 @@ export async function executeWorkflowNode(
       workId: context.workId,
       runId: context.runId,
       invocationId,
-      subject: { type: "task", taskId: node.workflowId },
-      taskId: node.workflowId,
+      subject: { type: "workflow", workflowId: node.workflowId },
     });
     context.events.emit({
       type: "invocation.progress",
