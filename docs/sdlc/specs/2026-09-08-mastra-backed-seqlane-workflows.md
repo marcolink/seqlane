@@ -161,7 +161,9 @@ The choice waits for its condition, arm input references, and declared
 dependencies before selection. A session source used only by an arm remains
 an arm dependency. The selected arm waits for that source to complete before
 it materializes the session. The other arm's session source does not delay
-selection. If an upstream failure or cancellation prevents the choice from
+selection. Cancellation during this wait cancels the selected arm and choice
+without emitting a task start or failure event. It preserves the cancelled run
+outcome. If an upstream failure or cancellation prevents the choice from
 starting, both created arm invocations receive terminal events.
 
 Both runnables must declare output schemas. The named choice output has the

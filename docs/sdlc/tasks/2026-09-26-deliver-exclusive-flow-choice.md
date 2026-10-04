@@ -98,6 +98,10 @@ concurrency, malformed conditions and references, and distinct output types.
 PR #170 review hardening preserves typed arm roles and dependencies in Plan
 snapshots, workflow subjects in events, selected-only session waits, terminal
 events for unreached arms, and complete selected-task results in choice events.
+Finding `SEQ-PR170-011` preserves cancellation while a selected task waits for
+its session source. Real Mastra regression tests cover reuse and session
+forking, cancelled arm and choice events, no task start or fallback, and zero
+model calls.
 
 ## Delivery state
 

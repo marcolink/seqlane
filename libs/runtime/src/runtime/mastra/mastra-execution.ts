@@ -2,6 +2,7 @@ import type {
   BuiltWorkflow,
   Plan,
   PlanNode,
+  TaskNode,
   ValidationCheckNode,
   SeqlaneEventSink,
   TaskDefinitionRegistry,
@@ -455,6 +456,48 @@ async function executeWorkflowInvocationNode(
   return output;
 }
 
+function failChoiceTaskPreflight(
+  cause: unknown,
+  options: Pick<
+    MastraPlanInvocationContext,
+    "workId" | "runId" | "invocationId" | "abortSignal"
+  > & {
+    readonly node: TaskNode;
+    readonly events: SeqlaneEventSink;
+  },
+): never {
+  const { workId, runId, invocationId, abortSignal, node, events } = options;
+  if (abortSignal.aborted) {
+    events.emit({
+      type: "invocation.cancelled",
+      workId,
+      runId,
+      invocationId,
+      reason: "Choice arm cancelled before execution",
+    });
+    throw cause;
+  }
+  const error = toSeqlaneInvocationError(cause, "executor", node.taskId);
+  const subject = invocationSubject(node);
+  events.emit({
+    type: "invocation.started",
+    workId,
+    runId,
+    invocationId,
+    subject,
+    ...taskIdCompatibility(subject),
+  });
+  events.emit({
+    type: "invocation.failed",
+    workId,
+    runId,
+    invocationId,
+    error,
+    disposition: "fail_run",
+  });
+  throw error;
+}
+
 export function createMastraPlanInvocationHandler(
   prepared: PreparedPlanExecution,
   plan: Plan,
@@ -536,29 +579,14 @@ export function createMastraPlanInvocationHandler(
             });
           }
         } catch (cause) {
-          const error = toSeqlaneInvocationError(
-            cause,
-            "executor",
-            node.taskId,
-          );
-          const subject = invocationSubject(node);
-          context.events.emit({
-            type: "invocation.started",
+          failChoiceTaskPreflight(cause, {
+            node,
             workId,
             runId,
             invocationId,
-            subject,
-            ...taskIdCompatibility(subject),
+            abortSignal,
+            events: context.events,
           });
-          context.events.emit({
-            type: "invocation.failed",
-            workId,
-            runId,
-            invocationId,
-            error,
-            disposition: "fail_run",
-          });
-          throw error;
         }
       }
       return executeTaskInvocation(
