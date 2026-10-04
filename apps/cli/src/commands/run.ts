@@ -1,53 +1,28 @@
 import { Args, Flags } from "@oclif/core";
-import { isJsonValue, type JsonValue } from "@seqlane/core";
-import { type RunRequest, type SeqlaneExecutionEvent } from "@seqlane/protocol";
-import { resolve } from "node:path";
-import { closeSync, openSync, readSync } from "node:fs";
-import { createEventDispatcher } from "../event-dispatcher.js";
-import {
-  createClassifierStartupEnvironment,
-  parseClassifierCliOptions,
-} from "../classifier-environment.js";
-import {
-  createCliRenderer,
-  createOutputCapabilities,
-  resolveRendererMode,
-} from "../output.js";
+import type { RunRequest } from "@seqlane/protocol";
+import { parseClassifierCliOptions } from "../classifier-environment.js";
+import { createOutputCapabilities, resolveRendererMode } from "../output.js";
 import { outputModeOptions, parseOutputMode } from "../output-mode.js";
-import {
-  isDirectWorkflowReference,
-  parseWorkflowReference,
-} from "../workflow-reference.js";
 import {
   runCommandResultSchema,
   type RunCommandResult,
 } from "../cli-contracts.js";
-import { closeRunResources } from "../run-lifecycle.js";
-import {
-  agentRuntimeConfigurationEnvironment,
-  createDirectRunAdapterConfiguration,
-  directRunAdapterConfigurationEnvironment,
-} from "../agent-runtime.js";
+import { createDirectRunAdapterConfiguration } from "../agent-runtime.js";
 import {
   contextualizeCommandError,
   errorMessage,
   SeqlaneCommand,
   writeDiagnostic,
 } from "../command.js";
+import { createRunFailureResult } from "../run-result.js";
 import {
-  createRunCancellationResult,
-  createRunFailureResult,
-  createRunSuccessResult,
-  remoteError,
-  type RunIdentity,
-} from "../run-result.js";
-import { writeSessionUiDiagnostic } from "../session-ui-diagnostic.js";
-import { parseDottedInputParameters } from "../input-parameters.js";
-import { z } from "zod";
+  createRunRequest,
+  readRunInput,
+  RunInputCancelledError,
+} from "../run-input.js";
+import { executeRunnerCommand } from "../run-execution.js";
+export { createRunRequest } from "../run-input.js";
 
-const localRuntimeId = "local";
-const directRuntimeId = "direct";
-const MAX_INPUT_BYTES = 1_048_576;
 const openCodeAdapterOnlyRelationships = [
   {
     type: "none" as const,
@@ -60,133 +35,6 @@ const openCodeAdapterOnlyRelationships = [
     ],
   },
 ];
-
-function parseJsonInput(value: string, source: string): JsonValue {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error(`${source} must contain valid JSON`);
-  }
-
-  if (!isJsonValue(parsed)) throw new Error(`${source} must be a JSON value`);
-  return parsed;
-}
-
-const runInputSourceSchema = z.strictObject({
-  input: z.string().optional(),
-  inputFile: z.string().optional(),
-  inputParameters: z.array(z.string()).optional(),
-});
-
-type RunInputSource = z.output<typeof runInputSourceSchema>;
-
-function parseRunInputSource(
-  inlineInput: string | undefined,
-  inputFile: string | undefined,
-  inputParameters: string[] | undefined,
-): RunInputSource {
-  const result = runInputSourceSchema.safeParse({
-    input: inlineInput,
-    inputFile,
-    inputParameters,
-  });
-  if (!result.success) throw new Error("invalid workflow input source");
-  const sourceCount = [
-    result.data.input,
-    result.data.inputFile,
-    result.data.inputParameters,
-  ].filter((source) => source !== undefined).length;
-  if (sourceCount > 1) {
-    throw new Error("use only one of --input, --input-file, or --input.<path>");
-  }
-  return result.data;
-}
-
-function readJsonInput(
-  inlineInput: string | undefined,
-  inputFile: string | undefined,
-  inputParameters: string[] | undefined,
-): string {
-  const source = parseRunInputSource(inlineInput, inputFile, inputParameters);
-  if (source.input !== undefined) {
-    assertInputSize(source.input, "--input");
-    return source.input;
-  }
-  if (source.inputParameters !== undefined) {
-    const input = JSON.stringify(
-      parseDottedInputParameters(source.inputParameters),
-    );
-    assertInputSize(input, "--input.<path>");
-    return input;
-  }
-  if (source.inputFile === undefined) return "{}";
-
-  let fileDescriptor: number | undefined;
-  const isStdin = source.inputFile === "-";
-  try {
-    fileDescriptor = isStdin ? 0 : openSync(resolve(source.inputFile), "r");
-    const buffer = Buffer.allocUnsafe(MAX_INPUT_BYTES + 1);
-    let bytesRead = 0;
-    while (bytesRead < buffer.length) {
-      const result = readSync(
-        fileDescriptor,
-        buffer,
-        bytesRead,
-        buffer.length - bytesRead,
-        isStdin ? null : bytesRead,
-      );
-      if (result === 0) break;
-      bytesRead += result;
-    }
-    if (bytesRead > MAX_INPUT_BYTES) {
-      const sourceName = isStdin ? "input" : "file";
-      throw new Error(
-        `${sourceName} exceeds the ${MAX_INPUT_BYTES}-byte limit`,
-      );
-    }
-    return new TextDecoder("utf-8", { fatal: true }).decode(
-      buffer.subarray(0, bytesRead),
-    );
-  } catch (error) {
-    const label = isStdin ? "--input-file -" : "--input-file";
-    throw new Error(`${label} could not be read: ${errorMessage(error)}`, {
-      cause: error,
-    });
-  } finally {
-    if (fileDescriptor !== undefined && !isStdin) closeSync(fileDescriptor);
-  }
-}
-
-function assertInputSize(input: string, source: string): void {
-  if (Buffer.byteLength(input, "utf8") > MAX_INPUT_BYTES) {
-    throw new Error(`${source} exceeds the ${MAX_INPUT_BYTES}-byte limit`);
-  }
-}
-
-export function createRunRequest(
-  workflow: string,
-  input: string,
-  adapter: string | undefined,
-  workspace: string | undefined,
-  dryRun: boolean,
-): RunRequest {
-  if (!isDirectWorkflowReference(workflow)) {
-    throw new Error(
-      "run requires an explicit workflow file or <module-specifier>#<export-name>",
-    );
-  }
-  return {
-    type: "run.start",
-    workflow: parseWorkflowReference(workflow),
-    input: parseJsonInput(input, "workflow input"),
-    runtime: {
-      id: adapter === undefined ? localRuntimeId : directRuntimeId,
-      ...(workspace === undefined ? {} : { workspace }),
-    },
-    ...(dryRun ? { dryRun: true } : {}),
-  };
-}
 
 export default class RunCommand extends SeqlaneCommand {
   static override enableJsonFlag = true;
@@ -289,12 +137,22 @@ export default class RunCommand extends SeqlaneCommand {
       );
       request = createRunRequest(
         args.workflow,
-        readJsonInput(flags.input, flags["input-file"], flags["input-param"]),
+        await readRunInput(
+          flags.input,
+          flags["input-file"],
+          flags["input-param"],
+        ),
         flags.adapter,
         flags.workspace,
         flags.dry,
       );
     } catch (error) {
+      if (error instanceof RunInputCancelledError) {
+        process.exitCode = 130;
+        if (jsonMode) return createRunFailureResult(error, "command");
+        writeDiagnostic(process.stderr, error.message);
+        return;
+      }
       this.error(contextualizeCommandError(errorMessage(error), error), {
         exit: 1,
       });
@@ -314,176 +172,40 @@ export default class RunCommand extends SeqlaneCommand {
         exit: 1,
       });
     }
-    let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
-    let dispatcher: ReturnType<typeof createEventDispatcher> | undefined;
-    let runnerClient: import("../runner-client.js").RunnerClient | undefined;
-    let identity: RunIdentity | undefined;
-
+    let adapterConfiguration: string | undefined;
     try {
-      try {
-        renderer =
-          terminalMode === undefined
-            ? undefined
-            : createCliRenderer(terminalMode, capabilities).renderer;
-      } catch (error) {
-        this.error(contextualizeCommandError(errorMessage(error), error), {
-          exit: 1,
-        });
-      }
-
-      const outputConsumer = {
-        consume: (event: SeqlaneExecutionEvent) => {
-          try {
-            if (flags.dry) {
-              if (event.type === "run.plan") {
-                capabilities.stdout.write(
-                  JSON.stringify(event.plan, null, 2) + "\n",
-                );
-              }
-              return;
-            }
-            renderer?.handle(event);
-          } catch (error) {
-            writeDiagnostic(
-              capabilities.stderr,
-              "seqlane output error: " + errorMessage(error),
-            );
-          }
-        },
-        flush: async () => undefined,
-        close: async () => undefined,
-      };
-      dispatcher = createEventDispatcher(
-        [{ name: "output", consumer: outputConsumer }],
-        {
-          onDiagnostic: (message) =>
-            writeDiagnostic(capabilities.stderr, message),
-        },
-      );
-
-      const { launchRunner } = await import("../runner-client.js");
-      const {
-        [agentRuntimeConfigurationEnvironment]: _legacy,
-        [directRunAdapterConfigurationEnvironment]: _inheritedDirect,
-        ...baseEnvironment
-      } = process.env;
-      const environment = createClassifierStartupEnvironment(
-        baseEnvironment,
-        classifierOptions.url,
-        classifierOptions.model,
-      );
-      let adapterConfiguration: string | undefined;
       if (flags.adapter !== undefined) {
-        try {
-          adapterConfiguration = createDirectRunAdapterConfiguration(
-            flags.adapter === "opencode"
-              ? {
-                  adapter: "opencode",
-                  mode: flags["opencode-mode"] ?? "managed",
-                  ...(flags["opencode-host"] === undefined
-                    ? {}
-                    : { host: flags["opencode-host"] }),
-                  ...(flags["opencode-port"] === undefined
-                    ? {}
-                    : { port: flags["opencode-port"] }),
-                }
-              : { adapter: "codex" },
-          );
-        } catch (error) {
-          this.error(contextualizeCommandError(errorMessage(error), error), {
-            exit: 1,
-          });
-        }
+        adapterConfiguration = createDirectRunAdapterConfiguration(
+          flags.adapter === "opencode"
+            ? {
+                adapter: "opencode",
+                mode: flags["opencode-mode"] ?? "managed",
+                ...(flags["opencode-host"] === undefined
+                  ? {}
+                  : { host: flags["opencode-host"] }),
+                ...(flags["opencode-port"] === undefined
+                  ? {}
+                  : { port: flags["opencode-port"] }),
+              }
+            : { adapter: "codex" },
+        );
       }
-      runnerClient = launchRunner(request, {
-        environment: {
-          ...environment,
-          ...(adapterConfiguration === undefined
-            ? {}
-            : {
-                [directRunAdapterConfigurationEnvironment]:
-                  adapterConfiguration,
-              }),
-        },
-        onExecutionEvent: (event) => {
-          dispatcher?.consume(event);
-          if (event.type === "run.started" && identity === undefined) {
-            identity = {
-              workId: event.workId,
-              runId: event.runId,
-              startedAt: event.metadata.occurredAt,
-            };
-          }
-        },
-        onRuntimeSessionUiAvailable: (notification) => {
-          if (renderer?.mode === "human") return;
-          if (renderer?.handleRuntimeSessionUi !== undefined) {
-            renderer.handleRuntimeSessionUi(notification);
-            return;
-          }
-          if (!jsonMode) {
-            writeSessionUiDiagnostic(capabilities, notification.browserUrl);
-          }
-        },
+    } catch (error) {
+      this.error(contextualizeCommandError(errorMessage(error), error), {
+        exit: 1,
       });
-      const result = await runnerClient.result;
-      process.exitCode = result.status;
-      if ("failure" in result) {
-        if (renderer?.handleRunnerFailure !== undefined) {
-          renderer.handleRunnerFailure(result.failure);
-        } else if (!jsonMode) {
-          writeDiagnostic(
-            capabilities.stderr,
-            "seqlane runner error: " + result.failure.message,
-          );
-        }
-        return jsonMode
-          ? createRunFailureResult(result.failure, "execution", request)
-          : undefined;
-      }
-      if (!jsonMode || identity === undefined) return;
-      if (result.terminalEvent.type === "run.succeeded") {
-        return createRunSuccessResult(
-          request,
-          sourceWorkflowReference,
-          identity,
-          result.terminalEvent.output,
-        );
-      }
-      if (result.terminalEvent.type === "run.cancelled") {
-        const signal =
-          "cancellationSignal" in result
-            ? result.cancellationSignal
-            : undefined;
-        return createRunCancellationResult(
-          request,
-          sourceWorkflowReference,
-          identity,
-          signal === undefined ? "runtime_cancelled" : "signal",
-          signal === undefined
-            ? "Run cancelled by the runtime"
-            : `Run cancelled after ${signal}`,
-        );
-      }
-      return createRunFailureResult(
-        remoteError(result.terminalEvent.error),
-        "execution",
-        request,
-        sourceWorkflowReference,
-        identity,
-      );
-    } finally {
-      const cleanupErrors = await closeRunResources({
-        dispatcher,
-        closeClient: () => runnerClient?.close(),
-        finishRenderer: () => renderer?.finish(),
-      });
-      for (const error of cleanupErrors) {
-        writeDiagnostic(
-          capabilities.stderr,
-          "seqlane cleanup error: " + errorMessage(error),
-        );
-      }
     }
+    const result = await executeRunnerCommand({
+      request,
+      sourceReference: sourceWorkflowReference,
+      classifierOptions,
+      ...(adapterConfiguration === undefined ? {} : { adapterConfiguration }),
+      jsonMode,
+      dry: flags.dry,
+      terminalMode,
+      capabilities,
+    });
+    process.exitCode = result.exitStatus;
+    return result.commandResult;
   }
 }

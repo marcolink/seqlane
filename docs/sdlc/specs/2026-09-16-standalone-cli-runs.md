@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-23
+updated: 2026-10-04
 upstream:
   - prd.seqlane-on-mastra
   - rfc.mastra-runtime-and-operational-foundation
@@ -36,7 +36,8 @@ Existing output specifications own terminal rendering and final result schemas.
 - Untrusted-code isolation or a Seqlane permission system.
 - Persistent history, logs, recording, result files, or resumable runs.
 - Automatic dependency installation, package builds, or watch mode.
-- New output formats, model overrides, or custom adapter endpoint flags.
+- New output formats or model overrides. Adapter flags and managed/external
+  endpoints are owned by `spec.adapter-cli-flags`.
 - Classifier task semantics, which are owned by `spec.classifier-tasks`.
 
 ## Terminology
@@ -330,7 +331,8 @@ and automatic GitHub summary writes. No compatibility aliases remain.
 Preserve shared components required by hosted commands. Existing replay can
 consume previously supplied files, but this deliverable does not generate them.
 Update CLI help, examples, hooks, and internal run callers in the same delivery.
-Custom adapter endpoints and later app execution need separate contracts.
+Adapter endpoints follow `spec.adapter-cli-flags`. Later app execution needs
+a separate contract.
 
 ## Verification
 
@@ -365,10 +367,10 @@ Existing hosted command tests and output contracts continue to pass.
 
 ## Delivery state
 
-Active target contract. Implementation is pending under
-`task.deliver-standalone-cli-runs`. Current source still exposes host, catalog,
-runtime-profile, and recording behavior. This specification is not evidence of
-delivered runtime behavior.
+Current main uses a supervised direct-run worker without run-owned hosting,
+recordings, or durable Seqlane state. PR 131 preserves that worker and integrates
+review fixes under `task.standalone-cli-parity`. This specification does not
+establish delivery of that PR.
 
 ## Traceability
 
@@ -380,3 +382,6 @@ delivered runtime behavior.
 - [Run machine output](./2026-09-15-run-machine-output.md)
 - [Delivery task](../tasks/2026-09-16-deliver-standalone-cli-runs.md)
 - [spec.classifier-tasks](./2026-09-23-classifier-tasks.md)
+
+- [Capability parity task](../tasks/2026-10-04-standalone-cli-parity.md)
+- [Adapter CLI flags](./2026-09-19-adapter-cli-flags.md)

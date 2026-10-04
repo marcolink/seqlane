@@ -46,7 +46,18 @@ function mockOwnedProcessGroup(child: ChildProcess & EventEmitter) {
 describe("owned OpenCode startup", () => {
   it("uses an ephemeral loopback endpoint and waits for health", async () => {
     const child = fakeChild();
-    const spawn = vi.fn(() => child);
+    const spawn = vi.fn(
+      (
+        _command: string,
+        _args: readonly string[],
+        _options: { env?: NodeJS.ProcessEnv },
+      ) => {
+        void _command;
+        void _args;
+        void _options;
+        return child;
+      },
+    );
     const started = startOpenCodeService({
       workspace: "/workspace",
       signal: new AbortController().signal,

@@ -504,6 +504,7 @@ const runFailedSchema = eventSchema("run.failed", {
   workId: nonEmptyStringSchema,
   runId: nonEmptyStringSchema,
   error: serializedSeqlaneErrorSchema,
+  phase: z.enum(["execution", "result-serialization"]).optional(),
 });
 
 const runCancelledSchema = eventSchema("run.cancelled", {

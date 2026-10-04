@@ -1,91 +1,38 @@
-// @test-scope ./run-lifecycle.ts
-
+// @test-scope ./run-cleanup.ts
 import { describe, expect, it, vi } from "vitest";
 import { closeRunResources } from "./run-lifecycle.js";
 
-function dispatcher() {
-  return {
-    consume: vi.fn(),
-    flush: vi.fn(async () => undefined),
-    close: vi.fn(async () => undefined),
-  };
-}
-
 describe("closeRunResources", () => {
-  it("closes a recording acquired before dispatcher setup fails", async () => {
-    const recording = {
-      consume: vi.fn(),
-      flush: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+  it("attempts worker, event, and renderer cleanup even after each fails", async () => {
+    const order: string[] = [];
+    const errors = [
+      new Error("client"),
+      new Error("flush"),
+      new Error("events"),
+      new Error("renderer"),
+    ];
+    const fail = (index: number) => async () => {
+      const error = errors[index];
+      if (error === undefined) throw new Error("Invalid fixture index");
+      order.push(error.message);
+      throw error;
     };
-
     const result = await closeRunResources({
-      recordingConsumer: recording,
-      finishRenderer: vi.fn(async () => undefined),
+      closeClient: fail(0),
+      dispatcher: { consume: vi.fn(), flush: fail(1), close: fail(2) },
+      finishRenderer: fail(3),
     });
-
-    expect(result).toEqual([]);
-    expect(recording.flush).toHaveBeenCalledOnce();
-    expect(recording.close).toHaveBeenCalledOnce();
+    expect(result).toEqual(errors);
+    expect(order).toEqual(["client", "flush", "events", "renderer"]);
   });
-
-  it("attempts every cleanup callback when each one fails", async () => {
-    const events = dispatcher();
-    const errors = {
-      before: new Error("before cleanup failed"),
-      client: new Error("client close failed"),
-      host: new Error("host close failed"),
-      flush: new Error("event flush failed"),
-      dispatcherFlush: new Error("dispatcher flush failed"),
-      dispatcherClose: new Error("dispatcher close failed"),
-      renderer: new Error("renderer finish failed"),
-    };
-    events.flush.mockRejectedValue(errors.dispatcherFlush);
-    events.close.mockRejectedValue(errors.dispatcherClose);
-
-    const result = await closeRunResources({
-      dispatcher: events,
-      flushEvents: async () => {
-        throw errors.flush;
-      },
-      closeClient: async () => {
-        throw errors.client;
-      },
-      closeHost: async () => {
-        throw errors.host;
-      },
-      finishRenderer: async () => {
-        throw errors.renderer;
-      },
-      beforeCleanup: () => {
-        throw errors.before;
-      },
-    });
-
-    expect(result).toEqual([
-      errors.before,
-      errors.client,
-      errors.host,
-      errors.flush,
-      errors.dispatcherFlush,
-      errors.dispatcherClose,
-      errors.renderer,
-    ]);
-    expect(events.flush).toHaveBeenCalledOnce();
-    expect(events.close).toHaveBeenCalledOnce();
-  });
-
-  it("returns each renderer cleanup failure once for the caller to report", async () => {
-    const events = dispatcher();
-    const rendererError = new Error("renderer finish failed");
-
-    const result = await closeRunResources({
-      dispatcher: events,
-      finishRenderer: async () => {
-        throw rendererError;
-      },
-    });
-
-    expect(result).toEqual([rendererError]);
+  it("returns each renderer cleanup failure once", async () => {
+    const error = new Error("renderer");
+    expect(
+      await closeRunResources({
+        finishRenderer: async () => {
+          throw error;
+        },
+      }),
+    ).toEqual([error]);
   });
 });

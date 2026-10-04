@@ -22,6 +22,28 @@ const started = {
 };
 
 describe("event validation schemas", () => {
+  it("accepts old run failures and the explicit serialization phase", () => {
+    const failure = {
+      ...started,
+      type: "run.failed",
+      error: { category: "RuntimeError", message: "output" },
+    };
+    expect(seqlaneExecutionEventSchema.safeParse(failure).success).toBe(true);
+    expect(
+      seqlaneExecutionEventSchema.parse({
+        ...failure,
+        phase: "result-serialization",
+      }),
+    ).toMatchObject({ phase: "result-serialization" });
+    expect(
+      seqlaneExecutionEventSchema.safeParse({ ...failure, phase: "unknown" })
+        .success,
+    ).toBe(false);
+    expect(
+      seqlaneExecutionEventSchema.safeParse({ ...failure, phase: 1 }).success,
+    ).toBe(false);
+  });
+
   it("derives the public event contract from the canonical schema", () => {
     expectTypeOf<SeqlaneExecutionEvent>().toEqualTypeOf<
       ReadonlySchemaOutput<typeof seqlaneExecutionEventSchema>

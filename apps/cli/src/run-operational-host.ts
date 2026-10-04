@@ -9,7 +9,7 @@ import {
 } from "./operational-client.js";
 import { startOwnedOperationalHost } from "./operational-command-host.js";
 import type { EventDispatcher } from "./event-dispatcher.js";
-import { closeRunResources } from "./run-lifecycle.js";
+import { closeOwnedResources } from "./run-cleanup.js";
 import {
   createRunCancellationResult,
   createRunFailureResult,
@@ -81,6 +81,10 @@ export async function executeOperationalHostRun(
     capabilities,
     dispatcher,
   } = options;
+  const workflow = {
+    id: request.workflow.id,
+    reference: sourceWorkflowReference ?? request.workflow.id,
+  };
   const identity: RunIdentity = {
     workId: randomUUID(),
     runId: randomUUID(),
@@ -173,8 +177,7 @@ export async function executeOperationalHostRun(
       });
       exitStatus = 130;
       commandResult = createRunCancellationResult(
-        request,
-        sourceWorkflowReference,
+        workflow,
         identity,
         cancellationRequested ? "signal" : "runtime_cancelled",
         cancellationRequested
@@ -189,12 +192,7 @@ export async function executeOperationalHostRun(
         output: result.result,
       });
       exitStatus = 0;
-      commandResult = createRunSuccessResult(
-        request,
-        sourceWorkflowReference,
-        identity,
-        result.result,
-      );
+      commandResult = createRunSuccessResult(workflow, identity, result.result);
     } else if (result.status === "success") {
       const serializationFailure = new TypeError(
         "Workflow result is not JSON serializable",
@@ -208,8 +206,7 @@ export async function executeOperationalHostRun(
       commandResult = createRunFailureResult(
         serializationFailure,
         "result-serialization",
-        request,
-        sourceWorkflowReference,
+        workflow,
         identity,
       );
     } else {
@@ -226,8 +223,7 @@ export async function executeOperationalHostRun(
       commandResult = createRunFailureResult(
         executionCause,
         "execution",
-        request,
-        sourceWorkflowReference,
+        workflow,
         identity,
       );
     }
@@ -256,8 +252,7 @@ export async function executeOperationalHostRun(
       };
       exitStatus = 130;
       commandResult = createRunCancellationResult(
-        request,
-        sourceWorkflowReference,
+        workflow,
         identity,
         "signal",
         `Run cancelled after ${cancellationSignal ?? "signal"}`,
@@ -273,8 +268,7 @@ export async function executeOperationalHostRun(
       commandResult = createRunFailureResult(
         failure,
         "execution",
-        request,
-        sourceWorkflowReference,
+        workflow,
         identity,
       );
     }
@@ -287,8 +281,7 @@ export async function executeOperationalHostRun(
         commandResult = createRunFailureResult(
           terminalFailure,
           "execution",
-          request,
-          sourceWorkflowReference,
+          workflow,
           identity,
         );
       }
@@ -296,16 +289,17 @@ export async function executeOperationalHostRun(
   } finally {
     cleanupErrors = [
       ...recoveryErrors,
-      ...(await closeRunResources({
-        dispatcher,
-        flushEvents: () => events.flush(),
-        closeHost: () => ownedHost?.close(),
-        finishRenderer: () => renderer?.finish(),
-        beforeCleanup: () => {
+      ...(await closeOwnedResources([
+        () => {
           process.removeListener("SIGINT", onSigint);
           process.removeListener("SIGTERM", onSigterm);
         },
-      })),
+        () => ownedHost?.close(),
+        () => events.flush(),
+        () => dispatcher?.flush(),
+        () => dispatcher?.close(),
+        () => renderer?.finish(),
+      ])),
     ];
   }
   if (commandResult === undefined) {

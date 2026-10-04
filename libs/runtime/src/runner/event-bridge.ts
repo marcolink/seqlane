@@ -115,24 +115,25 @@ export class NonSerializableRunOutputError extends TypeError {
   }
 }
 
+function serializeExecutionError(
+  error: SeqlaneError,
+): ReturnType<typeof serializeSeqlaneError> {
+  return error instanceof ValidationFailedError
+    ? serializeSeqlaneError(
+        error,
+        error.evidence === undefined
+          ? {}
+          : {
+              validationEvidence: toSeqlaneDisplayValue(error.evidence),
+            },
+      )
+    : serializeSeqlaneError(error);
+}
+
 function toExecutionEvent(
   event: SeqlaneEvent,
   metadata: SeqlaneExecutionEventMetadata,
 ): SeqlaneExecutionEvent {
-  const serializeError = (
-    error: SeqlaneError,
-  ): ReturnType<typeof serializeSeqlaneError> =>
-    error instanceof ValidationFailedError
-      ? serializeSeqlaneError(
-          error,
-          error.evidence === undefined
-            ? {}
-            : {
-                validationEvidence: toSeqlaneDisplayValue(error.evidence),
-              },
-        )
-      : serializeSeqlaneError(error);
-
   switch (event.type) {
     case "run.started":
     case "invocation.created":
@@ -155,14 +156,25 @@ function toExecutionEvent(
         lastError: serializeSeqlaneError(event.lastError),
       };
     case "invocation.failed":
-      return { ...event, metadata, error: serializeError(event.error) };
+      return {
+        ...event,
+        metadata,
+        error: serializeExecutionError(event.error),
+      };
     case "run.succeeded":
       if (!isJsonValue(event.output)) {
         throw new NonSerializableRunOutputError();
       }
       return { ...event, metadata, output: event.output };
     case "run.failed":
-      return { ...event, metadata, error: serializeError(event.error) };
+      return {
+        ...event,
+        metadata,
+        error: serializeExecutionError(event.error),
+        ...(event.error.cause instanceof NonSerializableRunOutputError
+          ? { phase: "result-serialization" as const }
+          : {}),
+      };
   }
 }
 

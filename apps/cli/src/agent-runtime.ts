@@ -153,6 +153,7 @@ export function loadDirectRunAgentRuntimeFactory(
           const runtime = await createOpenCodeAgentRuntimeFactory({
             adapter: "opencode",
             url: service.url,
+            authorization: service.authorization,
             ...(workspace === undefined ? {} : { workspace }),
           })(signal, workspace);
           return {

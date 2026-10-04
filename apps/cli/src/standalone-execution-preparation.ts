@@ -98,7 +98,7 @@ async function nextStdinChunk(
   try {
     return await Promise.race([iterator.next(), aborted]);
   } finally {
-    signal.removeEventListener("abort", abort!);
+    if (abort !== undefined) signal.removeEventListener("abort", abort);
   }
 }
 
@@ -123,7 +123,7 @@ async function readStdinInput(
     }
   } finally {
     // End a pending Readable async iterator when cancellation wins its read.
-    if (signal?.aborted) void iterator.return?.();
+    if (signal?.aborted) void iterator.return?.().catch(() => undefined);
   }
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(

@@ -31,6 +31,7 @@ const httpUrlSchema = z.url().pipe(
 const configurationSchema = z.strictObject({
   adapter: z.literal("opencode"),
   url: httpUrlSchema,
+  authorization: z.string().min(1).optional(),
   workspace: z.string().min(1).optional(),
 });
 
@@ -43,6 +44,7 @@ export function createOpenCodeAgentRuntimeFactory(
     const browserUiUrl = await resolveOpenCodeBrowserUiUrl(
       configuration.url,
       signal,
+      configuration.authorization,
     );
     const resolvedWorkspace = workspace ?? configuration.workspace;
     return {
@@ -58,7 +60,11 @@ export function createOpenCodeAgentRuntimeFactory(
         sessionUi: browserUiUrl !== undefined,
       },
       modelCapabilities: redactAgentRuntimeModelCapabilities(
-        createOpenCodeModelCapabilities(configuration.url, resolvedWorkspace),
+        createOpenCodeModelCapabilities(
+          configuration.url,
+          resolvedWorkspace,
+          configuration.authorization,
+        ),
         redactText,
       ),
       createAdapter: (context) => {
@@ -66,6 +72,9 @@ export function createOpenCodeAgentRuntimeFactory(
           return createOpenCodeAdapter(
             {
               url: configuration.url,
+              ...(configuration.authorization === undefined
+                ? {}
+                : { authorization: configuration.authorization }),
               ...(resolvedWorkspace === undefined
                 ? {}
                 : { workspace: resolvedWorkspace }),
@@ -92,6 +101,9 @@ function createRuntimeRedactor(
 ): (value: string) => string {
   const url = new URL(configuration.url);
   const secrets = [
+    ...(configuration.authorization === undefined
+      ? []
+      : [configuration.authorization]),
     url.pathname,
     url.search,
     url.hash,
