@@ -1,5 +1,5 @@
 // @test-scope ./run-view-model.ts ./run-plan.ts ./run-topology.ts
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
   reduceRunEventBatch,
@@ -263,14 +263,32 @@ it("projects many lifecycle events without per-event full-map copies", () => {
       state: "succeeded",
     }),
   );
-  const started = performance.now();
-  const view = reduceRunEventBatch(initial, events);
-  expect(performance.now() - started).toBeLessThan(3000);
-  expect(view.nodes.size).toBe(10_000);
-  expect(view.nodes.get("plan:9999")?.activity).toBe(
-    "tool filesystem.read succeeded",
-  );
-  expect(initial.nodes.get("plan:9999")?.activity).toBeUndefined();
+  const NativeMap = globalThis.Map;
+  let fullMapCopies = 0;
+  const copyLimit = events.length / 10;
+  class CountingMap<K, V> extends NativeMap<K, V> {
+    constructor(entries?: Iterable<readonly [K, V]> | null) {
+      super(entries);
+      if (this.size >= initial.nodes.size) {
+        fullMapCopies += 1;
+        // Permit occasional compaction; reject per-event copies independent
+        // of runner speed. Fail early if a regression makes the burst costly.
+        expect(fullMapCopies).toBeLessThan(copyLimit);
+      }
+    }
+  }
+  vi.stubGlobal("Map", CountingMap);
+  try {
+    const view = reduceRunEventBatch(initial, events);
+    expect(fullMapCopies).toBeLessThan(copyLimit);
+    expect(view.nodes.size).toBe(10_000);
+    expect(view.nodes.get("plan:9999")?.activity).toBe(
+      "tool filesystem.read succeeded",
+    );
+    expect(initial.nodes.get("plan:9999")?.activity).toBeUndefined();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it("enforces shared run bytes and releases replaced transient bytes", () => {
