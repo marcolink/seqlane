@@ -7,5 +7,12 @@ exports[`shows reported context and aligned usage, preserves wrapped rails, then
 │    test-model · shared · delegated
 │    Reading a long source path that wraps onto
 │     several terminal lines
+│    activity: {"workId":"work","runId":"run","
+│    metadata":{"schemaVersion":1,"eventId":"ev
+│    ent","sequence":1,"occurredAt":"2026-09-16
+│    T00:00:00.000Z"},"type":"invocation.activi
+│    ty","invocationId":"live","activityId":"ca
+│    ll-1","kind":"tool","name":"read_file","st
+│    ate":"succeeded"}
 └─ ○ Publish                             queued"
 `;

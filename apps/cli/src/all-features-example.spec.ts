@@ -124,19 +124,7 @@ describe("all-features workflow example", () => {
         timeoutMs: 120_000,
       },
     ]);
-    expect(context).toMatchObject({
-      observability: {
-        studio: {
-          input: { includePaths: ["/topic", "/focus"] },
-          result: { includePaths: ["/keywords", "/hint"] },
-          activity: {
-            input: { includePaths: ["/topic"] },
-            output: { includePaths: ["/keywords"] },
-            metadata: { includePaths: ["/tool"] },
-          },
-        },
-      },
-    });
+    expect(context).not.toHaveProperty("observability");
   });
 
   it("requires the inspection task to use OpenCode read", async () => {

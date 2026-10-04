@@ -22,7 +22,6 @@ export interface ClassifierTaskDefinitionInput<
   readonly questions: Questions;
   readonly execute?: never;
   readonly output?: never;
-  readonly observability?: TaskDefinition["observability"];
 }
 
 export class MissingClassifierCapabilityError extends Error {
@@ -58,9 +57,6 @@ export function defineClassifierTask<
     id: definition.id,
     input: definition.input,
     output,
-    ...(definition.observability === undefined
-      ? {}
-      : { observability: definition.observability }),
     execute: async ({ input, context }) => {
       if (context.classify === undefined) {
         throw new MissingClassifierCapabilityError();

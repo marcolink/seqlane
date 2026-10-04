@@ -148,7 +148,7 @@ export async function runRepeatWorkflow(options: {
         workId: runContext.workId,
         runId: runContext.runId,
         invocationId,
-        result: toSeqlaneDisplayValue(result.result, undefined),
+        result: toSeqlaneDisplayValue(result.result),
       });
       runContext.events.emit({
         type: "invocation.succeeded",

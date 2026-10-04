@@ -1,3 +1,4 @@
+// @test-scope ./run-value-retention.ts ./run-activity.ts
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import {
@@ -67,6 +68,68 @@ function terminal(
 }
 
 describe("human execution view model", () => {
+  it("retains full task input, result, and completed activity payloads", () => {
+    const input = {
+      state: "present" as const,
+      value: { prompt: "private task input", options: { trace: true } },
+    };
+    const result = {
+      state: "present" as const,
+      value: { answer: "private task result", metadata: { score: 0.9 } },
+    };
+    const activityInput = {
+      state: "present" as const,
+      value: { command: "inspect", nested: { token: "full-value" } },
+    };
+    const activityOutput = {
+      state: "present" as const,
+      value: { exitCode: 0, stdout: "complete stdout" },
+    };
+    const activityMetadata = {
+      state: "present" as const,
+      value: { tool: "shell", requestId: "request-1" },
+    };
+    const view = reduceRunEvents([
+      created("a", "A", 0),
+      { type: "invocation.input", ...run, invocationId: "a", input },
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-1",
+        kind: "tool",
+        name: "shell",
+        state: "started",
+        input: activityInput,
+        activityMetadata,
+      },
+      {
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: "call-1",
+        kind: "tool",
+        name: "shell",
+        state: "succeeded",
+        output: activityOutput,
+      },
+      { type: "invocation.result", ...run, invocationId: "a", result },
+    ]);
+    const node = view.nodes.get("a");
+
+    expect(node?.input).toEqual(input);
+    expect(node?.result).toEqual(result);
+    expect(
+      node?.activityDetails.get(JSON.stringify(["a", "tool", "call-1"])),
+    ).toMatchObject({
+      state: "succeeded",
+      input: activityInput,
+      output: activityOutput,
+      activityMetadata,
+    });
+    expect(node?.liveActivities.size).toBe(0);
+  });
+
   it("retains complete model observations and merges lifecycle updates", () => {
     const first = {
       type: "invocation.observation" as const,
@@ -133,6 +196,151 @@ describe("human execution view model", () => {
       text: "",
       structured: { ok: false },
     });
+  });
+
+  it("evicts the oldest complete values while keeping recent activity and observation records", () => {
+    const value = (text: string) => ({
+      state: "present" as const,
+      value: { text },
+    });
+    const activity = {
+      type: "invocation.activity" as const,
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool" as const,
+      name: "shell",
+      state: "started" as const,
+      input: value("full activity input"),
+    };
+    const observation = {
+      type: "invocation.observation" as const,
+      ...run,
+      invocationId: "a",
+      observationId: "model-1",
+      kind: "model" as const,
+      state: "succeeded" as const,
+      model: { response: { text: "full model response" } },
+    };
+    const view = reduceRunEvents(
+      [
+        created("a", "A", 0),
+        {
+          type: "invocation.input",
+          ...run,
+          invocationId: "a",
+          input: value("first"),
+        },
+        activity,
+        {
+          type: "invocation.result",
+          ...run,
+          invocationId: "a",
+          result: value("third"),
+        },
+        observation,
+      ],
+      { limits: { runValueEntries: 2 } },
+    );
+    const node = view.nodes.get("a");
+    expect(node?.input).toBeUndefined();
+    expect(node?.activityDetails.size).toBe(0);
+    expect(node?.result).toEqual(value("third"));
+    expect(node?.observations.get("model-1")).toEqual(observation);
+    expect(view.evictedValueCount).toBe(2);
+    expect(view.retainedValueEntries.size).toBe(2);
+    expect(getRunProjectionLimitNotice(view)).toContain(
+      "full values evicted=2",
+    );
+  });
+
+  it("omits an oversized whole value without evicting smaller recent values", () => {
+    const small = { state: "present" as const, value: "small" };
+    const large = { state: "present" as const, value: "x".repeat(100) };
+    const view = reduceRunEvents(
+      [
+        created("a", "A", 0),
+        { type: "invocation.input", ...run, invocationId: "a", input: small },
+        { type: "invocation.result", ...run, invocationId: "a", result: large },
+      ],
+      { limits: { runValueBytes: 50 } },
+    );
+    expect(view.nodes.get("a")?.input).toEqual(small);
+    expect(view.nodes.get("a")?.result).toBeUndefined();
+    expect(view.retainedValueBytes).toBe(
+      Buffer.byteLength(JSON.stringify(small)),
+    );
+    expect(view.evictedValueCount).toBe(1);
+  });
+
+  it("accounts for merged activity replacements and keeps live rows lightweight", () => {
+    const first = {
+      type: "invocation.activity" as const,
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool" as const,
+      name: "shell",
+      state: "started" as const,
+      input: { state: "present" as const, value: { command: "inspect" } },
+    };
+    const view = reduceRunEvents(
+      [
+        created("a", "A", 0),
+        first,
+        {
+          ...first,
+          state: "progress",
+          output: { state: "present", value: { stdout: "complete" } },
+        },
+      ],
+      { limits: { runValueEntries: 1 } },
+    );
+    const node = view.nodes.get("a");
+    const detail = node?.activityDetails.get(
+      JSON.stringify(["a", "tool", "call-1"]),
+    );
+    expect(detail?.input).toEqual(first.input);
+    expect(detail?.output).toEqual({
+      state: "present",
+      value: { stdout: "complete" },
+    });
+    expect(node?.liveActivities.get("call-1")?.input).toBeUndefined();
+    expect(node?.liveActivities.get("call-1")?.output).toBeUndefined();
+    expect(view.retainedValueBytes).toBe(
+      Buffer.byteLength(JSON.stringify(detail)),
+    );
+    expect(view.evictedValueCount).toBe(0);
+  });
+
+  it("bounds a long sequence of large activity records without shortening retained records", () => {
+    const events: SeqlaneExecutionEvent[] = [created("a", "A", 0)];
+    for (let index = 0; index < 80; index += 1) {
+      events.push({
+        type: "invocation.activity",
+        ...run,
+        invocationId: "a",
+        activityId: `call-${index}`,
+        kind: "tool",
+        name: "shell",
+        state: "succeeded",
+        output: { state: "present", value: { text: "x".repeat(4_000) } },
+      });
+    }
+    const view = reduceRunEvents(events, {
+      limits: { runValueBytes: 12_500, runValueEntries: 10 },
+    });
+    expect(view.retainedValueBytes).toBeLessThanOrEqual(12_500);
+    expect(view.retainedValueEntries.size).toBeLessThanOrEqual(10);
+    expect(view.nodes.get("a")?.activityDetails.size).toBeLessThanOrEqual(3);
+    expect(view.evictedValueCount).toBeGreaterThan(70);
+    for (const activity of view.nodes.get("a")?.activityDetails.values() ??
+      []) {
+      expect(activity.output).toEqual({
+        state: "present",
+        value: { text: "x".repeat(4_000) },
+      });
+    }
   });
 
   it("bounds nodes, dependency edges, and detail text with visible markers", () => {

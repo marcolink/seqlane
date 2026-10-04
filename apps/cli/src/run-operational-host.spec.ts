@@ -3,6 +3,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionRenderer, OutputCapabilities } from "@seqlane/tui";
 import type { RunRequest } from "@seqlane/protocol";
+import type { OperationalClient } from "./operational-client.js";
+import type { OwnedOperationalHostOptions } from "./operational-command-host.js";
 
 const mocks = vi.hoisted(() => ({
   client: {
@@ -243,4 +245,124 @@ describe("executeOperationalHostRun", () => {
     expect(events.close).toHaveBeenCalledOnce();
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
   });
+
+  it("drains accepted events and reports failure when an owned-host event exceeds the queue budget", async () => {
+    const closeHost = vi.fn(async () => undefined);
+    mocks.startOwnedOperationalHost.mockImplementation(
+      async (options: OwnedOperationalHostOptions) => {
+        const eventSink = options.eventSink;
+        if (eventSink === undefined) throw new Error("Expected an event sink");
+        mocks.client.startRun.mockImplementation(
+          async (run: Parameters<OperationalClient["startRun"]>[0]) => {
+            eventSink(run).emit({
+              type: "invocation.output",
+              workId: run.workId,
+              runId: run.runId,
+              invocationId: "task-1",
+              policy: "persistent",
+              channel: "task",
+              content: "x".repeat(16 * 1024 * 1024),
+            });
+            return { status: "success", result: null };
+          },
+        );
+        return { address: "http://127.0.0.1:4111", close: closeHost };
+      },
+    );
+    const events = dispatcher();
+    const rendererInstance = renderer();
+
+    const result = await executeOperationalHostRun({
+      request,
+      roots: { repository: "/repo", user: "/user" },
+      hostname: "127.0.0.1",
+      port: 0,
+      storageUrl: "file::memory:",
+      jsonMode: true,
+      capabilities,
+      dispatcher: events,
+      renderer: rendererInstance,
+    });
+
+    expect(result.exitStatus).toBe(1);
+    expect(result.commandResult).toMatchObject({
+      status: "failed",
+      error: {
+        message: expect.stringContaining("Execution event queue exceeded"),
+      },
+    });
+    expect(events.consume).toHaveBeenCalledTimes(2);
+    expect(events.consume).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        type: "run.started",
+        metadata: expect.objectContaining({ sequence: 1 }),
+      }),
+    );
+    expect(events.consume).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: "run.failed",
+        metadata: expect.objectContaining({ sequence: 2 }),
+      }),
+    );
+    expect(closeHost).toHaveBeenCalledOnce();
+    expect(events.close).toHaveBeenCalledOnce();
+    expect(rendererInstance.finish).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])(
+    "returns failure and completes cleanup after event delivery fails (permanent=%s)",
+    async (permanent) => {
+      mocks.client.startRun.mockResolvedValue({
+        status: "success",
+        result: null,
+      });
+      const closeHost = vi.fn(async () => undefined);
+      mocks.startOwnedOperationalHost.mockResolvedValue({
+        address: "http://127.0.0.1:4111",
+        close: closeHost,
+      });
+      const events = dispatcher();
+      const deliveryError = new Error("event delivery failed");
+      if (permanent) {
+        events.consume.mockImplementation(() => {
+          throw deliveryError;
+        });
+      } else {
+        events.consume.mockImplementationOnce(() => {
+          throw deliveryError;
+        });
+      }
+      const rendererInstance = renderer();
+
+      const result = await executeOperationalHostRun({
+        request,
+        roots: { repository: "/repo", user: "/user" },
+        hostname: "127.0.0.1",
+        port: 0,
+        storageUrl: "file::memory:",
+        jsonMode: true,
+        capabilities,
+        dispatcher: events,
+        renderer: rendererInstance,
+      });
+
+      expect(result.exitStatus).toBe(1);
+      expect(result.commandResult).toMatchObject({
+        status: "failed",
+        error: { message: deliveryError.message },
+      });
+      expect(events.consume).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: "run.failed",
+          metadata: expect.objectContaining({ sequence: 1 }),
+        }),
+      );
+      expect(closeHost).toHaveBeenCalledOnce();
+      expect(events.flush).toHaveBeenCalledOnce();
+      expect(events.close).toHaveBeenCalledOnce();
+      expect(rendererInstance.finish).toHaveBeenCalledOnce();
+      if (permanent) expect(result.cleanupErrors).toContain(deliveryError);
+    },
+  );
 });

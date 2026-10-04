@@ -36,11 +36,6 @@ function createReviewLane(options: {
       "Return only structured ratings, findings, and inspected verification evidence.",
       ...options.focus,
     ],
-    observability: {
-      studio: {
-        result: { includePaths: ["/ratings", "/findings", "/verification"] },
-      },
-    },
   });
 }
 

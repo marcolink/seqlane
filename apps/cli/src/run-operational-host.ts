@@ -114,6 +114,7 @@ export async function executeOperationalHostRun(
   let exitStatus: 0 | 1 | 130 = 1;
   let commandResult: import("./cli-contracts.js").RunCommandResult | undefined;
   let cleanupErrors: readonly unknown[] = [];
+  const recoveryErrors: unknown[] = [];
   const onSigint = (): void => requestCancellation("SIGINT");
   const onSigterm = (): void => requestCancellation("SIGTERM");
   process.once("SIGINT", onSigint);
@@ -230,22 +231,29 @@ export async function executeOperationalHostRun(
         identity,
       );
     }
+    await events.flush();
   } catch (error) {
-    let failure = error;
+    const deliveryFailure = await events.settle();
+    let failure = deliveryFailure ?? error;
     if (cancellationPromise !== undefined) {
       try {
         await cancellationPromise;
       } catch (cancellationFailure) {
-        failure = cancellationFailure;
+        failure = deliveryFailure ?? cancellationFailure;
       }
     }
-    if (cancellationError !== undefined) failure = cancellationError;
-    if (cancellationRequested || observationController.signal.aborted) {
-      events.emit({
+    if (cancellationError !== undefined)
+      failure = deliveryFailure ?? cancellationError;
+    let terminal: Parameters<typeof events.sendTerminal>[0];
+    if (
+      deliveryFailure === undefined &&
+      (cancellationRequested || observationController.signal.aborted)
+    ) {
+      terminal = {
         type: "run.cancelled",
         workId: identity.workId,
         runId: identity.runId,
-      });
+      };
       exitStatus = 130;
       commandResult = createRunCancellationResult(
         request,
@@ -255,12 +263,13 @@ export async function executeOperationalHostRun(
         `Run cancelled after ${cancellationSignal ?? "signal"}`,
       );
     } else {
-      events.emit({
+      terminal = {
         type: "run.failed",
         workId: identity.workId,
         runId: identity.runId,
         error: executionEventError(failure),
-      });
+      };
+      exitStatus = 1;
       commandResult = createRunFailureResult(
         failure,
         "execution",
@@ -269,17 +278,35 @@ export async function executeOperationalHostRun(
         identity,
       );
     }
+    try {
+      await events.sendTerminal(terminal);
+    } catch (terminalFailure) {
+      recoveryErrors.push(terminalFailure);
+      exitStatus = 1;
+      if (commandResult.status === "cancelled") {
+        commandResult = createRunFailureResult(
+          terminalFailure,
+          "execution",
+          request,
+          sourceWorkflowReference,
+          identity,
+        );
+      }
+    }
   } finally {
-    cleanupErrors = await closeRunResources({
-      dispatcher,
-      flushEvents: () => events.flush(),
-      closeHost: () => ownedHost?.close(),
-      finishRenderer: () => renderer?.finish(),
-      beforeCleanup: () => {
-        process.removeListener("SIGINT", onSigint);
-        process.removeListener("SIGTERM", onSigterm);
-      },
-    });
+    cleanupErrors = [
+      ...recoveryErrors,
+      ...(await closeRunResources({
+        dispatcher,
+        flushEvents: () => events.flush(),
+        closeHost: () => ownedHost?.close(),
+        finishRenderer: () => renderer?.finish(),
+        beforeCleanup: () => {
+          process.removeListener("SIGINT", onSigint);
+          process.removeListener("SIGTERM", onSigterm);
+        },
+      })),
+    ];
   }
   if (commandResult === undefined) {
     throw new Error("Operational run ended without a result");

@@ -40,7 +40,4 @@ export const reviewHistoryVerificationTask = defineAgentTask({
     "If no trusted previous state exists, return an empty verification list.",
     "Return only the structured current-head history verification.",
   ],
-  observability: {
-    studio: { result: { includePaths: ["/verifications", "/limitations"] } },
-  },
 });

@@ -1,7 +1,8 @@
-// @test-scope ./ci-renderer.ts ./observation-details.ts
+// @test-scope ./ci-renderer.ts
 // @test-scope ./output-details.ts
 
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
+import { decodeSeqlaneExecutionEvent } from "@seqlane/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CIRenderer, isCIOutput } from "./ci-renderer.js";
 import type { OutputCapabilities, OutputSink } from "./renderer-contract.js";
@@ -200,14 +201,54 @@ describe("CI renderer", () => {
     expect(output).toContain("iteration=2");
   });
 
-  it("renders terminal tool and skill activity lines", () => {
+  it("writes complete task inputs, results, and activity events", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
+      redactions: ["classified"],
     });
     renderer.handle({ type: "run.started", ...run });
     renderer.handle(created("a", "Task A", 0));
-    renderer.handle({
+    const input: SeqlaneExecutionEvent = {
+      type: "invocation.input",
+      ...run,
+      invocationId: "a",
+      input: {
+        state: "present",
+        value: { secret: "classified input", long: "x".repeat(1_200) },
+      },
+    };
+    const result: SeqlaneExecutionEvent = {
+      type: "invocation.result",
+      ...run,
+      invocationId: "a",
+      result: { state: "present", value: { answer: "classified result" } },
+    };
+    const activityStarted: SeqlaneExecutionEvent = {
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool",
+      name: "filesystem.read",
+      state: "started",
+      input: { state: "present", value: { path: "classified/path" } },
+      activityMetadata: {
+        state: "present",
+        value: { requestId: "classified-request" },
+      },
+    };
+    const activityProgress: SeqlaneExecutionEvent = {
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "call-1",
+      kind: "tool",
+      name: "filesystem.read",
+      state: "progress",
+      output: { state: "present", value: { result: "classified output" } },
+    };
+    const activitySucceeded: SeqlaneExecutionEvent = {
       type: "invocation.activity",
       ...run,
       invocationId: "a",
@@ -215,9 +256,17 @@ describe("CI renderer", () => {
       kind: "tool",
       name: "filesystem.read",
       state: "succeeded",
-    });
-
-    renderer.handle({
+    };
+    for (const event of [
+      input,
+      result,
+      activityStarted,
+      activityProgress,
+      activitySucceeded,
+    ]) {
+      renderer.handle(event);
+    }
+    const skillActivity: SeqlaneExecutionEvent = {
       type: "invocation.activity",
       ...run,
       invocationId: "a",
@@ -225,21 +274,58 @@ describe("CI renderer", () => {
       kind: "skill",
       name: "web-perf",
       state: "succeeded",
+    };
+    renderer.handle(skillActivity);
+    const longValue = "x".repeat(1_200);
+    renderer.handle({
+      type: "invocation.activity",
+      ...run,
+      invocationId: "a",
+      activityId: "unsafe-1",
+      kind: "tool",
+      name: "read_file",
+      state: "progress",
+      output: {
+        state: "present",
+        value: { control: "row\u0085" },
+      },
     });
 
     const output = stdout.writes.join("");
-    expect(output).toContain("activity=filesystem.read succeeded");
-    expect(output).toContain("activity=web-perf succeeded");
+    const lines = output.trimEnd().split("\n");
+    expect(lines).toContain("run=run-1 started");
+    const inputLine = lines.find((line) =>
+      line.includes('"type":"invocation.input"'),
+    );
+    expect(inputLine).toBeDefined();
+    expect(inputLine?.startsWith("{")).toBe(true);
+    expect(inputLine).not.toContain("run=");
+    expect(JSON.parse(inputLine ?? "{}")).toMatchObject({
+      runId: "run-1",
+      invocationId: "a",
+      metadata: { sequence: 1 },
+    });
+    expect(output).toContain(JSON.stringify(input));
+    expect(output).toContain(JSON.stringify(result));
+    expect(output).toContain(JSON.stringify(activityStarted));
+    expect(output).toContain(JSON.stringify(activityProgress));
+    expect(output).toContain(JSON.stringify(activitySucceeded));
+    expect(output).toContain(JSON.stringify(skillActivity));
+    expect(output).toContain(longValue);
+    expect(output).toContain("classified");
+    expect(output).toContain('"control":"row\\u0085"');
+    expect(output).not.toContain("\u0085");
   });
 
-  it("summarizes model observations without printing payload details", () => {
+  it("writes complete model observation JSON with request and response values", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
+      redactions: ["private"],
     });
     renderer.handle({ type: "run.started", ...run });
     renderer.handle(created("a", "Task A", 0));
-    renderer.handle({
+    const observation: SeqlaneExecutionEvent = {
       type: "invocation.observation",
       ...run,
       invocationId: "a",
@@ -251,24 +337,25 @@ describe("CI renderer", () => {
         operation: "chat",
         provider: "controlled-provider",
         model: "controlled-model",
-        request: { text: "private request" },
-        response: { text: "private response" },
+        request: { text: "private request", messages: ["x".repeat(1_200)] },
+        response: {
+          text: "private response\u0085",
+          structured: { answer: 42 },
+        },
       },
-    });
+    };
+    renderer.handle(observation);
 
     const output = stdout.writes.join("");
-    expect(output).toContain(
-      "run=run-1 invocation=a model controlled-provider/controlled-model",
-    );
-    expect(output).not.toContain("model exchanges=");
-    expect(output).not.toContain("state=succeeded attempt=0");
-    expect(output).not.toContain("request=present");
-    expect(output).not.toContain("response=present");
-    expect(output).not.toContain("private request");
-    expect(output).not.toContain("private response");
+    const line = output.split("\n").find((value) => value.startsWith("{"));
+    expect(line).toBeDefined();
+    expect(decodeSeqlaneExecutionEvent(line ?? "")).toEqual(observation);
+    expect(output).toContain("private request");
+    expect(output).toContain("private response\\u0085");
+    expect(output).not.toContain("\u0085");
   });
 
-  it("logs the bounded command for failed tool activity", async () => {
+  it("keeps all failed tool activity values despite configured redactions", async () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -296,14 +383,12 @@ describe("CI renderer", () => {
     await renderer.finish();
 
     const output = stdout.writes.join("");
-    expect(output).toContain(
-      "activity=bash command=printf *** failed error=Tool failed: ***",
-    );
-    expect(output).not.toContain("top-secret-value");
-    expect(output).not.toContain("must not be emitted separately");
+    expect(output).toContain('"command":"printf top-secret-value"');
+    expect(output).toContain('"secret":"must not be emitted separately"');
+    expect(output).toContain('"message":"Tool failed: top-secret-value"');
   });
 
-  it("logs the bounded path for failed read activity", async () => {
+  it("keeps all failed read activity values", async () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -330,9 +415,11 @@ describe("CI renderer", () => {
     });
     await renderer.finish();
 
-    expect(stdout.writes.join("")).toContain(
-      "activity=read path=/repo/src/review.ts failed error=Tool failed",
-    );
+    const output = stdout.writes.join("");
+    expect(output).toContain('"filePath":"/repo/src/review.ts"');
+    expect(output).toContain('"offset":1');
+    expect(output).toContain('"limit":200');
+    expect(output).toContain('"message":"Tool failed"');
   });
 
   it("emits a heartbeat while active", () => {
@@ -540,7 +627,7 @@ describe("CI renderer", () => {
     expect(output).toContain("::error title=Seqlane run failed::");
   });
 
-  it("does not print input, transient output, or multiline content", () => {
+  it("prints full task input but keeps transient output on its separate channel", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
@@ -571,7 +658,7 @@ describe("CI renderer", () => {
     });
 
     const output = stdout.writes.join("");
-    expect(output).not.toContain("secret input");
+    expect(output).toContain('"value":"secret input"');
     expect(output).not.toContain("transient secret");
     expect(output).toContain("output=line one line two");
     expect(output).not.toContain("\u001b");
