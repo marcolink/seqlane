@@ -63,7 +63,7 @@ function armStep(
       loggerVNext,
       metrics,
     }) => {
-      const envelope = choiceEnvelopeSchema.parse(inputData);
+      const envelope = inputData;
       try {
         const results = new Map(Object.entries(envelope.results));
         const rawInput = resolveBinding(
@@ -134,7 +134,8 @@ function armStep(
   });
 }
 
-function branchWorkflow(
+/** Private Mastra graph for the choice envelope integration boundary. */
+export function branchWorkflow(
   node: ChoiceNode,
   options: MastraPlanCompilerOptions,
   dependencies: ChoiceCompilerDependencies,
@@ -142,7 +143,7 @@ function branchWorkflow(
 ): AnyWorkflow {
   const identity = createStep({
     id: `${node.nodeId}:condition`,
-    inputSchema: choiceEnvelopeSchema,
+    inputSchema: z.unknown(),
     outputSchema: choiceEnvelopeSchema,
     execute: async ({ inputData }) => choiceEnvelopeSchema.parse(inputData),
   });
@@ -164,8 +165,8 @@ function branchWorkflow(
     id: `${node.nodeId}:result`,
     inputSchema: z.unknown(),
     outputSchema: z.unknown(),
-    execute: async ({ inputData, getInitData }) => {
-      const envelope = choiceEnvelopeSchema.parse(getInitData<unknown>());
+    execute: async ({ inputData, getStepResult }) => {
+      const envelope = getStepResult(identity);
       const selectedId = envelope.condition
         ? node.then.nodeId
         : node.else.nodeId;
@@ -176,25 +177,19 @@ function branchWorkflow(
       return branchResults[selectedId];
     },
   });
-  return (
-    createWorkflow({
-      id: `${node.nodeId}:branch`,
-      inputSchema: choiceEnvelopeSchema,
-      outputSchema: z.unknown(),
-    }) as AnyWorkflow
-  )
+  return createWorkflow({
+    id: `${node.nodeId}:branch`,
+    inputSchema: z.unknown(),
+    outputSchema: z.unknown(),
+    // This private graph validates at its entry step. Revalidating each
+    // internal edge would copy the dependency record again. Arm input and
+    // selected output validation remain owned by their invocation paths.
+    options: { validateInputs: false },
+  })
     .then(identity)
     .branch([
-      [
-        async ({ inputData }) =>
-          choiceEnvelopeSchema.parse(inputData).condition,
-        thenStep,
-      ],
-      [
-        async ({ inputData }) =>
-          !choiceEnvelopeSchema.parse(inputData).condition,
-        elseStep,
-      ],
+      [async ({ inputData }) => inputData.condition, thenStep],
+      [async ({ inputData }) => !inputData.condition, elseStep],
     ])
     .then(join)
     .commit() as AnyWorkflow;

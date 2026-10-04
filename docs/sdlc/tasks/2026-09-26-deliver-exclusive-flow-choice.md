@@ -102,6 +102,11 @@ Finding `SEQ-PR170-011` preserves cancellation while a selected task waits for
 its session source. Real Mastra regression tests cover reuse and session
 forking, cancelled arm and choice events, no task start or fallback, and zero
 model calls.
+Finding `SEQ-PR170-013` validates the choice envelope once at the private graph
+entry. Complementary predicates, the selected arm, and the join reuse that
+parsed state. Real Mastra regressions prove envelope reuse on both routes and
+reject malformed envelopes before either arm runs. Runnable input and output
+validation remain unchanged.
 
 ## Delivery state
 
