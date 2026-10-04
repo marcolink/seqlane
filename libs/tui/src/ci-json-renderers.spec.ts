@@ -1,7 +1,8 @@
-// @test-scope ./ci-renderer.ts ./observation-details.ts
+// @test-scope ./ci-renderer.ts
 // @test-scope ./output-details.ts
 
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
+import { decodeSeqlaneExecutionEvent } from "@seqlane/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CIRenderer, isCIOutput } from "./ci-renderer.js";
 import type { OutputCapabilities, OutputSink } from "./renderer-contract.js";
@@ -316,14 +317,15 @@ describe("CI renderer", () => {
     expect(output).not.toContain("\u0085");
   });
 
-  it("summarizes model observations without printing payload details", () => {
+  it("writes complete model observation JSON with request and response values", () => {
     const stdout = new RecordingSink();
     const renderer = new CIRenderer(capabilities(stdout), {
       heartbeatIntervalMs: 0,
+      redactions: ["private"],
     });
     renderer.handle({ type: "run.started", ...run });
     renderer.handle(created("a", "Task A", 0));
-    renderer.handle({
+    const observation: SeqlaneExecutionEvent = {
       type: "invocation.observation",
       ...run,
       invocationId: "a",
@@ -335,21 +337,22 @@ describe("CI renderer", () => {
         operation: "chat",
         provider: "controlled-provider",
         model: "controlled-model",
-        request: { text: "private request" },
-        response: { text: "private response" },
+        request: { text: "private request", messages: ["x".repeat(1_200)] },
+        response: {
+          text: "private response\u0085",
+          structured: { answer: 42 },
+        },
       },
-    });
+    };
+    renderer.handle(observation);
 
     const output = stdout.writes.join("");
-    expect(output).toContain(
-      "run=run-1 invocation=a model controlled-provider/controlled-model",
-    );
-    expect(output).not.toContain("model exchanges=");
-    expect(output).not.toContain("state=succeeded attempt=0");
-    expect(output).not.toContain("request=present");
-    expect(output).not.toContain("response=present");
-    expect(output).not.toContain("private request");
-    expect(output).not.toContain("private response");
+    const line = output.split("\n").find((value) => value.startsWith("{"));
+    expect(line).toBeDefined();
+    expect(decodeSeqlaneExecutionEvent(line ?? "")).toEqual(observation);
+    expect(output).toContain("private request");
+    expect(output).toContain("private response\\u0085");
+    expect(output).not.toContain("\u0085");
   });
 
   it("keeps all failed tool activity values despite configured redactions", async () => {

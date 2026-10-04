@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-24
-updated: 2026-09-26
+updated: 2026-10-04
 upstream:
   - spec.mastra-runtime-and-operational-integration
   - spec.run-terminal-rendering
@@ -59,22 +59,32 @@ Lifecycle ordering and JSON validation remain intact.
 
 ## Outcome
 
-Approved PR findings 001, 002, and 004–008 are implemented; finding 003 is an
-accepted full-observability tradeoff. Canonical task input, result,
-activity, and observation values reach CI output and optional local recordings
-without task-level filtering or truncation. The human TUI retains complete
+The approved follow-up addresses findings 002/006, 005, and 009 from the
+review of revision `b87143f5`. Human output includes retained activities with
+only lifecycle fields. Operational-host runs settle accepted events, send
+terminal failure outside a failed queue, and complete cleanup even when direct
+delivery fails. CI prints complete observation events, including model request
+and response values. Findings 003/007 remain an accepted full-observability
+tradeoff; advisories 008 and 010 remain deferred.
+
+Canonical task input, result, activity, and observation values reach CI output
+and optional local recordings without task-level filtering or truncation. The human TUI retains complete
 recent values within 16 MiB and 1,000 records, evicts oldest whole records,
 and shows an eviction notice. The runner limits queued and in-flight events to
 16 MiB, drains accepted events on failure, then sends a terminal failure
 directly when IPC permits. CI status lines and complete JSON event lines use
 their distinct documented formats.
 
-Test mapping passes (320 mappings). The full core, CLI, TUI, and runtime suites
-pass under Node 24; package builds and the public documentation build pass.
+Test mapping passes (320 mappings). The latest full CLI and TUI suites pass
+under Node 24 (264 tests), with dependency and package builds passing. Earlier
+full core and runtime suites passed. The public documentation build passes.
 SDLC validation passes (370 documents). Repository `pnpm typecheck` fails on
 three errors in `libs/action-code-review/src/pr-code-review-example.spec.ts`,
 which is unchanged from `origin/main`. The TUI README, CLI run guide, and
 active specs describe the observability behavior and its local-data risk.
+Structural review flags added size and branches in the existing operational-host
+orchestration. This follow-up keeps the recovery change scoped; broader
+orchestration refactoring remains outside these approved fixes.
 
 ## Delivery state
 

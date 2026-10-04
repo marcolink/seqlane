@@ -67,13 +67,6 @@ function observabilityLines(node: RunNode): string[] {
     lines.push("result: " + encodeTerminalJson(node.result));
   }
   for (const activity of node.activityDetails.values()) {
-    if (
-      activity.input === undefined &&
-      activity.output === undefined &&
-      activity.activityMetadata === undefined
-    ) {
-      continue;
-    }
     lines.push("activity: " + encodeTerminalJson(activity));
   }
   return lines;

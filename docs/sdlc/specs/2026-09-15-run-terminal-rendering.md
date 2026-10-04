@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-26
+updated: 2026-10-04
 upstream:
   - prd.seqlane-on-mastra
   - rfc.execution-observability-and-debugging
@@ -205,8 +205,8 @@ identity banner, or routine tool-event tally.
 Rows show fixed workspace mode, session label, and model when available. They
 show complete retained task inputs, results, and the latest complete activity
 record for each activity ID, including its input, output, and metadata when
-present. These records remain visible after completion until the projection
-evicts them under the JSON limits.
+present. Records with only lifecycle fields also appear. These records remain
+visible after completion until the projection evicts them under the JSON limits.
 Active rows also show current progress and live activity status. Updates for one
 activity ID replace its live line. Tool calls count
 unique activity IDs, not streaming event counts. The retained count is capped
@@ -278,11 +278,13 @@ time, and aggregate counts.
 ANSI styling is disabled unless the CLI explicitly reports support. GitHub
 Actions annotations and step-summary output require explicit sinks.
 
-For every `invocation.input`, `invocation.result`, and `invocation.activity`
-event, CI mode writes the full canonical event as one JSON object per line. It
-includes `runId`, `invocationId`, and `metadata.sequence`, plus all activity
-lifecycle states. It has no status prefix or `run=` token. It bypasses
-configured redaction and field-length limits. JSON encoding escapes terminal
+For every `invocation.input`, `invocation.result`, `invocation.activity`, and
+`invocation.observation` event, CI mode writes the full canonical event as one
+JSON object per line. Observation lines preserve complete model request and
+response values. Activity lines cover every lifecycle state. Each JSON line
+includes `runId`, `invocationId`, and `metadata.sequence`. It has no status
+prefix or `run=` token. It bypasses configured redaction and field-length
+limits. JSON encoding escapes terminal
 control characters. These lines can contain sensitive task data.
 
 Status lines use compact key-value text. Run transitions start with `run=<id>`;
@@ -303,9 +305,9 @@ Complete JSON event lines use the protocol schema instead of this text format.
 CI status lines remove ANSI and control sequences, collapse whitespace, and
 apply configured redactions. Individual dynamic status fields use
 call-specific character limits. Human fields use `encodeTerminalField`, which
-escapes unsafe controls. Complete task input, result, and activity JSON lines
-use `encodeTerminalJson` instead: they escape unsafe controls but bypass
-redaction and field-length limits.
+escapes unsafe controls. Complete task input, result, activity, and observation
+JSON lines use `encodeTerminalJson` instead: they escape unsafe controls but
+bypass redaction and field-length limits.
 
 GitHub Actions commands use a separate encoder. Command data escapes `%`, CR,
 and LF as `%25`, `%0D`, and `%0A`. Command properties also escape `:` and `,`

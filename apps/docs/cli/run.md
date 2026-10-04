@@ -168,8 +168,9 @@ input/output/reasoning/cache-read/cache-write token counts; and
 Duration stays right-aligned with the task title. ANSI colors mute keys and
 separators while giving values stronger contrast.
 
-CI output writes each task input, result, and activity event as a full JSON
-line, including progress events. These lines are not redacted or truncated.
+CI output writes each task input, result, activity, and model observation event
+as a full JSON line. This includes activity progress and model request and
+response values. These lines are not redacted or truncated.
 Transient output remains on its separate channel.
 
 ### `--json`

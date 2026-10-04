@@ -1,7 +1,4 @@
-import type {
-  InvocationObservationEvent,
-  SeqlaneExecutionEvent,
-} from "@seqlane/protocol";
+import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
   createRunViewModel,
   reduceRunViewModel,
@@ -22,7 +19,6 @@ import {
   formatValidationDetails,
 } from "./output-details.js";
 import { redactOutput } from "./redaction.js";
-import { formatModelObservationSummary } from "./observation-details.js";
 import { encodeTerminalJson } from "./terminal-field.js";
 
 export interface CIRendererOptions {
@@ -153,17 +149,6 @@ function boldCI(value: string, supportsAnsi: boolean): string {
   return supportsAnsi ? ANSI_BOLD + value + ANSI_RESET : value;
 }
 
-function observationSummary(event: InvocationObservationEvent): string {
-  return (
-    "run=" +
-    event.runId +
-    " invocation=" +
-    event.invocationId +
-    " " +
-    formatModelObservationSummary(event)
-  );
-}
-
 function formatCIDuration(milliseconds: number): string {
   return milliseconds < 1000
     ? milliseconds + "ms"
@@ -250,7 +235,8 @@ export class CIRenderer implements ExecutionRenderer {
     if (
       event.type === "invocation.input" ||
       event.type === "invocation.result" ||
-      event.type === "invocation.activity"
+      event.type === "invocation.activity" ||
+      event.type === "invocation.observation"
     ) {
       this.writeObservabilityEvent(event);
     } else {
@@ -384,9 +370,8 @@ export class CIRenderer implements ExecutionRenderer {
         );
       }
       case "invocation.activity":
-        return "";
       case "invocation.observation":
-        return compactCI(observationSummary(event), 1_000);
+        return "";
       case "invocation.output":
         if (event.policy !== "persistent") return "";
         {

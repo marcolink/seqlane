@@ -1,4 +1,4 @@
-// @test-scope ./app.tsx ./tree-row.tsx ./usage.ts ./observation-details.tsx ../run-view-model.ts ../run-activity.ts ../terminal-field.ts ../observation-details.ts
+// @test-scope ./app.tsx ./tree-row.tsx ./usage.ts ./observation-details.tsx ../run-view-model.ts ../run-activity.ts ../terminal-field.ts
 import { cleanup, render } from "ink-testing-library";
 import { afterEach, expect, it, vi } from "vitest";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
@@ -257,6 +257,32 @@ it("shows full task values and completed activity data without redaction", () =>
   expect(frame).toContain("\\u001b[2J\\u0085");
   expect(frame).not.toContain("\u001b");
   expect(frame).not.toContain("\u0085");
+});
+
+it("shows completed activity records with only lifecycle fields", () => {
+  const view = reduceRunViewModel(activeView(), {
+    ...identity,
+    type: "invocation.succeeded",
+    invocationId: "live",
+  });
+  const app = render(
+    <HumanApp
+      view={view}
+      capabilities={{
+        supportsAnsi: false,
+        supportsUnicode: false,
+        width: 1_000,
+      }}
+      spinnerFrame={0}
+    />,
+  );
+  const frame = app.lastFrame() ?? "";
+
+  expect(frame).toContain("activity: ");
+  expect(frame).toContain('"activityId":"call-1"');
+  expect(frame).toContain('"kind":"tool"');
+  expect(frame).toContain('"name":"read_file"');
+  expect(frame).toContain('"state":"succeeded"');
 });
 it("shows reported context and aligned usage, preserves wrapped rails, then collapses", async () => {
   const view = activeView();

@@ -14,7 +14,8 @@ does not depend on a runtime adapter or executor.
   no-color, and ASCII support. Each task keeps fixed model, workspace, and
   session metadata visible when available. Active rows show only the current
   progress, tool, and skill events. It shows complete task input and result
-  values and keeps recent full activity payloads visible after completion.
+  values and keeps recent full activity records visible after completion,
+  including records with only lifecycle fields.
   A live activity update replaces the prior event with the same activity ID.
   Completed rows retain recent complete task and activity values beside a four-line
   summary: fixed metadata;
@@ -43,7 +44,8 @@ Validation invocations retain their identity, verdict, issues, and bounded
 evidence in human and CI output.
 
 CI mode consumes the complete event stream and writes each invocation input,
-result, and activity event as a complete JSON line. These values are not
+result, activity, and observation event as a complete JSON line. Model
+observations include their request and response values. These values are not
 redacted or truncated and can contain sensitive task data. Transient output
 remains on its separate channel. Task start and terminal lines use
 bold ANSI styling only when the CLI reports ANSI support. Terminal task lines
