@@ -202,6 +202,7 @@ export async function executeOperationalHostRun(
         workId: identity.workId,
         runId: identity.runId,
         error: new RuntimeError(serializationFailure),
+        phase: "result-serialization",
       });
       commandResult = createRunFailureResult(
         serializationFailure,

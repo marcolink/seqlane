@@ -310,6 +310,40 @@ describe("executeOperationalHostRun", () => {
     expect(rendererInstance.finish).toHaveBeenCalledOnce();
   });
 
+  it("emits the same serialization phase as the final hosted result", async () => {
+    mocks.client.startRun.mockResolvedValue({
+      status: "success",
+      result: new Date(),
+    });
+    mocks.startOwnedOperationalHost.mockResolvedValue({
+      address: "http://127.0.0.1:4111",
+      close: vi.fn(async () => undefined),
+    });
+    const events = dispatcher();
+    const result = await executeOperationalHostRun({
+      request,
+      roots: { repository: "/repo", user: "/user" },
+      hostname: "127.0.0.1",
+      port: 0,
+      storageUrl: "file::memory:",
+      jsonMode: true,
+      capabilities,
+      dispatcher: events,
+    });
+    expect(result.exitStatus).toBe(1);
+    expect(result.commandResult).toMatchObject({
+      status: "failed",
+      phase: "result-serialization",
+    });
+    expect(events.consume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "run.failed",
+        phase: "result-serialization",
+        metadata: expect.objectContaining({ schemaVersion: 1 }),
+      }),
+    );
+  });
+
   it.each([false, true])(
     "returns failure and completes cleanup after event delivery fails (permanent=%s)",
     async (permanent) => {

@@ -21,7 +21,13 @@ export type SendExecutionEvent = (
   event: SeqlaneExecutionEvent,
 ) => Promise<void>;
 
+type ExecutionBridgeEvent =
+  | Exclude<SeqlaneEvent, { type: "run.failed" }>
+  | (Extract<SeqlaneEvent, { type: "run.failed" }> &
+      Pick<Extract<SeqlaneExecutionEvent, { type: "run.failed" }>, "phase">);
+
 export interface ExecutionEventBridge extends SeqlaneEventSink {
+  emit(event: ExecutionBridgeEvent): void;
   emitPlan(plan: SeqlanePlanSnapshot, workId: string, runId: string): void;
   emitObservation(event: Omit<InvocationObservationEvent, "metadata">): void;
   flush(): Promise<void>;
@@ -131,7 +137,7 @@ function serializeExecutionError(
 }
 
 function toExecutionEvent(
-  event: SeqlaneEvent,
+  event: ExecutionBridgeEvent,
   metadata: SeqlaneExecutionEventMetadata,
 ): SeqlaneExecutionEvent {
   switch (event.type) {
