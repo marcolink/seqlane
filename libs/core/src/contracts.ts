@@ -226,18 +226,25 @@ export type FlowBinding<Input, Handles, Target> =
   | InputBinding<Target>
   | ((context: FlowAuthoringContext<Input, Handles>) => InputBinding<Target>);
 
-export interface FlowTaskOptions<Output, Input = unknown, Handles = unknown> {
-  readonly validateOutput?: Validator<Output>;
+export interface FlowTaskOptions<
+  Output,
+  Input = unknown,
+  Handles = unknown,
+> extends Pick<
+  TaskInvocationOptions<unknown, Output>,
+  "validateOutput" | "workspace"
+> {
   readonly dependsOn?: readonly (keyof Handles & string)[];
   readonly session?:
     | SessionPolicy
     | ((context: FlowAuthoringContext<Input, Handles>) => SessionPolicy);
-  readonly workspace?: WorkspacePolicy;
 }
 
-export interface FlowWorkflowOptions<Handles = unknown> {
+export interface FlowWorkflowOptions<Handles = unknown> extends Pick<
+  TaskInvocationOptions<unknown, unknown>,
+  "workspace"
+> {
   readonly dependsOn?: readonly (keyof Handles & string)[];
-  readonly workspace?: WorkspacePolicy;
 }
 
 export interface FlowValidationHandle<

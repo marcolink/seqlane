@@ -17,7 +17,10 @@ import type {
   ValidatorDefinition,
   WorkflowDefinition,
 } from "./contracts.js";
-import type { WorkflowBuildContext } from "./workflow-authoring-internal.js";
+import type {
+  RunnableBuildOptions,
+  WorkflowBuildContext,
+} from "./workflow-authoring-internal.js";
 import { agentTaskTimeoutMsSchema, taskDefinitionSchema } from "./contracts.js";
 import type { ModelSelection } from "./models/model-ref.js";
 import type {
@@ -188,18 +191,15 @@ type RuntimeTaskBinding<Input> = FlowBinding<
   unknown
 >;
 
-interface PendingTask<Input> {
-  readonly name: string;
+interface PendingRunnable<Input> {
   readonly definition: RunnableDefinition<unknown, unknown>;
   readonly binding: RuntimeTaskBinding<Input>;
   readonly options: RuntimeTaskOptions<Input>;
-  readonly declaration: FlowDeclaration<Input>;
 }
 
-interface PendingChoiceArm<Input> {
-  readonly definition: RunnableDefinition<unknown, unknown>;
-  readonly binding: RuntimeTaskBinding<Input>;
-  readonly options: RuntimeTaskOptions<Input>;
+interface PendingTask<Input> extends PendingRunnable<Input> {
+  readonly name: string;
+  readonly declaration: FlowDeclaration<Input>;
 }
 
 function resolveTaskBinding<Input>(
@@ -214,9 +214,7 @@ function resolveSessionOption<Input>(
   authoringContext: RuntimeFlowAuthoringContext<Input>,
 ): import("./contracts.js").SessionPolicy | undefined {
   const sessionOption =
-    "session" in (options ?? {})
-      ? (options as FlowTaskOptions<unknown>).session
-      : undefined;
+    options !== undefined && "session" in options ? options.session : undefined;
   return typeof sessionOption === "function"
     ? sessionOption(authoringContext)
     : sessionOption;
@@ -231,36 +229,14 @@ function createTaskDeclaration<Input>(
   return {
     name,
     declare: (context, authoringContext) => {
-      const resolvedBinding = resolveTaskBinding(binding, authoringContext);
-      const dependsOn = resolveFlowDependencies(
-        options?.dependsOn,
+      const { runnable, ...resolved } = resolveRunnableInvocation(
+        { definition, binding, options },
         authoringContext,
       );
-      const runOptions = {
-        input: resolvedBinding,
-        ...(dependsOn === undefined ? {} : { dependsOn }),
-      };
-      if (isAuthoredWorkflow(definition)) {
-        return context.run(definition, {
-          ...runOptions,
-          ...(options?.workspace === undefined
-            ? {}
-            : { workspace: options.workspace }),
-        });
+      if (isAuthoredWorkflow(runnable)) {
+        return context.run(runnable, resolved);
       }
-      const taskOptions = options as
-        FlowTaskOptions<unknown, Input, Record<string, FlowHandle>> | undefined;
-      const session = resolveSessionOption(taskOptions, authoringContext);
-      return context.run(definition as TaskDefinition<unknown, unknown>, {
-        ...runOptions,
-        ...(taskOptions?.validateOutput === undefined
-          ? {}
-          : { validateOutput: taskOptions.validateOutput }),
-        ...(session === undefined ? {} : { session }),
-        ...(taskOptions?.workspace === undefined
-          ? {}
-          : { workspace: taskOptions.workspace }),
-      });
+      return context.run(runnable, resolved);
     },
   };
 }
@@ -275,16 +251,15 @@ function createUntilDeclaration<Input>(
   return {
     name: pending.name,
     declare: (context, authoringContext) => {
-      const initial = resolveTaskBinding(pending.binding, authoringContext);
-      const dependsOn = resolveFlowDependencies(
-        pending.options?.dependsOn,
-        authoringContext,
-      );
-      const session = resolveSessionOption(pending.options, authoringContext);
+      const {
+        input: initial,
+        runnable,
+        ...invocationOptions
+      } = resolveRunnableInvocation(pending, authoringContext);
       const nextInput = options.nextInput;
       return context.repeat({
         initial,
-        runnable: pending.definition,
+        runnable,
         until: ({ result }) =>
           condition({ result, tasks: authoringContext.tasks }),
         nextInput:
@@ -297,56 +272,43 @@ function createUntilDeclaration<Input>(
                   tasks: authoringContext.tasks,
                 }),
         maxIterations: options.maxIterations,
-        ...(dependsOn === undefined ? {} : { dependsOn }),
-        ...(pending.options?.workspace === undefined
-          ? {}
-          : { workspace: pending.options.workspace }),
-        ...(session === undefined ? {} : { session }),
-        ...(pending.options === undefined ||
-        !("validateOutput" in pending.options) ||
-        pending.options.validateOutput === undefined
-          ? {}
-          : { validateOutput: pending.options.validateOutput }),
+        ...invocationOptions,
       });
     },
   };
 }
 
-function resolveChoiceArm<Input>(
-  arm: PendingChoiceArm<Input>,
+function resolveRunnableInvocation<Input>(
+  pending: PendingRunnable<Input>,
   authoringContext: RuntimeFlowAuthoringContext<Input>,
-): import("./workflow-authoring-internal.js").ChoiceArmBuildOptions<
-  unknown,
-  unknown
-> {
-  const taskOptions = arm.options as
-    FlowTaskOptions<unknown, Input, Record<string, FlowHandle>> | undefined;
+): RunnableBuildOptions<unknown, unknown> {
+  const options = pending.options;
   return {
-    runnable: arm.definition,
-    input: resolveTaskBinding(arm.binding, authoringContext),
-    dependsOn: resolveFlowDependencies(
-      arm.options?.dependsOn,
-      authoringContext,
-    ),
-    workspace: arm.options?.workspace,
-    session: resolveSessionOption(arm.options, authoringContext),
-    validateOutput: taskOptions?.validateOutput,
+    runnable: pending.definition,
+    input: resolveTaskBinding(pending.binding, authoringContext),
+    dependsOn: resolveFlowDependencies(options?.dependsOn, authoringContext),
+    workspace: options?.workspace,
+    session: resolveSessionOption(options, authoringContext),
+    validateOutput:
+      options !== undefined && "validateOutput" in options
+        ? options.validateOutput
+        : undefined,
   };
 }
 
 function createChoiceDeclaration<Input>(
   name: string,
   condition: (context: RuntimeFlowAuthoringContext<Input>) => ValueRef<boolean>,
-  thenArm: PendingChoiceArm<Input>,
-  elseArm: PendingChoiceArm<Input>,
+  thenArm: PendingRunnable<Input>,
+  elseArm: PendingRunnable<Input>,
 ): FlowDeclaration<Input> {
   return {
     name,
     declare: (context, authoringContext) =>
       context.choose({
         condition: condition(authoringContext),
-        then: resolveChoiceArm(thenArm, authoringContext),
-        else: resolveChoiceArm(elseArm, authoringContext),
+        then: resolveRunnableInvocation(thenArm, authoringContext),
+        else: resolveRunnableInvocation(elseArm, authoringContext),
       }),
   };
 }
