@@ -8,6 +8,7 @@ import { shortenUtf8 } from "./publication-state.js";
 type RenderBodyOptions = {
   readonly visibleFindings: number;
   readonly includeVerification: boolean;
+  readonly compactMetrics?: boolean;
 };
 
 function githubActionsRunUrl(
@@ -107,7 +108,9 @@ function renderFindingRows(
   mark: string,
 ): string[] {
   const visible = findings.slice(0, visibleFindings);
-  if (visible.length === 0) return ["✅ No findings."];
+  if (findings.length === 0) return ["✅ No findings."];
+  if (visible.length === 0)
+    return ["⚠️ Findings omitted from this projection."];
   return [
     "| ID | Severity | Status | Area | Finding |",
     "| --- | --- | --- | --- | --- |",
@@ -153,6 +156,7 @@ function renderReviewDelta(
 function renderMetricsSection(
   ledger: PublicationLedger,
   fence: string,
+  compactMetrics: boolean,
 ): string[] {
   const totalCost = ledger.runs.reduce(
     (sum, run) => sum + run.metrics.totalCost,
@@ -166,7 +170,7 @@ function renderMetricsSection(
     "",
     "<!-- seqlane-code-review-run-metrics-v1-start -->",
     fence + "json",
-    JSON.stringify(ledger, null, 2),
+    JSON.stringify(ledger, null, compactMetrics ? undefined : 2),
     fence,
     "<!-- seqlane-code-review-run-metrics-v1-end -->",
     "",
@@ -315,7 +319,7 @@ function renderPublicationBody(
     ),
     ...renderReviewDelta(report, findings),
     ...renderFindingsSection(report, findings, options, mark),
-    ...renderMetricsSection(ledger, fence),
+    ...renderMetricsSection(ledger, fence, options.compactMetrics === true),
     ...renderVerificationSection(report, options),
     ...renderStateSection(stateEnvelope, fence),
     "_Static review only. Review agents did not execute pull-request code, tests, builds, scripts, or checks._",
