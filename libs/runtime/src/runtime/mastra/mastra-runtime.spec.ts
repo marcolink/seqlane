@@ -3,6 +3,7 @@
 // @test-scope ./mastra-server.ts
 // @test-scope ./mastra-execution.ts
 // @test-scope ../invocation/prepared-input.ts
+// @test-scope ./output-validation.ts
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

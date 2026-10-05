@@ -1,12 +1,11 @@
 import type {
   InvocationId,
   PlanNode,
-  RepeatNode,
+  OutputValidation,
   SeqlaneEventSink,
   ValidationCheckNode,
   ValidationGateNode,
 } from "@seqlane/core";
-import type { ObservabilityContext } from "@mastra/core/observability";
 import type { PreparedPlanExecution } from "../compile/compile-plan.js";
 import {
   executeValidationCheckNode,
@@ -17,25 +16,27 @@ import {
   invocationSubject,
   invocationTaskId,
 } from "../execution/workflow-run.js";
-import { taskIdCompatibility } from "../invocation/invocation-support.js";
+import {
+  taskIdCompatibility,
+  type TaskExecutionOptions,
+} from "../invocation/invocation-support.js";
 
-interface RepeatValidationNodes {
+interface OutputValidationNodes {
   readonly inputNodeId: string;
   readonly check: ValidationCheckNode;
   readonly gate: ValidationGateNode;
 }
 
-interface RepeatValidationOptions {
-  readonly invocationId: InvocationId;
-  readonly observability: Partial<ObservabilityContext>;
-  readonly iteration?: number;
-}
+type OutputValidationOptions = Pick<
+  TaskExecutionOptions,
+  "invocationId" | "observability" | "iteration"
+>;
 
 function createValidationNodes(
   attempt: PlanNode,
-  validation: RepeatNode["validation"],
+  validation: OutputValidation | undefined,
   iteration?: number,
-): RepeatValidationNodes {
+): OutputValidationNodes {
   if (validation === undefined) {
     throw new Error("Output validation is not configured");
   }
@@ -121,13 +122,13 @@ function emitGateTerminal(
   });
 }
 
-export async function validateRepeatOutput(
+export async function validateRunnableOutput(
   context: PreparedPlanExecution["context"],
   attempt: PlanNode,
   output: unknown,
-  validation: RepeatNode["validation"],
+  validation: OutputValidation | undefined,
   abortSignal: AbortSignal,
-  options: RepeatValidationOptions,
+  options: OutputValidationOptions,
 ): Promise<void> {
   if (validation === undefined) return;
   const nodes = createValidationNodes(attempt, validation, options.iteration);

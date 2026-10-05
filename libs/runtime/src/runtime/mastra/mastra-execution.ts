@@ -77,7 +77,7 @@ import {
   materializeDeferredSessionConsumer,
   resolveTaskSession,
 } from "../session/session-resolution.js";
-import { validateRepeatOutput } from "./repeat-validation.js";
+import { validateRunnableOutput } from "./output-validation.js";
 import { workspaceResourcesForExecution } from "./workspace-resources.js";
 import type { ClassifierTaskRunner } from "../../classifier/types.js";
 
@@ -339,7 +339,7 @@ async function validateInvocationOutput(
 ): Promise<void> {
   const validation = options.choiceValidation ?? options.repeatValidation;
   if (validation === undefined) return;
-  await validateRepeatOutput(
+  await validateRunnableOutput(
     options.context,
     options.node,
     output,

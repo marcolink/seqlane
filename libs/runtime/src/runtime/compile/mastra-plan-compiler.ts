@@ -9,7 +9,7 @@ import type {
   PlanNode,
   ChoiceNode,
   PlanNodeId,
-  RepeatNode,
+  OutputValidation,
   RunId,
   SeqlaneSchema,
   SeqlaneEventSink,
@@ -73,9 +73,9 @@ export interface MastraPlanInvocationContext {
   /** Selected choice arms acquire workspace resources at runtime. */
   readonly dynamicWorkspaceAdmission?: boolean;
   /** Validation attached to a repeat body, applied before its condition. */
-  readonly repeatValidation?: RepeatNode["validation"];
+  readonly repeatValidation?: OutputValidation;
   /** Validation attached to the selected choice task arm. */
-  readonly choiceValidation?: NonNullable<ChoiceNode["validation"]>["then"];
+  readonly choiceValidation?: OutputValidation;
   readonly resourceId?: string;
   readonly workflowId: string;
   readonly abortSignal: AbortSignal;

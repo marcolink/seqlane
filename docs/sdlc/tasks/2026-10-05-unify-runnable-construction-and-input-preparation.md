@@ -1,7 +1,7 @@
 ---
 id: task.unify-runnable-construction-and-input-preparation
 title: Unify Runnable Construction and Input Preparation
-status: in-progress
+status: completed
 owners:
   - core
   - runtime
@@ -70,11 +70,36 @@ remain unchanged. Input transforms run once and deterministic tasks call no mode
 
 ## Outcome
 
-Implementation in progress; verification pending.
+All four slices are implemented. Canonical invocation contracts supply private
+builder options. One resolver serves ordinary, repeat and choice declarations.
+One runnable constructor preserves each topology's dependency policy. Shared
+output validation uses a schema-derived descriptor and generic helper names.
+
+Real-Mastra tests prove one input parse for ordinary tasks, selected choice arms,
+each repeat attempt, child workflows and mechanical validators. They also prove
+that `null` and `undefined` transform results reach task execution and that
+deterministic tasks make zero model calls. Existing lifecycle tests preserve
+input-failure events, cancellation, admission and validation timing.
+
+A comparison with the original builder produced byte-identical serialized Plans
+and matching definition registries for a mixed workflow. The full repository
+suite passed outside the sandbox, including 103 core and 475 runtime tests.
+Production typecheck, core/runtime lint, formatting, test mapping and SDLC
+validation passed. Spec typecheck retains three pre-existing errors in
+`libs/action-code-review/src/pr-code-review-example.spec.ts`; no new errors.
+
+The first full run hit sandbox `spawn EPERM` errors in process-lifecycle tests.
+All seven lifecycle tests and the subsequent full suite passed outside it.
+Ripwire contract checks found no incompatible callers. Quality findings were
+reviewed: churn reflects earlier edits; moved helpers retain their existing
+parameter counts; type-only references are reported as dead code.
 
 ## Delivery state
 
-Local work on `feat/exclusive-flow-choice`. No default-branch delivery claim.
+Implementation is on `feat/exclusive-flow-choice` for
+[PR #170](https://github.com/marcolink/seqlane/pull/170). Default-branch delivery
+remains pending until merge. `origin/main` was unchanged at `a25c830` after
+implementation; no additional rebase was needed.
 
 ## Traceability
 

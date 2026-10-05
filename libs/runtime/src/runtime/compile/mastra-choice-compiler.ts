@@ -2,6 +2,8 @@ import { createStep, createWorkflow } from "@mastra/core/workflows";
 import type { AnyWorkflow, Step } from "@mastra/core/workflows";
 import type {
   ChoiceNode,
+  OutputValidation,
+  RunnableNode,
   InvocationId,
   PlanNode,
   SeqlaneError,
@@ -42,8 +44,8 @@ export interface ChoiceCompilerDependencies {
 }
 
 function armStep(
-  arm: ChoiceNode["then"],
-  validation: NonNullable<ChoiceNode["validation"]>["then"],
+  arm: RunnableNode,
+  validation: OutputValidation | undefined,
   options: MastraPlanCompilerOptions,
   dependencies: ChoiceCompilerDependencies,
   failures: Map<string, unknown>,
