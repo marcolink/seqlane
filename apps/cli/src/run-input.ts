@@ -55,12 +55,7 @@ function parseRunInputSource(
   return result.data;
 }
 
-export function readJsonInput(
-  inlineInput: string | undefined,
-  inputFile: string | undefined,
-  inputParameters: string[] | undefined,
-): string {
-  const source = parseRunInputSource(inlineInput, inputFile, inputParameters);
+function readSelectedJsonInput(source: RunInputSource): string {
   if (source.input !== undefined) {
     assertInputSize(source.input, "--input");
     return source.input;
@@ -160,9 +155,8 @@ export async function readRunInput(
   inputFile: string | undefined,
   inputParameters: string[] | undefined,
 ): Promise<string> {
-  parseRunInputSource(inlineInput, inputFile, inputParameters);
-  if (inputFile !== "-")
-    return readJsonInput(inlineInput, inputFile, inputParameters);
+  const source = parseRunInputSource(inlineInput, inputFile, inputParameters);
+  if (source.inputFile !== "-") return readSelectedJsonInput(source);
   const { readStandaloneInput } =
     await import("./standalone-execution-preparation.js");
   const controller = new AbortController();

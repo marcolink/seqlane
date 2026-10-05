@@ -109,10 +109,14 @@ async function readStdinInput(
   const chunks: Uint8Array[] = [];
   let length = 0;
   const iterator = stdin[Symbol.asyncIterator]();
+  let completed = false;
   try {
     while (true) {
       const next = await nextStdinChunk(iterator, signal);
-      if (next.done) break;
+      if (next.done) {
+        completed = true;
+        break;
+      }
       length += next.value.byteLength;
       if (length > MAX_INPUT_BYTES) {
         throw new InputSizeError(
@@ -122,8 +126,16 @@ async function readStdinInput(
       chunks.push(next.value);
     }
   } finally {
-    // End a pending Readable async iterator when cancellation wins its read.
-    if (signal?.aborted) void iterator.return?.().catch(() => undefined);
+    if (!completed) {
+      try {
+        const closing = iterator.return?.();
+        // Pending iterator reads can delay return indefinitely after abort.
+        if (signal?.aborted) void closing?.catch(() => undefined);
+        else await closing;
+      } catch {
+        // Iterator cleanup must preserve the original read failure.
+      }
+    }
   }
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(
