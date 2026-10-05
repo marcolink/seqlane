@@ -38,6 +38,13 @@ Server and discovery helpers receive the caller's `RequestContext` and
 ### Task execution and invocation policy
 
 Every task definition exposes one `execute({ input, signal, context })` contract.
+Runnable input has one owning schema parse per invocation. Ordinary tasks and
+selected choice arms pass prepared input from the compiler to the kernel.
+Direct calls and repeat tasks prepare raw input in the kernel. Child workflows
+reuse prepared input or validate raw input at their workflow boundary. Schema
+transforms reach the runnable without a second parse. Output validators share
+one check/gate implementation; each caller retains its validation timing.
+
 The runtime parses its typed input, admits the invocation's workspace policy,
 and provides a scoped `TaskContext`. `context.exec` runs an executable with
 direct argv through a Mastra `LocalSandbox` (never through a shell), with

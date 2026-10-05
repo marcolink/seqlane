@@ -2,6 +2,7 @@
 // @test-scope ./mastra-runtime.ts
 // @test-scope ./mastra-server.ts
 // @test-scope ./mastra-execution.ts
+// @test-scope ../invocation/prepared-input.ts
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -201,6 +202,154 @@ async function startMastraPlan(options: {
     runId: "fixture-run",
   });
 }
+
+describe("invocation input preparation", () => {
+  it.each(["ordinary", "choice", "repeat"] as const)(
+    "parses transformed %s task input once through real Mastra",
+    async (kind) => {
+      const transform = vi.fn((value: number) => value + 1);
+      let executions = 0;
+      const execute = vi.fn(async ({ input }: { input: number }) => ({
+        value: input,
+        done: ++executions >= (kind === "repeat" ? 2 : 1),
+      }));
+      const task = defineTask({
+        id: "prepared-task",
+        input: z.number().transform(transform),
+        output: z.object({ value: z.number(), done: z.boolean() }),
+        execute,
+      });
+      const flow = createFlow({
+        id: "prepared-workflow",
+        input: z.number(),
+        output: task.output,
+      });
+      // Use a Boolean field for choice eligibility and bind the numeric field.
+      const built =
+        kind === "choice"
+          ? buildWorkflow(
+              createFlow({
+                id: "prepared-choice",
+                input: z.object({ selected: z.boolean(), value: z.number() }),
+                output: task.output,
+              })
+                .when(({ input }) => input.selected)
+                .task("task", task, ({ input }) => input.value)
+                .otherwise(task, ({ input }) => input.value)
+                .output(({ tasks }) => tasks.task.output)
+                .define(),
+            )
+          : buildWorkflow(
+              (kind === "repeat"
+                ? flow
+                    .task("task", task, ({ input }) => input)
+                    .until(({ result }) => result.done, { maxIterations: 2 })
+                : flow.task("task", task, ({ input }) => input)
+              )
+                .output(({ tasks }) => tasks.task.output)
+                .define(),
+            );
+      const executor = vi.fn();
+      const result = await runMastraPlan({
+        ...built,
+        workflowInput: kind === "choice" ? { selected: true, value: 3 } : 3,
+        executor,
+      });
+      expect(result).toMatchObject({
+        status: "succeeded",
+        result: { value: 4, done: true },
+      });
+      expect(transform).toHaveBeenCalledTimes(kind === "repeat" ? 2 : 1);
+      expect(execute).toHaveBeenCalledWith(
+        expect.objectContaining({ input: 4 }),
+      );
+      expect(executor).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([null, undefined])(
+    "forwards a transform result of %s",
+    async (value) => {
+      const transform = vi.fn(() => value);
+      const execute = vi.fn(async () => 9);
+      const task = defineTask<unknown, number>({
+        id: "nullish-input",
+        input: z.number().transform(transform),
+        output: z.number(),
+        execute,
+      });
+      const built = buildWorkflow(
+        createFlow({
+          id: "nullish-workflow",
+          input: z.number(),
+          output: z.number(),
+        })
+          .task("task", task, () => 3)
+          .output(({ tasks }) => tasks.task.output)
+          .define(),
+      );
+      expect(await runMastraPlan({ ...built, workflowInput: 3 })).toMatchObject(
+        { status: "succeeded", result: 9 },
+      );
+      expect(transform).toHaveBeenCalledTimes(1);
+      expect(execute).toHaveBeenCalledWith(
+        expect.objectContaining({ input: value }),
+      );
+    },
+  );
+
+  it("prepares a child workflow input once", async () => {
+    const transform = vi.fn((value: number) => value + 1);
+    const child = createFlow({
+      id: "prepared-child",
+      input: z.number().transform(transform),
+      output: z.number(),
+    })
+      .output(({ input }) => input)
+      .define();
+    const built = buildWorkflow(
+      createFlow({
+        id: "prepared-parent",
+        input: z.number(),
+        output: z.number(),
+      })
+        .task("child", child, ({ input }) => input)
+        .output(({ tasks }) => tasks.child.output)
+        .define(),
+    );
+    expect(await runMastraPlan({ ...built, workflowInput: 3 })).toMatchObject({
+      status: "succeeded",
+      result: 4,
+    });
+    expect(transform).toHaveBeenCalledTimes(1);
+  });
+
+  it("prepares a mechanical validator input once", async () => {
+    const transform = vi.fn((value: number) => value + 1);
+    const validate = vi.fn(() => ({ success: true as const }));
+    const validator = defineValidator({
+      id: "prepared-validator",
+      input: z.number().transform(transform),
+      validate,
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "prepared-validation",
+        input: z.number(),
+        output: z.number(),
+      })
+        .validate("check", validator, ({ input }) => input)
+        .output(({ input }) => input)
+        .define(),
+    );
+    expect(await runMastraPlan({ ...built, workflowInput: 3 })).toMatchObject({
+      status: "succeeded",
+      result: 3,
+    });
+    expect(transform).toHaveBeenCalledTimes(1);
+    expect(validate).toHaveBeenCalledWith(4);
+  });
+});
 
 describe("private Mastra runtime spine", () => {
   it("executes nested workflows through the private compiler", async () => {

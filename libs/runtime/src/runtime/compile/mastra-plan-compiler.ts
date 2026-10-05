@@ -55,6 +55,8 @@ import {
   type ChoiceCompilerDependencies,
 } from "./mastra-choice-compiler.js";
 
+import { PreparedInvocationInput } from "../invocation/prepared-input.js";
+
 export type { RepeatExecutionBudget } from "./mastra-repeat-compiler.js";
 
 const RESULT_STEP_ID = "__seqlane_result";
@@ -62,6 +64,7 @@ const RESERVED_NODE_IDS = new Set([WORKFLOW_INPUT_NODE_ID, RESULT_STEP_ID]);
 export interface MastraPlanInvocationContext {
   readonly node: PlanNode;
   readonly input: unknown;
+  readonly preparedInput?: PreparedInvocationInput;
   readonly workflowInput: unknown;
   readonly workId: WorkId;
   readonly runId: string;
@@ -377,9 +380,12 @@ function buildInvocationStep(
         workflowInput,
         getStepResult,
       );
-      let parsedInput: unknown;
+      let preparedInput: PreparedInvocationInput;
       try {
-        parsedInput = inputSchema?.parse(resolvedInput) ?? resolvedInput;
+        preparedInput = PreparedInvocationInput.parse(
+          inputSchema,
+          resolvedInput,
+        );
       } catch (cause) {
         const error = reportFailure(node, cause, "input", options);
         options.onInputValidationFailure?.({
@@ -402,7 +408,8 @@ function buildInvocationStep(
       }
       const rawOutput = await execute({
         node,
-        input: parsedInput,
+        input: preparedInput.value,
+        preparedInput,
         workflowInput,
         workId: runContext.workId,
         runId: runContext.runId,

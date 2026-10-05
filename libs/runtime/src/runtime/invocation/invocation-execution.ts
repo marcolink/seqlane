@@ -1,3 +1,4 @@
+import { PreparedInvocationInput } from "./prepared-input.js";
 import type {
   AgentTaskRequest,
   SeqlaneInvocationMetrics,
@@ -220,13 +221,14 @@ export async function executeTaskNode(
       );
       let input: unknown;
       try {
-        const resolvedInput = resolveBinding(
-          node.input,
-          context.workflowInput,
-          results,
-        );
+        const preparedInput =
+          options.preparedInput ??
+          PreparedInvocationInput.parse(
+            taskSchema.input,
+            resolveBinding(node.input, context.workflowInput, results),
+          );
         consumeBindingReferences(results, remainingConsumers, node.input);
-        input = taskSchema.input.parse(resolvedInput);
+        input = preparedInput.value;
       } catch (cause) {
         throwTaskPhaseError(cause, "input", node.taskId, abortSignal);
       }
@@ -698,13 +700,14 @@ export async function executeValidationCheckNode(
     }
     let input: unknown;
     try {
-      const resolvedInput = resolveBinding(
-        node.input,
-        context.workflowInput,
-        results,
-      );
+      const preparedInput =
+        options.preparedInput ??
+        PreparedInvocationInput.parse(
+          definition.input,
+          resolveBinding(node.input, context.workflowInput, results),
+        );
       consumeBindingReferences(results, remainingConsumers, node.input);
-      input = definition.input.parse(resolvedInput);
+      input = preparedInput.value;
     } catch (cause) {
       throw new Error(`Validation input parsing failed: ${String(cause)}`, {
         cause,

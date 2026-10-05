@@ -14,7 +14,7 @@ import type { SeqlaneFailurePhase } from "../execution/errors.js";
 import { resolveMastraPlanRunContext } from "./mastra-run-context.js";
 import type { MastraPlanCompilerOptions } from "./mastra-plan-compiler.js";
 
-type Arm = ChoiceNode["then"];
+import { PreparedInvocationInput } from "../invocation/prepared-input.js";
 
 const choiceEnvelopeSchema = z.strictObject({
   condition: z.boolean(),
@@ -42,7 +42,7 @@ export interface ChoiceCompilerDependencies {
 }
 
 function armStep(
-  arm: Arm,
+  arm: ChoiceNode["then"],
   validation: NonNullable<ChoiceNode["validation"]>["then"],
   options: MastraPlanCompilerOptions,
   dependencies: ChoiceCompilerDependencies,
@@ -71,11 +71,12 @@ function armStep(
           envelope.workflowInput,
           results,
         );
-        let input: unknown;
+        let preparedInput: PreparedInvocationInput;
         try {
-          input =
-            dependencies.schemaForNodeInput(arm, options)?.parse(rawInput) ??
-            rawInput;
+          preparedInput = PreparedInvocationInput.parse(
+            dependencies.schemaForNodeInput(arm, options),
+            rawInput,
+          );
         } catch (cause) {
           const error = dependencies.reportFailure(
             arm,
@@ -107,7 +108,8 @@ function armStep(
         }
         return await invoke({
           node: arm,
-          input,
+          input: preparedInput.value,
+          preparedInput,
           workflowInput: envelope.workflowInput,
           workId: envelope.workId,
           runId: envelope.runId,

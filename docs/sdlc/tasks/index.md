@@ -280,3 +280,4 @@
 | [task.simplify-pull-request-review-triggers](./2026-09-24-simplify-pull-request-review-triggers.md) | Simplify Pull Request Review Triggers and Decisions | completed | 2026-09-24 | core |
 | [task.deliver-exclusive-flow-choice](./2026-09-26-deliver-exclusive-flow-choice.md) | Deliver Exclusive Flow Choice | completed | 2026-09-26 | core |
 | [task.standalone-cli-parity](./2026-10-04-standalone-cli-parity.md) | Preserve Current CLI Capabilities in PR 131 | in-progress | 2026-10-04 | core |
+| [task.unify-runnable-construction-and-input-preparation](./2026-10-05-unify-runnable-construction-and-input-preparation.md) | Unify Runnable Construction and Input Preparation | in-progress | 2026-10-05 | core, runtime |

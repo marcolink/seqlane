@@ -229,6 +229,19 @@ workflow. Mastra types must remain inside runtime or adapter packages.
 The compiler must reuse the invocation kernel. It must preserve typed outcomes,
 cancellation, process cleanup, policy failures, and deterministic node identity.
 
+Runnable input preparation has one owning schema parse per invocation. The
+compiler passes prepared input to the invocation kernel without resolving or
+parsing it again. Direct kernel calls prepare raw input through the same helper.
+Ordinary task and selected-choice input failures remain before kernel admission.
+Repeat attempts and validation checks retain their existing failure timing.
+Schema transforms must reach the runnable unchanged, including `null` and
+`undefined` results. Choice-envelope validation is a separate transport boundary.
+
+Builder option types derive from the canonical invocation contracts. Ordinary,
+repeat and choice declarations share runnable option resolution and Plan-node
+construction. Their topology remains distinct. Choice eligibility must exclude
+session-source dependencies that only the selected arm waits for.
+
 Dependencies establish eligibility. Independent eligible nodes can execute
 concurrently. Seqlane session and workspace admission determine actual starts.
 Completion and notification order for independent work is not deterministic.

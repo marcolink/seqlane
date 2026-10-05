@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type {
   BuiltWorkflow,
   Plan,
@@ -10,7 +11,6 @@ import type {
   WorkId,
   RunId,
   InvocationId,
-  RepeatNode,
   WorkflowDefinition,
   WorkflowDefinitionRegistry,
 } from "@seqlane/core";
@@ -84,6 +84,7 @@ import type { ClassifierTaskRunner } from "../../classifier/types.js";
 export interface MastraPlanExecutionOptions {
   readonly plan: Plan;
   readonly workflowInput: unknown;
+  readonly preparedWorkflowInput?: MastraPlanInvocationContext["preparedInput"];
   readonly workId: WorkId;
   readonly runId: RunId;
   readonly createInvocationId: (nodeId?: string) => InvocationId;
@@ -324,23 +325,12 @@ function emitMastraNonTerminalInvocations(
   }
 }
 
-interface InvocationDispatchOptions {
+interface InvocationDispatchOptions extends Omit<
+  MastraPlanInvocationContext,
+  "workflowId" | "getStepResult"
+> {
   readonly context: ExecutionContext;
-  readonly node: PlanNode;
-  readonly input: unknown;
-  readonly workflowInput: unknown;
-  readonly workId: WorkId;
-  readonly runId: RunId;
-  readonly resourceId?: string;
-  readonly requestContext: RequestContext | undefined;
   readonly getStepResult: (nodeId: string) => unknown;
-  readonly abortSignal: AbortSignal;
-  readonly invocationId: InvocationId;
-  readonly observability: MastraPlanInvocationContext["observability"];
-  readonly iteration?: number;
-  readonly repeatValidation?: RepeatNode["validation"];
-  readonly choiceValidation?: MastraPlanInvocationContext["choiceValidation"];
-  readonly dynamicWorkspaceAdmission?: boolean;
 }
 
 async function validateInvocationOutput(
@@ -396,6 +386,7 @@ async function executeTaskInvocation(
       results: options.context.results,
       remainingConsumers: options.context.remainingConsumers,
       subject: { type: "task", taskId: options.node.taskId },
+      preparedInput: options.preparedInput,
       iteration: options.iteration,
       validateOutput: choiceOutputValidator(options),
     },
@@ -435,6 +426,7 @@ async function executeWorkflowInvocationNode(
         executeWorkflowInvocation?.({
           node: options.node,
           input: options.input,
+          preparedInput: options.preparedInput,
           workflowInput: options.workflowInput,
           workId: options.workId,
           runId: options.runId,
@@ -535,6 +527,7 @@ export function createMastraPlanInvocationHandler(
   return async ({
     node,
     input,
+    preparedInput,
     workflowInput,
     workId,
     runId,
@@ -604,6 +597,7 @@ export function createMastraPlanInvocationHandler(
           context,
           node,
           input,
+          preparedInput,
           workflowInput,
           workId,
           runId,
@@ -622,6 +616,7 @@ export function createMastraPlanInvocationHandler(
     }
     if (node.type === "validation.check") {
       return executeValidationCheckNode(context, node, abortSignal, {
+        preparedInput,
         invocationId,
         observability,
         results,
@@ -646,6 +641,7 @@ export function createMastraPlanInvocationHandler(
           context,
           node,
           input,
+          preparedInput,
           workflowInput,
           workId,
           runId,
@@ -685,6 +681,7 @@ export async function executeNestedMastraWorkflow(options: {
   const childExecution = createMastraPlanExecution({
     plan: child.plan,
     workflowInput: invocation.input,
+    preparedWorkflowInput: invocation.preparedInput,
     workId: invocation.workId,
     runId: invocation.runId,
     createInvocationId: (nodeId) => `${invocation.invocationId}:${nodeId}`,
@@ -838,6 +835,8 @@ export function createMastraPlanExecution(
     workflowDefinitions: options.workflowDefinitions,
     workspaceResources,
     workflow: options.workflow,
+    workflowInputSchema:
+      options.preparedWorkflowInput === undefined ? undefined : z.unknown(),
     repeatBudget,
     events,
     onFailure: captureFailure,
