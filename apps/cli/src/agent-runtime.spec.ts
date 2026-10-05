@@ -427,7 +427,14 @@ describe("CLI agent runtime composition", () => {
 
   it("keeps managed OpenCode service ownership", async () => {
     vi.clearAllMocks();
-    const server = createServer((_request, response) => {
+    const authorizations: (string | undefined)[] = [];
+    const server = createServer((request, response) => {
+      authorizations.push(request.headers.authorization);
+      if (request.url?.startsWith("/provider")) {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ all: [], default: {}, connected: [] }));
+        return;
+      }
       response.writeHead(200, { "content-type": "text/html" });
       response.end("<html><body>OpenCode</body></html>");
     });
@@ -440,6 +447,7 @@ describe("CLI agent runtime composition", () => {
     const close = vi.fn(async () => undefined);
     vi.mocked(startOpenCodeService).mockResolvedValue({
       url: `http://127.0.0.1:${address.port}`,
+      authorization: "Basic test-owned-credential",
       diagnostics: () => "",
       close,
     });
@@ -456,7 +464,14 @@ describe("CLI agent runtime composition", () => {
         new AbortController().signal,
         process.cwd(),
       );
+      await runtime.modelCapabilities?.listModels();
       await runtime.close?.();
+      expect(authorizations.length).toBeGreaterThanOrEqual(2);
+      expect(
+        authorizations.every(
+          (value) => value === "Basic test-owned-credential",
+        ),
+      ).toBe(true);
 
       expect(startOpenCodeService).toHaveBeenCalledWith(
         expect.objectContaining({ host: "127.0.0.1", port: 0 }),

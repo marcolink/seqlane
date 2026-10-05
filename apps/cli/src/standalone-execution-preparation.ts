@@ -10,6 +10,7 @@ export interface StandaloneInputOptions {
   readonly input?: string;
   readonly inputFile?: string;
   readonly stdin?: AsyncIterable<Uint8Array>;
+  readonly signal?: AbortSignal;
 }
 
 class InputSizeError extends Error {}
@@ -75,19 +76,66 @@ async function readFileInput(path: string): Promise<string> {
   }
 }
 
+class InputAbortedError extends Error {
+  constructor() {
+    super("--input-file read cancelled");
+    this.name = "AbortError";
+  }
+}
+
+async function nextStdinChunk(
+  iterator: AsyncIterator<Uint8Array>,
+  signal: AbortSignal | undefined,
+): Promise<IteratorResult<Uint8Array>> {
+  if (signal?.aborted) throw new InputAbortedError();
+  if (signal === undefined) return iterator.next();
+
+  let abort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abort = () => reject(new InputAbortedError());
+    signal.addEventListener("abort", abort, { once: true });
+  });
+  try {
+    return await Promise.race([iterator.next(), aborted]);
+  } finally {
+    if (abort !== undefined) signal.removeEventListener("abort", abort);
+  }
+}
+
 async function readStdinInput(
   stdin: AsyncIterable<Uint8Array>,
+  signal?: AbortSignal,
 ): Promise<string> {
   const chunks: Uint8Array[] = [];
   let length = 0;
-  for await (const chunk of stdin) {
-    length += chunk.byteLength;
-    if (length > MAX_INPUT_BYTES) {
-      throw new InputSizeError(
-        `--input-file exceeds the ${MAX_INPUT_BYTES}-byte limit`,
-      );
+  const iterator = stdin[Symbol.asyncIterator]();
+  let completed = false;
+  try {
+    while (true) {
+      const next = await nextStdinChunk(iterator, signal);
+      if (next.done) {
+        completed = true;
+        break;
+      }
+      length += next.value.byteLength;
+      if (length > MAX_INPUT_BYTES) {
+        throw new InputSizeError(
+          `--input-file exceeds the ${MAX_INPUT_BYTES}-byte limit`,
+        );
+      }
+      chunks.push(next.value);
     }
-    chunks.push(chunk);
+  } finally {
+    if (!completed) {
+      try {
+        const closing = iterator.return?.();
+        // Pending iterator reads can delay return indefinitely after abort.
+        if (signal?.aborted) void closing?.catch(() => undefined);
+        else await closing;
+      } catch {
+        // Iterator cleanup must preserve the original read failure.
+      }
+    }
   }
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(
@@ -111,7 +159,10 @@ export async function readStandaloneInput(
   if (options.inputFile === "-") {
     if (options.stdin === undefined)
       throw new Error("--input-file - requires an explicit stdin stream");
-    return parseJsonInput(await readStdinInput(options.stdin), "--input-file");
+    return parseJsonInput(
+      await readStdinInput(options.stdin, options.signal),
+      "--input-file",
+    );
   }
   return parseJsonInput(
     await readFileInput(

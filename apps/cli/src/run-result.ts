@@ -1,5 +1,4 @@
 import { RuntimeError } from "@seqlane/core";
-import type { RunRequest } from "@seqlane/protocol";
 import {
   copyCommandErrorMetadata,
   runIdentitySchema,
@@ -33,16 +32,6 @@ export function remoteError(error: unknown): Error {
   return normalized;
 }
 
-export function runWorkflowIdentity(
-  request: RunRequest,
-  sourceReference?: string,
-): RunWorkflowIdentity {
-  return runWorkflowIdentitySchema.parse({
-    id: request.workflow.id,
-    reference: sourceReference ?? request.workflow.id,
-  });
-}
-
 export function runTiming(startedAt: string, finishedAt: string): RunTiming {
   return runTimingSchema.parse({
     startedAt,
@@ -57,8 +46,7 @@ export function runTiming(startedAt: string, finishedAt: string): RunTiming {
 export type RunTiming = import("./cli-contracts.js").RunTiming;
 
 export function createRunSuccessResult(
-  request: RunRequest,
-  sourceReference: string | undefined,
+  workflow: RunWorkflowIdentity,
   identity: RunIdentity,
   output: unknown,
 ): RunCommandResult {
@@ -67,7 +55,7 @@ export function createRunSuccessResult(
   return runCommandResultSchema.parse({
     schemaVersion: 1,
     status: "succeeded",
-    workflow: runWorkflowIdentity(request, sourceReference),
+    workflow: runWorkflowIdentitySchema.parse(workflow),
     ...canonicalIdentity,
     ...runTiming(canonicalIdentity.startedAt, finishedAt),
     output,
@@ -75,8 +63,7 @@ export function createRunSuccessResult(
 }
 
 export function createRunCancellationResult(
-  request: RunRequest,
-  sourceReference: string | undefined,
+  workflow: RunWorkflowIdentity,
   identity: RunIdentity,
   code: RunCancellationCode,
   message: string,
@@ -86,7 +73,7 @@ export function createRunCancellationResult(
   return runCommandResultSchema.parse({
     schemaVersion: 1,
     status: "cancelled",
-    workflow: runWorkflowIdentity(request, sourceReference),
+    workflow: runWorkflowIdentitySchema.parse(workflow),
     ...canonicalIdentity,
     ...runTiming(canonicalIdentity.startedAt, finishedAt),
     cancellation: { code, message },
@@ -96,8 +83,7 @@ export function createRunCancellationResult(
 export function createRunFailureResult(
   error: unknown,
   phase: RunFailurePhase,
-  request?: RunRequest,
-  sourceReference?: string,
+  workflow?: RunWorkflowIdentity,
   identity?: RunIdentity,
 ): RunCommandResult {
   const finishedAt = new Date().toISOString();
@@ -108,9 +94,9 @@ export function createRunFailureResult(
     status: "failed",
     phase,
     error: serializeCommandError(error),
-    ...(request === undefined
+    ...(workflow === undefined
       ? {}
-      : { workflow: runWorkflowIdentity(request, sourceReference) }),
+      : { workflow: runWorkflowIdentitySchema.parse(workflow) }),
     ...(canonicalIdentity === undefined
       ? {}
       : {

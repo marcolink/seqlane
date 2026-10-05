@@ -1,7 +1,12 @@
 // @test-scope ./commands/run.ts
+// @test-scope ./run-input.ts
+// @test-scope ./run-execution.ts
+// @test-scope ./run-outcome.ts
+// @test-scope ./index.ts
 // @test-scope ./run-operational-host.ts
 // @test-scope ./run-result.ts
 // @test-scope ./run-lifecycle.ts
+// @test-scope ./run-cleanup.ts
 // @test-scope ./commands/unstable_replay.ts
 // @test-scope ./replay.ts
 // @test-scope ./runner-client.ts
@@ -17,6 +22,7 @@
 // @test-scope ../../../workflows/local-only-example/workflow.ts
 // @test-scope ../../../workflows/until-example/workflow.ts
 
+import { openCodeServiceFixture } from "../test-fixtures/opencode-service.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   chmodSync,
@@ -73,7 +79,7 @@ function withoutNodeExperimentalWarnings(stderr: string): string {
 }
 
 interface RunCliOptions {
-  readonly onStarted?: (child: ChildProcess) => void;
+  readonly onStarted?: (child: ChildProcess, stdout: string) => void;
   readonly startMarker?: string;
   readonly environment?: NodeJS.ProcessEnv;
   readonly onSpawn?: (child: ChildProcess) => void;
@@ -107,7 +113,10 @@ function runCli(
       stdout += chunk.toString();
       if (!signalSent && stdout.includes(startMarker)) {
         signalSent = true;
-        onStarted?.(child);
+        void Promise.resolve(onStarted?.(child, stdout)).catch((error) => {
+          child.kill("SIGTERM");
+          reject(error);
+        });
       }
     });
     child.stderr?.on("data", (chunk: Buffer) => {
@@ -200,6 +209,244 @@ async function startExternalOpenCodeFixture(): Promise<{
 }
 
 describe("seqlane CLI entrypoints", () => {
+  it.each([false, true])(
+    "preserves classifier configuration with agent work=%s",
+    async (withAgent) => {
+      const directory = mkdtempSync(join(repositoryRoot, ".pr131-classifier-"));
+      const bin = join(directory, "bin");
+      mkdirSync(bin);
+      writeFileSync(join(bin, "opencode"), openCodeServiceFixture, {
+        mode: 0o755,
+      });
+      let calls = 0;
+      const server = createServer(async (request, response) => {
+        expect(request.headers.authorization).toBe(
+          "Bearer private-fixture-token",
+        );
+        for await (const chunk of request) void chunk;
+        calls++;
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            model: "jev-1.13.0",
+            answers: { needsReview: { type: "noul", noul: 0.63 } },
+            usage: { input_tokens: 10, output_tokens: 2 },
+          }),
+        );
+      });
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (address === null || typeof address === "string")
+        throw new Error("No classifier port");
+      const workflow = join(directory, "workflow.mjs");
+      writeFileSync(
+        workflow,
+        `import { createFlow, defineClassifierTask, defineAgentTask, isolated } from "@seqlane/core";
+import { openai } from "@seqlane/core/models"; import { z } from "zod";
+if (process.env.SEQLANE_CLASSIFIER_API_KEY || process.env.SEQLANE_RUNNER_CLASSIFIER_URL || process.env.SEQLANE_RUNNER_CLASSIFIER_MODEL) throw new Error("Classifier configuration leaked");
+const classifier = defineClassifierTask({ id: "classifier", input: z.object({}), state: () => "fixture", questions: { needsReview: { kind: "noul", instructions: "Review?" } } });
+let flow = createFlow({ id: "classifier", input: z.object({}), output: z.object({ score: z.number(), answer: z.string().optional() }) }).task("classify", classifier, ({ input }) => input);
+${withAgent ? 'const agent = defineAgentTask({ id: "agent", input: z.object({}), output: z.object({ answer: z.string() }), goal: () => "Answer" }); flow = flow.task("answer", agent, () => ({}), { session: isolated({ model: openai("gpt-5.6-luna") }) });' : ""}
+export default flow.output(({ tasks }) => ({ score: tasks.classify.output.answers.needsReview.probability, ${withAgent ? "answer: tasks.answer.output.answer" : ""} })).define();`,
+      );
+      try {
+        const result = await runCli(
+          productionEntry,
+          [
+            "run",
+            workflow,
+            "--classifier-url",
+            `http://127.0.0.1:${address.port}/classify`,
+            "--classifier-model",
+            "jev-1.13.0",
+            "--json",
+            ...(withAgent ? ["--adapter", "opencode"] : []),
+          ],
+          {
+            environment: {
+              PATH: `${bin}:${process.env.PATH}`,
+              SEQLANE_CLASSIFIER_API_KEY: "private-fixture-token",
+              SEQLANE_TEST_SERVICE_MODE: "success",
+              SEQLANE_TEST_SERVICE_MARKER: join(directory, "requests"),
+            },
+          },
+        );
+        expect(result.code, result.stdout + result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          status: "succeeded",
+          output: {
+            score: 0.63,
+            ...(withAgent ? { answer: "fixture answer" } : {}),
+          },
+        });
+        expect(calls).toBe(1);
+        expect(result.stdout + result.stderr).not.toContain(
+          "private-fixture-token",
+        );
+        if (!withAgent)
+          expect(existsSync(join(directory, "requests"))).toBe(false);
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+    15000,
+  );
+
+  it.each(["success", "interaction", "hold"] as const)(
+    "runs and disposes the managed adapter after %s",
+    async (mode) => {
+      const directory = mkdtempSync(join(repositoryRoot, ".pr131-adapter-"));
+      const bin = join(directory, "bin");
+      mkdirSync(bin);
+      const executable = join(bin, "opencode");
+      writeFileSync(executable, openCodeServiceFixture, { mode: 0o755 });
+      const marker = join(directory, "requests.txt");
+      const workflow = join(directory, "workflow.mjs");
+      writeFileSync(
+        workflow,
+        `import { createFlow, defineAgentTask, isolated } from "@seqlane/core";
+import { openai } from "@seqlane/core/models"; import { z } from "zod";
+const task = defineAgentTask({ id: "fixture-agent", input: z.object({}), output: z.object({ answer: z.string() }), goal: () => "Answer" });
+export default createFlow({ id: "fixture-agent", input: z.object({}), output: z.object({ answer: z.string() }) }).task("answer", task, ({ input }) => input, { session: isolated({ model: openai("gpt-5.6-luna") }) }).output(({ tasks }) => tasks.answer.output).define();`,
+      );
+      let timer: ReturnType<typeof setInterval> | undefined;
+      try {
+        const result = await runCli(
+          productionEntry,
+          ["run", workflow, "--adapter", "opencode", "--json"],
+          {
+            environment: {
+              PATH: `${bin}:${process.env.PATH}`,
+              SEQLANE_TEST_SERVICE_MODE: mode,
+              SEQLANE_TEST_SERVICE_MARKER: marker,
+            },
+            onSpawn: (child) => {
+              if (mode !== "hold") return;
+              timer = setInterval(() => {
+                if (
+                  existsSync(marker) &&
+                  readFileSync(marker, "utf8").includes(
+                    "/session/session-1/message",
+                  )
+                ) {
+                  clearInterval(timer);
+                  child.kill("SIGTERM");
+                }
+              }, 20);
+            },
+          },
+        );
+        expect(
+          result.code,
+          result.stdout +
+            result.stderr +
+            (existsSync(marker) ? readFileSync(marker, "utf8") : "no service"),
+        ).toBe(mode === "success" ? 0 : mode === "hold" ? 130 : 1);
+        expect(JSON.parse(result.stdout)).toMatchObject(
+          mode === "success"
+            ? { status: "succeeded", output: { answer: "fixture answer" } }
+            : { status: mode === "hold" ? "cancelled" : "failed" },
+        );
+        expect(readFileSync(marker, "utf8")).toContain("closed");
+        expect(result.stdout).not.toContain("Basic ");
+      } finally {
+        clearInterval(timer);
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+    15000,
+  );
+
+  it("retains supported package-root and runner exports in fresh build artifacts", async () => {
+    // Verify published exports rather than source-relative modules.
+    // eslint-disable-next-line @nx/enforce-module-boundaries
+    const api = await import("seqlane");
+    // eslint-disable-next-line @nx/enforce-module-boundaries
+    const runner = await import("seqlane/runner");
+    expect(api.launchRunner).toBeTypeOf("function");
+    expect(api.superviseRunner).toBeTypeOf("function");
+    expect(runner.createRunnerProcessOptions).toBeTypeOf("function");
+  });
+
+  it("keeps import-time and task stdout outside the final JSON result", async () => {
+    const directory = mkdtempSync(join(repositoryRoot, ".pr131-json-"));
+    try {
+      const path = join(directory, "workflow.mjs");
+      writeFileSync(
+        path,
+        `import { createFlow, defineTask } from "@seqlane/core";
+import { z } from "zod";
+console.log("import diagnostic");
+const task = defineTask({ id: "stdout", input: z.object({}), output: z.boolean(), execute: async () => { console.log("task diagnostic"); return false; } });
+export default createFlow({ id: "stdout", input: z.object({}), output: z.boolean() }).task("result", task, ({ input }) => input).output(({ tasks }) => tasks.result.output).define();`,
+      );
+      const result = await runCli(productionEntry, ["run", path, "--json"]);
+      expect(result.code).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        status: "succeeded",
+        output: false,
+      });
+      expect(result.stdout).not.toContain("diagnostic");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["SIGINT", "SIGTERM"] as const)(
+    "cancels held stdin on %s",
+    async (signal) => {
+      const directory = mkdtempSync(join(tmpdir(), "seqlane-stdin-"));
+      const preload = join(directory, "ready.mjs");
+      writeFileSync(
+        preload,
+        `const original = process.stdin[Symbol.asyncIterator]; process.stdin[Symbol.asyncIterator] = function () { process.stderr.write("stdin-ready\\n"); return original.call(this); };`,
+      );
+      const child = spawn(
+        process.execPath,
+        [
+          "--import",
+          preload,
+          productionEntry,
+          "run",
+          localOnlyWorkflowReference,
+          "--input-file",
+          "-",
+          "--json",
+        ],
+        {
+          cwd: repositoryRoot,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      let stdout = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+      });
+      const closed = once(child, "close");
+      let stderr = "";
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+        if (stderr.includes("stdin-ready")) child.kill(signal);
+      });
+      const timeout = setTimeout(() => child.kill("SIGKILL"), 5000);
+      try {
+        const [code] = await closed;
+        expect(code).toBe(130);
+        expect(JSON.parse(stdout)).toMatchObject({
+          status: "failed",
+          phase: "command",
+        });
+      } finally {
+        clearTimeout(timeout);
+        child.stdin.destroy();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   function createDiscoveryFixture(
     workflow: "minimal" | "local-only" = "minimal",
   ): {
@@ -305,8 +552,15 @@ describe("seqlane CLI entrypoints", () => {
           fixture.userRoot,
         ],
         {
-          onStarted: (child) => child.kill("SIGTERM"),
-          startMarker: "Seqlane operational host:",
+          onStarted: async (child, stdout) => {
+            const readiness = /Seqlane readiness: (http:\/\/[^\s]+)/.exec(
+              stdout,
+            )?.[1];
+            if (readiness === undefined) throw new Error("No readiness URL");
+            await fetch(readiness);
+            child.kill("SIGTERM");
+          },
+          startMarker: "Seqlane readiness:",
         },
       );
 
@@ -914,7 +1168,7 @@ export default createFlow({ id: "non-json", input, output })
       expect(JSON.parse(result.stdout)).toMatchObject({
         schemaVersion: 1,
         status: "failed",
-        phase: "execution",
+        phase: "result-serialization",
         error: {
           message: expect.stringContaining(
             "Seqlane run output must be JSON serializable",

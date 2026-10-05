@@ -28,7 +28,8 @@ import { modelSelectionWorkflow } from "@seqlane/fixtures/model-selection-workfl
 import { localGitStatusWorkflow } from "@seqlane/fixtures/local-git-status";
 ```
 
-Run the Renovate fixture with an OpenCode service owned by the direct run:
+Run the Renovate fixture with OpenCode installed and authenticated. The direct
+run starts and stops its private OpenCode service:
 
 ```sh
 seqlane run \

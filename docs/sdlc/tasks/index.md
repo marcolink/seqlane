@@ -278,3 +278,4 @@
 | [task.classifier-dynamic-questions](./2026-09-23-classifier-dynamic-questions.md) | Validate Static Choice Score and Noul Questions | completed | 2026-09-23 | core |
 | [task.remove-task-observability](./2026-09-24-remove-task-observability.md) | Remove Task Observability Configuration | completed | 2026-09-24 | core |
 | [task.simplify-pull-request-review-triggers](./2026-09-24-simplify-pull-request-review-triggers.md) | Simplify Pull Request Review Triggers and Decisions | completed | 2026-09-24 | core |
+| [task.standalone-cli-parity](./2026-10-04-standalone-cli-parity.md) | Preserve Current CLI Capabilities in PR 131 | in-progress | 2026-10-04 | core |

@@ -10,6 +10,7 @@ function isSupportedRuntimeUrl(url: URL): boolean {
 export async function resolveOpenCodeBrowserUiUrl(
   runtimeUrl: string,
   signal: AbortSignal,
+  authorization?: string,
 ): Promise<string | undefined> {
   let runtime: URL;
   try {
@@ -22,6 +23,7 @@ export async function resolveOpenCodeBrowserUiUrl(
   try {
     const response = await fetch(new URL("/", runtime), {
       redirect: "error",
+      ...(authorization === undefined ? {} : { headers: { authorization } }),
       signal,
     });
     await response.body?.cancel();

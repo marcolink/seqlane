@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-16
+updated: 2026-10-05
 upstream:
   - prd.seqlane-on-mastra
   - rfc.execution-observability-and-debugging
@@ -436,3 +436,12 @@ request and evidence for the amended contract.
 - [spec.run-terminal-rendering: Run Terminal Rendering](./2026-09-15-run-terminal-rendering.md)
 - Jointly supersedes [spec.seqlane-execution-output-package: Seqlane Execution Output Package](./2026-09-02-seqlane-execution-output-package.md).
 - [Oclif error handling](https://oclif.io/docs/error_handling/)
+
+## Serialization failure events
+
+A `run.failed` execution event can include optional `phase` metadata with
+`execution` or `result-serialization`. Events without the field retain the
+execution default. The worker uses a typed serialization error to set this
+field. Hosted execution explicitly supplies the same phase when a successful
+workflow returns a non-JSON value. Consumers must not classify errors from
+message text. Final JSON results retain the existing failure-phase contract.

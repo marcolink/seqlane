@@ -21,7 +21,13 @@ export type SendExecutionEvent = (
   event: SeqlaneExecutionEvent,
 ) => Promise<void>;
 
+type ExecutionBridgeEvent =
+  | Exclude<SeqlaneEvent, { type: "run.failed" }>
+  | (Extract<SeqlaneEvent, { type: "run.failed" }> &
+      Pick<Extract<SeqlaneExecutionEvent, { type: "run.failed" }>, "phase">);
+
 export interface ExecutionEventBridge extends SeqlaneEventSink {
+  emit(event: ExecutionBridgeEvent): void;
   emitPlan(plan: SeqlanePlanSnapshot, workId: string, runId: string): void;
   emitObservation(event: Omit<InvocationObservationEvent, "metadata">): void;
   flush(): Promise<void>;
@@ -109,24 +115,31 @@ class BoundedExecutionEventQueue {
   }
 }
 
+export class NonSerializableRunOutputError extends TypeError {
+  constructor() {
+    super("Seqlane run output must be JSON serializable");
+  }
+}
+
+function serializeExecutionError(
+  error: SeqlaneError,
+): ReturnType<typeof serializeSeqlaneError> {
+  return error instanceof ValidationFailedError
+    ? serializeSeqlaneError(
+        error,
+        error.evidence === undefined
+          ? {}
+          : {
+              validationEvidence: toSeqlaneDisplayValue(error.evidence),
+            },
+      )
+    : serializeSeqlaneError(error);
+}
+
 function toExecutionEvent(
-  event: SeqlaneEvent,
+  event: ExecutionBridgeEvent,
   metadata: SeqlaneExecutionEventMetadata,
 ): SeqlaneExecutionEvent {
-  const serializeError = (
-    error: SeqlaneError,
-  ): ReturnType<typeof serializeSeqlaneError> =>
-    error instanceof ValidationFailedError
-      ? serializeSeqlaneError(
-          error,
-          error.evidence === undefined
-            ? {}
-            : {
-                validationEvidence: toSeqlaneDisplayValue(error.evidence),
-              },
-        )
-      : serializeSeqlaneError(error);
-
   switch (event.type) {
     case "run.started":
     case "invocation.created":
@@ -149,14 +162,25 @@ function toExecutionEvent(
         lastError: serializeSeqlaneError(event.lastError),
       };
     case "invocation.failed":
-      return { ...event, metadata, error: serializeError(event.error) };
+      return {
+        ...event,
+        metadata,
+        error: serializeExecutionError(event.error),
+      };
     case "run.succeeded":
       if (!isJsonValue(event.output)) {
-        throw new TypeError("Seqlane run output must be JSON serializable");
+        throw new NonSerializableRunOutputError();
       }
       return { ...event, metadata, output: event.output };
     case "run.failed":
-      return { ...event, metadata, error: serializeError(event.error) };
+      return {
+        ...event,
+        metadata,
+        error: serializeExecutionError(event.error),
+        ...(event.error.cause instanceof NonSerializableRunOutputError
+          ? { phase: "result-serialization" as const }
+          : {}),
+      };
   }
 }
 

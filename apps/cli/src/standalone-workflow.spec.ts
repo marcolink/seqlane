@@ -430,4 +430,67 @@ describe("standalone workflow preparation", () => {
       prepareStandaloneWorkspace(project, "input.json"),
     ).rejects.toThrow("must be a directory");
   });
+
+  it.each(["oversize", "read failure"] as const)(
+    "closes stdin after %s while preserving the read error",
+    async (failure) => {
+      const readError = new Error("stdin read failed");
+      let closed = false;
+      const stdin: AsyncIterable<Uint8Array> = {
+        [Symbol.asyncIterator]() {
+          return {
+            next: async () => {
+              if (failure === "read failure") throw readError;
+              return { done: false, value: Buffer.alloc(1_048_577) };
+            },
+            return: async () => {
+              await new Promise<void>((resolve) => setImmediate(resolve));
+              closed = true;
+              throw new Error("iterator cleanup failed");
+            },
+          };
+        },
+      };
+      const reading = readStandaloneInput({
+        callerDirectory: process.cwd(),
+        inputFile: "-",
+        stdin,
+      });
+      if (failure === "read failure")
+        await expect(reading).rejects.toBe(readError);
+      else
+        await expect(reading).rejects.toThrow("exceeds the 1048576-byte limit");
+      expect(closed).toBe(true);
+    },
+  );
+
+  it("cancels a stalled explicit stdin read", async () => {
+    const controller = new AbortController();
+    let returned = false;
+    const stdin: AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () =>
+            await new Promise<IteratorResult<Uint8Array>>(() => undefined),
+          return: async () => {
+            returned = true;
+            return await new Promise<IteratorResult<Uint8Array>>(
+              () => undefined,
+            );
+          },
+        };
+      },
+    };
+    const reading = readStandaloneInput({
+      callerDirectory: process.cwd(),
+      inputFile: "-",
+      signal: controller.signal,
+      stdin,
+    });
+
+    controller.abort();
+
+    await expect(reading).rejects.toMatchObject({ name: "AbortError" });
+    expect(returned).toBe(true);
+  });
 });

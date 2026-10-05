@@ -46,12 +46,28 @@ function mockOwnedProcessGroup(child: ChildProcess & EventEmitter) {
 describe("owned OpenCode startup", () => {
   it("uses an ephemeral loopback endpoint and waits for health", async () => {
     const child = fakeChild();
-    const spawn = vi.fn(() => child);
+    const spawn = vi.fn(
+      (
+        _command: string,
+        _args: readonly string[],
+        _options: { env?: NodeJS.ProcessEnv },
+      ) => {
+        void _command;
+        void _args;
+        void _options;
+        return child;
+      },
+    );
     const started = startOpenCodeService({
       workspace: "/workspace",
       signal: new AbortController().signal,
       spawn: spawn as unknown as typeof import("node:child_process").spawn,
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      fetch: vi.fn(async (_url, init) => {
+        expect(new Headers(init?.headers).get("authorization")).toMatch(
+          /^Basic /,
+        );
+        return new Response(null, { status: 200 });
+      }),
     });
     child.stdout?.emit(
       "data",
@@ -67,6 +83,12 @@ describe("owned OpenCode startup", () => {
       expect.arrayContaining(["--hostname=127.0.0.1", "--port=0"]),
       expect.objectContaining({ cwd: "/workspace" }),
     );
+    const spawnOptions = spawn.mock.calls[0]?.[2];
+    expect(spawnOptions?.env?.OPENCODE_SERVER_USERNAME).toBe("seqlane");
+    expect(spawnOptions?.env?.OPENCODE_SERVER_PASSWORD).toMatch(
+      /^[A-Za-z0-9_-]{43}$/,
+    );
+    expect(service.authorization).toMatch(/^Basic /);
     child.stderr?.emit("data", Buffer.from("still draining native logs\n"));
     expect(service.diagnostics()).toContain("still draining native logs");
     await service.close();
