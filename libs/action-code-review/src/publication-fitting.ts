@@ -5,17 +5,10 @@ import {
 import {
   MAX_PUBLICATION_BODY_BYTES,
   MAX_PUBLICATION_BODY_CHARS,
+  shortenUtf8,
   stateReport,
 } from "./publication-state.js";
 import { renderPublicationBody } from "./publication-rendering.js";
-
-function shortenUtf8(value: string, maxBytes: number): string {
-  const bytes = new TextEncoder().encode(value);
-  if (bytes.length <= maxBytes) return value;
-  const suffix = new TextEncoder().encode("…");
-  const bounded = bytes.subarray(0, Math.max(0, maxBytes - suffix.length));
-  return new TextDecoder().decode(bounded) + "…";
-}
 
 function publicationBytes(value: string): number {
   return new TextEncoder().encode(value).length;
@@ -33,6 +26,11 @@ function compactPublicationReport(
       recommendation: shortenUtf8(finding.recommendation, 320),
     })),
     verification: report.verification.map((entry) => shortenUtf8(entry, 320)),
+    limitations: [
+      ...report.limitations,
+      "Review text was compacted to fit the publication limit.",
+    ].slice(-20),
+    stateTruncated: true,
   });
 }
 
@@ -66,12 +64,45 @@ function compactLedgerPublication(
     report: compactedReport,
     body: renderPublicationBody(
       compactedReport,
-      { visibleFindings: 0, includeVerification: false },
+      {
+        visibleFindings: 20,
+        includeVerification: true,
+        compactMetrics: true,
+      },
       boundedLedger,
       githubRunId,
       attempt,
     ),
   };
+}
+
+function fitFindingProjection(
+  report: PublicationReport,
+  githubRunId: string,
+  attempt: number,
+): string {
+  // Keep the highest-priority rows that fit after compacting metrics.
+  for (
+    let visibleFindings = Math.min(20, report.findings.length);
+    visibleFindings >= Math.min(1, report.findings.length);
+    visibleFindings -= 1
+  ) {
+    const body = renderPublicationBody(
+      report,
+      {
+        visibleFindings,
+        includeVerification: false,
+        compactMetrics: true,
+      },
+      report.runMetricsLedger,
+      githubRunId,
+      attempt,
+    );
+    if (publicationBytes(body) <= MAX_PUBLICATION_BODY_BYTES) return body;
+  }
+  throw new Error(
+    "The bounded Seqlane review publication is too large to publish safely.",
+  );
 }
 
 function fitPublicationBody(
@@ -81,27 +112,28 @@ function fitPublicationBody(
   attempt: number,
 ): { readonly report: PublicationReport; readonly body: string } {
   let report = initialReport;
+  const fullProjection = { visibleFindings: 20, includeVerification: true };
   let body = renderPublicationBody(
     report,
-    { visibleFindings: 20, includeVerification: true },
+    fullProjection,
     ledger,
     githubRunId,
     attempt,
   );
   if (publicationBytes(body) > MAX_PUBLICATION_BODY_BYTES) {
-    report = compactPublicationReport(report);
     body = renderPublicationBody(
       report,
-      { visibleFindings: 20, includeVerification: true },
+      { ...fullProjection, compactMetrics: true },
       ledger,
       githubRunId,
       attempt,
     );
   }
   if (publicationBytes(body) > MAX_PUBLICATION_BODY_BYTES) {
+    report = compactPublicationReport(report);
     body = renderPublicationBody(
       report,
-      { visibleFindings: 0, includeVerification: false },
+      { ...fullProjection, compactMetrics: true },
       ledger,
       githubRunId,
       attempt,
@@ -114,6 +146,9 @@ function fitPublicationBody(
       githubRunId,
       attempt,
     ));
+  }
+  if (publicationBytes(body) > MAX_PUBLICATION_BODY_BYTES) {
+    body = fitFindingProjection(report, githubRunId, attempt);
   }
   if (
     publicationBytes(body) > MAX_PUBLICATION_BODY_BYTES ||

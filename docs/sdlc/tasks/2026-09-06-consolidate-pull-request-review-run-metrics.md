@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-17
+updated: 2026-10-05
 upstream:
   - spec.versioned-pull-request-review-comments
 supersedes: []
@@ -101,6 +101,32 @@ human-readable JSON object, and no longer creates or reads per-run audit
 comments. Legacy metrics are not migrated, while valid review state remains
 usable. Focused regression coverage and the review example documentation were
 updated.
+
+### Publication bounds regression, 2026-10-05
+
+[Review run 37356194958](https://github.com/marcolink/seqlane/actions/runs/37356194958)
+retained 19 findings but showed none. Its metrics ledger occupied 44,898 bytes.
+The publisher removed all finding rows before compacting metrics.
+The empty projection also incorrectly said "No findings."
+
+The local correction compacts metrics JSON whitespace first, preserving every
+run and task metric and the complete finding text. If necessary, it compacts
+review text and task details with limitation notices before reducing finding
+rows. Rows decrease in priority order while the complete bounded finding state
+remains available. Publication fails if the required state and one retained
+finding row cannot fit.
+
+Focused regressions cover growing history, task-detail compaction, gradual row
+reduction, oversized rejection, and omitted findings versus an empty review.
+The public publication path verifies UTF-8 bounds and exact persisted finding
+state after lossless compaction.
+The saved report replay shows all 19 findings in 41,597 bytes and preserves all
+11 runs and their task metrics. The original projection required 60,248 bytes
+to show those rows, triggering the fallback.
+All 88 focused library and Action tests pass locally.
+This correction does not change review execution, lifecycle status, or the
+publication byte limit. Delivery requires a merge into `main` and a subsequent
+trusted GitHub Action run.
 
 ## Traceability
 
