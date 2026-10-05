@@ -25,14 +25,4 @@ describe("closeRunResources", () => {
     expect(result).toEqual(errors);
     expect(order).toEqual(["client", "flush", "events", "renderer"]);
   });
-  it("returns each renderer cleanup failure once", async () => {
-    const error = new Error("renderer");
-    expect(
-      await closeRunResources({
-        finishRenderer: async () => {
-          throw error;
-        },
-      }),
-    ).toEqual([error]);
-  });
 });

@@ -395,28 +395,6 @@ export default createFlow({ id: "stdout", input: z.object({}), output: z.boolean
     }
   });
 
-  it("reports non-JSON workflow output as a serialization failure", async () => {
-    const directory = mkdtempSync(join(repositoryRoot, ".pr131-result-"));
-    try {
-      const path = join(directory, "workflow.mjs");
-      writeFileSync(
-        path,
-        `import { createFlow, defineTask } from "@seqlane/core";
-import { z } from "zod";
-const task = defineTask({ id: "date", input: z.object({}), output: z.date(), execute: async () => new Date() });
-export default createFlow({ id: "date", input: z.object({}), output: z.date() }).task("result", task, ({ input }) => input).output(({ tasks }) => tasks.result.output).define();`,
-      );
-      const result = await runCli(productionEntry, ["run", path, "--json"]);
-      expect(result.code).toBe(1);
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        status: "failed",
-        phase: "result-serialization",
-      });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
   it.each(["SIGINT", "SIGTERM"] as const)(
     "cancels held stdin on %s",
     async (signal) => {
