@@ -497,15 +497,6 @@ function failChoiceTaskPreflight(
     throw cause;
   }
   const error = toSeqlaneInvocationError(cause, "executor", node.taskId);
-  const subject = invocationSubject(node);
-  events.emit({
-    type: "invocation.started",
-    workId,
-    runId,
-    invocationId,
-    subject,
-    ...taskIdCompatibility(subject),
-  });
   events.emit({
     type: "invocation.failed",
     workId,

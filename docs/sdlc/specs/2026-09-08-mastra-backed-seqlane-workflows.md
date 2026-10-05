@@ -160,6 +160,8 @@ consume session or workspace admission or cause a successful run to fail.
 Failure or cancellation of the selected arm must not start the other arm as a
 fallback. The selected arm keeps its own task or workflow identity, nested
 invocation behavior, and existing session and workspace policies.
+Selected-arm preflight failures emit failure directly. They must not emit
+`invocation.started` before session and workspace admission succeeds.
 The choice waits for its condition, arm input references, and declared
 dependencies before selection. A session source used only by an arm remains
 an arm dependency. The selected arm waits for that source to complete before

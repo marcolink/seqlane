@@ -115,6 +115,10 @@ Finding `SEQ-PR170-016` shares node ID allocation across ordinary invocations,
 choices, repeats, and validation nodes. Core regressions cover tasks and child
 workflows named `choice` in both declaration orders. Real Mastra regressions
 verify both routes and preserve the separate ordinary and choice results.
+Finding `SEQ-PR170-017` emits selected-arm preflight failure without a task
+start event. Real Mastra regressions cover unavailable models and unsupported
+session capabilities, failed arm and choice events, no workspace admission,
+no session creation, no fallback execution, and zero model calls.
 
 ## Delivery state
 
