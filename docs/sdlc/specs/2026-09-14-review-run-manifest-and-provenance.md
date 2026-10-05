@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-10-05
 upstream:
   - spec.versioned-pull-request-review-comments
 supersedes: []
@@ -15,8 +15,8 @@ supersedes: []
 
 ## Summary
 
-This specification defines one machine-readable execution manifest per
-admitted pull-request review. It records the frozen scope, configured review
+This specification defines one execution manifest for each review that reaches
+finalization. It records the frozen scope, configured review
 lanes, explicit outcomes, finding evidence, provenance, and limitations.
 The manifest is assembled in the trusted Action job and uploaded once, after
 finalization, as one immutable GitHub Actions artifact. It is audit evidence,
@@ -54,11 +54,13 @@ journal, or artifact compaction is required.
 
 ### requirement-versioned-manifest
 
-Every admitted run creates a strict review.run-manifest/v1 value before model
-work. Its frozen input includes run ID, pull-request number, review mode,
-target, base, head, checkpoint when applicable, exact ScopeIdentity, selected
-paths and evidence digests, configured lanes, rule-set hash, reviewer version,
-provider and model identity, and relevant runtime-configuration hashes.
+Every admitted run creates a run-local review.run-manifest/v1 value before model
+work. This value is in memory. Admission does not promise a durable artifact.
+Its frozen input includes run ID, pull-request number, mode, target, base,
+head, checkpoint when applicable, and exact ScopeIdentity.
+It also includes selected paths, evidence digests, configured lanes, and rule-set hash.
+It records reviewer version, provider and model identity, and relevant
+runtime-configuration hashes.
 No model output can change this input or the selected denominator.
 
 The manifest stores execution statuses coverage and finding. The publisher
@@ -67,6 +69,14 @@ joins them with publication and derived admission under the
 Empty collections use []; canonical ordering is mandatory for artifact bytes
 and digest validation. Publication evidence belongs to the trusted report,
 never to the sealed execution manifest.
+
+The durable manifest guarantee begins only after finalization and verified
+upload. Cancellation or termination before that point can leave no artifact.
+The GitHub workflow run and attempt record the incomplete admission or failure.
+They do not prove a frozen denominator or individual terminal outcomes.
+Recovery starts a fresh review when no verified sealed candidate exists.
+It cannot claim coverage, replay model work, or advance a checkpoint from the
+workflow run record alone.
 
 ### requirement-canonical-manifest-bytes
 
@@ -95,7 +105,7 @@ order, locale collation, or worker completion order.
 | Expected lanes and lane results | Batch ordinal, then lane-ID bytes; each pair is unique. |
 | Failure records | Run-level before item-level, then item-ID bytes (empty for run), failure-class bytes, numeric attempt, reason bytes. Exact duplicates are rejected. |
 | Retry records | Item-ID bytes, numeric attempt, invocation-ID bytes. The tuple is unique. |
-| Retained findings | Parsed generation bytes, numeric finding index; unallocated candidates are excluded from this array. |
+| Retained findings | Canonical order from [RetainedFinding](./2026-09-05-versioned-pull-request-review-comments.md#requirement-retained-finding); unallocated candidates are excluded. |
 | Limitations | Limitation-code bytes, related item-ID bytes (empty if absent), explanation bytes. Exact duplicates are coalesced with a numeric occurrence count. |
 
 Failure records must contain their level, optional sealed item ID, failure
@@ -176,21 +186,95 @@ from another lane.
 
 ### requirement-finding-evidence
 
-The manifest retains each admitted finding's typed FindingEvidence and
-LocationStatus from the
-[scope contract](./2026-09-13-incremental-pull-request-review-scope.md#requirement-new-finding-admission).
-The finding references one sealed item and its evidence digest. The trusted
-finalizer verifies its primary changed-line or changed-tree-entry anchor
-against that frozen item: pr-patch for a baseline, change-evidence for an
-incremental run. Full PR patch context from an earlier hunk cannot satisfy
-an incremental cause anchor. The finalizer also verifies that the cause is
-part of the current PR patch, not only an imported target-branch change in
-the same path. It records a typed unlocated or
-ambiguous status with a visible limitation when a safe line is unavailable.
-A finding without valid evidence is invalid; a safe but unlocated finding
-remains visible in the summary. The trusted comment persists the same bounded
-finding fields so later runs do not depend on an expired artifact for finding
-continuity.
+This specification owns the strict evidence and location models. The scope
+gate validates them before stable-ID allocation. Both persistence sinks reuse
+these schemas and the same validated
+[RetainedFinding](./2026-09-05-versioned-pull-request-review-comments.md#requirement-retained-finding)
+values. Unknown fields fail validation.
+
+```text
+EvidenceExcerpt =
+  | { kind: "clear"
+      value: nonempty UTF-8 string, at most 500 bytes
+      excerptDigest: lowercase SHA-256 of original excerpt bytes }
+  | { kind: "withheld"
+      excerptDigest: lowercase SHA-256 of original excerpt bytes
+      redactionPolicyId: "review.secret-redaction/v1"
+      ruleIds: 1 to 8 trusted rule IDs, each at most 64 bytes }
+
+FindingEvidence = {
+  itemId: sealed ManifestItem ID
+  evidenceForm: "pr-patch" | "change-evidence"
+  itemEvidenceDigest: lowercase SHA-256 matching that item
+  path: validated relative path, at most 512 bytes
+  supportingEvidence: array of at most 4 {
+    role: "cause" | "source" | "sink" | "guard"
+    path: validated relative path, at most 512 bytes
+    sourceRevision: full Git commit SHA
+    sourceDigest: lowercase SHA-256
+    excerpt: EvidenceExcerpt
+  }
+} & (
+  | { anchorKind: "changed-text"
+      side: "old" | "new"
+      sourceRevision: full Git commit SHA
+      sourceDigest: lowercase SHA-256 of frozen source bytes
+      excerpt: EvidenceExcerpt
+      changedStartLine: positive integer
+      changedEndLine: integer >= changedStartLine }
+  | { anchorKind: "changed-tree-entry"
+      beforeEntryDigest: lowercase SHA-256 or absent
+      afterEntryDigest: lowercase SHA-256 or absent }
+)
+
+LocationStatus =
+  | { kind: "located"; side: "old" | "new";
+      startLine: positive integer; endLine: integer >= startLine }
+  | { kind: "unlocated"; reason: sanitized nonempty string, at most 2,000 bytes }
+  | { kind: "ambiguous"; reason: sanitized nonempty string, at most 2,000 bytes;
+      candidateCount: positive integer }
+```
+
+The [scope admission rules](./2026-09-13-incremental-pull-request-review-scope.md#requirement-new-finding-admission)
+own eligible changed causes and identity derivation. The finalizer validates
+original source bytes before redaction. Withheld excerpts retain source digests
+and locally proved locations. Redaction cannot validate missing or false evidence.
+A new finding references one current sealed item. Carried findings keep the
+evidence origin defined by the retained-finding contract.
+
+### requirement-evidence-redaction
+
+The trusted finalizer applies `review.secret-redaction/v1` before artifact
+serialization and before constructing trusted comment state. The renderer
+consumes only that sanitized state. Markdown escaping does not remove secrets.
+The policy ID, ordered rule IDs, and policy digest belong to frozen provenance.
+PR content and model output cannot change the policy.
+
+The policy includes deterministic rules for these values:
+
+- Private-key PEM blocks, including multiline content.
+- GitHub tokens with `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, or `github_pat_` prefixes.
+- AWS access-key IDs and their secret-key assignment values.
+- API keys and bearer credentials with recognized provider or authorization prefixes.
+- Values assigned to password, secret, token, API-key, client-secret, or private-key names, ignoring name case.
+- Exact known credential values from the trusted runtime, without persisting those values in policy metadata.
+
+Each rule has a pinned bounded matcher and representative fixtures.
+The implementation tests multiline, quoted, escaped, and nested-field inputs.
+It scans every persisted text field, including findings, verification, failure
+reasons, limitations, and provenance. It never stores raw input in failure logs.
+An unsafe or unclassifiable excerpt becomes `withheld`. No unsafe substring survives.
+Other unsafe text becomes `[redacted]` and adds a bounded redaction limitation.
+Identity fields and paths cannot be rewritten into display placeholders.
+If they contain unsafe text, validation fails before persistence.
+If safe serialization cannot be proved, publication fails before either sink.
+
+Identity and source hashes come from locally validated original bytes before
+redaction. The stored identity inputs contain the cause digest, not secret text.
+Clear excerpts must match their digest. Withheld excerpts retain the original
+digest, policy ID, rule IDs, and hash-and-location evidence only.
+Their variants cannot contain a `value` field. Later readers validate the
+stored identity from its typed digest inputs without reconstructing secret text.
 
 ### requirement-manifest-lifecycle
 
@@ -214,11 +298,49 @@ immutable GitHub Actions artifact for the trusted workflow run and attempt.
 There is no initial artifact, append sequence, journal artifact, or cross-run
 resume. The adapter validates schema, canonical bytes, artifact ID, repository,
 workflow run and attempt, ScopeIdentity, and SHA-256 digest before passing a
-ManifestReference to the final publisher. The publisher downloads that same
-artifact and repeats these checks before it enters the publication queue;
-an invalid artifact prevents publication. The reference contains those
-identities plus manifest run ID, reviewed revision, schema version, artifact
-ID, uncompressed byte count, and digest. It has no snapshot sequence.
+ManifestReference to the final publisher. This specification owns its strict schema:
+
+```text
+ManifestReference = {
+  schemaVersion: 1
+  manifestSchema: "review.run-manifest/v1"
+  repositoryId: decimal GitHub repository ID, at most 128 bytes
+  pullRequestNumber: positive integer
+  workflowId: decimal GitHub workflow ID, at most 128 bytes
+  workflowPath: trusted relative workflow path, at most 512 bytes
+  workflowDefinitionRevision: full trusted Git commit SHA
+  workflowRunId: decimal GitHub workflow run ID, at most 128 bytes
+  workflowAttempt: positive integer
+  manifestRunId: trusted review run ID, at most 128 bytes
+  reviewedRevision: full Git commit SHA
+  scopeIdentityDigest: lowercase SHA-256
+  artifactId: decimal GitHub artifact ID, at most 128 bytes
+  artifactName: canonical nonempty name, at most 256 bytes
+  compressedBytes: positive integer, at most 512 KiB
+  uncompressedBytes: positive integer, at most 2 MiB
+  digest: lowercase SHA-256 of canonical uncompressed manifest bytes
+  readback: "verified"
+}
+```
+
+IDs are nonzero decimal strings. Unknown fields and snapshot sequences fail
+validation. The adapter binds the fetched artifact to the exact repository,
+allowlisted default-branch workflow definition, run, attempt, and canonical name.
+The definition revision must be reachable from the trusted default branch.
+Compressed bytes count the archive entry's compressed manifest payload.
+Uncompressed bytes count its canonical manifest bytes. Both declared counts
+must match measured entry bytes. Outer archive limits remain subject to the
+pending storage-budget alignment. This model does not change those budgets.
+Stream limits apply before archive extraction, decompression, UTF-8 decoding,
+JSON parsing, or hashing. Duplicate entries, traversal paths, symlinks, unexpected
+entries, malformed bytes, and noncanonical JSON fail validation.
+
+The publisher downloads that exact artifact and repeats ownership, schema,
+canonical-byte, scope, revision, size, and digest validation before queue entry.
+It repeats live publication guards inside the queue. Failed, missing, or unknown
+readback prevents a verified reference and any comment write.
+Only successful measured readback produces `readback: "verified"`.
+That field does not replace the publisher's independent validation.
 
 The v5 trusted report stores the final ManifestReference and a bounded
 manifest summary. A missing or malformed reference makes current state
@@ -284,7 +406,7 @@ The trusted sequence is:
    evidence inventory; seal the denominator before model work.
 2. Execute bounded batches and lanes; record validated results, retries,
    failures, and finding evidence in the run-local manifest.
-3. Finalize missing outcomes, reconcile findings and dispositions, derive
+3. Finalize missing outcomes, reconcile findings, derive
    execution statuses, and seal canonical bytes.
 4. Verify the final artifact size, upload it once, and verify its identity and
    digest. If any check fails, publish no v5 report.
@@ -305,6 +427,8 @@ the expected lane results, or raise a bound.
 | Uploaded artifact identity or digest is uncertain | Do not use its reference or claim publication. |
 | Rule source comes from PR text, head content, or agent | Reject it and fail closed. |
 | Provider emits an unbounded error | Persist only a sanitized bounded failure class and reason. |
+| Cancellation before finalization or verified upload | Actions records incomplete admission; no artifact or checkpoint is promised. |
+| Evidence excerpt contains a secret or cannot be safely classified | Persist only the bounded withheld variant, source hashes, and validated location. |
 
 ## Migration
 
@@ -326,6 +450,17 @@ ledger, or progress marker is treated as a manifest.
   become failed/unknown and cannot advance the checkpoint.
 - Test finding evidence digest binding and located, unlocated, and ambiguous
   status against frozen evidence.
+- Test the canonical RetainedFinding and ManifestReference schemas at both
+  persistence boundaries. Reject unknown fields, wrong repository or workflow,
+  wrong run or attempt, mismatched scope, sizes, digests, and failed readback.
+- Test bounded extraction, duplicate or unexpected entries, traversal paths,
+  malformed UTF-8, noncanonical JSON, and expansion beyond declared sizes.
+- Test cancellation before admission completes, during model work, and before
+  verified upload. Reconcile incomplete Actions runs without inventing outcomes.
+- Test pinned redaction fixtures for PEM, GitHub, AWS, provider, bearer, and
+  sensitive-assignment values, including multiline, quoted, escaped, and nested input.
+  Check both artifact bytes and hidden state. Unsafe excerpts retain matching
+  digest inputs and validated location, with no raw credential or value field.
 - Test one final upload per run, pre-upload size rejection, upload/readback
   uncertainty, access control, redaction, retention, expiry, and platform
   quota failures.
@@ -350,6 +485,10 @@ ledger, or progress marker is treated as a manifest.
   external coordinator or cross-run resume is required.
 - Trusted, typed, hashed rule sources and bounded finding evidence are
   recorded without accepting rules from PR content or agents.
+- Early cancellation has an explicit incomplete Actions record and no promised
+  persisted denominator. Recovery cannot advance a checkpoint from that record.
+- Both sinks use canonical finding and evidence models with trusted redaction.
+  Unsafe excerpts preserve validated identity and location without source secrets.
 - The verified manifest reference is carried into the trusted report, while
   the versioned-comment contract remains the sole checkpoint owner.
 

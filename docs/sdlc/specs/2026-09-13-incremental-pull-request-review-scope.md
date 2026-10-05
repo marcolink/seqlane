@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-13
-updated: 2026-09-24
+updated: 2026-10-05
 upstream:
   - spec.versioned-pull-request-review-comments
   - spec.review-run-manifest-and-provenance
@@ -27,10 +27,11 @@ cancelled, sees a stale head, or cannot cover its whole eligible scope does not
 advance that checkpoint. Scope selection and finding admission are deterministic
 Action-library behavior, not agent discretion.
 
-Each admitted run also produces one versioned, machine-readable manifest. The
-manifest records frozen input, provenance, coverage outcomes, limitations, and
-terminal status. The authoritative comment remains the trusted cross-run
-checkpoint; it is not the complete execution trace.
+Runs that reach finalization assemble one versioned, machine-readable manifest.
+The manifest records frozen input, provenance, coverage outcomes, limitations,
+and terminal status. Early cancellation may leave only an incomplete Actions run.
+The [manifest durability contract](./2026-09-14-review-run-manifest-and-provenance.md#requirement-versioned-manifest)
+defines that boundary. The authoritative comment remains the cross-run checkpoint.
 
 This specification owns review scope and checkpoint semantics. The
 [versioned-comment specification](./2026-09-05-versioned-pull-request-review-comments.md)
@@ -122,7 +123,7 @@ Only `absent` and `legacy` select baseline mode. `invalid-current` must never
 be relabeled as `absent` or `legacy`. Reuse this classifier without variation
 in scope selection, migration, and publication.
 
-A legacy v3 publication progress marker is not a v5 checkpoint. Scope
+A current v4 publication progress marker is not a v5 checkpoint. Scope
 selection ignores that notice and uses the last completed trusted state.
 The v5 path writes no progress marker or pending report.
 
@@ -220,45 +221,13 @@ validate paths against the exact `R` and cause anchors calculated for that
 run, not a model-supplied list. Agent output cannot widen the scope or assign
 final IDs.
 
-Every proposed new finding must have bounded evidence from a sealed
-ManifestItem. The trusted finalizer, not the agent, validates this strict model
-and persists it in both the sealed manifest and bounded trusted report state:
-
-```text
-FindingEvidence = {
-  itemId: sealed ManifestItem ID
-  evidenceForm: "pr-patch" | "change-evidence"
-  itemEvidenceDigest: lowercase SHA-256 matching that item
-  path: validated relative path matching that item
-  supportingEvidence: array of at most 4 {
-    role: "cause" | "source" | "sink" | "guard"
-    path: validated relative path
-    sourceRevision: full Git commit SHA
-    sourceDigest: lowercase SHA-256
-    excerpt: nonempty UTF-8 string, at most 500 bytes
-    excerptDigest: lowercase SHA-256
-  }
-} & (
-  | { anchorKind: "changed-text"
-      side: "old" | "new"
-      sourceRevision: full Git commit SHA
-      sourceDigest: lowercase SHA-256 of frozen source bytes
-      excerpt: nonempty UTF-8 string, at most 500 bytes
-      excerptDigest: lowercase SHA-256 of exact excerpt bytes
-      changedStartLine: positive integer
-      changedEndLine: integer >= changedStartLine }
-  | { anchorKind: "changed-tree-entry"
-      beforeEntryDigest: lowercase SHA-256 or absent
-      afterEntryDigest: lowercase SHA-256 or absent }
-)
-
-LocationStatus =
-  | { kind: "located"; side: "old" | "new";
-      startLine: positive integer; endLine: integer >= startLine }
-  | { kind: "unlocated"; reason: bounded nonempty string }
-  | { kind: "ambiguous"; reason: bounded nonempty string;
-      candidateCount: positive integer }
-```
+Every proposed new finding references a sealed ManifestItem. The finalizer
+uses the canonical
+[FindingEvidence and LocationStatus](./2026-09-14-review-run-manifest-and-provenance.md#requirement-finding-evidence)
+models. This specification owns cause admission and identity derivation, not
+the persisted evidence shape. Both sinks receive the finalizer's validated,
+redacted value under the
+[evidence redaction contract](./2026-09-14-review-run-manifest-and-provenance.md#requirement-evidence-redaction).
 
 New-baseline and legacy-replacement findings reference a pr-patch item;
 incremental findings reference a change-evidence item. A no-change run cannot
@@ -298,9 +267,10 @@ collapsing ASCII whitespace runs to one space. For a tree-entry change, it
 hashes the before and after entry digests, including an explicit absent side.
 The occurrenceKey is SHA-256 of canonical JSON containing identityKey, the
 validated primary path, and the ordered supporting-evidence roles, paths,
-source digests, and excerpt digests. Canonical JSON sorts object keys and
-preserves array order. The finalizer persists both keys and their typed
-inputs so a later reader can validate the derivation.
+source digests, and `excerpt.excerptDigest` values. Canonical JSON sorts object keys and
+preserves array order. The finalizer calculates hashes from validated original
+bytes before redaction. It persists both keys and typed digest inputs in
+RetainedFinding. It never retains unsafe source text as an identity input.
 
 Equal keys permit deduplication only when local evidence yields one
 unambiguous occurrence. Different supporting contexts or paths remain
@@ -349,17 +319,15 @@ validity is established by current-head evidence, not range membership.
 
 Comparison must produce four disjoint outcomes: `new`, `persisting`, `resolved`,
 and `not_reviewed`. `comparisonOutcome` is a separate typed field from lifecycle
-status, severity, and disposition. A finding can be `resolved` only after the
+status and severity. A finding can be `resolved` only after the
 later run reviewed the relevant path and current-head verification supports that
 result. An incremental run that did not select a path must preserve the finding
 as `not_reviewed` and carry its lifecycle forward.
 
 The report state and machine-readable manifest must persist the outcome for each
 retained finding. The human projection must render `not_reviewed` distinctly
-from `resolved`, including the omitted scope. Verification and authorized
-dispositions have precedence over comparison presentation: a disposition can
-keep a finding addressed or dismissed, while `not_reviewed` cannot alter its
-lifecycle. Only current-head verification can establish `resolved` or
+from `resolved`, including the omitted scope. Comparison cannot alter lifecycle
+without current-head verification. Only that verification establishes `resolved` or
 `reopened`.
 
 ### requirement-run-manifest-and-lifecycle
@@ -382,8 +350,8 @@ and `R`, while the manifest spec records why each path was selected or excluded.
 The authoritative comment's validated new-version state must persist one
 scope checkpoint alongside the existing `reviewedRevision`, `baseRevision`,
 findings, and next finding index. The existing `reviewedRevision` is `C`. The
-added `scopeCheckpoint` property has this logical shape; the owning Zod schema
-must be strict:
+canonical `ScopeCheckpoint` stored in `scopeCheckpoint` has this logical shape.
+Its Zod schema must be strict:
 
 ```json
 {
@@ -413,23 +381,16 @@ must require each retained finding ID to name that generation and must keep
 `nextFindingIndex` above every allocated index. The publisher must not migrate
 old finding aliases into the new generation.
 
-The run metrics ledger is unchanged and is never a checkpoint source. The
-manifest is the source for coverage and lifecycle evidence; the ledger remains
-the source for rendered run metrics.
+Metrics are never a checkpoint source. The manifest owns execution evidence.
+the versioned-comment specification owns lifecycle and published cost.
 Previous-report timestamps, GitHub run IDs, and `previousReviewedRevision` are
 not eligibility anchors.
 
-The schema-evolution matrix is canonical:
-
-| State revision | Fields and marker | Readers | Migration and replacement |
-| --- | --- | --- | --- |
-| v3 | Earlier disposition-bearing state and v3 marker. | No current state reader. | The trusted report can be replaced; findings are not imported. |
-| v4 | Current command-free lifecycle state, v4 marker, numeric finding IDs. | Current v4 reader. | Becomes an older report when v5 scope is enabled; replaced by a fresh baseline. |
-| v5 | Proposed state with `scopeCheckpoint`, generation-qualified finding IDs, typed identities and comparisons, strict run status, required sealed manifest and final-operation references with digests, and the v5 marker. | v5 reader only for current operation; older readers reject it. | Older reports are replaced by a fresh v5 baseline. Invalid v5 state is `invalid-current` and fails closed. |
-
-The v5 schema is the only target for the incremental scope implementation.
-The outer state revision, metadata marker, and compressed envelope must agree.
-A trusted old report is replaced; it is never partially migrated into v5.
+The versioned-comment specification owns the
+[schema-evolution matrix](./2026-09-05-versioned-pull-request-review-comments.md#requirement-state-versions).
+The v5 schema is the only target for incremental scope. Its marker, state,
+and compressed envelope must agree. A trusted old report is replaced, never
+partially migrated into v5.
 
 ### requirement-complete-evidence
 
@@ -700,10 +661,10 @@ baseline. At initial delivery this includes v1 through v4. The workflow
 must not parse the old report as a checkpoint, migrate its findings, carry
 its IDs, or append its run metrics. It may read only enough trusted marker data to identify the report
 and guard its update.
-The new baseline covers the complete current `B...H` diff, creates a new
-generation, resets the finding index and metrics ledger, and writes one new
-report body. The old report remains visible until this baseline succeeds. A
-failed or stale baseline leaves it unchanged after owned-marker cleanup.
+The new baseline covers the complete current `B...H` diff and creates a new generation.
+It resets the finding index and published cost period, then writes one new report body.
+The old report remains visible until this baseline succeeds. A
+failed or stale baseline leaves it unchanged.
 
 The state classification in `requirement-scope-selection` governs this path.
 In particular, a malformed current-version state must not be relabeled as a
@@ -754,7 +715,7 @@ force-push, retargeting, model change, or state parse failure.
   location-independent deduplication, and `new`, `persisting`, `resolved`, and
   `not_reviewed` comparison outcomes.
 - Test reworded summaries, changed recommendations, and moved source with the
-  same verified occurrence: retain keys, public IDs, dispositions, and history.
+  same verified occurrence: retain keys, public IDs, and history.
   Distinct supporting contexts stay separate; ambiguous or unsupported
   evidence cannot receive a guessed key. Reject model-supplied keys and
   normalizer drift without requiring a language-specific source parser.
@@ -763,7 +724,7 @@ force-push, retargeting, model change, or state parse failure.
   checkpoint intact but disable old audit reads.
 - Test rule precedence, exclusion explanations, provenance hashes, the
   single bounded summary, uncertain-write readback, and failed upload.
-- Test that a legacy v3 progress marker cannot be parsed as a v5 checkpoint
+- Test that a current v4 progress marker cannot be parsed as a v5 checkpoint
   and that failed legacy replacement preserves the old report.
 - Run the repository test-mapping check before focused tests. Run focused
   Action-library integration tests, schema compatibility and malformed-input

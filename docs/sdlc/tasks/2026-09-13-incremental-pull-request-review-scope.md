@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-13
-updated: 2026-09-24
+updated: 2026-10-05
 upstream:
   - spec.incremental-pull-request-review-scope
 supersedes: []
@@ -74,36 +74,40 @@ Preserve the state, lifecycle, trust, and publication rules in
    verification, configured lanes, and synthesis. Add the deterministic
    new-finding path and changed-anchor gate, first-observed revision, typed
    evidence and location status, evidence-backed identity, and typed
-   comparison outcomes.
+   comparison outcomes. Reuse the canonical RetainedFinding and evidence schemas.
 5. Preserve prior findings and compute a cumulative verdict. Skip discovery
    lanes for empty scope; still verify retained findings as required.
 6. Add the Action-owned run-local manifest, sealed item and expected-lane
    denominator, one-to-one terminal outcomes, provenance and trusted rule
-   validation. Bound final canonical bytes, upload one GitHub Actions
-   artifact, verify its reference, and require it in v5 state. Give the
-   publisher only the artifact-read and PR-comment-write permissions it needs;
-   do not grant artifact or comment write access to review-target code.
-7. Split review computation from final publication. Route all bot comment
-   writers, including mechanical dispositions, through one per-PR
-   non-cancelling GitHub Actions queue. Re-read live report and command
-   ledger after queue admission. Publish one bounded authoritative summary
-   only when the sealed run is complete and all guards pass. Reconcile an
-   ambiguous response by exact readback without issuing a duplicate write.
+   validation. Apply the pinned redaction policy before both persistence sinks.
+   Bound final canonical bytes, upload one GitHub Actions artifact, validate the
+   canonical ManifestReference, and require it in v5 state.
+7. Use separate computation, publisher, recovery inspection, and recovery
+   dispatch jobs under the canonical publication permissions contract.
+   Isolate model workers from GitHub and artifact runtime credentials.
+   Register the publisher before queue entry. Route review publishers alone
+   through the canonical non-cancelling per-PR queue. Re-read the live report
+   and PR after admission. Block every later write while an earlier request
+   has an unknown effect. Replay the existing sealed candidate only after
+   proving no previous write can complete. Never upload a second manifest.
 8. Thread one typed ScopeIdentity through evidence, lanes, finalization,
    artifact, and publication. Re-read target branch, base revision, head,
    report identity, and checkpoint before the final write.
 9. Update documentation and run focused, contract, and hosted workflow
-   checks. Keep legacy v3 progress behavior clearly separate from v5.
+   checks. Keep current v4 progress and ledger behavior separate from planned v5.
 
 ## Affected areas
 
-- `libs/action-code-review/src/workflows/review-contracts.ts`
-- `libs/action-code-review/src/workflows/review-history.ts`
-- `libs/action-code-review/src/workflows/review-git-evidence.ts`
-- `libs/action-code-review/src/workflows/review-workflow.ts`
-- `libs/action-code-review/src/workflows/review-lanes.ts`
-- `libs/action-code-review/src/workflows/review-synthesis.ts`
-- `libs/action-code-review/src/workflows/review-finalization.ts`
+- `libs/action-code-review/src/contracts.ts`
+- `libs/action-code-review/src/review-history.ts`
+- `libs/action-code-review/src/workflows/publication-workflow.ts`
+- `workflows/code-review/contracts.ts`
+- `workflows/code-review/workflow.ts`
+- `workflows/code-review/tasks/review-history.ts`
+- `workflows/code-review/tasks/review-git-evidence.ts`
+- `workflows/code-review/tasks/review-lanes.ts`
+- `workflows/code-review/tasks/review-synthesis.ts`
+- `workflows/code-review/tasks/review-finalization.ts`
 - `libs/action-code-review/src/publication-*.ts`
 - `libs/action-code-review/src/review-run.ts`
 - `libs/action-code-review/README.md`
@@ -124,10 +128,15 @@ Preserve the state, lifecycle, trust, and publication rules in
   added, removed, zero-hunk tree-entry, and no-change evidence; validate
   the cause locally before ID allocation.
 - Test two baseline publishers and concurrent report updates in the same
-  shared queue, disposition reconciliation, stale guards, queue overflow,
-  ambiguous-write readback, and one final authoritative comment.
+  shared queue. Test stale guards, queue overflow, safe replay, duplicate dispatch,
+  and cancellation during a write. Prove that one authoritative comment remains.
+- Test explicit job permissions and the model worker's environment and storage
+  boundary. Prove only the trusted publisher can write the bot comment.
 - Test byte-stable manifests, pre-upload size failure, one verified artifact,
   artifact expiry, and missing-reference refusal without a baseline reset.
+- Test canonical model reuse, strict references, owner-link consistency, and
+  early cancellation without a promised manifest. Test representative redaction
+  fixtures in both sinks and hash-and-location-only evidence for unsafe excerpts.
 - Run pnpm docs:index, pnpm docs:validate, formatting, and git diff --check.
 - Run the hosted workflow on an open PR for a baseline, a changed-file
   follow-up, and a same-head follow-up. Inspect authoritative state and
@@ -153,3 +162,5 @@ Planned. No implementation or target-branch delivery claim is made here.
 
 - Contract: [spec.incremental-pull-request-review-scope](../specs/2026-09-13-incremental-pull-request-review-scope.md)
 - State and lifecycle: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md)
+- Execution evidence: [spec.review-run-manifest-and-provenance](../specs/2026-09-14-review-run-manifest-and-provenance.md)
+- Publication permissions and recovery: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-permissions)

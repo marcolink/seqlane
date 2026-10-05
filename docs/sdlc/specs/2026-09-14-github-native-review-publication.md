@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-24
+updated: 2026-10-05
 upstream:
   - adr.review-publication-without-comment-commands
   - spec.versioned-pull-request-review-comments
@@ -26,12 +26,14 @@ This draft proposes changes to the storage and projection parts of
 [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md).
 It follows the superseding publication ADR, which removes the mechanical
 disposition writer.
-The existing active specification remains the current contract. PR #112 must
-reconcile that specification and its incremental-scope and manifest
-specifications with this draft before the new publication path can become
-active. The manifest specification must land with
-a stable identity and complete item, path, finding, and string limits. This
-draft alone does not authorize a second active transport or state schema.
+The existing active specification remains the current contract.
+The planned v5 transport and cost shape form one contract with PR #112.
+The versioned-comment specification owns state, lifecycle, operation identity,
+publication guards, permissions, and replay safety. The manifest specification
+owns execution, evidence, reference validation, and complete per-run bounds.
+This draft owns hidden transport, cost projection, and storage lookup.
+The storage-budget and retention alignment remains pending under `SEQ-PR112-046`.
+This draft alone does not authorize another active transport or state schema.
 
 ## Goals
 
@@ -119,8 +121,9 @@ The publisher renders visible text only from the same state it writes. No separa
 Bounded detailed metrics belong in the run artifact.
 
 The trusted renderer treats model output, PR text, paths, provenance, and
-artifact evidence as untrusted. It redacts known credentials and secret-like
-values before either sink. It escapes Markdown and HTML metacharacters in
+artifact evidence as untrusted. The
+[canonical evidence redaction policy](./2026-09-14-review-run-manifest-and-provenance.md#requirement-evidence-redaction)
+runs before either sink. The renderer escapes Markdown and HTML metacharacters in
 every untrusted projection field; no untrusted string becomes raw HTML or a
 Markdown link. Links are constructed only from validated GitHub identities
 or an explicitly allowlisted HTTPS URL. Reject `javascript:`, `data:`,
@@ -261,23 +264,12 @@ without verified source evidence.
 The new review path makes one final authoritative-comment mutation. Job and
 step status show progress. It creates no progress notice or inline finding
 comment. The existing v4 progress path remains legacy until replacement.
-Review computation may be cancelled when a newer revision arrives. Final review publication uses a non-cancelling per-PR Actions queue. Every publisher uses the exact case-normalized key
-`seqlane-review-publication-<repository-id>-<pr-number>`. It uses `queue: max`
-without `cancel-in-progress: true`.
-GitHub allows up to 100 pending jobs in that group; overflow is cancelled and
-must be visible. Queue admission alone is not durable delivery. A cancelled
-pending publisher is recovered from its sealed GitHub Actions candidate
-artifact. The default-branch recovery dispatcher handles producer and
-publisher `workflow_run: completed` events and sweeps terminal
-runs and candidate artifacts on a schedule. It re-dispatches a trusted
-publisher only after proving the earlier attempt did not send a comment
-write. The replay retains the original review run ID and attempt, but uses
-its own writer run ID. It checks the current head and state; a superseded
-review becomes stale. Duplicate recovery
-events can dispatch duplicate attempts, but the shared queue and source
-identity check make them idempotent. A cancelled replay is eligible for the
-same recovery. Recovery failure remains visible and retains a review
-candidate until safe replay, cleanup, or expiry; it cannot claim publication.
+The versioned-comment specification owns the canonical
+[publication queue](./2026-09-05-versioned-pull-request-review-comments.md#requirement-serialized-publication),
+[recovery safety gate](./2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-recovery),
+and [job permissions](./2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-permissions).
+The registration and lookup design below supplies durable source and writer
+identities for those guards. Queue overflow is not proof of delivery.
 
 The review producer is outside the publication queue. After successful model
 work, it seals, uploads, and verifies the candidate artifact, then dispatches
@@ -290,25 +282,10 @@ A cancellation after upload is recoverable from the candidate even if the
 initial dispatch was never sent. The hidden state records consumed source
 identities, so a replay or duplicate dispatch becomes a no-op after publication.
 
-A queued publisher re-reads the live PR and trusted comment. It validates
-the captured scope, report identity, checkpoint, head, base, and target. A
-stale attempt makes no write.
-
-The hidden state stores one typed `PublicationOperation`:
-
-```text
-PublicationOperation = {
-  schemaVersion: 1,
-  writerKind: "full-review",
-  pullRequestNumber: positive integer,
-  stateRevision: positive integer,
-  writerRunId: decimal GitHub workflow run ID,
-  writerAttempt: positive integer,
-  source: { kind: "review", sourceRunId: decimal GitHub run ID,
-            sourceAttempt: positive integer, scopeIdentityDigest: SHA-256 },
-  payloadDigest: lowercase SHA-256
-}
-```
+The hidden state uses the strict
+[PublicationOperation](./2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-state-machine)
+model. Its identity, state revision, digest calculation, exact readback, and
+uncertain-write handling have one owner in the versioned-comment specification.
 
 The store index also records one typed review publication link:
 
@@ -349,40 +326,22 @@ writer accepts only that registered link. A replay retains the source,
 producer, and candidate fields and replaces only the publisher registration
 after proving that no prior write can still complete.
 
-`stateRevision` is exactly one greater than the freshly read trusted state,
-including `EmptyReviewState` revision 0.
-The writer identity and source are validated, never supplied by model output.
-To calculate `payloadDigest`, render the deterministic complete comment with
-only that digest field omitted from the state. Hash those UTF-8 bytes. Then
-set the digest, rerender, and send the final body. On readback, parse the
-hidden state, verify the typed operation, rerender with only the digest field
-omitted, and compare the hash. An uncertain current attempt counts as
-published only when the live bot comment's ID, complete body bytes, operation
-identity, and artifact reference exactly match its submitted candidate.
+The publisher applies the canonical operation and recovery contracts before
+its final write. Candidate cleanup requires proof that the source was not
+published and no write can still complete. A missing comment is insufficient.
+The candidate name includes the trusted PR number, producer run ID, and attempt.
+Recovery resolves the producer and exact artifact ID from ReviewPublicationLink.
+it never searches the publisher run for review evidence.
 
-The single confirmed final comment write is the checkpoint commit point.
-GitHub comment POST and PATCH are not
-compare-and-swap operations; this guarantee covers configured writers using
-the shared queue. A writer outside the queue violates the contract.
-
-Upload and verify the artifact before the final comment write. If the write
-result is ambiguous, read the trusted comment and accept only an exact
-operation identity and body match. Do not send another write while the first
-may complete. A known failed write leaves the old checkpoint authoritative.
-Delete a candidate artifact only after proving it was not published. The
-candidate name includes the trusted PR number, producer run ID, and attempt.
-Recovery resolves the producer run and exact artifact ID from the verified
-`ReviewPublicationLink`; it never searches the publisher run for review
-evidence.
 The `workflow_run: completed` event triggers an independent Action-owned
 reconciler from the default branch. Before listing, replaying, or deleting,
 it fetches the event run and linked producer or publisher jobs as applicable
-through the GitHub API. It requires the run and artifact to belong to the
-current repository; an allowlisted workflow ID and file path whose definition
-commit is reachable from the trusted default branch; matching run ID, attempt,
-PR number, artifact name, and artifact owner; an event of
-`pull_request_target` or `workflow_dispatch`; and the
-allowlisted publisher job belonging to that run. It compares the event hint
+through the GitHub API. The run and artifact must belong to the current repository.
+The workflow ID and file path must be allowlisted.
+The definition commit must be reachable from the trusted default branch.
+Run ID, attempt, PR number, artifact name, and artifact owner must match.
+The event must be `pull_request_target` or `workflow_dispatch`.
+The allowlisted publisher job must belong to that run. It compares the event hint
 with the fetched run before trusting either.
 For `pull_request_target`, it rechecks the live PR and excludes fork-origin
 reviews. A
@@ -390,10 +349,11 @@ reviews. A
 definition; PR-branch dispatches are excluded. A replay dispatch also has to
 match its validated original source identity. Event payloads and artifacts
 are untrusted hints.
-The reconciler never executes PR-controlled code or artifact content, and
-validates artifact bytes before use. Its inspection job has only Actions and
-PR/issue read access. Only a separate recovery job receives `actions: write`
-for dispatch or deletion. Neither job receives comment-write permission.
+The reconciler never executes PR-controlled code or artifact content.
+Its jobs follow the canonical publication permissions contract.
+Inspection validates artifact bytes and produces a bounded recovery plan.
+The separate recovery writer dispatches, deletes, or updates the cursor and index
+only from that validated plan. Neither job receives comment-write permission.
 
 The scheduled sweep has fixed limits of ten API pages, 1,000 examined runs,
 and five minutes per invocation. Its strict cursor is part of the
@@ -440,12 +400,13 @@ visible Markdown projection
 ```
 
 The unqueued producer validates the sealed run, uploads and verifies its
-candidate artifact, and dispatches the separate publisher. The publisher
-enters the shared queue, verifies the existing candidate, reads the live PR,
-uses the authority index and bounded reconciliation to prove comment
-uniqueness, reconciles authorized decisions, merges the run into the current
-state, renders the projection and hidden state, checks sizes, writes the final
-comment, and reconciles the result. A replay publisher verifies the same
+candidate artifact, and dispatches the separate publisher.
+The publisher enters the shared queue and validates the existing candidate.
+It reads the live PR and proves comment uniqueness through the authority index
+and bounded reconciliation. Then it applies the recovery gate and merges the
+run into current state. It renders the projection and hidden state, measures
+sizes, writes the final comment, and reconciles the result.
+A replay publisher validates the same
 candidate instead of uploading another artifact. The comment reference makes
 it published.
 
@@ -515,16 +476,17 @@ new state version rather than treating two schemas as v5.
 
 This is a draft future contract, not an amendment to the current active
 review-comment specification. Implementation is pending. It cannot become
-active until PR #112 lands a canonical manifest specification with stable ID
-and complete bounds, updates the existing review-comment contract, and aligns
-the single v5 schema. No delivery is claimed here.
+active until the canonical manifest and single v5 state contracts land, and
+the storage-budget and retention decision in `SEQ-PR112-046` is reconciled.
+No implementation delivery is claimed here.
 
 ## Traceability
 
 - Architecture: [adr.review-publication-without-comment-commands](../adrs/2026-09-24-review-publication-without-comment-commands.md)
 - Finding lifecycle: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
 - Incremental scope: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
-- Proposed scope and manifest: [PR #112](https://github.com/marcolink/seqlane/pull/112)
+- Execution evidence: [spec.review-run-manifest-and-provenance](./2026-09-14-review-run-manifest-and-provenance.md)
+- Contract integration: [PR #112](https://github.com/marcolink/seqlane/pull/112)
 - Queue semantics: [GitHub Actions concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 - Recovery trigger: [GitHub `workflow_run` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)
 - Artifact lookup and deletion: [GitHub Actions artifacts API](https://docs.github.com/en/rest/actions/artifacts)
