@@ -8,7 +8,6 @@ import type {
   ValidationInvocationOptions,
   AuthoredWorkflow,
   RunnableDefinition,
-  FlowWorkflowOptions,
 } from "./contracts.js";
 import {
   collectDependencies,
@@ -29,8 +28,8 @@ import type {
   PlanNode,
   PlanSessionPolicy,
   RepeatNode,
-  TaskNode,
-  WorkflowNode,
+  RunnableNode,
+  OutputValidation,
   ValidationGatePolicy,
   ValidationSource,
 } from "./plan-types.js";
@@ -47,6 +46,8 @@ import type {
   ChoiceArmBuildOptions,
   ChoiceBuildOptions,
   RepeatBuildOptions,
+  RunnableBuildOptions,
+  WorkflowInvocationOptions,
 } from "./workflow-authoring-internal.js";
 
 function serializeSessionPolicy(
@@ -79,6 +80,17 @@ function registerTaskDefinition(
   taskDefinitions.set(task.id, task);
 }
 
+function registerValidatorDefinition(
+  definitions: Map<string, ValidatorDefinition<unknown>>,
+  validator: ValidatorDefinition<unknown>,
+): void {
+  const existing = definitions.get(validator.id);
+  if (existing !== undefined && existing !== validator) {
+    throw new Error(`Duplicate validator definition "${validator.id}"`);
+  }
+  definitions.set(validator.id, validator);
+}
+
 function registerWorkflowDefinition(
   workflowDefinitions: Map<string, BuiltWorkflow<unknown, unknown>>,
   workflow: AuthoredWorkflow<unknown, unknown>,
@@ -109,24 +121,20 @@ function registerWorkflowDefinition(
   return built;
 }
 
-interface RepeatConstructionContext {
+interface RunnableConstructionContext {
   readonly building: ReadonlySet<string>;
   readonly taskDefinitions: Map<TaskId, TaskDefinition<unknown, unknown>>;
   readonly validatorDefinitions: Map<string, ValidatorDefinition<unknown>>;
   readonly workflowDefinitions: Map<string, BuiltWorkflow<unknown, unknown>>;
 }
 
-function registerRepeatValidation<TaskOutput>(
+function registerOutputValidation<TaskOutput>(
   validator: import("./contracts.js").Validator<TaskOutput> | undefined,
-  context: RepeatConstructionContext,
-): RepeatNode["validation"] | undefined {
+  context: RunnableConstructionContext,
+): OutputValidation | undefined {
   if (validator === undefined) return undefined;
   if ("validate" in validator) {
-    const existing = context.validatorDefinitions.get(validator.id);
-    if (existing !== undefined && existing !== validator) {
-      throw new Error(`Duplicate validator definition "${validator.id}"`);
-    }
-    context.validatorDefinitions.set(validator.id, validator);
+    registerValidatorDefinition(context.validatorDefinitions, validator);
     return { source: { type: "mechanical", validatorId: validator.id } };
   }
   registerTaskDefinition(context.taskDefinitions, validator);
@@ -141,84 +149,96 @@ function registerRepeatValidation<TaskOutput>(
 
 function registerNestedDefinitions(
   nested: BuiltWorkflow<unknown, unknown>,
-  context: RepeatConstructionContext,
+  context: RunnableConstructionContext,
 ): void {
   for (const definition of nested.taskDefinitions.values()) {
     registerTaskDefinition(context.taskDefinitions, definition);
   }
-  for (const [id, definition] of nested.validatorDefinitions) {
-    const existing = context.validatorDefinitions.get(id);
-    if (existing !== undefined && existing !== definition) {
-      throw new Error(`Duplicate validator definition "${id}"`);
-    }
-    context.validatorDefinitions.set(id, definition);
+  for (const definition of nested.validatorDefinitions.values()) {
+    registerValidatorDefinition(context.validatorDefinitions, definition);
   }
+}
+
+/** Construct one runnable; callers decide which dependencies gate their topology. */
+function buildRunnableNode<Input, Output>(
+  nodeId: string,
+  options: RunnableBuildOptions<Input, Output>,
+  context: RunnableConstructionContext,
+): {
+  readonly node: RunnableNode;
+  readonly eligibilityDependencies: readonly string[];
+} {
+  const dependencies = new Set<string>();
+  collectDependencies(options.input, dependencies);
+  for (const dependency of options.dependsOn ?? [])
+    dependencies.add(dependency.nodeId);
+  const eligibilityDependencies = [...dependencies];
+  const common = {
+    nodeId,
+    workspace: options.workspace ?? "exclusive",
+  };
+  if (isAuthoredWorkflow(options.runnable)) {
+    const nested = registerWorkflowDefinition(
+      context.workflowDefinitions,
+      options.runnable,
+      context.building,
+    );
+    registerNestedDefinitions(nested, context);
+    return {
+      eligibilityDependencies,
+      node: {
+        type: "workflow",
+        workflowId: options.runnable.id,
+        ...common,
+        input: serializeBinding(options.input),
+        dependsOn: [...dependencies],
+      },
+    };
+  }
+  taskDefinitionSchema.parse(options.runnable);
+  const session = serializeSessionPolicy(options.session);
+  if (session !== undefined && session.type !== "isolated")
+    dependencies.add(session.from);
+  registerTaskDefinition(context.taskDefinitions, options.runnable);
+  return {
+    eligibilityDependencies,
+    node: {
+      type: "task",
+      taskId: options.runnable.id,
+      ...common,
+      ...(session === undefined ? {} : { session }),
+      input: serializeBinding(options.input),
+      dependsOn: [...dependencies],
+    },
+  };
 }
 
 function buildRepeatAttempt<TaskInput, TaskOutput>(
   nodeId: string,
   options: RepeatBuildOptions<TaskInput, TaskOutput>,
-  context: RepeatConstructionContext,
-): {
-  readonly attempt: TaskNode | WorkflowNode;
-  readonly dependencies: Set<string>;
-} {
-  const attemptNodeId = `${nodeId}:attempt`;
-  const attemptInput = createValueRef<TaskInput>(`${nodeId}:input`);
-  const attemptDependencies = new Set(
-    (options.dependsOn ?? []).map(
-      ({ nodeId: dependencyNodeId }) => dependencyNodeId,
-    ),
-  );
-  const dependencies = new Set(attemptDependencies);
-  if (isAuthoredWorkflow(options.runnable)) {
-    const nested = registerWorkflowDefinition(
-      context.workflowDefinitions,
-      options.runnable as AuthoredWorkflow<unknown, unknown>,
-      context.building,
-    );
-    registerNestedDefinitions(nested, context);
-    return {
-      dependencies,
-      attempt: {
-        type: "workflow",
-        workflowId: options.runnable.id,
-        nodeId: attemptNodeId,
-        workspace: options.workspace ?? "exclusive",
-        input: serializeBinding(attemptInput),
-        dependsOn: [...attemptDependencies],
-      },
-    };
-  }
-
-  taskDefinitionSchema.parse(options.runnable);
-  const session = serializeSessionPolicy(options.session);
-  if (session !== undefined && session.type !== "isolated") {
-    dependencies.add(session.from);
-    attemptDependencies.add(session.from);
-  }
-  registerTaskDefinition(
-    context.taskDefinitions,
-    options.runnable as TaskDefinition<unknown, unknown>,
-  );
-  return {
-    dependencies,
-    attempt: {
-      type: "task",
-      taskId: options.runnable.id,
-      nodeId: attemptNodeId,
-      workspace: options.workspace ?? "exclusive",
-      ...(session === undefined ? {} : { session }),
-      input: serializeBinding(attemptInput),
-      dependsOn: [...attemptDependencies],
+  context: RunnableConstructionContext,
+): { readonly attempt: RunnableNode; readonly dependencies: Set<string> } {
+  const inputNodeId = `${nodeId}:input`;
+  const built = buildRunnableNode(
+    `${nodeId}:attempt`,
+    {
+      ...options,
+      input: createValueRef<TaskInput>(inputNodeId),
     },
+    context,
+  );
+  // The attempt input is local to the repeat, not an external dependency.
+  const dependencies = built.node.dependsOn.filter((id) => id !== inputNodeId);
+  return {
+    attempt: { ...built.node, dependsOn: dependencies },
+    dependencies: new Set(dependencies),
   };
 }
 
 function buildRepeatNode<TaskInput, TaskOutput>(
   nodeId: string,
   options: RepeatBuildOptions<TaskInput, TaskOutput>,
-  context: RepeatConstructionContext,
+  context: RunnableConstructionContext,
 ): {
   readonly node: RepeatNode;
   readonly output: MechanicalTaskRef<TaskOutput>;
@@ -242,7 +262,7 @@ function buildRepeatNode<TaskInput, TaskOutput>(
   const result = createValueRef<TaskOutput>(attemptNodeId, ["output"]);
   const until = options.until({ result });
   const nextInput = options.nextInput?.({ input: attemptInput, result });
-  const validation = registerRepeatValidation(options.validateOutput, context);
+  const validation = registerOutputValidation(options.validateOutput, context);
   const repeatBindingDependencies = new Set<string>();
   collectDependencies(until, repeatBindingDependencies);
   if (nextInput !== undefined) {
@@ -275,65 +295,25 @@ function buildRepeatNode<TaskInput, TaskOutput>(
 function buildChoiceArm<Input, Output>(
   nodeId: string,
   options: ChoiceArmBuildOptions<Input, Output>,
-  context: RepeatConstructionContext,
+  context: RunnableConstructionContext,
 ): {
-  readonly node: TaskNode | WorkflowNode;
+  readonly node: RunnableNode;
   readonly eligibilityDependencies: readonly string[];
-  readonly validation?: { readonly source: ValidationSource };
+  readonly validation?: OutputValidation;
 } {
-  const dependencies = new Set<string>();
-  collectDependencies(options.input, dependencies);
-  for (const dependency of options.dependsOn ?? []) {
-    dependencies.add(dependency.nodeId);
+  if (
+    isAuthoredWorkflow(options.runnable) &&
+    (options.session !== undefined || options.validateOutput !== undefined)
+  ) {
+    throw new TypeError("Workflow choice arms do not accept task options");
   }
-  if (isAuthoredWorkflow(options.runnable)) {
-    if (options.session !== undefined || options.validateOutput !== undefined) {
-      throw new TypeError("Workflow choice arms do not accept task options");
-    }
-    const nested = registerWorkflowDefinition(
-      context.workflowDefinitions,
-      options.runnable as AuthoredWorkflow<unknown, unknown>,
-      context.building,
-    );
-    registerNestedDefinitions(nested, context);
-    return {
-      eligibilityDependencies: [...dependencies],
-      node: {
-        type: "workflow",
-        workflowId: options.runnable.id,
-        nodeId,
-        workspace: options.workspace ?? "exclusive",
-        input: serializeBinding(options.input),
-        dependsOn: [...dependencies],
-      },
-    };
-  }
-
-  taskDefinitionSchema.parse(options.runnable);
-  const eligibilityDependencies = [...dependencies];
-  const session = serializeSessionPolicy(options.session);
-  if (session !== undefined && session.type !== "isolated") {
-    dependencies.add(session.from);
-  }
-  registerTaskDefinition(
-    context.taskDefinitions,
-    options.runnable as TaskDefinition<unknown, unknown>,
-  );
+  const built = buildRunnableNode(nodeId, options, context);
   return {
-    eligibilityDependencies,
-    node: {
-      type: "task",
-      taskId: options.runnable.id,
-      nodeId,
-      workspace: options.workspace ?? "exclusive",
-      ...(session === undefined ? {} : { session }),
-      input: serializeBinding(options.input),
-      dependsOn: [...dependencies],
-    },
+    ...built,
     ...(options.validateOutput === undefined
       ? {}
       : {
-          validation: registerRepeatValidation(options.validateOutput, context),
+          validation: registerOutputValidation(options.validateOutput, context),
         }),
   };
 }
@@ -341,7 +321,7 @@ function buildChoiceArm<Input, Output>(
 function buildChoiceNode<TrueInput, TrueOutput, FalseInput, FalseOutput>(
   nodeId: string,
   options: ChoiceBuildOptions<TrueInput, TrueOutput, FalseInput, FalseOutput>,
-  context: RepeatConstructionContext,
+  context: RunnableConstructionContext,
 ): {
   readonly node: ChoiceNode;
   readonly output: MechanicalTaskRef<TrueOutput | FalseOutput>;
@@ -410,72 +390,36 @@ function buildWorkflowInternal<Input, Output>(
     BuiltWorkflow<unknown, unknown>
   >();
 
+  const constructionContext: RunnableConstructionContext = {
+    building,
+    taskDefinitions,
+    validatorDefinitions,
+    workflowDefinitions,
+  };
+
   function run<
     TaskInput,
     TaskOutput,
     Options extends TaskInvocationOptions<TaskInput, TaskOutput>,
   >(
     task: RunnableDefinition<TaskInput, TaskOutput>,
-    options: Options | (FlowWorkflowOptions & { readonly input: unknown }),
+    options: Options | WorkflowInvocationOptions<TaskInput>,
   ): TaskInvocation<TaskOutput, Options["session"]> {
-    if (isAuthoredWorkflow(task)) {
-      const nested = registerWorkflowDefinition(
-        workflowDefinitions,
-        task as AuthoredWorkflow<unknown, unknown>,
-        building,
-      );
-      for (const definition of nested.taskDefinitions.values()) {
-        registerTaskDefinition(taskDefinitions, definition);
-      }
-      for (const [id, definition] of nested.validatorDefinitions) {
-        const existing = validatorDefinitions.get(id);
-        if (existing !== undefined && existing !== definition) {
-          throw new Error(`Duplicate validator definition "${id}"`);
-        }
-        validatorDefinitions.set(id, definition);
-      }
-      const nodeId = nextNodeId(task.id);
-      const dependencies = new Set<string>();
-      collectDependencies(options.input, dependencies);
-      for (const dependency of options.dependsOn ?? []) {
-        dependencies.add(dependency.nodeId);
-      }
-      nodes.push({
-        type: "workflow",
-        workflowId: task.id,
-        nodeId,
-        workspace: options.workspace ?? "exclusive",
-        input: serializeBinding(options.input),
-        dependsOn: [...dependencies],
-      });
+    const taskOptions = options as Options;
+    const nodeId = nextNodeId(task.id);
+    const { node } = buildRunnableNode(
+      nodeId,
+      { ...taskOptions, runnable: task },
+      constructionContext,
+    );
+    nodes.push(node);
+    if (node.type === "workflow") {
       return {
         nodeId,
         output: createValueRef<TaskOutput>(nodeId, ["output"]),
       } as TaskInvocation<TaskOutput, Options["session"]>;
     }
-    const taskOptions = options as Options;
-    taskDefinitionSchema.parse(task);
-    const nodeId = nextNodeId(task.id);
-    const dependencies = new Set<string>();
-
-    collectDependencies(taskOptions.input, dependencies);
-    for (const dependency of taskOptions.dependsOn ?? []) {
-      dependencies.add(dependency.nodeId);
-    }
-    const session = serializeSessionPolicy(taskOptions.session);
-    if (session !== undefined && session.type !== "isolated") {
-      dependencies.add(session.from);
-    }
-    registerTaskDefinition(taskDefinitions, task);
-    nodes.push({
-      type: "task",
-      taskId: task.id,
-      nodeId,
-      workspace: taskOptions.workspace ?? "exclusive",
-      ...(session === undefined ? {} : { session }),
-      input: serializeBinding(taskOptions.input),
-      dependsOn: [...dependencies],
-    });
+    const session = node.session;
 
     const output = createValueRef<TaskOutput>(nodeId, ["output"]);
     if (taskOptions.validateOutput !== undefined) {
@@ -516,11 +460,7 @@ function buildWorkflowInternal<Input, Output>(
 
     let source: ValidationSource;
     if ("validate" in validator) {
-      const existing = validatorDefinitions.get(validator.id);
-      if (existing !== undefined && existing !== validator) {
-        throw new Error(`Duplicate validator definition "${validator.id}"`);
-      }
-      validatorDefinitions.set(validator.id, validator);
+      registerValidatorDefinition(validatorDefinitions, validator);
       source = { type: "mechanical", validatorId: validator.id };
     } else {
       registerTaskDefinition(taskDefinitions, validator);
@@ -561,12 +501,7 @@ function buildWorkflowInternal<Input, Output>(
     options: RepeatBuildOptions<TaskInput, TaskOutput>,
   ): MechanicalTaskRef<TaskOutput> => {
     const nodeId = nextNodeId("repeat");
-    const built = buildRepeatNode(nodeId, options, {
-      building,
-      taskDefinitions,
-      validatorDefinitions,
-      workflowDefinitions,
-    });
+    const built = buildRepeatNode(nodeId, options, constructionContext);
     nodes.push(built.node);
     return built.output;
   };
@@ -575,12 +510,7 @@ function buildWorkflowInternal<Input, Output>(
     options: ChoiceBuildOptions<TrueInput, TrueOutput, FalseInput, FalseOutput>,
   ): MechanicalTaskRef<TrueOutput | FalseOutput> => {
     const nodeId = nextNodeId("choice");
-    const built = buildChoiceNode(nodeId, options, {
-      building,
-      taskDefinitions,
-      validatorDefinitions,
-      workflowDefinitions,
-    });
+    const built = buildChoiceNode(nodeId, options, constructionContext);
     nodes.push(built.node);
     return built.output;
   };
