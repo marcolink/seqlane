@@ -32,7 +32,7 @@ export function resolveOpenCodeSkillDirectory(
 
 export function buildOpenCodeConfig(skillDirectory: string): string {
   return JSON.stringify({
-    model: "openai/gpt-5.6-terra",
+    model: "openai/gpt-6.1-sol",
     skills: { paths: [skillDirectory] },
     permission: {
       "*": "deny",

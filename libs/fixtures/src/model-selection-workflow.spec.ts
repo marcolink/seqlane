@@ -22,14 +22,14 @@ describe("model-selection workflow fixture", () => {
       {
         type: "isolated",
         model: {
-          model: { provider: "openai", model: "gpt-5.6-sol" },
+          model: { provider: "openai", model: "gpt-6.1-sol" },
           reasoning: "medium",
         },
       },
       {
         type: "isolated",
         model: {
-          model: { provider: "openai", model: "gpt-5.6-luna" },
+          model: { provider: "openai", model: "gpt-6-luna" },
           reasoning: "high",
         },
       },
@@ -46,7 +46,7 @@ describe("model-selection workflow fixture", () => {
         type: "branch",
         from: "model-selection.source:1",
         model: {
-          model: { provider: "openai", model: "gpt-5.6-sol" },
+          model: { provider: "openai", model: "gpt-6.1-sol" },
           reasoning: "minimal",
         },
       },

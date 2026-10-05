@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-06
-updated: 2026-09-18
+updated: 2026-10-05
 upstream:
   - adr.seqlane-action-library-boundary
   - adr.runner-built-action-bundles
@@ -723,7 +723,9 @@ the agent task contract. It is exposed as the private
 consumers must use that package or their declared compatibility re-export; do
 not duplicate the graph or import the workflow through a relative path.
 
-The resolver uses `openai/gpt-5.6-luna` with high reasoning. A model change
+The resolver workflow selects `openai/gpt-6-luna` with high reasoning.
+The dedicated OpenCode server defaults to `openai/gpt-6.1-sol`; the explicit
+workflow selection overrides this default for resolver tasks. A model change
 requires an explicit specification update and focused resolver verification.
 
 ## Verification

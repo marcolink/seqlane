@@ -168,10 +168,10 @@ async function startExternalOpenCodeFixture(): Promise<{
           all: [
             {
               id: "openai",
-              models: { "gpt-5.6-luna": { id: "gpt-5.6-luna" } },
+              models: { "gpt-6-luna": { id: "gpt-6-luna" } },
             },
           ],
-          default: { openai: "gpt-5.6-luna" },
+          default: { openai: "gpt-6-luna" },
           connected: ["openai"],
         }),
       );
@@ -495,7 +495,7 @@ describe("seqlane CLI entrypoints", () => {
           session: {
             type: "isolated",
             model: {
-              model: { provider: "openai", model: "gpt-5.6-luna" },
+              model: { provider: "openai", model: "gpt-6-luna" },
               reasoning: "high",
             },
           },

@@ -198,7 +198,7 @@ export default createFlow({
 })
   .task("context", contextTask, ({ input }) => input, {
     workspace: "shared",
-    session: isolated({ model: openai("gpt-5.6-luna") }),
+    session: isolated({ model: openai("gpt-6-luna") }),
     validateOutput: contextValidator,
   })
   .task(
@@ -207,7 +207,7 @@ export default createFlow({
     {},
     {
       workspace: "shared",
-      session: isolated({ model: openai("gpt-5.6-luna") }),
+      session: isolated({ model: openai("gpt-6-luna") }),
     },
   )
   .task("left", laneTask, ({ tasks }) => tasks.context.output, {
@@ -234,7 +234,7 @@ export default createFlow({
     { version: "v1" },
     {
       workspace: "shared",
-      session: isolated({ model: openai("gpt-5.6-luna") }),
+      session: isolated({ model: openai("gpt-6-luna") }),
     },
   )
   .task(
@@ -262,7 +262,7 @@ export default createFlow({
     }),
     {
       workspace: "shared",
-      session: isolated({ model: openai("gpt-5.6-luna") }),
+      session: isolated({ model: openai("gpt-6-luna") }),
       validateOutput: polishValidator,
     },
   )

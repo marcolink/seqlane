@@ -19,9 +19,10 @@ import {
 } from "./opencode-runtime.js";
 
 describe("resolver OpenCode runtime", () => {
-  it("keeps the pinned version, policy, and loopback binding", () => {
+  it("keeps the pinned model, version, policy, and loopback binding", () => {
     const config = buildOpenCodeConfig("/trusted/resolver-skills");
 
+    expect(config).toContain('"model":"openai/gpt-6.1-sol"');
     expect(OPENCODE_VERSION).toBe("1.18.27");
     expect(OPENCODE_ARCHIVE_SHA256).toBe(
       "4af5494f9433f59db8c1e344198f0ee72a50c06ec009fb4a8aeab4c2d4abd702",
