@@ -397,10 +397,12 @@ function buildWorkflowInternal<Input, Output>(
     );
   }
   const nodes: PlanNode[] = [];
-  const invocationCounts = new Map<string, number>();
-  const validationCounts = new Map<string, number>();
-  let repeatCount = 0;
-  let choiceCount = 0;
+  const nodeCounts = new Map<string, number>();
+  const nextNodeId = (prefix: string): string => {
+    const count = (nodeCounts.get(prefix) ?? 0) + 1;
+    nodeCounts.set(prefix, count);
+    return `${prefix}:${count}`;
+  };
   const taskDefinitions = new Map<TaskId, TaskDefinition<unknown, unknown>>();
   const validatorDefinitions = new Map<string, ValidatorDefinition<unknown>>();
   const workflowDefinitions = new Map<
@@ -432,9 +434,7 @@ function buildWorkflowInternal<Input, Output>(
         }
         validatorDefinitions.set(id, definition);
       }
-      const count = (invocationCounts.get(task.id) ?? 0) + 1;
-      invocationCounts.set(task.id, count);
-      const nodeId = `${task.id}:${count}`;
+      const nodeId = nextNodeId(task.id);
       const dependencies = new Set<string>();
       collectDependencies(options.input, dependencies);
       for (const dependency of options.dependsOn ?? []) {
@@ -455,9 +455,7 @@ function buildWorkflowInternal<Input, Output>(
     }
     const taskOptions = options as Options;
     taskDefinitionSchema.parse(task);
-    const count = (invocationCounts.get(task.id) ?? 0) + 1;
-    invocationCounts.set(task.id, count);
-    const nodeId = `${task.id}:${count}`;
+    const nodeId = nextNodeId(task.id);
     const dependencies = new Set<string>();
 
     collectDependencies(taskOptions.input, dependencies);
@@ -509,10 +507,8 @@ function buildWorkflowInternal<Input, Output>(
     policy: ValidationGatePolicy = "fail",
     nodePrefix = "validation",
   ): ValidationInvocation<Candidate> => {
-    const validationNumber = (validationCounts.get(nodePrefix) ?? 0) + 1;
-    validationCounts.set(nodePrefix, validationNumber);
-    const checkNodeId = `${nodePrefix}.check:${validationNumber}`;
-    const gateNodeId = `${nodePrefix}.gate:${validationNumber}`;
+    const checkNodeId = nextNodeId(`${nodePrefix}.check`);
+    const gateNodeId = nextNodeId(`${nodePrefix}.gate`);
     const checkDependencies = new Set<string>();
     const serializedInput = serializeBinding(options.input);
 
@@ -564,7 +560,7 @@ function buildWorkflowInternal<Input, Output>(
   const repeat = <TaskInput, TaskOutput>(
     options: RepeatBuildOptions<TaskInput, TaskOutput>,
   ): MechanicalTaskRef<TaskOutput> => {
-    const nodeId = `repeat:${(repeatCount += 1)}`;
+    const nodeId = nextNodeId("repeat");
     const built = buildRepeatNode(nodeId, options, {
       building,
       taskDefinitions,
@@ -578,7 +574,7 @@ function buildWorkflowInternal<Input, Output>(
   const choose = <TrueInput, TrueOutput, FalseInput, FalseOutput>(
     options: ChoiceBuildOptions<TrueInput, TrueOutput, FalseInput, FalseOutput>,
   ): MechanicalTaskRef<TrueOutput | FalseOutput> => {
-    const nodeId = `choice:${(choiceCount += 1)}`;
+    const nodeId = nextNodeId("choice");
     const built = buildChoiceNode(nodeId, options, {
       building,
       taskDefinitions,

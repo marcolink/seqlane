@@ -144,6 +144,9 @@ requires `.otherwise()` before another declaration or Flow output.
 `.otherwise()` supplies the false runnable, binding, and optional policy.
 Each arm contains one task or child workflow with its own typed input binding
 and ordinary invocation policy.
+All Plan declarations share one node ID allocator. A task or workflow named
+`choice` remains valid and receives a distinct ID from a generated choice,
+regardless of declaration order. Bindings refer to the allocated IDs.
 
 The condition callback returns one `ValueRef<boolean>` from workflow input or
 an earlier task result. It cannot reference the pending choice or a later

@@ -111,6 +111,10 @@ Finding `SEQ-PR170-015` runs selected-arm output validation before storing the
 result or emitting success and result events. Rejection fails the arm and
 choice. Deterministic evaluator regressions cover shared and exclusive
 workspace admission without holding the arm's execution workspace lock.
+Finding `SEQ-PR170-016` shares node ID allocation across ordinary invocations,
+choices, repeats, and validation nodes. Core regressions cover tasks and child
+workflows named `choice` in both declaration orders. Real Mastra regressions
+verify both routes and preserve the separate ordinary and choice results.
 
 ## Delivery state
 
