@@ -287,7 +287,7 @@ jobs:
           # Only base-unchanged skills staged by the resolver are visible here.
           OPENCODE_CONFIG_CONTENT: |
             {
-              "model": "openai/gpt-5.6-luna",
+              "model": "openai/gpt-6.1-luna",
               "skills": {
                 "paths": [
                   "${{ runner.temp }}/seqlane-review-skills/.agents/skills",

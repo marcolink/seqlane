@@ -35,7 +35,7 @@ Run `pnpm models:update` to refresh the committed model ID mirrors from
 models.dev. The generated catalog includes strict OpenAI and Anthropic IDs;
 other providers are intentionally left to generic string model references.
 
-Set a workflow default with `createFlow({ ..., model: { model: openai("gpt-5.6-luna"), reasoning: "high" } })`.
+Set a workflow default with `createFlow({ ..., model: { model: openai("gpt-6.1-luna"), reasoning: "high" } })`.
 New sessions use this default unless they declare a selection. One-shot agent
 invocations also use the workflow default. New or branched sessions can select
 a model explicitly:
@@ -45,7 +45,7 @@ import { isolated } from "@seqlane/core";
 import { openai } from "@seqlane/core/models";
 
 const session = isolated({
-  model: openai("gpt-5.6-luna"),
+  model: openai("gpt-6.1-luna"),
   reasoning: "high",
 });
 ```

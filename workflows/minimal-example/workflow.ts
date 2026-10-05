@@ -52,7 +52,7 @@ export default createFlow({
   .task("prepare", prepareTask, ({ input }) => input, {
     workspace: "shared",
     session: isolated({
-      model: openai("gpt-5.6-luna"),
+      model: openai("gpt-6.1-luna"),
       reasoning: "high",
     }),
     validateOutput: draftValidator,
@@ -60,7 +60,7 @@ export default createFlow({
   .task("finish", finishTask, ({ tasks }) => tasks.prepare.output, {
     workspace: "shared",
     session: isolated({
-      model: openai("gpt-5.6-luna"),
+      model: openai("gpt-6.1-luna"),
     }),
   })
   .output(({ tasks }) => tasks.finish.output)

@@ -59,7 +59,7 @@ describe("merge-conflict resolution workflow", () => {
         session: {
           type: "isolated",
           model: {
-            model: { provider: "openai", model: "gpt-5.6-luna" },
+            model: { provider: "openai", model: "gpt-6.1-luna" },
             reasoning: "high",
           },
         },

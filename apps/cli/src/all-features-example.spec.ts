@@ -50,14 +50,14 @@ describe("all-features workflow example", () => {
       workspace: "shared",
       session: {
         type: "isolated",
-        model: { model: { provider: "openai", model: "gpt-5.6-luna" } },
+        model: { model: { provider: "openai", model: "gpt-6.1-luna" } },
       },
     });
     expect(inspection).toMatchObject({
       workspace: "shared",
       session: {
         type: "isolated",
-        model: { model: { provider: "openai", model: "gpt-5.6-luna" } },
+        model: { model: { provider: "openai", model: "gpt-6.1-luna" } },
       },
     });
     expect(lanes).toHaveLength(2);
@@ -72,7 +72,7 @@ describe("all-features workflow example", () => {
       dependsOn: [],
       session: {
         type: "isolated",
-        model: { model: { provider: "openai", model: "gpt-5.6-luna" } },
+        model: { model: { provider: "openai", model: "gpt-6.1-luna" } },
       },
     });
     expect(joined).toMatchObject({
@@ -87,7 +87,7 @@ describe("all-features workflow example", () => {
       taskId: "all-features-example-polish",
       session: {
         type: "isolated",
-        model: { model: { provider: "openai", model: "gpt-5.6-luna" } },
+        model: { model: { provider: "openai", model: "gpt-6.1-luna" } },
       },
     });
     expect(built.plan.output).toMatchObject({

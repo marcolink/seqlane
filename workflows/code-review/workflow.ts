@@ -47,7 +47,7 @@ export default createFlow({
     {
       workspace: "shared",
       session: isolated({
-        model: openai("gpt-5.6-luna"),
+        model: openai("gpt-6.1-luna"),
         reasoning: "high",
       }),
     },
@@ -70,7 +70,7 @@ export default createFlow({
     {
       workspace: "shared",
       session: isolated({
-        model: openai("gpt-5.6-luna"),
+        model: openai("gpt-6.1-luna"),
         reasoning: "high",
       }),
     },
@@ -93,7 +93,7 @@ export default createFlow({
     {
       workspace: "shared",
       session: isolated({
-        model: openai("gpt-5.6-luna"),
+        model: openai("gpt-6.1-luna"),
         reasoning: "high",
       }),
     },
@@ -116,7 +116,7 @@ export default createFlow({
     {
       workspace: "shared",
       session: isolated({
-        model: openai("gpt-5.6-luna"),
+        model: openai("gpt-6.1-luna"),
         reasoning: "high",
       }),
     },
@@ -142,7 +142,7 @@ export default createFlow({
     {
       workspace: "shared",
       session: isolated({
-        model: openai("gpt-5.6-luna"),
+        model: openai("gpt-6.1-luna"),
         reasoning: "high",
       }),
     },

@@ -22,7 +22,7 @@ import { openai } from "@seqlane/core/models";
 
 .task("investigate", investigate, ({ input }) => input, {
   session: isolated({
-    model: openai("gpt-5.6-luna"),
+    model: openai("gpt-6.1-luna"),
     reasoning: "high",
   }),
 })
@@ -41,7 +41,7 @@ const workflow = createFlow({
   input,
   output,
   model: {
-    model: openai("gpt-5.6-luna"),
+    model: openai("gpt-6.1-luna"),
     reasoning: "high",
   },
 });
