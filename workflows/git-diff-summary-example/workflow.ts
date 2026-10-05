@@ -57,7 +57,7 @@ const summaryInstructions = [
 
 const summarySession = () =>
   isolated({
-    model: openai("gpt-6.1-luna"),
+    model: openai("gpt-6-luna"),
     reasoning: "high",
   });
 

@@ -29,7 +29,7 @@ describe("model-selection workflow fixture", () => {
       {
         type: "isolated",
         model: {
-          model: { provider: "openai", model: "gpt-6.1-luna" },
+          model: { provider: "openai", model: "gpt-6-luna" },
           reasoning: "high",
         },
       },

@@ -19,6 +19,6 @@ seqlane run ./workflows/read-context/workflow.ts \
 
 Input follows `ReadContextRequest`; output follows `ReadContextResult`, with
 cited evidence and uncertainty metadata. It requires the configured repository
-retrieval tools and Codex model availability. It selects `openai/gpt-6.1-luna`
+retrieval tools and Codex model availability. It selects `openai/gpt-6-luna`
 with medium reasoning. Consumers own their hook or host adaptation;
 this directory owns the portable workflow and its supporting retrieval code.
