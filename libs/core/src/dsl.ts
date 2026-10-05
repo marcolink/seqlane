@@ -135,13 +135,20 @@ export function reuse(from: SessionCheckpointRef): SessionPolicy {
   return { type: "reuse", from };
 }
 
+/** Creates a separate session from a completed source checkpoint. */
+export function fork(
+  from: SessionCheckpointRef,
+  model?: ModelSelection,
+): Extract<SessionPolicy, { readonly type: "fork" }> {
+  return { type: "fork", from, ...(model === undefined ? {} : { model }) };
+}
+
+/** @deprecated Use fork() to create a separate session from a checkpoint. */
 export function branch(
   from: SessionCheckpointRef,
   model?: ModelSelection,
 ): Extract<SessionPolicy, { readonly type: "branch" }> {
-  return model === undefined
-    ? { type: "branch", from }
-    : { type: "branch", from, model };
+  return { ...fork(from, model), type: "branch" };
 }
 
 type RuntimeFlowAuthoringContext<Input> = FlowAuthoringContext<

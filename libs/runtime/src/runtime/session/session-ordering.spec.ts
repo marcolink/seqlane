@@ -34,11 +34,11 @@ describe("reuse session graph ordering", () => {
     ]);
   });
 
-  it("does not serialize independent branch consumers", () => {
+  it("does not serialize independent fork consumers", () => {
     const nodes = lowerReuseSessionOrdering([
       task("source", { type: "isolated" }),
-      task("first", { type: "branch", from: "source" }, ["other"]),
-      task("second", { type: "branch", from: "source" }),
+      task("first", { type: "fork", from: "source" }, ["other"]),
+      task("second", { type: "fork", from: "source" }),
     ]);
 
     expect(nodes[1]?.dependsOn).toEqual(["other", "source"]);

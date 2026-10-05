@@ -411,7 +411,7 @@ describe("PlanCompiler plan preparation", () => {
     const branch = {
       ...task("branch", ["source"]),
       session: {
-        type: "branch" as const,
+        type: "fork" as const,
         from: "source",
         model: {
           model: { provider: "anthropic", model: "claude-sonnet-4" },
@@ -487,7 +487,7 @@ describe("PlanCompiler plan preparation", () => {
         ]),
       );
       expect((error as PlanValidationError).message).toMatch(
-        /branch or isolated/i,
+        /fork or isolated/i,
       );
     }
   });

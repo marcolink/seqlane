@@ -30,7 +30,7 @@ its output.
 })
 ```
 
-Session reuse and branching also create dependencies. A reused or branched
+Session reuse and forking also create dependencies. A reused or forked
 session waits for its source task.
 
 A child workflow is also a task target. Read

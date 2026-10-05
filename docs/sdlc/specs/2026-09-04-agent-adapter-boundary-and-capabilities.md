@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-22
+updated: 2026-10-05
 upstream:
   - adr.executor-neutral-workflow-authoring
   - adr.opencode-executor-integration
@@ -244,7 +244,7 @@ does not add compatibility behavior around the session handle.
 | `structured-output` | Return output for local schema validation. | Required for typed task output. |
 | `session-reuse` | Execute ordered tasks in one adapter session. | Required for shared sessions. |
 | `checkpoint` | Capture one exact, opaque session state. | Required before a checkpoint is published. |
-| `fork` | Create a new session from one exact checkpoint. | Required for branch sessions. |
+| `fork` | Create a new session from one exact checkpoint. | Required for forked sessions. |
 | `activity` | Report normalized tool and skill activity. | Optional and never inferred from text. |
 | `session-ui` | Report an adapter-owned session URL. | Optional and bound to the selected adapter. |
 
@@ -288,7 +288,7 @@ events.
 - Configuration for more than one adapter fails validation.
 - An unavailable ACP command fails without an OpenCode fallback.
 - An unavailable OpenCode endpoint fails without an ACP fallback.
-- A branch request fails before execution when `fork` is not available.
+- A fork request fails before execution when `fork` is not available.
 - A checkpoint from a different adapter or run fails validation.
 - An adapter capability change after preflight fails the session.
 - Cancellation affects only the selected adapter session.
@@ -322,7 +322,7 @@ configuration inference.
 - Run real ACP integration tests with a controlled ACP process.
 - Run OpenCode SDK contract tests with a controlled server.
 - Prove explicit selection and malformed configuration failures.
-- Prove shared, isolated, checkpoint, and branch admission by capability.
+- Prove shared, isolated, checkpoint, and fork admission by capability.
 - Search public declarations, Plans, and events for adapter-specific types.
 - Run the repository test, type, lint, build, format, and documentation gates.
 

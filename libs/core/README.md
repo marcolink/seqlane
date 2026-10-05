@@ -37,7 +37,7 @@ other providers are intentionally left to generic string model references.
 
 Set a workflow default with `createFlow({ ..., model: { model: openai("gpt-6-luna"), reasoning: "high" } })`.
 New sessions use this default unless they declare a selection. One-shot agent
-invocations also use the workflow default. New or branched sessions can select
+invocations also use the workflow default. New or forked sessions can select
 a model explicitly:
 
 ```ts
@@ -51,7 +51,7 @@ const session = isolated({
 ```
 
 Reuse sessions cannot select a model; they inherit the source session model.
-A branch without an explicit selection also inherits its source model.
+A fork without an explicit selection also inherits its source model.
 
 Use `defineTask` and `createFlow(...).task(...).output(...).define()` to declare
 typed, core-owned workflows. Workflow authoring callbacks stay private and are
@@ -67,7 +67,7 @@ needs an executor.
 Task handles expose `.session` only when their invocation declares a session
 policy. Omit `session` for an isolated one-shot invocation, use
 `reuse(source.session)` to continue one session, or use
-`branch(source.session)` to create a diverging child. Both reuse and branch
+`fork(source.session)` to create a diverging child. Both reuse and fork
 infer the source dependency. Workspace and session policy belong to invocation
 options and serialized Plan nodes, not task definitions.
 
@@ -98,11 +98,11 @@ foreground, non-interactive commands. The API has no Git helper or mutation
 APIs, shell support, background process API, or command policy.
 
 This fan-out/fan-in workflow shares source context without merging session
-histories. The synthesis task explicitly reuses `context`; branch outputs are
+histories. The synthesis task explicitly reuses `context`; fork outputs are
 ordinary typed inputs.
 
 ```ts
-import { branch, isolated, reuse } from "@seqlane/core";
+import { fork, isolated, reuse } from "@seqlane/core";
 
 const workflow = createFlow({
   id: "research-and-implement",
@@ -111,10 +111,10 @@ const workflow = createFlow({
 })
   .task("context", gatherContext, ({ input }) => input, { session: isolated() })
   .task("api", analyzeApi, ({ input, tasks }) => input, {
-    session: ({ tasks }) => branch(tasks.context.session),
+    session: ({ tasks }) => fork(tasks.context.session),
   })
   .task("ui", analyzeUi, ({ input, tasks }) => input, {
-    session: ({ tasks }) => branch(tasks.context.session),
+    session: ({ tasks }) => fork(tasks.context.session),
   })
   .task(
     "synthesis",
@@ -137,8 +137,9 @@ const workflow = createFlow({
   .define();
 ```
 
-Seqlane materializes declared branches before the parent session can advance.
-Branching needs an executor-native checkpoint fork; Seqlane rejects an adapter
+Seqlane captures the source checkpoint before the parent session can advance.
+Forks materialize eagerly from that checkpoint.
+Forking needs an executor-native checkpoint fork; Seqlane rejects an adapter
 that cannot provide one rather than summarizing context or starting empty.
 
 Use `reuse()` when a code review needs the implementation session context. Bind

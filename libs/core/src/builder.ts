@@ -63,7 +63,7 @@ function serializeSessionPolicy(
     };
   }
   return {
-    type: resolved.type,
+    type: "fork",
     from: sessionCheckpointNodeId(resolved.from),
     ...(resolved.model === undefined ? {} : { model: resolved.model }),
   };
@@ -531,13 +531,13 @@ function buildWorkflowInternal<Input, Output>(
     nodes,
     output: serializeBinding(output),
   };
-  planSchema.parse(plan);
+  const canonicalPlan = planSchema.parse(plan);
   taskDefinitionRegistrySchema.parse(taskDefinitions);
   validatorDefinitionRegistrySchema.parse(validatorDefinitions);
 
   return {
     workflow,
-    plan,
+    plan: canonicalPlan,
     taskDefinitions,
     validatorDefinitions,
     workflowDefinitions,

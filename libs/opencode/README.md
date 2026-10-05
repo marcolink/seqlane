@@ -57,7 +57,7 @@ directly. This avoids repeating tools or workspace mutations. It does not repair
 the already affected OpenCode session or restore native mode automatically.
 
 Seqlane passes a normalized provider/model selection to this adapter. OpenCode
-provider and model IDs remain private to the adapter. New and branched sessions
+provider and model IDs remain private to the adapter. New and forked sessions
 send their selected model before the first prompt; portable reasoning labels
 are sent through OpenCode's variant field. The adapter exposes the configured
 OpenCode catalog and default model to runtime preflight.
@@ -72,7 +72,7 @@ the returned service. This helper writes no Seqlane state; OpenCode can write
 its own native state.
 
 After a successful prompt, the adapter retains its terminal OpenCode message
-ID as a private checkpoint. A Seqlane branch calls OpenCode's native
+ID as a private checkpoint. A Seqlane fork calls OpenCode's native
 `session.fork` with that source session ID and message ID; it never summarizes
 history or starts an empty replacement. OpenCode IDs remain inside this private
 adapter and do not cross Seqlane authoring, Plan, event, or IPC boundaries.

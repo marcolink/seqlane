@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-16
-updated: 2026-10-04
+updated: 2026-10-05
 upstream:
   - prd.seqlane-on-mastra
   - rfc.mastra-runtime-and-operational-foundation
@@ -223,7 +223,7 @@ A required approval that cannot complete non-interactively fails clearly.
 ### requirement-model-compatibility
 
 Each new agent session declares a model or inherits a workflow-level model default.
-Session reuse and branches preserve the existing pinned-model inheritance rules.
+Session reuse and forks preserve the existing pinned-model inheritance rules.
 Missing model declarations fail validation. The CLI provides no model override
 and does not use an adapter's implicit model default.
 

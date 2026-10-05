@@ -158,9 +158,9 @@ describe("session model selection resolution", () => {
         sourceSession,
         consumers: [
           {
-            invocationId: "branch",
+            invocationId: "fork",
             task: taskDefinition,
-            type: "branch",
+            type: "fork",
             effectiveSelection: requestedSelection,
           },
         ],

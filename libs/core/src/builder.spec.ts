@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-  branch,
+  fork,
   createFlow,
   defineAgentTask,
   defineTask,
@@ -100,32 +100,32 @@ describe("buildWorkflow", () => {
     expect(JSON.parse(JSON.stringify(plan))).toEqual(plan);
   });
 
-  it("allows a model only on a branched session", () => {
+  it("allows a model only on a forked session", () => {
     const task = defineAgentTask({
-      id: "branched-model",
+      id: "forked-model",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
       goal: () => "Complete work",
     });
     const workflow = createFlow({
-      id: "branched-model-workflow",
+      id: "forked-model-workflow",
       input: schema<Record<never, never>>(),
       output: schema<Record<never, never>>(),
     })
       .task("source", task, ({ input }) => input, { session: isolated() })
-      .task("branch", task, ({ input }) => input, {
+      .task("fork", task, ({ input }) => input, {
         session: ({ tasks }) =>
-          branch(tasks.source.session, {
+          fork(tasks.source.session, {
             model: openai("gpt-5.6-sol"),
             reasoning: "low",
           }),
       })
-      .output(({ tasks }) => tasks.branch.output)
+      .output(({ tasks }) => tasks.fork.output)
       .define();
 
     expect(buildWorkflow(workflow).plan.nodes[1]).toMatchObject({
       session: {
-        type: "branch",
+        type: "fork",
         model: {
           model: { provider: "openai", model: "gpt-5.6-sol" },
           reasoning: "low",
@@ -406,7 +406,7 @@ describe("buildWorkflow", () => {
     expect(built.taskDefinitions.get(local.id)).toBe(local);
   });
 
-  it("serializes typed reuse and branch checkpoint selections", () => {
+  it("serializes typed reuse and fork checkpoint selections", () => {
     const task = defineAgentTask({
       id: "checkpointed",
       input: schema<Record<never, never>>(),
@@ -419,8 +419,8 @@ describe("buildWorkflow", () => {
       output: schema<Record<never, never>>(),
     })
       .task("source", task, ({ input }) => input, { session: isolated() })
-      .task("branch", task, ({ input }) => input, {
-        session: ({ tasks }) => branch(tasks.source.session),
+      .task("fork", task, ({ input }) => input, {
+        session: ({ tasks }) => fork(tasks.source.session),
       })
       .task("reuse", task, ({ input }) => input, {
         session: ({ tasks }) => reuse(tasks.source.session),
@@ -432,7 +432,7 @@ describe("buildWorkflow", () => {
       { nodeId: "checkpointed:1", session: { type: "isolated" } },
       {
         nodeId: "checkpointed:2",
-        session: { type: "branch", from: "checkpointed:1" },
+        session: { type: "fork", from: "checkpointed:1" },
         dependsOn: ["checkpointed:1"],
       },
       {

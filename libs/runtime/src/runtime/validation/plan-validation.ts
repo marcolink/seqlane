@@ -39,7 +39,7 @@ const sessionPolicyDiagnosticSchema = z.union([
   }),
   z.looseObject({ type: z.literal("reuse"), from: z.string().min(1) }),
   z.looseObject({
-    type: z.literal("branch"),
+    type: z.enum(["fork", "branch"]),
     from: z.string().min(1),
     model: z.unknown().optional(),
   }),
@@ -290,13 +290,13 @@ function resolveSessionSelections(
       addIssue(
         issues,
         "session-model-conflict",
-        `Task "${node.nodeId}" cannot declare ${describeModelSelection(declaredSelection)} on a reuse session; it inherits ${describeModelSelection(inheritedSelection)}. Use a branch or isolated session to select a different provider/model or reasoning effort`,
+        `Task "${node.nodeId}" cannot declare ${describeModelSelection(declaredSelection)} on a reuse session; it inherits ${describeModelSelection(inheritedSelection)}. Use a fork or isolated session to select a different provider/model or reasoning effort`,
         node.nodeId,
       );
     }
 
     const effectiveSelection =
-      policy.data.type === "branch"
+      policy.data.type === "fork" || policy.data.type === "branch"
         ? (declaredSelection ?? inheritedSelection)
         : inheritedSelection;
     selections.set(nodeId, effectiveSelection);
@@ -671,7 +671,7 @@ function validateChoice(
         new Map([...outerNodes, [arm.nodeId, arm]]),
         issues,
       );
-      if (arm.session?.type === "reuse" || arm.session?.type === "branch") {
+      if (arm.session?.type === "reuse" || arm.session?.type === "fork") {
         const source = outerNodes.get(arm.session.from);
         if (
           !priorIds.has(arm.session.from) ||

@@ -2,7 +2,7 @@ import type { Plan, PlanNode } from "@seqlane/core";
 
 /**
  * Adds deterministic graph edges between consumers that reuse one session.
- * Branch consumers stay independent because each branch receives its own
+ * Fork consumers stay independent because each fork receives its own
  * executor session from the source checkpoint.
  */
 export function lowerReuseSessionOrdering(
@@ -13,7 +13,7 @@ export function lowerReuseSessionOrdering(
   return nodes.map((node) => {
     if (
       node.type !== "task" ||
-      (node.session?.type !== "reuse" && node.session?.type !== "branch")
+      (node.session?.type !== "reuse" && node.session?.type !== "fork")
     ) {
       return node;
     }

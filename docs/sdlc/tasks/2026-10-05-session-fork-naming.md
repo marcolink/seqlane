@@ -1,7 +1,7 @@
 ---
 id: task.session-fork-naming
 title: Rename Session Branching to Session Forking
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-10-05
@@ -193,16 +193,41 @@ rename conditional control flow.
 
 ## Outcome
 
-Planning only. No implementation or execution-test results yet.
+Implemented locally in [PR #174](https://github.com/marcolink/seqlane/pull/174).
+The public `fork` helper emits the new policy. Deprecated `branch` preserves its
+signature and legacy return shape. The builder and Plan schema normalize both
+spellings to canonical fork policies, including repeat attempts.
+Protocol readers accept old and new session snapshots; new snapshots use fork.
+
+Updated session diagnostics, fixtures, examples, READMEs, public guides, and active
+contracts. Public session guides contain no deprecated helper or policy examples.
+Accepted ADRs and stable metadata IDs remain unchanged.
+
+Verification passed: repository tests (including a rerun outside the sandbox for
+process-lifecycle tests), production TypeScript build, repository build, lint,
+formatting, test mappings, SDLC validation/tests, and public docs build. Additional
+regressions cover legacy Plan model overrides,
+malformed policies, and helper return types/shapes.
+
+The complete spec typecheck still reports three errors in unchanged
+`libs/action-code-review/src/pr-code-review-example.spec.ts` at lines 1467 and 1532.
+Keep this task in progress until that merge gate is resolved. Ripwire confirms the
+legacy helper's argument contract is unchanged. Its structural report retains
+recent-churn warnings on touched session code and a minor diagnostic
+complexity increase; these do not replace the passing execution regressions.
 
 ## Delivery state
 
-Not delivered. Local source inspection establishes rename seams, not target-branch
-delivery. Plan one atomic compatible-API rename PR with reviewable slice commits; do not
-merge intermediate commits that leave producer and consumer contracts inconsistent.
+Implementation is based on `origin/main` in PR #174, not delivered on `main`.
+PR #170 has landed on main and is inherited by this PR. Rebase integration preserves
+its selected-arm session behavior with canonical fork policies. The choice example
+and additional acceptance criteria above remain pending. Resolve the outstanding
+spec typecheck gate and verify the final remote head before recording delivery.
 
 ## Traceability
 
+- [PR #174](https://github.com/marcolink/seqlane/pull/174)
+- [PR #170](https://github.com/marcolink/seqlane/pull/170)
 - [Issue #173](https://github.com/marcolink/seqlane/issues/173)
 - [spec.session-checkpoint-reuse-and-branching](../specs/2026-09-02-session-checkpoint-reuse-and-branching.md)
 - [spec.model-selection-and-session-model-semantics](../specs/2026-09-03-model-selection-and-session-model-semantics.md)

@@ -86,17 +86,17 @@ invocation creation order. Events report workspace waiting, admission, and
 release.
 
 After a successful agent turn and all tracked activity, the runtime publishes
-its private checkpoint. `reuse()` keeps the source session; `branch()` eagerly
-materializes every declared child from that checkpoint before either children
-or a parent continuation can run. Native checkpoint forks are created one at a
-time; child task execution can still overlap after all sessions are
-materialized. A fan-in task consumes branch outputs as normal input and
-explicitly selects one session; Seqlane never merges diverged histories.
-Failed or ambiguous turns publish no checkpoint and poison their session.
+its private checkpoint. `reuse()` keeps the source session; `fork()` creates a
+separate child session from that checkpoint. Forks materialize
+before a parent continuation can advance. Native checkpoint forks are created one at a time;
+child task execution can overlap after session materialization. A fan-in task
+consumes fork outputs as normal input and explicitly selects one session;
+Seqlane never merges diverged histories. Failed or ambiguous turns publish no
+checkpoint and poison their session.
 
 Hosted model selection is resolved before execution. A new session may select a
 model; omitted selection uses the workflow default, then the configured adapter default. Reuse inherits
-the pinned selection, while a branch may pin a different selection. Seqlane
+the pinned selection, while a fork may pin a different selection. Seqlane
 does not fall back after validation. Completion events expose the effective
 provider, model, and optional reasoning as Seqlane-owned metrics.
 

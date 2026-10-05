@@ -171,7 +171,7 @@ describe("exclusive Flow choice", () => {
       type: "choice",
       dependsOn: [],
       then: {
-        session: { type: "branch", from: "session-source:1" },
+        session: { type: "fork", from: "session-source:1" },
         dependsOn: ["session-source:1"],
       },
     });

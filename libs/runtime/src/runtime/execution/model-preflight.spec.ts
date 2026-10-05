@@ -329,7 +329,7 @@ describe("executor model preflight", () => {
     );
   });
 
-  it("stores the source default for model-less reuse and branch descendants", async () => {
+  it("stores the source default for model-less reuse and fork descendants", async () => {
     const defaultSelection = {
       model: model("openai/gpt-5-mini"),
       reasoning: "minimal" as const,
@@ -349,8 +349,8 @@ describe("executor model preflight", () => {
       plan([
         task("source"),
         task("reuse", { type: "reuse", from: "source" }, ["source"]),
-        task("branch", { type: "branch", from: "source" }, ["source"]),
-        task("branch-reuse", { type: "reuse", from: "branch" }, ["branch"]),
+        task("fork", { type: "fork", from: "source" }, ["source"]),
+        task("fork-reuse", { type: "reuse", from: "fork" }, ["fork"]),
       ]),
       {
         createInvocationId: (nodeId) => nodeId,
@@ -365,13 +365,13 @@ describe("executor model preflight", () => {
       new Map([
         ["source", defaultSelection],
         ["reuse", defaultSelection],
-        ["branch", defaultSelection],
-        ["branch-reuse", defaultSelection],
+        ["fork", defaultSelection],
+        ["fork-reuse", defaultSelection],
       ]),
     );
   });
 
-  it("keeps a branch pinned to its source instead of using the workflow default", async () => {
+  it("keeps a fork pinned to its source instead of using the workflow default", async () => {
     const sourceSelection = {
       model: model("openai/gpt-5.6-sol"),
       reasoning: "high" as const,
@@ -384,7 +384,7 @@ describe("executor model preflight", () => {
       plan(
         [
           task("source", { type: "isolated", model: sourceSelection }),
-          task("branch", { type: "branch", from: "source" }, ["source"]),
+          task("fork", { type: "fork", from: "source" }, ["source"]),
         ],
         workflowSelection,
       ),
@@ -402,7 +402,7 @@ describe("executor model preflight", () => {
             ),
           ],
           [
-            "branch",
+            "fork",
             fakeExecutor(
               capabilities(
                 [sourceSelection.model, workflowSelection.model],
@@ -420,7 +420,7 @@ describe("executor model preflight", () => {
     expect(compiled.context.effectiveModelSelections).toEqual(
       new Map([
         ["source", sourceSelection],
-        ["branch", sourceSelection],
+        ["fork", sourceSelection],
       ]),
     );
   });

@@ -7,7 +7,7 @@ not a supported workflow-authoring API.
 The package owns the canonical `SeqlaneExecutionEvent` union, runner commands,
 event metadata, JSON encoding, and sanitized Plan snapshots. It reuses the
 core-owned JSON schemas and guard for JSON values. Plan
-snapshots preserve model selections under isolated and branch session policies;
+snapshots preserve model selections under isolated and fork session policies;
 reuse policies remain model-free. Public protocol types are derived from
 package-owned canonical Zod schemas so each wire contract has one authoritative
 definition.

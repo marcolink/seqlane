@@ -42,7 +42,7 @@ describe("Seqlane Plan snapshots", () => {
             nodeId: "decision:then",
             taskId: "review",
             workspace: "shared",
-            session: { type: "branch", from: "source" },
+            session: { type: "fork", from: "source" },
             input: {},
             dependsOn: ["source"],
           },
@@ -76,7 +76,7 @@ describe("Seqlane Plan snapshots", () => {
           parentPlanNodeId: "decision",
           choiceArm: "then",
           dependsOn: ["source"],
-          session: { type: "branch", from: "source" },
+          session: { type: "fork", from: "source" },
         }),
         expect.objectContaining({
           planNodeId: "decision:else",
@@ -135,7 +135,7 @@ describe("Seqlane Plan snapshots", () => {
           taskId: "fork-task",
           workspace: "shared",
           session: {
-            type: "branch",
+            type: "fork",
             from: "prepare:1",
             model: {
               model: { provider: "anthropic", model: "claude-sonnet-4-6" },
@@ -195,7 +195,7 @@ describe("Seqlane Plan snapshots", () => {
           dependsOn: ["prepare:1"],
           siblingOrder: 1,
           session: {
-            type: "branch",
+            type: "fork",
             from: "prepare:1",
             model: {
               model: { provider: "anthropic", model: "claude-sonnet-4-6" },

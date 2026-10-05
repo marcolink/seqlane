@@ -64,7 +64,7 @@ describe("all-features workflow example", () => {
     expect(lanes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          session: { type: "branch", from: "all-features-example-context:1" },
+          session: { type: "fork", from: "all-features-example-context:1" },
         }),
       ]),
     );

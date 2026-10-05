@@ -22,15 +22,7 @@ export interface WorkflowIdentity {
 /** Maximum number of repeat-body executions admitted in one run. */
 export const MAX_REPEAT_BODY_EXECUTIONS = 1_000;
 
-export type PlanSessionPolicy =
-  | { readonly type: "isolated"; readonly model?: ModelSelection }
-  | { readonly type: "reuse"; readonly from: PlanNodeId }
-  | {
-      readonly type: "branch";
-      readonly from: PlanNodeId;
-      readonly model?: ModelSelection;
-    };
-
+/** Accepts deprecated session policies and produces canonical fork policies. */
 export const planSessionPolicySchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("isolated"),
@@ -38,11 +30,21 @@ export const planSessionPolicySchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("reuse"), from: z.string().min(1) }),
   z.strictObject({
-    type: z.literal("branch"),
+    type: z.literal("fork"),
     from: z.string().min(1),
     model: modelSelectionSchema.optional(),
   }),
+  z
+    .strictObject({
+      type: z.literal("branch"),
+      from: z.string().min(1),
+      model: modelSelectionSchema.optional(),
+    })
+    .transform((policy) => ({ ...policy, type: "fork" as const })),
 ]);
+
+/** Input includes the deprecated spelling for existing in-memory Plans. */
+export type PlanSessionPolicy = z.input<typeof planSessionPolicySchema>;
 
 export interface TaskNode {
   readonly type: "task";

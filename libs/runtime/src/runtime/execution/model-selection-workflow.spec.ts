@@ -67,82 +67,102 @@ function selectionFor(
 }
 
 describe("model-selection fixture integration", () => {
-  it("runs isolated, reused, and branched sessions with effective selections", async () => {
-    const events: SeqlaneEvent[] = [];
-    const forkSelections: ModelSelection[] = [];
-    const executor: SeqlaneExecutor = {
-      execute: async ({ input }) => ({
-        label: (input as { readonly label: string }).label,
-      }),
-    };
-    const built = buildWorkflow(modelSelectionWorkflow);
-    const compiled = new PlanCompiler().compileWorkflow(built.plan, {
-      createInvocationId: (nodeId) => nodeId,
-      workflowInput: { label: "model-selection" },
-      executors: new Map([["fixture-opencode", executor]]),
-      sessionResolver: {
-        modelCapabilities: {
-          executor: "fixture-opencode",
-          listModels: async () => availableModels,
-          resolveDefaultModel: async () => defaultSelection,
+  it.each([false, true])(
+    "runs isolated, reused, and forked sessions with effective selections (legacy Plan=%s)",
+    async (legacyPlan) => {
+      const events: SeqlaneEvent[] = [];
+      const forkSelections: ModelSelection[] = [];
+      const executor: SeqlaneExecutor = {
+        execute: async ({ input }) => ({
+          label: (input as { readonly label: string }).label,
+        }),
+      };
+      const built = buildWorkflow(modelSelectionWorkflow);
+      const executionPlan = legacyPlan
+        ? {
+            ...built.plan,
+            nodes: built.plan.nodes.map((node) =>
+              node.type === "task" && node.session?.type === "fork"
+                ? {
+                    ...node,
+                    session: { ...node.session, type: "branch" as const },
+                  }
+                : node,
+            ),
+          }
+        : built.plan;
+      const compiled = new PlanCompiler().compileWorkflow(executionPlan, {
+        createInvocationId: (nodeId) => nodeId,
+        workflowInput: { label: "model-selection" },
+        executors: new Map([["fixture-opencode", executor]]),
+        sessionResolver: {
+          modelCapabilities: {
+            executor: "fixture-opencode",
+            listModels: async () => availableModels,
+            resolveDefaultModel: async () => defaultSelection,
+          },
+          resolve: async ({ invocationId, effectiveSelection }) =>
+            createSession(
+              executor,
+              effectiveSelection,
+              forkSelections,
+              invocationId,
+            ),
         },
-        resolve: async ({ invocationId, effectiveSelection }) =>
-          createSession(
-            executor,
-            effectiveSelection,
-            forkSelections,
-            invocationId,
-          ),
-      },
-      taskDefinitions: built.taskDefinitions,
-      validatorDefinitions: built.validatorDefinitions,
-      events: { emit: (event) => events.push(event) },
-    });
+        taskDefinitions: built.taskDefinitions,
+        validatorDefinitions: built.validatorDefinitions,
+        events: { emit: (event) => events.push(event) },
+      });
 
-    await preflightCompiledWorkflowModels(compiled);
-    await resolveCompiledWorkflowSessions(compiled);
-    await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
-      status: "succeeded",
-    });
+      await preflightCompiledWorkflowModels(compiled);
+      await resolveCompiledWorkflowSessions(compiled);
+      await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
+        status: "succeeded",
+      });
 
-    const sourceSelection = selectionFor("openai", "gpt-6-luna", "high");
-    const expectedSelections = new Map([
-      [
-        "model-selection.isolated:1",
-        selectionFor("openai", "gpt-6.1-sol", "medium"),
-      ],
-      ["model-selection.source:1", sourceSelection],
-      ["model-selection.reuse:1", sourceSelection],
-      [
-        "model-selection.branch:1",
-        selectionFor("anthropic", "claude-sonnet-4-6", "low"),
-      ],
-      [
-        "model-selection.child:1",
-        selectionFor("openai", "gpt-6.1-sol", "minimal"),
-      ],
-    ]);
+      const sourceSelection = selectionFor("openai", "gpt-6-luna", "high");
+      const expectedSelections = new Map([
+        [
+          "model-selection.isolated:1",
+          selectionFor("openai", "gpt-6.1-sol", "medium"),
+        ],
+        ["model-selection.source:1", sourceSelection],
+        ["model-selection.reuse:1", sourceSelection],
+        [
+          "model-selection.fork:1",
+          selectionFor("anthropic", "claude-sonnet-4-6", "low"),
+        ],
+        [
+          "model-selection.child:1",
+          selectionFor("openai", "gpt-6.1-sol", "minimal"),
+        ],
+      ]);
 
-    expect(compiled.context.effectiveModelSelections).toEqual(
-      expectedSelections,
-    );
-    expect(forkSelections).toEqual([
-      expectedSelections.get("model-selection.branch:1"),
-      expectedSelections.get("model-selection.child:1"),
-    ]);
+      expect(compiled.context.effectiveModelSelections).toEqual(
+        expectedSelections,
+      );
+      expect(forkSelections).toHaveLength(2);
+      expect(forkSelections).toEqual(
+        expect.arrayContaining([
+          expectedSelections.get("model-selection.fork:1"),
+          expectedSelections.get("model-selection.child:1"),
+        ]),
+      );
 
-    const outputSelections = new Map(
-      events
-        .filter(
-          (
-            event,
-          ): event is Extract<SeqlaneEvent, { type: "invocation.output" }> =>
-            event.type === "invocation.output" && event.policy === "persistent",
-        )
-        .map((event) => [event.invocationId, event.metrics?.modelSelection]),
-    );
-    expect(outputSelections).toEqual(expectedSelections);
-  });
+      const outputSelections = new Map(
+        events
+          .filter(
+            (
+              event,
+            ): event is Extract<SeqlaneEvent, { type: "invocation.output" }> =>
+              event.type === "invocation.output" &&
+              event.policy === "persistent",
+          )
+          .map((event) => [event.invocationId, event.metrics?.modelSelection]),
+      );
+      expect(outputSelections).toEqual(expectedSelections);
+    },
+  );
 
   it("runs a legacy Plan without model fields using the executor default", async () => {
     const events: SeqlaneEvent[] = [];

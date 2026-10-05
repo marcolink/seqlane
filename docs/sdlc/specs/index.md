@@ -18,7 +18,7 @@
 | [spec.semantic-validation-gates](./2026-09-02-semantic-validation-gates.md) | Semantic Validation Gates and Evaluators | active | 2026-09-02 | core |
 | [spec.seqlane-execution-output-package](./2026-09-02-seqlane-execution-output-package.md) | Seqlane Execution Output Package | superseded | 2026-09-02 | core |
 | [spec.seqlane-plan-ir-typed-dataflow](./2026-09-02-seqlane-plan-ir-typed-dataflow.md) | Seqlane Plan IR and Typed Dataflow | superseded | 2026-09-02 | core |
-| [spec.session-checkpoint-reuse-and-branching](./2026-09-02-session-checkpoint-reuse-and-branching.md) | Session Checkpoint Reuse and Branching | active | 2026-09-02 | core |
+| [spec.session-checkpoint-reuse-and-branching](./2026-09-02-session-checkpoint-reuse-and-branching.md) | Session Checkpoint Reuse and Forking | active | 2026-09-02 | core |
 | [spec.studio-vite-development-and-isolated-replay](./2026-09-02-studio-vite-development-and-isolated-replay.md) | Studio Vite Development and Isolated Replay | superseded | 2026-09-02 | core |
 | [spec.work-run-invocation-identity-model](./2026-09-02-work-run-invocation-identity-model.md) | Work, Run, and Invocation Identity Model | active | 2026-09-02 | core |
 | [spec.local-mechanical-tasks](./2026-09-03-local-mechanical-tasks.md) | In-Process and Shell Mechanical Tasks | active | 2026-09-03 | core |

@@ -47,7 +47,7 @@ The result should feel like Seqlane to workflow authors and like Mastra to runti
 2. Keep a workflow—not an individual task—as the public unit of discovery, reuse, composition, and execution.
 3. Use Mastra as the only generic workflow runtime.
 4. Run deterministic shell work without an LLM call or AI-token cost.
-5. Retain explicit session behavior: isolated sessions, serialized shared sessions, and branches without session merging.
+5. Retain explicit session behavior: isolated sessions, serialized shared sessions, and forks without session merging.
 6. Retain workspace coordination without rebuilding a permissions system inside Seqlane.
 7. Reuse Mastra for persistence, run state, retries, cancellation plumbing, workspaces and sandboxes, processes, agents and ACP, tracing, server APIs, MCP, and Studio.
 8. Materially reduce Seqlane's code, dependency, package, test, and maintenance footprint.
@@ -61,7 +61,7 @@ The result should feel like Seqlane to workflow authors and like Mastra to runti
 - Maintaining Effect-based orchestration when Mastra owns the equivalent lifecycle.
 - Exposing Mastra-specific types as part of the stable Seqlane authoring API.
 - Making individual tasks a separately versioned public plugin surface in V1.
-- Implementing session-branch merging.
+- Implementing session-fork merging.
 - Encoding executor tool permissions in workspace policy.
 - Depending on Mastra Enterprise Edition, Mastra Cloud, or a hosted Mastra service.
 - Rebranding, forking, or embedding a custom copy of Mastra Studio.
@@ -160,7 +160,7 @@ remain separate capabilities. App-based hosting is outside this deliverable.
 - OpenCode integration should use Mastra-supported ACP or coding-agent primitives first. Native OpenCode APIs are an escape hatch for capabilities that Mastra cannot supply.
 - Isolated sessions are the default.
 - Tasks sharing a session are serialized.
-- A branch may execute independently from its parent; merging branches is not supported.
+- A fork may execute independently from its parent; merging forks is not supported.
 - Workspace policy controls execution compatibility and ordering. It does not attempt to define runtime tool permissions.
 
 ### Operator experience
@@ -230,7 +230,7 @@ can add meaning, but the interface must remain clear without either feature.
 | Public reusable atom | Workflow |
 | Deterministic work | `shell()` with no LLM call |
 | Coding-agent integration | Mastra/ACP first; native OpenCode only when required |
-| Session variants | Isolated, shared, branch; no merge |
+| Session variants | Isolated, shared, fork; no merge |
 | Workspace authority | Ordering/compatibility policy, not tool permissions |
 | Operational UI | Upstream Mastra Community Studio |
 | Run output | Interactive terminal, append-only CI, or final machine result |

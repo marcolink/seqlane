@@ -96,7 +96,7 @@ function nodeSession(
   if (from === undefined) return undefined;
   if (session.type === "reuse") return { type: session.type, from };
   return {
-    type: session.type,
+    type: "fork" as const,
     from,
     ...(session.model === undefined ? {} : { model: session.model }),
   };

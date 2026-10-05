@@ -35,8 +35,8 @@ task, but they do not define the complete process.
 Seqlane can reduce token use. Each agent task receives only its required input
 and session context. Each new agent session can [select a model](/authoring-workflows/models).
 
-A later task can reuse a session or branch it when the selected adapter
-supports branches. Deterministic work and local processes run outside the agent
+A later task can reuse a session or fork it when the selected adapter
+supports forks. Deterministic work and local processes run outside the agent
 loop.
 
 Agents use context and tokens only for work that needs agent judgment.

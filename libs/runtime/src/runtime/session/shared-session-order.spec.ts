@@ -59,15 +59,15 @@ describe("shared-session order preflight", () => {
   it("rejects capability requirements before model preflight work", async () => {
     let modelWork = 0;
     const source = task("source");
-    const branch = {
-      ...task("branch", ["source"]),
-      session: { type: "branch" as const, from: "source" },
+    const fork = {
+      ...task("fork", ["source"]),
+      session: { type: "fork" as const, from: "source" },
     };
     const compiled = new PlanCompiler().compileWorkflow(
       {
         workflow: { id: "capability-first" },
-        nodes: [source, branch],
-        output: { type: "ref", nodeId: "branch", path: [] },
+        nodes: [source, fork],
+        output: { type: "ref", nodeId: "fork", path: [] },
       },
       {
         createInvocationId: (nodeId) => `inv:${nodeId}`,
@@ -101,7 +101,7 @@ describe("shared-session order preflight", () => {
         },
         taskDefinitions: new Map([
           [source.taskId, taskDefinition(source.taskId)],
-          [branch.taskId, taskDefinition(branch.taskId)],
+          [fork.taskId, taskDefinition(fork.taskId)],
         ]),
       },
     );
@@ -112,53 +112,56 @@ describe("shared-session order preflight", () => {
     expect(modelWork).toBe(0);
   });
 
-  it("rejects an unsupported branch before resolving an adapter session", async () => {
-    let resolved = 0;
-    const source = task("source");
-    const branch = {
-      ...task("branch", ["source"]),
-      session: { type: "branch" as const, from: "source" },
-    };
-    const compiled = new PlanCompiler().compileWorkflow(
-      {
-        workflow: { id: "unsupported-branch" },
-        nodes: [source, branch],
-        output: { type: "ref", nodeId: "branch", path: [] },
-      },
-      {
-        createInvocationId: (nodeId) => `inv:${nodeId}`,
-        executors: new Map([["test", { execute: async () => ({}) }]]),
-        sessionResolver: {
-          adapterCapabilities: {
-            execute: true,
-            modelSelection: false,
-            structuredOutput: true,
-            sessionReuse: true,
-            checkpoint: false,
-            fork: false,
-            activity: false,
-            sessionUi: false,
-          },
-          resolve: async () => {
-            resolved += 1;
-            return {
-              key: Symbol("unreachable"),
-              executor: { execute: async () => ({}) },
-            };
-          },
+  it.each(["fork", "branch"] as const)(
+    "rejects an unsupported %s before resolving an adapter session",
+    async (type) => {
+      let resolved = 0;
+      const source = task("source");
+      const fork = {
+        ...task("fork", ["source"]),
+        session: { type, from: "source" },
+      };
+      const compiled = new PlanCompiler().compileWorkflow(
+        {
+          workflow: { id: "unsupported-fork" },
+          nodes: [source, fork],
+          output: { type: "ref", nodeId: "fork", path: [] },
         },
-        taskDefinitions: new Map([
-          [source.taskId, taskDefinition(source.taskId)],
-          [branch.taskId, taskDefinition(branch.taskId)],
-        ]),
-      },
-    );
+        {
+          createInvocationId: (nodeId) => `inv:${nodeId}`,
+          executors: new Map([["test", { execute: async () => ({}) }]]),
+          sessionResolver: {
+            adapterCapabilities: {
+              execute: true,
+              modelSelection: false,
+              structuredOutput: true,
+              sessionReuse: true,
+              checkpoint: false,
+              fork: false,
+              activity: false,
+              sessionUi: false,
+            },
+            resolve: async () => {
+              resolved += 1;
+              return {
+                key: Symbol("unreachable"),
+                executor: { execute: async () => ({}) },
+              };
+            },
+          },
+          taskDefinitions: new Map([
+            [source.taskId, taskDefinition(source.taskId)],
+            [fork.taskId, taskDefinition(fork.taskId)],
+          ]),
+        },
+      );
 
-    expect(() => {
-      preflightCompiledWorkflowSessionCapabilities(compiled);
-    }).toThrow(UnsupportedSessionCapabilityError);
-    expect(resolved).toBe(0);
-  });
+      expect(() => {
+        preflightCompiledWorkflowSessionCapabilities(compiled);
+      }).toThrow(UnsupportedSessionCapabilityError);
+      expect(resolved).toBe(0);
+    },
+  );
 
   it("accepts a shared-session pair with a transitive DAG dependency", async () => {
     const executor = { execute: async () => ({}) };
@@ -238,7 +241,7 @@ describe("shared-session order preflight", () => {
     expect(executorRequests).toBe(0);
   });
 
-  it("materializes every branch before a parent continuation advances", async () => {
+  it("materializes every fork before a parent continuation advances", async () => {
     const activity: string[] = [];
     let activeForks = 0;
     let maximumConcurrentForks = 0;
@@ -250,7 +253,7 @@ describe("shared-session order preflight", () => {
     };
     const childExecutor = {
       execute: async ({ taskId }: { readonly taskId: string }) => {
-        activity.push(`branch:${taskId}`);
+        activity.push(`fork:${taskId}`);
         return {};
       },
     };
@@ -267,7 +270,7 @@ describe("shared-session order preflight", () => {
         await Promise.resolve();
         activeForks -= 1;
         activity.push("fork");
-        return { key: Symbol("branch"), executor: childExecutor };
+        return { key: Symbol("fork"), executor: childExecutor };
       },
     };
     const compiled = new PlanCompiler().compileWorkflow(
@@ -276,12 +279,12 @@ describe("shared-session order preflight", () => {
         nodes: [
           task("source"),
           {
-            ...task("branch", ["source"]),
-            session: { type: "branch" as const, from: "source" },
+            ...task("fork", ["source"]),
+            session: { type: "fork" as const, from: "source" },
           },
           {
-            ...task("second-branch", ["source"]),
-            session: { type: "branch" as const, from: "source" },
+            ...task("second-fork", ["source"]),
+            session: { type: "fork" as const, from: "source" },
           },
           {
             ...task("reuse", ["source"]),
@@ -296,8 +299,8 @@ describe("shared-session order preflight", () => {
         sessionResolver: { resolve: async () => parentSession },
         taskDefinitions: new Map([
           ["source", taskDefinition("source")],
-          ["branch", taskDefinition("branch")],
-          ["second-branch", taskDefinition("second-branch")],
+          ["fork", taskDefinition("fork")],
+          ["second-fork", taskDefinition("second-fork")],
           ["reuse", taskDefinition("reuse")],
         ]),
       },
@@ -307,7 +310,7 @@ describe("shared-session order preflight", () => {
     await runCompiledWorkflow(compiled);
 
     expect(activity).toContain("parent:source");
-    expect(activity).toContain("branch:branch");
+    expect(activity).toContain("fork:fork");
     expect(activity).toContain("parent:reuse");
     expect(maximumConcurrentForks).toBe(1);
     expect(activity.indexOf("checkpoint")).toBeLessThan(
@@ -382,7 +385,7 @@ describe("shared-session order preflight", () => {
       model: { provider: "openai", model: "gpt-5.6-sol" },
       reasoning: "medium",
     };
-    const branchSelection: ModelSelection = {
+    const forkSelection: ModelSelection = {
       model: { provider: "anthropic", model: "claude-sonnet-4-6" },
       reasoning: "high",
     };
@@ -395,7 +398,7 @@ describe("shared-session order preflight", () => {
       fork: async ({ effectiveSelection }) => {
         forkSelections.push(effectiveSelection);
         return {
-          key: Symbol("branch"),
+          key: Symbol("fork"),
           executor: { execute: async () => ({}) },
           effectiveSelection: parentSelection,
         };
@@ -403,18 +406,18 @@ describe("shared-session order preflight", () => {
     };
     const compiled = new PlanCompiler().compileWorkflow(
       {
-        workflow: { id: "session-selection-branch" },
+        workflow: { id: "session-selection-fork" },
         nodes: [
           {
             ...task("source"),
             session: { type: "isolated" as const, model: parentSelection },
           },
           {
-            ...task("branch", ["source"]),
+            ...task("fork", ["source"]),
             session: {
-              type: "branch" as const,
+              type: "fork" as const,
               from: "source",
-              model: branchSelection,
+              model: forkSelection,
             },
           },
           {
@@ -422,11 +425,11 @@ describe("shared-session order preflight", () => {
             session: { type: "reuse" as const, from: "source" },
           },
           {
-            ...task("branch-reuse", ["branch"]),
-            session: { type: "reuse" as const, from: "branch" },
+            ...task("fork-reuse", ["fork"]),
+            session: { type: "reuse" as const, from: "fork" },
           },
         ],
-        output: { type: "ref", nodeId: "branch-reuse", path: [] },
+        output: { type: "ref", nodeId: "fork-reuse", path: [] },
       },
       {
         createInvocationId: (nodeId) => `inv:${nodeId}`,
@@ -436,7 +439,7 @@ describe("shared-session order preflight", () => {
             executor: "test",
             listModels: async () => [
               parentSelection.model,
-              branchSelection.model,
+              forkSelection.model,
             ],
             resolveDefaultModel: async () => parentSelection,
           },
@@ -444,9 +447,9 @@ describe("shared-session order preflight", () => {
         },
         taskDefinitions: new Map([
           ["source", taskDefinition("source")],
-          ["branch", taskDefinition("branch")],
+          ["fork", taskDefinition("fork")],
           ["reuse", taskDefinition("reuse")],
-          ["branch-reuse", taskDefinition("branch-reuse")],
+          ["fork-reuse", taskDefinition("fork-reuse")],
         ]),
       },
     );
@@ -458,28 +461,28 @@ describe("shared-session order preflight", () => {
       error: { message: expect.stringMatching(/effective model selection/i) },
     });
 
-    const branchSession = compiled.context.resolvedSessions.get("inv:branch");
-    expect(forkSelections).toEqual([branchSelection]);
-    expect(branchSession).toBeUndefined();
+    const forkSession = compiled.context.resolvedSessions.get("inv:fork");
+    expect(forkSelections).toEqual([forkSelection]);
+    expect(forkSession).toBeUndefined();
     expect(compiled.context.resolvedSessions.get("inv:source")).toBe(
       parentSession,
     );
     expect(parentSession.effectiveSelection).toEqual(parentSelection);
   });
 
-  it("fails a branch workflow when the source session cannot fork natively", async () => {
+  it("fails a fork workflow when the source session cannot fork natively", async () => {
     const executor = { execute: async () => ({}) };
     const compiled = new PlanCompiler().compileWorkflow(
       {
-        workflow: { id: "unsupported-session-branch" },
+        workflow: { id: "unsupported-session-fork" },
         nodes: [
           task("source"),
           {
-            ...task("branch", ["source"]),
-            session: { type: "branch" as const, from: "source" },
+            ...task("fork", ["source"]),
+            session: { type: "fork" as const, from: "source" },
           },
         ],
-        output: { type: "ref", nodeId: "branch", path: [] },
+        output: { type: "ref", nodeId: "fork", path: [] },
       },
       {
         createInvocationId: (nodeId) => `inv:${nodeId}`,
@@ -489,7 +492,7 @@ describe("shared-session order preflight", () => {
         },
         taskDefinitions: new Map([
           ["source", taskDefinition("source")],
-          ["branch", taskDefinition("branch")],
+          ["fork", taskDefinition("fork")],
         ]),
       },
     );

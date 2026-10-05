@@ -138,15 +138,15 @@ export async function createStandaloneExecution(
         return actual.checkpoint();
       },
       async fork(request) {
-        const branchSelection = request.effectiveSelection ?? selection;
+        const forkSelection = request.effectiveSelection ?? selection;
         if (actual === undefined) {
           if (request.checkpoint !== emptyCheckpoint)
             throw new Error("Invalid empty session checkpoint");
-          return session(branchSelection);
+          return session(forkSelection);
         }
         if (actual.fork === undefined)
           throw new Error("Adapter cannot fork a session checkpoint");
-        return session(branchSelection, await actual.fork(request));
+        return session(forkSelection, await actual.fork(request));
       },
     };
   }

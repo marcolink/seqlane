@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-10-04
+updated: 2026-10-05
 upstream:
   - rfc.mastra-runtime-and-operational-foundation
   - adr.standalone-cli-runs
@@ -43,7 +43,7 @@ delivered as a dependency-ordered stack of independently reviewable tasks.
 - A pluggable abstraction for alternative workflow engines.
 - Permanent compatibility adapters, dual runtimes, dual writes, or fallbacks.
 - Mastra Enterprise Edition, Mastra Cloud, or hosted-service dependencies.
-- Session-branch merging.
+- Session-fork merging.
 - A dedicated or rebranded Seqlane Studio.
 - Delivery of the Renovate repair workflow, which is tracked independently.
 - Unrelated public API redesign.
@@ -352,7 +352,7 @@ review, and a repository search for forbidden `/ee/` imports.
 
 - All supported workflows execute through Mastra.
 - Agent and deterministic shell tasks preserve their public contracts.
-- Shared sessions serialize, branches isolate, and workspace conflicts do not
+- Shared sessions serialize, forks isolate, and workspace conflicts do not
   overlap.
 - Work/Run/Invocation correlation is visible in normalized results and Mastra
   traces.

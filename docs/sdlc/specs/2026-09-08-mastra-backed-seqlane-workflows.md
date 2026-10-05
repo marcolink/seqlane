@@ -212,7 +212,7 @@ apply session and workspace policy before execution starts. Admission must stay
 atomic across all resources that the invocation needs.
 
 Admission wait after dependencies become ready must be observable. Session
-reuse, branching, ordering, and workspace identity must follow the active
+reuse, forking, ordering, and workspace identity must follow the active
 policy and session specifications.
 
 All runnable invocations can declare workspace policy. A task invocation can
@@ -633,7 +633,7 @@ The runtime applies this sequence:
 7. Release resources and publish the typed outcome.
 
 Mastra must not bypass steps four or five. The sequence preserves session reuse,
-branching, workspace coordination, and ordered shared-session work.
+forking, workspace coordination, and ordered shared-session work.
 
 ### Mastra compilation and cutover
 
@@ -800,7 +800,7 @@ Protocol, CLI, and TUI tests cover the new Plan topology and skipped arm.
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)
 - [spec.invocation-admission-and-workspace-coordination: Invocation Admission and Workspace Coordination](./2026-09-02-invocation-admission-and-workspace-coordination.md)
-- [spec.session-checkpoint-reuse-and-branching: Session Checkpoint Reuse and Branching](./2026-09-02-session-checkpoint-reuse-and-branching.md)
+- [spec.session-checkpoint-reuse-and-branching: Session Checkpoint Reuse and Forking](./2026-09-02-session-checkpoint-reuse-and-branching.md)
 - [spec.model-selection-and-session-model-semantics: Model Selection and Session Model Semantics](./2026-09-03-model-selection-and-session-model-semantics.md)
 - [spec.local-mechanical-tasks: Local Mechanical Tasks](./2026-09-03-local-mechanical-tasks.md)
 - [spec.dedicated-runner-process: Dedicated Runner Process and CLI IPC](./2026-09-02-dedicated-runner-process.md)
