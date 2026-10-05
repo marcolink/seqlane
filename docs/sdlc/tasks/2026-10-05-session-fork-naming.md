@@ -76,9 +76,11 @@ rewriting accepted ADRs or completed task history.
 
 ### Compatibility decision
 
-The user approved replacing session terminology in current docs. All primary
-examples use `fork`; no documentation alias period is required. Preserve accepted
-ADR and completed-task history.
+Current documentation must call the session operation a fork. Use `fork` in all
+session prose, headings, API examples, and session-policy examples. Do not describe
+sessions as branches or show the deprecated helper in public guides. Reserve
+branching terminology for conditional control flow. Preserve accepted ADR and
+completed-task history, stable IDs, and existing link targets.
 
 The API transition must remain compatible. Add `fork(checkpoint, model?)` and
 retain exported `branch(checkpoint, model?)` with a JSDoc `@deprecated` annotation
@@ -92,8 +94,10 @@ Plan boundary before runtime consumption. New canonical Plans serialize `fork`;
 legacy Plans execute with identical semantics. Reuse owning Zod schemas and one
 normalizer. Check consumers for reliance on unnormalized policy shapes.
 
-Document the preferred import/call and Plan spelling, with a brief deprecation
-note. Do not require migration for existing API callers. Do not remove compatibility
+Document only the preferred `fork` import/call and Plan spelling in public guides.
+Keep legacy names in API deprecation annotations and compatibility tests; this
+implementation plan records them to define the compatibility contract. Existing
+API callers need no migration. Do not remove compatibility
 in this task or invent a removal deadline. Never globally replace control-flow
 branches.
 
@@ -142,8 +146,10 @@ Update `workflows/all-features-example`, `workflows/git-diff-summary-example`, t
 READMEs, and public session-authoring pages. Include a readable workflow with
 `session: ({ tasks }) => fork(tasks.source.session)` alongside
 `.when(...).task(...).otherwise(...)`. Explain reuse versus fork and the preferred
-import/Plan spelling; include the retained API deprecation note. Review residual `branch` matches individually. Update active
-SDLC terminology, indexes, and delivery evidence after implementation.
+import/Plan spelling. Public session guides show only `fork`; the compatibility
+helper remains discoverable through its API deprecation annotation. Review residual
+`branch` matches individually. Update active SDLC terminology, indexes, and
+delivery evidence after implementation.
 
 ## Affected areas
 
@@ -165,14 +171,20 @@ Final gates: `pnpm typecheck`, `pnpm test`, `pnpm lint`, `pnpm build`,
 and `git diff --check`. Use Node 24 or newer. Check public types for Mastra leaks
 and forbidden `/ee/` imports if integration files change. Run Ripwire change and
 quality checks before declaring implementation ready. Confirm residual `branch`
-uses describe intentional deprecated compatibility, control flow, Git, or history.
+uses describe control flow, Git, historical records, or compatibility in API
+annotations, tests, and implementation contracts. Fail the documentation audit if
+current public session guides contain `branch(...)`, `type: "branch"`, or session
+branching prose. Review `fork` matches to ensure session-fork descriptions do not
+rename conditional control flow.
 
 ## Completion criteria
 
 - Preferred public session API and canonical serialized policies use `fork`.
 - `branch` remains exported, deprecated, and compatible in signature and return shape.
 - Legacy authoring policies and serialized Plans remain accepted and execute identically.
-- Current documentation uses session forking; migration is optional for API callers.
+- Current public session documentation uses only `fork`, including all examples.
+- Deprecated `branch` appears only in API annotations, compatibility contracts/tests,
+  or preserved history; conditional control-flow terminology remains distinct.
 - Checkpoint provenance, isolation, selection, ordering, and failure behavior pass.
 - Unselected choice arms create no sessions or checkpoints.
 - Examples distinguish session reuse, session forking, and conditional choice.
