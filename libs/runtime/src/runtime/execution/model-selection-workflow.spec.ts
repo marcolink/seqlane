@@ -21,13 +21,13 @@ import type { SeqlaneExecutor } from "./executor.js";
 import { runCompiledWorkflow } from "./workflow-run.js";
 
 const availableModels: readonly ModelRef[] = [
-  { provider: "openai", model: "gpt-5.6-sol" },
-  { provider: "openai", model: "gpt-5.6-luna" },
+  { provider: "openai", model: "gpt-6.1-sol" },
+  { provider: "openai", model: "gpt-6-luna" },
   { provider: "anthropic", model: "claude-sonnet-4-6" },
 ];
 
 const defaultSelection: ModelSelection = {
-  model: { provider: "openai", model: "gpt-5.6-sol" },
+  model: { provider: "openai", model: "gpt-6.1-sol" },
   reasoning: "medium",
 };
 
@@ -105,11 +105,11 @@ describe("model-selection fixture integration", () => {
       status: "succeeded",
     });
 
-    const sourceSelection = selectionFor("openai", "gpt-5.6-luna", "high");
+    const sourceSelection = selectionFor("openai", "gpt-6-luna", "high");
     const expectedSelections = new Map([
       [
         "model-selection.isolated:1",
-        selectionFor("openai", "gpt-5.6-sol", "medium"),
+        selectionFor("openai", "gpt-6.1-sol", "medium"),
       ],
       ["model-selection.source:1", sourceSelection],
       ["model-selection.reuse:1", sourceSelection],
@@ -119,7 +119,7 @@ describe("model-selection fixture integration", () => {
       ],
       [
         "model-selection.child:1",
-        selectionFor("openai", "gpt-5.6-sol", "minimal"),
+        selectionFor("openai", "gpt-6.1-sol", "minimal"),
       ],
     ]);
 
