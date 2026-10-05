@@ -89,6 +89,22 @@ export async function executeTaskNode(
   let workspaceAdmitted = false;
   let workspaceWaitingReported = false;
   let sessionWaitingReported = false;
+  const releaseWorkspace = (): void => {
+    workspaceLease?.release();
+    workspaceLease = undefined;
+    if (!workspaceAdmitted) return;
+    workspaceAdmitted = false;
+    context.events.emit({
+      type: "invocation.progress",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+      state: "active",
+      phase: "workspace_released",
+      workspace: node.workspace,
+      ...optionalIteration(options.iteration),
+    });
+  };
   const reportWorkspaceWaiting = (
     blockingInvocationId: string | undefined,
   ): void => {
@@ -408,7 +424,12 @@ export async function executeTaskNode(
       let output: unknown;
       try {
         output = taskSchema.output.parse(rawOutput);
-        if (options.validateOutput) output = options.validateOutput(output);
+        if (options.validateOutput) {
+          // Evaluators acquire their own workspace admission. Keep the session
+          // lock until checkpoint capture, but release execution workspace locks.
+          releaseWorkspace();
+          output = await options.validateOutput(output);
+        }
       } catch (cause) {
         throwTaskPhaseError(cause, "output", node.taskId, abortSignal);
       }
@@ -472,19 +493,7 @@ export async function executeTaskNode(
   } finally {
     if (unconfirmedActivity === undefined) {
       sessionLease?.release();
-      workspaceLease?.release();
-      if (workspaceAdmitted) {
-        context.events.emit({
-          type: "invocation.progress",
-          workId: context.workId,
-          runId: context.runId,
-          invocationId,
-          state: "active",
-          phase: "workspace_released",
-          workspace: node.workspace,
-          ...optionalIteration(options.iteration),
-        });
-      }
+      releaseWorkspace();
     }
   }
 }
@@ -495,7 +504,11 @@ export async function executeWorkflowNode(
   abortSignal: AbortSignal,
   options: Pick<
     TaskExecutionOptions,
-    "invocationId" | "observability" | "results" | "remainingConsumers"
+    | "invocationId"
+    | "observability"
+    | "results"
+    | "remainingConsumers"
+    | "validateOutput"
   > & {
     readonly execute: () => Promise<unknown>;
     readonly workspaceAdmission?: "dynamic" | "graph";
@@ -506,6 +519,20 @@ export async function executeWorkflowNode(
   const workspaceLeases: WorkspaceLockLease[] = [];
   let workspaceAdmitted = false;
   let waitingReported = false;
+  const releaseWorkspace = (): void => {
+    for (const lease of workspaceLeases.splice(0)) lease.release();
+    if (!workspaceAdmitted) return;
+    workspaceAdmitted = false;
+    context.events.emit({
+      type: "invocation.progress",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+      state: "active",
+      phase: "workspace_released",
+      workspace: node.workspace,
+    });
+  };
   const reportWaiting = (blockingInvocationId: string | undefined): void => {
     if (waitingReported) return;
     waitingReported = true;
@@ -584,7 +611,11 @@ export async function executeWorkflowNode(
       workspace: node.workspace,
     });
 
-    const output = await options.execute();
+    let output = await options.execute();
+    if (options.validateOutput !== undefined) {
+      releaseWorkspace();
+      output = await options.validateOutput(output);
+    }
     results.set(node.nodeId, output);
     context.events.emit({
       type: "invocation.succeeded",
@@ -602,18 +633,7 @@ export async function executeWorkflowNode(
       taskId: node.workflowId,
     });
   } finally {
-    for (const lease of workspaceLeases.splice(0)) lease.release();
-    if (workspaceAdmitted) {
-      context.events.emit({
-        type: "invocation.progress",
-        workId: context.workId,
-        runId: context.runId,
-        invocationId,
-        state: "active",
-        phase: "workspace_released",
-        workspace: node.workspace,
-      });
-    }
+    releaseWorkspace();
   }
 }
 

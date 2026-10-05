@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-26
-updated: 2026-10-04
+updated: 2026-10-05
 upstream:
   - spec.mastra-backed-seqlane-workflows
   - adr.exclusive-flow-choice
@@ -107,6 +107,10 @@ entry. Complementary predicates, the selected arm, and the join reuse that
 parsed state. Real Mastra regressions prove envelope reuse on both routes and
 reject malformed envelopes before either arm runs. Runnable input and output
 validation remain unchanged.
+Finding `SEQ-PR170-015` runs selected-arm output validation before storing the
+result or emitting success and result events. Rejection fails the arm and
+choice. Deterministic evaluator regressions cover shared and exclusive
+workspace admission without holding the arm's execution workspace lock.
 
 ## Delivery state
 

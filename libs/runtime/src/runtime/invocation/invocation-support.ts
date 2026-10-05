@@ -25,6 +25,7 @@ export interface TaskExecutionOptions {
   /** `graph` means static workspace conflicts are already dependency edges. */
   readonly workspaceAdmission?: "dynamic" | "graph";
   readonly iteration?: number;
+  /** Awaited before result publication; may run an asynchronous evaluator. */
   readonly validateOutput?: (output: unknown) => unknown;
 }
 

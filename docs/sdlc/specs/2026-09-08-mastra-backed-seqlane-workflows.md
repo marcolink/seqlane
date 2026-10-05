@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-08
-updated: 2026-10-04
+updated: 2026-10-05
 upstream:
   - adr.mastra-backed-seqlane-workflows
   - adr.exclusive-flow-choice
@@ -175,7 +175,11 @@ Downstream bindings refer to this handle, not to either arm. The choice is
 control flow, not a new task definition or model invocation.
 
 Task arms can declare their ordinary output validator. Only the selected
-arm's validator runs. A model requirement on an unselected arm does not block
+arm's validator runs. It must accept the output before the arm stores a result
+or emits success or result events. Rejection fails both the arm and choice.
+An evaluator task acquires workspace admission after the arm releases its
+execution workspace admission. The arm retains session admission until its
+checkpoint is captured. A model requirement on an unselected arm does not block
 the run; the selected arm's model is checked when that arm becomes eligible.
 
 ### REQ-PLAN-001: Keep a small Seqlane Plan boundary

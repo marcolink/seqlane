@@ -9,6 +9,7 @@ import {
   createFlow,
   defineTask,
   defineValidator,
+  validationResultSchema,
   type SeqlaneEvent,
 } from "@seqlane/core";
 import { startWorkflowRun } from "./start-workflow-run.js";
@@ -298,6 +299,7 @@ describe("exclusive Flow choice through the runtime", () => {
       .output(({ tasks }) => tasks.decision.output)
       .define();
     const built = buildWorkflow(flow);
+    const events: SeqlaneEvent[] = [];
     const run = (reviewValue: boolean) =>
       startWorkflowRun({
         workflow: built,
@@ -307,17 +309,117 @@ describe("exclusive Flow choice through the runtime", () => {
           workId: "choice-validation-work",
           runId: `choice-validation-${reviewValue}`,
         },
-        events: { emit: () => undefined },
+        events: { emit: (event) => events.push(event) },
       });
     await expect(run(false).outcome).resolves.toMatchObject({
       status: "succeeded",
     });
     expect(calls).toEqual(["approval-validator"]);
+    events.length = 0;
     await expect(run(true).outcome).resolves.toMatchObject({
       status: "failed",
     });
     expect(calls).toEqual(["approval-validator", "review-validator"]);
+    const arm = events.find(
+      (event) =>
+        event.type === "invocation.created" &&
+        event.planNodeId === "choice:1:then",
+    );
+    if (arm?.type !== "invocation.created") throw new Error("Missing arm");
+    const choice = events.find(
+      (event) =>
+        event.type === "invocation.created" && event.planNodeId === "choice:1",
+    );
+    if (choice?.type !== "invocation.created")
+      throw new Error("Missing choice");
+    for (const invocationId of [arm.invocationId, choice.invocationId]) {
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "invocation.failed", invocationId }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "invocation.succeeded", invocationId }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "invocation.result", invocationId }),
+      );
+    }
   });
+
+  it.each(["shared", "exclusive"] as const)(
+    "runs the output evaluator after releasing %s workspace admission",
+    async (workspace) => {
+      const calls: string[] = [];
+      const selected = defineTask({
+        id: "evaluated-choice-task",
+        input: z.object({ change: z.string() }),
+        output: reviewed,
+        execute: async () => {
+          calls.push("selected");
+          return { kind: "reviewed" as const, risk: 1 };
+        },
+      });
+      const evaluator = defineTask({
+        id: "choice-output-evaluator",
+        input: reviewed,
+        output: validationResultSchema,
+        execute: async (): Promise<z.output<typeof validationResultSchema>> => {
+          calls.push("evaluator");
+          return {
+            success: false as const,
+            issues: [{ code: "rejected", message: "review rejected" }],
+          };
+        },
+      });
+      const flow = createFlow({ id: "choice-evaluator", input, output })
+        .when(({ input: value }) => value.review)
+        .task(
+          "decision",
+          selected,
+          ({ input: value }) => ({ change: value.change }),
+          { workspace, validateOutput: evaluator },
+        )
+        .otherwise(selected, ({ input: value }) => ({ change: value.change }))
+        .output(({ tasks }) => tasks.decision.output)
+        .define();
+      const events: SeqlaneEvent[] = [];
+      const run = startWorkflowRun({
+        workflow: buildWorkflow(flow),
+        input: { review: true, change: "a" },
+        workspace: process.cwd(),
+        identity: {
+          workId: "choice-evaluator",
+          runId: `evaluator-${workspace}`,
+        },
+        events: { emit: (event) => events.push(event) },
+      });
+      await expect(run.outcome).resolves.toMatchObject({ status: "failed" });
+      expect(calls).toEqual(["selected", "evaluator"]);
+      const arm = events.find(
+        (event) =>
+          event.type === "invocation.created" &&
+          event.planNodeId === "choice:1:then",
+      );
+      if (arm?.type !== "invocation.created") throw new Error("Missing arm");
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "invocation.failed",
+          invocationId: arm.invocationId,
+        }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({
+          type: "invocation.succeeded",
+          invocationId: arm.invocationId,
+        }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({
+          type: "invocation.result",
+          invocationId: arm.invocationId,
+        }),
+      );
+    },
+  );
 
   it("cancels the selected arm without starting the other arm", async () => {
     let markStarted: () => void = () => undefined;

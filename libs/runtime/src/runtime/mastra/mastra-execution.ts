@@ -55,7 +55,10 @@ import {
   type MastraRuntime,
   type MastraWorkflowResult,
 } from "./mastra-runtime.js";
-import { taskIdCompatibility } from "../invocation/invocation-support.js";
+import {
+  taskIdCompatibility,
+  type TaskExecutionOptions,
+} from "../invocation/invocation-support.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
 import type { ExecutorResolvers } from "../execution/executor.js";
 import type { SessionResolver } from "../session/session-resolution.js";
@@ -394,9 +397,12 @@ async function executeTaskInvocation(
       remainingConsumers: options.context.remainingConsumers,
       subject: { type: "task", taskId: options.node.taskId },
       iteration: options.iteration,
+      validateOutput: choiceOutputValidator(options),
     },
   );
-  await validateInvocationOutput(options, output);
+  if (options.choiceValidation === undefined) {
+    await validateInvocationOutput(options, output);
+  }
   return output;
 }
 
@@ -420,6 +426,7 @@ async function executeWorkflowInvocationNode(
       observability: options.observability,
       results: options.context.results,
       remainingConsumers: options.context.remainingConsumers,
+      validateOutput: choiceOutputValidator(options),
       workspaceAdmission:
         options.dynamicWorkspaceAdmission || options.iteration !== undefined
           ? "dynamic"
@@ -452,8 +459,20 @@ async function executeWorkflowInvocationNode(
         ),
     },
   );
-  await validateInvocationOutput(options, output);
+  if (options.choiceValidation === undefined) {
+    await validateInvocationOutput(options, output);
+  }
   return output;
+}
+
+function choiceOutputValidator(
+  options: InvocationDispatchOptions,
+): TaskExecutionOptions["validateOutput"] {
+  if (options.choiceValidation === undefined) return undefined;
+  return async (output) => {
+    await validateInvocationOutput(options, output);
+    return output;
+  };
 }
 
 function failChoiceTaskPreflight(
