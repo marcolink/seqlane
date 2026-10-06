@@ -87,8 +87,9 @@ release.
 
 After a successful agent turn and all tracked activity, the runtime publishes
 its private checkpoint. `reuse()` keeps the source session; `fork()` creates a
-separate child session from that checkpoint. Forks materialize
-before a parent continuation can advance. Native checkpoint forks are created one at a time;
+separate child session from that checkpoint. Unconditional forks materialize
+before a parent continuation can advance. Choice-arm forks materialize only
+when selected, using the captured checkpoint. Native checkpoint forks are created one at a time;
 child task execution can overlap after session materialization. A fan-in task
 consumes fork outputs as normal input and explicitly selects one session;
 Seqlane never merges diverged histories. Failed or ambiguous turns publish no
