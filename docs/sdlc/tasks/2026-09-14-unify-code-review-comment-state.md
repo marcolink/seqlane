@@ -170,6 +170,8 @@ if (schemaVersion > 0 && schemaVersion < CURRENT_SCHEMA_VERSION) {
    reports, truncated bodies, incomplete inventory, and lookup errors block
    admission. Reuse existing GitHub read ports where they preserve this evidence.
    Do not use latest-comment selection as proof of uniqueness.
+   Require two matching inventories, each bounded to two pages and 200 comments.
+   Stop on any mismatch with `REVIEW_AUTHORITY_UNSTABLE`; do not retry.
 2. Implement the full strict v5 state and its shared component schemas.
    Include ScopeCheckpoint, RetainedFinding, FindingEvidence, LocationStatus,
    VerificationEvidence, RunStatus, ManifestReference, PublicationOperation,
@@ -309,6 +311,12 @@ at `7ce908b`. It reads a complete bounded issue-comment inventory, classifies
 trusted reports, validates shared v5 state, and calls the existing collector.
 Every v1–v4 payload is ignored and selects a full current-PR baseline.
 Malformed v5, future versions, and ambiguous authority block before Git work.
+PR #178 adds two bounded inventory scans to detect pagination movement and
+report changes. Tests cover deletion across page boundaries, changed report
+content, identity, author, timestamp, and incomplete or malformed second scans.
+The shared report marker now lives in a pure identity module, so the codec
+does not depend on GitHub authority lookup. The scans provide a consistency
+check; publication guards remain necessary for changes after the read.
 
 Real-Git integration covers full legacy replacement, incremental changes,
 older hunks in an edited file, non-ancestor checkpoints, same-head input,
@@ -340,4 +348,5 @@ Partial local implementation. No target-branch delivery claim is made here.
 - Evidence and reference: [spec.review-run-manifest-and-provenance](../specs/2026-09-14-review-run-manifest-and-provenance.md#requirement-finding-evidence)
 - Collector dependency: [task.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Stack base: [PR #176](https://github.com/marcolink/seqlane/pull/176)
+- Reader/admission implementation: [PR #178](https://github.com/marcolink/seqlane/pull/178)
 - Follow-on proposal: [PR #112](https://github.com/marcolink/seqlane/pull/112)

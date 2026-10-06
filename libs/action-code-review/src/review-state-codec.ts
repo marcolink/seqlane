@@ -12,7 +12,7 @@ import {
   validateReviewMetadataBindings,
   validateReviewStateBindings,
 } from "./review-state-bindings.js";
-import { REVIEW_REPORT_MARKER } from "./review-report-authority.js";
+import { REVIEW_REPORT_MARKER } from "./review-report-identity.js";
 import { ReviewScopeError } from "./review-scope-errors.js";
 
 export const REVIEW_STATE_CODEC_LIMITS = Object.freeze({

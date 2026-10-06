@@ -39,7 +39,11 @@ const admission = await admitReviewScope(
 The frozen PR contains `repositoryId`, `pullRequestNumber`, `targetBranch`,
 `baseRevision`, and `headRevision`. Capture these before admission.
 The GitHub port returns raw issue-comment pages with `items` and explicit
-`hasNextPage`. Lookup permits at most two pages and 200 comments. Malformed
+`hasNextPage`. Lookup requires two matching inventories, each limited to two
+pages and 200 comments: at most four requests, with no retries. Changed
+identities, content, authors, timestamps, or ordering block admission with
+`REVIEW_AUTHORITY_UNSTABLE`. This consistency check is not an atomic snapshot;
+later publication guards must still verify authority. Malformed
 records, incomplete pagination, truncated bodies, and duplicate trusted
 reports block admission. The default authors are `github-actions` and
 `github-actions[bot]`; the caller can supply its trusted bot authors.

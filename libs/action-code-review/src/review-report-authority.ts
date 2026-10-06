@@ -5,9 +5,10 @@ import {
 } from "@seqlane/code-review-workflow/contracts";
 import { reviewHistorySchema, type ReviewHistory } from "./contracts.js";
 import type { GitHubReviewClient } from "./github-port.js";
+import { REVIEW_REPORT_MARKER } from "./review-report-identity.js";
 import { ReviewScopeError } from "./review-scope-errors.js";
+import { canonicalReviewJson } from "./review-state-canonical.js";
 
-export const REVIEW_REPORT_MARKER = "<!-- seqlane-code-review -->";
 export const DEFAULT_REVIEW_BOT_AUTHORS = Object.freeze([
   "github-actions",
   "github-actions[bot]",
@@ -35,35 +36,51 @@ export type ReviewAuthorityReadPort = Pick<
   "listIssueComments"
 >;
 
+async function readCommentInventory(
+  port: ReviewAuthorityReadPort,
+  pullRequestNumber: number,
+): Promise<ReviewHistory> {
+  const comments: ReviewHistory["comments"] = [];
+  for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
+    const page = authorityPageSchema.parse(
+      await port.listIssueComments(pullRequestNumber, pageNumber),
+    );
+    for (const comment of page.items) {
+      comments.push({
+        id: comment.id,
+        kind: "issue",
+        author: comment.user.login,
+        authorAssociation: comment.author_association,
+        body: comment.body,
+        createdAt: comment.created_at,
+        updatedAt: comment.updated_at,
+      });
+    }
+    if (!page.hasNextPage)
+      return reviewHistorySchema.parse({ comments, truncated: false });
+  }
+  throw new ReviewScopeError(
+    "REVIEW_AUTHORITY_INCOMPLETE",
+    "Review comment lookup exceeded its complete inventory bound.",
+  );
+}
+
+/** Require two matching inventories; this is not an atomic GitHub snapshot. */
 export async function readReviewAuthority(
   port: ReviewAuthorityReadPort,
   pullRequestNumber: number,
 ): Promise<ReviewHistory> {
   try {
     reviewPositiveIntegerSchema.parse(pullRequestNumber);
-    const comments: ReviewHistory["comments"] = [];
-    for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
-      const page = authorityPageSchema.parse(
-        await port.listIssueComments(pullRequestNumber, pageNumber),
+    const first = await readCommentInventory(port, pullRequestNumber);
+    const second = await readCommentInventory(port, pullRequestNumber);
+    if (canonicalReviewJson(first) !== canonicalReviewJson(second)) {
+      throw new ReviewScopeError(
+        "REVIEW_AUTHORITY_UNSTABLE",
+        "Review comment inventory changed between bounded scans.",
       );
-      for (const comment of page.items) {
-        comments.push({
-          id: comment.id,
-          kind: "issue",
-          author: comment.user.login,
-          authorAssociation: comment.author_association,
-          body: comment.body,
-          createdAt: comment.created_at,
-          updatedAt: comment.updated_at,
-        });
-      }
-      if (!page.hasNextPage)
-        return reviewHistorySchema.parse({ comments, truncated: false });
     }
-    throw new ReviewScopeError(
-      "REVIEW_AUTHORITY_INCOMPLETE",
-      "Review comment lookup exceeded its complete inventory bound.",
-    );
+    return second;
   } catch (cause) {
     if (cause instanceof ReviewScopeError) throw cause;
     throw new ReviewScopeError(
