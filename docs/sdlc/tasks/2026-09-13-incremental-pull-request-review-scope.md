@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-13
-updated: 2026-10-05
+updated: 2026-10-06
 upstream:
   - spec.incremental-pull-request-review-scope
 supersedes: []
@@ -133,7 +133,8 @@ Preserve the state, lifecycle, trust, and publication rules in
 - Test explicit job permissions and the model worker's environment and storage
   boundary. Prove only the trusted publisher can write the bot comment.
 - Test byte-stable manifests, pre-upload size failure, one verified artifact,
-  artifact expiry, and missing-reference refusal without a baseline reset.
+  explicit 90-day retention, policy rejection, artifact expiry, and
+  missing-reference refusal without a baseline reset.
 - Test canonical model reuse, strict references, owner-link consistency, and
   early cancellation without a promised manifest. Test representative redaction
   fixtures in both sinks and hash-and-location-only evidence for unsafe excerpts.

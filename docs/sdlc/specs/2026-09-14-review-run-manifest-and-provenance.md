@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-14
-updated: 2026-10-05
+updated: 2026-10-06
 upstream:
   - spec.versioned-pull-request-review-comments
 supersedes: []
@@ -370,8 +370,9 @@ compressed bytes. A breach fails without upload or final comment write and
 preserves the prior checkpoint. An uncertain upload is not a valid
 ManifestReference until the artifact identity and digest are verified.
 
-Set an explicit bounded GitHub Actions artifact retention period, no longer
-than 30 days. Normal GitHub expiration owns deletion. The first release does
+Set an explicit GitHub Actions artifact retention period of 90 days.
+If repository policy cannot allow that period, upload and publication fail.
+Normal GitHub expiration owns deletion. The first release does
 not claim per-PR or repository-wide storage reservations or artifact
 compaction. Platform quota or upload failure blocks publication and is
 visible in the Action result; it never silently reduces the denominator.
@@ -464,6 +465,8 @@ ledger, or progress marker is treated as a manifest.
 - Test one final upload per run, pre-upload size rejection, upload/readback
   uncertainty, access control, redaction, retention, expiry, and platform
   quota failures.
+- Test explicit 90-day retention and publication refusal when repository
+  policy rejects that period.
 - Test trusted rule precedence and provenance hash changes. A sealed
   manifest's bytes and digest remain unchanged after publication outcomes.
 - Test independent coverage, finding, publication, and admission statuses
@@ -481,7 +484,7 @@ ledger, or progress marker is treated as a manifest.
   that item counts as complete.
 - Missing, failed, waived, stale, or unverified work is visible and cannot
   advance the checkpoint.
-- The final artifact has explicit per-run bounds and bounded retention; no
+- The final artifact has explicit per-run bounds and 90-day retention; no
   external coordinator or cross-run resume is required.
 - Trusted, typed, hashed rule sources and bounded finding evidence are
   recorded without accepting rules from PR content or agents.
@@ -501,4 +504,5 @@ This specification defines intended behavior. Implementation is pending.
 - Scope and checkpoint: [spec.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md)
 - Trusted state and publication: [spec.versioned-pull-request-review-comments](./2026-09-05-versioned-pull-request-review-comments.md)
 - Artifact retention: [GitHub Actions artifacts](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflow-artifacts)
+- Retention policy limits: [GitHub artifact retention settings](https://docs.github.com/en/organizations/managing-organization-settings/configuring-the-retention-period-for-github-actions-artifacts-and-logs-in-your-organization)
 - Delivery: [task.incremental-pull-request-review-scope](../tasks/2026-09-13-incremental-pull-request-review-scope.md)

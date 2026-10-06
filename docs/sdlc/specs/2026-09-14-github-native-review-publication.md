@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-14
-updated: 2026-10-05
+updated: 2026-10-06
 upstream:
   - adr.review-publication-without-comment-commands
   - spec.versioned-pull-request-review-comments
@@ -32,7 +32,9 @@ The versioned-comment specification owns state, lifecycle, operation identity,
 publication guards, permissions, and replay safety. The manifest specification
 owns execution, evidence, reference validation, and complete per-run bounds.
 This draft owns hidden transport, cost projection, and storage lookup.
-The storage-budget and retention alignment remains pending under `SEQ-PR112-046`.
+Artifact retention follows the canonical
+[90-day manifest policy](./2026-09-14-review-run-manifest-and-provenance.md#requirement-manifest-bounds).
+Storage-budget alignment remains pending under `SEQ-PR112-046`.
 This draft alone does not authorize another active transport or state schema.
 
 ## Goals
@@ -477,7 +479,7 @@ new state version rather than treating two schemas as v5.
 This is a draft future contract, not an amendment to the current active
 review-comment specification. Implementation is pending. It cannot become
 active until the canonical manifest and single v5 state contracts land, and
-the storage-budget and retention decision in `SEQ-PR112-046` is reconciled.
+the storage-budget decision in `SEQ-PR112-046` is reconciled.
 No implementation delivery is claimed here.
 
 ## Traceability
