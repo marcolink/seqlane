@@ -2,11 +2,11 @@ import {
   REVIEW_GIT_LIMITS,
   reviewScopeEvidenceSchema,
   type ReviewEvidenceBatch,
+  type ReviewPathPatch,
   type ReviewScopeIdentity,
   type ReviewScopeSelection,
   type ReviewTreeChange,
 } from "./review-scope-contracts.js";
-import type { parseScopedGitPatches } from "./review-git-records.js";
 import { requireScopeLimit } from "./review-scope-errors.js";
 
 function appendBatch(
@@ -54,8 +54,8 @@ function appendBatch(
 export function aggregateReviewScopeEvidence(
   selection: ReviewScopeSelection,
   groups: {
-    review: ReturnType<typeof parseScopedGitPatches>;
-    validation: ReturnType<typeof parseScopedGitPatches>;
+    review: ReviewPathPatch[];
+    validation: ReviewPathPatch[];
   },
 ) {
   const batches: ReviewEvidenceBatch[] = [];

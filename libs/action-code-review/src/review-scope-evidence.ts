@@ -1,6 +1,7 @@
 import { ZodError } from "zod";
 import {
   reviewScopeIdentitySchema,
+  type ReviewPathPatch,
   type ReviewScopeIdentity,
   type ReviewScopeEvidence,
   type ReviewTreeChange,
@@ -87,7 +88,7 @@ async function readPatches(
   revisions: readonly string[],
   paths: readonly string[],
   evidenceForm: ReviewTreeChange["evidenceForm"],
-): Promise<ReturnType<typeof parseScopedGitPatches>> {
+): Promise<ReviewPathPatch[]> {
   if (paths.length === 0) return [];
   const output = await requiredGitOutput(budget, [
     "-c",

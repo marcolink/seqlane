@@ -85,6 +85,13 @@ export const reviewTreeChangeSchema = z.strictObject({
 });
 export type ReviewTreeChange = z.infer<typeof reviewTreeChangeSchema>;
 
+export const reviewPathPatchSchema = z.strictObject({
+  patch: z.string(),
+  hunkCount: z.number().int().nonnegative().max(REVIEW_GIT_LIMITS.hunks),
+  treeChange: reviewTreeChangeSchema,
+});
+export type ReviewPathPatch = z.infer<typeof reviewPathPatchSchema>;
+
 export const reviewEvidenceBatchSchema = z
   .strictObject({
     scopeIdentity: reviewScopeIdentitySchema,

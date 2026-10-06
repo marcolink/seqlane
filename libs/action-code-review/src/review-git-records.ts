@@ -3,6 +3,7 @@ import {
   reviewScopePathSchema,
   reviewScopePathListSchema,
   reviewTreeChangeSchema,
+  type ReviewPathPatch,
   type ReviewTreeChange,
 } from "./review-scope-contracts.js";
 import { ReviewScopeError } from "./review-scope-errors.js";
@@ -189,7 +190,7 @@ export function parseScopedGitPatches(
   bytes: Uint8Array,
   expectedPathsValue: unknown,
   evidenceForm: ReviewTreeChange["evidenceForm"] = "pr-patch",
-) {
+): ReviewPathPatch[] {
   const expectedPaths = reviewScopePathListSchema.parse(expectedPathsValue);
   if (
     expectedPaths.length === 0 ||
