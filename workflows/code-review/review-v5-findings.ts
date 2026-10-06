@@ -19,6 +19,34 @@ export const reviewFindingIdentitySchema = z.strictObject({
   anchorKind: z.enum(["changed-text", "changed-tree-entry"]),
   causeDigest: reviewDigestSchema,
 });
+
+const findingLifecycleSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("new"),
+    comparisonOutcome: z.enum(["new", "not_reviewed"]),
+    verificationOutcome: z.enum(["none", "present", "uncertain"]),
+  }),
+  z.object({
+    status: z.literal("open"),
+    comparisonOutcome: z.enum(["persisting", "not_reviewed"]),
+    verificationOutcome: z.enum(["none", "present", "uncertain"]),
+  }),
+  z.object({
+    status: z.literal("addressed"),
+    comparisonOutcome: z.enum(["persisting", "not_reviewed"]),
+    verificationOutcome: z.enum(["none", "uncertain"]),
+  }),
+  z.object({
+    status: z.literal("resolved"),
+    comparisonOutcome: z.enum(["resolved", "not_reviewed"]),
+    verificationOutcome: z.literal("absent"),
+  }),
+  z.object({
+    status: z.literal("reopened"),
+    comparisonOutcome: z.enum(["persisting", "not_reviewed"]),
+    verificationOutcome: z.literal("present"),
+  }),
+]);
 export const retainedFindingSchema = z
   .strictObject({
     schemaVersion: z.literal(1),
@@ -101,27 +129,16 @@ export const retainedFindingSchema = z
       }
     }
     if (
-      finding.comparisonOutcome === "resolved" &&
-      (finding.status !== "resolved" || verification?.outcome !== "absent")
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        message: "Resolution requires absent verification",
-      });
-    }
-    if (finding.comparisonOutcome === "new" && finding.status !== "new")
-      ctx.addIssue({
-        code: "custom",
-        message: "New comparison requires new lifecycle",
-      });
-    if (
-      finding.status === "reopened" &&
-      finding.comparisonOutcome !== "not_reviewed" &&
-      verification?.outcome !== "present"
+      !findingLifecycleSchema.safeParse({
+        status: finding.status,
+        comparisonOutcome: finding.comparisonOutcome,
+        verificationOutcome: verification?.outcome ?? "none",
+      }).success
     )
       ctx.addIssue({
         code: "custom",
-        message: "Reopening requires present verification",
+        path: ["status"],
+        message: "Finding lifecycle, comparison, and verification disagree",
       });
   });
 export type RetainedFinding = z.infer<typeof retainedFindingSchema>;

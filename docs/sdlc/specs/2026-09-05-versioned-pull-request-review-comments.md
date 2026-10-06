@@ -477,6 +477,23 @@ it preserves the original discovery evidence and `evidenceRunId`.
 `absent` permits resolution. `present` permits reopening a resolved finding.
 Null, stale, or uncertain verification permits neither transition.
 `not_reviewed` carries the lifecycle forward without claiming fresh discovery.
+
+The owning schema accepts only these lifecycle combinations. `null` means
+there is no verification record; other values name its `outcome`.
+
+| Lifecycle status | Allowed comparison outcomes | Allowed verification outcomes |
+| --- | --- | --- |
+| `new` | `new`, `not_reviewed` | `null`, `present`, `uncertain` |
+| `open` | `persisting`, `not_reviewed` | `null`, `present`, `uncertain` |
+| `addressed` | `persisting`, `not_reviewed` | `null`, `uncertain` |
+| `resolved` | `resolved`, `not_reviewed` | `absent` |
+| `reopened` | `persisting`, `not_reviewed` | `present` |
+
+A reviewed resolution or reopening must verify the frozen current head.
+`not_reviewed` instead preserves the prior lifecycle and its valid historical
+verification. It does not permit a contradictory outcome or remove the proof
+that established resolution or reopening.
+
 Each ID is unique. Canonical order uses parsed generation bytes, then numeric
 finding index. Each state finding has exactly one visible representation with
 that same ID, either a detail row or an explicit bounded omitted-findings entry.

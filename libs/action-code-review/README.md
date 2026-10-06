@@ -66,6 +66,20 @@ and evidence digests. It reads no artifact and performs no publication write.
 Admission returns classification, scope identity, retained findings, and evidence.
 It allocates no generation or finding ID and makes zero model calls.
 
+Retained findings must match the canonical lifecycle matrix:
+
+| Status      | Comparison                   | Verification outcome           |
+| ----------- | ---------------------------- | ------------------------------ |
+| `new`       | `new`, `not_reviewed`        | `null`, `present`, `uncertain` |
+| `open`      | `persisting`, `not_reviewed` | `null`, `present`, `uncertain` |
+| `addressed` | `persisting`, `not_reviewed` | `null`, `uncertain`            |
+| `resolved`  | `resolved`, `not_reviewed`   | `absent`                       |
+| `reopened`  | `persisting`, `not_reviewed` | `present`                      |
+
+Reviewed resolution and reopening require verification at the published head.
+`not_reviewed` preserves valid historical verification and lifecycle without
+claiming a fresh check. Missing or contradictory proof blocks admission.
+
 ## Incremental scope collector
 
 `collectReviewScopeEvidence` is the first private v5 implementation slice.

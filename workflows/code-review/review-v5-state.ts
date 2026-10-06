@@ -79,8 +79,7 @@ export const reviewStateV5Schema = z
       ids.add(numericIdentity);
       if (parts.index > highestIndex) highestIndex = parts.index;
       if (
-        (finding.comparisonOutcome === "resolved" ||
-          finding.status === "reopened") &&
+        (finding.status === "resolved" || finding.status === "reopened") &&
         finding.comparisonOutcome !== "not_reviewed" &&
         finding.verification?.headRevision !== state.reviewedRevision
       ) {

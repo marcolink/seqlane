@@ -326,6 +326,13 @@ pages, and incomplete, malformed, or unstable lookup before any Git call.
 The metadata parser rejects duplicate decoded property names before routing,
 including contradictory versions without a state block. All older payloads
 remain ignored; the strict metadata identity still determines replacement.
+Finding validation now enforces the canonical lifecycle/comparison/verification
+matrix. Resolved status cannot accompany a persisting comparison or missing
+absence proof. Reviewed resolution and reopening require the published current
+head; valid historical `not_reviewed` findings keep their status and evidence.
+Schema regressions cover supported and contradictory combinations. Admission
+rejects a forged resolved claim before Git work, and real-Git tests preserve
+carried resolved and reopened findings without fresh patch work.
 
 Real-Git integration covers full legacy replacement, incremental changes,
 older hunks in an edited file, non-ancestor checkpoints, same-head input,
