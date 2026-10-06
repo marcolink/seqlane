@@ -7,7 +7,7 @@
     "types": ["node"],
     "emitDeclarationOnly": false
   },
-  "include": ["workflow.ts", "contracts.ts", "tasks/**/*.ts"],
-  "exclude": ["**/*.spec.ts"],
+  "include": ["workflow.ts", "contracts.ts", "review-v5-*.ts", "tasks/**/*.ts"],
+  "exclude": ["**/*.spec.ts", "**/*.test-support.ts"],
   "references": [{ "path": "../../libs/core" }]
 }

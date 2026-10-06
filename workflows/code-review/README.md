@@ -20,6 +20,12 @@ parsing, checkout, credentials, and publication remain in the Action consumer.
 The current finding contract has one severity and a lifecycle status; it does
 not accept comment decisions or older disposition-bearing state.
 
+The contracts package also exports separately named private v5 schemas for
+state, checkpoints, retained findings, evidence, manifest references, run status,
+publication identity, and cost. The Action's private admission path uses these
+schemas. The current workflow still uses its existing v4 contracts; these exports
+do not activate incremental review in the production Action.
+
 New plans use the `code-review` workflow ID and `code-review-*` task IDs.
 Existing plans, recordings, and metrics retain their historical IDs and remain
 self-describing; consumers must treat IDs as opaque historical data rather
