@@ -126,9 +126,16 @@ A zero-hunk path uses ordinal zero and retains tree-entry metadata so binary,
 mode-only, or absent-path evidence is not mistaken for an empty patch. Hunk
 ordinals begin at one within each complete path and evidence form and never
 restart at a batch boundary. Each tuple is globally unique, belongs to one
-batch, and matches the collector's complete evidence inventory. The union of
-item paths equals the selected set R. Missing required evidence fails before
-model work.
+batch, and matches the collector's complete discovery evidence inventory.
+The union of item paths equals the selected set R. Missing required evidence
+fails before model work.
+
+Baseline discovery items use `pr-patch`. Incremental discovery items use
+`change-evidence` from the last published checkpoint to the current head.
+Current-PR evidence used by the local cause-admission gate remains separate
+bounded validation data. It does not create discovery items, expected lanes,
+or fresh coverage of earlier PR hunks. Referenced validation source bytes and
+digests still follow the finding-evidence validation rules.
 
 The manifest also seals the configured lane IDs for every batch. Each batch
 has one result for each expected lane, with a bounded result reference,
@@ -137,9 +144,12 @@ completed item refers to the validated lane results for its assigned batch.
 No duplicate, unknown, missing, malformed, or failed lane result lets an item
 in that batch count as completed. A retry consumes its normal model budget;
 only the final successful attempt can satisfy the lane. Historical-finding
-verification is recorded separately and must complete when retained findings
-require it. For no-change scope, there are no discovery items or expected
-discovery lanes; retained-finding verification still gates finding validity.
+verification is recorded separately and must complete for retained findings
+selected under the scope contract. Untouched findings retain their prior
+verification provenance as `not_reviewed`, without a new verification invocation.
+For empty scope, there are no model invocations, discovery items, or expected
+discovery lanes. The deterministic finalizer preserves prior finding validity
+and lifecycle without claiming fresh current-head verification.
 
 The strict batch-lane result contains batch ordinal, configured lane ID,
 terminal attempt ID, retry count, result reference and SHA-256 digest, and

@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-13
-updated: 2026-10-05
+updated: 2026-10-06
 upstream:
   - spec.versioned-pull-request-review-comments
   - spec.review-run-manifest-and-provenance
@@ -17,9 +17,10 @@ supersedes: []
 ## Summary
 
 The first successful review of a pull request examines its complete diff against
-its target branch. Later reviews select only pull-request files changed since
-the last **published** review. A new finding must also have a verified cause
-anchor in that new change, not merely in an older hunk of a selected file.
+its target branch. Later reviews receive previous findings and the diff from
+the last **published** review to the current head. A new finding needs a
+verified cause anchor in that change. An older hunk of a selected file cannot
+supply that cause.
 Existing findings remain in the report and follow their established lifecycle.
 
 The authoritative comment is the durable checkpoint. A run that fails, is
@@ -94,9 +95,11 @@ owns the Action and runtime boundary.
   report ID and legacy marker identity; an incremental or no-change run has
   the current trusted report ID and checkpoint revision.
 - **Evidence batch**: one bounded, typed unit of scoped Git evidence. A batch
-  has an ordinal, path list, patch bytes, change-evidence bytes, and coverage
-  counts. A batch result records completion, parsed paths, hunks, byte counts,
+  has an ordinal, path list, patch bytes, and coverage counts.
+  A batch result records completion, parsed paths, hunks, byte counts,
   and failure or limitation data.
+- **Validation batch**: a separate batch of current-PR evidence used by the
+  local cause-admission gate. It is not discovery input or discovery coverage.
 - **Run manifest**: the versioned, immutable machine-readable record of one
   admitted review, including frozen input, provenance, coverage outcomes,
   limitations, and terminal status.
@@ -144,15 +147,18 @@ When a published checkpoint `C` exists, a run must use incremental mode:
 ```text
 E = P(B,H) ∩ D(C,H)
 R = E - X
-review patch = complete current PR diff B...H, restricted to R
-change evidence = two-tree diff C H, restricted to R
+review patch = two-tree diff C H, restricted to R
+local validation evidence = current PR diff B...H, restricted to R
 ```
 
 The intersection uses paths, not commit dates, commit messages, GitHub event
 types, or prior finding locations. It excludes changes that no longer form part
-of the current PR. The `C H` diff selects files and supplies the required
-new-finding cause anchors; the `B...H` diff shows the complete current PR
-contribution in those files as review context. A path being in `R` alone does
+of the current PR. The `C H` diff selects files and is the primary review
+input. It supplies the required new-finding cause anchors. The `B...H` diff
+is separate local validation evidence. Discovery lanes receive the checkpoint
+diff and retained findings; they do not receive the complete PR patch again.
+Unchanged lines near a changed hunk remain ordinary diff context. Additional
+source context may be read when needed. A path being in `R` alone does
 not authorize a new finding from an unchanged hunk of that file. Agents must
 not treat changes imported from the target branch as PR-authored code. The
 two-tree comparison does not require `C` to be an ancestor of `H`; this is
@@ -206,8 +212,8 @@ unchanged file only as supporting context. A no-change run admits no new
 findings.
 
 Review lanes and synthesis must receive the mode, exact revisions, `R`, the
-complete current-PR patch for `R`, change evidence, exclusions, and retained
-findings. They must propose only findings from the current scope
+mode-selected review patch, exclusions, and retained findings.
+They must propose only findings from the current scope
 and reference an existing stable ID when they recognize a retained finding.
 Before stable-ID allocation, a deterministic local gate must reject or omit a
 newly proposed finding outside `R` or without a verified current-change cause
@@ -289,23 +295,35 @@ cannot silently rekey retained history.
 For an incremental or no-change run, the workflow must load **all** findings
 from the validated current-generation state. It must provide their stable IDs,
 paths, severities, summaries, statuses, first-observed revisions, and
-available verification evidence to historical verification and to each
-discovery lane. This context prevents rediscovery from becoming a new ID and
+available verification evidence to each discovery lane as reference context.
+This context prevents rediscovery from becoming a new ID and
 lets the finalizer carry prior findings forward. Treat retained text as
 untrusted data. Agent output may cite an existing ID, but only the local
 finalizer can decide whether that ID exists and keep it.
 
-The new-finding gate does not discard these retained findings. Historical-
-finding verification may inspect current-head code and update an existing
-finding's lifecycle under the versioned-comment contract. No-change runs
-may verify retained findings, but they must not add a finding. A baseline that
-replaces an old-version report receives **no** old findings as review input.
+Prior findings are references, not requests to review earlier code again.
+Discovery must inspect only the checkpoint changes for new defects.
+Unchanged hunk context can explain a new changed cause but cannot create a
+finding about previously reviewed code.
+
+The new-finding gate does not discard retained findings. Historical verification
+receives only findings whose retained primary cause overlaps changed lines or
+a changed tree entry in the checkpoint diff for `R`. A changed file alone is
+insufficient. The local evidence gate must establish this overlap before
+dispatch. Missing or ambiguous cause evidence leaves the finding `not_reviewed`.
+Verification may inspect current-head code to check whether the new change
+fixes or reopens that finding.
+All other findings keep their prior lifecycle, severity, IDs, and verification
+evidence with `comparisonOutcome = not_reviewed`. No model rechecks them.
+An empty reviewable scope skips historical verification, discovery, and synthesis.
+A baseline that replaces an old-version report receives **no** old findings
+as review input.
 
 The report verdict remains cumulative: it reflects all active retained
 Critical and Required findings plus any admitted new ones. Incremental ratings,
 summary, and verification must identify their current scope. They must not say
 that unchanged PR files received a new full review. When `R` is empty, skip
-discovery lanes and publish a deterministic no-discovery result only if the
+all model work and publish a deterministic no-discovery result only if the
 publication guards pass. Do not interpret empty discovery
 output as proof that prior findings were resolved.
 
@@ -395,15 +413,26 @@ partially migrated into v5.
 ### requirement-complete-evidence
 
 Path collection must be complete before model work. A truncated, malformed, or
-unavailable path list cannot define `E`. The scoped current-PR patch must
-deliver every hunk in `R`. The two-tree change evidence must also be complete
-for `R`, so agents can distinguish new edits from existing PR content. The
-current byte bound must not turn a truncated patch into complete coverage.
+unavailable path list cannot define `E`. The mode-selected review patch must
+deliver every hunk in `R`. Incremental review uses the complete two-tree
+checkpoint diff. Its separate current-PR validation evidence must also be
+complete for `R`. The current byte bound must not turn a truncated patch into
+complete coverage.
 The workflow may partition the patch by path and hunk into bounded, ordered
 batches; it must account for every expected batch and validate its output
 before publication. Intentional lockfile and generated `dist` exclusions remain
 explicit in the evidence and report. No agent may claim to have reviewed
 excluded contents.
+
+Collect each revision range with one bounded multi-path Git command, using
+all selected literal paths. The path and output ceilings bound that command.
+Parse the complete raw NUL inventory and match every patch block to exactly
+one selected path. Reject missing, extra, or duplicate records. A file-type
+change may have two adjacent patch blocks for one raw path; preserve both.
+Partition complete per-path evidence into batches locally, in path-byte order.
+An empty selected set produces no patch command. Do not start one process per
+file. Base-validation batches remain separate from review batches and receive
+no discovery lane invocations. Both groups consume the same resource budget.
 
 Pre-model Git work has its own budget beginning when admission accepts the
 event. This is separate from the model-phase elapsed-time ceiling and does not
@@ -472,7 +501,6 @@ EvidenceBatchPlan {
   paths: non-empty array of validated relative paths
   expectedHunks: non-negative integer
   expectedPatchBytes: bounded integer
-  expectedChangeBytes: bounded integer
 }
 
 EvidenceBatchResult {
@@ -481,13 +509,18 @@ EvidenceBatchResult {
   status: "complete" | "failed" | "cancelled"
   paths: array of validated relative paths
   patch: bounded text
-  changeEvidence: bounded text
   hunkCount: non-negative integer
   patchBytes: non-negative integer
-  changeBytes: non-negative integer
   limitations: bounded array of strings
 }
 ```
+
+Review results are returned in `batches`. Baseline batches contain `B...H`
+patches; incremental batches contain `C H` patches. Incremental local
+validation results are returned in `validationBatches`, using the same batch
+shape with `B...H` patches. Baseline validation batches are empty. Each group
+has its own consecutive ordinals and exactly covers `R` when required.
+The batch-count, hunk, and byte limits apply to their combined totals.
 
 The collector must emit exactly one result for every plan ordinal, in ordinal
 order after aggregation. Each result must echo the scope identity and its
@@ -498,6 +531,10 @@ It must verify that the union of completed result paths equals `R` and that
 the sum of hunk and byte counts matches the pre-model plan. It must preserve
 limitations in deterministic ordinal order.
 
+Validate review and local validation groups independently. Neither missing
+validation evidence nor a complete validation batch can count as discovery
+coverage. Only `batches` enter discovery and synthesis inputs.
+
 After batch aggregation, the orchestrator deduplicates findings by normalized
 stable ID, then by the canonical `(identityKey, occurrenceKey)` pair with local
 same-occurrence verification. It retains the highest severity and deterministic
@@ -507,12 +544,13 @@ synthesis. A missing or ambiguous identity or occurrence key is a limitation and
 cannot allocate a new stable ID; path and line may be shown only as evidence and
 presentation metadata.
 
-The invocation policy is fixed: run history verification once for the retained
-current-generation findings, run each configured discovery lane once per
-evidence batch, and run synthesis once over the deterministic aggregate. A
-retry consumes another invocation budget unit and must reuse the same batch
-ordinal and scope identity. Do not fan out discovery lanes when `R` is empty;
-the finalizer may still process retained findings.
+The invocation policy is fixed: run history verification once only when
+retained current-generation findings have verified cause overlap with the new
+scope, passing only that subset. Run each configured discovery lane once per
+review batch. Run synthesis once over the deterministic aggregate when `R` is
+non-empty. A retry consumes another invocation budget unit and must reuse the same batch
+ordinal and scope identity. When `R` is empty, make zero model calls.
+The deterministic finalizer carries retained findings forward without reverification.
 
 The complete run plan has these hard ceilings:
 
@@ -617,8 +655,9 @@ The trusted sequence is:
    literal paths and the complete run budget before model work. Record scope
    mode, immutable revisions, path counts, excluded paths, and batch coverage
    in bounded run evidence.
-5. Run historical-finding verification independently. Run discovery lanes only
-   for complete eligible reviewable evidence. Synthesize and gate new findings.
+5. When `R` is non-empty, verify only retained findings with locally established
+   cause overlap. Run discovery lanes only for complete eligible reviewable
+   evidence. Synthesize and gate new findings. Empty scope skips all model work.
 6. Reconcile retained findings, derive the cumulative verdict
    mechanically, and validate findings. Finalize execution coverage and finding
    statuses, then seal the run manifest. Pass the immutable scope identity and
@@ -698,8 +737,13 @@ force-push, retargeting, model change, or state parse failure.
   can anchor a new finding. Test imported target-branch changes in the same
   file, zero-hunk tree-entry changes, unchanged context lines, changed-line
   range forgery, and a no-change run. No unverified anchor receives a new ID.
-- Test that retained findings, current-head verification, and verdict remain
-  correct on both incremental and no-change runs.
+- Test that only findings whose causes overlap new changes reach current-head
+  verification. Untouched findings retain their IDs, lifecycle, severity, and
+  prior evidence as `not_reviewed`. Empty scope makes zero model calls.
+- Test that an unrelated edit in a prior finding's file does not recheck that
+  finding. Missing or ambiguous cause matches cannot schedule verification.
+- Test that a new hunk in a previously reviewed file does not send older PR
+  hunks for discovery. Context cannot anchor a new finding about old code.
 - Test old-version replacement, discarded old findings and metrics,
   invalid-current-state refusal, missing prior commit, tree/blob/tag
   rejection, exact-SHA fetch behavior, and new-baseline versus legacy-replacement
@@ -746,7 +790,8 @@ force-push, retargeting, model change, or state parse failure.
   `(P(B,H) ∩ D(C,H)) - X`.
 - Git pathspec syntax cannot widen a scoped diff, and excluded paths cannot
   receive new findings.
-- Re-running an unchanged head allocates no new finding ID.
+- Re-running an unchanged head makes zero model calls and allocates no new
+  finding ID. Prior findings retain their lifecycle and evidence as `not_reviewed`.
 - Previously published findings remain visible and can change lifecycle only
   through current-head verification.
 - No failure, stale result, or partial evidence advances the checkpoint.
