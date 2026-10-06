@@ -49,7 +49,7 @@ seqlane run ./workflow.ts \
 ```
 
 OpenCode supports model selection, structured output, session reuse, checkpoint
-branches, and activity events. It exposes a session UI only if the server
+forks, and activity events. It exposes a session UI only if the server
 provides a browser URL.
 
 The OpenCode service remains responsible for its tools, filesystem access,

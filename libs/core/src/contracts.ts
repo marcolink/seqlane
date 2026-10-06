@@ -38,7 +38,7 @@ export type SessionPolicy =
   | { readonly type: "isolated"; readonly model?: ModelSelection }
   | { readonly type: "reuse"; readonly from: SessionCheckpointRef }
   | {
-      readonly type: "branch";
+      readonly type: "fork";
       readonly from: SessionCheckpointRef;
       readonly model?: ModelSelection;
     };

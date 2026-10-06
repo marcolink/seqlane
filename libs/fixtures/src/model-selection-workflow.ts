@@ -1,5 +1,5 @@
 import {
-  branch,
+  fork,
   createFlow,
   defineAgentTask,
   isolated,
@@ -15,7 +15,7 @@ export const MODEL_SELECTION_INVOCATIONS = {
   isolated: "model-selection.isolated",
   source: "model-selection.source",
   reuse: "model-selection.reuse",
-  branch: "model-selection.branch",
+  fork: "model-selection.fork",
   child: "model-selection.child",
 } as const;
 
@@ -40,11 +40,11 @@ export const reuseModelSelectionTask = defineAgentTask({
   goal: ({ label }) => `Continue the source fixture context for ${label}.`,
 });
 
-export const branchModelSelectionTask = defineAgentTask({
-  id: MODEL_SELECTION_INVOCATIONS.branch,
+export const forkModelSelectionTask = defineAgentTask({
+  id: MODEL_SELECTION_INVOCATIONS.fork,
   input: inputSchema,
   output: outputSchema,
-  goal: ({ label }) => `Analyze a branched fixture context for ${label}.`,
+  goal: ({ label }) => `Analyze a forked fixture context for ${label}.`,
 });
 
 export const childModelSelectionTask = defineAgentTask({
@@ -61,7 +61,7 @@ export const modelSelectionWorkflow = createFlow({
     isolated: outputSchema,
     source: outputSchema,
     reuse: outputSchema,
-    branch: outputSchema,
+    fork: outputSchema,
     child: outputSchema,
   }),
 })
@@ -88,10 +88,10 @@ export const modelSelectionWorkflow = createFlow({
       session: ({ tasks }) => reuse(tasks.source.session),
     },
   )
-  .task("branch", branchModelSelectionTask, ({ input }) => input, {
+  .task("fork", forkModelSelectionTask, ({ input }) => input, {
     workspace: "shared",
     session: ({ tasks }) =>
-      branch(tasks.source.session, {
+      fork(tasks.source.session, {
         model: anthropic("claude-sonnet-4-6"),
         reasoning: "low",
       }),
@@ -99,7 +99,7 @@ export const modelSelectionWorkflow = createFlow({
   .task("child", childModelSelectionTask, ({ input }) => input, {
     workspace: "shared",
     session: ({ tasks }) =>
-      branch(tasks.source.session, {
+      fork(tasks.source.session, {
         model: openai("gpt-6.1-sol"),
         reasoning: "minimal",
       }),
@@ -108,7 +108,7 @@ export const modelSelectionWorkflow = createFlow({
     isolated: tasks.isolated.output,
     source: tasks.source.output,
     reuse: tasks.reuse.output,
-    branch: tasks.branch.output,
+    fork: tasks.fork.output,
     child: tasks.child.output,
   }))
   .define();

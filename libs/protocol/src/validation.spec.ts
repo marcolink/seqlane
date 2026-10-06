@@ -22,6 +22,62 @@ const started = {
 };
 
 describe("event validation schemas", () => {
+  it("accepts fork session snapshots and rejects the removed spelling", () => {
+    const type = "fork";
+    const event = {
+      type: "run.plan",
+      metadata,
+      workId: "work-1",
+      runId: "run-1",
+      plan: {
+        workflow: { id: "session-snapshot" },
+        nodes: [
+          {
+            planNodeId: "source",
+            type: "task",
+            label: "source",
+            taskId: "source",
+            dependsOn: [],
+            siblingOrder: 0,
+          },
+          {
+            planNodeId: "consumer",
+            type: "task",
+            label: "consumer",
+            taskId: "consumer",
+            session: { type, from: "source" },
+            dependsOn: ["source"],
+            siblingOrder: 1,
+          },
+        ],
+      },
+    };
+    expect(isSeqlaneExecutionEvent(event)).toBe(true);
+    expect(
+      isSeqlaneExecutionEvent({
+        ...event,
+        plan: {
+          ...event.plan,
+          nodes: event.plan.nodes.map((node) =>
+            node.planNodeId === "consumer"
+              ? { ...node, session: { type: "branch", from: "source" } }
+              : node,
+          ),
+        },
+      }),
+    ).toBe(false);
+    const node = event.plan.nodes[1];
+    expect(
+      isSeqlaneExecutionEvent({
+        ...event,
+        plan: {
+          ...event.plan,
+          nodes: [{ ...node, session: { type, from: "" } }],
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("accepts old run failures and the explicit serialization phase", () => {
     const failure = {
       ...started,

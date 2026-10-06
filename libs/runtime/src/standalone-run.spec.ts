@@ -7,7 +7,7 @@ import {
   defineTask,
   isolated,
   reuse,
-  branch,
+  fork,
   type ModelSelection,
   type SeqlaneEvent,
 } from "@seqlane/core";
@@ -111,16 +111,16 @@ function simple(task = agentTask, model?: ModelSelection) {
 }
 
 describe("standalone direct execution", () => {
-  it("runs deterministic session branches without adapter acquisition or a model", async () => {
+  it("runs deterministic session forks without adapter acquisition or a model", async () => {
     const h = harness();
     const workflow = buildWorkflow(
       createFlow({ id: "deterministic-sessions", input: empty, output })
         .task("source", localTask, () => ({}), { session: isolated() })
-        .task("branch", localTask, () => ({}), {
-          session: ({ tasks }) => branch(tasks.source.session),
+        .task("fork", localTask, () => ({}), {
+          session: ({ tasks }) => fork(tasks.source.session),
         })
         .task("reuse", localTask, () => ({}), {
-          session: ({ tasks }) => reuse(tasks.branch.session),
+          session: ({ tasks }) => reuse(tasks.fork.session),
         })
         .output(({ tasks }) => tasks.reuse.output)
         .define(),
@@ -221,7 +221,7 @@ describe("standalone direct execution", () => {
     expect(h.closeService).toHaveBeenCalledTimes(1);
   });
 
-  it("inherits source selections through reuse and branches, including an explicit branch override", async () => {
+  it("inherits source selections through reuse and forks, including an explicit fork override", async () => {
     const h = harness();
     const workflow = buildWorkflow(
       createFlow({ id: "inheritance", input: empty, output, model: other })
@@ -229,11 +229,11 @@ describe("standalone direct execution", () => {
         .task("reuse", agentTask, () => ({}), {
           session: ({ tasks }) => reuse(tasks.source.session),
         })
-        .task("branch", agentTask, () => ({}), {
-          session: ({ tasks }) => branch(tasks.reuse.session),
+        .task("fork", agentTask, () => ({}), {
+          session: ({ tasks }) => fork(tasks.reuse.session),
         })
         .task("override", agentTask, () => ({}), {
-          session: ({ tasks }) => branch(tasks.branch.session, other),
+          session: ({ tasks }) => fork(tasks.fork.session, other),
         })
         .output(({ tasks }) => tasks.override.output)
         .define(),

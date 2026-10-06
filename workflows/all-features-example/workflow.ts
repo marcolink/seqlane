@@ -1,5 +1,5 @@
 import {
-  branch,
+  fork,
   createFlow,
   defineAgentTask,
   defineValidator,
@@ -212,7 +212,7 @@ export default createFlow({
   )
   .task("left", laneTask, ({ tasks }) => tasks.context.output, {
     workspace: "shared",
-    session: ({ tasks }) => branch(tasks.context.session),
+    session: ({ tasks }) => fork(tasks.context.session),
   })
   .task(
     "right",
@@ -225,7 +225,7 @@ export default createFlow({
     }),
     {
       workspace: "shared",
-      session: ({ tasks }) => branch(tasks.context.session),
+      session: ({ tasks }) => fork(tasks.context.session),
     },
   )
   .task(

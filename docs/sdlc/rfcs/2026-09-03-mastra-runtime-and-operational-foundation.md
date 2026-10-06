@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-23
+updated: 2026-10-05
 upstream:
   - prd.seqlane-on-mastra
 supersedes:
@@ -49,7 +49,7 @@ The boundary is asymmetric:
 | Agent task | Task contract, prompt/input construction, executor selection | Agent/ACP invocation machinery |
 | Classifier task | Typed questions, request validation, result contract, private connection | Step execution, cancellation, run state, tracing |
 | Shell task | Deterministic task contract and result normalization | Workspace/Sandbox process execution |
-| Sessions | `isolated`, `shared`, and `branch` semantics | Runtime thread/session mechanisms |
+| Sessions | `isolated`, `shared`, and `fork` semantics | Runtime thread/session mechanisms |
 | Workspaces | Compatibility and serialization policy | Filesystem, sandbox, and process primitives |
 | Identity | Work and Invocation semantics; provenance | Run and step identifiers/mechanisms |
 | State/persistence | Product-level metadata contract | Canonical run state and storage |
@@ -69,7 +69,7 @@ The public DSL retains these concepts:
 - `shell()` — deterministic process execution with no model call;
 - input and output schemas;
 - dependency/data references;
-- session selection: isolated, shared, or branch;
+- session selection: isolated, shared, or fork;
 - workspace access policy;
 - executor/model/reasoning configuration;
 - Work identity and provenance.
@@ -90,7 +90,7 @@ Compilation is a pure, testable transformation from a validated Seqlane definiti
 | Work | Workflow run plus Seqlane metadata/context |
 | Invocation | Step execution plus Seqlane metadata |
 | Shared session | Stable runtime thread/session key |
-| Branched session | New runtime thread/session derived from the declared parent where supported |
+| Forked session | New runtime thread/session derived from the declared parent where supported |
 | Workspace policy | Additional graph edges or admission constraints |
 
 ### Compiler stages
@@ -171,9 +171,9 @@ A logical shared-session key is derived from:
 
 The runtime may encode this differently, but isolation between Works and executors is mandatory.
 
-### Branch
+### Fork
 
-A branch receives an independent session derived from a declared parent point and may run concurrently with other branches. Branches are never merged. Downstream task inputs may combine their typed outputs, but their conversational histories remain separate.
+A fork receives an independent session derived from a declared parent point and may run concurrently with other forks. Forks are never merged. Downstream task inputs may combine their typed outputs, but their conversational histories remain separate.
 
 If the chosen Mastra/executor primitive cannot fork context directly, the adapter may seed a new session from the parent's available history. That is an executor-specific bridge, not a general Seqlane session store.
 
@@ -316,7 +316,7 @@ Exit: the representative coding workflow runs without the former agent runtime p
 
 ### Phase 4 — Sessions and workspaces
 
-- Implement isolated/shared/branch identity mapping.
+- Implement isolated/shared/fork identity mapping.
 - Add serialization edges for shared sessions.
 - Compile workspace compatibility constraints.
 - Test parallel-safe and conflicting graphs plus cycle detection.

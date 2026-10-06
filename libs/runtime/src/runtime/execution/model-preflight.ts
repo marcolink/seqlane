@@ -164,10 +164,10 @@ async function modelSelectionForTaskNode(
 
   const policy = node.session;
   let selection: ModelSelection | undefined;
-  if (policy?.type === "isolated" || policy?.type === "branch") {
+  if (policy?.type === "isolated" || policy?.type === "fork") {
     selection =
       policy.model ??
-      (policy.type === "branch"
+      (policy.type === "fork"
         ? await modelSelectionForSource(policy.from)
         : undefined);
   } else if (policy?.type === "reuse") {

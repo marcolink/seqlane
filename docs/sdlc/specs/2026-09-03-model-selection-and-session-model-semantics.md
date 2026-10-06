@@ -19,7 +19,7 @@ supersedes: []
 ## 1. Objective
 
 Add a portable model-selection contract and enforce immutable effective model
-selection across isolated, reused, branched, and child sessions. Resolve and
+selection across isolated, reused, forked, and child sessions. Resolve and
 validate models before execution, initialize OpenCode forks before their first
 prompt, and record the effective selection on every invocation.
 
@@ -38,7 +38,7 @@ demand. Availability checks occur before that agent invocation when possible.
 - **Model selection:** A model ref plus optional `ReasoningEffort`.
 - **Effective selection:** The selection after session inheritance and executor
   default resolution.
-- **New session:** An isolated session or a native branch/child session.
+- **New session:** An isolated session or a native fork/child session.
 - **Continuation:** A task that reuses an existing logical session.
 - **Pinned session:** A logical session with an immutable effective selection.
 - **Available model:** A normalized executor-owned provider/model entry that can
@@ -55,11 +55,11 @@ demand. Availability checks occur before that agent invocation when possible.
   default.
 - Model selection is nested under `session`; task definitions do not carry
   model or reasoning fields.
-- `isolated` and `branch` may contain a selection; `reuse` cannot contain one.
+- `isolated` and `fork` may contain a selection; `reuse` cannot contain one.
 - A continuation inherits its pinned selection.
 - An equal explicit continuation selection is valid; a different one fails
-  before execution and recommends a branch or isolated session.
-- A branch inherits its parent selection unless explicitly changed, then pins
+  before execution and recommends a fork or isolated session.
+- A fork inherits its parent selection unless explicitly changed, then pins
   the new selection.
 - Distinct child sessions can use distinct selections.
 - No model fallback occurs after validation.
@@ -87,7 +87,7 @@ type ModelSelection = Readonly<{
 
 Session helpers expose model selection using the nested authoring shape
 `isolated({ model: openai("..."), reasoning: "high" })` and
-`branch(checkpoint, { model: openai("..."), reasoning: "high" })`.
+`fork(checkpoint, { model: openai("..."), reasoning: "high" })`.
 `reuse(checkpoint)` has no selection argument. Builder/Plan code preserves the
 same nested `ModelSelection` shape.
 
@@ -119,8 +119,8 @@ execution context before scheduling an invocation.
 
 Session resolution reuses adr.session-checkpoint-reuse-and-branching checkpoint materialization. It carries the
 effective selection with each private resolved session and copies it to reused
-or inherited branch sessions. A changed branch selection is applied only while
-the branch session is initialized.
+or inherited fork sessions. A changed fork selection is applied only while
+the fork session is initialized.
 
 ## 7. Observability
 

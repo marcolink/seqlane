@@ -559,7 +559,7 @@ export function createMastraPlanInvocationHandler(
           await preflightSelectedChoiceModel(prepared, node);
           preflightSelectedChoiceSessionCapabilities(context, node);
           const policy = node.session;
-          if (policy?.type === "reuse" || policy?.type === "branch") {
+          if (policy?.type === "reuse" || policy?.type === "fork") {
             await context.choiceSourceGate.wait(policy.from, abortSignal);
             const consumer = context.sessionConsumers
               .get(policy.from)

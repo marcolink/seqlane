@@ -27,7 +27,7 @@ export interface ResolvedExecutorSession {
 export interface SessionConsumer {
   readonly invocationId: InvocationId;
   readonly task: TaskDefinition;
-  readonly type: "reuse" | "branch";
+  readonly type: "reuse" | "fork";
   readonly effectiveSelection?: ModelSelection;
   /** Choice arms materialize only after the condition selects them. */
   readonly deferred?: boolean;
@@ -40,12 +40,12 @@ export interface DeferredSessionSource {
   readonly failure?: unknown;
 }
 
-export class UnsupportedSessionBranchError extends Error {
+export class UnsupportedSessionForkError extends Error {
   constructor(readonly sourceNodeId: string) {
     super(
-      `Session checkpoint "${sourceNodeId}" cannot branch because this executor has no native checkpoint fork capability`,
+      `Session checkpoint "${sourceNodeId}" cannot fork because this executor has no native checkpoint fork capability`,
     );
-    this.name = "UnsupportedSessionBranchError";
+    this.name = "UnsupportedSessionForkError";
   }
 }
 
@@ -128,7 +128,7 @@ export function sessionForInvocation(
   return session;
 }
 
-/** Publishes a successful source session and eagerly materializes its branches. */
+/** Publishes a successful source session and eagerly materializes its forks. */
 export async function publishSessionCheckpoint(options: {
   readonly sourceNodeId: string;
   readonly sourceSession: ResolvedExecutorSession;
@@ -140,8 +140,8 @@ export async function publishSessionCheckpoint(options: {
   if (consumers.length === 0) return;
   const eager = consumers.filter(({ deferred }) => deferred !== true);
   const deferred = consumers.filter(({ deferred }) => deferred === true);
-  const branches = consumers.filter(({ type }) => type === "branch");
-  if (branches.length === 0) {
+  const forks = consumers.filter(({ type }) => type === "fork");
+  if (forks.length === 0) {
     if (deferred.length > 0) {
       options.deferredSources?.set(options.sourceNodeId, {
         session: options.sourceSession,
@@ -157,8 +157,8 @@ export async function publishSessionCheckpoint(options: {
   }
   const { checkpoint: captureCheckpoint, fork } = options.sourceSession;
   if (captureCheckpoint === undefined || fork === undefined) {
-    const failure = new UnsupportedSessionBranchError(options.sourceNodeId);
-    if (eager.some(({ type }) => type === "branch")) throw failure;
+    const failure = new UnsupportedSessionForkError(options.sourceNodeId);
+    if (eager.some(({ type }) => type === "fork")) throw failure;
     options.deferredSources?.set(options.sourceNodeId, {
       session: options.sourceSession,
       failure,
@@ -176,7 +176,7 @@ export async function publishSessionCheckpoint(options: {
   try {
     checkpoint = await captureCheckpoint();
   } catch (failure) {
-    if (eager.some(({ type }) => type === "branch")) throw failure;
+    if (eager.some(({ type }) => type === "fork")) throw failure;
     options.deferredSources?.set(options.sourceNodeId, {
       session: options.sourceSession,
       failure,
@@ -242,7 +242,7 @@ export async function materializeDeferredSessionConsumer(options: {
   }
   if (source.failure !== undefined) throw source.failure;
   if (!source.checkpointCaptured || source.session.fork === undefined) {
-    throw new UnsupportedSessionBranchError(options.sourceNodeId);
+    throw new UnsupportedSessionForkError(options.sourceNodeId);
   }
   const selection =
     options.consumer.effectiveSelection ?? source.session.effectiveSelection;

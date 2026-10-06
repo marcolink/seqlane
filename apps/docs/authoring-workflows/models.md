@@ -1,20 +1,20 @@
 # Model selection
 
 Agent model selection belongs to a session. Set a model where a task starts an
-isolated or branched session. A workflow-level model is only the default for
+isolated or forked session. A workflow-level model is only the default for
 new agent sessions. Classifier tasks use a separate model ID selected for the
 run with [classifier flags](/cli/run#classifier-flags).
 
 ::: info Session rule
 
-Select a model with `isolated()` or `branch()`. A reused session always
+Select a model with `isolated()` or `fork()`. A reused session always
 inherits its source model and cannot select another model.
 
 :::
 
 ## Set a model for a task session
 
-Set the model in the task invocation with `isolated()` or `branch()`:
+Set the model in the task invocation with `isolated()` or `fork()`:
 
 ```ts
 import { isolated } from "@seqlane/core";
@@ -83,7 +83,7 @@ structured output.
 
 ## Session model policy
 
-An isolated session can select a model. A branched session can select a model
+An isolated session can select a model. A forked session can select a model
 or inherit the source model. A reused session always inherits the source model.
 
 ::: info Convention

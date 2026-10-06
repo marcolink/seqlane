@@ -19,14 +19,14 @@ Use `reuse(source.session)` when a task must continue the source context.
 
 :::
 
-::: info Branched session
+::: info Forked session
 
-Use `branch(source.session)` when a task needs the source context but can
+Use `fork(source.session)` when a task needs the source context but can
 continue independently.
 
 :::
 
-Tasks that use the same session never run in parallel. A branch uses a separate
+Tasks that use the same session never run in parallel. A fork uses a separate
 session, so it can run independently after its source task completes.
 
 `isolated()` starts a new session. It has no history from another task.
@@ -34,7 +34,7 @@ session, so it can run independently after its source task completes.
 `reuse(source.session)` continues the exact source session. The reused task
 waits for its source task.
 
-`branch(source.session)` starts a child session from a source checkpoint. It
+`fork(source.session)` starts a child session from a source checkpoint. It
 has the source history but can continue independently.
 
 ```ts
@@ -45,9 +45,9 @@ has the source history but can continue independently.
   session: ({ tasks }) => reuse(tasks.implement.session),
 })
 .task("security", reviewSecurity, ({ tasks }) => tasks.implement.output, {
-  session: ({ tasks }) => branch(tasks.implement.session),
+  session: ({ tasks }) => fork(tasks.implement.session),
 })
 ```
 
-Branching requires an adapter that can create a native checkpoint fork. Seqlane
+Forking requires an adapter that can create a native checkpoint fork. Seqlane
 stops the run when the adapter cannot provide that capability.

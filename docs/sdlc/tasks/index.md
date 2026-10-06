@@ -281,3 +281,4 @@
 | [task.deliver-exclusive-flow-choice](./2026-09-26-deliver-exclusive-flow-choice.md) | Deliver Exclusive Flow Choice | completed | 2026-09-26 | core |
 | [task.standalone-cli-parity](./2026-10-04-standalone-cli-parity.md) | Preserve Current CLI Capabilities in PR 131 | in-progress | 2026-10-04 | core |
 | [task.unify-runnable-construction-and-input-preparation](./2026-10-05-unify-runnable-construction-and-input-preparation.md) | Unify Runnable Construction and Input Preparation | completed | 2026-10-05 | core, runtime |
+| [task.session-fork-naming](./2026-10-05-session-fork-naming.md) | Use Session Fork Naming | in-progress | 2026-10-05 | core |

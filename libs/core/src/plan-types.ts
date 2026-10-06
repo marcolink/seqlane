@@ -26,7 +26,7 @@ export type PlanSessionPolicy =
   | { readonly type: "isolated"; readonly model?: ModelSelection }
   | { readonly type: "reuse"; readonly from: PlanNodeId }
   | {
-      readonly type: "branch";
+      readonly type: "fork";
       readonly from: PlanNodeId;
       readonly model?: ModelSelection;
     };
@@ -38,7 +38,7 @@ export const planSessionPolicySchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("reuse"), from: z.string().min(1) }),
   z.strictObject({
-    type: z.literal("branch"),
+    type: z.literal("fork"),
     from: z.string().min(1),
     model: modelSelectionSchema.optional(),
   }),

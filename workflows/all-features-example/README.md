@@ -1,6 +1,6 @@
 # All-features example
 
-Exercises branching, reusable tasks, validation, iterative processing, and a
+Exercises session forking, reusable tasks, validation, iterative processing, and a
 tool-using agent task in one authoring example.
 
 Run: `seqlane run ./workflows/all-features-example/workflow.ts --input '{"topic":"Seqlane","focus":"workflow design"}' --adapter opencode`

@@ -175,8 +175,8 @@ const isolatedPlanSessionSchema = strictRecord({
   type: z.literal("isolated"),
   model: modelSelectionSchema.optional(),
 });
-const branchPlanSessionSchema = strictRecord({
-  type: z.literal("branch"),
+const forkPlanSessionSchema = strictRecord({
+  type: z.literal("fork"),
   from: boundedString(256),
   model: modelSelectionSchema.optional(),
 });
@@ -186,7 +186,7 @@ const reusePlanSessionSchema = strictRecord({
 });
 const planSessionSchema = z.union([
   isolatedPlanSessionSchema,
-  branchPlanSessionSchema,
+  forkPlanSessionSchema,
   reusePlanSessionSchema,
 ]);
 

@@ -7,7 +7,7 @@ import {
 } from "./model-selection-workflow.js";
 
 describe("model-selection workflow fixture", () => {
-  it("covers isolated, reuse, and distinct branched child selections", () => {
+  it("covers isolated, reuse, and distinct forked child selections", () => {
     const plan = buildWorkflow(modelSelectionWorkflow).plan;
     const tasks = plan.nodes.filter((node) => node.type === "task");
 
@@ -15,7 +15,7 @@ describe("model-selection workflow fixture", () => {
       MODEL_SELECTION_INVOCATIONS.isolated,
       MODEL_SELECTION_INVOCATIONS.source,
       MODEL_SELECTION_INVOCATIONS.reuse,
-      MODEL_SELECTION_INVOCATIONS.branch,
+      MODEL_SELECTION_INVOCATIONS.fork,
       MODEL_SELECTION_INVOCATIONS.child,
     ]);
     expect(tasks.map((node) => node.session)).toEqual([
@@ -35,7 +35,7 @@ describe("model-selection workflow fixture", () => {
       },
       { type: "reuse", from: "model-selection.source:1" },
       {
-        type: "branch",
+        type: "fork",
         from: "model-selection.source:1",
         model: {
           model: { provider: "anthropic", model: "claude-sonnet-4-6" },
@@ -43,7 +43,7 @@ describe("model-selection workflow fixture", () => {
         },
       },
       {
-        type: "branch",
+        type: "fork",
         from: "model-selection.source:1",
         model: {
           model: { provider: "openai", model: "gpt-6.1-sol" },

@@ -75,7 +75,7 @@ function checkTaskSessionCapabilities(
   requireCapability(node.nodeId, capabilities, "structuredOutput");
   const policy = node.session ?? { type: "isolated" as const };
   const explicitSelection =
-    (policy.type === "isolated" || policy.type === "branch"
+    (policy.type === "isolated" || policy.type === "fork"
       ? policy.model
       : undefined) ?? effectiveSelection;
   if (explicitSelection !== undefined) {
@@ -84,7 +84,7 @@ function checkTaskSessionCapabilities(
   if (policy.type === "reuse") {
     requireCapability(node.nodeId, capabilities, "sessionReuse");
   }
-  if (policy.type === "branch") {
+  if (policy.type === "fork") {
     requireCapability(node.nodeId, capabilities, "checkpoint");
     requireCapability(node.nodeId, capabilities, "fork");
   }
@@ -164,7 +164,7 @@ export async function resolveCompiledWorkflowSessions(
             type: arm.session.type,
             deferred: true,
             effectiveSelection:
-              arm.session.type === "branch" ? arm.session.model : undefined,
+              arm.session.type === "fork" ? arm.session.model : undefined,
           } satisfies SessionConsumer,
         ]);
       }

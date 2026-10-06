@@ -186,7 +186,7 @@ const gitStatusTask = defineShellTask({
 ```
 
 See the [workflow examples](workflows/README.md) and the
-[`@seqlane/core` guide](libs/core/README.md) for sessions, branches,
+[`@seqlane/core` guide](libs/core/README.md) for sessions, forks,
 validators, references, and workspace policies.
 
 ## Declare workspace, session, and task dependencies
@@ -230,8 +230,8 @@ Choose a session policy based on the history that a task needs:
 - `isolated()` creates a new session with no previous task history.
 - `reuse(previous.session)` continues the exact previous session. The previous
   task must finish before the next task can use that session.
-- `branch(previous.session)` creates a new session from the previous session's
-  checkpoint. The branch keeps the previous history but can then proceed
+- `fork(previous.session)` creates a new session from the previous session's
+  checkpoint. The fork keeps the previous history but can then proceed
   independently. The selected runtime must support native checkpoint forks.
 
 ```ts
@@ -242,19 +242,19 @@ Choose a session policy based on the history that a task needs:
   session: ({ tasks }) => reuse(tasks.draft.session),
 })
 .task("alternative", alternativeTask, ({ tasks }) => tasks.draft.output, {
-  session: ({ tasks }) => branch(tasks.draft.session),
+  session: ({ tasks }) => fork(tasks.draft.session),
 })
 ```
 
 Two tasks must never execute at the same time on the same session. Independent
-isolated sessions and completed branches can run in parallel when their graph,
+isolated sessions and completed forks can run in parallel when their graph,
 workspace, and runtime-capacity rules allow it.
 
 ### Input, output, and execution dependencies
 
 An input binding that reads a task output creates a data dependency. Seqlane
 waits for the producing task, validates its output, and passes that typed value
-to the consuming task. A session reuse or branch also creates a dependency on
+to the consuming task. A session reuse or fork also creates a dependency on
 the source task's checkpoint.
 
 Use `dependsOn` when a task needs another task to finish but does not need its

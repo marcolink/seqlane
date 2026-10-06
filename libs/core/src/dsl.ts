@@ -135,13 +135,13 @@ export function reuse(from: SessionCheckpointRef): SessionPolicy {
   return { type: "reuse", from };
 }
 
-export function branch(
+export function fork(
   from: SessionCheckpointRef,
   model?: ModelSelection,
-): Extract<SessionPolicy, { readonly type: "branch" }> {
+): Extract<SessionPolicy, { readonly type: "fork" }> {
   return model === undefined
-    ? { type: "branch", from }
-    : { type: "branch", from, model };
+    ? { type: "fork", from }
+    : { type: "fork", from, model };
 }
 
 type RuntimeFlowAuthoringContext<Input> = FlowAuthoringContext<

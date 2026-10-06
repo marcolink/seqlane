@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-12
-updated: 2026-09-22
+updated: 2026-10-05
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
   - spec.autonomous-non-interactive-execution
@@ -31,7 +31,7 @@ OpenAI recommends the Codex SDK for CI automation, so protocol proof is a delive
 ## Goals
 
 - Execute typed agent tasks with Codex in an isolated or reused thread.
-- Create exact branches from completed Codex turns when the pinned protocol proves that operation.
+- Create exact forks from completed Codex turns when the pinned protocol proves that operation.
 - Preserve Seqlane model, workspace, cancellation, and non-interactive policies.
 - Translate Codex output, activity, usage, and errors into Seqlane-owned contracts.
 
@@ -93,7 +93,7 @@ An adapter must never stop an app-server process owned by another host.
 An isolated session must create a new thread with `thread/start`.
 A reuse session must send ordered turns to the same thread.
 After a successful, fully terminated turn, checkpoint capture must record that turn's ID.
-A branch must call `thread/fork` with `lastTurnId` from the checkpoint before it starts child work.
+A fork must call `thread/fork` with `lastTurnId` from the checkpoint before it starts child work.
 The existing runtime must bind each checkpoint to its run, adapter, and configuration.
 The adapter must not reconstruct history from prompts, summaries, or copied messages.
 
@@ -103,7 +103,7 @@ The adapter must map Seqlane's `openai` model reference to the Codex model ID.
 It must reject other providers before execution.
 It must use `model/list` to resolve the default model and validate selected models and reasoning effort.
 A reused thread must keep its pinned effective selection.
-A branch can select another supported model before its first turn.
+A fork can select another supported model before its first turn.
 No model fallback is allowed after preflight.
 
 ### requirement-codex-typed-output
@@ -137,7 +137,7 @@ Cancellation and interaction failure must remain distinct Seqlane outcomes.
 On cancellation, the adapter must send one `turn/interrupt` for the active turn.
 It must wait for `turn/completed` with an interrupted status before it reports confirmed termination.
 If interruption or transport termination cannot be confirmed, it must report uncertain activity.
-The runtime must then prevent dependent reuse or branch work on that session.
+The runtime must then prevent dependent reuse or fork work on that session.
 The adapter must correlate every response and notification by request, thread, and turn ID.
 
 ### requirement-codex-observability
@@ -201,7 +201,7 @@ Do not add Codex fields to public authoring, Plan, runner IPC, or CLI result sch
 
 - Probe the selected Codex CLI with a controlled app-server and record its version and observed protocol shapes.
 - Test JSONL framing, malformed input, request correlation, event ordering, duplicate events, and disconnects.
-- Test typed output, model preflight, isolated and reused sessions, exact branches, cancellation, and interaction failure.
+- Test typed output, model preflight, isolated and reused sessions, exact forks, cancellation, and interaction failure.
 - Test direct-run and persistent-host lifecycle with run isolation.
 - Check public declarations and serialized boundaries for Codex and Mastra type leaks.
 - Run `pnpm test:mapping`, focused tests, typecheck, lint, build, format, and `pnpm docs:validate`.
@@ -209,7 +209,7 @@ Do not add Codex fields to public authoring, Plan, runner IPC, or CLI result sch
 ## Acceptance criteria
 
 - One private configuration selects a working Codex adapter without changing workflow source or Plans.
-- An isolated task, ordered reuse, and an exact branch return locally validated typed output.
+- An isolated task, ordered reuse, and an exact fork return locally validated typed output.
 - Unsupported capabilities and models fail before task execution.
 - An interaction request never receives a decision from Seqlane.
 - Cancellation either confirms interruption or reports uncertain activity.

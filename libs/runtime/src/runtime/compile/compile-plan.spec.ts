@@ -397,7 +397,7 @@ describe("PlanCompiler plan preparation", () => {
     ).toMatchObject({ dependsOn: ["source", "first"] });
   });
 
-  it("accepts statically resolvable session selections and model changes on branches", () => {
+  it("accepts statically resolvable session selections and model changes on forks", () => {
     const source = {
       ...task("source"),
       session: {
@@ -408,10 +408,10 @@ describe("PlanCompiler plan preparation", () => {
         },
       },
     };
-    const branch = {
-      ...task("branch", ["source"]),
+    const fork = {
+      ...task("fork", ["source"]),
       session: {
-        type: "branch" as const,
+        type: "fork" as const,
         from: "source",
         model: {
           model: { provider: "anthropic", model: "claude-sonnet-4" },
@@ -424,7 +424,7 @@ describe("PlanCompiler plan preparation", () => {
       session: { type: "reuse" as const, from: "source" },
     };
 
-    expect(() => validatePlan(plan([source, branch, reuse]))).not.toThrow();
+    expect(() => validatePlan(plan([source, fork, reuse]))).not.toThrow();
   });
 
   it("validates model selections with the canonical schema", () => {
@@ -487,7 +487,7 @@ describe("PlanCompiler plan preparation", () => {
         ]),
       );
       expect((error as PlanValidationError).message).toMatch(
-        /branch or isolated/i,
+        /fork or isolated/i,
       );
     }
   });

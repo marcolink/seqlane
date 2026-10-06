@@ -67,7 +67,7 @@ function selectionFor(
 }
 
 describe("model-selection fixture integration", () => {
-  it("runs isolated, reused, and branched sessions with effective selections", async () => {
+  it("runs isolated, reused, and forked sessions with effective selections", async () => {
     const events: SeqlaneEvent[] = [];
     const forkSelections: ModelSelection[] = [];
     const executor: SeqlaneExecutor = {
@@ -114,7 +114,7 @@ describe("model-selection fixture integration", () => {
       ["model-selection.source:1", sourceSelection],
       ["model-selection.reuse:1", sourceSelection],
       [
-        "model-selection.branch:1",
+        "model-selection.fork:1",
         selectionFor("anthropic", "claude-sonnet-4-6", "low"),
       ],
       [
@@ -127,8 +127,8 @@ describe("model-selection fixture integration", () => {
       expectedSelections,
     );
     expect(forkSelections).toEqual([
-      expectedSelections.get("model-selection.branch:1"),
       expectedSelections.get("model-selection.child:1"),
+      expectedSelections.get("model-selection.fork:1"),
     ]);
 
     const outputSelections = new Map(

@@ -45,7 +45,7 @@ describe("session model selection resolution", () => {
     const consumers = ["then", "else"].map((invocationId) => ({
       invocationId,
       task: taskDefinition,
-      type: "branch" as const,
+      type: "fork" as const,
       deferred: true,
     }));
     const deferredSources = new Map<string, DeferredSessionSource>();
@@ -77,7 +77,7 @@ describe("session model selection resolution", () => {
     expect(resolvedSessions.has("else")).toBe(false);
   });
 
-  it("defers a checkpoint error until its choice branch is selected", async () => {
+  it("defers a checkpoint error until its choice arm is selected", async () => {
     const failure = new Error("checkpoint unavailable");
     const sourceSession: ResolvedExecutorSession = {
       key: Symbol("source"),
@@ -85,12 +85,12 @@ describe("session model selection resolution", () => {
       checkpoint: async () => {
         throw failure;
       },
-      fork: async () => ({ key: Symbol("branch"), executor }),
+      fork: async () => ({ key: Symbol("fork"), executor }),
     };
     const consumer = {
-      invocationId: "branch",
+      invocationId: "fork",
       task: taskDefinition,
-      type: "branch" as const,
+      type: "fork" as const,
       deferred: true,
     };
     const deferredSources = new Map<string, DeferredSessionSource>();
@@ -158,9 +158,9 @@ describe("session model selection resolution", () => {
         sourceSession,
         consumers: [
           {
-            invocationId: "branch",
+            invocationId: "fork",
             task: taskDefinition,
-            type: "branch",
+            type: "fork",
             effectiveSelection: requestedSelection,
           },
         ],

@@ -247,8 +247,8 @@ export function createAgentSession(
     ...(fork === undefined
       ? {}
       : {
-          fork: async ({ checkpoint, effectiveSelection: branchSelection }) => {
-            const selection = branchSelection ?? effectiveSelection;
+          fork: async ({ checkpoint, effectiveSelection: forkSelection }) => {
+            const selection = forkSelection ?? effectiveSelection;
             const parsed = boundCheckpointSchema.safeParse(checkpoint);
             if (!parsed.success) {
               throw new RuntimeAdapterCheckpointError("malformed");
