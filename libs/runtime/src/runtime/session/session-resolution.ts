@@ -1,7 +1,6 @@
 import type {
   InvocationId,
   ModelSelection,
-  PlanSessionPolicy,
   TaskDefinition,
   TaskDefinitionRegistry,
 } from "@seqlane/core";
@@ -28,7 +27,7 @@ export interface ResolvedExecutorSession {
 export interface SessionConsumer {
   readonly invocationId: InvocationId;
   readonly task: TaskDefinition;
-  readonly type: Exclude<PlanSessionPolicy["type"], "isolated">;
+  readonly type: "reuse" | "fork";
   readonly effectiveSelection?: ModelSelection;
   /** Choice arms materialize only after the condition selects them. */
   readonly deferred?: boolean;
@@ -141,7 +140,7 @@ export async function publishSessionCheckpoint(options: {
   if (consumers.length === 0) return;
   const eager = consumers.filter(({ deferred }) => deferred !== true);
   const deferred = consumers.filter(({ deferred }) => deferred === true);
-  const forks = consumers.filter(({ type }) => type !== "reuse");
+  const forks = consumers.filter(({ type }) => type === "fork");
   if (forks.length === 0) {
     if (deferred.length > 0) {
       options.deferredSources?.set(options.sourceNodeId, {
@@ -159,7 +158,7 @@ export async function publishSessionCheckpoint(options: {
   const { checkpoint: captureCheckpoint, fork } = options.sourceSession;
   if (captureCheckpoint === undefined || fork === undefined) {
     const failure = new UnsupportedSessionForkError(options.sourceNodeId);
-    if (eager.some(({ type }) => type !== "reuse")) throw failure;
+    if (eager.some(({ type }) => type === "fork")) throw failure;
     options.deferredSources?.set(options.sourceNodeId, {
       session: options.sourceSession,
       failure,
@@ -177,7 +176,7 @@ export async function publishSessionCheckpoint(options: {
   try {
     checkpoint = await captureCheckpoint();
   } catch (failure) {
-    if (eager.some(({ type }) => type !== "reuse")) throw failure;
+    if (eager.some(({ type }) => type === "fork")) throw failure;
     options.deferredSources?.set(options.sourceNodeId, {
       session: options.sourceSession,
       failure,

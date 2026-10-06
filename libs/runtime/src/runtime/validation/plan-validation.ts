@@ -296,7 +296,7 @@ function resolveSessionSelections(
     }
 
     const effectiveSelection =
-      policy.data.type !== "reuse"
+      policy.data.type === "fork"
         ? (declaredSelection ?? inheritedSelection)
         : inheritedSelection;
     selections.set(nodeId, effectiveSelection);
@@ -514,23 +514,6 @@ function validateValidationNode(
   }
 }
 
-/** Includes possible selected-arm waits without changing runtime eligibility. */
-function cycleDependencies(node: PlanNode): ReadonlySet<string> {
-  const dependencies = new Set(node.dependsOn);
-  if (node.type === "choice") {
-    for (const arm of [node.then, node.else]) {
-      if (
-        arm.type === "task" &&
-        arm.session !== undefined &&
-        arm.session.type !== "isolated"
-      ) {
-        dependencies.add(arm.session.from);
-      }
-    }
-  }
-  return dependencies;
-}
-
 function dependencyCycle(
   nodes: readonly PlanNode[],
   nodesById: ReadonlyMap<string, PlanNode>,
@@ -550,7 +533,7 @@ function dependencyCycle(
     path.push(nodeId);
     const node = nodesById.get(nodeId);
     if (node) {
-      for (const dependency of cycleDependencies(node)) {
+      for (const dependency of node.dependsOn) {
         if (!nodesById.has(dependency)) continue;
         const cycle = visit(dependency);
         if (cycle !== undefined) return cycle;
@@ -693,7 +676,6 @@ function validateChoice(
         if (
           !priorIds.has(arm.session.from) ||
           source?.type !== "task" ||
-          source.session === undefined ||
           !arm.dependsOn.includes(arm.session.from)
         ) {
           addIssue(
@@ -1235,12 +1217,7 @@ export function validatePlan(
         validateDefinitions,
         parsed.error.issues,
       );
-      throw new PlanValidationError(
-        parsed.error.issues.map(({ message }) => ({
-          code: "invalid-plan-schema",
-          message,
-        })),
-      );
+      return plan;
     }
 
     throw new PlanValidationError(

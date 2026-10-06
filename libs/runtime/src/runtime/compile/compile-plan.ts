@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type {
-  PlanNode,
   InvocationId,
   Plan,
   PlanNodeId,
+  PlanNode,
   RunId,
   TaskDefinitionRegistry,
   SeqlaneEventSink,
+  ValidationCheckNode,
   ValidatorDefinitionRegistry,
   WorkflowDefinitionRegistry,
   WorkId,
@@ -244,7 +245,10 @@ export class PlanCompiler {
     } = this.prepareWorkflow(plan, options);
     const checkNodes = new Map(
       loweredPlan.nodes
-        .filter((node) => node.type === "validation.check")
+        .filter(
+          (node): node is ValidationCheckNode =>
+            node.type === "validation.check",
+        )
         .map((node) => [node.nodeId, node]),
     );
     const steps: SequentialProgramStep[] = [];

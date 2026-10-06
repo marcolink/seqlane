@@ -135,12 +135,13 @@ export function reuse(from: SessionCheckpointRef): SessionPolicy {
   return { type: "reuse", from };
 }
 
-/** Creates a separate session from a completed source checkpoint. */
 export function fork(
   from: SessionCheckpointRef,
   model?: ModelSelection,
 ): Extract<SessionPolicy, { readonly type: "fork" }> {
-  return { type: "fork", from, ...(model === undefined ? {} : { model }) };
+  return model === undefined
+    ? { type: "fork", from }
+    : { type: "fork", from, model };
 }
 
 type RuntimeFlowAuthoringContext<Input> = FlowAuthoringContext<

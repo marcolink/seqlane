@@ -38,14 +38,10 @@ fixtures, examples, public documentation, and protocol snapshots. Keep Git and
 control-flow terminology unchanged. Preserve accepted ADRs and stable document
 IDs and paths.
 
-Keep the approved review fixes: reject direct/transitive choice-session wait
-cycles and sources without session policies. Selected isolated-session setup
-must report failed/cancelled arm events. Unselected arms add no runtime waits.
-Model-cache optimization remains deferred until measurements justify it.
-
 ## Out of scope
 
-Git terminology, Mastra control-flow APIs, accepted ADRs, and stable document IDs.
+Choice correctness fixes, performance work, unrelated type refactors, Git terminology,
+Mastra control-flow APIs, accepted ADRs, and stable document IDs.
 
 ## Implementation plan
 
@@ -53,7 +49,7 @@ Git terminology, Mastra control-flow APIs, accepted ADRs, and stable document ID
 2. Use `isolated`, `reuse`, and `fork` in the owning policy schemas and types.
 3. Remove schema spelling transformations and compatibility-specific Plan types.
 4. Update session consumers, snapshots, fixtures, and examples to use fork.
-5. Keep malformed-Plan and selected-session failure regressions.
+5. Keep fork policy/export, serialization, and existing session behavior regressions.
 6. Update nearby documentation and active contracts, then validate and publish.
 
 ## Affected areas
@@ -72,9 +68,6 @@ indexes/validation, and the public documentation build.
 - Authoring, Plans, and session snapshots accept only the fork spelling.
 - Helper arguments preserve the source checkpoint and optional model selection.
 - Runtime checkpoint capture, model inheritance/overrides, and independent sessions remain valid.
-- Invalid choice session sources and wait cycles fail before execution.
-- Selected isolated-session setup failures report one failed/cancelled terminal event.
-- Failed setup makes zero task/model calls.
 - Public session guides and examples use fork terminology.
 - Required tests, types, builds, lint, formatting, mapping, and docs checks run.
 
@@ -85,14 +78,16 @@ The current scope is the breaking fork-only API. Compatibility code and the
 input/canonical Plan split are removed. Core and protocol regressions reject the
 removed spelling; runtime tests exercise only supported session policies.
 
-Approved choice validation and terminal-event fixes remain. Public examples,
+The PR contains no choice validation, event-reporting, ordering, or compiler
+behavior changes beyond the session name. Public examples,
 fixtures, session diagnostics, READMEs, and active contracts use fork terminology.
 Historical ADRs, metadata IDs, and document paths remain unchanged.
 
-The final breaking change passed repository tests for 20 projects, builds and lint
-for 23 projects, formatting, test mappings, SDLC validation, and the public docs
-build. Production TypeScript compilation passed. The spec typecheck retains three
-errors in unchanged code-review tests at lines 1467 and 1532.
+The rename-only diff passed repository tests for 20 projects, builds/lint for
+23 projects, formatting, test mappings, SDLC validation, and the public docs build.
+Production compilation passed. Three spec typecheck errors in unchanged
+code-review tests at lines 1467 and 1532 remain. The source diff audit confirms
+all 14 changed production files contain only session-name substitutions.
 
 ## Delivery state
 

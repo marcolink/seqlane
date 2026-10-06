@@ -17,10 +17,8 @@ function insertReadyNode<T extends NodeWithId>(queue: T[], node: T): void {
   queue.sort(compareNodes);
 }
 
-export function orderParsedPlanNodes<T extends PlanNode>(plan: {
-  readonly nodes: readonly T[];
-}): readonly T[] {
-  const dependents = new Map<string, T[]>();
+export function orderParsedPlanNodes(plan: Plan): readonly PlanNode[] {
+  const dependents = new Map<string, PlanNode[]>();
   const remainingDependencies = new Map<string, number>();
 
   for (const node of plan.nodes) {
@@ -35,7 +33,7 @@ export function orderParsedPlanNodes<T extends PlanNode>(plan: {
   const ready = plan.nodes
     .filter(({ nodeId }) => remainingDependencies.get(nodeId) === 0)
     .sort(compareNodes);
-  const orderedNodes: T[] = [];
+  const orderedNodes: PlanNode[] = [];
 
   while (ready.length > 0) {
     const node = ready.shift();

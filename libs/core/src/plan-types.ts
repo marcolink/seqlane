@@ -22,7 +22,15 @@ export interface WorkflowIdentity {
 /** Maximum number of repeat-body executions admitted in one run. */
 export const MAX_REPEAT_BODY_EXECUTIONS = 1_000;
 
-/** Session policies used in workflow Plans. */
+export type PlanSessionPolicy =
+  | { readonly type: "isolated"; readonly model?: ModelSelection }
+  | { readonly type: "reuse"; readonly from: PlanNodeId }
+  | {
+      readonly type: "fork";
+      readonly from: PlanNodeId;
+      readonly model?: ModelSelection;
+    };
+
 export const planSessionPolicySchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("isolated"),
@@ -35,8 +43,6 @@ export const planSessionPolicySchema = z.discriminatedUnion("type", [
     model: modelSelectionSchema.optional(),
   }),
 ]);
-
-export type PlanSessionPolicy = z.infer<typeof planSessionPolicySchema>;
 
 export interface TaskNode {
   readonly type: "task";
@@ -238,6 +244,8 @@ export const planSchema = z.strictObject({
   nodes: z.array(planNodeSchema),
   output: valueBindingSchema,
 });
+
+export type PlanSchemaOutput = z.infer<typeof planSchema>;
 
 export interface BuiltWorkflow<Input = unknown, Output = unknown> {
   readonly workflow: WorkflowDefinition<Input, Output>;

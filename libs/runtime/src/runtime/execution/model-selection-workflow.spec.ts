@@ -126,13 +126,10 @@ describe("model-selection fixture integration", () => {
     expect(compiled.context.effectiveModelSelections).toEqual(
       expectedSelections,
     );
-    expect(forkSelections).toHaveLength(2);
-    expect(forkSelections).toEqual(
-      expect.arrayContaining([
-        expectedSelections.get("model-selection.fork:1"),
-        expectedSelections.get("model-selection.child:1"),
-      ]),
-    );
+    expect(forkSelections).toEqual([
+      expectedSelections.get("model-selection.child:1"),
+      expectedSelections.get("model-selection.fork:1"),
+    ]);
 
     const outputSelections = new Map(
       events
@@ -147,33 +144,33 @@ describe("model-selection fixture integration", () => {
     expect(outputSelections).toEqual(expectedSelections);
   });
 
-  it("runs a Plan without model fields using the executor default", async () => {
+  it("runs a legacy Plan without model fields using the executor default", async () => {
     const events: SeqlaneEvent[] = [];
     const task: TaskDefinition = {
-      id: "default-task",
+      id: "legacy-task",
       input: z.unknown(),
       output: z.unknown(),
       execute: async ({ context }) =>
-        context.runAgent({ goal: "run a task with the default model" }),
+        context.runAgent({ goal: "run a legacy task" }),
     };
     const executor: SeqlaneExecutor = {
-      execute: async () => ({ label: "default" }),
+      execute: async () => ({ label: "legacy" }),
     };
     const compiled = new PlanCompiler().compileWorkflow(
       {
-        workflow: { id: "default-model-plan" },
+        workflow: { id: "legacy-model-plan" },
         nodes: [
           {
             type: "task",
             taskId: task.id,
-            nodeId: "default-task:1",
+            nodeId: "legacy-task:1",
             workspace: "shared",
             session: { type: "isolated" },
             input: {},
             dependsOn: [],
           },
         ],
-        output: { type: "ref", nodeId: "default-task:1", path: [] },
+        output: { type: "ref", nodeId: "legacy-task:1", path: [] },
       },
       {
         createInvocationId: (nodeId) => nodeId,
@@ -185,7 +182,7 @@ describe("model-selection fixture integration", () => {
             resolveDefaultModel: async () => defaultSelection,
           },
           resolve: async ({ effectiveSelection }) =>
-            createSession(executor, effectiveSelection, [], "default"),
+            createSession(executor, effectiveSelection, [], "legacy"),
         },
         taskDefinitions: new Map([[task.id, task]]),
         events: { emit: (event) => events.push(event) },
