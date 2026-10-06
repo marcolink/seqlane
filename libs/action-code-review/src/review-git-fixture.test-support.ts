@@ -35,7 +35,9 @@ print(json.dumps({"exitCode": child.returncode,
   "peakMemoryBytes": usage.ru_maxrss * (1 if sys.platform == "darwin" else 1024)}))
 `;
 
-export async function createReviewGitFixture(): Promise<{
+export async function createReviewGitFixture(
+  objectFormat: "sha1" | "sha256" = "sha1",
+): Promise<{
   cwd: string;
   git: BoundedReviewGitPort;
   commands: ReviewGitRequest[];
@@ -47,7 +49,12 @@ export async function createReviewGitFixture(): Promise<{
   const cwd = await mkdtemp(join(tmpdir(), "seqlane-review-scope-"));
   const run = async (...argv: string[]) =>
     (await exec("git", argv, { cwd })).stdout.trim();
-  await run("init", "-q", "--initial-branch=fixture");
+  await run(
+    "init",
+    "-q",
+    "--initial-branch=fixture",
+    `--object-format=${objectFormat}`,
+  );
   await run("config", "user.name", "Review fixture");
   await run("config", "user.email", "review@example.test");
   const commands: ReviewGitRequest[] = [];

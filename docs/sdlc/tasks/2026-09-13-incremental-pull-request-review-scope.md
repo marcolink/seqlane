@@ -218,12 +218,18 @@ patch in discovery input. File-type transitions retain both patch blocks.
 
 A follow-up regression proves that older reviewed hunks in an edited file and
 previously reviewed unchanged files stay out of incremental discovery input.
-The focused collector suite passes 18 tests. The v5 contract carries untouched
+The focused collector suite passes 25 tests. The v5 contract carries untouched
 findings as `not_reviewed`, schedules verification only for locally established
 cause overlap, and skips all models for empty scope. Reader and orchestration
 enforcement of that selection remain part of the pending v5 delivery work.
 
-Local verification passes the full Action library suite: 15 files and 140 tests.
+Follow-up fixes validate the repository's storage hash format and require each
+base, head, and checkpoint to resolve to its admitted full commit ID.
+Real-Git regressions reject 40-character SHA-256 prefixes and accept full
+SHA-1 and SHA-256 IDs. Command and checkpoint-fetch methods are explicit and
+share one execution budget; 13 budget tests cover their routing and accounting.
+
+Local verification passes the full Action library suite: 15 files and 150 tests.
 Source typecheck, test mapping, formatting, and SDLC validation pass.
 The test typecheck retains three errors in the untouched
 `pr-code-review-example.spec.ts` at lines 1467 and 1532.

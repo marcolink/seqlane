@@ -66,6 +66,9 @@ and transfer limits. It must terminate the complete process group on cancellatio
 or a breach. It must disable automatic lazy fetches during local Git commands.
 Every result must include resource measurements and explicit non-truncation flags.
 The collector charges all commands and exact-checkpoint fetches to one admission budget.
+Base, head, and checkpoint IDs must match the repository's storage hash format:
+40 characters for SHA-1 or 64 for SHA-256. Each ID must resolve to exactly that
+commit object. Abbreviated IDs, tags, trees, and blobs are rejected.
 Malformed data, unavailable checkpoints, stale HEAD, missing measurements,
 oversized evidence, and budget breaches reject the run.
 It never truncates evidence or resets to a baseline.

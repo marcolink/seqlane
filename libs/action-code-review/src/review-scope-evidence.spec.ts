@@ -1,20 +1,21 @@
 // @test-scope ./review-scope-contracts.ts
 // @test-scope ./review-evidence-batches.ts
 // @test-scope ./review-git-fixture.test-support.ts
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { collectReviewScopeEvidence } from "./review-scope-evidence.js";
 import { createReviewGitFixture } from "./review-git-fixture.test-support.js";
 import { reviewScopeEvidenceSchema } from "./review-scope-contracts.js";
+import type { ReviewGitRequest } from "./review-git-budget.js";
 
 const fixtures: Awaited<ReturnType<typeof createReviewGitFixture>>[] = [];
 afterEach(async () => {
   await Promise.all(fixtures.splice(0).map((fixture) => fixture.dispose()));
 });
 
-async function fixtureWithBase() {
-  const fixture = await createReviewGitFixture();
+async function fixtureWithBase(objectFormat: "sha1" | "sha256" = "sha1") {
+  const fixture = await createReviewGitFixture(objectFormat);
   fixtures.push(fixture);
   await fixture.write("edited.ts", "base\n");
   await fixture.write("unchanged.ts", "base\n");
@@ -37,6 +38,129 @@ describe(
   "complete review scope evidence with real Git",
   { timeout: 20_000 },
   () => {
+    it.each(["sha1", "sha256"] as const)(
+      "accepts exact %s IDs for base, head, and checkpoint",
+      async (objectFormat) => {
+        const { fixture, baseRevision } = await fixtureWithBase(objectFormat);
+        await fixture.write("edited.ts", "first\n");
+        const checkpointRevision = await fixture.commit();
+        await fixture.write("edited.ts", "second\n");
+        const headRevision = await fixture.commit();
+        const identity = {
+          ...admission(baseRevision, headRevision),
+          mode: "incremental",
+          checkpointRevision,
+          reportId: "42",
+        };
+        const result = await collectReviewScopeEvidence(identity, {
+          git: fixture.git,
+          admittedAt: performance.now(),
+        });
+        expect(result.scopeIdentity).toEqual(identity);
+        expect(result.reviewablePaths).toEqual(["edited.ts"]);
+        expect(result.batches[0]?.patch).toContain("-first\n+second");
+      },
+    );
+
+    it.each(["base", "head", "checkpoint"])(
+      "rejects a 40-character SHA-256 %s prefix before diff or fetch",
+      async (role) => {
+        const { fixture, baseRevision } = await fixtureWithBase("sha256");
+        await fixture.write("edited.ts", "first\n");
+        const checkpointRevision = await fixture.commit();
+        await fixture.write("edited.ts", "second\n");
+        const headRevision = await fixture.commit();
+        const fetchExactCommit = vi.fn(async () => {
+          throw new Error("Unexpected fetch");
+        });
+        await expect(
+          collectReviewScopeEvidence(
+            {
+              ...admission(
+                role === "base" ? baseRevision.slice(0, 40) : baseRevision,
+                role === "head" ? headRevision.slice(0, 40) : headRevision,
+              ),
+              mode: "incremental",
+              checkpointRevision:
+                role === "checkpoint"
+                  ? checkpointRevision.slice(0, 40)
+                  : checkpointRevision,
+              reportId: "42",
+            },
+            {
+              git: { ...fixture.git, fetchExactCommit },
+              admittedAt: performance.now(),
+            },
+          ),
+        ).rejects.toMatchObject({ code: "COMMIT_REQUIRED" });
+        expect(fetchExactCommit).not.toHaveBeenCalled();
+        expect(fixture.commands.some(({ argv }) => argv.includes("diff"))).toBe(
+          false,
+        );
+      },
+    );
+
+    it("rejects a wrong-format SHA-1 checkpoint before attempting a fetch", async () => {
+      const { fixture, baseRevision } = await fixtureWithBase();
+      const fetchExactCommit = vi.fn(async () => {
+        throw new Error("Unexpected fetch");
+      });
+      await expect(
+        collectReviewScopeEvidence(
+          {
+            ...admission(baseRevision, baseRevision),
+            mode: "incremental",
+            checkpointRevision: "a".repeat(64),
+            reportId: "42",
+          },
+          {
+            git: { ...fixture.git, fetchExactCommit },
+            admittedAt: performance.now(),
+          },
+        ),
+      ).rejects.toMatchObject({ code: "COMMIT_REQUIRED" });
+      expect(fetchExactCommit).not.toHaveBeenCalled();
+      expect(fixture.commands.some(({ argv }) => argv.includes("diff"))).toBe(
+        false,
+      );
+    });
+
+    it("rejects a resolved commit ID that differs from the admitted full ID", async () => {
+      const { fixture, baseRevision } = await fixtureWithBase();
+      await fixture.write("edited.ts", "new\n");
+      const headRevision = await fixture.commit();
+      const run = vi.fn(async (request: ReviewGitRequest) => {
+        if (
+          request.argv.includes("--end-of-options") &&
+          request.argv.at(-1) === baseRevision
+        ) {
+          return {
+            exitCode: 0,
+            stdout: Buffer.from(`${headRevision}\n`),
+            stderr: Buffer.alloc(0),
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            usage: {
+              wallMs: 1,
+              cpuMs: 1,
+              peakMemoryBytes: 1,
+              transferBytes: 0,
+            },
+          };
+        }
+        return fixture.git.run(request);
+      });
+      await expect(
+        collectReviewScopeEvidence(admission(baseRevision, headRevision), {
+          git: { run },
+          admittedAt: performance.now(),
+        }),
+      ).rejects.toMatchObject({ code: "COMMIT_REQUIRED" });
+      expect(
+        run.mock.calls.some(([request]) => request.argv.includes("diff")),
+      ).toBe(false);
+    });
+
     it("collects a baseline with literal hostile paths and explicit exclusions", async () => {
       const { fixture, baseRevision } = await fixtureWithBase();
       const paths = [

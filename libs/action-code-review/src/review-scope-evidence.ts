@@ -1,4 +1,4 @@
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import {
   reviewScopeIdentitySchema,
   type ReviewPathPatch,
@@ -19,6 +19,8 @@ import { ReviewScopeError } from "./review-scope-errors.js";
 import { aggregateReviewScopeEvidence } from "./review-evidence-batches.js";
 import { selectReviewScope } from "./review-scope-selection.js";
 
+const objectFormatSchema = z.enum(["sha1", "sha256"]);
+
 const diffOptions = [
   "--no-ext-diff",
   "--no-textconv",
@@ -30,8 +32,15 @@ const diffOptions = [
 async function requireCommit(
   budget: ReviewGitBudget,
   revision: string,
+  objectIdLength: number,
   fetchMissing: boolean,
 ): Promise<void> {
+  if (revision.length !== objectIdLength) {
+    throw new ReviewScopeError(
+      "COMMIT_REQUIRED",
+      "Review revisions must use full IDs in the repository's object format.",
+    );
+  }
   let result = await budget.run(["cat-file", "-t", revision]);
   if (result.exitCode !== 0 && fetchMissing) {
     const fetch = await budget.fetchExactCommit(revision);
@@ -52,6 +61,21 @@ async function requireCommit(
       "Review revisions must name exact commit objects.",
     );
   }
+  const resolved = await budget.run([
+    "rev-parse",
+    "--verify",
+    "--end-of-options",
+    revision,
+  ]);
+  if (
+    resolved.exitCode !== 0 ||
+    decodeGitBytes(resolved.stdout).trim() !== revision
+  ) {
+    throw new ReviewScopeError(
+      "COMMIT_REQUIRED",
+      "Resolved commit ID differs from the admitted revision.",
+    );
+  }
 }
 
 async function requiredGitOutput(
@@ -66,6 +90,15 @@ async function requiredGitOutput(
     );
   }
   return result.stdout;
+}
+
+async function readObjectIdLength(budget: ReviewGitBudget): Promise<number> {
+  const output = await requiredGitOutput(budget, [
+    "rev-parse",
+    "--show-object-format=storage",
+  ]);
+  const objectFormat = objectFormatSchema.parse(decodeGitBytes(output).trim());
+  return objectFormat === "sha1" ? 40 : 64;
 }
 
 async function readPaths(
@@ -121,8 +154,9 @@ async function collect(
   identity: ReviewScopeIdentity,
   budget: ReviewGitBudget,
 ): Promise<ReviewScopeEvidence> {
-  await requireCommit(budget, identity.baseRevision, false);
-  await requireCommit(budget, identity.headRevision, false);
+  const objectIdLength = await readObjectIdLength(budget);
+  await requireCommit(budget, identity.baseRevision, objectIdLength, false);
+  await requireCommit(budget, identity.headRevision, objectIdLength, false);
   const head = await budget.run(["rev-parse", "--verify", "HEAD"]);
   if (
     head.exitCode !== 0 ||
@@ -139,7 +173,12 @@ async function collect(
       ? [identity.checkpointRevision, identity.headRevision]
       : undefined;
   if ("checkpointRevision" in identity)
-    await requireCommit(budget, identity.checkpointRevision, true);
+    await requireCommit(
+      budget,
+      identity.checkpointRevision,
+      objectIdLength,
+      true,
+    );
   const prPaths = await readPaths(budget, prRange);
   const changedPaths =
     changeRange === undefined ? [] : await readPaths(budget, changeRange);
