@@ -1,4 +1,5 @@
 // @test-scope ./review-scope-contracts.ts
+// @test-scope ./review-evidence-batches.ts
 // @test-scope ./review-git-fixture.test-support.ts
 import { afterEach, describe, expect, it } from "vitest";
 import { symlink } from "node:fs/promises";
@@ -45,6 +46,9 @@ describe(
         ":(glob)*.ts",
         "-flag.ts",
         "\ufeffbom.ts",
+        'quote"name.ts',
+        "back\\slash.ts",
+        "unicodeé.ts",
       ];
       for (const path of paths) await fixture.write(path, "new\n");
       await fixture.write("nested/dist/built.js", "excluded\n");
@@ -60,23 +64,26 @@ describe(
         "pnpm-lock.yaml",
       ]);
       expect(result.batches).toHaveLength(1);
-      expect(result.batches[0]?.changeEvidence).toBe("");
+      expect(result.validationBatches).toEqual([]);
       expect(result.hunkCount).toBe(paths.length);
       const patches = fixture.commands.filter(({ argv }) =>
         argv.includes("--patch"),
       );
-      expect(patches).toHaveLength(paths.length);
+      expect(patches).toHaveLength(1);
       expect(
         patches.every(
           ({ argv }) =>
             argv.includes("--literal-pathspecs") &&
-            paths.includes(argv.at(-1)!),
+            new Set(argv.slice(argv.indexOf("--") + 1)).size === paths.length &&
+            paths.every((path) =>
+              argv.slice(argv.indexOf("--") + 1).includes(path),
+            ),
         ),
       ).toBe(true);
       expect(reviewScopeEvidenceSchema.safeParse(result).success).toBe(true);
     });
 
-    it("selects only checkpoint changes and keeps older PR edits as context", async () => {
+    it("reviews only checkpoint changes and keeps base comparison in local validation", async () => {
       const { fixture, baseRevision } = await fixtureWithBase();
       await fixture.write("edited.ts", "first\n");
       await fixture.write("unchanged.ts", "first\n");
@@ -95,8 +102,9 @@ describe(
       });
       expect(result.reviewablePaths).toEqual(["edited.ts"]);
       expect(result.batches[0]?.scopeIdentity).toEqual(identity);
-      expect(result.batches[0]?.patch).toContain("-base\n+second");
-      expect(result.batches[0]?.changeEvidence).toContain("-first\n+second");
+      expect(result.batches[0]?.patch).toContain("-first\n+second");
+      expect(result.batches[0]?.patch).not.toContain("-base");
+      expect(result.validationBatches[0]?.patch).toContain("-base\n+second");
       expect(result.hunkCount).toBe(2);
     });
 
@@ -154,7 +162,7 @@ describe(
         { git: fixture.git, admittedAt: performance.now() },
       );
       expect(result.reviewablePaths).toEqual(["edited.ts"]);
-      expect(result.batches[0]?.changeEvidence).toContain("-first\n+second");
+      expect(result.batches[0]?.patch).toContain("-first\n+second");
       expect(result.batches[0]?.patch).not.toContain("target-only.ts");
     });
 
@@ -225,7 +233,7 @@ describe(
           path: "edited.ts",
           oldMode: "100644",
           newMode: "100755",
-          evidenceForm: "review-patch",
+          evidenceForm: "pr-patch",
         },
       ]);
     });
@@ -245,6 +253,106 @@ describe(
         status: "A",
       });
       expect(result.batches[0]?.patch).toContain("+/outside/review-workspace");
+    });
+
+    it("preserves both blocks for a file-to-symlink change in grouped output", async () => {
+      const { fixture, baseRevision } = await fixtureWithBase();
+      await fixture.run("rm", "edited.ts");
+      await symlink("target", join(fixture.cwd, "edited.ts"));
+      await fixture.write("new.ts", "new\n");
+      await fixture.run("config", "core.quotePath", "false");
+      await fixture.run("config", "diff.noprefix", "true");
+      const headRevision = await fixture.commit();
+      const result = await collectReviewScopeEvidence(
+        admission(baseRevision, headRevision),
+        { git: fixture.git, admittedAt: performance.now() },
+      );
+      expect(result.treeChanges).toMatchObject([
+        { path: "edited.ts", status: "T" },
+        { path: "new.ts", status: "A" },
+      ]);
+      expect(
+        result.batches[0]?.patch.match(
+          /^diff --git a\/edited.ts b\/edited.ts$/gm,
+        ),
+      ).toHaveLength(2);
+      expect(result.batches[0]?.patch).toContain("+target");
+      expect(result.hunkCount).toBe(3);
+    });
+
+    it("collects 200 incremental paths with two bounded patch commands", async () => {
+      const { fixture, baseRevision } = await fixtureWithBase();
+      const paths = Array.from(
+        { length: 200 },
+        (_, index) => `selected-${index.toString().padStart(3, "0")}.ts`,
+      );
+      await Promise.all(paths.map((path) => fixture.write(path, "first\n")));
+      const checkpointRevision = await fixture.commit();
+      await Promise.all(paths.map((path) => fixture.write(path, "second\n")));
+      const headRevision = await fixture.commit();
+      const result = await collectReviewScopeEvidence(
+        {
+          ...admission(baseRevision, headRevision),
+          mode: "incremental",
+          checkpointRevision,
+          reportId: "42",
+        },
+        { git: fixture.git, admittedAt: performance.now() },
+      );
+      expect(result.reviewablePaths).toEqual(paths);
+      const commands = fixture.commands.filter(({ argv }) =>
+        argv.includes("--patch"),
+      );
+      expect(commands).toHaveLength(2);
+      expect(
+        commands.every(
+          ({ argv }) =>
+            argv.slice(argv.indexOf("--") + 1).length === paths.length,
+        ),
+      ).toBe(true);
+      expect(result.batches.flatMap(({ paths }) => paths)).toEqual(paths);
+      expect(result.validationBatches.flatMap(({ paths }) => paths)).toEqual(
+        paths,
+      );
+      expect(result.treeChanges).toHaveLength(400);
+      expect(result.hunkCount).toBe(400);
+      expect(result.batches[0]?.patch).not.toContain("new file mode");
+      expect(result.validationBatches[0]?.patch).toContain("new file mode");
+      expect(
+        reviewScopeEvidenceSchema.safeParse({
+          ...result,
+          validationBatches: [],
+        }).success,
+      ).toBe(false);
+    });
+
+    it("partitions one complete grouped diff into bounded whole-path batches", async () => {
+      const { fixture, baseRevision } = await fixtureWithBase();
+      await fixture.write("large-a.txt", "a".repeat(300_000) + "\n");
+      await fixture.write("large-b.txt", "b".repeat(300_000) + "\n");
+      const headRevision = await fixture.commit();
+      const result = await collectReviewScopeEvidence(
+        admission(baseRevision, headRevision),
+        { git: fixture.git, admittedAt: performance.now() },
+      );
+      expect(result.batches).toHaveLength(2);
+      expect(result.batches.map(({ paths }) => paths)).toEqual([
+        ["large-a.txt"],
+        ["large-b.txt"],
+      ]);
+      expect(result.validationBatches).toEqual([]);
+      expect(
+        result.batches.every(({ patchBytes }) => patchBytes <= 512_000),
+      ).toBe(true);
+      expect(
+        fixture.commands.filter(({ argv }) => argv.includes("--patch")),
+      ).toHaveLength(1);
+      expect(
+        reviewScopeEvidenceSchema.safeParse({
+          ...result,
+          validationBatches: result.batches,
+        }).success,
+      ).toBe(false);
     });
 
     it("records a submodule tree entry without executing submodule code", async () => {

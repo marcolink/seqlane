@@ -1,11 +1,8 @@
 import { ZodError } from "zod";
 import {
-  REVIEW_GIT_LIMITS,
   reviewScopeIdentitySchema,
-  reviewScopeEvidenceSchema,
   type ReviewScopeIdentity,
   type ReviewScopeEvidence,
-  type ReviewEvidenceBatch,
   type ReviewTreeChange,
 } from "./review-scope-contracts.js";
 import {
@@ -15,9 +12,10 @@ import {
 import {
   decodeGitBytes,
   parseGitPaths,
-  parseScopedGitPatch,
+  parseScopedGitPatches,
 } from "./review-git-records.js";
-import { requireScopeLimit, ReviewScopeError } from "./review-scope-errors.js";
+import { ReviewScopeError } from "./review-scope-errors.js";
+import { aggregateReviewScopeEvidence } from "./review-evidence-batches.js";
 import { selectReviewScope } from "./review-scope-selection.js";
 
 const diffOptions = [
@@ -84,13 +82,16 @@ async function readPaths(
   return parseGitPaths(output);
 }
 
-async function readPatch(
+async function readPatches(
   budget: ReviewGitBudget,
   revisions: readonly string[],
-  path: string,
+  paths: readonly string[],
   evidenceForm: ReviewTreeChange["evidenceForm"],
-): Promise<ReturnType<typeof parseScopedGitPatch>> {
+): Promise<ReturnType<typeof parseScopedGitPatches>> {
+  if (paths.length === 0) return [];
   const output = await requiredGitOutput(budget, [
+    "-c",
+    "core.quotePath=true",
     "--literal-pathspecs",
     "diff",
     ...diffOptions,
@@ -101,63 +102,18 @@ async function readPatch(
     "--full-index",
     "--binary",
     "--unified=10",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--no-relative",
+    "--submodule=short",
+    "--output-indicator-new=+",
+    "--output-indicator-old=-",
+    "--output-indicator-context= ",
     ...revisions,
     "--",
-    path,
+    ...paths,
   ]);
-  return parseScopedGitPatch(output, path, evidenceForm);
-}
-
-function appendBatch(
-  batches: ReviewEvidenceBatch[],
-  scopeIdentity: ReviewScopeIdentity,
-  part: {
-    path: string;
-    patch: string;
-    changeEvidence: string;
-    hunkCount: number;
-  },
-): void {
-  const { path, patch, changeEvidence, hunkCount } = part;
-  const patchBytes = Buffer.byteLength(patch);
-  const changeBytes = Buffer.byteLength(changeEvidence);
-  requireScopeLimit(
-    "batchBytes",
-    patchBytes + changeBytes,
-    REVIEW_GIT_LIMITS.batchBytes,
-    "single-path-evidence",
-  );
-  let batch = batches.at(-1);
-  if (
-    batch === undefined ||
-    batch.patchBytes + batch.changeBytes + patchBytes + changeBytes >
-      REVIEW_GIT_LIMITS.batchBytes
-  ) {
-    requireScopeLimit(
-      "batches",
-      batches.length + 1,
-      REVIEW_GIT_LIMITS.batches,
-      "evidence-batching",
-    );
-    batch = {
-      scopeIdentity,
-      ordinal: batches.length + 1,
-      status: "complete",
-      paths: [],
-      patch: "",
-      changeEvidence: "",
-      hunkCount: 0,
-      patchBytes: 0,
-      changeBytes: 0,
-    };
-    batches.push(batch);
-  }
-  batch.paths.push(path);
-  batch.patch += patch;
-  batch.changeEvidence += changeEvidence;
-  batch.hunkCount += hunkCount;
-  batch.patchBytes += patchBytes;
-  batch.changeBytes += changeBytes;
+  return parseScopedGitPatches(output, paths, evidenceForm);
 }
 
 async function collect(
@@ -187,46 +143,24 @@ async function collect(
   const changedPaths =
     changeRange === undefined ? [] : await readPaths(budget, changeRange);
   const selection = selectReviewScope(identity, prPaths, changedPaths);
-  const batches: ReviewEvidenceBatch[] = [];
-  const treeChanges: ReviewTreeChange[] = [];
-  let evidenceBytes = 0;
-  let hunkCount = 0;
-  for (const path of selection.reviewablePaths) {
-    const context = await readPatch(budget, prRange, path, "review-patch");
-    treeChanges.push(context.treeChange);
-    const change =
-      changeRange === undefined
-        ? { patch: "", hunkCount: 0 }
-        : await readPatch(budget, changeRange, path, "change-evidence");
-    if ("treeChange" in change) treeChanges.push(change.treeChange);
-    evidenceBytes +=
-      Buffer.byteLength(context.patch) + Buffer.byteLength(change.patch);
-    hunkCount += context.hunkCount + change.hunkCount;
-    requireScopeLimit(
-      "evidenceBytes",
-      evidenceBytes,
-      REVIEW_GIT_LIMITS.evidenceBytes,
-      "scope-evidence",
-    );
-    requireScopeLimit(
-      "hunks",
-      hunkCount,
-      REVIEW_GIT_LIMITS.hunks,
-      "scope-evidence",
-    );
-    appendBatch(batches, identity, {
-      path,
-      patch: context.patch,
-      changeEvidence: change.patch,
-      hunkCount: context.hunkCount + change.hunkCount,
-    });
-  }
-  const evidence = reviewScopeEvidenceSchema.parse({
-    ...selection,
-    batches,
-    treeChanges,
-    evidenceBytes,
-    hunkCount,
+  const reviewPatches = await readPatches(
+    budget,
+    changeRange ?? prRange,
+    selection.reviewablePaths,
+    changeRange === undefined ? "pr-patch" : "change-evidence",
+  );
+  const validationPatches =
+    changeRange === undefined
+      ? []
+      : await readPatches(
+          budget,
+          prRange,
+          selection.reviewablePaths,
+          "pr-patch",
+        );
+  const evidence = aggregateReviewScopeEvidence(selection, {
+    review: reviewPatches,
+    validation: validationPatches,
   });
   budget.assertActive("scope-finalization");
   return evidence;

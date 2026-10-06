@@ -41,9 +41,19 @@ const evidence = await collectReviewScopeEvidence(
 The pure selector uses the complete PR path set for a baseline.
 For incremental scope, it intersects that set with checkpoint-to-head tree changes.
 It then excludes lockfiles and generated `dist` contents.
-Each batch contains the current PR patch and separate change evidence.
+Baseline review batches contain the current PR patch. Incremental review
+batches contain only the checkpoint-to-head diff. Separate `validationBatches`
+hold current-PR evidence for local cause admission; discovery input uses only
+`batches`. The workflow must also load prior findings when the v5 reader is wired.
 Raw tree-entry metadata preserves binary, mode, symlink, and submodule changes.
 Empty reviewable scope produces no scoped diff.
+
+Each selected revision range uses one bounded multi-path Git command. A
+baseline uses one patch command; an incremental review uses two, including
+local validation. Commands include all selected literal paths, up to 200.
+The parser verifies the raw inventory and every patch header before grouping
+whole paths into bounded batches. Missing, extra, or duplicate evidence fails.
+Review and validation batches share the batch, hunk, byte, and execution limits.
 
 The trusted host must implement `BoundedReviewGitPort`.
 It must stream raw bytes and enforce the supplied wall, CPU, memory, output,

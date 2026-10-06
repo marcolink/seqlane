@@ -126,9 +126,16 @@ A zero-hunk path uses ordinal zero and retains tree-entry metadata so binary,
 mode-only, or absent-path evidence is not mistaken for an empty patch. Hunk
 ordinals begin at one within each complete path and evidence form and never
 restart at a batch boundary. Each tuple is globally unique, belongs to one
-batch, and matches the collector's complete evidence inventory. The union of
-item paths equals the selected set R. Missing required evidence fails before
-model work.
+batch, and matches the collector's complete discovery evidence inventory.
+The union of item paths equals the selected set R. Missing required evidence
+fails before model work.
+
+Baseline discovery items use `pr-patch`. Incremental discovery items use
+`change-evidence` from the last published checkpoint to the current head.
+Current-PR evidence used by the local cause-admission gate remains separate
+bounded validation data. It does not create discovery items, expected lanes,
+or fresh coverage of earlier PR hunks. Referenced validation source bytes and
+digests still follow the finding-evidence validation rules.
 
 The manifest also seals the configured lane IDs for every batch. Each batch
 has one result for each expected lane, with a bounded result reference,

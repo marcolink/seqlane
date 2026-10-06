@@ -65,8 +65,8 @@ Preserve the state, lifecycle, trust, and publication rules in
 Outcome: a trusted admission produces deterministic scope and complete evidence
 through real Git. The current v4 workflow remains separate.
 
-Path: strict ScopeIdentity -> bounded Git port -> pure selector -> literal
-scoped diffs -> validated batches and tree-entry metadata.
+Path: strict ScopeIdentity -> bounded Git port -> pure selector -> grouped
+literal scoped diffs -> review batches, local validation batches, and tree metadata.
 
 Risk: path parsing, checkpoint identity, rebases, exclusions, or incomplete
 output can silently widen scope or omit evidence.
@@ -82,9 +82,14 @@ production use. The existing process API does not provide complete CPU,
 memory, or fetch-transfer controls. A production host adapter remains required.
 The real-Git test adapter measures child resources but is not a production adapter.
 
-The collector seals complete local evidence before model work. It batches
-whole-path evidence within the existing limits. A path whose two evidence
-forms exceed one batch fails closed; hunk partitioning is follow-up work.
+The collector seals complete local evidence before model work. Baseline review
+uses the current PR diff. Incremental review uses the checkpoint-to-head diff.
+Current-PR evidence stays in separate local validation batches. Each selected
+revision range uses one bounded multi-path command, including at most 200
+literal paths. Raw records and patch headers must exactly match that inventory.
+Whole paths are batched locally. A single path patch above the batch limit
+fails closed; hunk partitioning is follow-up work. Both batch groups share
+the existing batch, hunk, byte, and execution ceilings.
 
 Excluded from this slice: trusted v5 report classification and transport,
 model invocation planning, finding admission, manifests, storage, and publication.
@@ -102,8 +107,9 @@ No existing finding or checkpoint changes during this slice.
 3. Change Git evidence to use validated literal argv paths and produce a
    complete scoped patch or fail. Add typed batch plans and results,
    deterministic aggregation, bounded subprocesses, and cumulative budgets.
-4. Pass scope and retained current-generation findings to history
-   verification, configured lanes, and synthesis. Add the deterministic
+4. Pass scope, the mode-selected review patch, and retained current-generation
+   findings to history verification, configured lanes, and synthesis. Keep
+   current-PR validation batches local to the cause-admission gate. Add the deterministic
    new-finding path and changed-anchor gate, first-observed revision, typed
    evidence and location status, evidence-backed identity, and typed
    comparison outcomes. Reuse the canonical RetainedFinding and evidence schemas.
@@ -197,12 +203,17 @@ No existing finding or checkpoint changes during this slice.
 
 ## Outcome
 
-The first private scope collector slice is implemented locally on
-`codex/review-scope-evidence`, based on PR #112 at `6688815`.
+The first private scope collector slice is proposed in
+[PR #176](https://github.com/marcolink/seqlane/pull/176), based on PR #112 at `6688815`.
 It has no production caller. Focused real-Git and port tests provide local evidence.
 The production host adapter and all remaining v5 delivery work are pending.
 
-Local verification passes the full Action library suite: 15 files and 131 tests.
+Incremental review input is the checkpoint-to-head diff. Current-PR validation
+is separate. A real-Git test covers 200 incremental paths with two patch
+commands, complete discovery and validation inventories, and no earlier PR
+patch in discovery input. File-type transitions retain both patch blocks.
+
+Local verification passes the full Action library suite: 15 files and 140 tests.
 Source typecheck, test mapping, formatting, and SDLC validation pass.
 The test typecheck retains three errors in the untouched
 `pr-code-review-example.spec.ts` at lines 1467 and 1532.

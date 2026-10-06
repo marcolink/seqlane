@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-13
-updated: 2026-10-05
+updated: 2026-10-06
 upstream:
   - spec.versioned-pull-request-review-comments
   - spec.review-run-manifest-and-provenance
@@ -17,9 +17,10 @@ supersedes: []
 ## Summary
 
 The first successful review of a pull request examines its complete diff against
-its target branch. Later reviews select only pull-request files changed since
-the last **published** review. A new finding must also have a verified cause
-anchor in that new change, not merely in an older hunk of a selected file.
+its target branch. Later reviews receive previous findings and the diff from
+the last **published** review to the current head. A new finding needs a
+verified cause anchor in that change. An older hunk of a selected file cannot
+supply that cause.
 Existing findings remain in the report and follow their established lifecycle.
 
 The authoritative comment is the durable checkpoint. A run that fails, is
@@ -94,9 +95,11 @@ owns the Action and runtime boundary.
   report ID and legacy marker identity; an incremental or no-change run has
   the current trusted report ID and checkpoint revision.
 - **Evidence batch**: one bounded, typed unit of scoped Git evidence. A batch
-  has an ordinal, path list, patch bytes, change-evidence bytes, and coverage
-  counts. A batch result records completion, parsed paths, hunks, byte counts,
+  has an ordinal, path list, patch bytes, and coverage counts.
+  A batch result records completion, parsed paths, hunks, byte counts,
   and failure or limitation data.
+- **Validation batch**: a separate batch of current-PR evidence used by the
+  local cause-admission gate. It is not discovery input or discovery coverage.
 - **Run manifest**: the versioned, immutable machine-readable record of one
   admitted review, including frozen input, provenance, coverage outcomes,
   limitations, and terminal status.
@@ -144,15 +147,18 @@ When a published checkpoint `C` exists, a run must use incremental mode:
 ```text
 E = P(B,H) ∩ D(C,H)
 R = E - X
-review patch = complete current PR diff B...H, restricted to R
-change evidence = two-tree diff C H, restricted to R
+review patch = two-tree diff C H, restricted to R
+local validation evidence = current PR diff B...H, restricted to R
 ```
 
 The intersection uses paths, not commit dates, commit messages, GitHub event
 types, or prior finding locations. It excludes changes that no longer form part
-of the current PR. The `C H` diff selects files and supplies the required
-new-finding cause anchors; the `B...H` diff shows the complete current PR
-contribution in those files as review context. A path being in `R` alone does
+of the current PR. The `C H` diff selects files and is the primary review
+input. It supplies the required new-finding cause anchors. The `B...H` diff
+is separate local validation evidence. Discovery lanes receive the checkpoint
+diff and retained findings; they do not receive the complete PR patch again.
+Unchanged lines near a changed hunk remain ordinary diff context. Additional
+source context may be read when needed. A path being in `R` alone does
 not authorize a new finding from an unchanged hunk of that file. Agents must
 not treat changes imported from the target branch as PR-authored code. The
 two-tree comparison does not require `C` to be an ancestor of `H`; this is
@@ -206,8 +212,8 @@ unchanged file only as supporting context. A no-change run admits no new
 findings.
 
 Review lanes and synthesis must receive the mode, exact revisions, `R`, the
-complete current-PR patch for `R`, change evidence, exclusions, and retained
-findings. They must propose only findings from the current scope
+mode-selected review patch, exclusions, and retained findings.
+They must propose only findings from the current scope
 and reference an existing stable ID when they recognize a retained finding.
 Before stable-ID allocation, a deterministic local gate must reject or omit a
 newly proposed finding outside `R` or without a verified current-change cause
@@ -395,15 +401,26 @@ partially migrated into v5.
 ### requirement-complete-evidence
 
 Path collection must be complete before model work. A truncated, malformed, or
-unavailable path list cannot define `E`. The scoped current-PR patch must
-deliver every hunk in `R`. The two-tree change evidence must also be complete
-for `R`, so agents can distinguish new edits from existing PR content. The
-current byte bound must not turn a truncated patch into complete coverage.
+unavailable path list cannot define `E`. The mode-selected review patch must
+deliver every hunk in `R`. Incremental review uses the complete two-tree
+checkpoint diff. Its separate current-PR validation evidence must also be
+complete for `R`. The current byte bound must not turn a truncated patch into
+complete coverage.
 The workflow may partition the patch by path and hunk into bounded, ordered
 batches; it must account for every expected batch and validate its output
 before publication. Intentional lockfile and generated `dist` exclusions remain
 explicit in the evidence and report. No agent may claim to have reviewed
 excluded contents.
+
+Collect each revision range with one bounded multi-path Git command, using
+all selected literal paths. The path and output ceilings bound that command.
+Parse the complete raw NUL inventory and match every patch block to exactly
+one selected path. Reject missing, extra, or duplicate records. A file-type
+change may have two adjacent patch blocks for one raw path; preserve both.
+Partition complete per-path evidence into batches locally, in path-byte order.
+An empty selected set produces no patch command. Do not start one process per
+file. Base-validation batches remain separate from review batches and receive
+no discovery lane invocations. Both groups consume the same resource budget.
 
 Pre-model Git work has its own budget beginning when admission accepts the
 event. This is separate from the model-phase elapsed-time ceiling and does not
@@ -472,7 +489,6 @@ EvidenceBatchPlan {
   paths: non-empty array of validated relative paths
   expectedHunks: non-negative integer
   expectedPatchBytes: bounded integer
-  expectedChangeBytes: bounded integer
 }
 
 EvidenceBatchResult {
@@ -481,13 +497,18 @@ EvidenceBatchResult {
   status: "complete" | "failed" | "cancelled"
   paths: array of validated relative paths
   patch: bounded text
-  changeEvidence: bounded text
   hunkCount: non-negative integer
   patchBytes: non-negative integer
-  changeBytes: non-negative integer
   limitations: bounded array of strings
 }
 ```
+
+Review results are returned in `batches`. Baseline batches contain `B...H`
+patches; incremental batches contain `C H` patches. Incremental local
+validation results are returned in `validationBatches`, using the same batch
+shape with `B...H` patches. Baseline validation batches are empty. Each group
+has its own consecutive ordinals and exactly covers `R` when required.
+The batch-count, hunk, and byte limits apply to their combined totals.
 
 The collector must emit exactly one result for every plan ordinal, in ordinal
 order after aggregation. Each result must echo the scope identity and its
@@ -497,6 +518,10 @@ plan, byte or hunk counts over the plan, and any failed or cancelled batch.
 It must verify that the union of completed result paths equals `R` and that
 the sum of hunk and byte counts matches the pre-model plan. It must preserve
 limitations in deterministic ordinal order.
+
+Validate review and local validation groups independently. Neither missing
+validation evidence nor a complete validation batch can count as discovery
+coverage. Only `batches` enter discovery and synthesis inputs.
 
 After batch aggregation, the orchestrator deduplicates findings by normalized
 stable ID, then by the canonical `(identityKey, occurrenceKey)` pair with local
