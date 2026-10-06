@@ -34,7 +34,8 @@ owns execution, evidence, reference validation, and complete per-run bounds.
 This draft owns hidden transport, cost projection, and storage lookup.
 Artifact retention follows the canonical
 [90-day manifest policy](./2026-09-14-review-run-manifest-and-provenance.md#requirement-manifest-bounds).
-Storage-budget alignment remains pending under `SEQ-PR112-046`.
+The canonical manifest specification now owns the 90-day retention policy and
+hard aggregate storage caps, resolving the storage decision in `SEQ-PR112-046`.
 This draft alone does not authorize another active transport or state schema.
 
 ## Goals
@@ -194,38 +195,50 @@ No publisher deletes or chooses between duplicate comments.
 ### requirement-artifact-admission
 
 A strict repository `ReviewStoreIndex` is non-authoritative control state. It
-tracks outstanding candidate reservations and artifacts, their producer and
-source identities, stored bytes, per-PR totals, admission timestamps, and the
-recovery scan cursor. A repository-wide admission mutex serializes configured
-index writers. A canceled or overflowed admission job fails before reservation
-or upload and needs no replay. Each immutable index generation names and
+tracks upload reservations, outstanding candidates, retained published evidence,
+and control artifacts, with producer and source identities, stored bytes,
+per-PR and repository totals, admission timestamps, and the recovery scan
+cursor. A repository-wide admission mutex serializes configured
+index writers. A rejected admission that never reserved storage cannot upload
+and needs no replay. Cancellation after reservation retains the charge until
+the canonical reconciliation proves it can be released. Each immutable index generation names and
 hashes its predecessor. The updater verifies the newest generation, writes
 and verifies its replacement, then deletes superseded generations. Missing or
 ambiguous index state triggers bounded reconstruction and blocks new uploads
 until inventory is complete.
 
-Before candidate upload, admission reserves the artifact's 32 MiB compressed
-maximum. After verified upload, it replaces that reservation with the actual
-GitHub artifact size. Publication or proven cleanup removes the outstanding
-entry. Admission rejects a candidate before upload when any hard limit would
+Before upload, admission applies the canonical
+[aggregate storage contract](./2026-09-14-review-run-manifest-and-provenance.md#requirement-artifact-storage-admission).
+It reserves the candidate's 32 MiB maximum stored archive size, then replaces
+that reservation with the actual verified GitHub artifact size. Publication
+removes the outstanding candidate count but retains the artifact and its byte
+charge for 90 days. Unresolved effects stay charged. Proven cleanup or confirmed
+expiry releases bytes under the same mutex. No published artifact is deleted
+early to make room. Admission rejects an upload before any hard limit would
 be exceeded:
 
-- 20 outstanding candidates or 256 MiB of outstanding stored bytes for one PR;
-- 200 outstanding candidates or 1 GiB of outstanding stored bytes repository-wide;
+- 20 outstanding candidates for one PR or 200 repository-wide;
+- the canonical 256 MiB per-PR or 1 GiB repository cap, including retained
+  published artifacts, candidates, control artifacts, and reservations;
 - 10 candidate admissions per PR or 200 repository-wide in a rolling hour;
 - two live generations per control-index name, 64 KiB decoded per index, or
   64 MiB total stored control artifacts.
 
-Reservations count toward candidate and byte limits until reconciled. Review
-candidates, authority indexes, and store indexes have distinct names and
+Reservations count toward candidate and byte limits until reconciled.
+The 64 MiB control-artifact sub-limit is included in the repository cap,
+not added to it. Control uploads also reserve their maximum stored archive
+size of 128 KiB under the canonical contract; each control artifact contains
+one typed value and is bounded at 64 KiB decoded. Decoded index size alone is
+not a stored-byte reservation. Review candidates, authority indexes, and store
+indexes have distinct names and
 strict schemas. The recovery cursor is part of the store index. Control
 artifacts never carry checkpoint state or review evidence. A rejected
 admission fails the Action with current counts and bytes, the limiting value,
 and recovery guidance. It preserves the comment checkpoint and does not claim
-a published review. The separate
-256 MiB per-PR and 1 GiB repository thresholds for retained **published**
-evidence remain advisory because those artifacts cannot be deleted merely to
-admit a new review.
+a published review. Limits are hard: equality is allowed, while one byte
+over either aggregate cap refuses admission. Incomplete inventory cannot
+authorize an upload. Failure or cancellation alone cannot release an
+unreconciled reservation while an upload might still complete.
 
 ### requirement-published-artifact
 
@@ -247,9 +260,9 @@ uncompressed limit. Retrieval streams each archive entry through per-entry
 and cumulative byte budgets before parsing or hashing. It rejects duplicate
 entries, traversal paths, symlinks, and excess entries. Item, path, finding,
 and string limits must be defined by the canonical manifest specification
-before this draft becomes active. Retained published evidence has advisory
-usage thresholds of 256 MiB per PR and 1 GiB repository-wide over 90 days.
-A warning based on incomplete inventory must say so. Upload, integrity,
+before this draft becomes active. Retained published evidence stays charged
+under the canonical hard aggregate caps throughout its 90-day retention.
+Upload, storage admission, integrity,
 retention-setting, or hard-size failure blocks
 final publication and preserves the old checkpoint.
 
@@ -446,7 +459,12 @@ new state version rather than treating two schemas as v5.
 - Render at 79%, 80%, and hard limits with multibyte text; show warning
   and preserve old checkpoint on rejection.
 - Verify one sealed artifact, 90-day retention, direct-ID retrieval,
-  expiry, integrity failure, hard per-run bounds, and advisory warnings.
+  expiry, integrity failure, and hard per-run and aggregate bounds.
+- Test both aggregate caps at equality and one byte over, including published
+  history, candidates, controls, reservations, and concurrent PR admissions.
+  Cover incomplete inventory, uncertain upload, actual-size reconciliation,
+  publication without released bytes, normal expiry, safe cleanup, and
+  cancellation without premature reservation release.
 - Test upload-before-comment ordering, exact readback, definite and
   uncertain failures, producer cancellation before and after upload, and
   cleanup of a proven unpublished artifact.
@@ -471,6 +489,8 @@ new state version rather than treating two schemas as v5.
   limit, the prior checkpoint remains and the Action fails clearly.
 - Each confirmed published review references one verified, 90-day run
   artifact. Failed and cancelled runs add no published artifact.
+- Every upload respects the canonical per-PR and repository byte caps;
+  incomplete inventory or exhausted capacity preserves the prior checkpoint.
 - Review publishers share one queue and cannot overwrite newer state with
   an old checkpoint.
 
@@ -478,8 +498,9 @@ new state version rather than treating two schemas as v5.
 
 This is a draft future contract, not an amendment to the current active
 review-comment specification. Implementation is pending. It cannot become
-active until the canonical manifest and single v5 state contracts land, and
-the storage-budget decision in `SEQ-PR112-046` is reconciled.
+active until the canonical manifest and single v5 state contracts land.
+The storage-budget decision in `SEQ-PR112-046` is reconciled with the canonical
+hard caps; it no longer blocks contract integration.
 No implementation delivery is claimed here.
 
 ## Traceability

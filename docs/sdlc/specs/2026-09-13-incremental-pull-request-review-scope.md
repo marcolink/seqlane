@@ -538,8 +538,8 @@ the review when the elapsed-time ceiling is reached. A dynamically exceeded
 ceiling also fails without publication or checkpoint advancement.
 
 If complete evidence cannot fit or a required batch fails, the review fails
-without publishing new findings or a new checkpoint. The workflow removes only
-no v5 report and leaves the previous authoritative report intact.
+without publishing new findings or a new checkpoint. The workflow writes no
+v5 report and leaves the previous authoritative report intact.
 It must expose a clear failure reason in the Action result. It must not compact
 away coverage metadata or silently fall back to a broader baseline.
 

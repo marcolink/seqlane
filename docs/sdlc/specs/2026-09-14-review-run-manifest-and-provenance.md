@@ -40,7 +40,7 @@ journal, or artifact compaction is required.
 
 - Cross-run item reuse or resume in this revision.
 - Storing complete patches, prompts, credentials, or provider logs.
-- Repository-wide artifact quotas, compaction, or a separate publication journal.
+- Compaction, quotas for unrelated workflows, or a separate publication journal.
 
 ## Terminology
 
@@ -63,8 +63,8 @@ It records reviewer version, provider and model identity, and relevant
 runtime-configuration hashes.
 No model output can change this input or the selected denominator.
 
-The manifest stores execution statuses coverage and finding. The publisher
-joins them with publication and derived admission under the
+The manifest stores the execution statuses `coverage` and `finding`.
+The publisher joins them with publication and derived admission under the
 [run status contract](./2026-09-05-versioned-pull-request-review-comments.md#requirement-run-status-gates).
 Empty collections use []; canonical ordering is mandatory for artifact bytes
 and digest validation. Publication evidence belongs to the trusted report,
@@ -106,6 +106,7 @@ order, locale collation, or worker completion order.
 | Failure records | Run-level before item-level, then item-ID bytes (empty for run), failure-class bytes, numeric attempt, reason bytes. Exact duplicates are rejected. |
 | Retry records | Item-ID bytes, numeric attempt, invocation-ID bytes. The tuple is unique. |
 | Retained findings | Canonical order from [RetainedFinding](./2026-09-05-versioned-pull-request-review-comments.md#requirement-retained-finding); unallocated candidates are excluded. |
+| Verification sources | Finding-ID canonical order, then path bytes; each finding-and-path pair is unique. Verification evidence uses the same order and rejects duplicate source IDs. |
 | Limitations | Limitation-code bytes, related item-ID bytes (empty if absent), explanation bytes. Exact duplicates are coalesced with a numeric occurrence count. |
 
 Failure records must contain their level, optional sealed item ID, failure
@@ -242,6 +243,67 @@ and locally proved locations. Redaction cannot validate missing or false evidenc
 A new finding references one current sealed item. Carried findings keep the
 evidence origin defined by the retained-finding contract.
 
+### requirement-verification-evidence
+
+This specification owns the strict `VerificationSource` and
+`VerificationEvidence` schemas. Before historical verification, the trusted
+collector seals at most four relevant sources for each retained finding,
+at most 160 sources per run. A source path must be the finding's original
+cause path or a locally validated related source, sink, or guard path.
+Renamed paths require a locally validated mapping to that cause. The collector
+reads immutable Git objects at the frozen head; it never executes repository
+code or follows a filesystem symlink. Missing required input fails before
+model work. An absent entry is evidence only after a successful tree lookup.
+
+```text
+VerificationSource = {
+  sourceId: lowercase SHA-256 of canonical fields other than sourceId
+  findingId: retained finding ID, at most 128 bytes
+  path: validated relative path, at most 512 bytes
+  sourceRevision: full Git commit SHA, equal to the frozen head
+  treeObjectId: full Git object ID of that head's root tree
+} & (
+  | { kind: "present"
+      entryDigest: lowercase SHA-256 of canonical Git mode and object ID
+      sourceDigest: lowercase SHA-256 of original Git blob bytes,
+        or canonical entry bytes for a non-blob entry }
+  | { kind: "absent" }
+)
+
+VerificationEvidence = { source: VerificationSource } & (
+  | { kind: "text"
+      startLine: positive integer
+      endLine: integer >= startLine
+      excerpt: EvidenceExcerpt }
+  | { kind: "tree-entry" }
+)
+```
+
+The manifest stores this sealed source inventory separately from discovery
+items. Its paths do not enlarge R, its sources do not count as completed
+discovery items, and it does not authorize new findings. It remains available
+when R is empty. Source collection and model input consume the existing run
+byte, token, invocation, and time budgets; no extra budget is granted.
+
+Before accepting `RetainedFinding.verification`, the trusted finalizer checks
+that every source exactly matches a sealed inventory entry for that finding
+and head. It recomputes the source ID, tree and entry bindings, and source
+digest from the frozen Git objects. Text evidence requires a present text
+blob, an exact nonempty source excerpt within the stated line range, and its
+matching digest before redaction. A tree-entry result uses the verified entry
+or proved absence; a failed lookup is never absence. An absent entry cannot
+support a `present` outcome. A missing excerpt, unrelated path, or model
+assertion alone cannot support an `absent` outcome.
+
+The finalizer accepts an outcome only when the inspected sources cover the
+finding's relevant cause and support that outcome. If that cannot be
+established, the outcome must be `uncertain`; it cannot resolve or reopen the
+finding. Invalid source bindings instead invalidate finding status and block
+publication. The manifest and report store the same validated verification
+value using the owning RetainedFinding schema. Retained older verification
+remains historical and cannot satisfy the current-head gate. The scope
+contract's unselected-path lifecycle and comparison rules still apply.
+
 ### requirement-evidence-redaction
 
 The trusted finalizer applies `review.secret-redaction/v1` before artifact
@@ -329,8 +391,9 @@ allowlisted default-branch workflow definition, run, attempt, and canonical name
 The definition revision must be reachable from the trusted default branch.
 Compressed bytes count the archive entry's compressed manifest payload.
 Uncompressed bytes count its canonical manifest bytes. Both declared counts
-must match measured entry bytes. Outer archive limits remain subject to the
-pending storage-budget alignment. This model does not change those budgets.
+must match measured entry bytes. The complete artifact archive is at most
+32 MiB stored and 64 MiB uncompressed. These outer bounds are distinct from
+the manifest-entry limits and feed the storage reservation below.
 Stream limits apply before archive extraction, decompression, UTF-8 decoding,
 JSON parsing, or hashing. Duplicate entries, traversal paths, symlinks, unexpected
 entries, malformed bytes, and noncanonical JSON fail validation.
@@ -362,7 +425,8 @@ One artifact is allowed per admitted run attempt. The final manifest is at
 most 512 KiB compressed, 2 MiB uncompressed, 2,048 items, 200 selected paths,
 64 failure records, 32 retry records, and 20 limitations. Paths are at most
 512 bytes; retained findings are at most 40; other persisted strings are at
-most 2,000 bytes. Evidence excerpts
+most 2,000 bytes. The separate verification inventory has at most 160 sources
+and four sources per retained finding. Evidence excerpts
 obey the tighter FindingEvidence bound. Before model work, the planner
 checks item, path, lane, and maximum-result bounds against these limits.
 Immediately before upload, the adapter measures actual canonical bytes and
@@ -372,10 +436,66 @@ ManifestReference until the artifact identity and digest are verified.
 
 Set an explicit GitHub Actions artifact retention period of 90 days.
 If repository policy cannot allow that period, upload and publication fail.
-Normal GitHub expiration owns deletion. The first release does
-not claim per-PR or repository-wide storage reservations or artifact
-compaction. Platform quota or upload failure blocks publication and is
-visible in the Action result; it never silently reduces the denominator.
+Normal GitHub expiration owns deletion. Enforce the hard aggregate storage
+admission below; no artifact compaction is required. Platform quota or upload
+failure blocks publication and is visible in the Action result; it never
+silently reduces the denominator.
+
+### requirement-artifact-storage-admission
+
+This specification owns the first-release aggregate artifact byte limits:
+
+| Scope | Hard stored-byte cap |
+| --- | ---: |
+| One PR | 256 MiB (268,435,456 bytes) |
+| Repository | 1 GiB (1,073,741,824 bytes) |
+
+Count every live Seqlane review artifact and upload reservation, including
+published evidence retained for 90 days, outstanding or unresolved candidates,
+and control artifacts. Attribute PR-specific artifacts to that PR; repository
+control artifacts count toward the repository cap. Candidate and control
+sub-limits are included in these totals, never additional allowances. Other
+workflows' artifacts remain outside this managed allowance; GitHub quota
+failure still blocks upload and publication.
+
+Before upload, the trusted adapter uses complete validated inventory and a
+repository-wide Actions admission mutex to reserve the upload's maximum
+stored size. A review artifact reserves 32 MiB; a control artifact reserves
+128 KiB and is limited to one typed value, 128 KiB stored and 64 KiB decoded.
+Admission succeeds only when both post-reservation totals are at or below
+their caps. Equality is allowed;
+one byte over either cap is rejected. Model workers cannot reserve storage
+or alter these limits. The
+[native publication design](./2026-09-14-github-native-review-publication.md#requirement-artifact-admission)
+defines the GitHub-owned index and bounded reconstruction, without an external
+coordinator or a second checkpoint store.
+Before sending any upload, measure the complete archive, including container
+overhead, and reject it if it exceeds the reserved size or its hard bound.
+
+After verified upload, replace the reservation with the actual GitHub artifact
+stored-byte count under the same mutex. Do not double-count an artifact and its
+reservation. Publication changes its classification from outstanding to
+published; it does not release its byte charge. Retain that charge even after
+a newer report replaces the artifact reference. Reject an upload whose actual
+size exceeds its reservation or the archive bound; it cannot become a
+ManifestReference or reach publication, and its storage stays charged until
+safe cleanup is confirmed.
+
+Missing, ambiguous, or incomplete inventory blocks new uploads until bounded
+reconstruction finishes. Uncertain upload, cancellation, or failed readback
+keeps the maximum reservation charged until the uploader cannot still write
+and the artifact's existence and size are established. Release bytes only
+after confirmed deletion, GitHub expiry, or proof that no artifact was created
+and no upload can still complete. Never delete published evidence early or
+shorten its 90-day retention to admit another review. Cleanup of an unpublished
+candidate also requires the canonical proof that no comment write can still
+complete.
+
+On refusal, fail the Action before upload or publication and show current
+charged bytes, requested reservation, cap, and whether inventory is complete.
+Preserve the previous authoritative report and checkpoint. Do not drop
+findings, evidence, or selected work to fit. Safe cleanup or normal expiry can
+restore capacity; age alone cannot clear an unresolved reservation.
 
 ### requirement-provenance-and-rule-trust
 
@@ -409,8 +529,9 @@ The trusted sequence is:
    failures, and finding evidence in the run-local manifest.
 3. Finalize missing outcomes, reconcile findings, derive
    execution statuses, and seal canonical bytes.
-4. Verify the final artifact size, upload it once, and verify its identity and
-   digest. If any check fails, publish no v5 report.
+4. Verify final artifact size and reserve storage under the aggregate caps.
+   Upload once, verify identity and digest, and reconcile actual stored bytes.
+   If any check fails, publish no v5 report.
 5. Pass the verified ManifestReference to the queued final publisher. Only its
    confirmed single comment write can advance the PR checkpoint.
 
@@ -425,6 +546,7 @@ the expected lane results, or raise a bound.
 | Selected item or lane lacks a validated outcome | Mark the item failed; coverage incomplete; block publication. |
 | Failed or waived item | Preserve reason; do not render complete or admissible. |
 | Artifact exceeds a bound or upload fails | Publish no v5 report; preserve prior checkpoint. |
+| Aggregate cap exceeded or inventory incomplete | Refuse storage admission before upload; preserve report and checkpoint. |
 | Uploaded artifact identity or digest is uncertain | Do not use its reference or claim publication. |
 | Rule source comes from PR text, head content, or agent | Reject it and fail closed. |
 | Provider emits an unbounded error | Persist only a sanitized bounded failure class and reason. |
@@ -451,11 +573,22 @@ ledger, or progress marker is treated as a manifest.
   become failed/unknown and cannot advance the checkpoint.
 - Test finding evidence digest binding and located, unlocated, and ambiguous
   status against frozen evidence.
+- Test sealed verification sources and results at both persistence boundaries.
+  Reject unknown finding IDs, unsealed or unrelated paths, stale heads,
+  wrong tree or source digests, invented lines, failed lookup as absence,
+  and outcome assertions without supporting current-head inspection.
+  Cover deletion, rename mapping, tree-entry, withheld text, uncertainty,
+  and empty discovery scope without synthetic discovery items.
 - Test the canonical RetainedFinding and ManifestReference schemas at both
   persistence boundaries. Reject unknown fields, wrong repository or workflow,
   wrong run or attempt, mismatched scope, sizes, digests, and failed readback.
 - Test bounded extraction, duplicate or unexpected entries, traversal paths,
   malformed UTF-8, noncanonical JSON, and expansion beyond declared sizes.
+- Test aggregate storage at equality and one byte over each cap. Include
+  retained published evidence, candidates, controls, reservations, concurrent
+  admissions, incomplete inventory, uncertain upload, and actual-size
+  reconciliation. Publication retains the byte charge; only confirmed cleanup
+  or expiry releases it. Never shorten retention or silently drop evidence.
 - Test cancellation before admission completes, during model work, and before
   verified upload. Reconcile incomplete Actions runs without inventing outcomes.
 - Test pinned redaction fixtures for PEM, GitHub, AWS, provider, bearer, and

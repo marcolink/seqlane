@@ -5,7 +5,7 @@ status: planned
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-15
+updated: 2026-10-06
 upstream:
   - spec.github-native-review-publication
 supersedes: []
@@ -25,6 +25,9 @@ Implement `requirement-artifact-admission` and `requirement-published-artifact` 
 Do not implement against this draft alone. PR #112 must first land a canonical
 manifest specification with stable ID and complete item, lane, path, finding,
 and string limits.
+Reuse the canonical
+[storage admission contract](../specs/2026-09-14-review-run-manifest-and-provenance.md#requirement-artifact-storage-admission)
+for aggregate caps and reservation accounting.
 
 ## Scope
 
@@ -54,7 +57,9 @@ and string limits.
 1. Add a typed Action-owned artifact adapter for producer sealing and upload,
    bounded publisher readback, direct-ID retrieval, and guarded deletion.
 2. Add serialized reservation, upload, actual-size accounting, publication,
-   and cleanup transitions to the store index.
+   and cleanup transitions to the store index. Keep published artifacts charged
+   until confirmed expiry; fail closed on incomplete inventory and uncertain
+   uploads. Enforce the canonical hard caps before each upload.
 3. Register the producer and publisher link before writer-queue admission.
 4. Wire verified artifact references into comment state. Treat expiry as lost
    audit evidence, not an invalid checkpoint.
@@ -76,6 +81,10 @@ and string limits.
   Cover every boundary and failure state named by the specification.
 - Verify 90-day retention and direct-ID retrieval in a hosted Action run.
   Run docs validation and `git diff --check`.
+- Test aggregate caps at equality and one byte over, including retained
+  artifacts, candidates, controls, reservations, concurrent admissions,
+  failed readback, cancellation, safe cleanup, and normal expiry. Prove that
+  publication does not release retained bytes or shorten retention.
 
 ## Completion criteria
 
@@ -83,6 +92,8 @@ and string limits.
 - Unpublished runs add no artifact reference; known orphan candidates are
   removed only after the comment result is reconciled.
 - Artifact expiry cannot erase a valid comment checkpoint.
+- Exhausted capacity or incomplete inventory refuses upload and preserves
+  the checkpoint without dropping evidence or deleting published artifacts.
 
 ## Outcome
 

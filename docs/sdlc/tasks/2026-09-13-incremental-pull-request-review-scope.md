@@ -75,13 +75,17 @@ Preserve the state, lifecycle, trust, and publication rules in
    new-finding path and changed-anchor gate, first-observed revision, typed
    evidence and location status, evidence-backed identity, and typed
    comparison outcomes. Reuse the canonical RetainedFinding and evidence schemas.
-5. Preserve prior findings and compute a cumulative verdict. Skip discovery
+5. Seal the canonical current-head verification sources separately from the
+   discovery denominator. Validate finding, head, path, digest, and location
+   bindings before accepting an outcome; record it in the manifest.
+   Preserve prior findings and compute a cumulative verdict. Skip discovery
    lanes for empty scope; still verify retained findings as required.
 6. Add the Action-owned run-local manifest, sealed item and expected-lane
    denominator, one-to-one terminal outcomes, provenance and trusted rule
    validation. Apply the pinned redaction policy before both persistence sinks.
-   Bound final canonical bytes, upload one GitHub Actions artifact, validate the
-   canonical ManifestReference, and require it in v5 state.
+   Bound final canonical bytes, reserve storage under the canonical aggregate
+   caps, upload one GitHub Actions artifact, and reconcile actual stored bytes.
+   Validate the canonical ManifestReference and require it in v5 state.
 7. Use separate computation, publisher, recovery inspection, and recovery
    dispatch jobs under the canonical publication permissions contract.
    Isolate model workers from GitHub and artifact runtime credentials.
@@ -135,9 +139,17 @@ Preserve the state, lifecycle, trust, and publication rules in
 - Test byte-stable manifests, pre-upload size failure, one verified artifact,
   explicit 90-day retention, policy rejection, artifact expiry, and
   missing-reference refusal without a baseline reset.
+- Test canonical aggregate storage admission at both caps and one byte over.
+  Include retained published artifacts, outstanding candidates, controls,
+  reservations, concurrent admissions, incomplete inventory, uncertain upload,
+  publication without released bytes, safe cleanup, and confirmed expiry.
 - Test canonical model reuse, strict references, owner-link consistency, and
   early cancellation without a promised manifest. Test representative redaction
   fixtures in both sinks and hash-and-location-only evidence for unsafe excerpts.
+- Test verification against sealed current-head sources. Reject another
+  finding's evidence, stale revisions, unsealed paths, false digests or lines,
+  and unsupported absence. Cover deletion, rename mapping, tree entries,
+  redacted excerpts, uncertainty, and verification with no discovery scope.
 - Run pnpm docs:index, pnpm docs:validate, formatting, and git diff --check.
 - Run the hosted workflow on an open PR for a baseline, a changed-file
   follow-up, and a same-head follow-up. Inspect authoritative state and

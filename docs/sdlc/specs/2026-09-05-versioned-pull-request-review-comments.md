@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-05
-updated: 2026-10-05
+updated: 2026-10-06
 upstream: []
 supersedes: []
 ---
@@ -388,13 +388,15 @@ RetainedFinding = {
   verification: null | {
     headRevision: full Git commit SHA
     outcome: "present" | "absent" | "uncertain"
-    evidence: EvidenceExcerpt
+    evidence: array of 1 to 4 VerificationEvidence values
   }
 }
 ```
 
-`FindingEvidence`, `LocationStatus`, and `EvidenceExcerpt` come from the
+`FindingEvidence` and `LocationStatus` come from the
 [canonical evidence model](./2026-09-14-review-run-manifest-and-provenance.md#requirement-finding-evidence).
+`VerificationEvidence` comes from the
+[current-head verification model](./2026-09-14-review-run-manifest-and-provenance.md#requirement-verification-evidence).
 The scope specification owns the identity algorithm and cause-admission gate.
 The finalizer validates the identity inputs, digests, generation, file, evidence
 origin, and location together. `file` must equal the primary evidence path.
@@ -404,7 +406,11 @@ even when its path is outside the current selected denominator.
 It does not invent a current item or depend on downloading an expired artifact.
 
 Only verification for the current head can establish `resolved` or `reopened`.
-The verified head must equal `evidenceHeadRevision`.
+The verified head must equal the frozen run head and `evidenceHeadRevision`.
+Every evidence source must name this finding ID and that same head, and match
+the current manifest's sealed verification-source inventory. The finalizer
+sets `evidenceHeadRevision` only after validating current-head verification;
+it preserves the original discovery evidence and `evidenceRunId`.
 `absent` permits resolution. `present` permits reopening a resolved finding.
 Null, stale, or uncertain verification permits neither transition.
 `not_reviewed` carries the lifecycle forward without claiming fresh discovery.
@@ -482,7 +488,13 @@ head. A comment claiming a fix does not change the finding or start a review.
 
 For planned v5, each inspected finding receives the canonical
 `RetainedFinding.verification` value under requirement-retained-finding.
-The finalizer binds it to the inspected finding ID.
+The finalizer validates its finding ID, head, relevant path, source digest,
+and text location or tree entry against the sealed
+[verification sources](./2026-09-14-review-run-manifest-and-provenance.md#requirement-verification-evidence).
+It records the validated result in the manifest before changing lifecycle.
+An asserted outcome or free-standing excerpt is insufficient. An unknown
+source, mismatched digest, irrelevant path, or unsupported outcome makes
+finding validation invalid and blocks publication.
 Only current-head `absent` evidence can establish resolution.
 Missing, stale, or uncertain evidence cannot resolve an active finding.
 An unselected path carries its prior lifecycle under the scope contract.
@@ -649,7 +661,10 @@ does not migrate old findings, IDs, metrics, or checkpoints.
 - Add lifecycle transition and stable-identifier tests.
 - Test the single RetainedFinding schema in state and manifest, carried evidence
   outside the current denominator, unique ordering, and one visible entry per ID.
-- Add current-head finding-verification tests.
+- Add current-head finding-verification tests. Reject another finding's source,
+  stale heads, unsealed paths, false digests or locations, and unsupported
+  resolution claims. Cover validated text, deletion, tree-entry, redacted,
+  uncertain, and no-change verification without widening discovery scope.
 - Add trusted-author and stale-head publication tests.
 - Add workflow event and concurrency regression tests.
 - Test current-v4 ledger parsing, malformed ledgers, duplicate runs, and derived cost.
