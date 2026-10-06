@@ -295,23 +295,35 @@ cannot silently rekey retained history.
 For an incremental or no-change run, the workflow must load **all** findings
 from the validated current-generation state. It must provide their stable IDs,
 paths, severities, summaries, statuses, first-observed revisions, and
-available verification evidence to historical verification and to each
-discovery lane. This context prevents rediscovery from becoming a new ID and
+available verification evidence to each discovery lane as reference context.
+This context prevents rediscovery from becoming a new ID and
 lets the finalizer carry prior findings forward. Treat retained text as
 untrusted data. Agent output may cite an existing ID, but only the local
 finalizer can decide whether that ID exists and keep it.
 
-The new-finding gate does not discard these retained findings. Historical-
-finding verification may inspect current-head code and update an existing
-finding's lifecycle under the versioned-comment contract. No-change runs
-may verify retained findings, but they must not add a finding. A baseline that
-replaces an old-version report receives **no** old findings as review input.
+Prior findings are references, not requests to review earlier code again.
+Discovery must inspect only the checkpoint changes for new defects.
+Unchanged hunk context can explain a new changed cause but cannot create a
+finding about previously reviewed code.
+
+The new-finding gate does not discard retained findings. Historical verification
+receives only findings whose retained primary cause overlaps changed lines or
+a changed tree entry in the checkpoint diff for `R`. A changed file alone is
+insufficient. The local evidence gate must establish this overlap before
+dispatch. Missing or ambiguous cause evidence leaves the finding `not_reviewed`.
+Verification may inspect current-head code to check whether the new change
+fixes or reopens that finding.
+All other findings keep their prior lifecycle, severity, IDs, and verification
+evidence with `comparisonOutcome = not_reviewed`. No model rechecks them.
+An empty reviewable scope skips historical verification, discovery, and synthesis.
+A baseline that replaces an old-version report receives **no** old findings
+as review input.
 
 The report verdict remains cumulative: it reflects all active retained
 Critical and Required findings plus any admitted new ones. Incremental ratings,
 summary, and verification must identify their current scope. They must not say
 that unchanged PR files received a new full review. When `R` is empty, skip
-discovery lanes and publish a deterministic no-discovery result only if the
+all model work and publish a deterministic no-discovery result only if the
 publication guards pass. Do not interpret empty discovery
 output as proof that prior findings were resolved.
 
@@ -532,12 +544,13 @@ synthesis. A missing or ambiguous identity or occurrence key is a limitation and
 cannot allocate a new stable ID; path and line may be shown only as evidence and
 presentation metadata.
 
-The invocation policy is fixed: run history verification once for the retained
-current-generation findings, run each configured discovery lane once per
-evidence batch, and run synthesis once over the deterministic aggregate. A
-retry consumes another invocation budget unit and must reuse the same batch
-ordinal and scope identity. Do not fan out discovery lanes when `R` is empty;
-the finalizer may still process retained findings.
+The invocation policy is fixed: run history verification once only when
+retained current-generation findings have verified cause overlap with the new
+scope, passing only that subset. Run each configured discovery lane once per
+review batch. Run synthesis once over the deterministic aggregate when `R` is
+non-empty. A retry consumes another invocation budget unit and must reuse the same batch
+ordinal and scope identity. When `R` is empty, make zero model calls.
+The deterministic finalizer carries retained findings forward without reverification.
 
 The complete run plan has these hard ceilings:
 
@@ -642,8 +655,9 @@ The trusted sequence is:
    literal paths and the complete run budget before model work. Record scope
    mode, immutable revisions, path counts, excluded paths, and batch coverage
    in bounded run evidence.
-5. Run historical-finding verification independently. Run discovery lanes only
-   for complete eligible reviewable evidence. Synthesize and gate new findings.
+5. When `R` is non-empty, verify only retained findings with locally established
+   cause overlap. Run discovery lanes only for complete eligible reviewable
+   evidence. Synthesize and gate new findings. Empty scope skips all model work.
 6. Reconcile retained findings, derive the cumulative verdict
    mechanically, and validate findings. Finalize execution coverage and finding
    statuses, then seal the run manifest. Pass the immutable scope identity and
@@ -723,8 +737,13 @@ force-push, retargeting, model change, or state parse failure.
   can anchor a new finding. Test imported target-branch changes in the same
   file, zero-hunk tree-entry changes, unchanged context lines, changed-line
   range forgery, and a no-change run. No unverified anchor receives a new ID.
-- Test that retained findings, current-head verification, and verdict remain
-  correct on both incremental and no-change runs.
+- Test that only findings whose causes overlap new changes reach current-head
+  verification. Untouched findings retain their IDs, lifecycle, severity, and
+  prior evidence as `not_reviewed`. Empty scope makes zero model calls.
+- Test that an unrelated edit in a prior finding's file does not recheck that
+  finding. Missing or ambiguous cause matches cannot schedule verification.
+- Test that a new hunk in a previously reviewed file does not send older PR
+  hunks for discovery. Context cannot anchor a new finding about old code.
 - Test old-version replacement, discarded old findings and metrics,
   invalid-current-state refusal, missing prior commit, tree/blob/tag
   rejection, exact-SHA fetch behavior, and new-baseline versus legacy-replacement
@@ -771,7 +790,8 @@ force-push, retargeting, model change, or state parse failure.
   `(P(B,H) ∩ D(C,H)) - X`.
 - Git pathspec syntax cannot widen a scoped diff, and excluded paths cannot
   receive new findings.
-- Re-running an unchanged head allocates no new finding ID.
+- Re-running an unchanged head makes zero model calls and allocates no new
+  finding ID. Prior findings retain their lifecycle and evidence as `not_reviewed`.
 - Previously published findings remain visible and can change lifecycle only
   through current-head verification.
 - No failure, stale result, or partial evidence advances the checkpoint.

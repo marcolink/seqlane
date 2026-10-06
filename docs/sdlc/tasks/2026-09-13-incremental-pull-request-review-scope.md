@@ -108,7 +108,9 @@ No existing finding or checkpoint changes during this slice.
    complete scoped patch or fail. Add typed batch plans and results,
    deterministic aggregation, bounded subprocesses, and cumulative budgets.
 4. Pass scope, the mode-selected review patch, and retained current-generation
-   findings to history verification, configured lanes, and synthesis. Keep
+   findings as reference context to configured lanes and synthesis. Send only
+   retained findings whose primary causes have verified overlap with new
+   changes to history verification. A changed file alone is insufficient. Keep
    current-PR validation batches local to the cause-admission gate. Add the deterministic
    new-finding path and changed-anchor gate, first-observed revision, typed
    evidence and location status, evidence-backed identity, and typed
@@ -116,8 +118,9 @@ No existing finding or checkpoint changes during this slice.
 5. Seal the canonical current-head verification sources separately from the
    discovery denominator. Validate finding, head, path, digest, and location
    bindings before accepting an outcome; record it in the manifest.
-   Preserve prior findings and compute a cumulative verdict. Skip discovery
-   lanes for empty scope; still verify retained findings as required.
+   Preserve untouched findings as `not_reviewed` and compute a cumulative
+   verdict. Empty scope skips all model work, including history verification
+   and synthesis. Do not claim fresh verification for carried findings.
 6. Add the Action-owned run-local manifest, sealed item and expected-lane
    denominator, one-to-one terminal outcomes, provenance and trusted rule
    validation. Apply the pinned redaction policy before both persistence sinks.
@@ -212,6 +215,13 @@ Incremental review input is the checkpoint-to-head diff. Current-PR validation
 is separate. A real-Git test covers 200 incremental paths with two patch
 commands, complete discovery and validation inventories, and no earlier PR
 patch in discovery input. File-type transitions retain both patch blocks.
+
+A follow-up regression proves that older reviewed hunks in an edited file and
+previously reviewed unchanged files stay out of incremental discovery input.
+The focused collector suite passes 18 tests. The v5 contract carries untouched
+findings as `not_reviewed`, schedules verification only for locally established
+cause overlap, and skips all models for empty scope. Reader and orchestration
+enforcement of that selection remain part of the pending v5 delivery work.
 
 Local verification passes the full Action library suite: 15 files and 140 tests.
 Source typecheck, test mapping, formatting, and SDLC validation pass.

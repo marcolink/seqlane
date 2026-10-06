@@ -123,9 +123,47 @@ describe(
       );
       expect(result.reviewablePaths).toEqual([]);
       expect(result.batches).toEqual([]);
+      expect(result.validationBatches).toEqual([]);
+      expect(result.treeChanges).toEqual([]);
       expect(
         fixture.commands.some(({ argv }) => argv.includes("--patch")),
       ).toBe(false);
+    });
+
+    it("omits previously reviewed hunks and files from later review input", async () => {
+      const { fixture } = await fixtureWithBase();
+      const original = Array.from(
+        { length: 200 },
+        (_, index) => `line ${index}`,
+      );
+      await fixture.write("edited.ts", original.join("\n") + "\n");
+      const baseRevision = await fixture.commit();
+      const reviewed = [...original];
+      reviewed[5] = "already reviewed hunk";
+      await fixture.write("edited.ts", reviewed.join("\n") + "\n");
+      await fixture.write("previous-only.ts", "already reviewed file\n");
+      const checkpointRevision = await fixture.commit();
+      const current = [...reviewed];
+      current[150] = "new change to review";
+      await fixture.write("edited.ts", current.join("\n") + "\n");
+      const headRevision = await fixture.commit();
+      const result = await collectReviewScopeEvidence(
+        {
+          ...admission(baseRevision, headRevision),
+          mode: "incremental",
+          checkpointRevision,
+          reportId: "42",
+        },
+        { git: fixture.git, admittedAt: performance.now() },
+      );
+      const reviewPatch = result.batches.map(({ patch }) => patch).join("");
+      expect(result.reviewablePaths).toEqual(["edited.ts"]);
+      expect(reviewPatch).toContain("+new change to review");
+      expect(reviewPatch).not.toContain("already reviewed hunk");
+      expect(reviewPatch).not.toContain("previous-only.ts");
+      expect(result.validationBatches[0]?.patch).toContain(
+        "+already reviewed hunk",
+      );
     });
 
     it("skips scoped diffs for an excluded-only baseline", async () => {

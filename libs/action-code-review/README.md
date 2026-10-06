@@ -45,6 +45,11 @@ Baseline review batches contain the current PR patch. Incremental review
 batches contain only the checkpoint-to-head diff. Separate `validationBatches`
 hold current-PR evidence for local cause admission; discovery input uses only
 `batches`. The workflow must also load prior findings when the v5 reader is wired.
+Prior findings are reference context. Only findings whose recorded causes
+overlap new changes get rechecked. A changed file alone is insufficient.
+Untouched findings carry forward as
+`not_reviewed`. Empty scope skips all model work, including history verification
+and synthesis; production orchestration must enforce these rules when wired.
 Raw tree-entry metadata preserves binary, mode, symlink, and submodule changes.
 Empty reviewable scope produces no scoped diff.
 

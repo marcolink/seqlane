@@ -144,9 +144,12 @@ completed item refers to the validated lane results for its assigned batch.
 No duplicate, unknown, missing, malformed, or failed lane result lets an item
 in that batch count as completed. A retry consumes its normal model budget;
 only the final successful attempt can satisfy the lane. Historical-finding
-verification is recorded separately and must complete when retained findings
-require it. For no-change scope, there are no discovery items or expected
-discovery lanes; retained-finding verification still gates finding validity.
+verification is recorded separately and must complete for retained findings
+selected under the scope contract. Untouched findings retain their prior
+verification provenance as `not_reviewed`, without a new verification invocation.
+For empty scope, there are no model invocations, discovery items, or expected
+discovery lanes. The deterministic finalizer preserves prior finding validity
+and lifecycle without claiming fresh current-head verification.
 
 The strict batch-lane result contains batch ordinal, configured lane ID,
 terminal attempt ID, retry count, result reference and SHA-256 digest, and
