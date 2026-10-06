@@ -22,7 +22,7 @@ export interface WorkflowIdentity {
 /** Maximum number of repeat-body executions admitted in one run. */
 export const MAX_REPEAT_BODY_EXECUTIONS = 1_000;
 
-/** Accepts deprecated session policies and produces canonical fork policies. */
+/** Session policies used in workflow Plans. */
 export const planSessionPolicySchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("isolated"),
@@ -34,32 +34,16 @@ export const planSessionPolicySchema = z.discriminatedUnion("type", [
     from: z.string().min(1),
     model: modelSelectionSchema.optional(),
   }),
-  z
-    .strictObject({
-      type: z.literal("branch"),
-      from: z.string().min(1),
-      model: modelSelectionSchema.optional(),
-    })
-    .transform((policy) => ({ ...policy, type: "fork" as const })),
 ]);
 
-/** Input includes the deprecated spelling for existing in-memory Plans. */
-export type PlanSessionPolicyInput = z.input<typeof planSessionPolicySchema>;
-
-/** Canonical policy after legacy input normalization. */
-export type CanonicalPlanSessionPolicy = z.output<
-  typeof planSessionPolicySchema
->;
-
-/** Compatible authoring input; use CanonicalPlanSessionPolicy for parsed policies. */
-export type PlanSessionPolicy = PlanSessionPolicyInput;
+export type PlanSessionPolicy = z.infer<typeof planSessionPolicySchema>;
 
 export interface TaskNode {
   readonly type: "task";
   readonly taskId: TaskId;
   readonly nodeId: PlanNodeId;
   readonly workspace: WorkspacePolicy;
-  readonly session?: PlanSessionPolicyInput;
+  readonly session?: PlanSessionPolicy;
   readonly input: ValueBinding;
   readonly dependsOn: readonly PlanNodeId[];
 }
@@ -255,13 +239,9 @@ export const planSchema = z.strictObject({
   output: valueBindingSchema,
 });
 
-export type PlanSchemaOutput = z.output<typeof planSchema>;
-export type CanonicalPlan = PlanSchemaOutput;
-export type CanonicalPlanNode = z.output<typeof planNodeSchema>;
-
 export interface BuiltWorkflow<Input = unknown, Output = unknown> {
   readonly workflow: WorkflowDefinition<Input, Output>;
-  readonly plan: CanonicalPlan;
+  readonly plan: Plan;
   readonly taskDefinitions: TaskDefinitionRegistry;
   readonly validatorDefinitions: ValidatorDefinitionRegistry;
   /** Runtime-only registry for nested workflow definitions. */

@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-  branch,
+  fork,
   buildWorkflow,
   createFlow,
   defineAgentTask,
@@ -140,7 +140,7 @@ describe("exclusive Flow choice", () => {
       goal: () => "Create source checkpoint",
     });
     const selected = defineAgentTask({
-      id: "selected-branch",
+      id: "selected-fork",
       input: z.object({ change: z.string() }),
       output: reviewed,
       goal: () => "Review change",
@@ -160,7 +160,7 @@ describe("exclusive Flow choice", () => {
         selected,
         ({ input: value }) => ({ change: value.change }),
         {
-          session: ({ tasks }) => branch(tasks.source.session),
+          session: ({ tasks }) => fork(tasks.source.session),
         },
       )
       .otherwise(approveTask, ({ input: value }) => ({ change: value.change }))

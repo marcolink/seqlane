@@ -263,7 +263,7 @@ describe("@seqlane/protocol", () => {
             dependsOn: ["prepare:1"],
             siblingOrder: 1,
             session: {
-              type: "branch",
+              type: "fork",
               from: "prepare:1",
               model: {
                 model: { provider: "anthropic", model: "claude-sonnet-4-6" },

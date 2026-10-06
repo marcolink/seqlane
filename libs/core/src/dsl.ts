@@ -143,14 +143,6 @@ export function fork(
   return { type: "fork", from, ...(model === undefined ? {} : { model }) };
 }
 
-/** @deprecated Use fork() to create a separate session from a checkpoint. */
-export function branch(
-  from: SessionCheckpointRef,
-  model?: ModelSelection,
-): Extract<SessionPolicy, { readonly type: "branch" }> {
-  return { ...fork(from, model), type: "branch" };
-}
-
 type RuntimeFlowAuthoringContext<Input> = FlowAuthoringContext<
   Input,
   Record<string, FlowHandle>

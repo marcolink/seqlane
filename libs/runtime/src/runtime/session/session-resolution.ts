@@ -1,7 +1,7 @@
 import type {
   InvocationId,
   ModelSelection,
-  CanonicalPlanSessionPolicy,
+  PlanSessionPolicy,
   TaskDefinition,
   TaskDefinitionRegistry,
 } from "@seqlane/core";
@@ -28,7 +28,7 @@ export interface ResolvedExecutorSession {
 export interface SessionConsumer {
   readonly invocationId: InvocationId;
   readonly task: TaskDefinition;
-  readonly type: Exclude<CanonicalPlanSessionPolicy["type"], "isolated">;
+  readonly type: Exclude<PlanSessionPolicy["type"], "isolated">;
   readonly effectiveSelection?: ModelSelection;
   /** Choice arms materialize only after the condition selects them. */
   readonly deferred?: boolean;

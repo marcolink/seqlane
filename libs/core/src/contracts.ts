@@ -41,12 +41,6 @@ export type SessionPolicy =
       readonly type: "fork";
       readonly from: SessionCheckpointRef;
       readonly model?: ModelSelection;
-    }
-  /** @deprecated Use the fork session policy. */
-  | {
-      readonly type: "branch";
-      readonly from: SessionCheckpointRef;
-      readonly model?: ModelSelection;
     };
 
 export type JsonPrimitive = string | number | boolean | null;

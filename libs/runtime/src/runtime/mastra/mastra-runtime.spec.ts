@@ -19,7 +19,7 @@ import type {
 } from "@seqlane/core";
 import {
   buildWorkflow,
-  branch,
+  fork,
   createFlow,
   defineAgentTask,
   defineTask,
@@ -2610,7 +2610,7 @@ describe("private Mastra runtime spine", () => {
         goal: () => "Create a checkpoint",
       });
       const branchTask = defineAgentTask({
-        id: "choice-session-branch",
+        id: "choice-session-fork",
         input: z.object({}),
         output: resultSchema,
         goal: () => "Use the source session",
@@ -2635,7 +2635,7 @@ describe("private Mastra runtime spine", () => {
         })
         .when(({ input }) => input.select)
         .task("decision", branchTask, () => ({}), {
-          session: ({ tasks }) => branch(tasks.source.session),
+          session: ({ tasks }) => fork(tasks.source.session),
           workspace: "shared",
         })
         .otherwise(fallback, () => ({}), { workspace: "shared" })
@@ -2652,7 +2652,7 @@ describe("private Mastra runtime spine", () => {
           await sourceReleased;
           return { value: "source" };
         }
-        return { value: "branch" };
+        return { value: "fork" };
       };
       const active = await startMastraPlan({
         plan: built.plan,
@@ -2668,7 +2668,7 @@ describe("private Mastra runtime spine", () => {
             executor: { execute: executeAgent },
             checkpoint: async () => "source-checkpoint",
             fork: async () => ({
-              key: Symbol("choice-branch"),
+              key: Symbol("choice-fork"),
               executor: { execute: executeAgent },
             }),
           }),
@@ -2687,7 +2687,7 @@ describe("private Mastra runtime spine", () => {
         if (outcome.status === "failed") throw outcome.error;
         expect(outcome).toMatchObject({
           status: "succeeded",
-          result: { value: "branch" },
+          result: { value: "fork" },
         });
       } else {
         await fallbackStartedPromise;

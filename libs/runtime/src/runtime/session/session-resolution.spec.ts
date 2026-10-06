@@ -77,7 +77,7 @@ describe("session model selection resolution", () => {
     expect(resolvedSessions.has("else")).toBe(false);
   });
 
-  it("defers a checkpoint error until its choice branch is selected", async () => {
+  it("defers a checkpoint error until its choice arm is selected", async () => {
     const failure = new Error("checkpoint unavailable");
     const sourceSession: ResolvedExecutorSession = {
       key: Symbol("source"),
@@ -85,10 +85,10 @@ describe("session model selection resolution", () => {
       checkpoint: async () => {
         throw failure;
       },
-      fork: async () => ({ key: Symbol("branch"), executor }),
+      fork: async () => ({ key: Symbol("fork"), executor }),
     };
     const consumer = {
-      invocationId: "branch",
+      invocationId: "fork",
       task: taskDefinition,
       type: "fork" as const,
       deferred: true,

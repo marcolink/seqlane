@@ -4,7 +4,7 @@
 import { EventEmitter, once } from "node:events";
 import type { SeqlaneEvent } from "@seqlane/core";
 import {
-  branch,
+  fork,
   buildWorkflow,
   createFlow,
   defineTask,
@@ -93,7 +93,7 @@ describe("choice cancellation during session admission", () => {
 
   it.each([
     { policyName: "reuse", sessionPolicy: reuse },
-    { policyName: "fork", sessionPolicy: branch },
+    { policyName: "fork", sessionPolicy: fork },
   ])(
     "cancels a task waiting to $policyName its source session",
     async ({ sessionPolicy }) => {

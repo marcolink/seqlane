@@ -3,11 +3,10 @@
 // @test-scope ./builder.ts
 // @test-scope ./plan-types.ts
 // @test-scope ./index.ts
-
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
+import * as api from "./index.js";
 import {
-  branch,
   buildWorkflow,
   createFlow,
   createSessionCheckpointRef,
@@ -17,10 +16,7 @@ import {
   planSchema,
   planSessionPolicySchema,
   type ModelSelection,
-  type CanonicalPlan,
   type PlanSessionPolicy,
-  type CanonicalPlanSessionPolicy,
-  type PlanSessionPolicyInput,
 } from "./index.js";
 
 const model: ModelSelection = {
@@ -28,100 +24,57 @@ const model: ModelSelection = {
   reasoning: "high",
 };
 
-describe("session fork compatibility", () => {
-  it("separates compatible policy inputs from canonical Plan outputs", () => {
-    expectTypeOf<CanonicalPlanSessionPolicy["type"]>().toEqualTypeOf<
+describe("session forking", () => {
+  it("exposes only the fork session name", () => {
+    expect(api).not.toHaveProperty("branch");
+    expectTypeOf<PlanSessionPolicy["type"]>().toEqualTypeOf<
       "isolated" | "reuse" | "fork"
     >();
-    expectTypeOf<PlanSessionPolicyInput["type"]>().toEqualTypeOf<
-      "isolated" | "reuse" | "fork" | "branch"
-    >();
-    expectTypeOf<PlanSessionPolicy>().toEqualTypeOf<PlanSessionPolicyInput>();
-    type CanonicalTask = Extract<
-      CanonicalPlan["nodes"][number],
-      { type: "task" }
-    >;
-    expectTypeOf<NonNullable<CanonicalTask["session"]>["type"]>().toEqualTypeOf<
-      "isolated" | "reuse" | "fork"
-    >();
+    expect(
+      planSessionPolicySchema.safeParse({ type: "branch", from: "source" })
+        .success,
+    ).toBe(false);
   });
-
   it.each([undefined, model])(
-    "preserves deprecated helper arguments and return shape (%j)",
+    "creates a fork policy with optional model selection (%j)",
     (selection) => {
       const checkpoint = createSessionCheckpointRef("source");
-      const current = fork(checkpoint, selection);
-      const legacy = branch(checkpoint, selection);
-      expectTypeOf(current.type).toEqualTypeOf<"fork">();
-      expectTypeOf(legacy.type).toEqualTypeOf<"branch">();
-      expect(current).toEqual({
+      const policy = fork(checkpoint, selection);
+      expectTypeOf(policy.type).toEqualTypeOf<"fork">();
+      expect(policy).toEqual({
         type: "fork",
         from: checkpoint,
         ...(selection === undefined ? {} : { model: selection }),
       });
-      expect(legacy).toEqual({ ...current, type: "branch" });
-      expect(legacy.from).toBe(checkpoint);
+      expect(policy.from).toBe(checkpoint);
     },
   );
-
-  it.each([fork, branch])(
-    "builds canonical Plans through either exported helper (%s)",
-    (helper) => {
-      const schema = z.object({ value: z.string() });
-      const task = defineAgentTask({
-        id: "session-task",
-        input: schema,
-        output: schema,
-        goal: ({ value }) => value,
-      });
-      const built = buildWorkflow(
-        createFlow({
-          id: "session-compatibility",
-          input: schema,
-          output: schema,
+  it("builds a fork policy with its source dependency", () => {
+    const schema = z.object({ value: z.string() });
+    const task = defineAgentTask({
+      id: "session-task",
+      input: schema,
+      output: schema,
+      goal: ({ value }) => value,
+    });
+    const built = buildWorkflow(
+      createFlow({ id: "session-fork", input: schema, output: schema })
+        .task("source", task, ({ input }) => input, { session: isolated() })
+        .task("consumer", task, ({ input }) => input, {
+          session: ({ tasks }) => fork(tasks.source.session, model),
         })
-          .task("source", task, ({ input }) => input, { session: isolated() })
-          .task("consumer", task, ({ input }) => input, {
-            session: ({ tasks }) => helper(tasks.source.session, model),
-          })
-          .output(({ tasks }) => tasks.consumer.output)
-          .define(),
-      );
-      expect(built.plan.nodes[1]).toMatchObject({
-        session: { type: "fork", from: "session-task:1", model },
-        dependsOn: ["session-task:1"],
-      });
-      expect(planSchema.parse(built.plan)).toEqual(built.plan);
-    },
-  );
-
-  it.each(["fork", "branch"])(
-    "normalizes serialized session policies (%s)",
-    (type) => {
-      const parsed = planSchema.parse({
-        workflow: { id: "legacy-session" },
-        nodes: [
-          {
-            type: "task",
-            taskId: "consumer",
-            nodeId: "consumer:1",
-            workspace: "shared",
-            input: {},
-            dependsOn: ["source"],
-            session: { type, from: "source", model },
-          },
-        ],
-        output: null,
-      });
-      expect(parsed.nodes[0]).toMatchObject({
-        session: { type: "fork", from: "source", model },
-      });
-    },
-  );
-
-  it("normalizes a legacy session policy inside a repeated attempt", () => {
-    const parsed = planSchema.parse({
-      workflow: { id: "legacy-repeat" },
+        .output(({ tasks }) => tasks.consumer.output)
+        .define(),
+    );
+    expect(built.plan.nodes[1]).toMatchObject({
+      session: { type: "fork", from: "session-task:1", model },
+      dependsOn: ["session-task:1"],
+    });
+    expect(planSchema.parse(built.plan)).toEqual(built.plan);
+  });
+  it("round-trips a fork policy inside a repeated attempt", () => {
+    const plan = {
+      workflow: { id: "fork-repeat" },
       nodes: [
         {
           type: "repeat",
@@ -136,7 +89,7 @@ describe("session fork compatibility", () => {
             workspace: "shared",
             input: {},
             dependsOn: ["source"],
-            session: { type: "branch", from: "source", model },
+            session: { type: "fork", from: "source", model },
           },
           until: {
             type: "ref",
@@ -146,23 +99,17 @@ describe("session fork compatibility", () => {
         },
       ],
       output: null,
-    });
-    expect(parsed.nodes[0]).toMatchObject({
-      attempt: { session: { type: "fork", from: "source", model } },
-    });
+    };
+    expect(planSchema.parse(plan)).toEqual(plan);
   });
-
-  it.each(["fork", "branch"])(
-    "rejects malformed current and legacy policies (%s)",
-    (type) => {
-      for (const policy of [
-        { type, from: "" },
-        { type, from: 123 },
-        { type, from: "source", model: { model: "invalid" } },
-        { type, from: "source", extra: true },
-      ]) {
-        expect(planSessionPolicySchema.safeParse(policy).success).toBe(false);
-      }
-    },
-  );
+  it("rejects malformed fork policies", () => {
+    for (const policy of [
+      { type: "fork", from: "" },
+      { type: "fork", from: 123 },
+      { type: "fork", from: "source", model: { model: "invalid" } },
+      { type: "fork", from: "source", extra: true },
+    ]) {
+      expect(planSessionPolicySchema.safeParse(policy).success).toBe(false);
+    }
+  });
 });

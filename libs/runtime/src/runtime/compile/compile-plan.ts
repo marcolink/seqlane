@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
-  CanonicalPlan,
-  CanonicalPlanNode,
+  PlanNode,
   InvocationId,
   Plan,
   PlanNodeId,
@@ -14,7 +13,6 @@ import type {
 } from "@seqlane/core";
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import {
-  planSchema,
   taskDefinitionRegistrySchema,
   validatorDefinitionRegistrySchema,
 } from "@seqlane/core";
@@ -55,13 +53,13 @@ import {
 import { lowerWorkspaceOrdering } from "../workspace/workspace-ordering.js";
 
 export interface PreparedPlan {
-  readonly plan: CanonicalPlan;
-  readonly orderedNodes: readonly CanonicalPlanNode[];
+  readonly plan: Plan;
+  readonly orderedNodes: readonly PlanNode[];
 }
 
 export interface PreparedPlanExecution {
-  readonly plan: CanonicalPlan;
-  readonly orderedNodes: readonly CanonicalPlanNode[];
+  readonly plan: Plan;
+  readonly orderedNodes: readonly PlanNode[];
   readonly context: ExecutionContext;
 }
 
@@ -192,9 +190,7 @@ export class PlanCompiler {
       lowerReuseSessionOrdering(prepared.orderedNodes),
       options.workspaceResources,
     );
-    const loweredPlan = planSchema.parse(
-      withLoweredPlanNodes(parsedPlan, orderedNodes),
-    );
+    const loweredPlan = withLoweredPlanNodes(parsedPlan, orderedNodes);
     assertValidationRegistries(
       parsedPlan,
       options.taskDefinitions,
@@ -235,7 +231,7 @@ export class PlanCompiler {
 
     return {
       plan: loweredPlan,
-      orderedNodes: orderParsedPlanNodes(loweredPlan),
+      orderedNodes,
       context,
     };
   }

@@ -14,7 +14,7 @@ function task(nodeId: string, dependsOn: readonly string[] = []): TaskNode {
   };
 }
 function plan(
-  policy: "reuse" | "fork" | "branch",
+  policy: "reuse" | "fork",
   source: TaskNode,
   bridge?: TaskNode,
 ): Plan {
@@ -39,7 +39,7 @@ function plan(
   };
 }
 describe("choice session validation", () => {
-  it.each(["reuse", "fork", "branch"] as const)(
+  it.each(["reuse", "fork"] as const)(
     "rejects missing checkpoint source for %s",
     (policy) => {
       expect(() => validatePlan(plan(policy, task("source")))).toThrow(
@@ -47,7 +47,7 @@ describe("choice session validation", () => {
       );
     },
   );
-  it.each(["reuse", "fork", "branch"] as const)(
+  it.each(["reuse", "fork"] as const)(
     "rejects direct and transitive session wait cycles for %s",
     (policy) => {
       for (const transitive of [false, true]) {

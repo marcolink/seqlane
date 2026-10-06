@@ -28,23 +28,16 @@ source references. Validation reports malformed checkpoint sources, duplicate
 reuse consumers, incompatible source/target executor/runtime/workspace, and
 cycles with task IDs and edge kinds.
 
-## API compatibility
+## API contract
 
-`fork(checkpoint, model?)` is the preferred helper. Deprecated `branch(checkpoint,
-model?)` remains exported with its original arguments and returned `type: "branch"`
-shape. Both authoring policy spellings are accepted. The builder emits canonical
-`type: "fork"` policies, including when callers use the deprecated helper.
+`fork(checkpoint, model?)` creates a separate session. Authoring policies, serialized
+Plans, and protocol session snapshots use `type: "fork"`. The helper preserves the
+source checkpoint and optional model selection. The owning schemas reject other
+session-fork spellings and malformed policies, including in repeat attempts and
+choice arms. One Plan type is used throughout authoring and execution.
 
-The canonical Plan schema accepts legacy `type: "branch"` policies and normalizes
-them to `type: "fork"` before runtime validation and execution. It preserves the
-source and optional model selection, rejects malformed policies, and also applies
-inside repeat attempts and choice arms. Compatible Plan input types remain
-available; compiler output types describe canonical policies. Protocol readers accept both spellings;
-new run snapshots emit `fork`. No removal deadline is established.
-
-Current public session guides and examples show only `fork`. Compatibility names
-remain in this contract, API annotations, and regression tests. Accepted ADRs,
-stable metadata IDs, and historical document paths remain unchanged.
+Public session guides and examples show `fork`. Accepted ADRs, stable metadata
+IDs, and historical document paths remain unchanged.
 
 ## Runtime contract
 

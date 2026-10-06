@@ -176,7 +176,7 @@ const isolatedPlanSessionSchema = strictRecord({
   model: modelSelectionSchema.optional(),
 });
 const forkPlanSessionSchema = strictRecord({
-  type: z.enum(["fork", "branch"]),
+  type: z.literal("fork"),
   from: boundedString(256),
   model: modelSelectionSchema.optional(),
 });

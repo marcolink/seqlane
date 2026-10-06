@@ -1,5 +1,4 @@
 import type {
-  CanonicalPlan,
   Plan,
   ChoiceNode,
   PlanNode,
@@ -40,7 +39,7 @@ const sessionPolicyDiagnosticSchema = z.union([
   }),
   z.looseObject({ type: z.literal("reuse"), from: z.string().min(1) }),
   z.looseObject({
-    type: z.enum(["fork", "branch"]),
+    type: z.literal("fork"),
     from: z.string().min(1),
     model: z.unknown().optional(),
   }),
@@ -1225,7 +1224,7 @@ export function validatePlan(
   taskDefinitions?: TaskDefinitionRegistry,
   validateDefinitions = taskDefinitions !== undefined,
   workflowDefinitions?: WorkflowDefinitionRegistry,
-): CanonicalPlan {
+): Plan {
   const parsed = planSchema.safeParse(plan);
   if (!parsed.success) {
     if (isSemanticallyTraversablePlan(plan)) {

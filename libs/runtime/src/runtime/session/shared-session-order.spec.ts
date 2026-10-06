@@ -112,56 +112,53 @@ describe("shared-session order preflight", () => {
     expect(modelWork).toBe(0);
   });
 
-  it.each(["fork", "branch"] as const)(
-    "rejects an unsupported %s before resolving an adapter session",
-    async (type) => {
-      let resolved = 0;
-      const source = task("source");
-      const fork = {
-        ...task("fork", ["source"]),
-        session: { type, from: "source" },
-      };
-      const compiled = new PlanCompiler().compileWorkflow(
-        {
-          workflow: { id: "unsupported-fork" },
-          nodes: [source, fork],
-          output: { type: "ref", nodeId: "fork", path: [] },
-        },
-        {
-          createInvocationId: (nodeId) => `inv:${nodeId}`,
-          executors: new Map([["test", { execute: async () => ({}) }]]),
-          sessionResolver: {
-            adapterCapabilities: {
-              execute: true,
-              modelSelection: false,
-              structuredOutput: true,
-              sessionReuse: true,
-              checkpoint: false,
-              fork: false,
-              activity: false,
-              sessionUi: false,
-            },
-            resolve: async () => {
-              resolved += 1;
-              return {
-                key: Symbol("unreachable"),
-                executor: { execute: async () => ({}) },
-              };
-            },
+  it("rejects an unsupported fork before resolving an adapter session", async () => {
+    let resolved = 0;
+    const source = task("source");
+    const fork = {
+      ...task("fork", ["source"]),
+      session: { type: "fork" as const, from: "source" },
+    };
+    const compiled = new PlanCompiler().compileWorkflow(
+      {
+        workflow: { id: "unsupported-fork" },
+        nodes: [source, fork],
+        output: { type: "ref", nodeId: "fork", path: [] },
+      },
+      {
+        createInvocationId: (nodeId) => `inv:${nodeId}`,
+        executors: new Map([["test", { execute: async () => ({}) }]]),
+        sessionResolver: {
+          adapterCapabilities: {
+            execute: true,
+            modelSelection: false,
+            structuredOutput: true,
+            sessionReuse: true,
+            checkpoint: false,
+            fork: false,
+            activity: false,
+            sessionUi: false,
           },
-          taskDefinitions: new Map([
-            [source.taskId, taskDefinition(source.taskId)],
-            [fork.taskId, taskDefinition(fork.taskId)],
-          ]),
+          resolve: async () => {
+            resolved += 1;
+            return {
+              key: Symbol("unreachable"),
+              executor: { execute: async () => ({}) },
+            };
+          },
         },
-      );
+        taskDefinitions: new Map([
+          [source.taskId, taskDefinition(source.taskId)],
+          [fork.taskId, taskDefinition(fork.taskId)],
+        ]),
+      },
+    );
 
-      expect(() => {
-        preflightCompiledWorkflowSessionCapabilities(compiled);
-      }).toThrow(UnsupportedSessionCapabilityError);
-      expect(resolved).toBe(0);
-    },
-  );
+    expect(() => {
+      preflightCompiledWorkflowSessionCapabilities(compiled);
+    }).toThrow(UnsupportedSessionCapabilityError);
+    expect(resolved).toBe(0);
+  });
 
   it("accepts a shared-session pair with a transitive DAG dependency", async () => {
     const executor = { execute: async () => ({}) };
