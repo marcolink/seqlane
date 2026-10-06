@@ -1,7 +1,7 @@
 ---
 id: task.incremental-pull-request-review-scope
 title: Implement Incremental Pull Request Review Scope
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-13
@@ -59,6 +59,38 @@ Preserve the state, lifecycle, trust, and publication rules in
 - Automatic baseline reset on force-push, retargeting, or state failure.
 
 ## Implementation plan
+
+### First tracer bullet: private scope and complete Git evidence
+
+Outcome: a trusted admission produces deterministic scope and complete evidence
+through real Git. The current v4 workflow remains separate.
+
+Path: strict ScopeIdentity -> bounded Git port -> pure selector -> literal
+scoped diffs -> validated batches and tree-entry metadata.
+
+Risk: path parsing, checkpoint identity, rebases, exclusions, or incomplete
+output can silently widen scope or omit evidence.
+
+Evidence: temporary Git repositories cover baseline, incremental, same-head,
+rebase, reverted edits, base movement, renames, deletions, binary, mode,
+symlink, submodule, and hostile-path cases. Port tests cover missing measurements,
+truncation, cancellation, and resource boundaries.
+
+This slice implements the collector against a strict trusted host port.
+It rejects absent resource measurements and requires host enforcement before
+production use. The existing process API does not provide complete CPU,
+memory, or fetch-transfer controls. A production host adapter remains required.
+The real-Git test adapter measures child resources but is not a production adapter.
+
+The collector seals complete local evidence before model work. It batches
+whole-path evidence within the existing limits. A path whose two evidence
+forms exceed one batch fails closed; hunk partitioning is follow-up work.
+
+Excluded from this slice: trusted v5 report classification and transport,
+model invocation planning, finding admission, manifests, storage, and publication.
+No existing finding or checkpoint changes during this slice.
+
+### Remaining delivery
 
 1. Extend the current report-state schema, metadata marker, finding-ID parser,
    and reader. Keep the new version independent of the retired mechanical
@@ -165,11 +197,22 @@ Preserve the state, lifecycle, trust, and publication rules in
 
 ## Outcome
 
-Implementation pending.
+The first private scope collector slice is implemented locally on
+`codex/review-scope-evidence`, based on PR #112 at `6688815`.
+It has no production caller. Focused real-Git and port tests provide local evidence.
+The production host adapter and all remaining v5 delivery work are pending.
+
+Local verification passes the full Action library suite: 15 files and 131 tests.
+Source typecheck, test mapping, formatting, and SDLC validation pass.
+The test typecheck retains three errors in the untouched
+`pr-code-review-example.spec.ts` at lines 1467 and 1532.
+The current v4 workflow has no collector call and keeps its existing contracts.
+Ripwire flags two short command-status helpers shared across Action packages.
+The packages keep separate helpers because their ports and domain errors differ.
 
 ## Delivery state
 
-Planned. No implementation or target-branch delivery claim is made here.
+Partial local implementation. No target-branch delivery claim is made here.
 
 ## Traceability
 

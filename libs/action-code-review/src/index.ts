@@ -12,3 +12,20 @@ export * from "./review-progress.js";
 export { default as trustedCodeReviewWorkflow } from "@seqlane/code-review-workflow";
 export { default } from "@seqlane/code-review-workflow";
 export { default as prCodeReviewWorkflow } from "@seqlane/code-review-workflow";
+export { collectReviewScopeEvidence } from "./review-scope-evidence.js";
+export {
+  reviewScopeIdentitySchema,
+  reviewScopeEvidenceSchema,
+} from "./review-scope-contracts.js";
+export type {
+  ReviewScopeIdentity,
+  ReviewScopeEvidence,
+} from "./review-scope-contracts.js";
+export type {
+  BoundedReviewGitPort,
+  ReviewGitRequest,
+} from "./review-git-budget.js";
+export {
+  ReviewScopeError,
+  ReviewScopeLimitError,
+} from "./review-scope-errors.js";
