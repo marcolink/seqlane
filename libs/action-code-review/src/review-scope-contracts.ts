@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { gitRevisionSchema } from "./contracts.js";
+import { reviewCanonicalPathSchema } from "@seqlane/code-review-workflow/contracts";
 
 export const REVIEW_GIT_LIMITS = Object.freeze({
   admissionWallMs: 120_000,
@@ -17,24 +18,7 @@ export const REVIEW_GIT_LIMITS = Object.freeze({
   evidenceBytes: 2_048_000,
 });
 
-export const reviewScopePathSchema = z
-  .string()
-  .min(1)
-  .superRefine((path, ctx) => {
-    if (
-      Buffer.byteLength(path, "utf8") > 512 ||
-      Buffer.from(path, "utf8").toString("utf8") !== path ||
-      path.includes("\0") ||
-      path.startsWith("/") ||
-      path.startsWith("\\") ||
-      /^[A-Za-z]:[/\\]/.test(path) ||
-      path
-        .split("/")
-        .some((part) => part === "" || part === "." || part === "..")
-    ) {
-      ctx.addIssue({ code: "custom", message: "Invalid canonical Git path" });
-    }
-  });
+export const reviewScopePathSchema = reviewCanonicalPathSchema;
 
 const commonIdentity = {
   pullRequestNumber: z.number().int().positive(),
