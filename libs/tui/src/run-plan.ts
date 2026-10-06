@@ -12,14 +12,35 @@ type StartedSubject = Extract<
   { type: "invocation.started" }
 >["subject"];
 
+export function subjectIdentity(subject: StartedSubject): string {
+  switch (subject.type) {
+    case "task":
+      return subject.taskId;
+    case "workflow":
+      return subject.workflowId;
+    case "validator":
+      return subject.validatorId;
+    case "choice":
+    case "validation-gate":
+      return subject.planNodeId;
+  }
+}
+
 export function planNodeKind(node: PlanNode): RunNode["kind"] {
   if (node.type === "workflow") return "workflow";
   if (node.type === "repeat") return "loop";
+  if (node.type === "choice") return "choice";
   if (node.type.startsWith("validation.")) return "validation";
   return "task";
 }
 
 function planNodeSubject(node: PlanNode): CreatedEvent["subject"] {
+  if (node.type === "choice") {
+    return { type: "choice", planNodeId: node.planNodeId };
+  }
+  if (node.type === "workflow") {
+    return { type: "workflow", workflowId: node.label };
+  }
   if (node.type === "validation.gate") {
     return { type: "validation-gate", planNodeId: node.planNodeId };
   }
@@ -70,6 +91,13 @@ export function planPlaceholderForSubject(
   subject: StartedSubject,
 ): RunNode | undefined {
   switch (subject.type) {
+    case "workflow":
+      return uniquePlanPlaceholder(
+        placeholders,
+        (node) =>
+          node.kind === "workflow" && node.taskId === subject.workflowId,
+      );
+    case "choice":
     case "validation-gate":
       return placeholders.find(
         (node) => node.planNodeId === subject.planNodeId,
@@ -133,13 +161,13 @@ export function plannedInvocationForSubject(
   view: RunViewModel,
   subject: StartedSubject,
 ): string | undefined {
-  if (subject.type === "validation-gate") {
+  if (subject.type === "validation-gate" || subject.type === "choice") {
     return view.plannedInvocationByNodeId.get(subject.planNodeId);
   }
-  const identity =
-    subject.type === "task" ? subject.taskId : subject.validatorId;
+  const identity = subjectIdentity(subject);
   const candidates = view.plannedInvocationsByTaskId.get(identity) ?? [];
   if (candidates.length === 1) return candidates[0];
+  if (subject.type === "workflow") return undefined;
   const validationCandidates = [...view.plannedInvocationByNodeId.values()]
     .map((id) => view.nodes.get(id))
     .filter(

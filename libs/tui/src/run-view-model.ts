@@ -17,6 +17,7 @@ import {
   reconcileCreatedBatch,
   reconcilePlanPlaceholder,
   reconcileStartedBatch,
+  subjectIdentity,
 } from "./run-plan.js";
 import {
   EMPTY_AGGREGATE,
@@ -122,6 +123,9 @@ export interface RunNode {
   readonly kind: SeqlaneInvocationKind;
   readonly label: string;
   readonly parentInvocationId?: string;
+  readonly choiceArm?: "then" | "else";
+  readonly thenPlanNodeId?: string;
+  readonly elsePlanNodeId?: string;
   readonly iteration?: number;
   readonly siblingOrder: number;
   readonly dependencyIds: readonly string[];
@@ -275,13 +279,7 @@ function emptyNode(
   createdSequence: number,
   dependencyIds: readonly string[],
 ): RunNode {
-  const taskId =
-    event.taskId ??
-    (event.subject.type === "task"
-      ? event.subject.taskId
-      : event.subject.type === "validator"
-        ? event.subject.validatorId
-        : event.subject.planNodeId);
+  const taskId = event.taskId ?? subjectIdentity(event.subject);
   return {
     invocationId: event.invocationId,
     planNodeId: event.planNodeId,
@@ -382,7 +380,9 @@ function updateNode(
     .map((dependencyId) => view.nodes.get(dependencyId)?.label)
     .filter((label): label is string => label !== undefined);
   const stored =
-    updated.kind === "workflow" || updated.kind === "loop"
+    updated.kind === "workflow" ||
+    updated.kind === "loop" ||
+    updated.kind === "choice"
       ? { ...updated, waitingDependencyLabels }
       : {
           ...updated,
@@ -398,7 +398,11 @@ function updateNode(
   while (parentId !== undefined && !isEmptyAggregate(delta)) {
     const parent = changes.get(parentId) ?? view.nodes.get(parentId);
     if (parent === undefined) break;
-    if (parent.kind === "workflow" || parent.kind === "loop") {
+    if (
+      parent.kind === "workflow" ||
+      parent.kind === "loop" ||
+      parent.kind === "choice"
+    ) {
       changes.set(parentId, {
         ...parent,
         aggregate: addAggregate(parent.aggregate, delta),
@@ -511,7 +515,11 @@ function applyAncestorAggregateDelta(
   while (parentId !== undefined) {
     const parent = nodes.get(parentId);
     if (parent === undefined) break;
-    if (parent.kind === "workflow" || parent.kind === "loop") {
+    if (
+      parent.kind === "workflow" ||
+      parent.kind === "loop" ||
+      parent.kind === "choice"
+    ) {
       nodes.set(parentId, {
         ...parent,
         aggregate: addAggregate(parent.aggregate, delta),
@@ -766,7 +774,10 @@ function reduceCreated(
   nodes.set(event.invocationId, node);
   const presentation = new Map(view.presentation);
   presentation.set(event.invocationId, {
-    isExpanded: event.kind === "workflow" || event.kind === "loop",
+    isExpanded:
+      event.kind === "workflow" ||
+      event.kind === "loop" ||
+      event.kind === "choice",
   });
   const dependentsByDependency = new Map(view.dependentsByDependency);
   for (const dependencyId of dependencyIds) {
@@ -841,9 +852,15 @@ function reducePlan(
     nodes.set(created.invocationId, {
       ...emptyNode(created, view.lastEventSequence, dependencies),
       session: node.session,
+      choiceArm: node.choiceArm,
+      thenPlanNodeId: node.thenPlanNodeId,
+      elsePlanNodeId: node.elsePlanNodeId,
     });
     presentation.set(created.invocationId, {
-      isExpanded: created.kind === "workflow" || created.kind === "loop",
+      isExpanded:
+        created.kind === "workflow" ||
+        created.kind === "loop" ||
+        created.kind === "choice",
     });
   }
   const projected = rebuildTopology(
@@ -907,13 +924,7 @@ export function reduceRunViewModel(
         event.invocationId,
         (node) => ({
           ...withState(node, "active", timestamp),
-          taskId:
-            event.taskId ??
-            (event.subject.type === "task"
-              ? event.subject.taskId
-              : event.subject.type === "validator"
-                ? event.subject.validatorId
-                : event.subject.planNodeId),
+          taskId: event.taskId ?? subjectIdentity(event.subject),
         }),
       );
       return revealAncestors(started, event.invocationId);
@@ -1120,13 +1131,7 @@ function reduceStartedBatch(
     const timestamp = eventTimestamp(event.metadata, view.now);
     nodes.set(event.invocationId, {
       ...withState(node, "active", timestamp),
-      taskId:
-        event.taskId ??
-        (event.subject.type === "task"
-          ? event.subject.taskId
-          : event.subject.type === "validator"
-            ? event.subject.validatorId
-            : event.subject.planNodeId),
+      taskId: event.taskId ?? subjectIdentity(event.subject),
     });
     let parentId = node.parentInvocationId;
     while (parentId !== undefined) {

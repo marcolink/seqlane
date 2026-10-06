@@ -14,9 +14,12 @@ import type { ExecutionContext } from "../execution/context.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
 import type { RuntimeValidationResult } from "../validation/validation-results.js";
 
+import type { PreparedInvocationInput } from "./prepared-input.js";
+
 export type LegacyTaskNode = PlanNode & { readonly executor?: string };
 
 export interface TaskExecutionOptions {
+  readonly preparedInput?: PreparedInvocationInput;
   readonly invocationId: InvocationId;
   readonly observability: Partial<ObservabilityContext>;
   readonly results: Map<string, unknown>;
@@ -25,18 +28,20 @@ export interface TaskExecutionOptions {
   /** `graph` means static workspace conflicts are already dependency edges. */
   readonly workspaceAdmission?: "dynamic" | "graph";
   readonly iteration?: number;
+  /** Awaited before result publication; may run an asynchronous evaluator. */
   readonly validateOutput?: (output: unknown) => unknown;
 }
 
-export interface ValidationExecutionOptions {
-  readonly invocationId: InvocationId;
-  readonly observability: Partial<ObservabilityContext>;
-  readonly results: Map<string, unknown>;
-  readonly remainingConsumers: Map<string, number>;
-  /** `graph` means static workspace conflicts are already dependency edges. */
-  readonly workspaceAdmission?: "dynamic" | "graph";
-  readonly iteration?: number;
-}
+export type ValidationExecutionOptions = Pick<
+  TaskExecutionOptions,
+  | "preparedInput"
+  | "invocationId"
+  | "observability"
+  | "results"
+  | "remainingConsumers"
+  | "workspaceAdmission"
+  | "iteration"
+>;
 
 export interface ValidationEnvelope {
   readonly value: unknown;

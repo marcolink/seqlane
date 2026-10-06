@@ -71,6 +71,7 @@ function nodeLabel(node: PlanNode): string {
         : node.source.validatorId;
     case "validation.gate":
     case "repeat":
+    case "choice":
       return node.nodeId;
   }
 }
@@ -108,6 +109,7 @@ export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
     for (const node of nodes) {
       allNodes.push(node);
       if (node.type === "repeat") collectNodes([node.attempt]);
+      if (node.type === "choice") collectNodes([node.then, node.else]);
     }
   };
   collectNodes(topLevelNodes);
@@ -123,15 +125,14 @@ export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
   const appendNodes = (
     nodes: readonly PlanNode[],
     parentPlanNodeId: string | undefined,
+    choiceArmByNodeId?: ReadonlyMap<string, "then" | "else">,
   ): void => {
     const orderedNodes = orderGraphNodes(nodes);
-    const graphNodeIds = new Set(orderedNodes.map((node) => node.nodeId));
 
     for (const [siblingOrder, node] of orderedNodes.entries()) {
       const serializedNodeId = serializedIds.get(node.nodeId);
       if (serializedNodeId === undefined) continue;
       const dependsOn = node.dependsOn.flatMap((dependency) => {
-        if (!graphNodeIds.has(dependency)) return [];
         const serializedDependency = serializedIds.get(dependency);
         return serializedDependency === undefined ? [] : [serializedDependency];
       });
@@ -155,11 +156,30 @@ export function createSeqlanePlanSnapshot(plan: Plan): SeqlanePlanSnapshot {
         ...(node.type === "repeat"
           ? { maximumIterations: node.maximumIterations }
           : {}),
+        ...(node.type === "choice"
+          ? {
+              thenPlanNodeId: serializedIds.get(node.then.nodeId),
+              elsePlanNodeId: serializedIds.get(node.else.nodeId),
+            }
+          : {}),
+        ...(choiceArmByNodeId?.get(node.nodeId) === undefined
+          ? {}
+          : { choiceArm: choiceArmByNodeId.get(node.nodeId) }),
       });
     }
 
     for (const node of orderedNodes) {
       if (node.type === "repeat") appendNodes([node.attempt], node.nodeId);
+      if (node.type === "choice") {
+        appendNodes(
+          [node.then, node.else],
+          node.nodeId,
+          new Map([
+            [node.then.nodeId, "then"],
+            [node.else.nodeId, "else"],
+          ]),
+        );
+      }
     }
   };
 

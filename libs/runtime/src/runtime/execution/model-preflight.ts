@@ -5,6 +5,7 @@ import type {
   TaskNode,
 } from "@seqlane/core";
 import type { PreparedPlanExecution } from "../compile/compile-plan.js";
+import type { ExecutionContext } from "./context.js";
 import {
   describeModelSelection,
   getExecutorModelCapabilities,
@@ -132,6 +133,11 @@ function modelPreflightNodes(
   };
 
   return compiled.plan.nodes.flatMap((node) => {
+    if (node.type === "choice") {
+      // The condition is evaluated later. Resolve and validate the model only
+      // for the selected arm, so an unavailable model on the other path is inert.
+      return [];
+    }
     if (node.type === "repeat") {
       const preflightNode = nodeForPlanNode(node.attempt, true);
       return preflightNode === undefined ? [] : [preflightNode];
@@ -209,17 +215,16 @@ async function modelSelectionForTaskNode(
 }
 
 function capabilityForNode(
-  compiled: PreparedPlanExecution,
+  context: Pick<ExecutionContext, "executors" | "sessionResolver">,
   node: TaskNode,
 ): ResolvedExecutorModelCapabilities | undefined {
   const executorCapabilities = getExecutorModelCapabilities(
-    compiled.context.executors,
+    context.executors,
     node,
   );
   if (executorCapabilities !== undefined) return executorCapabilities;
 
-  const resolverCapabilities =
-    compiled.context.sessionResolver?.modelCapabilities;
+  const resolverCapabilities = context.sessionResolver?.modelCapabilities;
   if (resolverCapabilities !== undefined) {
     return {
       executor: resolverCapabilities.executor,
@@ -227,6 +232,65 @@ function capabilityForNode(
     };
   }
   return undefined;
+}
+
+/** Resolve a choice task's model after its arm is selected. */
+export async function preflightSelectedChoiceModel(
+  compiled: PreparedPlanExecution,
+  node: TaskNode,
+): Promise<void> {
+  if (node.session === undefined) return;
+  const context = compiled.context;
+  const authoredOnly =
+    "modelPolicy" in context.executors &&
+    context.executors.modelPolicy === "authored";
+  const capabilitiesFor = (candidate: TaskNode) =>
+    authoredOnly ? undefined : capabilityForNode(context, candidate);
+  const allTasks: TaskNode[] = [];
+  for (const entry of compiled.plan.nodes) {
+    if (entry.type === "task") allTasks.push(entry);
+    if (entry.type === "repeat" && entry.attempt.type === "task") {
+      allTasks.push(entry.attempt);
+    }
+    if (entry.type === "choice") {
+      if (entry.then.type === "task") allTasks.push(entry.then);
+      if (entry.else.type === "task") allTasks.push(entry.else);
+    }
+  }
+  const nodesById = new Map(allTasks.map((task) => [task.nodeId, task]));
+  const selections = new Map<string, ModelSelection | undefined>();
+  for (const task of allTasks) {
+    const invocationId = context.invocationIds.get(task.nodeId);
+    const existing =
+      (invocationId === undefined
+        ? undefined
+        : context.effectiveModelSelections.get(invocationId)) ??
+      context.effectiveModelSelectionsByNode.get(task.nodeId);
+    if (existing !== undefined) selections.set(task.nodeId, existing);
+  }
+  const selection = await modelSelectionForTaskNode(
+    node,
+    nodesById,
+    selections,
+    capabilitiesFor,
+    new Map(),
+    context.workflowModel,
+  );
+  if (selection === undefined) return;
+  const capabilities = capabilitiesFor(node);
+  if (capabilities === undefined && !authoredOnly) {
+    throw new MissingExecutorModelCapabilitiesError(
+      "unknown executor",
+      selection,
+    );
+  }
+  if (capabilities !== undefined) {
+    await validateStandaloneModelAvailability(
+      selection,
+      capabilities.capabilities,
+    );
+  }
+  context.effectiveModelSelectionsByNode.set(node.nodeId, selection);
 }
 
 async function resolveDefaultSelection(
@@ -264,7 +328,7 @@ export async function preflightCompiledWorkflowModels(
     "modelPolicy" in compiled.context.executors &&
     compiled.context.executors.modelPolicy === "authored";
   const capabilitiesFor = (node: TaskNode) =>
-    authoredOnly ? undefined : capabilityForNode(compiled, node);
+    authoredOnly ? undefined : capabilityForNode(compiled.context, node);
   const nodes = modelPreflightNodes(compiled);
   const taskNodes = nodes.map(({ node }) => node);
   const nodesById = new Map(taskNodes.map((node) => [node.nodeId, node]));

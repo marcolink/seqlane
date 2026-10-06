@@ -92,6 +92,10 @@ export interface ValidationGateNode {
 
 export type ValidationNode = ValidationCheckNode | ValidationGateNode;
 
+export type RunnableNode = TaskNode | WorkflowNode;
+
+export type OutputValidation = z.infer<typeof outputValidationSchema>;
+
 export interface RepeatNode {
   readonly type: "repeat";
   readonly nodeId: PlanNodeId;
@@ -99,18 +103,30 @@ export interface RepeatNode {
   readonly dependsOn: readonly PlanNodeId[];
   readonly maximumIterations: number;
   /** The single task or child workflow executed for each attempt. */
-  readonly attempt: TaskNode | WorkflowNode;
+  readonly attempt: RunnableNode;
   /** Optional validator applied to each attempt output before the condition. */
-  readonly validation?: {
-    readonly source: ValidationSource;
-  };
+  readonly validation?: OutputValidation;
   /** A boolean reference evaluated after each successful attempt. */
   readonly until: ValueRefData;
   /** Optional binding for the next attempt's input. */
   readonly nextInput?: ValueBinding;
 }
 
-export type PlanNode = TaskNode | WorkflowNode | ValidationNode | RepeatNode;
+export interface ChoiceNode {
+  readonly type: "choice";
+  readonly nodeId: PlanNodeId;
+  readonly condition: ValueRefData;
+  readonly then: RunnableNode;
+  readonly else: RunnableNode;
+  readonly validation?: {
+    readonly then?: OutputValidation;
+    readonly else?: OutputValidation;
+  };
+  readonly dependsOn: readonly PlanNodeId[];
+}
+
+export type PlanNode =
+  TaskNode | WorkflowNode | ValidationNode | RepeatNode | ChoiceNode;
 
 export interface Plan {
   readonly workflow: WorkflowIdentity;
@@ -152,6 +168,10 @@ export const validationSourceSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+export const outputValidationSchema = z.strictObject({
+  source: validationSourceSchema,
+});
+
 export const validationCheckNodeSchema = z.strictObject({
   type: z.literal("validation.check"),
   nodeId: planNodeIdSchema,
@@ -186,9 +206,24 @@ export const repeatNodeSchema = z.strictObject({
     .min(1)
     .max(MAX_REPEAT_BODY_EXECUTIONS),
   attempt: z.discriminatedUnion("type", [taskNodeSchema, workflowNodeSchema]),
-  validation: z.strictObject({ source: validationSourceSchema }).optional(),
+  validation: outputValidationSchema.optional(),
   until: valueRefSchema,
   nextInput: valueBindingSchema.optional(),
+});
+
+export const choiceNodeSchema = z.strictObject({
+  type: z.literal("choice"),
+  nodeId: planNodeIdSchema,
+  condition: valueRefSchema,
+  then: z.discriminatedUnion("type", [taskNodeSchema, workflowNodeSchema]),
+  else: z.discriminatedUnion("type", [taskNodeSchema, workflowNodeSchema]),
+  validation: z
+    .strictObject({
+      then: outputValidationSchema.optional(),
+      else: outputValidationSchema.optional(),
+    })
+    .optional(),
+  dependsOn: dependencySchema,
 });
 
 export const planNodeSchema = z.discriminatedUnion("type", [
@@ -197,6 +232,7 @@ export const planNodeSchema = z.discriminatedUnion("type", [
   validationCheckNodeSchema,
   validationGateNodeSchema,
   repeatNodeSchema,
+  choiceNodeSchema,
 ]);
 
 export const planSchema = z.strictObject({

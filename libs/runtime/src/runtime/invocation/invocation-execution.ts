@@ -1,3 +1,4 @@
+import { PreparedInvocationInput } from "./prepared-input.js";
 import type {
   AgentTaskRequest,
   SeqlaneInvocationMetrics,
@@ -89,6 +90,22 @@ export async function executeTaskNode(
   let workspaceAdmitted = false;
   let workspaceWaitingReported = false;
   let sessionWaitingReported = false;
+  const releaseWorkspace = (): void => {
+    workspaceLease?.release();
+    workspaceLease = undefined;
+    if (!workspaceAdmitted) return;
+    workspaceAdmitted = false;
+    context.events.emit({
+      type: "invocation.progress",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+      state: "active",
+      phase: "workspace_released",
+      workspace: node.workspace,
+      ...optionalIteration(options.iteration),
+    });
+  };
   const reportWorkspaceWaiting = (
     blockingInvocationId: string | undefined,
   ): void => {
@@ -204,13 +221,14 @@ export async function executeTaskNode(
       );
       let input: unknown;
       try {
-        const resolvedInput = resolveBinding(
-          node.input,
-          context.workflowInput,
-          results,
-        );
+        const preparedInput =
+          options.preparedInput ??
+          PreparedInvocationInput.parse(
+            taskSchema.input,
+            resolveBinding(node.input, context.workflowInput, results),
+          );
         consumeBindingReferences(results, remainingConsumers, node.input);
-        input = taskSchema.input.parse(resolvedInput);
+        input = preparedInput.value;
       } catch (cause) {
         throwTaskPhaseError(cause, "input", node.taskId, abortSignal);
       }
@@ -408,7 +426,12 @@ export async function executeTaskNode(
       let output: unknown;
       try {
         output = taskSchema.output.parse(rawOutput);
-        if (options.validateOutput) output = options.validateOutput(output);
+        if (options.validateOutput) {
+          // Evaluators acquire their own workspace admission. Keep the session
+          // lock until checkpoint capture, but release execution workspace locks.
+          releaseWorkspace();
+          output = await options.validateOutput(output);
+        }
       } catch (cause) {
         throwTaskPhaseError(cause, "output", node.taskId, abortSignal);
       }
@@ -433,6 +456,7 @@ export async function executeTaskNode(
           sourceSession: session,
           consumers: context.sessionConsumers.get(node.nodeId),
           resolvedSessions: context.resolvedSessions,
+          deferredSources: context.deferredSessionSources,
         });
       }
       context.events.emit({
@@ -471,19 +495,7 @@ export async function executeTaskNode(
   } finally {
     if (unconfirmedActivity === undefined) {
       sessionLease?.release();
-      workspaceLease?.release();
-      if (workspaceAdmitted) {
-        context.events.emit({
-          type: "invocation.progress",
-          workId: context.workId,
-          runId: context.runId,
-          invocationId,
-          state: "active",
-          phase: "workspace_released",
-          workspace: node.workspace,
-          ...optionalIteration(options.iteration),
-        });
-      }
+      releaseWorkspace();
     }
   }
 }
@@ -494,7 +506,11 @@ export async function executeWorkflowNode(
   abortSignal: AbortSignal,
   options: Pick<
     TaskExecutionOptions,
-    "invocationId" | "observability" | "results" | "remainingConsumers"
+    | "invocationId"
+    | "observability"
+    | "results"
+    | "remainingConsumers"
+    | "validateOutput"
   > & {
     readonly execute: () => Promise<unknown>;
     readonly workspaceAdmission?: "dynamic" | "graph";
@@ -505,6 +521,20 @@ export async function executeWorkflowNode(
   const workspaceLeases: WorkspaceLockLease[] = [];
   let workspaceAdmitted = false;
   let waitingReported = false;
+  const releaseWorkspace = (): void => {
+    for (const lease of workspaceLeases.splice(0)) lease.release();
+    if (!workspaceAdmitted) return;
+    workspaceAdmitted = false;
+    context.events.emit({
+      type: "invocation.progress",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+      state: "active",
+      phase: "workspace_released",
+      workspace: node.workspace,
+    });
+  };
   const reportWaiting = (blockingInvocationId: string | undefined): void => {
     if (waitingReported) return;
     waitingReported = true;
@@ -570,8 +600,7 @@ export async function executeWorkflowNode(
       workId: context.workId,
       runId: context.runId,
       invocationId,
-      subject: { type: "task", taskId: node.workflowId },
-      taskId: node.workflowId,
+      subject: { type: "workflow", workflowId: node.workflowId },
     });
     context.events.emit({
       type: "invocation.progress",
@@ -584,7 +613,11 @@ export async function executeWorkflowNode(
       workspace: node.workspace,
     });
 
-    const output = await options.execute();
+    let output = await options.execute();
+    if (options.validateOutput !== undefined) {
+      releaseWorkspace();
+      output = await options.validateOutput(output);
+    }
     results.set(node.nodeId, output);
     context.events.emit({
       type: "invocation.succeeded",
@@ -602,18 +635,7 @@ export async function executeWorkflowNode(
       taskId: node.workflowId,
     });
   } finally {
-    for (const lease of workspaceLeases.splice(0)) lease.release();
-    if (workspaceAdmitted) {
-      context.events.emit({
-        type: "invocation.progress",
-        workId: context.workId,
-        runId: context.runId,
-        invocationId,
-        state: "active",
-        phase: "workspace_released",
-        workspace: node.workspace,
-      });
-    }
+    releaseWorkspace();
   }
 }
 
@@ -678,13 +700,14 @@ export async function executeValidationCheckNode(
     }
     let input: unknown;
     try {
-      const resolvedInput = resolveBinding(
-        node.input,
-        context.workflowInput,
-        results,
-      );
+      const preparedInput =
+        options.preparedInput ??
+        PreparedInvocationInput.parse(
+          definition.input,
+          resolveBinding(node.input, context.workflowInput, results),
+        );
       consumeBindingReferences(results, remainingConsumers, node.input);
-      input = definition.input.parse(resolvedInput);
+      input = preparedInput.value;
     } catch (cause) {
       throw new Error(`Validation input parsing failed: ${String(cause)}`, {
         cause,

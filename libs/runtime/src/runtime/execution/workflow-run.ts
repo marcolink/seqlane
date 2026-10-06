@@ -42,6 +42,7 @@ export function invocationTaskId(node: PlanNode): string {
   if (node.type === "task") return node.taskId;
   if (node.type === "workflow") return node.workflowId;
   if (node.type === "repeat") return node.nodeId;
+  if (node.type === "choice") return node.nodeId;
   if (node.type === "validation.check") {
     return node.source.type === "task"
       ? node.source.taskId
@@ -51,12 +52,14 @@ export function invocationTaskId(node: PlanNode): string {
 }
 
 export function invocationSubject(node: PlanNode): SeqlaneInvocationSubject {
-  if (
-    node.type === "task" ||
-    node.type === "workflow" ||
-    node.type === "repeat"
-  ) {
+  if (node.type === "workflow") {
+    return { type: "workflow", workflowId: node.workflowId };
+  }
+  if (node.type === "task" || node.type === "repeat") {
     return { type: "task", taskId: invocationTaskId(node) };
+  }
+  if (node.type === "choice") {
+    return { type: "choice", planNodeId: node.nodeId };
   }
   if (node.type === "validation.check") {
     return node.source.type === "task"
@@ -68,8 +71,9 @@ export function invocationSubject(node: PlanNode): SeqlaneInvocationSubject {
 
 export function invocationKind(
   node: PlanNode,
-): "workflow" | "loop" | "task" | "validation" {
+): "workflow" | "loop" | "choice" | "task" | "validation" {
   if (node.type === "repeat") return "loop";
+  if (node.type === "choice") return "choice";
   if (node.type === "workflow") return "workflow";
   if (node.type === "task") return "task";
   return "validation";

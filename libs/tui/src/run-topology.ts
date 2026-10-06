@@ -106,7 +106,9 @@ export function rebuildTopology(
         .map((dependencyId) => sourceNodes.get(dependencyId)?.label)
         .filter((label): label is string => label !== undefined),
       aggregate:
-        node.kind === "workflow" || node.kind === "loop"
+        node.kind === "workflow" ||
+        node.kind === "loop" ||
+        node.kind === "choice"
           ? EMPTY_AGGREGATE
           : aggregateForNode(node),
     });
@@ -150,7 +152,11 @@ function rebuildAggregates(
     const node = nodes.get(id);
     if (node === undefined) continue;
     const total = totals.get(id) ?? EMPTY_AGGREGATE;
-    if (node.kind === "workflow" || node.kind === "loop") {
+    if (
+      node.kind === "workflow" ||
+      node.kind === "loop" ||
+      node.kind === "choice"
+    ) {
       nodes.set(id, {
         ...node,
         aggregate: aggregateDelta(total, aggregateForNode(node)),

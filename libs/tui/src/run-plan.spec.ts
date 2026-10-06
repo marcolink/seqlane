@@ -1,5 +1,5 @@
 // @test-scope ./run-view-model.ts ./run-plan.ts ./run-topology.ts
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import {
   reduceRunEventBatch,
@@ -106,6 +106,33 @@ it("derives planned subjects with the same identities as runtime invocations", (
             dependsOn: [],
           },
           {
+            planNodeId: "choice",
+            type: "choice",
+            label: "decision",
+            siblingOrder: 2,
+            dependsOn: [],
+            thenPlanNodeId: "choice:then",
+            elsePlanNodeId: "choice:else",
+          },
+          {
+            planNodeId: "choice:then",
+            type: "task",
+            label: "review",
+            parentPlanNodeId: "choice",
+            choiceArm: "then",
+            siblingOrder: 0,
+            dependsOn: [],
+          },
+          {
+            planNodeId: "choice:else",
+            type: "workflow",
+            label: "approval",
+            parentPlanNodeId: "choice",
+            choiceArm: "else",
+            siblingOrder: 1,
+            dependsOn: [],
+          },
+          {
             planNodeId: "task-check",
             type: "validation.check",
             taskId: "source-task",
@@ -134,6 +161,36 @@ it("derives planned subjects with the same identities as runtime invocations", (
 
   expect(view.nodes.get("plan:workflow")?.taskId).toBe("nested-workflow");
   expect(view.nodes.get("plan:repeat")?.taskId).toBe("repeat:1");
+  expect(view.nodes.get("plan:choice")).toMatchObject({
+    kind: "choice",
+    taskId: "choice",
+    label: "decision",
+    thenPlanNodeId: "choice:then",
+    elsePlanNodeId: "choice:else",
+  });
+  expect(view.nodes.get("plan:choice:else")).toMatchObject({
+    kind: "workflow",
+    taskId: "approval",
+    choiceArm: "else",
+    parentInvocationId: "plan:choice",
+  });
+  const live = reduceRunViewModel(view, {
+    ...identity,
+    type: "invocation.created",
+    invocationId: "live-else",
+    planNodeId: "choice:else",
+    subject: { type: "workflow", workflowId: "approval" },
+    kind: "workflow",
+    label: "approval",
+    parentInvocationId: "plan:choice",
+    siblingOrder: 1,
+    dependencyIds: [],
+  });
+  expect(live.nodes.get("live-else")).toMatchObject({
+    choiceArm: "else",
+    parentInvocationId: "plan:choice",
+  });
+  expect(live.nodes.has("plan:choice:else")).toBe(false);
   expect(view.nodes.get("plan:task-check")?.validation?.sourceType).toBe(
     "evaluator",
   );
@@ -206,14 +263,32 @@ it("projects many lifecycle events without per-event full-map copies", () => {
       state: "succeeded",
     }),
   );
-  const started = performance.now();
-  const view = reduceRunEventBatch(initial, events);
-  expect(performance.now() - started).toBeLessThan(3000);
-  expect(view.nodes.size).toBe(10_000);
-  expect(view.nodes.get("plan:9999")?.activity).toBe(
-    "tool filesystem.read succeeded",
-  );
-  expect(initial.nodes.get("plan:9999")?.activity).toBeUndefined();
+  const NativeMap = globalThis.Map;
+  let fullMapCopies = 0;
+  const copyLimit = events.length / 10;
+  class CountingMap<K, V> extends NativeMap<K, V> {
+    constructor(entries?: Iterable<readonly [K, V]> | null) {
+      super(entries);
+      if (this.size >= initial.nodes.size) {
+        fullMapCopies += 1;
+        // Permit occasional compaction; reject per-event copies independent
+        // of runner speed. Fail early if a regression makes the burst costly.
+        expect(fullMapCopies).toBeLessThan(copyLimit);
+      }
+    }
+  }
+  vi.stubGlobal("Map", CountingMap);
+  try {
+    const view = reduceRunEventBatch(initial, events);
+    expect(fullMapCopies).toBeLessThan(copyLimit);
+    expect(view.nodes.size).toBe(10_000);
+    expect(view.nodes.get("plan:9999")?.activity).toBe(
+      "tool filesystem.read succeeded",
+    );
+    expect(initial.nodes.get("plan:9999")?.activity).toBeUndefined();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it("enforces shared run bytes and releases replaced transient bytes", () => {

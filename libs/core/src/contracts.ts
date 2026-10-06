@@ -226,18 +226,25 @@ export type FlowBinding<Input, Handles, Target> =
   | InputBinding<Target>
   | ((context: FlowAuthoringContext<Input, Handles>) => InputBinding<Target>);
 
-export interface FlowTaskOptions<Output, Input = unknown, Handles = unknown> {
-  readonly validateOutput?: Validator<Output>;
+export interface FlowTaskOptions<
+  Output,
+  Input = unknown,
+  Handles = unknown,
+> extends Pick<
+  TaskInvocationOptions<unknown, Output>,
+  "validateOutput" | "workspace"
+> {
   readonly dependsOn?: readonly (keyof Handles & string)[];
   readonly session?:
     | SessionPolicy
     | ((context: FlowAuthoringContext<Input, Handles>) => SessionPolicy);
-  readonly workspace?: WorkspacePolicy;
 }
 
-export interface FlowWorkflowOptions<Handles = unknown> {
+export interface FlowWorkflowOptions<Handles = unknown> extends Pick<
+  TaskInvocationOptions<unknown, unknown>,
+  "workspace"
+> {
   readonly dependsOn?: readonly (keyof Handles & string)[];
-  readonly workspace?: WorkspacePolicy;
 }
 
 export interface FlowValidationHandle<
@@ -253,6 +260,11 @@ type LiteralUnusedFlowName<Name extends string, Handles> = string extends Name
     : Name;
 
 export interface FlowBuilder<Input, Output, Handles> {
+  when(
+    condition: (
+      context: FlowAuthoringContext<Input, Handles>,
+    ) => ValueRef<boolean>,
+  ): FlowWhenBuilder<Input, Output, Handles>;
   task<
     Name extends string,
     TaskInput,
@@ -298,6 +310,54 @@ export interface FlowBuilder<Input, Output, Handles> {
   output(
     binding: FlowBinding<Input, Handles, Output>,
   ): CompletedFlow<Input, Output>;
+}
+
+export interface FlowWhenBuilder<Input, Output, Handles> {
+  task<
+    Name extends string,
+    TaskInput,
+    TaskOutput,
+    Options extends FlowTaskOptions<TaskOutput, Input, Handles> =
+      FlowTaskOptions<TaskOutput, Input, Handles>,
+  >(
+    name: LiteralUnusedFlowName<Name, Handles>,
+    definition: TaskDefinition<TaskInput, TaskOutput>,
+    binding: FlowBinding<Input, Handles, TaskInput>,
+    options?: Options,
+  ): FlowOtherwiseBuilder<Input, Output, Handles, Name, TaskOutput>;
+  task<Name extends string, WorkflowInput, WorkflowOutput>(
+    name: LiteralUnusedFlowName<Name, Handles>,
+    definition: AuthoredWorkflow<WorkflowInput, WorkflowOutput>,
+    binding: FlowBinding<Input, Handles, WorkflowInput>,
+    options?: FlowWorkflowOptions<Handles>,
+  ): FlowOtherwiseBuilder<Input, Output, Handles, Name, WorkflowOutput>;
+}
+
+export interface FlowOtherwiseBuilder<
+  Input,
+  Output,
+  Handles,
+  Name extends string,
+  TrueOutput,
+> {
+  otherwise<FalseInput, FalseOutput>(
+    definition: TaskDefinition<FalseInput, FalseOutput>,
+    binding: FlowBinding<Input, Handles, FalseInput>,
+    options?: FlowTaskOptions<FalseOutput, Input, Handles>,
+  ): FlowBuilder<
+    Input,
+    Output,
+    Handles & Record<Name, FlowHandle<TrueOutput | FalseOutput>>
+  >;
+  otherwise<FalseInput, FalseOutput>(
+    definition: AuthoredWorkflow<FalseInput, FalseOutput>,
+    binding: FlowBinding<Input, Handles, FalseInput>,
+    options?: FlowWorkflowOptions<Handles>,
+  ): FlowBuilder<
+    Input,
+    Output,
+    Handles & Record<Name, FlowHandle<TrueOutput | FalseOutput>>
+  >;
 }
 
 export interface UntilContext<TaskOutput, Handles = Record<never, never>> {

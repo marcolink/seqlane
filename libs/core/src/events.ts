@@ -10,11 +10,14 @@ import type {
 import type { SeqlaneError } from "./errors.js";
 import type { ModelSelection } from "./models/model-ref.js";
 
-export type SeqlaneInvocationKind = "workflow" | "loop" | "task" | "validation";
+export type SeqlaneInvocationKind =
+  "workflow" | "loop" | "choice" | "task" | "validation";
 
 export type SeqlaneInvocationSubject =
   | { readonly type: "task"; readonly taskId: TaskId }
+  | { readonly type: "workflow"; readonly workflowId: string }
   | { readonly type: "validator"; readonly validatorId: string }
+  | { readonly type: "choice"; readonly planNodeId: PlanNodeId }
   | { readonly type: "validation-gate"; readonly planNodeId: PlanNodeId };
 
 export type SeqlaneProgressState = "active" | "waiting";

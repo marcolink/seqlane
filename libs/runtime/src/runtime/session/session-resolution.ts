@@ -29,6 +29,15 @@ export interface SessionConsumer {
   readonly task: TaskDefinition;
   readonly type: "reuse" | "branch";
   readonly effectiveSelection?: ModelSelection;
+  /** Choice arms materialize only after the condition selects them. */
+  readonly deferred?: boolean;
+}
+
+export interface DeferredSessionSource {
+  readonly session: ResolvedExecutorSession;
+  readonly checkpoint?: unknown;
+  readonly checkpointCaptured?: boolean;
+  readonly failure?: unknown;
 }
 
 export class UnsupportedSessionBranchError extends Error {
@@ -125,12 +134,20 @@ export async function publishSessionCheckpoint(options: {
   readonly sourceSession: ResolvedExecutorSession;
   readonly consumers: readonly SessionConsumer[] | undefined;
   readonly resolvedSessions: Map<InvocationId, ResolvedExecutorSession>;
+  readonly deferredSources?: Map<string, DeferredSessionSource>;
 }): Promise<void> {
   const consumers = options.consumers ?? [];
   if (consumers.length === 0) return;
+  const eager = consumers.filter(({ deferred }) => deferred !== true);
+  const deferred = consumers.filter(({ deferred }) => deferred === true);
   const branches = consumers.filter(({ type }) => type === "branch");
   if (branches.length === 0) {
-    for (const consumer of consumers) {
+    if (deferred.length > 0) {
+      options.deferredSources?.set(options.sourceNodeId, {
+        session: options.sourceSession,
+      });
+    }
+    for (const consumer of eager) {
       options.resolvedSessions.set(
         consumer.invocationId,
         options.sourceSession,
@@ -140,15 +157,50 @@ export async function publishSessionCheckpoint(options: {
   }
   const { checkpoint: captureCheckpoint, fork } = options.sourceSession;
   if (captureCheckpoint === undefined || fork === undefined) {
-    throw new UnsupportedSessionBranchError(options.sourceNodeId);
+    const failure = new UnsupportedSessionBranchError(options.sourceNodeId);
+    if (eager.some(({ type }) => type === "branch")) throw failure;
+    options.deferredSources?.set(options.sourceNodeId, {
+      session: options.sourceSession,
+      failure,
+    });
+    for (const consumer of eager) {
+      options.resolvedSessions.set(
+        consumer.invocationId,
+        options.sourceSession,
+      );
+    }
+    return;
   }
 
-  const checkpoint = await captureCheckpoint();
+  let checkpoint: unknown;
+  try {
+    checkpoint = await captureCheckpoint();
+  } catch (failure) {
+    if (eager.some(({ type }) => type === "branch")) throw failure;
+    options.deferredSources?.set(options.sourceNodeId, {
+      session: options.sourceSession,
+      failure,
+    });
+    for (const consumer of eager) {
+      options.resolvedSessions.set(
+        consumer.invocationId,
+        options.sourceSession,
+      );
+    }
+    return;
+  }
+  if (deferred.length > 0) {
+    options.deferredSources?.set(options.sourceNodeId, {
+      session: options.sourceSession,
+      checkpoint,
+      checkpointCaptured: true,
+    });
+  }
   const materialized: Array<{
     readonly consumer: SessionConsumer;
     readonly session: ResolvedExecutorSession;
   }> = [];
-  for (const consumer of consumers) {
+  for (const consumer of eager) {
     const session =
       consumer.type === "reuse"
         ? options.sourceSession
@@ -169,4 +221,39 @@ export async function publishSessionCheckpoint(options: {
   for (const { consumer, session } of materialized) {
     options.resolvedSessions.set(consumer.invocationId, session);
   }
+}
+
+/** Materialize one selected choice arm from its source's captured state. */
+export async function materializeDeferredSessionConsumer(options: {
+  readonly sourceNodeId: string;
+  readonly source: DeferredSessionSource | undefined;
+  readonly consumer: SessionConsumer;
+  readonly resolvedSessions: Map<InvocationId, ResolvedExecutorSession>;
+}): Promise<void> {
+  const source = options.source;
+  if (source === undefined) {
+    throw new Error(
+      `No session source for choice arm "${options.consumer.invocationId}"`,
+    );
+  }
+  if (options.consumer.type === "reuse") {
+    options.resolvedSessions.set(options.consumer.invocationId, source.session);
+    return;
+  }
+  if (source.failure !== undefined) throw source.failure;
+  if (!source.checkpointCaptured || source.session.fork === undefined) {
+    throw new UnsupportedSessionBranchError(options.sourceNodeId);
+  }
+  const selection =
+    options.consumer.effectiveSelection ?? source.session.effectiveSelection;
+  const session = await source.session.fork({
+    checkpoint: source.checkpoint,
+    invocationId: options.consumer.invocationId,
+    task: options.consumer.task,
+    effectiveSelection: selection,
+  });
+  options.resolvedSessions.set(
+    options.consumer.invocationId,
+    pinSession(session, selection),
+  );
 }

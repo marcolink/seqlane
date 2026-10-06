@@ -1,5 +1,6 @@
 import type { Plan, TaskNode } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { seqlanePlanSnapshotSchema } from "@seqlane/protocol";
 import { createSeqlanePlanSnapshot } from "./plan-snapshot.js";
 
 function adaptLegacyLocalExecutionFixture(plan: Plan): Plan {
@@ -15,6 +16,78 @@ function adaptLegacyLocalExecutionFixture(plan: Plan): Plan {
 }
 
 describe("Seqlane Plan snapshots", () => {
+  it("retains typed choice arms, their dependencies, and session sources", () => {
+    const plan: Plan = {
+      workflow: { id: "snapshot-choice" },
+      nodes: [
+        {
+          type: "task",
+          nodeId: "source",
+          taskId: "source-task",
+          workspace: "shared",
+          input: {},
+          dependsOn: [],
+        },
+        {
+          type: "choice",
+          nodeId: "decision",
+          condition: {
+            type: "ref",
+            nodeId: "__seqlane_input",
+            path: ["select"],
+          },
+          dependsOn: [],
+          then: {
+            type: "task",
+            nodeId: "decision:then",
+            taskId: "review",
+            workspace: "shared",
+            session: { type: "branch", from: "source" },
+            input: {},
+            dependsOn: ["source"],
+          },
+          else: {
+            type: "workflow",
+            nodeId: "decision:else",
+            workflowId: "approval",
+            workspace: "shared",
+            input: {},
+            dependsOn: [],
+          },
+        },
+      ],
+      output: { type: "ref", nodeId: "decision", path: ["output"] },
+    };
+
+    const snapshot = createSeqlanePlanSnapshot(plan);
+    expect(seqlanePlanSnapshotSchema.safeParse(snapshot).success).toBe(true);
+    expect(snapshot.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          planNodeId: "source",
+        }),
+        expect.objectContaining({
+          planNodeId: "decision",
+          thenPlanNodeId: "decision:then",
+          elsePlanNodeId: "decision:else",
+        }),
+        expect.objectContaining({
+          planNodeId: "decision:then",
+          parentPlanNodeId: "decision",
+          choiceArm: "then",
+          dependsOn: ["source"],
+          session: { type: "branch", from: "source" },
+        }),
+        expect.objectContaining({
+          planNodeId: "decision:else",
+          parentPlanNodeId: "decision",
+          choiceArm: "else",
+          type: "workflow",
+        }),
+      ]),
+    );
+  });
+
   it("keeps graph topology while redacting bindings and bounding identities", () => {
     const longTaskId = "task-" + "x".repeat(300);
     const plan: Plan = {

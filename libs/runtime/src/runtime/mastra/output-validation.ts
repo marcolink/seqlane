@@ -1,12 +1,11 @@
 import type {
   InvocationId,
   PlanNode,
-  RepeatNode,
+  OutputValidation,
   SeqlaneEventSink,
   ValidationCheckNode,
   ValidationGateNode,
 } from "@seqlane/core";
-import type { ObservabilityContext } from "@mastra/core/observability";
 import type { PreparedPlanExecution } from "../compile/compile-plan.js";
 import {
   executeValidationCheckNode,
@@ -17,30 +16,33 @@ import {
   invocationSubject,
   invocationTaskId,
 } from "../execution/workflow-run.js";
-import { taskIdCompatibility } from "../invocation/invocation-support.js";
+import {
+  taskIdCompatibility,
+  type TaskExecutionOptions,
+} from "../invocation/invocation-support.js";
 
-interface RepeatValidationNodes {
+interface OutputValidationNodes {
   readonly inputNodeId: string;
   readonly check: ValidationCheckNode;
   readonly gate: ValidationGateNode;
 }
 
-interface RepeatValidationOptions {
-  readonly invocationId: InvocationId;
-  readonly observability: Partial<ObservabilityContext>;
-  readonly iteration: number;
-}
+type OutputValidationOptions = Pick<
+  TaskExecutionOptions,
+  "invocationId" | "observability" | "iteration"
+>;
 
 function createValidationNodes(
   attempt: PlanNode,
-  validation: RepeatNode["validation"],
-  iteration: number,
-): RepeatValidationNodes {
+  validation: OutputValidation | undefined,
+  iteration?: number,
+): OutputValidationNodes {
   if (validation === undefined) {
-    throw new Error("Repeat validation is not configured");
+    throw new Error("Output validation is not configured");
   }
-  const inputNodeId = `${attempt.nodeId}:validation-input:${iteration}`;
-  const checkNodeId = `${attempt.nodeId}:validation.check:${iteration}`;
+  const suffix = iteration ?? "choice";
+  const inputNodeId = `${attempt.nodeId}:validation-input:${suffix}`;
+  const checkNodeId = `${attempt.nodeId}:validation.check:${suffix}`;
   const input = { type: "ref" as const, nodeId: inputNodeId, path: [] };
   return {
     inputNodeId,
@@ -53,7 +55,7 @@ function createValidationNodes(
     },
     gate: {
       type: "validation.gate",
-      nodeId: `${attempt.nodeId}:validation.gate:${iteration}`,
+      nodeId: `${attempt.nodeId}:validation.gate:${suffix}`,
       input,
       checkNodeId,
       policy: "fail",
@@ -70,7 +72,7 @@ function emitCreated(
   parentInvocationId: InvocationId,
   siblingOrder: number,
   dependencyIds: readonly InvocationId[],
-  iteration: number,
+  iteration?: number,
 ): void {
   const subject = invocationSubject(node);
   events.emit({
@@ -86,7 +88,7 @@ function emitCreated(
     parentInvocationId,
     siblingOrder,
     dependencyIds,
-    iteration,
+    ...(iteration === undefined ? {} : { iteration }),
   });
 }
 
@@ -95,7 +97,7 @@ function emitGateTerminal(
   context: PreparedPlanExecution["context"],
   invocationId: InvocationId,
   checkInvocationId: InvocationId,
-  iteration: number,
+  iteration: number | undefined,
   aborted: boolean,
 ): void {
   if (aborted) {
@@ -105,7 +107,7 @@ function emitGateTerminal(
       runId: context.runId,
       invocationId,
       reason: "Validation check cancelled before gate execution",
-      iteration,
+      ...(iteration === undefined ? {} : { iteration }),
     });
     return;
   }
@@ -116,17 +118,17 @@ function emitGateTerminal(
     invocationId,
     reason: "Validation check failed before gate execution",
     dependencyIds: [checkInvocationId],
-    iteration,
+    ...(iteration === undefined ? {} : { iteration }),
   });
 }
 
-export async function validateRepeatOutput(
+export async function validateRunnableOutput(
   context: PreparedPlanExecution["context"],
   attempt: PlanNode,
   output: unknown,
-  validation: RepeatNode["validation"],
+  validation: OutputValidation | undefined,
   abortSignal: AbortSignal,
-  options: RepeatValidationOptions,
+  options: OutputValidationOptions,
 ): Promise<void> {
   if (validation === undefined) return;
   const nodes = createValidationNodes(attempt, validation, options.iteration);

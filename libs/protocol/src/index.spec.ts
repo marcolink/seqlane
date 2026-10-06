@@ -169,6 +169,70 @@ describe("@seqlane/protocol", () => {
     ).toEqual(event);
   });
 
+  it("round-trips choice arm roles and rejects a mismatched arm", () => {
+    const event: SeqlaneExecutionEvent = {
+      type: "run.plan",
+      metadata,
+      workId: "work-1",
+      runId: "run-1",
+      plan: {
+        workflow: { id: "choice-workflow" },
+        nodes: [
+          {
+            planNodeId: "source",
+            type: "task",
+            label: "source",
+            dependsOn: [],
+            siblingOrder: 0,
+          },
+          {
+            planNodeId: "decision",
+            type: "choice",
+            label: "decision",
+            dependsOn: [],
+            siblingOrder: 1,
+            thenPlanNodeId: "decision:then",
+            elsePlanNodeId: "decision:else",
+          },
+          {
+            planNodeId: "decision:then",
+            type: "task",
+            label: "review",
+            dependsOn: ["source"],
+            parentPlanNodeId: "decision",
+            choiceArm: "then",
+            siblingOrder: 0,
+          },
+          {
+            planNodeId: "decision:else",
+            type: "workflow",
+            label: "approve",
+            dependsOn: [],
+            parentPlanNodeId: "decision",
+            choiceArm: "else",
+            siblingOrder: 1,
+          },
+        ],
+      },
+    };
+    expect(
+      decodeSeqlaneExecutionEvent(encodeSeqlaneExecutionEvent(event)),
+    ).toEqual(event);
+    expect(
+      isSeqlaneExecutionEvent({
+        ...event,
+        plan: {
+          ...event.plan,
+          nodes: event.plan.nodes.map((node) =>
+            node.planNodeId === "decision:else"
+              ? { ...node, choiceArm: "then" }
+              : node,
+          ),
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("accepts executor-neutral task session policies in a Plan snapshot", () => {
     const event = {
       type: "run.plan",
