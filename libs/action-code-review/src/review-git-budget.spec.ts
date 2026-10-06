@@ -123,12 +123,55 @@ describe("review Git budgets", () => {
       0,
       () => 0,
     );
-    await expect(budget.run([], "a".repeat(40))).rejects.toMatchObject({
-      resource: "transferBytes",
-    });
+    await expect(budget.fetchExactCommit("a".repeat(40))).rejects.toMatchObject(
+      {
+        resource: "transferBytes",
+      },
+    );
     expect(fetchExactCommit.mock.calls[0]?.[1]).toMatchObject({
       limits: { wallMs: 30_000, transferBytes: 16 * 1024 * 1024 },
     });
+  });
+
+  it("routes commands and fetches separately while sharing remaining capacity", async () => {
+    const run = vi.fn<BoundedReviewGitPort["run"]>(async () => result());
+    const fetchExactCommit = vi.fn<
+      NonNullable<BoundedReviewGitPort["fetchExactCommit"]>
+    >(async () => result());
+    const budget = new ReviewGitBudget({ run, fetchExactCommit }, 0, () => 0);
+    const revision = "a".repeat(40);
+    await budget.run(["status"]);
+    await budget.fetchExactCommit(revision);
+    await budget.run(["diff"]);
+    expect(run.mock.calls.map(([request]) => request.argv)).toEqual([
+      ["--no-replace-objects", "status"],
+      ["--no-replace-objects", "diff"],
+    ]);
+    expect(fetchExactCommit).toHaveBeenCalledTimes(1);
+    expect(fetchExactCommit.mock.calls[0]).toMatchObject([
+      revision,
+      {
+        limits: {
+          cpuMs: 59_999,
+          outputBytes: 2_047_993,
+          transferBytes: 16 * 1024 * 1024,
+        },
+      },
+    ]);
+    expect(run.mock.calls[1]?.[0]).toMatchObject({
+      limits: { cpuMs: 59_998, outputBytes: 2_047_986, transferBytes: 0 },
+    });
+  });
+
+  it("rejects unavailable fetch capability without running a Git command", async () => {
+    const run = vi.fn(async () => result());
+    const budget = new ReviewGitBudget({ run }, 0, () => 0);
+    await expect(budget.fetchExactCommit("a".repeat(40))).rejects.toMatchObject(
+      {
+        code: "CHECKPOINT_UNAVAILABLE",
+      },
+    );
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("rejects an expired admission before invoking Git", async () => {

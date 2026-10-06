@@ -109,25 +109,33 @@ export class ReviewGitBudget {
     };
   }
 
-  async run(
-    argv: readonly string[],
-    fetchRevision?: string,
+  async run(argv: readonly string[]): Promise<z.infer<typeof gitResultSchema>> {
+    const request = this.request(argv, false);
+    return this.account(await this.port.run(request), request, argv.join(" "));
+  }
+
+  async fetchExactCommit(
+    revision: string,
   ): Promise<z.infer<typeof gitResultSchema>> {
-    const request = this.request(argv, fetchRevision !== undefined);
-    const operation =
-      fetchRevision === undefined ? argv.join(" ") : "exact-checkpoint-fetch";
-    let value: unknown;
-    if (fetchRevision !== undefined) {
-      if (this.port.fetchExactCommit === undefined) {
-        throw new ReviewScopeError(
-          "CHECKPOINT_UNAVAILABLE",
-          "The exact checkpoint commit is unavailable.",
-        );
-      }
-      value = await this.port.fetchExactCommit(fetchRevision, request);
-    } else {
-      value = await this.port.run(request);
+    const request = this.request([], true);
+    if (this.port.fetchExactCommit === undefined) {
+      throw new ReviewScopeError(
+        "CHECKPOINT_UNAVAILABLE",
+        "The exact checkpoint commit is unavailable.",
+      );
     }
+    return this.account(
+      await this.port.fetchExactCommit(revision, request),
+      request,
+      "exact-checkpoint-fetch",
+    );
+  }
+
+  private account(
+    value: unknown,
+    request: ReviewGitRequest,
+    operation: string,
+  ) {
     const result = gitResultSchema.parse(value);
     this.wallMs += result.usage.wallMs;
     this.cpuMs += result.usage.cpuMs;

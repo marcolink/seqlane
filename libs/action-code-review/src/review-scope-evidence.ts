@@ -34,7 +34,7 @@ async function requireCommit(
 ): Promise<void> {
   let result = await budget.run(["cat-file", "-t", revision]);
   if (result.exitCode !== 0 && fetchMissing) {
-    const fetch = await budget.run([], revision);
+    const fetch = await budget.fetchExactCommit(revision);
     if (fetch.exitCode !== 0) {
       throw new ReviewScopeError(
         "CHECKPOINT_UNAVAILABLE",
