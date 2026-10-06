@@ -7,6 +7,7 @@ import {
   reviewPositiveIntegerSchema,
 } from "@seqlane/code-review-workflow/contracts";
 import { gitRevisionSchema } from "./contracts.js";
+import { reviewMarkerJsonSchema } from "./review-marker-json.js";
 import { selectReviewAuthority } from "./review-report-authority.js";
 import { decodeReviewStateV5 } from "./review-state-codec.js";
 import { reviewSha256 } from "./review-state-canonical.js";
@@ -58,7 +59,7 @@ function readMarkerIdentity(body: string, pullRequestNumber: number) {
     body.split("<!-- seqlane-code-review-meta-").length !== 2
   )
     throw new Error("Expected one exact metadata marker");
-  const value: unknown = JSON.parse(z.string().parse(marker[2]));
+  const value = reviewMarkerJsonSchema.parse(marker[2]);
   const identity = markerIdentitySchema.parse(value);
   if (
     String(identity.schemaVersion) !== marker[1] ||

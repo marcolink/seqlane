@@ -139,8 +139,8 @@ const previousState = parseReviewState(previousReport);
 
 // After: private v5 admission, separate from the v4 caller.
 const admitted = await admitReviewScope(
-  { pullRequest: frozenPullRequest, history: completeTrustedHistory },
-  { git: boundedGit, admittedAt, signal },
+  { pullRequest: frozenPullRequest },
+  { authority: githubReadPort, git: boundedGit, admittedAt, signal },
 );
 // admitted contains the validated classification, scope identity,
 // retained findings, and collector evidence. Invalid input throws a typed error.
@@ -172,6 +172,9 @@ if (schemaVersion > 0 && schemaVersion < CURRENT_SCHEMA_VERSION) {
    Do not use latest-comment selection as proof of uniqueness.
    Require two matching inventories, each bounded to two pages and 200 comments.
    Stop on any mismatch with `REVIEW_AUTHORITY_UNSTABLE`; do not retry.
+   Admission owns this read through its required authority port and rejects
+   caller-supplied history. Duplicate JSON metadata keys, including escaped
+   aliases, fail closed before version routing.
 2. Implement the full strict v5 state and its shared component schemas.
    Include ScopeCheckpoint, RetainedFinding, FindingEvidence, LocationStatus,
    VerificationEvidence, RunStatus, ManifestReference, PublicationOperation,
@@ -317,6 +320,12 @@ content, identity, author, timestamp, and incomplete or malformed second scans.
 The shared report marker now lives in a pure identity module, so the codec
 does not depend on GitHub authority lookup. The scans provide a consistency
 check; publication guards remain necessary for changes after the read.
+Admission now owns the bounded authority scan instead of trusting a supplied
+history value. Regressions reject supplied history, duplicate reports across
+pages, and incomplete, malformed, or unstable lookup before any Git call.
+The metadata parser rejects duplicate decoded property names before routing,
+including contradictory versions without a state block. All older payloads
+remain ignored; the strict metadata identity still determines replacement.
 
 Real-Git integration covers full legacy replacement, incremental changes,
 older hunks in an edited file, non-ancestor checkpoints, same-head input,

@@ -6,6 +6,10 @@ import {
 } from "@seqlane/code-review-workflow/contracts";
 import { gitRevisionSchema } from "./contracts.js";
 import {
+  readReviewAuthority,
+  type ReviewAuthorityReadPort,
+} from "./review-report-authority.js";
+import {
   classifyReviewReport,
   reviewReportClassificationSchema,
 } from "./review-report-classification.js";
@@ -25,7 +29,6 @@ const frozenPullRequestSchema = z.strictObject({
 });
 const admissionInputSchema = z.strictObject({
   pullRequest: frozenPullRequestSchema,
-  history: z.unknown(),
 });
 const admittedReportSchema = z.discriminatedUnion("kind", [
   reviewReportClassificationSchema.options[0],
@@ -79,11 +82,17 @@ function scopeIdentityFor(
 export async function admitReviewScope(
   inputValue: unknown,
   host: Parameters<typeof collectReviewScopeEvidence>[1] & {
+    readonly authority: ReviewAuthorityReadPort;
     readonly botAuthors?: readonly string[];
   },
 ): Promise<ReviewScopeAdmission> {
   try {
-    const { pullRequest, history } = admissionInputSchema.parse(inputValue);
+    const { pullRequest } = admissionInputSchema.parse(inputValue);
+    host.signal?.throwIfAborted();
+    const history = await readReviewAuthority(
+      host.authority,
+      pullRequest.pullRequestNumber,
+    );
     host.signal?.throwIfAborted();
     const classification = await classifyReviewReport(
       history,

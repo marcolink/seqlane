@@ -2,6 +2,7 @@
 // @test-scope ./review-report-authority.ts
 // @test-scope ./review-scope-evidence.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReviewHistory } from "./contracts.js";
 import { createReviewGitFixture } from "./review-git-fixture.test-support.js";
 import { admitReviewScope } from "./review-scope-admission.js";
 import { encodeReviewStateV5 } from "./review-state-codec.js";
@@ -10,14 +11,154 @@ import {
   createRetainedFindingFixture,
   reviewReportFixture,
 } from "./review-state-fixture.test-support.js";
-import { readReviewAuthority } from "./review-report-authority.js";
 
+function authorityFixture(
+  history: ReviewHistory = { comments: [], truncated: false },
+) {
+  return {
+    listIssueComments: vi.fn(async () => ({
+      items: history.comments.map((comment) => ({
+        id: comment.id,
+        user: { login: comment.author },
+        author_association: comment.authorAssociation,
+        body: comment.body,
+        created_at: comment.createdAt,
+        updated_at: comment.updatedAt ?? comment.createdAt,
+      })),
+      hasNextPage: history.truncated,
+    })),
+  };
+}
+
+const frozenPullRequest = {
+  repositoryId: "1",
+  pullRequestNumber: 112,
+  targetBranch: "release",
+  baseRevision: "b".repeat(40),
+  headRevision: "c".repeat(40),
+};
 const fixtures: Awaited<ReturnType<typeof createReviewGitFixture>>[] = [];
 afterEach(async () => {
   await Promise.all(fixtures.splice(0).map((fixture) => fixture.dispose()));
 });
 
 describe("trusted review scope admission", { timeout: 20_000 }, () => {
+  it("reads authority itself and blocks duplicate current reports before Git work", async () => {
+    const body = encodeReviewStateV5(createReviewStateFixture());
+    const listIssueComments = vi.fn(async (_pr: number, page: number) => ({
+      items: [
+        {
+          id: page === 1 ? 42 : 43,
+          user: { login: "github-actions[bot]" },
+          author_association: "NONE",
+          body,
+          created_at: "2026-10-06",
+          updated_at: "2026-10-06",
+        },
+      ],
+      hasNextPage: page === 1,
+    }));
+    const run = vi.fn();
+    const fetchExactCommit = vi.fn();
+    await expect(
+      admitReviewScope(
+        {
+          pullRequest: frozenPullRequest,
+        },
+        {
+          authority: { listIssueComments },
+          git: { run, fetchExactCommit },
+          admittedAt: performance.now(),
+        },
+      ),
+    ).rejects.toMatchObject({ code: "REVIEW_AUTHORITY_AMBIGUOUS" });
+    expect(listIssueComments.mock.calls).toEqual([
+      [112, 1],
+      [112, 2],
+      [112, 1],
+      [112, 2],
+    ]);
+    expect(run).not.toHaveBeenCalled();
+    expect(fetchExactCommit).not.toHaveBeenCalled();
+  });
+  it.each([
+    { comments: [], truncated: false },
+    {
+      comments: [
+        reviewReportFixture(encodeReviewStateV5(createReviewStateFixture())),
+      ],
+      truncated: false,
+    },
+  ])(
+    "rejects supplied history before authority lookup or Git work",
+    async (history) => {
+      const authority = authorityFixture();
+      const run = vi.fn();
+      const fetchExactCommit = vi.fn();
+      await expect(
+        admitReviewScope(
+          { pullRequest: frozenPullRequest, history },
+          {
+            authority,
+            git: { run, fetchExactCommit },
+            admittedAt: performance.now(),
+          },
+        ),
+      ).rejects.toMatchObject({ code: "REVIEW_ADMISSION_INVALID" });
+      expect(authority.listIssueComments).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
+      expect(fetchExactCommit).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    {
+      secondPage: { items: [], hasNextPage: true },
+      code: "REVIEW_AUTHORITY_INCOMPLETE",
+      calls: 3,
+    },
+    {
+      secondPage: { items: [null], hasNextPage: false },
+      code: "REVIEW_AUTHORITY_READ_FAILED",
+      calls: 2,
+    },
+    {
+      secondPage: {
+        items: [
+          {
+            id: 42,
+            user: { login: "github-actions[bot]" },
+            author_association: "NONE",
+            body: encodeReviewStateV5(createReviewStateFixture()),
+            created_at: "2026-10-06",
+            updated_at: "2026-10-06",
+          },
+        ],
+        hasNextPage: false,
+      },
+      code: "REVIEW_AUTHORITY_UNSTABLE",
+      calls: 2,
+    },
+  ])("blocks $code before Git work", async ({ secondPage, code, calls }) => {
+    const listIssueComments = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [], hasNextPage: false })
+      .mockResolvedValue(secondPage);
+    const run = vi.fn();
+    const fetchExactCommit = vi.fn();
+    await expect(
+      admitReviewScope(
+        { pullRequest: frozenPullRequest },
+        {
+          authority: { listIssueComments },
+          git: { run, fetchExactCommit },
+          admittedAt: performance.now(),
+        },
+      ),
+    ).rejects.toMatchObject({ code });
+    expect(listIssueComments).toHaveBeenCalledTimes(calls);
+    expect(run).not.toHaveBeenCalled();
+    expect(fetchExactCommit).not.toHaveBeenCalled();
+  });
   it.each([1, 2, 3, 4])(
     "ignores all v%s state and collects a full baseline",
     async (schemaVersion) => {
@@ -44,7 +185,9 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
             baseRevision,
             headRevision,
           },
-          history: {
+        },
+        {
+          authority: authorityFixture({
             comments: [
               {
                 id: "42",
@@ -56,9 +199,10 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
               },
             ],
             truncated: false,
-          },
+          }),
+          git: fixture.git,
+          admittedAt: performance.now(),
         },
-        { git: fixture.git, admittedAt: performance.now() },
       );
       expect(result.classification.kind).toBe("legacy");
       expect(result.scopeIdentity.mode).toBe("legacy-replacement");
@@ -102,7 +246,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
     });
     await fixture.write("later.ts", "new edit\n");
     const headRevision = await fixture.commit();
-    const history = await readReviewAuthority({ listIssueComments }, 112);
     const result = await admitReviewScope(
       {
         pullRequest: {
@@ -112,10 +255,17 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           baseRevision,
           headRevision,
         },
-        history,
       },
-      { git: fixture.git, admittedAt: performance.now() },
+      {
+        authority: { listIssueComments },
+        git: fixture.git,
+        admittedAt: performance.now(),
+      },
     );
+    expect(listIssueComments.mock.calls).toEqual([
+      [112, 1],
+      [112, 1],
+    ]);
     expect(result.scopeIdentity).toMatchObject({
       mode: "incremental",
       checkpointRevision: checkpoint,
@@ -146,12 +296,15 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           baseRevision,
           headRevision,
         },
-        history: {
+      },
+      {
+        authority: authorityFixture({
           comments: [reviewReportFixture(encodeReviewStateV5(state))],
           truncated: false,
-        },
+        }),
+        git: fixture.git,
+        admittedAt: performance.now(),
       },
-      { git: fixture.git, admittedAt: performance.now() },
     );
     expect(result.scopeIdentity.mode).toBe("no-change");
     expect(result.evidence.batches).toEqual([]);
@@ -185,12 +338,15 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           baseRevision,
           headRevision,
         },
-        history: {
+      },
+      {
+        authority: authorityFixture({
           comments: [reviewReportFixture(encodeReviewStateV5(state))],
           truncated: false,
-        },
+        }),
+        git: fixture.git,
+        admittedAt: performance.now(),
       },
-      { git: fixture.git, admittedAt: performance.now() },
     );
     expect(result.evidence.batches[0]?.patch).toContain("+new changed cause");
     expect(result.evidence.batches[0]?.patch).not.toContain(
@@ -220,12 +376,15 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           baseRevision,
           headRevision,
         },
-        history: {
+      },
+      {
+        authority: authorityFixture({
           comments: [reviewReportFixture(encodeReviewStateV5(state))],
           truncated: false,
-        },
+        }),
+        git: fixture.git,
+        admittedAt: performance.now(),
       },
-      { git: fixture.git, admittedAt: performance.now() },
     );
     expect(result.classification.kind).toBe("current");
     expect(result.scopeIdentity).toMatchObject({
@@ -252,9 +411,12 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           baseRevision,
           headRevision,
         },
-        history: { comments: [], truncated: false },
       },
-      { git: fixture.git, admittedAt: performance.now() },
+      {
+        authority: authorityFixture(),
+        git: fixture.git,
+        admittedAt: performance.now(),
+      },
     );
     expect(result.scopeIdentity.mode).toBe("new-baseline");
     expect(result.evidence.excludedPaths).toEqual(["pnpm-lock.yaml"]);
@@ -264,6 +426,14 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
     );
   });
   it.each([
+    {
+      comments: [
+        reviewReportFixture(
+          `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v4: {"schemaVersion":5,"schemaVersion":4,"pullRequestNumber":112,"reviewedRevision":"${"c".repeat(40)}"} -->`,
+        ),
+      ],
+      truncated: false,
+    },
     {
       comments: [
         reviewReportFixture(
@@ -311,9 +481,12 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
             baseRevision: "b".repeat(40),
             headRevision: "c".repeat(40),
           },
-          history,
         },
-        { git: { run, fetchExactCommit }, admittedAt: performance.now() },
+        {
+          authority: authorityFixture(history),
+          git: { run, fetchExactCommit },
+          admittedAt: performance.now(),
+        },
       ),
     ).rejects.toThrow();
     expect(run).not.toHaveBeenCalled();
@@ -329,25 +502,31 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
         baseRevision: "b".repeat(40),
         headRevision: "c".repeat(40),
       },
-      history: {
-        comments: [
-          reviewReportFixture(encodeReviewStateV5(createReviewStateFixture())),
-        ],
-        truncated: false,
-      },
     };
+    const authority = authorityFixture({
+      comments: [
+        reviewReportFixture(encodeReviewStateV5(createReviewStateFixture())),
+      ],
+      truncated: false,
+    });
     await expect(
-      admitReviewScope(input, { git: { run }, admittedAt: performance.now() }),
+      admitReviewScope(input, {
+        authority,
+        git: { run },
+        admittedAt: performance.now(),
+      }),
     ).rejects.toMatchObject({ code: "REVIEW_REPORT_INVALID" });
     const controller = new AbortController();
     controller.abort();
     await expect(
       admitReviewScope(input, {
+        authority,
         git: { run },
         admittedAt: performance.now(),
         signal: controller.signal,
       }),
     ).rejects.toMatchObject({ code: "REVIEW_ADMISSION_CANCELLED" });
     expect(run).not.toHaveBeenCalled();
+    expect(authority.listIssueComments).toHaveBeenCalledTimes(2);
   });
 });

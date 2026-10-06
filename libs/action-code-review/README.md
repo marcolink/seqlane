@@ -20,24 +20,22 @@ The private `admitReviewScope` entry point connects trusted report classificatio
 to the incremental scope collector. The production v4 workflow does not call it.
 
 ```ts
-import {
-  admitReviewScope,
-  readReviewAuthority,
-} from "@seqlane/action-code-review";
+import { admitReviewScope } from "@seqlane/action-code-review";
 
 // Before: the v4 reader returns undefined for missing or invalid state.
 const previousState = parseReviewState(previousReport);
 
 // After: the private v5 path rejects invalid current state before Git work.
-const history = await readReviewAuthority(githubReadPort, pullRequestNumber);
 const admission = await admitReviewScope(
-  { pullRequest: frozenPullRequest, history },
-  { git: boundedGit, admittedAt, signal },
+  { pullRequest: frozenPullRequest },
+  { authority: githubReadPort, git: boundedGit, admittedAt, signal },
 );
 ```
 
 The frozen PR contains `repositoryId`, `pullRequestNumber`, `targetBranch`,
 `baseRevision`, and `headRevision`. Capture these before admission.
+Admission performs authority lookup itself through the required read-only
+`authority` port. Caller-supplied `history` is rejected; it cannot bypass lookup.
 The GitHub port returns raw issue-comment pages with `items` and explicit
 `hasNextPage`. Lookup requires two matching inventories, each limited to two
 pages and 200 comments: at most four requests, with no retries. Changed
@@ -55,6 +53,9 @@ admission. Only its report ID and exact marker digest remain for later guards.
 Future versions and malformed v5 reports block. A valid v5 report selects its
 published `reviewedRevision` as the checkpoint and preserves all retained
 findings as reference context. Artifact expiry alone does not reset that checkpoint.
+Metadata JSON must have unique decoded property names before version routing.
+Duplicate keys, including escaped aliases, select `invalid-current`; they cannot
+downgrade a report to legacy or reset its checkpoint.
 
 Shared strict v5 schemas are exported by
 `@seqlane/code-review-workflow/contracts`. `encodeReviewStateV5` and

@@ -14,6 +14,21 @@ function history(body: string) {
 }
 
 describe("strict report version routing", () => {
+  it.each([
+    '"schemaVersion":5,"schemaVersion":4',
+    '"schemaVersion":4,"\\u0073chemaVersion":4',
+    '"schemaVersion":4,"pullRequestNumber":113',
+    `"schemaVersion":4,"reviewedRevision":"${"b".repeat(40)}"`,
+  ])(
+    "rejects duplicate identity keys instead of downgrading to legacy: %s",
+    async (fields) => {
+      const body = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v4: {${fields},"pullRequestNumber":112,"reviewedRevision":"${"a".repeat(40)}"} -->`;
+      expect(await classifyReviewReport(history(body), context)).toMatchObject({
+        kind: "invalid-current",
+        reportId: "42",
+      });
+    },
+  );
   it("has mutually exclusive absent, legacy, current, and invalid outcomes", async () => {
     expect(
       await classifyReviewReport({ comments: [], truncated: false }, context),
