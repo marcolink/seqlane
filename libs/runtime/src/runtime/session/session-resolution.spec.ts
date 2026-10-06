@@ -45,7 +45,7 @@ describe("session model selection resolution", () => {
     const consumers = ["then", "else"].map((invocationId) => ({
       invocationId,
       task: taskDefinition,
-      type: "branch" as const,
+      type: "fork" as const,
       deferred: true,
     }));
     const deferredSources = new Map<string, DeferredSessionSource>();
@@ -90,7 +90,7 @@ describe("session model selection resolution", () => {
     const consumer = {
       invocationId: "branch",
       task: taskDefinition,
-      type: "branch" as const,
+      type: "fork" as const,
       deferred: true,
     };
     const deferredSources = new Map<string, DeferredSessionSource>();

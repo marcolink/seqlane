@@ -19,6 +19,78 @@ import {
 } from "./mastra-execution.js";
 
 describe("choice cancellation during session admission", () => {
+  it("reports selected isolated session resolution failure", async () => {
+    const schema = z.object({ value: z.string() });
+    const execute = vi.fn(async () => ({ value: "result" }));
+    const task = defineTask({
+      id: "isolated-choice-task",
+      input: z.object({}),
+      output: schema,
+      execute,
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "isolated-failure",
+        input: z.object({ select: z.boolean() }),
+        output: schema,
+      })
+        .when(({ input }) => input.select)
+        .task("decision", task, () => ({}), { session: { type: "isolated" } })
+        .otherwise(task, () => ({}))
+        .output(({ tasks }) => tasks.decision.output)
+        .define(),
+    );
+    const events: SeqlaneEvent[] = [];
+    const sink = {
+      emit: (event: SeqlaneEvent) => {
+        events.push(event);
+      },
+    };
+    const resolve = vi.fn(async () => {
+      throw new Error("isolated resolver rejected");
+    });
+    const executeModel = vi.fn(async () => ({}));
+    const execution = createMastraPlanExecution({
+      plan: built.plan,
+      workflow: built.workflow,
+      workflowInput: { select: true },
+      workId: "work",
+      runId: "run",
+      createInvocationId: (nodeId) => nodeId ?? "invocation",
+      taskDefinitions: built.taskDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+      executors: { agent: () => ({ execute: executeModel }) },
+      sessionResolver: { resolve },
+      workspaceResources: new Map(),
+      events: sink,
+    });
+    await resolveCompiledWorkflowSessions(execution.prepared);
+    emitMastraInvocationTopology(execution.compiled, execution.prepared, sink);
+    const active = await execution.runtime.start({
+      workflowKey: built.plan.workflow.id,
+      input: { select: true },
+      workId: "work",
+      runId: "run",
+    });
+    await active.outcome;
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "invocation.failed" &&
+          event.invocationId === "choice:1:then",
+      ),
+    ).toHaveLength(1);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "invocation.skipped",
+        invocationId: "choice:1:then",
+      }),
+    );
+    expect(execute).not.toHaveBeenCalled();
+    expect(executeModel).not.toHaveBeenCalled();
+  });
+
   it.each([
     { policyName: "reuse", sessionPolicy: reuse },
     { policyName: "fork", sessionPolicy: branch },

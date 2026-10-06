@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-02
-updated: 2026-10-05
+updated: 2026-10-06
 upstream:
   - adr.session-checkpoint-reuse-and-branching
 supersedes: []
@@ -38,7 +38,8 @@ shape. Both authoring policy spellings are accepted. The builder emits canonical
 The canonical Plan schema accepts legacy `type: "branch"` policies and normalizes
 them to `type: "fork"` before runtime validation and execution. It preserves the
 source and optional model selection, rejects malformed policies, and also applies
-inside repeat attempts. Protocol readers accept both spellings;
+inside repeat attempts and choice arms. Compatible Plan input types remain
+available; compiler output types describe canonical policies. Protocol readers accept both spellings;
 new run snapshots emit `fork`. No removal deadline is established.
 
 Current public session guides and examples show only `fork`. Compatibility names

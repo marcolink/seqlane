@@ -580,6 +580,15 @@ export function createMastraPlanInvocationHandler(
               },
               resolvedSessions: context.resolvedSessions,
             });
+          } else if (policy?.type === "isolated") {
+            await resolveTaskSession(
+              context.resolvedSessions,
+              context.sessionResolver,
+              context.taskDefinitions,
+              invocationId,
+              node.taskId,
+              context.effectiveModelSelectionsByNode.get(node.nodeId),
+            );
           }
         } catch (cause) {
           failChoiceTaskPreflight(cause, {

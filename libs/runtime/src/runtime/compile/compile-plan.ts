@@ -1,19 +1,20 @@
 import { randomUUID } from "node:crypto";
 import type {
+  CanonicalPlan,
+  CanonicalPlanNode,
   InvocationId,
   Plan,
   PlanNodeId,
-  PlanNode,
   RunId,
   TaskDefinitionRegistry,
   SeqlaneEventSink,
-  ValidationCheckNode,
   ValidatorDefinitionRegistry,
   WorkflowDefinitionRegistry,
   WorkId,
 } from "@seqlane/core";
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import {
+  planSchema,
   taskDefinitionRegistrySchema,
   validatorDefinitionRegistrySchema,
 } from "@seqlane/core";
@@ -54,13 +55,13 @@ import {
 import { lowerWorkspaceOrdering } from "../workspace/workspace-ordering.js";
 
 export interface PreparedPlan {
-  readonly plan: Plan;
-  readonly orderedNodes: readonly PlanNode[];
+  readonly plan: CanonicalPlan;
+  readonly orderedNodes: readonly CanonicalPlanNode[];
 }
 
 export interface PreparedPlanExecution {
-  readonly plan: Plan;
-  readonly orderedNodes: readonly PlanNode[];
+  readonly plan: CanonicalPlan;
+  readonly orderedNodes: readonly CanonicalPlanNode[];
   readonly context: ExecutionContext;
 }
 
@@ -191,7 +192,9 @@ export class PlanCompiler {
       lowerReuseSessionOrdering(prepared.orderedNodes),
       options.workspaceResources,
     );
-    const loweredPlan = withLoweredPlanNodes(parsedPlan, orderedNodes);
+    const loweredPlan = planSchema.parse(
+      withLoweredPlanNodes(parsedPlan, orderedNodes),
+    );
     assertValidationRegistries(
       parsedPlan,
       options.taskDefinitions,
@@ -232,7 +235,7 @@ export class PlanCompiler {
 
     return {
       plan: loweredPlan,
-      orderedNodes,
+      orderedNodes: orderParsedPlanNodes(loweredPlan),
       context,
     };
   }
@@ -245,10 +248,7 @@ export class PlanCompiler {
     } = this.prepareWorkflow(plan, options);
     const checkNodes = new Map(
       loweredPlan.nodes
-        .filter(
-          (node): node is ValidationCheckNode =>
-            node.type === "validation.check",
-        )
+        .filter((node) => node.type === "validation.check")
         .map((node) => [node.nodeId, node]),
     );
     const steps: SequentialProgramStep[] = [];

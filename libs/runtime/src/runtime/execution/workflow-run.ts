@@ -1,8 +1,6 @@
 import type {
   InvocationId,
   PlanNode,
-  RepeatNode,
-  TaskNode,
   SeqlaneInvocationSubject,
   SeqlaneRunOutcome,
 } from "@seqlane/core";
@@ -162,12 +160,7 @@ export function startCompiledWorkflow(
           runId: context.runId,
           activeInvocationIds: compiled.orderedNodes
             .filter(
-              (
-                node,
-              ): node is
-                | TaskNode
-                | RepeatNode
-                | Extract<PlanNode, { type: "workflow" }> =>
+              (node) =>
                 node.type === "task" ||
                 node.type === "workflow" ||
                 node.type === "repeat",

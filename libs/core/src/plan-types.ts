@@ -44,14 +44,22 @@ export const planSessionPolicySchema = z.discriminatedUnion("type", [
 ]);
 
 /** Input includes the deprecated spelling for existing in-memory Plans. */
-export type PlanSessionPolicy = z.input<typeof planSessionPolicySchema>;
+export type PlanSessionPolicyInput = z.input<typeof planSessionPolicySchema>;
+
+/** Canonical policy after legacy input normalization. */
+export type CanonicalPlanSessionPolicy = z.output<
+  typeof planSessionPolicySchema
+>;
+
+/** Compatible authoring input; use CanonicalPlanSessionPolicy for parsed policies. */
+export type PlanSessionPolicy = PlanSessionPolicyInput;
 
 export interface TaskNode {
   readonly type: "task";
   readonly taskId: TaskId;
   readonly nodeId: PlanNodeId;
   readonly workspace: WorkspacePolicy;
-  readonly session?: PlanSessionPolicy;
+  readonly session?: PlanSessionPolicyInput;
   readonly input: ValueBinding;
   readonly dependsOn: readonly PlanNodeId[];
 }
@@ -247,11 +255,13 @@ export const planSchema = z.strictObject({
   output: valueBindingSchema,
 });
 
-export type PlanSchemaOutput = z.infer<typeof planSchema>;
+export type PlanSchemaOutput = z.output<typeof planSchema>;
+export type CanonicalPlan = PlanSchemaOutput;
+export type CanonicalPlanNode = z.output<typeof planNodeSchema>;
 
 export interface BuiltWorkflow<Input = unknown, Output = unknown> {
   readonly workflow: WorkflowDefinition<Input, Output>;
-  readonly plan: Plan;
+  readonly plan: CanonicalPlan;
   readonly taskDefinitions: TaskDefinitionRegistry;
   readonly validatorDefinitions: ValidatorDefinitionRegistry;
   /** Runtime-only registry for nested workflow definitions. */

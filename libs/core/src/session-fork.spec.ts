@@ -17,6 +17,10 @@ import {
   planSchema,
   planSessionPolicySchema,
   type ModelSelection,
+  type CanonicalPlan,
+  type PlanSessionPolicy,
+  type CanonicalPlanSessionPolicy,
+  type PlanSessionPolicyInput,
 } from "./index.js";
 
 const model: ModelSelection = {
@@ -25,6 +29,23 @@ const model: ModelSelection = {
 };
 
 describe("session fork compatibility", () => {
+  it("separates compatible policy inputs from canonical Plan outputs", () => {
+    expectTypeOf<CanonicalPlanSessionPolicy["type"]>().toEqualTypeOf<
+      "isolated" | "reuse" | "fork"
+    >();
+    expectTypeOf<PlanSessionPolicyInput["type"]>().toEqualTypeOf<
+      "isolated" | "reuse" | "fork" | "branch"
+    >();
+    expectTypeOf<PlanSessionPolicy>().toEqualTypeOf<PlanSessionPolicyInput>();
+    type CanonicalTask = Extract<
+      CanonicalPlan["nodes"][number],
+      { type: "task" }
+    >;
+    expectTypeOf<NonNullable<CanonicalTask["session"]>["type"]>().toEqualTypeOf<
+      "isolated" | "reuse" | "fork"
+    >();
+  });
+
   it.each([undefined, model])(
     "preserves deprecated helper arguments and return shape (%j)",
     (selection) => {

@@ -26,7 +26,7 @@ import type {
   ChoiceNode,
   Plan,
   PlanNode,
-  PlanSessionPolicy,
+  CanonicalPlanSessionPolicy,
   RepeatNode,
   RunnableNode,
   OutputValidation,
@@ -52,7 +52,7 @@ import type {
 
 function serializeSessionPolicy(
   policy: TaskInvocationOptions<unknown, unknown>["session"],
-): PlanSessionPolicy | undefined {
+): CanonicalPlanSessionPolicy | undefined {
   const resolved = policy;
   if (resolved === undefined) return undefined;
   if (resolved.type === "isolated") return resolved;

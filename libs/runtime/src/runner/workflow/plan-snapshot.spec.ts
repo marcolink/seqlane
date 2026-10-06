@@ -24,6 +24,7 @@ describe("Seqlane Plan snapshots", () => {
           type: "task",
           nodeId: "source",
           taskId: "source-task",
+          session: { type: "isolated" },
           workspace: "shared",
           input: {},
           dependsOn: [],

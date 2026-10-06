@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-10-05
-updated: 2026-10-05
+updated: 2026-10-06
 upstream:
   - spec.session-checkpoint-reuse-and-branching
   - spec.model-selection-and-session-model-semantics
@@ -192,6 +192,14 @@ rename conditional control flow.
 - Required validation passes; delivery evidence identifies the merged target revision.
 
 ## Outcome
+
+Approved review fixes reject choice session wait cycles and sources without a
+session policy. Selected isolated-session setup now reports failure through the
+same terminal-event path as reuse and fork setup. Regressions cover legacy policies,
+direct/transitive cycles, and rejected isolated-session resolution. Compiler results
+use canonical output types; public Plan input and policy aliases remain compatible.
+The session guide's extra trailing blank line is removed. Advisory model caching
+remains deferred pending measured performance evidence.
 
 Implemented locally in [PR #174](https://github.com/marcolink/seqlane/pull/174).
 The public `fork` helper emits the new policy. Deprecated `branch` preserves its

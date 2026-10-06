@@ -138,9 +138,15 @@ const workflow = createFlow({
 ```
 
 Seqlane captures the source checkpoint before the parent session can advance.
-Forks materialize eagerly from that checkpoint.
+Unconditional forks materialize eagerly. Choice arms create only the selected
+fork from that checkpoint.
 Forking needs an executor-native checkpoint fork; Seqlane rejects an adapter
 that cannot provide one rather than summarizing context or starting empty.
+
+`Plan` and `PlanSessionPolicyInput` accept legacy session policies. Parsed
+`CanonicalPlan` and `CanonicalPlanSessionPolicy` types use canonical fork policies.
+The compiler returns canonical Plans. `PlanSessionPolicy` remains a compatible
+input alias for existing callers.
 
 Use `reuse()` when a code review needs the implementation session context. Bind
 the review input to the implementation output and continue its exact session:

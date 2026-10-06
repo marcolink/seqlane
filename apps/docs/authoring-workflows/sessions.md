@@ -51,4 +51,3 @@ has the source history but can continue independently.
 
 Forking requires an adapter that can create a native checkpoint fork. Seqlane
 stops the run when the adapter cannot provide that capability.
-
