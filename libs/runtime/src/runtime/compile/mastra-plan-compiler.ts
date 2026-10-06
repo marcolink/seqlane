@@ -90,6 +90,8 @@ export type MastraPlanInvocation = (
 
 export interface MastraPlanInputValidationFailureContext {
   readonly node: PlanNode;
+  /** Choice arms fail input validation before admission and must not start. */
+  readonly choiceArm?: true;
   readonly workId: WorkId;
   readonly runId: RunId;
   readonly invocationId: InvocationId;

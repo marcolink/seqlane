@@ -842,20 +842,23 @@ export function createMastraPlanExecution(
     onFailure: captureFailure,
     onInputValidationFailure: ({
       node,
+      choiceArm,
       workId,
       runId,
       invocationId,
       error,
     }) => {
-      const subject = invocationSubject(node);
-      events.emit({
-        type: "invocation.started",
-        workId,
-        runId,
-        invocationId,
-        subject,
-        ...taskIdCompatibility(subject),
-      });
+      if (choiceArm !== true) {
+        const subject = invocationSubject(node);
+        events.emit({
+          type: "invocation.started",
+          workId,
+          runId,
+          invocationId,
+          subject,
+          ...taskIdCompatibility(subject),
+        });
+      }
       events.emit({
         type: "invocation.failed",
         workId,

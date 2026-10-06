@@ -90,6 +90,7 @@ function armStep(
           if (invocationId !== undefined) {
             options.onInputValidationFailure?.({
               node: arm,
+              choiceArm: true,
               workId: envelope.workId,
               runId: envelope.runId,
               invocationId,

@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-26
-updated: 2026-10-05
+updated: 2026-10-06
 upstream:
   - spec.mastra-backed-seqlane-workflows
   - adr.exclusive-flow-choice
@@ -119,6 +119,10 @@ Finding `SEQ-PR170-017` emits selected-arm preflight failure without a task
 start event. Real Mastra regressions cover unavailable models and unsupported
 session capabilities, failed arm and choice events, no workspace admission,
 no session creation, no fallback execution, and zero model calls.
+Finding `SEQ-PR170-019` emits selected-arm input validation failure without a
+start event. Real Mastra regressions cover task and child-workflow arms on
+both routes, failed arm and choice events, no admission, no fallback execution,
+and zero model calls. Ordinary input-failure events remain unchanged.
 
 ## Delivery state
 

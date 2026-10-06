@@ -44,6 +44,8 @@ Direct calls and repeat tasks prepare raw input in the kernel. Child workflows
 reuse prepared input or validate raw input at their workflow boundary. Schema
 transforms reach the runnable without a second parse. Output validators share
 one check/gate implementation; each caller retains its validation timing.
+Selected choice arms with invalid input emit failure without a start event.
+They acquire no session or workspace admission and never execute a fallback.
 
 The runtime parses its typed input, admits the invocation's workspace policy,
 and provides a scoped `TaskContext`. `context.exec` runs an executable with
