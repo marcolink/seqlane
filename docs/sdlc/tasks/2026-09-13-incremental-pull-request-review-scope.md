@@ -336,7 +336,10 @@ The test typecheck retains the same three errors in the untouched
 
 Ripwire reports expected contract churn and a longer fetch function.
 The longer function replaces the separate custom transport and protocol modules;
-no suppression is recorded. Hosted CI for the revised code remains pending.
+no suppression is recorded.
+[Hosted CI](https://github.com/marcolink/seqlane/actions/runs/37587697396)
+passes for the revised code at `748cca4a3d30db56fe4d10619adb2661e3717d06`.
+The SDLC contract changed first in `5aadcff`; implementation followed in `748cca4`.
 
 The scope selector, checkpoint validation, complete-evidence rules, model limits,
 and publication guards remain unchanged. Full v5 production wiring is pending.
