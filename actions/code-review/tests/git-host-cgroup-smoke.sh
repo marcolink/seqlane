@@ -27,7 +27,7 @@ sudo mkdir "$review_root/supervisor"
 sudo chown -R "$(id -u):$(id -g)" "$review_root"
 
 # Placement is privileged; every descendant then uses the runner identity.
-sudo /usr/bin/env PATH="$PATH" HOME="$HOME" PNPM_HOME="$PNPM_HOME" \
+sudo /usr/bin/env PATH="$PATH" HOME="$HOME" PNPM_HOME="$PNPM_HOME" CI=true NX_DAEMON=false \
   SEQLANE_REVIEW_CGROUP_ROOT="$review_root" /bin/bash -euc '
     printf "%s" "$$" > "$SEQLANE_REVIEW_CGROUP_ROOT/supervisor/cgroup.procs"
     exec /usr/bin/setpriv --reuid="$1" --regid="$2" --init-groups \
