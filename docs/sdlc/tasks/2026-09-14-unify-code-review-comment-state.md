@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-09-14
-updated: 2026-10-06
+updated: 2026-10-07
 upstream:
   - spec.github-native-review-publication
   - spec.versioned-pull-request-review-comments
@@ -98,6 +98,10 @@ None blocks this implementation slice.
 
 ## Implementation plan
 
+The Git admission contract now requires runner-prepared base, head, and checkpoint
+commits. Admission performs local reads only. Missing checkpoints return
+`CHECKPOINT_UNAVAILABLE`; admission has no fetch or authentication capability.
+
 ### Next PR: trusted v5 report admission
 
 Suggested title: `feat(review): admit trusted v5 review checkpoints`.
@@ -129,7 +133,12 @@ strict admission paths exist.
 Excluded: production host enforcement, model dispatch, finding allocation,
 manifest upload, cost accumulation, rendering, indexes, queues, and comment writes.
 The existing v4 workflow remains on its current reader and schemas.
-The real-Git fixture provides local integration evidence, not production hard limits.
+The real-Git fixture provides local integration evidence.
+The revised [Git execution contract](../specs/2026-09-13-incremental-pull-request-review-scope.md#requirement-complete-evidence)
+requires timeout, cancellation, bounded output, and measured wall time.
+CPU, memory, and transfer controls are not Git execution requirements.
+PR #179 will use the existing admission entry point and a small byte-safe Git
+adapter. Admission owns the shared deadline; raw authority reads accept its signal.
 
 Conceptual before and after:
 
@@ -140,7 +149,7 @@ const previousState = parseReviewState(previousReport);
 // After: private v5 admission, separate from the v4 caller.
 const admitted = await admitReviewScope(
   { pullRequest: frozenPullRequest },
-  { authority: githubReadPort, git: boundedGit, admittedAt, signal },
+  { authority: githubReadPort, git: boundedGit, signal },
 );
 // admitted contains the validated classification, scope identity,
 // retained findings, and collector evidence. Invalid input throws a typed error.
@@ -204,8 +213,8 @@ if (schemaVersion > 0 && schemaVersion < CURRENT_SCHEMA_VERSION) {
 6. Connect the classifier to one private admission entry point. Only absent
    and legacy select baseline variants. Current state selects C from
    `reviewedRevision`. Timestamps, metrics, and previousReviewedRevision do not.
-   Reuse the collector for exact commit validation, checkpoint fetch, HEAD
-   validation, path selection, exclusions, and shared Git budgets.
+   Reuse the collector for exact local commit validation, checkpoint availability,
+   HEAD validation, path selection, exclusions, and shared Git budgets.
    Keep the frozen identity consistent with evidence through empty scope.
 
 The second tracer uses one valid serialized v5 report in the same real-Git

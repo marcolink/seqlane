@@ -92,7 +92,7 @@ describe("verified finding lifecycle", () => {
       );
     const authority = authorityFixture(body);
     const run = vi.fn();
-    const fetchExactCommit = vi.fn();
+
     await expect(
       admitReviewScope(
         {
@@ -106,14 +106,12 @@ describe("verified finding lifecycle", () => {
         },
         {
           authority,
-          git: { run, fetchExactCommit },
-          admittedAt: performance.now(),
+          git: { run },
         },
       ),
     ).rejects.toMatchObject({ code: "REVIEW_REPORT_INVALID" });
     expect(authority.listIssueComments).toHaveBeenCalledTimes(2);
     expect(run).not.toHaveBeenCalled();
-    expect(fetchExactCommit).not.toHaveBeenCalled();
   });
   it.each([
     ["resolved", "persisting", null],
@@ -282,7 +280,6 @@ describe("verified finding lifecycle", () => {
         {
           authority: authorityFixture(encodeReviewStateV5(state)),
           git: fixture.git,
-          admittedAt: performance.now(),
         },
       );
       expect(result.scopeIdentity.mode).toBe("no-change");

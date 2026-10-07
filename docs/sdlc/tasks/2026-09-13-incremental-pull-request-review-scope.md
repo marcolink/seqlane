@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-09-13
-updated: 2026-10-06
+updated: 2026-10-07
 upstream:
   - spec.incremental-pull-request-review-scope
 supersedes: []
@@ -77,10 +77,10 @@ symlink, submodule, and hostile-path cases. Port tests cover missing measurement
 truncation, cancellation, and resource boundaries.
 
 This slice implements the collector against a strict trusted host port.
-It rejects absent resource measurements and requires host enforcement before
-production use. The existing process API does not provide complete CPU,
-memory, or fetch-transfer controls. A production host adapter remains required.
-The real-Git test adapter measures child resources but is not a production adapter.
+The revised host contract requires timeout, cancellation, complete output, and
+measured wall time. CPU, memory, and transfer measurement are no longer required.
+The original test adapter measured child resources; the simpler production
+adapter replaces it for real-Git integration tests.
 
 The collector seals complete local evidence before model work. Baseline review
 uses the current PR diff. Incremental review uses the checkpoint-to-head diff.
@@ -102,13 +102,12 @@ is implemented locally on top of PR #176 at `7ce908b`.
 It connects strict report classification to this collector. Model and publication
 wiring remain pending.
 
-1. Integrate the locally implemented v5 schema, hidden codec, classifier, and
-   private admission path with the production host. Invalid current state
-   blocks. Every older schema selects a full current `B...H` baseline without
-   decoding its payload. Keep its exact report and marker identity for later guards.
-2. Implement the production BoundedReviewGitPort with measured hard wall,
-   CPU, memory, output, transfer, and process-group controls. The existing
-   test fixture does not satisfy this production boundary.
+1. Deliver the [private Git admission slice](#next-pr-simplify-native-git-admission)
+   on top of PR #178. Connect the existing private admission path to native
+   local Git evidence in a runner-prepared checkout. Preserve report classification and
+   scope semantics. The test fixture does not satisfy this production boundary.
+2. Connect the verified host and admission output to the later v5 computation
+   job. Keep the current v4 workflow separate until its replacement is complete.
 3. Extend complete batching with deterministic hunk partitioning for paths
    that exceed one batch. Preserve literal paths, complete evidence, shared
    cumulative budgets, and separate review and validation batches.
@@ -145,6 +144,75 @@ wiring remain pending.
    report identity, and checkpoint before the final write.
 9. Update documentation and run focused, contract, and hosted workflow
    checks. Keep current v4 progress and ledger behavior separate from planned v5.
+
+### Next PR: simplify native Git admission
+
+Base: [PR #178](https://github.com/marcolink/seqlane/pull/178), branch
+`codex/trusted-review-admission`, at `f897a641f510485187e384c13491fc8f41c5dc38`.
+Update [PR #179](https://github.com/marcolink/seqlane/pull/179) in place.
+Merge order: #112 -> #176 -> #178 -> #179. This slice is not independently
+mergeable into `main`.
+
+Classification: private contract change. PRD and RFC need no change. Update
+`requirement-complete-evidence`, this task, and the linked admission task.
+No ADR is required: existing trust and runtime boundaries remain unchanged.
+
+#### Tracer bullet: complete admission with bounded cleanup
+
+- **Outcome:** existing admission returns complete native Git evidence or a bounded typed failure.
+- **Path:** authority pages -> `admitReviewScope` -> existing collector and budget -> byte-safe Git adapter -> validated evidence.
+- **Risk:** removing orchestration can weaken cancellation, byte accuracy, or local checkpoint validation.
+- **Evidence:** real repositories prove baseline and incremental admission. A surviving-helper regression proves timeout and cancellation after Git exits.
+- **Excluded:** production workflow wiring, model dispatch, manifests, publication, quotas, custom transport, and new public runtime APIs.
+
+Update the active contract before code. The earlier host introduced a second
+admission entry point, a lifecycle, and a command whitelist without a production
+caller. Keep only the capabilities missing from `context.exec`: raw bytes and
+controlled Git configuration. Do not expand the public executor API for this
+private consumer.
+
+1. Fix process-group cleanup before restructuring. Kill surviving group members
+   even after Git exits. Bound cleanup and report unconfirmed termination.
+2. Move the shared admission deadline into `admitReviewScope`. Pass its signal
+   to raw authority reads and Git. Reads remain bounded and have no retries.
+3. Remove the extra admission wrapper, host lifecycle, and busy state. Keep a
+   small adapter for the existing `BoundedReviewGitPort` and shared budget.
+4. Remove the duplicate local-command whitelist. The trusted collector owns
+   fixed argv; owning schemas still validate untrusted data and raw results.
+5. Remove automatic checkpoint fetch, remote options, authentication, and
+   temporary repositories. Require runner-prepared commits. Missing checkpoints
+   fail with `CHECKPOINT_UNAVAILABLE`; do not retry or select baseline.
+6. Preserve complete output, combined byte bounds, measured wall time, literal
+   paths, replacement-object protection, disabled helpers and lazy fetch,
+   and unchanged HEAD, index, and worktree.
+
+```ts
+// Before: a separate admission entry point and host lifecycle.
+await admitReviewScopeWithGitHost(input, options, createAuthority);
+
+// After: existing admission and a byte-safe adapter.
+await admitReviewScope(input, { authority, git, signal });
+```
+
+The next revision removes the automatic fetch described in earlier delivery
+records below. Local evidence collection remains byte-safe and bounded.
+
+```ts
+// Before: admission repairs a missing checkpoint.
+await budget.fetchExactCommit(checkpoint);
+
+// After: the runner must prepare it before admission.
+throw new ReviewScopeError("CHECKPOINT_UNAVAILABLE", message);
+```
+
+Run test mapping before focused tests. Preserve SHA-1 and SHA-256 coverage,
+hostile paths, missing local checkpoints, same-head scope, and output boundaries.
+Then run source typecheck, scoped lint, formatting, documentation validation,
+Action bundle loading, and CI. Update PR #179 with measured results.
+
+The production v4 caller remains unchanged. This slice proves private admission;
+model admission and guarded publication remain separate delivery work.
+
 
 ## Affected areas
 
@@ -214,7 +282,8 @@ wiring remain pending.
 The first private scope collector slice is proposed in
 [PR #176](https://github.com/marcolink/seqlane/pull/176), based on PR #112 at `6688815`.
 It has no production caller. Focused real-Git and port tests provide local evidence.
-The production host adapter and all remaining v5 delivery work are pending.
+Native Git execution was added in the follow-up slice. Its simplification is
+planned above; other v5 delivery work remains pending.
 
 Incremental review input is the checkpoint-to-head diff. Current-PR validation
 is separate. A real-Git test covers 200 incremental paths with two patch
@@ -248,7 +317,76 @@ lookup rejects duplicate reports, malformed records, and incomplete pagination.
 All v1–v4 payloads are ignored and select the full current PR diff. Valid v5
 uses its published `reviewedRevision` and preserves retained findings as reference
 context. Malformed or future state blocks before collection.
-The production caller, host limits, model admission, and publication remain pending.
+The production v4 caller, model admission, and publication remain unchanged. The following slice supplies private native Git execution.
+
+On 2026-10-07, the host requirements were revised before implementation changes.
+PR #179 now uses native Git, timeout, cancellation, bounded output, and measured
+wall time. The custom supervisor, transport, and privileged CI fixture are removed.
+The earlier hosted verification proves the retired approach only.
+
+Local verification passes: 28 library test files and 314 tests, four Action tests,
+Action bundle loading, source typecheck, scoped lint, formatting, test mapping,
+and SDLC validation. The real-Git tests now use the production host.
+HTTPS integration proves exact non-ancestor checkpoint fetch for SHA-1 and SHA-256,
+ignored target URL rewrites, and unchanged HEAD, index, and worktree.
+Process tests prove timeout, cancellation, and combined-output boundaries.
+The test typecheck retains the same three errors in the untouched
+`pr-code-review-example.spec.ts` at lines 1467 and 1532.
+
+Ripwire reports expected contract churn and a longer fetch function.
+The longer function replaces the separate custom transport and protocol modules;
+no suppression is recorded.
+[Hosted CI](https://github.com/marcolink/seqlane/actions/runs/37587697396)
+passes for the revised code at `748cca4a3d30db56fe4d10619adb2661e3717d06`.
+The SDLC contract changed first in `5aadcff`; implementation followed in `748cca4`.
+
+The scope selector, checkpoint validation, complete-evidence rules, model limits,
+and publication guards remain unchanged. Full v5 production wiring is pending.
+
+A second revision on 2026-10-07 simplifies this same PR. The contract changed
+first in `e4a5a42`. Existing `admitReviewScope` now owns the deadline and passes
+one signal to raw authority reads and Git. The extra admission wrapper, host
+lifecycle, busy state, and local-command whitelist are removed. The byte-safe
+adapter uses operation-local fetch directories with `finally` cleanup.
+
+The surviving-helper regression now settles a 100 ms timeout in 105 ms locally,
+compared with 2,051 ms before the fix. Timeout and cancellation stop helpers
+after Git exits; a denied stop returns a typed failure after a finite grace.
+HTTPS tests prove fetch-file cleanup after success, unavailable checkpoints,
+and cancellation, as well as unchanged HEAD, index, and worktree.
+Local verification passes 28 library test files and 312 tests, four Action tests,
+bundle loading, source typecheck, changed-file lint, formatting, test mapping,
+and SDLC validation. Test typecheck retains only the three documented baseline
+errors. Production v5 wiring remains pending.
+
+Ripwire reports recent contract churn and growth in admission and process
+functions. Admission owns the deadline through a private helper in the same
+module and preserves cancellation and cleanup failures. Process growth
+implements the verified cleanup fix. The renamed fetch function
+is also reported as a new long symbol. These signals remain visible without
+suppression. The change removes the separate lifecycle and duplicate grammar;
+it does not introduce a shared runtime abstraction.
+
+
+A third revision on 2026-10-07 removes automatic checkpoint fetching. The contract
+changed first in `f6f2f2c`. Admission now requires runner-prepared commits and
+returns `CHECKPOINT_UNAVAILABLE` when the exact checkpoint is missing. Remote
+options, authentication configuration, temporary repositories, fetch budgets,
+and the HTTPS fixture are removed. The earlier fetch evidence above describes
+retired behavior. Local raw-byte collection and bounded cleanup remain.
+
+Local verification passes 27 library test files and 310 tests, four Action tests,
+bundle loading, source typecheck, changed-file lint, formatting, test mapping
+(387 mappings), and SDLC validation. SHA-1 and SHA-256 admission tests prove
+that missing checkpoints stop before diff collection and preserve HEAD, staged
+changes, and unstaged changes. Test typecheck retains the same three baseline
+errors in the untouched `pr-code-review-example.spec.ts`.
+
+Ripwire reports six recent contract-churn signals and no new size, nesting, or
+complexity regression. Its name-based test gate also reaches unrelated runtime
+symbols and marks tested admission as uncovered. The direct admission tests and
+library suite provide the scoped evidence; no suppression is recorded.
+Production v5 workflow wiring remains pending.
 
 ## Delivery state
 
@@ -257,6 +395,10 @@ Partial local implementation. No target-branch delivery claim is made here.
 ## Traceability
 
 - Contract: [spec.incremental-pull-request-review-scope](../specs/2026-09-13-incremental-pull-request-review-scope.md)
+- Host limits: [requirement-complete-evidence](../specs/2026-09-13-incremental-pull-request-review-scope.md#requirement-complete-evidence)
 - State and lifecycle: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md)
 - Execution evidence: [spec.review-run-manifest-and-provenance](../specs/2026-09-14-review-run-manifest-and-provenance.md)
 - Publication permissions and recovery: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-permissions)
+- Host slice dependency: [trusted v5 admission task](./2026-09-14-unify-code-review-comment-state.md#next-pr-trusted-v5-report-admission)
+- Host slice stack base: [PR #178](https://github.com/marcolink/seqlane/pull/178)
+- Host implementation: [PR #179](https://github.com/marcolink/seqlane/pull/179)
