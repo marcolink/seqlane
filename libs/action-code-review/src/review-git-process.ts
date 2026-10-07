@@ -10,7 +10,7 @@ import {
   ReviewScopeLimitError,
 } from "./review-scope-errors.js";
 
-export const reviewGitRequestSchema = z.strictObject({
+const reviewGitRequestSchema = z.strictObject({
   argv: z.array(z.string().refine((value) => !value.includes("\0"))),
   limits: z.strictObject({
     wallMs: z.number().positive().max(REVIEW_GIT_LIMITS.commandWallMs),
@@ -24,11 +24,19 @@ export const reviewGitRequestSchema = z.strictObject({
 });
 
 /** Native Git; ordinary process groups cover its transport helpers on POSIX. */
-export function runReviewGit(
+export async function runReviewGit(
   cwd: string,
   env: NodeJS.ProcessEnv,
   request: ReviewGitRequest,
 ) {
+  const parsed = reviewGitRequestSchema.safeParse(request);
+  if (!parsed.success)
+    throw new ReviewScopeError(
+      "GIT_REQUEST_INVALID",
+      "Review Git request is invalid.",
+      parsed.error,
+    );
+  request = parsed.data;
   return new Promise<z.output<typeof reviewGitResultSchema>>(
     (resolve, reject) => {
       if (request.signal?.aborted) {
@@ -52,24 +60,28 @@ export function runReviewGit(
       const stderr: Buffer[] = [];
       let bytes = 0;
       let failure: ReviewScopeError | undefined;
+      let terminationFailure: unknown;
+      let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
       const stop = (error: ReviewScopeError) => {
         failure ??= error;
-        if (
-          child.pid === undefined ||
-          child.exitCode !== null ||
-          child.signalCode !== null
-        )
-          return;
+        if (child.pid === undefined) return;
+        // The leader may exit before helpers release the inherited pipes.
         try {
           process.kill(-child.pid, "SIGKILL");
         } catch (cause) {
           if (!z.object({ code: z.literal("ESRCH") }).safeParse(cause).success)
-            failure = new ReviewScopeError(
-              "GIT_CLEANUP_FAILED",
-              "Git could not be stopped.",
-              cause,
-            );
+            terminationFailure = cause;
         }
+        cleanupTimer ??= setTimeout(() => {
+          failure = new ReviewScopeError(
+            "GIT_CLEANUP_FAILED",
+            "Git cleanup did not finish within one second.",
+            terminationFailure ?? failure,
+          );
+          child.stdout.destroy();
+          child.stderr.destroy();
+          finish(null);
+        }, 1000);
       };
       const abort = () =>
         stop(
@@ -115,8 +127,9 @@ export function runReviewGit(
           cause,
         );
       });
-      child.on("close", (exitCode) => {
+      const finish = (exitCode: number | null) => {
         clearTimeout(timer);
+        clearTimeout(cleanupTimer);
         request.signal?.removeEventListener("abort", abort);
         if (failure !== undefined) reject(failure);
         else if (exitCode === null)
@@ -135,7 +148,8 @@ export function runReviewGit(
             stderrTruncated: false,
             usage: { wallMs: performance.now() - started },
           });
-      });
+      };
+      child.once("close", finish);
     },
   );
 }

@@ -107,7 +107,6 @@ describe("verified finding lifecycle", () => {
         {
           authority,
           git: { run, fetchExactCommit },
-          admittedAt: performance.now(),
         },
       ),
     ).rejects.toMatchObject({ code: "REVIEW_REPORT_INVALID" });
@@ -282,7 +281,6 @@ describe("verified finding lifecycle", () => {
         {
           authority: authorityFixture(encodeReviewStateV5(state)),
           git: fixture.git,
-          admittedAt: performance.now(),
         },
       );
       expect(result.scopeIdentity.mode).toBe("no-change");

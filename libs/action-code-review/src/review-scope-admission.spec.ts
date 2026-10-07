@@ -68,15 +68,14 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
         {
           authority: { listIssueComments },
           git: { run, fetchExactCommit },
-          admittedAt: performance.now(),
         },
       ),
     ).rejects.toMatchObject({ code: "REVIEW_AUTHORITY_AMBIGUOUS" });
     expect(listIssueComments.mock.calls).toEqual([
-      [112, 1],
-      [112, 2],
-      [112, 1],
-      [112, 2],
+      [112, 1, expect.any(AbortSignal)],
+      [112, 2, expect.any(AbortSignal)],
+      [112, 1, expect.any(AbortSignal)],
+      [112, 2, expect.any(AbortSignal)],
     ]);
     expect(run).not.toHaveBeenCalled();
     expect(fetchExactCommit).not.toHaveBeenCalled();
@@ -101,7 +100,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           {
             authority,
             git: { run, fetchExactCommit },
-            admittedAt: performance.now(),
           },
         ),
       ).rejects.toMatchObject({ code: "REVIEW_ADMISSION_INVALID" });
@@ -151,7 +149,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
         {
           authority: { listIssueComments },
           git: { run, fetchExactCommit },
-          admittedAt: performance.now(),
         },
       ),
     ).rejects.toMatchObject({ code });
@@ -201,7 +198,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
             truncated: false,
           }),
           git: fixture.git,
-          admittedAt: performance.now(),
         },
       );
       expect(result.classification.kind).toBe("legacy");
@@ -259,12 +255,11 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       {
         authority: { listIssueComments },
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(listIssueComments.mock.calls).toEqual([
-      [112, 1],
-      [112, 1],
+      [112, 1, expect.any(AbortSignal)],
+      [112, 1, expect.any(AbortSignal)],
     ]);
     expect(result.scopeIdentity).toMatchObject({
       mode: "incremental",
@@ -303,7 +298,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           truncated: false,
         }),
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(result.scopeIdentity.mode).toBe("no-change");
@@ -345,7 +339,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           truncated: false,
         }),
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(result.evidence.batches[0]?.patch).toContain("+new changed cause");
@@ -383,7 +376,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           truncated: false,
         }),
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(result.classification.kind).toBe("current");
@@ -415,7 +407,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       {
         authority: authorityFixture(),
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(result.scopeIdentity.mode).toBe("new-baseline");
@@ -485,7 +476,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
         {
           authority: authorityFixture(history),
           git: { run, fetchExactCommit },
-          admittedAt: performance.now(),
         },
       ),
     ).rejects.toThrow();
@@ -513,7 +503,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       admitReviewScope(input, {
         authority,
         git: { run },
-        admittedAt: performance.now(),
       }),
     ).rejects.toMatchObject({ code: "REVIEW_REPORT_INVALID" });
     const controller = new AbortController();
@@ -522,7 +511,7 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       admitReviewScope(input, {
         authority,
         git: { run },
-        admittedAt: performance.now(),
+
         signal: controller.signal,
       }),
     ).rejects.toMatchObject({ code: "REVIEW_ADMISSION_CANCELLED" });

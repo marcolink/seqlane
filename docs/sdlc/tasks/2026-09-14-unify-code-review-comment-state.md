@@ -145,7 +145,7 @@ const previousState = parseReviewState(previousReport);
 // After: private v5 admission, separate from the v4 caller.
 const admitted = await admitReviewScope(
   { pullRequest: frozenPullRequest },
-  { authority: githubReadPort, git: boundedGit, admittedAt, signal },
+  { authority: githubReadPort, git: boundedGit, signal },
 );
 // admitted contains the validated classification, scope identity,
 // retained findings, and collector evidence. Invalid input throws a typed error.

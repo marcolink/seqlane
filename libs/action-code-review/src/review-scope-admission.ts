@@ -14,10 +14,14 @@ import {
   reviewReportClassificationSchema,
 } from "./review-report-classification.js";
 import { collectReviewScopeEvidence } from "./review-scope-evidence.js";
-import { ReviewScopeError } from "./review-scope-errors.js";
+import {
+  ReviewScopeError,
+  ReviewScopeLimitError,
+} from "./review-scope-errors.js";
 import {
   reviewScopeEvidenceSchema,
   reviewScopeIdentitySchema,
+  REVIEW_GIT_LIMITS,
 } from "./review-scope-contracts.js";
 
 const frozenPullRequestSchema = z.strictObject({
@@ -79,32 +83,62 @@ function scopeIdentityFor(
   };
 }
 
+function startAdmissionDeadline(parentSignal?: AbortSignal) {
+  const admittedAt = performance.now();
+  const deadline = new AbortController();
+  const signal =
+    parentSignal === undefined
+      ? deadline.signal
+      : AbortSignal.any([parentSignal, deadline.signal]);
+  const timer = setTimeout(
+    () =>
+      deadline.abort(
+        new ReviewScopeLimitError(
+          "admissionWallMs",
+          performance.now() - admittedAt,
+          REVIEW_GIT_LIMITS.admissionWallMs,
+          "review-admission",
+        ),
+      ),
+    REVIEW_GIT_LIMITS.admissionWallMs,
+  );
+  return { admittedAt, deadline, signal, timer };
+}
+
 export async function admitReviewScope(
   inputValue: unknown,
-  host: Parameters<typeof collectReviewScopeEvidence>[1] & {
+  host: Omit<
+    Parameters<typeof collectReviewScopeEvidence>[1],
+    "admittedAt" | "now"
+  > & {
     readonly authority: ReviewAuthorityReadPort;
     readonly botAuthors?: readonly string[];
   },
 ): Promise<ReviewScopeAdmission> {
+  const { admittedAt, deadline, signal, timer } = startAdmissionDeadline(
+    host.signal,
+  );
+  const bounded = { ...host, admittedAt, signal };
   try {
     const { pullRequest } = admissionInputSchema.parse(inputValue);
-    host.signal?.throwIfAborted();
+    signal.throwIfAborted();
     const history = await readReviewAuthority(
       host.authority,
       pullRequest.pullRequestNumber,
+      signal,
     );
-    host.signal?.throwIfAborted();
+    signal.throwIfAborted();
     const classification = await classifyReviewReport(
       history,
       {
         repositoryId: pullRequest.repositoryId,
         pullRequestNumber: pullRequest.pullRequestNumber,
       },
-      host,
+      bounded,
     );
-    host.signal?.throwIfAborted();
+    signal.throwIfAborted();
     const scopeIdentity = scopeIdentityFor(pullRequest, classification);
-    const evidence = await collectReviewScopeEvidence(scopeIdentity, host);
+    const evidence = await collectReviewScopeEvidence(scopeIdentity, bounded);
     return reviewScopeAdmissionSchema.parse({
       classification,
       scopeIdentity: evidence.scopeIdentity,
@@ -113,15 +147,28 @@ export async function admitReviewScope(
       evidence,
     });
   } catch (cause) {
+    if (
+      cause instanceof ReviewScopeError &&
+      cause.code === "GIT_CLEANUP_FAILED"
+    )
+      throw cause;
+    if (deadline.signal.aborted && !host.signal?.aborted)
+      throw deadline.signal.reason;
+    if (signal.aborted)
+      throw new ReviewScopeError(
+        "REVIEW_ADMISSION_CANCELLED",
+        "Review scope admission was cancelled.",
+        signal.reason,
+      );
     if (cause instanceof ReviewScopeError) throw cause;
     throw new ReviewScopeError(
-      host.signal?.aborted
-        ? "REVIEW_ADMISSION_CANCELLED"
-        : cause instanceof ZodError
-          ? "REVIEW_ADMISSION_INVALID"
-          : "REVIEW_ADMISSION_FAILED",
+      cause instanceof ZodError
+        ? "REVIEW_ADMISSION_INVALID"
+        : "REVIEW_ADMISSION_FAILED",
       "Review scope admission failed.",
       cause,
     );
+  } finally {
+    clearTimeout(timer);
   }
 }

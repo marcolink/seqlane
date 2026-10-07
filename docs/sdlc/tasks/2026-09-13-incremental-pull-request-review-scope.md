@@ -331,6 +331,30 @@ The SDLC contract changed first in `5aadcff`; implementation followed in `748cca
 The scope selector, checkpoint validation, complete-evidence rules, model limits,
 and publication guards remain unchanged. Full v5 production wiring is pending.
 
+A second revision on 2026-10-07 simplifies this same PR. The contract changed
+first in `e4a5a42`. Existing `admitReviewScope` now owns the deadline and passes
+one signal to raw authority reads and Git. The extra admission wrapper, host
+lifecycle, busy state, and local-command whitelist are removed. The byte-safe
+adapter uses operation-local fetch directories with `finally` cleanup.
+
+The surviving-helper regression now settles a 100 ms timeout in 105 ms locally,
+compared with 2,051 ms before the fix. Timeout and cancellation stop helpers
+after Git exits; a denied stop returns a typed failure after a finite grace.
+HTTPS tests prove fetch-file cleanup after success, unavailable checkpoints,
+and cancellation, as well as unchanged HEAD, index, and worktree.
+Local verification passes 28 library test files and 312 tests, four Action tests,
+bundle loading, source typecheck, changed-file lint, formatting, test mapping,
+and SDLC validation. Test typecheck retains only the three documented baseline
+errors. Production v5 wiring remains pending.
+
+Ripwire reports recent contract churn and growth in admission and process
+functions. Admission owns the deadline through a private helper in the same
+module and preserves cancellation and cleanup failures. Process growth
+implements the verified cleanup fix. The renamed fetch function
+is also reported as a new long symbol. These signals remain visible without
+suppression. The change removes the separate lifecycle and duplicate grammar;
+it does not introduce a shared runtime abstraction.
+
 ## Delivery state
 
 Partial local implementation. No target-branch delivery claim is made here.

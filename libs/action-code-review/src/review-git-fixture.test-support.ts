@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { createReviewGitHost } from "./review-git-host.js";
+import { createReviewGitAdapter } from "./review-git-adapter.js";
 import type {
   BoundedReviewGitPort,
   ReviewGitRequest,
@@ -32,7 +32,7 @@ export async function createReviewGitFixture(
   );
   await run("config", "user.name", "Review fixture");
   await run("config", "user.email", "review@example.test");
-  const host = await createReviewGitHost({ reviewTarget: cwd });
+  const git = createReviewGitAdapter({ reviewTarget: cwd });
   const commands: ReviewGitRequest[] = [];
   return {
     cwd,
@@ -41,7 +41,7 @@ export async function createReviewGitFixture(
     git: {
       run: async (request) => {
         commands.push(request);
-        return host.git.run(request);
+        return git.run(request);
       },
     },
     write: async (path, content) => {
@@ -60,7 +60,6 @@ export async function createReviewGitFixture(
       return run("rev-parse", "HEAD");
     },
     dispose: async () => {
-      await host.close();
       await rm(cwd, { recursive: true, force: true });
     },
   };

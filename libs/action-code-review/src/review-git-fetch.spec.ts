@@ -1,14 +1,32 @@
-// @test-scope ./review-git-host.ts
-// @test-scope ./review-git-host-admission.ts
-import { describe, expect, it, vi } from "vitest";
-import { readFile } from "node:fs/promises";
+// @test-scope ./review-git-adapter.ts
+// @test-scope ./review-scope-admission.ts
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { access, mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createReviewGitFixture } from "./review-git-fixture.test-support.js";
 import { createReviewGitRemote } from "./review-git-remote.test-support.js";
-import { admitReviewScopeWithGitHost } from "./review-git-host-admission.js";
-import { createReviewGitHost } from "./review-git-host.js";
+import { admitReviewScope } from "./review-scope-admission.js";
+import { createReviewGitAdapter } from "./review-git-adapter.js";
 import { createReviewStateFixture } from "./review-state-fixture.test-support.js";
 import { encodeReviewStateV5 } from "./review-state-codec.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...original, mkdtemp: vi.fn(original.mkdtemp) };
+});
+
+afterEach(async () => {
+  const created = vi.mocked(mkdtemp);
+  for (const [index, [prefix]] of created.mock.calls.entries()) {
+    if (!String(prefix).includes("seqlane-review-fetch-")) continue;
+    const result = created.mock.results[index];
+    if (result?.type === "return")
+      await expect(access(await result.value)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+  }
+  created.mockClear();
+});
 
 describe("native exact-checkpoint fetch", { timeout: 20_000 }, () => {
   it.each(["sha1", "sha256"] as const)(
@@ -16,7 +34,6 @@ describe("native exact-checkpoint fetch", { timeout: 20_000 }, () => {
     async (format) => {
       const fixture = await createReviewGitFixture(format);
       let remote: Awaited<ReturnType<typeof createReviewGitRemote>> | undefined;
-      let host: Awaited<ReturnType<typeof createReviewGitHost>> | undefined;
       try {
         await fixture.write("first.ts", "export const value = 1;\n");
         const baseRevision = await fixture.commit();
@@ -71,7 +88,7 @@ describe("native exact-checkpoint fetch", { timeout: 20_000 }, () => {
             hasNextPage: false,
           }),
         });
-        const admission = await admitReviewScopeWithGitHost(
+        const admission = await admitReviewScope(
           {
             pullRequest: {
               repositoryId: "1",
@@ -81,8 +98,7 @@ describe("native exact-checkpoint fetch", { timeout: 20_000 }, () => {
               headRevision,
             },
           },
-          options,
-          authority,
+          { git: createReviewGitAdapter(options), authority: authority() },
         );
         expect(admission.scopeIdentity).toMatchObject({
           mode: "incremental",
@@ -102,8 +118,8 @@ describe("native exact-checkpoint fetch", { timeout: 20_000 }, () => {
         expect(await readFile(join(fixture.cwd, "first.ts"), "utf8")).toBe(
           "export const value = 3;\n",
         );
-        host = await createReviewGitHost(options);
-        const fetched = await host.git.fetchExactCommit?.(
+        const git = createReviewGitAdapter(options);
+        const fetched = await git.fetchExactCommit?.(
           "f".repeat(checkpoint.length),
           {
             argv: ["--no-replace-objects"],
@@ -111,9 +127,15 @@ describe("native exact-checkpoint fetch", { timeout: 20_000 }, () => {
           },
         );
         expect(fetched).toMatchObject({ exitCode: 128 });
+        await expect(
+          git.fetchExactCommit?.(checkpoint, {
+            argv: ["--no-replace-objects"],
+            limits: { wallMs: 3000, outputBytes: 100_000 },
+            signal: AbortSignal.abort("stopped"),
+          }),
+        ).rejects.toMatchObject({ code: "REVIEW_SCOPE_CANCELLED" });
       } finally {
         vi.unstubAllEnvs();
-        await host?.close();
         await remote?.dispose();
         await fixture.dispose();
       }
