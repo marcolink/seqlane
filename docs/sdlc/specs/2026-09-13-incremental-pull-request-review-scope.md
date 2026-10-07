@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-13
-updated: 2026-10-06
+updated: 2026-10-07
 upstream:
   - spec.versioned-pull-request-review-comments
   - spec.review-run-manifest-and-provenance
@@ -438,26 +438,36 @@ Pre-model Git work has its own budget beginning when admission accepts the
 event. This is separate from the model-phase elapsed-time ceiling and does not
 change the unapproved decision about when the overall review deadline starts:
 
-These limits are required because the review consumes untrusted repository
-content and can fan out work across batches, lanes, and retries. Without hard
-ceilings, a large diff, pathological path names, repeated failures, or an
-oversized model context could consume the Action's available CPU, memory,
-output, or wall time and still leave an incomplete review looking successful.
-The ceilings make completeness decidable: the workflow either accounts for the
-whole permitted scope within the budget or fails closed without publishing.
-They are normative defaults owned by the Action library. A model, review lane,
-or repository input cannot raise them for one run.
+Timeouts stop stalled Git work. Output and evidence bounds prevent incomplete
+patches from becoming successful review input. These defaults belong to the
+Action library; repository input and model output cannot raise them.
 
 | Resource | Maximum |
 | --- | ---: |
 | Admission-to-model-start wall time | 120 seconds |
 | One Git subprocess wall time | 30 seconds |
 | Cumulative Git subprocess wall time | 90 seconds |
-| Cumulative Git subprocess CPU time | 60 seconds |
-| Peak Git subprocess memory | 256 MiB |
 | Git stdout plus stderr before parsing | 2,048,000 bytes |
-| Exact-checkpoint fetch transfer | 16 MiB |
 | Exact-checkpoint fetch wall time | 30 seconds |
+
+Use native Git subprocesses with argv arrays, timeout, cancellation, and bounded
+output. Use native Git for an exact-checkpoint fetch from a trusted remote.
+The host does not require CPU quotas, memory quotas, transfer-byte metering,
+a kernel network sandbox, a custom supervisor, or a Git transport implementation.
+No observed review failure currently justifies those additional controls.
+Add stronger controls only after a reproducible failure or measured requirement
+establishes their benefit and cost.
+
+CPU, memory, and network transfer remain runner responsibilities. The host
+reports measured wall time and complete output; it does not fabricate resource
+measurements. Cancellation and timeout stop Git and its ordinary process group.
+This contract does not promise containment of independently detached processes.
+Disable executable Git helpers, replacement objects, and implicit lazy fetch.
+Local evidence collection must not execute repository code or obtain credentials.
+Explicit checkpoint fetch uses trusted configuration and cannot inherit target
+remote URLs, rewrite rules, or credentials. Fetch cannot move HEAD, the index,
+or the worktree. An unavailable checkpoint remains an error without a retry
+or an automatic baseline reset.
 
 The limits apply in layers:
 
@@ -465,8 +475,8 @@ The limits apply in layers:
    zeroed monotonic counters. The scope selector and evidence collector reserve
    path, hunk, batch, byte, and Git-operation capacity before work starts.
 2. The bounded Git adapter wraps every subprocess and exact-SHA fetch. It
-   streams NUL-delimited output, enforces wall, CPU, memory, transfer, and
-   output caps, and kills the complete process group on a breach. It returns a
+   preserves raw NUL-delimited output, enforces timeout and output caps,
+   and stops Git and its ordinary process group on a breach. It returns a
    typed limit failure; it does not retry outside the same budget.
 3. Before model fan-out, the orchestrator preflights all planned batch,
    invocation, token, and elapsed-time capacity. Before each invocation it
@@ -480,8 +490,8 @@ The limits apply in layers:
    are covered by the verification tests below.
 
 Run Git through a bounded subprocess adapter that streams NUL-delimited path
-records, caps output before buffering, and aborts the process group when any
-limit is reached. The adapter must report which limit fired. It must never
+records, caps output before buffering, and stops the process group on
+timeout, cancellation, or output overflow. The adapter must report which limit fired. It must never
 retry an exact-SHA fetch outside the cumulative budget. A pre-model budget
 failure makes zero model calls and preserves the previous checkpoint.
 

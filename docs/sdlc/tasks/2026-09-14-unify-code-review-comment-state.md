@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-09-14
-updated: 2026-10-06
+updated: 2026-10-07
 upstream:
   - spec.github-native-review-publication
   - spec.versioned-pull-request-review-comments
@@ -129,7 +129,10 @@ strict admission paths exist.
 Excluded: production host enforcement, model dispatch, finding allocation,
 manifest upload, cost accumulation, rendering, indexes, queues, and comment writes.
 The existing v4 workflow remains on its current reader and schemas.
-The real-Git fixture provides local integration evidence, not production hard limits.
+The real-Git fixture provides local integration evidence.
+The revised [Git host contract](../specs/2026-09-13-incremental-pull-request-review-scope.md#requirement-complete-evidence)
+requires timeout, cancellation, bounded output, and measured wall time.
+CPU, memory, and transfer controls are no longer production-host requirements.
 
 Conceptual before and after:
 
