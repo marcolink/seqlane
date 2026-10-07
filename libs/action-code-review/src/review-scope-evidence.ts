@@ -33,7 +33,7 @@ async function requireCommit(
   budget: ReviewGitBudget,
   revision: string,
   objectIdLength: number,
-  fetchMissing: boolean,
+  isCheckpoint: boolean,
 ): Promise<void> {
   if (revision.length !== objectIdLength) {
     throw new ReviewScopeError(
@@ -41,16 +41,12 @@ async function requireCommit(
       "Review revisions must use full IDs in the repository's object format.",
     );
   }
-  let result = await budget.run(["cat-file", "-t", revision]);
-  if (result.exitCode !== 0 && fetchMissing) {
-    const fetch = await budget.fetchExactCommit(revision);
-    if (fetch.exitCode !== 0) {
-      throw new ReviewScopeError(
-        "CHECKPOINT_UNAVAILABLE",
-        "Git could not fetch the exact checkpoint.",
-      );
-    }
-    result = await budget.run(["cat-file", "-t", revision]);
+  const result = await budget.run(["cat-file", "-t", revision]);
+  if (result.exitCode !== 0 && isCheckpoint) {
+    throw new ReviewScopeError(
+      "CHECKPOINT_UNAVAILABLE",
+      "The exact checkpoint commit is unavailable in the prepared checkout.",
+    );
   }
   if (
     result.exitCode !== 0 ||

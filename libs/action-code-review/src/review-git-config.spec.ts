@@ -5,29 +5,22 @@ import {
 } from "./review-git-config.js";
 
 describe("native Git configuration", () => {
-  it("rejects target-selected credentials and redirects in trusted remote options", () => {
-    for (const url of [
-      "http://example.test/repo.git",
-      "https://token@example.test/repo.git",
-      "https://example.test/repo.git?token=secret",
+  it("rejects remote options and invalid checkout paths", () => {
+    for (const options of [
+      {
+        reviewTarget: "/repo",
+        trustedRemote: { url: "https://example.test/repo.git" },
+      },
+      { reviewTarget: "relative" },
+      { reviewTarget: "/repo\0path" },
     ]) {
-      expect(
-        reviewGitOptionsSchema.safeParse({
-          reviewTarget: "/repo",
-          trustedRemote: { url },
-        }).success,
-      ).toBe(false);
+      expect(reviewGitOptionsSchema.safeParse(options).success).toBe(false);
     }
-    expect(
-      reviewGitOptionsSchema.safeParse({
-        reviewTarget: "relative",
-      }).success,
-    ).toBe(false);
   });
   it("constructs a clean environment without inherited credentials or Git config", () => {
-    const env = reviewGitEnvironment("/empty-home");
+    const env = reviewGitEnvironment();
     expect(env).toMatchObject({
-      HOME: "/empty-home",
+      HOME: "/dev/null",
       GIT_NO_LAZY_FETCH: "1",
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",

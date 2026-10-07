@@ -4,7 +4,7 @@ import { runReviewGit } from "./review-git-process.js";
 import { reviewGitEnvironment } from "./review-git-config.js";
 
 const cwd = tmpdir();
-const env = reviewGitEnvironment(cwd);
+const env = reviewGitEnvironment();
 const argv = ["-c", "alias.fixture=!printf a; printf b >&2", "fixture"];
 
 describe("native Git process limits", () => {

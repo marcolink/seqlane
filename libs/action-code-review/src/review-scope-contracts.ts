@@ -7,7 +7,6 @@ export const REVIEW_GIT_LIMITS = Object.freeze({
   commandWallMs: 30_000,
   totalWallMs: 90_000,
   outputBytes: 2_048_000,
-  fetchWallMs: 30_000,
   eligiblePaths: 200,
   hunks: 1_000,
   batches: 8,

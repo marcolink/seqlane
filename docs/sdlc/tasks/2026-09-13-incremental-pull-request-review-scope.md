@@ -367,6 +367,27 @@ is also reported as a new long symbol. These signals remain visible without
 suppression. The change removes the separate lifecycle and duplicate grammar;
 it does not introduce a shared runtime abstraction.
 
+
+A third revision on 2026-10-07 removes automatic checkpoint fetching. The contract
+changed first in `f6f2f2c`. Admission now requires runner-prepared commits and
+returns `CHECKPOINT_UNAVAILABLE` when the exact checkpoint is missing. Remote
+options, authentication configuration, temporary repositories, fetch budgets,
+and the HTTPS fixture are removed. The earlier fetch evidence above describes
+retired behavior. Local raw-byte collection and bounded cleanup remain.
+
+Local verification passes 27 library test files and 310 tests, four Action tests,
+bundle loading, source typecheck, changed-file lint, formatting, test mapping
+(387 mappings), and SDLC validation. SHA-1 and SHA-256 admission tests prove
+that missing checkpoints stop before diff collection and preserve HEAD, staged
+changes, and unstaged changes. Test typecheck retains the same three baseline
+errors in the untouched `pr-code-review-example.spec.ts`.
+
+Ripwire reports six recent contract-churn signals and no new size, nesting, or
+complexity regression. Its name-based test gate also reaches unrelated runtime
+symbols and marks tested admission as uncovered. The direct admission tests and
+library suite provide the scoped evidence; no suppression is recorded.
+Production v5 workflow wiring remains pending.
+
 ## Delivery state
 
 Partial local implementation. No target-branch delivery claim is made here.

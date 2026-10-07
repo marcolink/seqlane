@@ -12,15 +12,10 @@ export interface ReviewGitRequest {
 }
 
 /** Trusted host port: preserve raw bytes and enforce timeout and output limits.
- * Fetch uses trusted configuration and native Git, without shell argv.
  * Local operations must disable lazy fetch (GIT_NO_LAZY_FETCH=1).
  */
 export interface BoundedReviewGitPort {
   run(request: ReviewGitRequest): Promise<unknown>;
-  fetchExactCommit?(
-    revision: string,
-    request: ReviewGitRequest,
-  ): Promise<unknown>;
 }
 
 const gitResultSchema = z.strictObject({
@@ -75,10 +70,10 @@ export class ReviewGitBudget {
     return elapsed;
   }
 
-  private request(argv: readonly string[], fetch: boolean): ReviewGitRequest {
+  private request(argv: readonly string[]): ReviewGitRequest {
     const elapsed = this.assertActive("git-admission");
     const wallMs = Math.min(
-      fetch ? REVIEW_GIT_LIMITS.fetchWallMs : REVIEW_GIT_LIMITS.commandWallMs,
+      REVIEW_GIT_LIMITS.commandWallMs,
       REVIEW_GIT_LIMITS.totalWallMs - this.wallMs,
       REVIEW_GIT_LIMITS.admissionWallMs - elapsed,
     );
@@ -99,25 +94,8 @@ export class ReviewGitBudget {
   }
 
   async run(argv: readonly string[]): Promise<z.infer<typeof gitResultSchema>> {
-    const request = this.request(argv, false);
+    const request = this.request(argv);
     return this.account(await this.port.run(request), request, argv.join(" "));
-  }
-
-  async fetchExactCommit(
-    revision: string,
-  ): Promise<z.infer<typeof gitResultSchema>> {
-    const request = this.request([], true);
-    if (this.port.fetchExactCommit === undefined) {
-      throw new ReviewScopeError(
-        "CHECKPOINT_UNAVAILABLE",
-        "The exact checkpoint commit is unavailable.",
-      );
-    }
-    return this.account(
-      await this.port.fetchExactCommit(revision, request),
-      request,
-      "exact-checkpoint-fetch",
-    );
   }
 
   private account(

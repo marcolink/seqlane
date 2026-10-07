@@ -13,38 +13,13 @@ const absolutePathSchema = z
   });
 export const reviewGitOptionsSchema = z.strictObject({
   reviewTarget: absolutePathSchema,
-  trustedRemote: z
-    .strictObject({
-      url: z.url().superRefine((value, context) => {
-        const url = new URL(value);
-        if (
-          url.protocol !== "https:" ||
-          url.username ||
-          url.password ||
-          url.search ||
-          url.hash
-        ) {
-          context.addIssue({
-            code: "custom",
-            message: "A trusted credential-free HTTPS Git URL is required",
-          });
-        }
-      }),
-      authorization: z
-        .string()
-        .min(1)
-        .max(8192)
-        .regex(/^[^\r\n\0]+$/)
-        .optional(),
-    })
-    .optional(),
 });
 export type ReviewGitOptions = z.input<typeof reviewGitOptionsSchema>;
 
-export function reviewGitEnvironment(home = "/dev/null"): NodeJS.ProcessEnv {
+export function reviewGitEnvironment(): NodeJS.ProcessEnv {
   return {
     PATH: "/usr/bin:/bin",
-    HOME: home,
+    HOME: "/dev/null",
     LC_ALL: "C",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: "/dev/null",

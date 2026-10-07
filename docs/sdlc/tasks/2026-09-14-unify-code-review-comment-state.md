@@ -98,6 +98,10 @@ None blocks this implementation slice.
 
 ## Implementation plan
 
+The Git admission contract now requires runner-prepared base, head, and checkpoint
+commits. Admission performs local reads only. Missing checkpoints return
+`CHECKPOINT_UNAVAILABLE`; admission has no fetch or authentication capability.
+
 ### Next PR: trusted v5 report admission
 
 Suggested title: `feat(review): admit trusted v5 review checkpoints`.
