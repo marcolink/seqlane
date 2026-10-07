@@ -80,102 +80,52 @@ Reviewed resolution and reopening require verification at the published head.
 `not_reviewed` preserves valid historical verification and lifecycle without
 claiming a fresh check. Missing or contradictory proof blocks admission.
 
-## Production Git host for private v5 admission
+## Native Git host for private v5 admission
 
-`createReviewGitHost` implements the collector's bounded Git port.
-`admitReviewScopeWithGitHost` owns its lifecycle and the 120-second admission deadline.
-The deadline starts before host setup and authority reads.
+`createReviewGitHost` supplies real Git execution on Linux and macOS.
+`admitReviewScopeWithGitHost` owns the 120-second admission deadline and cleanup.
+The deadline includes host setup, authority reads, and Git collection.
 The authority factory must bind its signal to raw GitHub requests and disable retries.
-A cancelled read also settles if a defective port never resolves.
 
 ```ts
-// Before: tests supplied the bounded Git port and owned its deadline.
-const admission = await admitReviewScope(
-  { pullRequest },
-  { authority, git: fixture.git, admittedAt, signal },
-);
+// Before: privileged cgroup setup and a custom supervisor.
+const host = await createReviewGitHost({
+  reviewTarget,
+  cgroupRoot,
+  trustedRemote,
+});
 
-// After: the private host owns setup, the deadline, and cleanup.
+// After: native Git with timeout, cancellation, and bounded output.
 const admission = await admitReviewScopeWithGitHost(
   { pullRequest },
-  { reviewTarget, cgroupRoot, trustedRemote, signal },
+  { reviewTarget, trustedRemote, signal },
   (admissionSignal) => createRawGithubReadPort(admissionSignal),
 );
 ```
 
-This host supports Linux x64 and arm64, with `/usr/bin/git` and `/usr/bin/python3`.
-Trusted runner setup must provide an owned, writable cgroup v2 directory.
-Its `cgroup.subtree_control` must enable `cpu`, `memory`, and `pids`.
-An unprivileged launcher must already run in a separate leaf below that root.
-Kernel migration checks require write access to the common ancestor's `cgroup.procs`.
-Trusted setup places the launcher, then restores the normal runner identity before executing Action code.
-The launcher stays outside the bounded Git workload groups.
-Trusted cleanup removes the owned root with permission to write its parent directory.
-The host probes controls before target Git starts.
-Missing controls, unsupported hosts, or failed accounting block admission.
-The embedded Python supervisor travels with TypeScript output and Action bundles.
-It does not depend on the source checkout or current working directory.
+Git runs with argv arrays and raw output. The host counts stdout and stderr
+before retaining bytes. Timeout, cancellation, and overflow stop Git and its
+ordinary process group. A failed command cannot return successful truncated evidence.
+The shared budget retains command and cumulative wall limits and output bounds.
+The host reports measured wall time; CPU, memory, and transfer quotas are absent.
+There is no Python supervisor, kernel sandbox, privileged setup, or custom Git transport.
+The host does not contain independently detached processes.
 
-Each Git command enters its own cgroup before execution.
-Memory accounting includes the group's charged memory, including file cache.
-`memory.max` enforces the 256 MiB default; swap is disabled.
-CPU accounting covers Git and all descendants, including detached children.
-The group has a one-core CPU quota with a 1 ms period.
-A 1 ms monitor stops work 5 ms before the remaining cumulative CPU allowance.
-CPU limit failures report that conservative guard and the actual observed value.
-Scheduling can delay the monitor; final accounting rejects any overshoot.
-The host never reports a successful result with excessive measured usage.
-Wall time includes command setup and cleanup.
-Raw stdout and stderr share one allowance, enforced before retaining bytes.
-Overflow fails without returning truncated evidence.
-Cancellation kills and reaps every descendant before the operation settles.
-An independent parent cleanup path handles supervisor failure.
-Call `close()` in `finally` when using the factory directly.
-The host permits one active operation and rejects work after closure.
+Local collection disables replacement objects, lazy fetch, hooks, executable
+helpers, prompts, protocols, and inherited credentials. Exact checkpoint fetch
+uses native Git in a temporary Git directory with trusted configuration.
+It shares only the target object directory; HEAD, index, and worktree remain unchanged.
+The target cannot select the fetch URL, rewrite rules, or credentials.
+`trustedRemote.url` requires a credential-free HTTPS URL without query or fragment.
+Optional authorization reaches Git through an environment-backed configuration value.
+Credentials do not appear in argv. Redirects and prompts are disabled.
+The trusted runner may provide `GIT_SSL_CAINFO` for its certificate authority.
+An unavailable checkpoint remains an error without retries or baseline fallback.
 
-Local Git uses literal pathspecs and disables replacement objects and lazy fetch.
-It receives an isolated environment without inherited credentials or Git configuration.
-Fixed overrides disable hooks, filesystem monitors, credential helpers, and external reference helpers.
-Only collector commands are accepted; diff disables external diff and text conversion.
-An inherited seccomp filter denies sockets and `io_uring` networking.
-Git transport protocols are disabled, including file transport.
-These controls govern trusted Git, not execution of arbitrary target programs.
-
-Exact fetch uses a caller-supplied trusted HTTPS repository URL.
-Build that URL from trusted repository identity, never target Git configuration.
-An optional `authorization` header stays in the HTTPS adapter.
-It never enters Git argv, Git's environment, returned stderr, or diagnostics.
-Target remote URLs and rewrite rules cannot choose the fetch route.
-The adapter supports smart HTTP v0/v1 with shallow, sideband pack transfer.
-It requests one full SHA-1 or SHA-256 commit, without thin packs or alternate URIs.
-Unsupported servers fail; there is no branch fallback or retry.
-
-The 16 MiB fetch allowance counts incoming HTTP response-body bytes across both requests.
-It includes the reference advertisement and upload-pack response.
-It excludes HTTP headers, TLS/TCP overhead, and the small outgoing request body.
-The adapter requests identity encoding and rejects encoded responses and redirects.
-A dedicated HTTPS agent prevents inherited proxy routing.
-Downloaded pack bytes enter supervised `git index-pack --stdin`.
-Fetch changes only the local object database; HEAD, index, and worktree stay unchanged.
-The collector then repeats exact commit-ID and object-type validation.
-
-The admission-only Linux gate uses temporary repositories, reports, and an HTTPS Git server.
-It supplies no model credentials and has no comment or artifact write permission.
-Run it after trusted runner setup:
-
-```sh
-SEQLANE_REVIEW_CGROUP_ROOT=/sys/fs/cgroup/owned-review-root \
-  pnpm exec nx run action-code-review:verify-git-host
-```
-
-The existing CI workflow runs `actions/code-review/tests/git-host-cgroup-smoke.sh`
-when review code, its Action, or CI changes.
-The script provisions and removes its owned root.
-It starts the fixture in the root's `supervisor` leaf as the normal runner user.
-The gate verifies both hash formats, literal paths, exact fetch, resource breaches,
-network denial, cancellation, and descendant cleanup from a packaged host.
-Bundles remain ignored. The production v4 workflow still has no v5 admission call.
-Model execution, finding admission, manifests, and guarded publication remain pending.
+Real-Git integration tests use this host directly, including both object formats.
+The existing test suite and CI verify it without a separate hosted fixture gate.
+The production v4 caller remains unchanged. Model dispatch, finding admission,
+manifests, and guarded publication are later v5 slices.
 
 ## Incremental scope collector
 
@@ -224,22 +174,21 @@ whole paths into bounded batches. Missing, extra, or duplicate evidence fails.
 Review and validation batches share the batch, hunk, byte, and execution limits.
 
 The trusted host must implement `BoundedReviewGitPort`.
-It must stream raw bytes and enforce the supplied wall, CPU, memory, output,
-and transfer limits. It must terminate the complete process group on cancellation
-or a breach. It must disable automatic lazy fetches during local Git commands.
-Every result must include resource measurements and explicit non-truncation flags.
+It must preserve raw bytes and enforce the supplied timeout and output limits.
+It stops Git and its ordinary process group on cancellation or a breach.
+It must disable automatic lazy fetches during local Git commands.
+Every result includes measured wall time and explicit non-truncation flags.
 The collector charges all commands and exact-checkpoint fetches to one admission budget.
 Base, head, and checkpoint IDs must match the repository's storage hash format:
 40 characters for SHA-1 or 64 for SHA-256. Each ID must resolve to exactly that
 commit object. Abbreviated IDs, tags, trees, and blobs are rejected.
-Malformed data, unavailable checkpoints, stale HEAD, missing measurements,
+Malformed data, unavailable checkpoints, stale HEAD, invalid wall measurements,
 oversized evidence, and budget breaches reject the run.
 It never truncates evidence or resets to a baseline.
 
-The production host adapter, workflow wiring, model admission, and publication
-remain follow-up work. The test-only Git adapter requires Git and Python 3
-for child resource measurements. It does not implement production resource controls
-and is excluded from the package build.
+The production host adapter is available. Workflow wiring, model admission,
+and publication remain follow-up work. Real-Git tests use the same native host
+and require Git, with no Python dependency.
 
 Run the test-mapping check before the focused collector tests:
 

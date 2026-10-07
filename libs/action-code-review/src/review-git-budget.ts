@@ -6,17 +6,13 @@ export interface ReviewGitRequest {
   readonly argv: readonly string[];
   readonly limits: {
     readonly wallMs: number;
-    readonly cpuMs: number;
-    readonly peakMemoryBytes: number;
     readonly outputBytes: number;
-    readonly transferBytes: number;
   };
   readonly signal?: AbortSignal;
 }
 
-/** Trusted host port: stream raw bytes, enforce limits, and reap the whole group.
- * Missing resource measurements are errors, never zero-valued defaults.
- * Fetch must use a trusted remote and transfer accounting, without shell argv.
+/** Trusted host port: preserve raw bytes and enforce timeout and output limits.
+ * Fetch uses trusted configuration and native Git, without shell argv.
  * Local operations must disable lazy fetch (GIT_NO_LAZY_FETCH=1).
  */
 export interface BoundedReviewGitPort {
@@ -35,16 +31,12 @@ const gitResultSchema = z.strictObject({
   stderrTruncated: z.literal(false),
   usage: z.strictObject({
     wallMs: z.number().finite().nonnegative(),
-    cpuMs: z.number().finite().nonnegative(),
-    peakMemoryBytes: z.number().int().nonnegative(),
-    transferBytes: z.number().int().nonnegative(),
   }),
 });
 export { gitResultSchema as reviewGitResultSchema };
 
 export class ReviewGitBudget {
   private wallMs = 0;
-  private cpuMs = 0;
   private outputBytes = 0;
   private lastObservedTime: number;
 
@@ -90,8 +82,7 @@ export class ReviewGitBudget {
       REVIEW_GIT_LIMITS.totalWallMs - this.wallMs,
       REVIEW_GIT_LIMITS.admissionWallMs - elapsed,
     );
-    const cpuMs = REVIEW_GIT_LIMITS.totalCpuMs - this.cpuMs;
-    if (wallMs <= 0 || cpuMs <= 0) {
+    if (wallMs <= 0) {
       throw new ReviewScopeError(
         "REVIEW_SCOPE_BUDGET_EXHAUSTED",
         "No Git execution budget remains.",
@@ -101,10 +92,7 @@ export class ReviewGitBudget {
       argv: ["--no-replace-objects", ...argv],
       limits: {
         wallMs,
-        cpuMs,
-        peakMemoryBytes: REVIEW_GIT_LIMITS.peakMemoryBytes,
         outputBytes: REVIEW_GIT_LIMITS.outputBytes - this.outputBytes,
-        transferBytes: fetch ? REVIEW_GIT_LIMITS.fetchBytes : 0,
       },
       signal: this.signal,
     };
@@ -139,23 +127,10 @@ export class ReviewGitBudget {
   ) {
     const result = gitResultSchema.parse(value);
     this.wallMs += result.usage.wallMs;
-    this.cpuMs += result.usage.cpuMs;
     this.outputBytes += result.stdout.byteLength + result.stderr.byteLength;
     const checks: [string, number, number][] = [
       ["commandWallMs", result.usage.wallMs, request.limits.wallMs],
-      ["commandCpuMs", result.usage.cpuMs, request.limits.cpuMs],
-      [
-        "peakMemoryBytes",
-        result.usage.peakMemoryBytes,
-        request.limits.peakMemoryBytes,
-      ],
-      [
-        "transferBytes",
-        result.usage.transferBytes,
-        request.limits.transferBytes,
-      ],
       ["totalWallMs", this.wallMs, REVIEW_GIT_LIMITS.totalWallMs],
-      ["totalCpuMs", this.cpuMs, REVIEW_GIT_LIMITS.totalCpuMs],
       ["outputBytes", this.outputBytes, REVIEW_GIT_LIMITS.outputBytes],
     ];
     for (const [resource, observed, limit] of checks) {

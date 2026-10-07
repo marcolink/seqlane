@@ -24,17 +24,6 @@
       "outputs": ["{projectRoot}/dist/main.js", "{projectRoot}/dist/post.js"],
       "dependsOn": ["typecheck", "^build"]
     },
-    "verify-git-host": {
-      "executor": "nx:run-commands",
-      "dependsOn": ["build"],
-      "cache": false,
-      "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
-      "outputs": ["{projectRoot}/dist/git-host-smoke.mjs"],
-      "options": {
-        "cwd": ".",
-        "command": "pnpm exec esbuild libs/action-code-review/src/review-git-host.linux.test-support.ts --bundle --platform=node --target=node24 --format=esm --outfile=actions/code-review/dist/git-host-smoke.mjs && node actions/code-review/tests/git-host-smoke.mjs"
-      }
-    },
     "test": {
       "executor": "nx:run-commands",
       "dependsOn": ["build"],

@@ -50,7 +50,6 @@ describe("bounded Git host policy", () => {
       expect(
         reviewGitHostOptionsSchema.safeParse({
           reviewTarget: "/repo",
-          cgroupRoot: "/groups",
           trustedRemote: { url },
         }).success,
       ).toBe(false);
@@ -58,7 +57,6 @@ describe("bounded Git host policy", () => {
     expect(
       reviewGitHostOptionsSchema.safeParse({
         reviewTarget: "relative",
-        cgroupRoot: "/groups",
       }).success,
     ).toBe(false);
   });

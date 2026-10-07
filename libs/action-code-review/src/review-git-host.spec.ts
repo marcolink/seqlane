@@ -1,41 +1,73 @@
-// @test-scope ./review-git-host.ts
-// @test-scope ./review-git-supervisor.ts
-// @test-scope ./review-git-supervisor-source.ts
-// @test-scope ./review-git-supervisor-cleanup.ts
-// @test-scope ./review-git-host-preflight.ts
-// @test-scope ./review-git-host-fetch.ts
-// @test-scope ./review-git-transport.ts
 // @test-scope ./review-git-host-admission.ts
 // @test-scope ./review-scope-admission.ts
 import { describe, expect, it } from "vitest";
 import { createReviewGitHost } from "./review-git-host.js";
-import { verifyReviewGitHost } from "./review-git-host.linux.test-support.js";
+import { createReviewGitFixture } from "./review-git-fixture.test-support.js";
+import { admitReviewScopeWithGitHost } from "./review-git-host-admission.js";
+import { reviewGitResultSchema } from "./review-git-budget.js";
 
-describe("production review Git host", () => {
-  it("returns a typed setup failure for malformed host options", async () => {
-    await expect(
-      createReviewGitHost({ reviewTarget: "relative", cgroupRoot: "/groups" }),
-    ).rejects.toMatchObject({ code: "GIT_HOST_SETUP_FAILED" });
+describe("native review Git host", () => {
+  it("returns typed failures for malformed options and unavailable checkouts", async () => {
+    for (const reviewTarget of ["relative", "/missing-seqlane-checkout"])
+      await expect(createReviewGitHost({ reviewTarget })).rejects.toMatchObject(
+        { code: "GIT_HOST_SETUP_FAILED" },
+      );
   });
-  it.skipIf(process.platform === "linux")(
-    "fails closed on unsupported hosts",
-    async () => {
-      await expect(
-        createReviewGitHost({ reviewTarget: "/repo", cgroupRoot: "/groups" }),
-      ).rejects.toMatchObject({ code: "GIT_HOST_UNSUPPORTED" });
-    },
-  );
-  it.skipIf(process.env.SEQLANE_REVIEW_CGROUP_ROOT === undefined)(
-    "proves resource enforcement and v5 admission with real Git",
-    async () => {
+  it("produces complete baseline admission through real Git", async () => {
+    const fixture = await createReviewGitFixture();
+    try {
+      await fixture.write("first.ts", "export const value = 1;\n");
+      const baseRevision = await fixture.commit();
+      await fixture.write("first.ts", "export const value = 2;\n");
+      const headRevision = await fixture.commit();
+      const admission = await admitReviewScopeWithGitHost(
+        {
+          pullRequest: {
+            repositoryId: "1",
+            pullRequestNumber: 112,
+            targetBranch: "release",
+            baseRevision,
+            headRevision,
+          },
+        },
+        { reviewTarget: fixture.cwd },
+        () => ({
+          listIssueComments: async () => ({ items: [], hasNextPage: false }),
+        }),
+      );
+      expect(admission.evidence.reviewablePaths).toEqual(["first.ts"]);
+      expect(admission.evidence.batches[0]?.patch).toContain(
+        "+export const value = 2;",
+      );
+    } finally {
+      await fixture.dispose();
+    }
+  });
+  it("rejects invalid requests and cancellation after close", async () => {
+    const fixture = await createReviewGitFixture();
+    const host = await createReviewGitHost({ reviewTarget: fixture.cwd });
+    const request = {
+      argv: [
+        "--no-replace-objects",
+        "rev-parse",
+        "--show-object-format=storage",
+      ],
+      limits: { wallMs: 3000, outputBytes: 100 },
+    };
+    try {
       expect(
-        (
-          await verifyReviewGitHost(
-            process.env.SEQLANE_REVIEW_CGROUP_ROOT ?? "",
-          )
-        ).status,
-      ).toBe("verified");
-    },
-    30_000,
-  );
+        reviewGitResultSchema.parse(await host.git.run(request)).exitCode,
+      ).toBe(0);
+      await expect(
+        host.git.run({ ...request, limits: { ...request.limits, wallMs: 0 } }),
+      ).rejects.toMatchObject({ code: "GIT_HOST_REQUEST" });
+      await host.close();
+      await expect(host.git.run(request)).rejects.toMatchObject({
+        code: "REVIEW_SCOPE_CANCELLED",
+      });
+    } finally {
+      await host.close();
+      await fixture.dispose();
+    }
+  });
 });

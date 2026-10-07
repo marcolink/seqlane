@@ -12,7 +12,7 @@ function result() {
     stderr: Buffer.alloc(0),
     stdoutTruncated: false,
     stderrTruncated: false,
-    usage: { wallMs: 1, cpuMs: 1, peakMemoryBytes: 1, transferBytes: 0 },
+    usage: { wallMs: 1 },
   };
 }
 
@@ -32,15 +32,11 @@ describe("review Git budgets", () => {
     await budget.run(["cat-file", "-t", "a".repeat(40)]);
     await budget.run(["cat-file", "-t", "b".repeat(40)]);
     expect(run.mock.calls[1]?.[0]).toMatchObject({
-      limits: { cpuMs: 59_999, outputBytes: 2_047_993 },
+      limits: { outputBytes: 2_047_993 },
     });
   });
 
-  it.each([
-    ["wallMs", 30_000, "commandWallMs"],
-    ["cpuMs", 60_000, "commandCpuMs"],
-    ["peakMemoryBytes", 256 * 1024 * 1024, "peakMemoryBytes"],
-  ])(
+  it.each([["wallMs", 30_000, "commandWallMs"]])(
     "accepts equality and refuses one-over %s",
     async (resource, maximum, expectedResource) => {
       for (const delta of [0, 1]) {
@@ -62,11 +58,11 @@ describe("review Git budgets", () => {
     },
   );
 
-  it("caps cumulative wall and CPU without refreshing between commands", async () => {
+  it("caps cumulative wall time without refreshing between commands", async () => {
     const value = result();
     const run = vi.fn(async () => ({
       ...value,
-      usage: { ...value.usage, wallMs: 30_000, cpuMs: 20_000 },
+      usage: { ...value.usage, wallMs: 30_000 },
     }));
     const budget = new ReviewGitBudget({ run }, 0, () => 0);
     for (let index = 0; index < 3; index++) await budget.run(["diff"]);
@@ -98,7 +94,7 @@ describe("review Git budgets", () => {
     for (const value of [
       { exitCode: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) },
       { ...result(), stdoutTruncated: true },
-      { ...result(), usage: { wallMs: 1 } },
+      { ...result(), usage: { wallMs: Number.NaN } },
     ]) {
       await expect(
         new ReviewGitBudget({ run: async () => value }, 0, () => 0).run([
@@ -106,31 +102,6 @@ describe("review Git budgets", () => {
         ]),
       ).rejects.toThrow();
     }
-  });
-
-  it("caps exact-checkpoint transfer and charges fetch to the shared budget", async () => {
-    const fetchExactCommit = vi.fn<
-      NonNullable<BoundedReviewGitPort["fetchExactCommit"]>
-    >(async () => ({
-      ...result(),
-      usage: {
-        ...result().usage,
-        transferBytes: REVIEW_GIT_LIMITS.fetchBytes + 1,
-      },
-    }));
-    const budget = new ReviewGitBudget(
-      { run: async () => result(), fetchExactCommit },
-      0,
-      () => 0,
-    );
-    await expect(budget.fetchExactCommit("a".repeat(40))).rejects.toMatchObject(
-      {
-        resource: "transferBytes",
-      },
-    );
-    expect(fetchExactCommit.mock.calls[0]?.[1]).toMatchObject({
-      limits: { wallMs: 30_000, transferBytes: 16 * 1024 * 1024 },
-    });
   });
 
   it("routes commands and fetches separately while sharing remaining capacity", async () => {
@@ -152,14 +123,12 @@ describe("review Git budgets", () => {
       revision,
       {
         limits: {
-          cpuMs: 59_999,
           outputBytes: 2_047_993,
-          transferBytes: 16 * 1024 * 1024,
         },
       },
     ]);
     expect(run.mock.calls[1]?.[0]).toMatchObject({
-      limits: { cpuMs: 59_998, outputBytes: 2_047_986, transferBytes: 0 },
+      limits: { outputBytes: 2_047_986 },
     });
   });
 

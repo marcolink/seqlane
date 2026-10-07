@@ -321,10 +321,22 @@ context. Malformed or future state blocks before collection.
 The production v4 caller, model admission, and publication remain unchanged. The following slice supplies the private bounded host.
 
 On 2026-10-07, the host requirements were revised before implementation changes.
-PR #179's initial custom supervisor and metered transport are being replaced
-with native Git, timeout, cancellation, bounded output, and measured wall time.
-The earlier hosted verification proves that retired approach only.
-The revised host needs fresh tests and CI evidence before completion.
+PR #179 now uses native Git, timeout, cancellation, bounded output, and measured
+wall time. The custom supervisor, transport, and privileged CI fixture are removed.
+The earlier hosted verification proves the retired approach only.
+
+Local verification passes: 28 library test files and 314 tests, four Action tests,
+Action bundle loading, source typecheck, scoped lint, formatting, test mapping,
+and SDLC validation. The real-Git tests now use the production host.
+HTTPS integration proves exact non-ancestor checkpoint fetch for SHA-1 and SHA-256,
+ignored target URL rewrites, and unchanged HEAD, index, and worktree.
+Process tests prove timeout, cancellation, and combined-output boundaries.
+The test typecheck retains the same three errors in the untouched
+`pr-code-review-example.spec.ts` at lines 1467 and 1532.
+
+Ripwire reports expected contract churn and a longer fetch function.
+The longer function replaces the separate custom transport and protocol modules;
+no suppression is recorded. Hosted CI for the revised code remains pending.
 
 The scope selector, checkpoint validation, complete-evidence rules, model limits,
 and publication guards remain unchanged. Full v5 production wiring is pending.

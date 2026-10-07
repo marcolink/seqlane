@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,15 +11,9 @@ import {
   REVIEW_GIT_HOST_ARGS,
   type ReviewGitHostOptions,
 } from "./review-git-host-policy.js";
-import {
-  reviewGitRequestSchema,
-  superviseReviewGit,
-} from "./review-git-supervisor.js";
+import { reviewGitRequestSchema, runReviewGit } from "./review-git-process.js";
 import { installReviewCheckpoint } from "./review-git-host-fetch.js";
-import {
-  prepareReviewGitHost,
-  requireReviewGitActive,
-} from "./review-git-host-preflight.js";
+import { reviewGitHostOptionsSchema } from "./review-git-host-policy.js";
 import { ReviewScopeError } from "./review-scope-errors.js";
 
 export interface ReviewGitHost {
@@ -27,11 +21,30 @@ export interface ReviewGitHost {
   close(): Promise<void>;
 }
 
-/** Private Linux host. cgroupRoot is provisioned by trusted runner setup. */
+/** Private native Git adapter for Linux and macOS. */
 export async function createReviewGitHost(
   optionsValue: ReviewGitHostOptions,
 ): Promise<ReviewGitHost> {
-  const { options, cwd, cgroupRoot } = await prepareReviewGitHost(optionsValue);
+  const validation = reviewGitHostOptionsSchema.safeParse(optionsValue);
+  if (!validation.success)
+    throw new ReviewScopeError(
+      "GIT_HOST_SETUP_FAILED",
+      "Git host options are invalid.",
+      validation.error,
+    );
+  const options = validation.data;
+  if (process.platform !== "linux" && process.platform !== "darwin")
+    throw new ReviewScopeError(
+      "GIT_HOST_UNSUPPORTED",
+      "Review Git requires Linux or macOS.",
+    );
+  const cwd = await realpath(options.reviewTarget).catch((cause: unknown) => {
+    throw new ReviewScopeError(
+      "GIT_HOST_SETUP_FAILED",
+      "The review checkout is unavailable.",
+      cause,
+    );
+  });
   const home = await mkdtemp(join(tmpdir(), "seqlane-review-git-")).catch(
     (cause: unknown) => {
       throw new ReviewScopeError(
@@ -47,24 +60,11 @@ export async function createReviewGitHost(
       ? lifetime.signal
       : AbortSignal.any([lifetime.signal, options.signal]);
   let active: Promise<unknown> | undefined;
-  const supervise = (request: ReviewGitRequest, inputPath?: string) =>
-    superviseReviewGit(
-      {
-        cwd,
-        cgroupRoot,
-        executable: "/usr/bin/git",
-        env: reviewGitEnvironment(home),
-        ...(inputPath === undefined ? {} : { inputPath }),
-      },
-      {
-        ...request,
-        argv: [...REVIEW_GIT_HOST_ARGS, ...request.argv],
-        signal:
-          request.signal === undefined
-            ? signal
-            : AbortSignal.any([signal, request.signal]),
-      },
-    );
+  const run = (request: ReviewGitRequest) =>
+    runReviewGit(cwd, reviewGitEnvironment(home), {
+      ...request,
+      argv: [...REVIEW_GIT_HOST_ARGS, ...request.argv],
+    });
   const perform = async (
     request: ReviewGitRequest,
     action: (
@@ -91,7 +91,12 @@ export async function createReviewGitHost(
           ? signal
           : AbortSignal.any([signal, parsed.signal]),
     };
-    requireReviewGitActive(bounded.signal);
+    if (bounded.signal.aborted)
+      throw new ReviewScopeError(
+        "REVIEW_SCOPE_CANCELLED",
+        "Git was cancelled.",
+        bounded.signal.reason,
+      );
     active = action(bounded);
     try {
       return await active;
@@ -110,27 +115,15 @@ export async function createReviewGitHost(
     run: (request) =>
       perform(request, async (bounded) => {
         requireLocalReviewGit(bounded.argv);
-        return supervise(bounded);
+        return run(bounded);
       }),
-    ...(options.trustedRemote === undefined
-      ? {}
-      : {
-          fetchExactCommit: (revision: string, request: ReviewGitRequest) =>
-            perform(request, async (bounded) => {
-              const remote = options.trustedRemote;
-              if (remote === undefined)
-                throw new ReviewScopeError(
-                  "CHECKPOINT_UNAVAILABLE",
-                  "No trusted checkpoint remote is configured.",
-                );
-              return installReviewCheckpoint(
-                { home, remote, supervise },
-                revision,
-                bounded,
-              );
-            }),
-        }),
   };
+  const remote = options.trustedRemote;
+  if (remote !== undefined)
+    git.fetchExactCommit = (revision, request) =>
+      perform(request, (bounded) =>
+        installReviewCheckpoint({ home, cwd, remote }, revision, bounded),
+      );
   return {
     git,
     close: async () => {

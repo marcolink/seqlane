@@ -142,9 +142,6 @@ describe(
             stderrTruncated: false,
             usage: {
               wallMs: 1,
-              cpuMs: 1,
-              peakMemoryBytes: 1,
-              transferBytes: 0,
             },
           };
         }

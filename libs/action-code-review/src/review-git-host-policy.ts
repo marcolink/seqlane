@@ -14,7 +14,6 @@ const absolutePathSchema = z
   });
 export const reviewGitHostOptionsSchema = z.strictObject({
   reviewTarget: absolutePathSchema,
-  cgroupRoot: absolutePathSchema,
   trustedRemote: z
     .strictObject({
       url: z.url().superRefine((value, context) => {
@@ -116,7 +115,7 @@ function invalidCommand() {
   );
 }
 
-export function reviewGitEnvironment(home: string) {
+export function reviewGitEnvironment(home: string): NodeJS.ProcessEnv {
   return {
     PATH: "/usr/bin:/bin",
     HOME: home,
