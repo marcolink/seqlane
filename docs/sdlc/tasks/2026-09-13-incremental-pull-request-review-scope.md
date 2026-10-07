@@ -471,18 +471,18 @@ checkout: Git 2.54.0, Python 3.14.8, arm64, kernel 7.0.14-linuxkit.
 The fixture proves baseline, incremental, same-head empty scope, literal hostile
 paths, exact fetch, combined output boundaries, CPU and memory breaches, wall
 expiry, cancellation, local network denial, and detached descendant cleanup.
-No workload cgroup or descendant survives. The narrow hosted verification
-step is part of existing CI; actual Ubuntu runner evidence is pending.
+No workload cgroup or descendant survives. Existing CI runs the same packaged
+fixture as the normal runner user inside an owned supervisor leaf.
+Trusted setup and cleanup control the owned root; Git uses separate bounded
+groups. There is no separate verification workflow or Action.
 
-The first Ubuntu run exposed a delegation gap: a launcher outside its owned
-subtree cannot move children through the root-owned common ancestor.
-The hosted launcher now enters a separate delegated leaf, then drops to the
-normal runner identity. Cleanup uses trusted privilege to remove the owned
-root from its root-owned parent. The same failure is reproduced locally with
-an unprivileged launcher outside the subtree; the corrected path is verified
-separately. This changes runner setup, not the scope or budget contract.
+[Ubuntu CI verification](https://github.com/marcolink/seqlane/actions/runs/37584769936)
+passes at `cc06034bd476cf2f845f29d535ef2b6b05e4be81`.
+The hosted fixture reports Git 2.55.0, Python 3.12.3, x64, and kernel
+6.17.0-1022-azure, with cpu, memory, and pids controls active.
+It confirms no workload cgroups or surviving descendants. All CI gates pass.
 
-The host implementation is committed locally as `7ab52f1`, based on PR #178.
+The host implementation is published in PR #179, based on PR #178.
 Local checks pass: 29 library test files and 330 tests, four Action tests,
 Action bundle loading, source typecheck, scoped lint, formatting, test mapping,
 workflow actionlint, SDLC validation, and diff checks.
