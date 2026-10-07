@@ -130,9 +130,11 @@ Excluded: production host enforcement, model dispatch, finding allocation,
 manifest upload, cost accumulation, rendering, indexes, queues, and comment writes.
 The existing v4 workflow remains on its current reader and schemas.
 The real-Git fixture provides local integration evidence.
-The revised [Git host contract](../specs/2026-09-13-incremental-pull-request-review-scope.md#requirement-complete-evidence)
+The revised [Git execution contract](../specs/2026-09-13-incremental-pull-request-review-scope.md#requirement-complete-evidence)
 requires timeout, cancellation, bounded output, and measured wall time.
-CPU, memory, and transfer controls are no longer production-host requirements.
+CPU, memory, and transfer controls are not Git execution requirements.
+PR #179 will use the existing admission entry point and a small byte-safe Git
+adapter. Admission owns the shared deadline; raw authority reads accept its signal.
 
 Conceptual before and after:
 

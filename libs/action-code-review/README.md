@@ -28,7 +28,7 @@ const previousState = parseReviewState(previousReport);
 // After: the private v5 path rejects invalid current state before Git work.
 const admission = await admitReviewScope(
   { pullRequest: frozenPullRequest },
-  { authority: githubReadPort, git: boundedGit, admittedAt, signal },
+  { authority: githubReadPort, git: boundedGit, signal },
 );
 ```
 
@@ -80,52 +80,48 @@ Reviewed resolution and reopening require verification at the published head.
 `not_reviewed` preserves valid historical verification and lifecycle without
 claiming a fresh check. Missing or contradictory proof blocks admission.
 
-## Native Git host for private v5 admission
+## Native Git evidence
 
-`createReviewGitHost` supplies real Git execution on Linux and macOS.
-`admitReviewScopeWithGitHost` owns the 120-second admission deadline and cleanup.
-The deadline includes host setup, authority reads, and Git collection.
-The authority factory must bind its signal to raw GitHub requests and disable retries.
+The existing `admitReviewScope` entry point owns the shared 120-second deadline.
+It passes the same signal to raw authority reads and the Git collector. Authority
+ports must pass that signal to HTTP requests and disable retries.
 
 ```ts
-// Before: privileged cgroup setup and a custom supervisor.
-const host = await createReviewGitHost({
-  reviewTarget,
-  cgroupRoot,
-  trustedRemote,
-});
+// Before: separate admission wrapper and host lifecycle.
+await admitReviewScopeWithGitHost(input, options, createAuthority);
 
-// After: native Git with timeout, cancellation, and bounded output.
-const admission = await admitReviewScopeWithGitHost(
-  { pullRequest },
-  { reviewTarget, trustedRemote, signal },
-  (admissionSignal) => createRawGithubReadPort(admissionSignal),
-);
+// After: existing admission with the private byte-safe adapter.
+await admitReviewScope(input, {
+  authority: githubReadPort,
+  git: createReviewGitAdapter({ reviewTarget, trustedRemote }),
+  signal,
+});
 ```
 
-Git runs with argv arrays and raw output. The host counts stdout and stderr
-before retaining bytes. Timeout, cancellation, and overflow stop Git and its
-ordinary process group. A failed command cannot return successful truncated evidence.
-The shared budget retains command and cumulative wall limits and output bounds.
-The host reports measured wall time; CPU, memory, and transfer quotas are absent.
-There is no Python supervisor, kernel sandbox, privileged setup, or custom Git transport.
-The host does not contain independently detached processes.
+`context.exec` returns text and inherits the process environment. The private
+Git adapter preserves raw bytes and uses controlled Git configuration. It
+implements the existing `BoundedReviewGitPort`, without a host lifecycle or a
+second local-command grammar. Only trusted collector code constructs local argv.
+Owning schemas validate untrusted revisions, paths, remote configuration, and
+raw results. Public runtime and executor APIs stay unchanged.
+
+Git counts stdout and stderr together before retaining output. Timeout,
+cancellation, and overflow stop the ordinary process group even after Git exits.
+Cleanup has a finite grace period; unconfirmed termination is a typed failure.
+Independently detached processes are outside this contract. The existing budget
+accounts for complete output and measured wall time across all operations.
 
 Local collection disables replacement objects, lazy fetch, hooks, executable
-helpers, prompts, protocols, and inherited credentials. Exact checkpoint fetch
-uses native Git in a temporary Git directory with trusted configuration.
-It shares only the target object directory; HEAD, index, and worktree remain unchanged.
-The target cannot select the fetch URL, rewrite rules, or credentials.
-`trustedRemote.url` requires a credential-free HTTPS URL without query or fragment.
-Optional authorization reaches Git through an environment-backed configuration value.
-Credentials do not appear in argv. Redirects and prompts are disabled.
-The trusted runner may provide `GIT_SSL_CAINFO` for its certificate authority.
-An unavailable checkpoint remains an error without retries or baseline fallback.
+helpers, prompts, protocols, and inherited credentials. Native exact-checkpoint
+fetch uses operation-local temporary configuration and trusted HTTPS settings.
+Target URLs, rewrite rules, and credentials cannot affect fetch. Credentials
+use environment-backed configuration; prompts and redirects are disabled.
+The trusted runner may supply `GIT_SSL_CAINFO`. Fetch preserves HEAD, index, and
+worktree and releases temporary files in `finally`. Missing checkpoints fail
+without retries or baseline fallback.
 
-Real-Git integration tests use this host directly, including both object formats.
-The existing test suite and CI verify it without a separate hosted fixture gate.
-The production v4 caller remains unchanged. Model dispatch, finding admission,
-manifests, and guarded publication are later v5 slices.
+Real-Git fixtures cover both object formats. The production v4 caller remains
+unchanged; production v5 wiring, models, manifests, and publication are later work.
 
 ## Incremental scope collector
 
@@ -186,8 +182,8 @@ Malformed data, unavailable checkpoints, stale HEAD, invalid wall measurements,
 oversized evidence, and budget breaches reject the run.
 It never truncates evidence or resets to a baseline.
 
-The production host adapter is available. Workflow wiring, model admission,
-and publication remain follow-up work. Real-Git tests use the same native host
+The private native Git adapter is available. Workflow wiring, model admission,
+and publication remain follow-up work. Real-Git tests use the same native adapter
 and require Git, with no Python dependency.
 
 Run the test-mapping check before the focused collector tests:

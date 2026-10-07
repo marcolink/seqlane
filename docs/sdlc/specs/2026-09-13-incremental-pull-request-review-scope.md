@@ -452,15 +452,17 @@ Action library; repository input and model output cannot raise them.
 
 Use native Git subprocesses with argv arrays, timeout, cancellation, and bounded
 output. Use native Git for an exact-checkpoint fetch from a trusted remote.
-The host does not require CPU quotas, memory quotas, transfer-byte metering,
+Git execution does not require CPU quotas, memory quotas, transfer-byte metering,
 a kernel network sandbox, a custom supervisor, or a Git transport implementation.
 No observed review failure currently justifies those additional controls.
 Add stronger controls only after a reproducible failure or measured requirement
 establishes their benefit and cost.
 
-CPU, memory, and network transfer remain runner responsibilities. The host
+CPU, memory, and network transfer remain runner responsibilities. The adapter
 reports measured wall time and complete output; it does not fabricate resource
-measurements. Cancellation and timeout stop Git and its ordinary process group.
+measurements. Cancellation and timeout stop Git and its ordinary process group,
+even when the Git parent has exited. Cleanup has a finite grace period; an
+unconfirmed stop is a typed failure rather than an indefinite wait.
 This contract does not promise containment of independently detached processes.
 Disable executable Git helpers, replacement objects, and implicit lazy fetch.
 Local evidence collection must not execute repository code or obtain credentials.
@@ -468,6 +470,14 @@ Explicit checkpoint fetch uses trusted configuration and cannot inherit target
 remote URLs, rewrite rules, or credentials. Fetch cannot move HEAD, the index,
 or the worktree. An unavailable checkpoint remains an error without a retry
 or an automatic baseline reset.
+
+Use one admission entry point. `admitReviewScope` owns the shared deadline and
+passes its signal to authority reads and Git collection. A small private adapter
+implements the existing `BoundedReviewGitPort`; it owns no admission lifecycle.
+The trusted collector constructs local Git argv. Do not duplicate its command
+grammar in a second whitelist. Validate untrusted revisions, paths, raw results,
+and remote configuration at their owning boundaries. Temporary fetch directories
+are operation-local and are released on success, failure, and cancellation.
 
 The limits apply in layers:
 

@@ -145,75 +145,61 @@ wiring remain pending.
 9. Update documentation and run focused, contract, and hosted workflow
    checks. Keep current v4 progress and ledger behavior separate from planned v5.
 
-### Next PR: production Git host for v5 admission
-
-#### Stack and documentation impact
+### Next PR: simplify native Git admission
 
 Base: [PR #178](https://github.com/marcolink/seqlane/pull/178), branch
-`codex/trusted-review-admission`, at
-`f897a641f510485187e384c13491fc8f41c5dc38`.
-Merge order: #112 -> #176 -> #178 -> [PR #179](https://github.com/marcolink/seqlane/pull/179).
-This slice is not independently mergeable into `main`.
+`codex/trusted-review-admission`, at `f897a641f510485187e384c13491fc8f41c5dc38`.
+Update [PR #179](https://github.com/marcolink/seqlane/pull/179) in place.
+Merge order: #112 -> #176 -> #178 -> #179. This slice is not independently
+mergeable into `main`.
 
-Classification: contract change.
+Classification: private contract change. PRD and RFC need no change. Update
+`requirement-complete-evidence`, this task, and the linked admission task.
+No ADR is required: existing trust and runtime boundaries remain unchanged.
 
-- PRD: no change. Incremental review behavior stays the same.
-- RFC: no change. This is private Action integration.
-- SPEC: update `requirement-complete-evidence` to use native Git with timeout, cancellation, and bounded output.
-- TASK: update this plan and the linked trusted-admission task.
-- ADR required: no. Existing trust, runtime, storage, and publication decisions remain unchanged.
+#### Tracer bullet: complete admission with bounded cleanup
 
-The earlier host design added hard CPU, memory, and transfer controls without
-an observed review failure. Its custom supervisor and transport cost more than
-the evidence justified. The revised contract removes those requirements first.
-The implementation then removes the corresponding code and runner setup.
+- **Outcome:** existing admission returns complete native Git evidence or a bounded typed failure.
+- **Path:** authority pages -> `admitReviewScope` -> existing collector and budget -> byte-safe Git adapter -> validated evidence.
+- **Risk:** removing orchestration can weaken cancellation, byte accuracy, or trusted fetch configuration.
+- **Evidence:** real repositories prove baseline and incremental admission. A surviving-helper regression proves timeout and cancellation after Git exits.
+- **Excluded:** production workflow wiring, model dispatch, manifests, publication, quotas, custom transport, and new public runtime APIs.
 
-#### Tracer bullet: real admission through native Git
+Update the active contract before code. The earlier host introduced a second
+admission entry point, a lifecycle, and a command whitelist without a production
+caller. Keep only the capabilities missing from `context.exec`: raw bytes and
+controlled Git configuration. Do not expand the public executor API for this
+private consumer.
 
-- **Outcome:** a trusted v5 report produces complete incremental evidence through native Git.
-- **Path:** authority pages -> `admitReviewScopeWithGitHost` -> existing collector -> native Git -> validated admission output.
-- **Risk:** timeout, cancellation, malformed output, or a missing checkpoint can yield incomplete evidence.
-- **Evidence:** real temporary repositories prove baseline, incremental, same-head, and exact-checkpoint behavior.
-  Focused tests prove timeout, cancellation, output overflow, and typed rejection.
-- **Excluded:** CPU and memory quotas, transfer metering, kernel network isolation, custom process supervisors, model dispatch, manifests, and publication.
-
-Use the existing Node subprocess pattern. Keep Git policy and process execution
-small and local to the private Action library. Do not create a generic framework.
-No Python, cgroup delegation, privileged setup, or separate hosted gate is required.
-
-1. Validate host options and requests through owning Zod schemas.
-2. Run Git with argv arrays, raw bytes, a remaining timeout, and an abort signal.
-3. Preserve literal paths, replacement-object protection, and disabled executable helpers.
-   Disable prompts, inherited credentials, and implicit lazy fetch during local collection.
-4. Count stdout and stderr together before retaining output. Overflow fails without truncated evidence.
-5. Return complete output and measured wall time. Remove CPU, memory, and transfer fields from the private port.
-6. Use native Git to fetch a full checkpoint ID once from a trusted remote.
-   Isolate fetch configuration from the target repository. Preserve HEAD, index, and worktree.
-7. Stop Git and its ordinary process group on timeout, cancellation, or output overflow.
-   Release owned timers, listeners, and temporary files on all exits.
-8. Preserve the single 120-second admission deadline across setup, authority reads, and Git collection.
-   Reuse cumulative wall and output budgets. Keep unavailable checkpoints as errors without baseline fallback.
+1. Fix process-group cleanup before restructuring. Kill surviving group members
+   even after Git exits. Bound cleanup and report unconfirmed termination.
+2. Move the shared admission deadline into `admitReviewScope`. Pass its signal
+   to raw authority reads and Git. Reads remain bounded and have no retries.
+3. Remove the extra admission wrapper, host lifecycle, and busy state. Keep a
+   small adapter for the existing `BoundedReviewGitPort` and shared budget.
+4. Remove the duplicate local-command whitelist. The trusted collector owns
+   fixed argv; owning schemas still validate untrusted data and raw results.
+5. Keep native exact-checkpoint fetch isolated from target configuration.
+   Create temporary files only for fetch and release them in `finally`.
+6. Preserve complete output, combined byte bounds, measured wall time, literal
+   paths, replacement-object protection, disabled helpers and lazy fetch,
+   trusted remote configuration, and unchanged HEAD, index, and worktree.
 
 ```ts
-// Before: kernel delegation and a custom supervisor.
-const host = await createReviewGitHost({ reviewTarget, cgroupRoot, trustedRemote });
+// Before: a separate admission entry point and host lifecycle.
+await admitReviewScopeWithGitHost(input, options, createAuthority);
 
-// After: native Git, with trusted fetch configuration only when needed.
-const host = await createReviewGitHost({ reviewTarget, trustedRemote });
+// After: existing admission and a byte-safe adapter.
+await admitReviewScope(input, { authority, git, signal });
 ```
 
-#### Test gates and next boundary
+Run test mapping before focused tests. Preserve SHA-1 and SHA-256 coverage,
+hostile paths, missing checkpoints, same-head scope, and output boundaries.
+Then run source typecheck, scoped lint, formatting, documentation validation,
+Action bundle loading, and CI. Update PR #179 with measured results.
 
-Run the production host in the existing real-Git fixtures for both object formats.
-Prove complete baseline and incremental patches, same-head empty scope, literal
-hostile paths, a missing checkpoint, and unchanged checkout state after fetch.
-Cover timeout, cancellation, output boundaries, invalid requests, and expired admission.
-Run test mapping before tests, then source typecheck, scoped lint, formatting,
-Action bundle loading, and the existing CI checks. No privileged fixture remains.
-
-This slice proves private admission with real Git. The production v4 review
-caller remains unchanged. The next slice connects admitted discovery evidence
-to model lanes and local finding admission; manifests and publication follow.
+The production v4 caller remains unchanged. This slice proves private admission;
+model admission and guarded publication remain separate delivery work.
 
 
 ## Affected areas
@@ -284,7 +270,8 @@ to model lanes and local finding admission; manifests and publication follow.
 The first private scope collector slice is proposed in
 [PR #176](https://github.com/marcolink/seqlane/pull/176), based on PR #112 at `6688815`.
 It has no production caller. Focused real-Git and port tests provide local evidence.
-The production host was added in the follow-up slice described below. Other v5 delivery work remains pending.
+Native Git execution was added in the follow-up slice. Its simplification is
+planned above; other v5 delivery work remains pending.
 
 Incremental review input is the checkpoint-to-head diff. Current-PR validation
 is separate. A real-Git test covers 200 incremental paths with two patch
@@ -318,7 +305,7 @@ lookup rejects duplicate reports, malformed records, and incomplete pagination.
 All v1–v4 payloads are ignored and select the full current PR diff. Valid v5
 uses its published `reviewedRevision` and preserves retained findings as reference
 context. Malformed or future state blocks before collection.
-The production v4 caller, model admission, and publication remain unchanged. The following slice supplies the private bounded host.
+The production v4 caller, model admission, and publication remain unchanged. The following slice supplies private native Git execution.
 
 On 2026-10-07, the host requirements were revised before implementation changes.
 PR #179 now uses native Git, timeout, cancellation, bounded output, and measured
