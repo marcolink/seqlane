@@ -474,6 +474,14 @@ expiry, cancellation, local network denial, and detached descendant cleanup.
 No workload cgroup or descendant survives. The narrow hosted verification
 workflow is added; actual Ubuntu runner evidence is pending.
 
+The host implementation is committed locally as `7ab52f1`, based on PR #178.
+Local checks pass: 29 library test files and 330 tests, four Action tests,
+Action bundle loading, source typecheck, scoped lint, formatting, test mapping,
+workflow actionlint, SDLC validation, and diff checks.
+One Linux-only Vitest test is skipped on macOS; the packaged Linux gate runs
+those live cases separately. The three test-typecheck errors are reproduced
+unchanged on the exact stack base `f897a641f510485187e384c13491fc8f41c5dc38`.
+
 ## Delivery state
 
 Partial local implementation. No target-branch delivery claim is made here.
