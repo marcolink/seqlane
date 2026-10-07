@@ -106,6 +106,11 @@ const admission = await admitReviewScopeWithGitHost(
 This host supports Linux x64 and arm64, with `/usr/bin/git` and `/usr/bin/python3`.
 Trusted runner setup must provide an owned, writable cgroup v2 directory.
 Its `cgroup.subtree_control` must enable `cpu`, `memory`, and `pids`.
+An unprivileged launcher must already run in a separate leaf below that root.
+Kernel migration checks require write access to the common ancestor's `cgroup.procs`.
+Trusted setup places the launcher, then restores the normal runner identity before executing Action code.
+The launcher stays outside the bounded Git workload groups.
+Trusted cleanup removes the owned root with permission to write its parent directory.
 The host probes controls before target Git starts.
 Missing controls, unsupported hosts, or failed accounting block admission.
 The embedded Python supervisor travels with TypeScript output and Action bundles.
@@ -163,7 +168,10 @@ SEQLANE_REVIEW_CGROUP_ROOT=/sys/fs/cgroup/owned-review-root \
   pnpm exec nx run action-code-review:verify-git-host
 ```
 
-`.github/workflows/review-git-host-verification.yml` provisions and removes its own root.
+The existing CI workflow runs `actions/code-review/tests/git-host-cgroup-smoke.sh`
+when review code, its Action, or CI changes.
+The script provisions and removes its owned root.
+It starts the fixture in the root's `supervisor` leaf as the normal runner user.
 The gate verifies both hash formats, literal paths, exact fetch, resource breaches,
 network denial, cancellation, and descendant cleanup from a packaged host.
 Bundles remain ignored. The production v4 workflow still has no v5 admission call.

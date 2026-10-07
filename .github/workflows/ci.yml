@@ -89,6 +89,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm exec nx affected -t test --output-style=static
 
+      - name: Verify bounded review Git on Ubuntu
+        run: |
+          if ! git diff --quiet "$NX_BASE" "$NX_HEAD" -- libs/action-code-review/ actions/code-review/ .github/workflows/ci.yml; then
+            bash actions/code-review/tests/git-host-cgroup-smoke.sh
+          fi
+
       - name: Materialize Ripwire Action
         if: steps.classify.outputs.ripwire_relevant != 'false'
         run: >-

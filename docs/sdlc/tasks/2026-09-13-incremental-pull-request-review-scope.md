@@ -472,7 +472,15 @@ The fixture proves baseline, incremental, same-head empty scope, literal hostile
 paths, exact fetch, combined output boundaries, CPU and memory breaches, wall
 expiry, cancellation, local network denial, and detached descendant cleanup.
 No workload cgroup or descendant survives. The narrow hosted verification
-workflow is added; actual Ubuntu runner evidence is pending.
+step is part of existing CI; actual Ubuntu runner evidence is pending.
+
+The first Ubuntu run exposed a delegation gap: a launcher outside its owned
+subtree cannot move children through the root-owned common ancestor.
+The hosted launcher now enters a separate delegated leaf, then drops to the
+normal runner identity. Cleanup uses trusted privilege to remove the owned
+root from its root-owned parent. The same failure is reproduced locally with
+an unprivileged launcher outside the subtree; the corrected path is verified
+separately. This changes runner setup, not the scope or budget contract.
 
 The host implementation is committed locally as `7ab52f1`, based on PR #178.
 Local checks pass: 29 library test files and 330 tests, four Action tests,
@@ -495,3 +503,4 @@ Partial local implementation. No target-branch delivery claim is made here.
 - Publication permissions and recovery: [spec.versioned-pull-request-review-comments](../specs/2026-09-05-versioned-pull-request-review-comments.md#requirement-publication-permissions)
 - Host slice dependency: [trusted v5 admission task](./2026-09-14-unify-code-review-comment-state.md#next-pr-trusted-v5-report-admission)
 - Host slice stack base: [PR #178](https://github.com/marcolink/seqlane/pull/178)
+- Host implementation: [PR #179](https://github.com/marcolink/seqlane/pull/179)
