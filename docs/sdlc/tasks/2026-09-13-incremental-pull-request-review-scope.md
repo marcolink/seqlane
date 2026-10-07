@@ -102,9 +102,9 @@ is implemented locally on top of PR #176 at `7ce908b`.
 It connects strict report classification to this collector. Model and publication
 wiring remain pending.
 
-1. Deliver the [production Git host slice](#next-pr-production-git-host-for-v5-admission)
+1. Deliver the [private Git admission slice](#next-pr-simplify-native-git-admission)
    on top of PR #178. Connect the existing private admission path to native
-   Git execution and exact-checkpoint fetch. Preserve report classification and
+   local Git evidence in a runner-prepared checkout. Preserve report classification and
    scope semantics. The test fixture does not satisfy this production boundary.
 2. Connect the verified host and admission output to the later v5 computation
    job. Keep the current v4 workflow separate until its replacement is complete.
@@ -161,7 +161,7 @@ No ADR is required: existing trust and runtime boundaries remain unchanged.
 
 - **Outcome:** existing admission returns complete native Git evidence or a bounded typed failure.
 - **Path:** authority pages -> `admitReviewScope` -> existing collector and budget -> byte-safe Git adapter -> validated evidence.
-- **Risk:** removing orchestration can weaken cancellation, byte accuracy, or trusted fetch configuration.
+- **Risk:** removing orchestration can weaken cancellation, byte accuracy, or local checkpoint validation.
 - **Evidence:** real repositories prove baseline and incremental admission. A surviving-helper regression proves timeout and cancellation after Git exits.
 - **Excluded:** production workflow wiring, model dispatch, manifests, publication, quotas, custom transport, and new public runtime APIs.
 
@@ -179,11 +179,12 @@ private consumer.
    small adapter for the existing `BoundedReviewGitPort` and shared budget.
 4. Remove the duplicate local-command whitelist. The trusted collector owns
    fixed argv; owning schemas still validate untrusted data and raw results.
-5. Keep native exact-checkpoint fetch isolated from target configuration.
-   Create temporary files only for fetch and release them in `finally`.
+5. Remove automatic checkpoint fetch, remote options, authentication, and
+   temporary repositories. Require runner-prepared commits. Missing checkpoints
+   fail with `CHECKPOINT_UNAVAILABLE`; do not retry or select baseline.
 6. Preserve complete output, combined byte bounds, measured wall time, literal
    paths, replacement-object protection, disabled helpers and lazy fetch,
-   trusted remote configuration, and unchanged HEAD, index, and worktree.
+   and unchanged HEAD, index, and worktree.
 
 ```ts
 // Before: a separate admission entry point and host lifecycle.
@@ -193,8 +194,19 @@ await admitReviewScopeWithGitHost(input, options, createAuthority);
 await admitReviewScope(input, { authority, git, signal });
 ```
 
+The next revision removes the automatic fetch described in earlier delivery
+records below. Local evidence collection remains byte-safe and bounded.
+
+```ts
+// Before: admission repairs a missing checkpoint.
+await budget.fetchExactCommit(checkpoint);
+
+// After: the runner must prepare it before admission.
+throw new ReviewScopeError("CHECKPOINT_UNAVAILABLE", message);
+```
+
 Run test mapping before focused tests. Preserve SHA-1 and SHA-256 coverage,
-hostile paths, missing checkpoints, same-head scope, and output boundaries.
+hostile paths, missing local checkpoints, same-head scope, and output boundaries.
 Then run source typecheck, scoped lint, formatting, documentation validation,
 Action bundle loading, and CI. Update PR #179 with measured results.
 

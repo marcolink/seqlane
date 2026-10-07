@@ -448,10 +448,9 @@ Action library; repository input and model output cannot raise them.
 | One Git subprocess wall time | 30 seconds |
 | Cumulative Git subprocess wall time | 90 seconds |
 | Git stdout plus stderr before parsing | 2,048,000 bytes |
-| Exact-checkpoint fetch wall time | 30 seconds |
 
 Use native Git subprocesses with argv arrays, timeout, cancellation, and bounded
-output. Use native Git for an exact-checkpoint fetch from a trusted remote.
+output. The runner prepares all required commits in the local checkout.
 Git execution does not require CPU quotas, memory quotas, transfer-byte metering,
 a kernel network sandbox, a custom supervisor, or a Git transport implementation.
 No observed review failure currently justifies those additional controls.
@@ -466,25 +465,25 @@ unconfirmed stop is a typed failure rather than an indefinite wait.
 This contract does not promise containment of independently detached processes.
 Disable executable Git helpers, replacement objects, and implicit lazy fetch.
 Local evidence collection must not execute repository code or obtain credentials.
-Explicit checkpoint fetch uses trusted configuration and cannot inherit target
-remote URLs, rewrite rules, or credentials. Fetch cannot move HEAD, the index,
-or the worktree. An unavailable checkpoint remains an error without a retry
-or an automatic baseline reset.
+Admission does not fetch commits, accept remote configuration, or use credentials.
+The runner must prepare the exact base, head, and checkpoint commits before
+admission. A missing checkpoint fails with `CHECKPOINT_UNAVAILABLE`, without
+retry or baseline fallback. Collection cannot move HEAD, the index, or the worktree.
 
 Use one admission entry point. `admitReviewScope` owns the shared deadline and
 passes its signal to authority reads and Git collection. A small private adapter
 implements the existing `BoundedReviewGitPort`; it owns no admission lifecycle.
 The trusted collector constructs local Git argv. Do not duplicate its command
-grammar in a second whitelist. Validate untrusted revisions, paths, raw results,
-and remote configuration at their owning boundaries. Temporary fetch directories
-are operation-local and are released on success, failure, and cancellation.
+grammar in a second whitelist. Validate untrusted revisions, paths, and raw
+results at their owning boundaries. Admission needs no temporary Git repositories
+or credential configuration.
 
 The limits apply in layers:
 
 1. Admission constructs one immutable budget object containing the limits and
    zeroed monotonic counters. The scope selector and evidence collector reserve
    path, hunk, batch, byte, and Git-operation capacity before work starts.
-2. The bounded Git adapter wraps every subprocess and exact-SHA fetch. It
+2. The bounded Git adapter wraps every local subprocess. It
    preserves raw NUL-delimited output, enforces timeout and output caps,
    and stops Git and its ordinary process group on a breach. It returns a
    typed limit failure; it does not retry outside the same budget.
@@ -699,7 +698,7 @@ is an incomplete review, not a smaller valid scope.
 | New commit changes one PR file | Review that file's current PR diff; new findings only in that file. |
 | Earlier change is reverted before the next review | Restored tree entry is ineligible. |
 | Rebase or force-push keeps `C` available | Compare `C` and `H` trees; no automatic baseline. |
-| `C` cannot be fetched by exact SHA | Fail closed with the old checkpoint intact; no baseline fallback. |
+| `C` is unavailable in the prepared checkout | Fail closed with the old checkpoint intact; no baseline fallback. |
 | Target branch moves or PR is retargeted | Recompute current PR paths; unchanged head files remain ineligible. |
 | File leaves the current PR diff | It cannot receive a new finding; retained findings follow lifecycle rules. |
 | Path list, patch batch, or state exceeds a bound | Fail without publishing or advancing. |

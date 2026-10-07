@@ -93,7 +93,7 @@ await admitReviewScopeWithGitHost(input, options, createAuthority);
 // After: existing admission with the private byte-safe adapter.
 await admitReviewScope(input, {
   authority: githubReadPort,
-  git: createReviewGitAdapter({ reviewTarget, trustedRemote }),
+  git: createReviewGitAdapter({ reviewTarget }),
   signal,
 });
 ```
@@ -102,7 +102,7 @@ await admitReviewScope(input, {
 Git adapter preserves raw bytes and uses controlled Git configuration. It
 implements the existing `BoundedReviewGitPort`, without a host lifecycle or a
 second local-command grammar. Only trusted collector code constructs local argv.
-Owning schemas validate untrusted revisions, paths, remote configuration, and
+Owning schemas validate untrusted revisions, paths, and
 raw results. Public runtime and executor APIs stay unchanged.
 
 Git counts stdout and stderr together before retaining output. Timeout,
@@ -112,13 +112,12 @@ Independently detached processes are outside this contract. The existing budget
 accounts for complete output and measured wall time across all operations.
 
 Local collection disables replacement objects, lazy fetch, hooks, executable
-helpers, prompts, protocols, and inherited credentials. Native exact-checkpoint
-fetch uses operation-local temporary configuration and trusted HTTPS settings.
-Target URLs, rewrite rules, and credentials cannot affect fetch. Credentials
-use environment-backed configuration; prompts and redirects are disabled.
-The trusted runner may supply `GIT_SSL_CAINFO`. Fetch preserves HEAD, index, and
-worktree and releases temporary files in `finally`. Missing checkpoints fail
-without retries or baseline fallback.
+helpers, prompts, protocols, and inherited credentials. The runner prepares
+the exact base, head, and checkpoint commits before admission. Admission accepts
+no remote or authentication options and never fetches a missing checkpoint.
+A missing checkpoint returns `CHECKPOINT_UNAVAILABLE`, without retries or baseline
+fallback. Collection preserves HEAD, index, and worktree and needs no temporary
+Git repositories.
 
 Real-Git fixtures cover both object formats. The production v4 caller remains
 unchanged; production v5 wiring, models, manifests, and publication are later work.
@@ -174,7 +173,7 @@ It must preserve raw bytes and enforce the supplied timeout and output limits.
 It stops Git and its ordinary process group on cancellation or a breach.
 It must disable automatic lazy fetches during local Git commands.
 Every result includes measured wall time and explicit non-truncation flags.
-The collector charges all commands and exact-checkpoint fetches to one admission budget.
+The collector charges all local commands to one admission budget.
 Base, head, and checkpoint IDs must match the repository's storage hash format:
 40 characters for SHA-1 or 64 for SHA-256. Each ID must resolve to exactly that
 commit object. Abbreviated IDs, tags, trees, and blobs are rejected.

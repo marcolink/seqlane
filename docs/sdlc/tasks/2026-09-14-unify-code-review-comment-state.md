@@ -209,8 +209,8 @@ if (schemaVersion > 0 && schemaVersion < CURRENT_SCHEMA_VERSION) {
 6. Connect the classifier to one private admission entry point. Only absent
    and legacy select baseline variants. Current state selects C from
    `reviewedRevision`. Timestamps, metrics, and previousReviewedRevision do not.
-   Reuse the collector for exact commit validation, checkpoint fetch, HEAD
-   validation, path selection, exclusions, and shared Git budgets.
+   Reuse the collector for exact local commit validation, checkpoint availability,
+   HEAD validation, path selection, exclusions, and shared Git budgets.
    Keep the frozen identity consistent with evidence through empty scope.
 
 The second tracer uses one valid serialized v5 report in the same real-Git
