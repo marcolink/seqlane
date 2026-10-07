@@ -34,6 +34,10 @@ export {
   reviewScopeAdmissionSchema,
 } from "./review-scope-admission.js";
 export type { ReviewScopeAdmission } from "./review-scope-admission.js";
+export { createReviewGitHost } from "./review-git-host.js";
+export { admitReviewScopeWithGitHost } from "./review-git-host-admission.js";
+export type { ReviewGitHost } from "./review-git-host.js";
+export type { ReviewGitHostOptions } from "./review-git-host-policy.js";
 export { readReviewAuthority } from "./review-report-authority.js";
 export type { ReviewAuthorityReadPort } from "./review-report-authority.js";
 export { classifyReviewReport } from "./review-report-classification.js";

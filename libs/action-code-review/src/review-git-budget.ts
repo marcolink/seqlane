@@ -40,6 +40,7 @@ const gitResultSchema = z.strictObject({
     transferBytes: z.number().int().nonnegative(),
   }),
 });
+export { gitResultSchema as reviewGitResultSchema };
 
 export class ReviewGitBudget {
   private wallMs = 0;

@@ -1,0 +1,60 @@
+name: Review Git host verification
+
+on:
+  pull_request:
+    paths:
+      - "libs/action-code-review/**"
+      - "actions/code-review/**"
+      - ".github/workflows/review-git-host-verification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install trusted fixture dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Check test mappings
+        run: pnpm test:mapping
+      - name: Provision a fixture-owned cgroup root
+        id: cgroup
+        run: |
+          root=$(sudo mktemp -d /sys/fs/cgroup/seqlane-review-XXXXXXXX)
+          sudo chown -R "$(id -u):$(id -g)" "$root"
+          printf '+cpu +memory +pids' > "$root/cgroup.subtree_control"
+          printf 'root=%s\n' "$root" >> "$GITHUB_OUTPUT"
+      - name: Verify packaged host and exact-checkpoint transport
+        env:
+          SEQLANE_REVIEW_CGROUP_ROOT: ${{ steps.cgroup.outputs.root }}
+        run: pnpm exec nx run action-code-review:verify-git-host --output-style=static
+      - name: Remove fixture-owned cgroup root
+        if: always() && steps.cgroup.outputs.root != ''
+        env:
+          REVIEW_CGROUP_ROOT: ${{ steps.cgroup.outputs.root }}
+        run: |
+          case "$REVIEW_CGROUP_ROOT" in
+            /sys/fs/cgroup/seqlane-review-*) ;;
+            *) exit 1 ;;
+          esac
+          for group in "$REVIEW_CGROUP_ROOT"/seqlane-*; do
+            if [ -d "$group" ]; then
+              printf '1' > "$group/cgroup.kill"
+              rmdir "$group"
+            fi
+          done
+          rmdir "$REVIEW_CGROUP_ROOT"
