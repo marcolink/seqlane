@@ -5,6 +5,10 @@ import {
   decodeOwnedProcessAcknowledgement,
   isOwnedProcessAcknowledgementCandidate,
 } from "@seqlane/protocol/private/owned-process";
+import {
+  createStandaloneExecution,
+  type StandaloneRunOptions,
+} from "./profile/standalone-profile.js";
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import {
   requestRunnerCancellation,
@@ -13,7 +17,10 @@ import {
   type RunnerRunControl,
   type RuntimeExecutionResolver,
 } from "./run.js";
-import { resolveRuntimeProfile } from "./profile/runtime-profile.js";
+import {
+  RuntimeUserInputUnsupportedError,
+  resolveRuntimeProfile,
+} from "./profile/runtime-profile.js";
 import type { LoadedWorkflow } from "./workflow/load-workflow.js";
 import type { PrivateClassifierConnection } from "../classifier/types.js";
 import type { TraceCarrier } from "@seqlane/protocol/private/trace-carrier";
@@ -37,6 +44,16 @@ export interface RunnerProcessOptions {
   readonly classifierConnection?: PrivateClassifierConnection;
   readonly traceCarrier?: TraceCarrier;
   readonly telemetryConfiguration?: TelemetryConfiguration;
+  /** Optional demand-driven composition for direct CLI runs. */
+  readonly standaloneAdapter?: {
+    readonly identity: string;
+    readonly start: (
+      parameters: Parameters<
+        NonNullable<StandaloneRunOptions["startAdapter"]>
+      >[0],
+      factoryOptions?: Parameters<AgentRuntimeFactory>[2],
+    ) => ReturnType<NonNullable<StandaloneRunOptions["startAdapter"]>>;
+  };
 }
 
 export type { PrivateClassifierConnection } from "../classifier/types.js";
@@ -49,15 +66,60 @@ function requiresAgentRuntime(profileId: string): boolean {
 export function createRunnerExecutionResolver(
   options: RunnerProcessOptions = {},
 ): RuntimeExecutionResolver {
-  return (
+  return async (
     profile,
     taskDefinitions,
     signal,
     input,
     onSessionUiAvailable,
     resolutionOptions,
-  ) =>
-    resolveRuntimeProfile(
+  ) => {
+    const standaloneAdapter = options.standaloneAdapter;
+    if (profile.id === "direct" && standaloneAdapter !== undefined) {
+      if (taskDefinitions === undefined)
+        throw new Error("Loaded workflow did not provide task definitions");
+      const execution = await createStandaloneExecution(
+        {
+          adapter: standaloneAdapter.identity,
+          workspace: profile.workspace ?? process.cwd(),
+          startAdapter: async (parameters) => {
+            const service = await standaloneAdapter.start(
+              parameters,
+              resolutionOptions?.onOwnedProcessAcquired === undefined
+                ? undefined
+                : {
+                    onOwnedProcessAcquired:
+                      resolutionOptions.onOwnedProcessAcquired,
+                  },
+            );
+            if (
+              resolutionOptions?.interactionPolicy?.mode === "user-input" &&
+              service.binding.capabilities.userInput !== true
+            ) {
+              await service.close();
+              throw new RuntimeUserInputUnsupportedError();
+            }
+            return service;
+          },
+          ...(options.classifierConnection === undefined
+            ? {}
+            : { classifierConnection: options.classifierConnection }),
+        },
+        taskDefinitions,
+        signal,
+        resolutionOptions?.runId ?? randomUUID(),
+        onSessionUiAvailable,
+      );
+      return {
+        ...execution,
+        ...(resolutionOptions?.onOwnedProcessAcquired === undefined
+          ? {}
+          : {
+              onOwnedProcessAcquired: resolutionOptions.onOwnedProcessAcquired,
+            }),
+      };
+    }
+    return resolveRuntimeProfile(
       profile,
       taskDefinitions,
       signal,
@@ -89,6 +151,7 @@ export function createRunnerExecutionResolver(
           : { classifierConnection: options.classifierConnection }),
       },
     );
+  };
 }
 
 /** Prevent terminal signals from bypassing Seqlane's external-work cleanup. */

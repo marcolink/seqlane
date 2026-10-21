@@ -1,8 +1,13 @@
+import { createOpenCodeV2AgentRuntimeFactory } from "@seqlane/opencode-v2-adapter";
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import { createCodexAgentRuntimeFactory } from "@seqlane/codex-adapter";
 import { createOpenCodeAgentRuntimeFactory } from "@seqlane/opencode-adapter";
 import { startOpenCodeService } from "@seqlane/opencode-adapter";
 import { isIP } from "node:net";
+import {
+  createDirectRunV2AgentRuntimeFactory,
+  directRunV2ConfigurationSchema,
+} from "./opencode-v2-runtime.js";
 import { z } from "zod";
 
 const adapterIdentitySchema = z.object({ adapter: z.string().min(1) });
@@ -43,6 +48,7 @@ const externalOpenCodeConfigurationSchema = z.strictObject({
 });
 
 const directRunAdapterConfigurationSchema = z.discriminatedUnion("adapter", [
+  directRunV2ConfigurationSchema,
   z.strictObject({ adapter: z.literal("codex") }),
   z.discriminatedUnion("mode", [
     managedOpenCodeConfigurationSchema,
@@ -72,6 +78,8 @@ export function createAgentRuntimeFactory(value: unknown): AgentRuntimeFactory {
   }
   try {
     switch (identity.data.adapter) {
+      case "opencode-v2":
+        return createOpenCodeV2AgentRuntimeFactory(value);
       case "codex":
         return createCodexAgentRuntimeFactory(value);
       case "opencode":
@@ -115,6 +123,25 @@ function externalOpenCodeUrl(host: string, port: number): string {
   return new URL(`http://${authority}:${port}`).origin;
 }
 
+function parseDirectRunAdapterConfiguration(
+  encoded: string,
+): DirectRunAdapterConfiguration {
+  try {
+    return directRunAdapterConfigurationSchema.parse(JSON.parse(encoded));
+  } catch (cause) {
+    throw new AgentRuntimeConfigurationError("configuration is invalid", cause);
+  }
+}
+
+export function directRunAdapterIdentity(
+  environment: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  const encoded = environment[directRunAdapterConfigurationEnvironment];
+  return encoded === undefined
+    ? undefined
+    : parseDirectRunAdapterConfiguration(encoded).adapter;
+}
+
 /** Loads direct-run selection. This must never read the legacy hosted config. */
 export function loadDirectRunAgentRuntimeFactory(
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -123,16 +150,12 @@ export function loadDirectRunAgentRuntimeFactory(
   if (encoded === undefined || encoded.length === 0) {
     throw new AgentRuntimeConfigurationError("configuration is missing");
   }
-  let configuration: DirectRunAdapterConfiguration;
-  try {
-    configuration = directRunAdapterConfigurationSchema.parse(
-      JSON.parse(encoded),
-    );
-  } catch (cause) {
-    throw new AgentRuntimeConfigurationError("configuration is invalid", cause);
-  }
+  const configuration = parseDirectRunAdapterConfiguration(encoded);
 
   switch (configuration.adapter) {
+    case "opencode-v2":
+      return createDirectRunV2AgentRuntimeFactory(configuration, environment);
+
     case "codex":
       return createCodexAgentRuntimeFactory({ adapter: "codex" });
     case "opencode":

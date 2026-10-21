@@ -1,7 +1,7 @@
 # OpenCode
 
 The OpenCode adapter uses OpenCode 1. Seqlane supports OpenCode 1.18.27.
-OpenCode 2 is not yet supported.
+Use the separate [OpenCode 2 adapter](/adapters/opencode-v2) for V2.
 
 ## Modes
 
