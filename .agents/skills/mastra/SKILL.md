@@ -1,11 +1,11 @@
 ---
 name: mastra
-description: Verify and use the repository-pinned Mastra APIs when implementing or reviewing Seqlane workflows, steps, storage, agents, ACP, workspaces, tracing, server, MCP, or Studio integration.
+description: Historical guidance for the retired Mastra runtime. Use only when maintaining historical documentation or investigating legacy code during the Effect v4 migration.
 ---
 
-# Mastra
+# Retired Mastra runtime
 
-Use Mastra as Seqlane's sole generic runtime. Keep Seqlane-specific policy thin and keep Mastra types behind the public authoring boundary.
+This skill records the former runtime integration. The active target is [the Effect v4 migration spec](../../../docs/sdlc/specs/2026-10-21-effect-v4-execution-and-operations.md). Do not use this file as implementation guidance for new runtime work. Existing code remains on the former runtime until its migration slice is delivered.
 
 ## Establish the source of truth
 

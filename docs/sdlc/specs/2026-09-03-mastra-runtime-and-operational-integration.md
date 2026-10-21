@@ -1,7 +1,7 @@
 ---
 id: spec.mastra-runtime-and-operational-integration
 title: Mastra Runtime and Operational Integration
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-03
@@ -16,6 +16,8 @@ supersedes:
   - spec.studio-vite-development-and-isolated-replay
   - spec.dedicated-runner-process
 ---
+
+> Superseded as the current runtime implementation contract by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md). Product semantics remain subject to the target contract; this status does not claim migration delivery.
 
 # Mastra Runtime and Operational Integration
 
@@ -302,29 +304,29 @@ removes it. No bridge may remain after the cleanup task.
 
 ## Migration tasks
 
-| Order | Task | Delivery branch |
-| ---: | --- | --- |
-| 0 | `task.mastra-migration-foundation` | `mastra` |
-| 1 | `task.mastra-community-dependencies` | `mastra-01-community-dependencies` |
-| 2 | `task.mastra-runtime-spine` | `mastra-02-runtime-spine` |
-| 3 | `task.mastra-plan-compiler` | `mastra-03-plan-compiler` |
-| 4 | `task.mastra-deterministic-shell` | `mastra-04-deterministic-shell` |
-| 5 | `task.mastra-agent-acp` | `mastra-05-agent-acp` |
-| 6 | `task.mastra-session-semantics` | `mastra-06-session-semantics` |
-| 7 | `task.mastra-workspace-constraints` | `mastra-07-workspace-constraints` |
-| 8 | `task.mastra-identity-events` | `mastra-08-identity-events` |
-| 9 | `task.mastra-storage-tracing` | `mastra-09-storage-tracing` |
-| 10 | `task.mastra-server-mcp` | `mastra-10-server-mcp` |
-| 11 | `task.mastra-community-studio` | `mastra-11-community-studio` |
-| 12 | `task.mastra-architectural-cleanup` | `mastra-12-architectural-cleanup` |
-| 13 | `task.workflow-discovery-bounds` | `mastra-13-workflow-discovery-bounds` |
-| 14 | `task.workflow-discovery-and-plan-cli` | `mastra-14-workflow-discovery-plan` |
-| 15 | `task.operational-data-bounds` | `mastra-15-operational-data-bounds` |
-| 16 | `task.mastra-operational-host` | `mastra-16-operational-host` |
-| 17 | `task.cli-run-status-and-cancel` | `mastra-17-cli-run-control` |
-| 18 | `task.mastra-mcp-transports` | `mastra-18-mcp-transports` |
-| 19 | `task.mastra-studio-run-inspection` | `mastra-19-studio-run-inspection` |
-| 20 | `task.mastra-operational-end-to-end` | `mastra-20-operational-end-to-end` |
+| Order | Task                                   | Delivery branch                       |
+| ----: | -------------------------------------- | ------------------------------------- |
+|     0 | `task.mastra-migration-foundation`     | `mastra`                              |
+|     1 | `task.mastra-community-dependencies`   | `mastra-01-community-dependencies`    |
+|     2 | `task.mastra-runtime-spine`            | `mastra-02-runtime-spine`             |
+|     3 | `task.mastra-plan-compiler`            | `mastra-03-plan-compiler`             |
+|     4 | `task.mastra-deterministic-shell`      | `mastra-04-deterministic-shell`       |
+|     5 | `task.mastra-agent-acp`                | `mastra-05-agent-acp`                 |
+|     6 | `task.mastra-session-semantics`        | `mastra-06-session-semantics`         |
+|     7 | `task.mastra-workspace-constraints`    | `mastra-07-workspace-constraints`     |
+|     8 | `task.mastra-identity-events`          | `mastra-08-identity-events`           |
+|     9 | `task.mastra-storage-tracing`          | `mastra-09-storage-tracing`           |
+|    10 | `task.mastra-server-mcp`               | `mastra-10-server-mcp`                |
+|    11 | `task.mastra-community-studio`         | `mastra-11-community-studio`          |
+|    12 | `task.mastra-architectural-cleanup`    | `mastra-12-architectural-cleanup`     |
+|    13 | `task.workflow-discovery-bounds`       | `mastra-13-workflow-discovery-bounds` |
+|    14 | `task.workflow-discovery-and-plan-cli` | `mastra-14-workflow-discovery-plan`   |
+|    15 | `task.operational-data-bounds`         | `mastra-15-operational-data-bounds`   |
+|    16 | `task.mastra-operational-host`         | `mastra-16-operational-host`          |
+|    17 | `task.cli-run-status-and-cancel`       | `mastra-17-cli-run-control`           |
+|    18 | `task.mastra-mcp-transports`           | `mastra-18-mcp-transports`            |
+|    19 | `task.mastra-studio-run-inspection`    | `mastra-19-studio-run-inspection`     |
+|    20 | `task.mastra-operational-end-to-end`   | `mastra-20-operational-end-to-end`    |
 
 Task dependencies and Traceability links define execution order. The index and
 filename order are discovery aids only.

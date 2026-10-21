@@ -1,7 +1,7 @@
 ---
 id: spec.opencode-mastra-observability-projection
 title: OpenCode-to-Mastra Observability Projection
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-08
@@ -11,6 +11,8 @@ upstream:
   - spec.mastra-native-agent-observability
 supersedes: []
 ---
+
+> Superseded as the current runtime implementation contract by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md). Engine-independent behavior and public or wire contracts remain normative through that specification until S12 transfers them to target-only owners. This status does not claim migration delivery.
 
 # OpenCode-to-Mastra Observability Projection
 
@@ -189,11 +191,11 @@ available, it MUST be parented directly under `AGENT_RUN`.
 
 Tool status maps to span lifecycle as follows:
 
-| OpenCode state | Native action |
-| --- | --- |
-| pending or running | Open or update one `TOOL_CALL` |
-| completed | End once with success |
-| error | End once with failure |
+| OpenCode state          | Native action                                                             |
+| ----------------------- | ------------------------------------------------------------------------- |
+| pending or running      | Open or update one `TOOL_CALL`                                            |
+| completed               | End once with success                                                     |
+| error                   | End once with failure                                                     |
 | attempt ends while open | End as incomplete, failed, or cancelled according to the terminal outcome |
 
 OpenCode `skill` parts remain `TOOL_CALL` activity. The adapter uses a bounded
@@ -249,18 +251,18 @@ duration metrics use it.
 
 For each model-generation span, the adapter MUST map per-message values only:
 
-| OpenCode observation | Mastra 1.64.0 field | Rule |
-| --- | --- | --- |
-| `providerID` | `attributes.provider` | Preserve normalized provider identity |
-| `modelID` | `attributes.model` | Preserve normalized model identity |
-| `tokens.input` | `attributes.usage.inputTokens` | Use the individual message value |
-| `tokens.output` | `attributes.usage.outputTokens` | Use the individual message value |
-| `tokens.reasoning` | `attributes.usage.outputDetails.reasoning` | Preserve when provided |
-| `tokens.cache.read` | `attributes.usage.inputDetails.cacheRead` | Preserve when provided |
-| `tokens.cache.write` | `attributes.usage.inputDetails.cacheWrite` | Preserve when provided |
-| `cost` | `attributes.costContext.estimatedCost` | Use the executor-reported value |
-| verified cost unit | `attributes.costContext.costUnit` | Omit when the unit is not established |
-| cost source | `attributes.costContext.costMetadata.source` | Use `executor_reported` |
+| OpenCode observation | Mastra 1.64.0 field                          | Rule                                  |
+| -------------------- | -------------------------------------------- | ------------------------------------- |
+| `providerID`         | `attributes.provider`                        | Preserve normalized provider identity |
+| `modelID`            | `attributes.model`                           | Preserve normalized model identity    |
+| `tokens.input`       | `attributes.usage.inputTokens`               | Use the individual message value      |
+| `tokens.output`      | `attributes.usage.outputTokens`              | Use the individual message value      |
+| `tokens.reasoning`   | `attributes.usage.outputDetails.reasoning`   | Preserve when provided                |
+| `tokens.cache.read`  | `attributes.usage.inputDetails.cacheRead`    | Preserve when provided                |
+| `tokens.cache.write` | `attributes.usage.inputDetails.cacheWrite`   | Preserve when provided                |
+| `cost`               | `attributes.costContext.estimatedCost`       | Use the executor-reported value       |
+| verified cost unit   | `attributes.costContext.costUnit`            | Omit when the unit is not established |
+| cost source          | `attributes.costContext.costMetadata.source` | Use `executor_reported`               |
 
 Missing values MUST remain absent. The adapter MUST NOT infer per-message
 usage from aggregate totals or reprice the executor response. Cost metadata
@@ -311,10 +313,10 @@ unbounded span names. Message content MUST never be used for correlation.
 
 OpenCode private metadata is limited to this allowlist:
 
-| Key | Owning span | Source | Bound | Redaction and use |
-| --- | --- | --- | --- | --- |
+| Key                    | Owning span | Source                 | Bound                 | Redaction and use                                                  |
+| ---------------------- | ----------- | ---------------------- | --------------------- | ------------------------------------------------------------------ |
 | `seqlane.invocationId` | `AGENT_RUN` | Request `invocationId` | 128 UTF-16 code units | Opaque validated ID; omitted when over bound; never a metric label |
-| `seqlane.adapter` | `AGENT_RUN` | Adapter constant | Fixed constant | `opencode`; not executor payload |
+| `seqlane.adapter`      | `AGENT_RUN` | Adapter constant       | Fixed constant        | `opencode`; not executor payload                                   |
 
 No other OpenCode metadata is permitted. In particular, raw executor,
 session, message, tool name, tool arguments, tool results, prompts,

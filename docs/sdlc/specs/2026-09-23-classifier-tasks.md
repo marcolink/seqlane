@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-24
+updated: 2026-10-21
 upstream:
   - prd.seqlane-on-mastra
   - rfc.mastra-runtime-and-operational-foundation
@@ -14,6 +14,8 @@ supersedes: []
 ---
 
 # Classifier Task Contract
+
+> Runtime authority: Classifier authoring, question/result validation, connection handling, retry policy, and output semantics remain active. Mastra step/runtime integration requirements are superseded by the Effect v4 execution and operations spec. See [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
 
 ## Summary
 
@@ -198,11 +200,11 @@ Core owns Zod schemas for the provider-neutral Seqlane request and result.
 Input state must be a JSON string, object, or array. Static question IDs and
 instruction strings must be nonempty.
 
-| Kind | Resolved fields | Constraints | Validated answer |
-| --- | --- | --- | --- |
-| Choice | instructions and criteria map | 2–255 distinct, nonempty option IDs | selected key, probability for every option, confidence |
-| Score | instructions and ordered criteria | 2–10 nonempty, distinct levels | weighted score, matching legend, probability for every level, confidence |
-| Noul | instructions and optional true/false criteria | both descriptions when criteria is present | probability of yes in [0,1] |
+| Kind   | Resolved fields                               | Constraints                                | Validated answer                                                         |
+| ------ | --------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
+| Choice | instructions and criteria map                 | 2–255 distinct, nonempty option IDs        | selected key, probability for every option, confidence                   |
+| Score  | instructions and ordered criteria             | 2–10 nonempty, distinct levels             | weighted score, matching legend, probability for every level, confidence |
+| Noul   | instructions and optional true/false criteria | both descriptions when criteria is present | probability of yes in [0,1]                                              |
 
 Choice and Score probabilities and confidence must be finite numbers in [0,1].
 Each distribution must cover exactly the declared options or levels and sum

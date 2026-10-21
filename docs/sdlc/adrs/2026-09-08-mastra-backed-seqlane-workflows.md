@@ -1,7 +1,7 @@
 ---
 id: adr.mastra-backed-seqlane-workflows
 title: Center Seqlane Workflows on a Mastra-Backed Executable DSL
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-08
@@ -16,6 +16,8 @@ supersedes:
   - adr.seqlane-plan-ir-and-typed-dataflow
   - adr.consumer-agnostic-seqlane-execution-events
 ---
+
+> Superseded by [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md) and [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md). This ADR remains historical evidence; target behavior is not yet delivered.
 
 # Center Seqlane Workflows on a Mastra-Backed Executable DSL
 

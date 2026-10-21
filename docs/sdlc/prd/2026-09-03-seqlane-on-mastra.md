@@ -1,7 +1,7 @@
 ---
 id: prd.seqlane-on-mastra
 title: Seqlane on Mastra
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-03
@@ -11,6 +11,8 @@ upstream:
 supersedes:
   - prd.seqlane
 ---
+
+> Superseded by [prd.seqlane-runtime](./2026-10-21-seqlane-runtime.md). Product semantics are retained in that engine-neutral PRD; this document remains historical evidence.
 
 # Seqlane on Mastra
 
@@ -223,20 +225,20 @@ can add meaning, but the interface must remain clear without either feature.
 
 ## Product decisions
 
-| Area | Decision |
-| --- | --- |
-| Generic runtime | Mastra only |
-| Stable authoring surface | Seqlane DSL |
-| Public reusable atom | Workflow |
-| Deterministic work | `shell()` with no LLM call |
-| Coding-agent integration | Mastra/ACP first; native OpenCode only when required |
-| Session variants | Isolated, shared, fork; no merge |
-| Workspace authority | Ordering/compatibility policy, not tool permissions |
-| Operational UI | Upstream Mastra Community Studio |
-| Run output | Interactive terminal, append-only CI, or final machine result |
-| Dedicated Seqlane Studio | Delete |
-| Enterprise/hosted dependency | None |
-| Migration bias | Delete over adapt |
+| Area                         | Decision                                                      |
+| ---------------------------- | ------------------------------------------------------------- |
+| Generic runtime              | Mastra only                                                   |
+| Stable authoring surface     | Seqlane DSL                                                   |
+| Public reusable atom         | Workflow                                                      |
+| Deterministic work           | `shell()` with no LLM call                                    |
+| Coding-agent integration     | Mastra/ACP first; native OpenCode only when required          |
+| Session variants             | Isolated, shared, fork; no merge                              |
+| Workspace authority          | Ordering/compatibility policy, not tool permissions           |
+| Operational UI               | Upstream Mastra Community Studio                              |
+| Run output                   | Interactive terminal, append-only CI, or final machine result |
+| Dedicated Seqlane Studio     | Delete                                                        |
+| Enterprise/hosted dependency | None                                                          |
+| Migration bias               | Delete over adapt                                             |
 
 ## Risks
 
@@ -245,7 +247,6 @@ can add meaning, but the interface must remain clear without either feature.
 - **Semantic mismatch:** translate Seqlane session/workspace rules into graph constraints before starting a run rather than recreating a scheduler beside Mastra.
 - **Half-migration:** make deletion part of every phase's exit criteria and reject permanent dual implementations.
 - **License drift:** scan dependency changes and prohibit `ee/` imports.
-
 
 ## Traceability
 

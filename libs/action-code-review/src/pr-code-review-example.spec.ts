@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import type { TaskContext, TaskDefinition } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
 import {
+  codeReviewReportSchema,
   reviewStateSchema,
   synthesizedReviewFindingSchema,
 } from "@seqlane/code-review-workflow/contracts";
@@ -1464,7 +1465,9 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(
-      task.output.parse(result).findings.map((finding) => finding.status),
+      codeReviewReportSchema
+        .parse(result)
+        .findings.map((finding) => finding.status),
     ).toEqual([
       "reopened",
       "open",
@@ -1529,7 +1532,9 @@ describe("pull-request code review example workflow", () => {
       report: createReport([]),
     });
 
-    expect(task.output.parse(result).findings[0].status).toBe("open");
+    const findings = codeReviewReportSchema.parse(result).findings;
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.status).toBe("open");
     expect(result.verdict).toBe("request-changes");
   });
 

@@ -1,7 +1,7 @@
 ---
 id: spec.standalone-cli-runs
 title: Standalone CLI Run Contract
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-16
@@ -12,6 +12,8 @@ upstream:
   - adr.standalone-cli-runs
 supersedes: []
 ---
+
+> Superseded as the current runtime implementation contract by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md). Engine-independent behavior and public or wire contracts remain normative through that specification until S12 transfers them to target-only owners. This status does not claim migration delivery.
 
 # Standalone CLI Run Contract
 
@@ -55,12 +57,12 @@ Existing output specifications own terminal rendering and final result schemas.
 
 The command accepts these forms:
 
-| Argument | Selected export |
-| --- | --- |
-| `./review.ts`, `review.ts`, `/absolute/review.mjs`, `file:///absolute/review.mjs` | Default export of a local file |
-| `./review.ts#review` | Named export of a local file |
-| `@acme/workflows/review` | Default export of an installed package subpath |
-| `@acme/workflows#review` | Named export of an installed package |
+| Argument                                                                          | Selected export                                |
+| --------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `./review.ts`, `review.ts`, `/absolute/review.mjs`, `file:///absolute/review.mjs` | Default export of a local file                 |
+| `./review.ts#review`                                                              | Named export of a local file                   |
+| `@acme/workflows/review`                                                          | Default export of an installed package subpath |
+| `@acme/workflows#review`                                                          | Named export of an installed package           |
 
 Local entrypoints support `.ts`, `.mts`, `.js`, and `.mjs`. The suffix applies
 before an optional `#export`. An omitted selector means `default`. Empty
@@ -338,20 +340,20 @@ a separate contract.
 
 Test observable behavior through the compiled CLI and focused runtime tests:
 
-| Area | Required evidence |
-| --- | --- |
-| Entrypoints | TS/JS, default/named exports, package roots/subpaths, invalid references |
-| Imports | Local helpers, package dependencies, alias/extends resolution, unrelated import sentinel |
-| External caller | Package resolution outside the Seqlane installation and changed workspace |
-| Validation | Malformed JSON, schema defaults, missing input, invalid exports, missing dependencies |
-| Input streams | Explicit stdin, bounded files, conflicting flags, no implicit stdin read |
-| Adapter | No-config startup, readiness failure, missing executable/authentication, concurrent ownership |
-| Models | Missing, unavailable, incompatible settings, unknown availability, no substitution |
+| Area               | Required evidence                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------ |
+| Entrypoints        | TS/JS, default/named exports, package roots/subpaths, invalid references                               |
+| Imports            | Local helpers, package dependencies, alias/extends resolution, unrelated import sentinel               |
+| External caller    | Package resolution outside the Seqlane installation and changed workspace                              |
+| Validation         | Malformed JSON, schema defaults, missing input, invalid exports, missing dependencies                  |
+| Input streams      | Explicit stdin, bounded files, conflicting flags, no implicit stdin read                               |
+| Adapter            | No-config startup, readiness failure, missing executable/authentication, concurrent ownership          |
+| Models             | Missing, unavailable, incompatible settings, unknown availability, no substitution                     |
 | Deterministic work | Zero adapter processes and zero model calls, including custom tasks and an explicit valid adapter flag |
-| Lifecycle | Success, failure, both signals, partial startup, bounded cleanup, foreign process survives |
-| Persistence | No database, recording, summary, history, retained temporary output, or disk cache |
-| Output | Passive human/CI parity, clean JSON despite imported logging, exact false-like results |
-| Boundaries | No Seqlane listener, operational-client dependency, public Mastra types, or `/ee/` imports |
+| Lifecycle          | Success, failure, both signals, partial startup, bounded cleanup, foreign process survives             |
+| Persistence        | No database, recording, summary, history, retained temporary output, or disk cache                     |
+| Output             | Passive human/CI parity, clean JSON despite imported logging, exact false-like results                 |
+| Boundaries         | No Seqlane listener, operational-client dependency, public Mastra types, or `/ee/` imports             |
 
 Use filesystem snapshots with workflow outputs and adapter-owned files explicitly
 identified. A temporary database that is later deleted does not satisfy the

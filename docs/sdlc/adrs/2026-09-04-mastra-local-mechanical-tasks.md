@@ -1,7 +1,7 @@
 ---
 id: adr.mastra-local-mechanical-tasks
 title: Run Local Mechanical Tasks Through Mastra LocalSandbox
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-04
@@ -12,6 +12,8 @@ upstream:
 supersedes:
   - adr.local-mechanical-tasks
 ---
+
+> Superseded by [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md) and [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md). Deterministic shell behavior and zero-model-call requirements remain; process ownership moves under the target runtime contract. This status does not claim implementation delivery.
 
 # Run Local Mechanical Tasks Through Mastra LocalSandbox
 

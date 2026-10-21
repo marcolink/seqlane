@@ -1,7 +1,7 @@
 ---
 id: rfc.mastra-runtime-and-operational-foundation
 title: Mastra as Seqlane's Runtime and Operational Foundation
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-03
@@ -12,6 +12,8 @@ supersedes:
   - rfc.seqlane-technical-architecture
   - adr.effect-private-runtime-engine
 ---
+
+> Superseded by [rfc.effect-v4-migration](./2026-10-21-effect-v4-migration.md). This RFC remains historical architecture evidence.
 
 # Mastra as Seqlane's Runtime and Operational Foundation
 
@@ -41,24 +43,24 @@ The boundary is asymmetric:
 
 ## Responsibility model
 
-| Capability | Seqlane owns | Mastra owns |
-| --- | --- | --- |
-| Workflow DSL | Public authoring API and coding-specific semantics | Execution representation |
-| Schemas and data flow | Public input/output contracts and reference validation | Step schema/runtime enforcement where usable |
-| Graph | Dependency intent plus session/workspace constraints | Scheduling and execution |
-| Agent task | Task contract, prompt/input construction, executor selection | Agent/ACP invocation machinery |
-| Classifier task | Typed questions, request validation, result contract, private connection | Step execution, cancellation, run state, tracing |
-| Shell task | Deterministic task contract and result normalization | Workspace/Sandbox process execution |
-| Sessions | `isolated`, `shared`, and `fork` semantics | Runtime thread/session mechanisms |
-| Workspaces | Compatibility and serialization policy | Filesystem, sandbox, and process primitives |
-| Identity | Work and Invocation semantics; provenance | Run and step identifiers/mechanisms |
-| State/persistence | Product-level metadata contract | Canonical run state and storage |
-| Retries | Public policy, if exposed | Retry mechanism |
-| Cancellation | Product behavior and normalized outcome | Workflow/agent/process cancellation plumbing |
-| Observability | Seqlane event names needed by the CLI | Trace storage and inspection |
-| Server and MCP | Seqlane-specific adapters or registration only | Generic server and MCP infrastructure |
-| Studio | `seqlane studio` launcher | Upstream Community Studio |
-| CLI | Commands and user experience | Runtime APIs used by commands |
+| Capability            | Seqlane owns                                                             | Mastra owns                                      |
+| --------------------- | ------------------------------------------------------------------------ | ------------------------------------------------ |
+| Workflow DSL          | Public authoring API and coding-specific semantics                       | Execution representation                         |
+| Schemas and data flow | Public input/output contracts and reference validation                   | Step schema/runtime enforcement where usable     |
+| Graph                 | Dependency intent plus session/workspace constraints                     | Scheduling and execution                         |
+| Agent task            | Task contract, prompt/input construction, executor selection             | Agent/ACP invocation machinery                   |
+| Classifier task       | Typed questions, request validation, result contract, private connection | Step execution, cancellation, run state, tracing |
+| Shell task            | Deterministic task contract and result normalization                     | Workspace/Sandbox process execution              |
+| Sessions              | `isolated`, `shared`, and `fork` semantics                               | Runtime thread/session mechanisms                |
+| Workspaces            | Compatibility and serialization policy                                   | Filesystem, sandbox, and process primitives      |
+| Identity              | Work and Invocation semantics; provenance                                | Run and step identifiers/mechanisms              |
+| State/persistence     | Product-level metadata contract                                          | Canonical run state and storage                  |
+| Retries               | Public policy, if exposed                                                | Retry mechanism                                  |
+| Cancellation          | Product behavior and normalized outcome                                  | Workflow/agent/process cancellation plumbing     |
+| Observability         | Seqlane event names needed by the CLI                                    | Trace storage and inspection                     |
+| Server and MCP        | Seqlane-specific adapters or registration only                           | Generic server and MCP infrastructure            |
+| Studio                | `seqlane studio` launcher                                                | Upstream Community Studio                        |
+| CLI                   | Commands and user experience                                             | Runtime APIs used by commands                    |
 
 ## Public model
 
@@ -80,18 +82,18 @@ Tasks remain implementation details of a workflow in V1. This avoids creating a 
 
 Compilation is a pure, testable transformation from a validated Seqlane definition to a Mastra workflow registration.
 
-| Seqlane concept | Mastra target |
-| --- | --- |
-| `workflow()` | Registered Mastra workflow |
-| `task()` | Mastra step invoking an agent/ACP executor |
-| `shell()` | Mastra step invoking a Workspace/Sandbox process |
-| `dependsOn` | Mastra graph dependency |
-| Task input/output schemas | Mastra step schemas plus Seqlane boundary validation |
-| Work | Workflow run plus Seqlane metadata/context |
-| Invocation | Step execution plus Seqlane metadata |
-| Shared session | Stable runtime thread/session key |
-| Forked session | New runtime thread/session derived from the declared parent where supported |
-| Workspace policy | Additional graph edges or admission constraints |
+| Seqlane concept           | Mastra target                                                               |
+| ------------------------- | --------------------------------------------------------------------------- |
+| `workflow()`              | Registered Mastra workflow                                                  |
+| `task()`                  | Mastra step invoking an agent/ACP executor                                  |
+| `shell()`                 | Mastra step invoking a Workspace/Sandbox process                            |
+| `dependsOn`               | Mastra graph dependency                                                     |
+| Task input/output schemas | Mastra step schemas plus Seqlane boundary validation                        |
+| Work                      | Workflow run plus Seqlane metadata/context                                  |
+| Invocation                | Step execution plus Seqlane metadata                                        |
+| Shared session            | Stable runtime thread/session key                                           |
+| Forked session            | New runtime thread/session derived from the declared parent where supported |
+| Workspace policy          | Additional graph edges or admission constraints                             |
 
 ### Compiler stages
 
@@ -419,7 +421,6 @@ Mastra APIs are version-sensitive. Contributors must verify every touched API ag
 - [Mastra Enterprise Edition license boundary](https://github.com/mastra-ai/mastra/blob/main/ee/LICENSE)
 - [Mastra ACP announcement](https://mastra.ai/blog/introducing-agent-client-protocol)
 - [Mastra workspace and remote sandbox overview](https://mastra.ai/blog/introducing-remote-sandboxes)
-
 
 ## Traceability
 

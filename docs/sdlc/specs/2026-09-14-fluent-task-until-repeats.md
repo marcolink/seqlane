@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-14
-updated: 2026-09-16
+updated: 2026-10-21
 upstream:
   - prd.seqlane-on-mastra
   - spec.mastra-backed-seqlane-workflows
@@ -13,6 +13,8 @@ supersedes: []
 ---
 
 # Fluent Task-Until Repeats
+
+> Runtime authority: Authoring, repeat limits, binding, admission, cancellation, and inspectable invocation semantics remain active. Mastra-native loop lowering and version-specific implementation requirements are superseded by the Effect v4 execution and operations spec. See [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
 
 ## Summary
 
@@ -30,8 +32,8 @@ the implementation contract, not proof of runtime delivery.
 
 - Make a single task and a reusable child workflow equally easy to repeat.
 - Keep the first input, each attempt result, and the next input independently
-typed. Do not require the first input to contain a placeholder result. Let a
-later input reuse the initial input or bind values from earlier Flow tasks.
+  typed. Do not require the first input to contain a placeholder result. Let a
+  later input reuse the initial input or bind values from earlier Flow tasks.
 - Keep the stop condition and next-input binding in the serializable Seqlane
   Plan. Keep Mastra and executor types out of the public API.
 - Preserve the existing bounded-repeat limits, typed errors, admission rules,

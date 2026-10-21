@@ -1,7 +1,7 @@
 ---
 id: spec.acp-mastra-observability-projection
 title: ACP v1-to-Mastra Observability Projection
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-07
@@ -11,6 +11,8 @@ upstream:
   - spec.mastra-native-agent-observability
 supersedes: []
 ---
+
+> Superseded as the current runtime implementation contract by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md). Product semantics remain subject to the target contract; this status does not claim migration delivery.
 
 # ACP v1-to-Mastra Observability Projection
 
@@ -179,14 +181,14 @@ allowlist. Arguments, content, and results do not enter native telemetry.
 
 The reducer MUST implement these transitions:
 
-| Current state | Valid observation | Action |
-| --- | --- | --- |
-| unseen | `tool-call` or `tool-call-delta` | Open one tool record and one span |
-| unseen | `tool-result` | Reject through the existing malformed-stream path |
-| open | `tool-call` or `tool-call-delta` | Keep one record and update local progress only |
-| open | `tool-result` | Close once. `isError === true` means failure, otherwise success |
-| closed | duplicate matching `tool-result` | Ignore without another metric contribution |
-| closed | any other tool observation | Diagnose and ignore. Never reopen the span |
+| Current state | Valid observation                | Action                                                          |
+| ------------- | -------------------------------- | --------------------------------------------------------------- |
+| unseen        | `tool-call` or `tool-call-delta` | Open one tool record and one span                               |
+| unseen        | `tool-result`                    | Reject through the existing malformed-stream path               |
+| open          | `tool-call` or `tool-call-delta` | Keep one record and update local progress only                  |
+| open          | `tool-result`                    | Close once. `isError === true` means failure, otherwise success |
+| closed        | duplicate matching `tool-result` | Ignore without another metric contribution                      |
+| closed        | any other tool observation       | Diagnose and ignore. Never reopen the span                      |
 
 Matching means the same external tool key, tool name, and terminal outcome.
 The adapter does not retain or compare raw result content.
@@ -281,14 +283,14 @@ before implementation.
 
 The projection MUST use this allowlist:
 
-| Value | Rule |
-| --- | --- |
-| External tool-call ID | Validate at 1-256 characters. Use as typed `toolCallId` trace correlation. Never use as a metric tag or label |
-| External tool name | Validate at 1-256 characters. Normalize and bound it. Apply the per-invocation cardinality limit before named-tool telemetry |
-| Invocation ID | Use the validated Seqlane ID. Omit from spans above 128 characters |
-| Attempt index | Zero-based non-negative integer |
-| Diagnostic | Allowlisted code and constant message of at most 256 characters |
-| Tool count | At most 1,024 records per admitted invocation, across all prompt attempts |
+| Value                 | Rule                                                                                                                         |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| External tool-call ID | Validate at 1-256 characters. Use as typed `toolCallId` trace correlation. Never use as a metric tag or label                |
+| External tool name    | Validate at 1-256 characters. Normalize and bound it. Apply the per-invocation cardinality limit before named-tool telemetry |
+| Invocation ID         | Use the validated Seqlane ID. Omit from spans above 128 characters                                                           |
+| Attempt index         | Zero-based non-negative integer                                                                                              |
+| Diagnostic            | Allowlisted code and constant message of at most 256 characters                                                              |
+| Tool count            | At most 1,024 records per admitted invocation, across all prompt attempts                                                    |
 
 Prompts, text, thought content, arguments, results, credentials,
 authorization data, configured models, and raw errors MUST be omitted from
@@ -299,12 +301,12 @@ opt-in contract for consent, redaction, bounds, retention, and access.
 
 ACP private metadata is limited to this allowlist:
 
-| Key | Owning span | Source | Bound | Redaction and use |
-| --- | --- | --- | --- | --- |
-| `seqlane.invocationId` | `AGENT_RUN` | Request `invocationId` | 128 UTF-16 code units | Opaque validated ID; omitted when over bound; never a metric label |
-| `seqlane.adapter` | `AGENT_RUN` | Adapter constant | Fixed constant | `acp-v1`; required adapter identity, not `toolType` |
-| `seqlane.attemptIndex` | `TOOL_CALL` | Validated reducer record | Non-negative integer | Bounded control value; no raw ACP payload |
-| `seqlane.acp.outcome` | Closing `TOOL_CALL` or `AGENT_RUN` | Adapter terminal state | Fixed enum | `failed`, `incomplete`, or `cancelled`; never original error text |
+| Key                    | Owning span                        | Source                   | Bound                 | Redaction and use                                                  |
+| ---------------------- | ---------------------------------- | ------------------------ | --------------------- | ------------------------------------------------------------------ |
+| `seqlane.invocationId` | `AGENT_RUN`                        | Request `invocationId`   | 128 UTF-16 code units | Opaque validated ID; omitted when over bound; never a metric label |
+| `seqlane.adapter`      | `AGENT_RUN`                        | Adapter constant         | Fixed constant        | `acp-v1`; required adapter identity, not `toolType`                |
+| `seqlane.attemptIndex` | `TOOL_CALL`                        | Validated reducer record | Non-negative integer  | Bounded control value; no raw ACP payload                          |
+| `seqlane.acp.outcome`  | Closing `TOOL_CALL` or `AGENT_RUN` | Adapter terminal state   | Fixed enum            | `failed`, `incomplete`, or `cancelled`; never original error text  |
 
 No other ACP metadata is permitted. In particular, raw executor, session,
 message, tool name, tool arguments, tool content, tool results, prompts,
@@ -342,15 +344,15 @@ back into the reducer. This one-way flow prevents loops and double counting.
 
 ### Stream mapping
 
-| Validated stream chunk | Reducer transition | Native projection |
-| --- | --- | --- |
-| `text-delta` or text boundary | none | none |
-| first `tool-call` or `tool-call-delta` | unseen to open | create `TOOL_CALL` |
-| later `tool-call` or `tool-call-delta` | open to open | no sensitive span update |
-| `tool-result`, `isError !== true` | open to closed | end with `success: true` |
-| `tool-result`, `isError === true` | open to closed | error/end with `success: false` |
-| `step-finish` or `finish` | none | none. Ignore synthetic usage |
-| resolved `stream.text` | attempt result | Validate output. Never use it as model usage |
+| Validated stream chunk                 | Reducer transition | Native projection                            |
+| -------------------------------------- | ------------------ | -------------------------------------------- |
+| `text-delta` or text boundary          | none               | none                                         |
+| first `tool-call` or `tool-call-delta` | unseen to open     | create `TOOL_CALL`                           |
+| later `tool-call` or `tool-call-delta` | open to open       | no sensitive span update                     |
+| `tool-result`, `isError !== true`      | open to closed     | end with `success: true`                     |
+| `tool-result`, `isError === true`      | open to closed     | error/end with `success: false`              |
+| `step-finish` or `finish`              | none               | none. Ignore synthetic usage                 |
+| resolved `stream.text`                 | attempt result     | Validate output. Never use it as model usage |
 
 ### Invocation sequence
 
@@ -394,12 +396,12 @@ private ACP process or connection does not change run identity.
 
 Attempt termination uses this mapping:
 
-| Cause | Open tool outcome | Mastra closure |
-| --- | --- | --- |
-| Normal stream end or repair boundary | `incomplete` | `error` with a safe incomplete error. Leave `success` unset |
-| Request cancellation | `cancelled` | `error` with `success: false` and a safe cancellation error |
-| Stream, malformed-chunk, text, or interaction failure | `failed` | `error` with `success: false` and a safe constant error |
-| Native projection disabled | `projection-disabled` | Best-effort no-throw `end`, then clear the handle |
+| Cause                                                 | Open tool outcome     | Mastra closure                                              |
+| ----------------------------------------------------- | --------------------- | ----------------------------------------------------------- |
+| Normal stream end or repair boundary                  | `incomplete`          | `error` with a safe incomplete error. Leave `success` unset |
+| Request cancellation                                  | `cancelled`           | `error` with `success: false` and a safe cancellation error |
+| Stream, malformed-chunk, text, or interaction failure | `failed`              | `error` with `success: false` and a safe constant error     |
+| Native projection disabled                            | `projection-disabled` | Best-effort no-throw `end`, then clear the handle           |
 
 The adapter closes tools before it closes the agent run. The first terminal
 transition is authoritative. Later transitions cannot change the outcome.

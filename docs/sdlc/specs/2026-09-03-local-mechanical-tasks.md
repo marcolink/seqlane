@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-26
+updated: 2026-10-21
 upstream:
   - adr.mastra-local-mechanical-tasks
   - spec.mastra-backed-seqlane-workflows
@@ -18,6 +18,8 @@ supersedes: []
 ---
 
 # In-Process and Shell Mechanical Tasks
+
+> Runtime authority: In-process and shell task semantics, process bounds, cancellation, and workspace ownership remain active. Requirements to use Mastra workspace or sandbox process APIs are superseded by the Effect v4 execution and operations spec; preserve the behavior through its process contract. See [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
 
 ## Summary
 

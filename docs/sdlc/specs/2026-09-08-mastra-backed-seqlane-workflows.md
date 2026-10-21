@@ -1,7 +1,7 @@
 ---
 id: spec.mastra-backed-seqlane-workflows
 title: Mastra-Backed Seqlane Workflow Contracts
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-08
@@ -17,6 +17,8 @@ supersedes:
   - spec.seqlane-plan-ir-typed-dataflow
   - spec.consumer-agnostic-seqlane-execution-events
 ---
+
+> Superseded as the current runtime implementation contract by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md). Product semantics remain subject to the target contract; this status does not claim migration delivery.
 
 # Mastra-Backed Seqlane Workflow Contracts
 
@@ -97,12 +99,14 @@ option.
 The foundational execution shape is:
 
 ```ts
-type TaskExecute<InputSchema extends z.ZodType, OutputSchema extends z.ZodType> =
-  (request: {
-    readonly input: z.output<InputSchema>;
-    readonly signal: AbortSignal;
-    readonly context: TaskContext;
-  }) => Promise<z.input<OutputSchema>>;
+type TaskExecute<
+  InputSchema extends z.ZodType,
+  OutputSchema extends z.ZodType,
+> = (request: {
+  readonly input: z.output<InputSchema>;
+  readonly signal: AbortSignal;
+  readonly context: TaskContext;
+}) => Promise<z.input<OutputSchema>>;
 ```
 
 The runtime parses input before `execute`. It parses the returned value with
@@ -335,8 +339,18 @@ const runnerEnvelopeSchema = z
     runId: z.string().min(1),
     sequence: z.number().int().positive(),
     payload: z.union([
-      z.object({ kind: z.literal("notification"), value: runnerNotificationSchema }).strict(),
-      z.object({ kind: z.literal("outcome"), value: serializedRunOutcomeSchema }).strict(),
+      z
+        .object({
+          kind: z.literal("notification"),
+          value: runnerNotificationSchema,
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal("outcome"),
+          value: serializedRunOutcomeSchema,
+        })
+        .strict(),
     ]),
   })
   .strict();
@@ -392,14 +406,14 @@ prove these exclusions.
 
 The current event categories map as follows:
 
-| Serialized event category | Replacement destination | Compatibility rule |
-| --- | --- | --- |
-| `run.started`, `invocation.started`, `invocation.progress`, `invocation.succeeded`, `invocation.failed`, `invocation.cancelled`, `run.heartbeat` | Runner notification | Preserve IDs, bounded fields, and run-local sequence semantics. |
-| `run.succeeded`, `run.failed`, `run.cancelled` | Serialized run outcome | Emit exactly one terminal outcome. |
-| `invocation.created`, `invocation.input`, `invocation.result`, `invocation.activity`, `invocation.retrying`, `invocation.skipped` | Canonical Seqlane events for the local TUI and event recording | Preserve complete JSON input, result, and executor activity values. Do not redact, truncate, or suppress these values through task policy. Treat local terminal output and recordings as sensitive. |
-| `invocation.output` | Mastra observability or the bounded runner output channel | Keep the existing output policy and bounded presentation behavior. |
-| `run.plan` and Plan-node topology | Strict `PlanSnapshot` compatibility projection for Studio, recording, and replay | Preserve static identity and topology. Exclude values and executable data. |
-| Error metadata and consumer diagnostics | Serialized error category/code or bounded local diagnostic | Omit causes, stacks, credentials, prompts, and unrestricted payloads. |
+| Serialized event category                                                                                                                        | Replacement destination                                                          | Compatibility rule                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run.started`, `invocation.started`, `invocation.progress`, `invocation.succeeded`, `invocation.failed`, `invocation.cancelled`, `run.heartbeat` | Runner notification                                                              | Preserve IDs, bounded fields, and run-local sequence semantics.                                                                                                                                     |
+| `run.succeeded`, `run.failed`, `run.cancelled`                                                                                                   | Serialized run outcome                                                           | Emit exactly one terminal outcome.                                                                                                                                                                  |
+| `invocation.created`, `invocation.input`, `invocation.result`, `invocation.activity`, `invocation.retrying`, `invocation.skipped`                | Canonical Seqlane events for the local TUI and event recording                   | Preserve complete JSON input, result, and executor activity values. Do not redact, truncate, or suppress these values through task policy. Treat local terminal output and recordings as sensitive. |
+| `invocation.output`                                                                                                                              | Mastra observability or the bounded runner output channel                        | Keep the existing output policy and bounded presentation behavior.                                                                                                                                  |
+| `run.plan` and Plan-node topology                                                                                                                | Strict `PlanSnapshot` compatibility projection for Studio, recording, and replay | Preserve static identity and topology. Exclude values and executable data.                                                                                                                          |
+| Error metadata and consumer diagnostics                                                                                                          | Serialized error category/code or bounded local diagnostic                       | Omit causes, stacks, credentials, prompts, and unrestricted payloads.                                                                                                                               |
 
 The former `@seqlane/events` package is removed. Runner, CLI, output, Studio,
 recording, and replay compatibility tests pass against

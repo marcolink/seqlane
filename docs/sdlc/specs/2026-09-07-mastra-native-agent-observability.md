@@ -1,7 +1,7 @@
 ---
 id: spec.mastra-native-agent-observability
 title: Native Mastra Agent Observability Projection
-status: active
+status: superseded
 owners:
   - core
 created: 2026-09-07
@@ -10,6 +10,8 @@ upstream:
   - adr.engine-opaque-agent-adapter-contracts
 supersedes: []
 ---
+
+> Superseded as the current runtime implementation contract by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md). Product semantics remain subject to the target contract; this status does not claim migration delivery.
 
 # Native Mastra Agent Observability Projection
 
@@ -114,13 +116,13 @@ Conceptually:
 ```ts
 interface MastraPlanInvocationContext {
   // Other private invocation inputs remain unchanged.
-  observability: Partial<ObservabilityContext>
+  observability: Partial<ObservabilityContext>;
 }
 
 interface AgentAdapterRequest {
   // Executor-neutral invocation request fields remain private to the adapter
   // boundary.
-  observability: unknown
+  observability: unknown;
 }
 ```
 
@@ -152,12 +154,12 @@ A child span MUST NOT become a new Seqlane invocation or alter event ordering.
 
 The only permitted private metadata keys are:
 
-| Key | Owning span | Source | Bound | Redaction and use |
-| --- | --- | --- | --- | --- |
-| `seqlane.invocationId` | `AGENT_RUN` | Request `invocationId` | 128 UTF-16 code units | Opaque validated ID; omit when over bound; never a metric label |
-| `seqlane.adapter` | `AGENT_RUN` | Adapter constant | Fixed constant | `opencode` or `acp-v1`; not executor payload |
-| `seqlane.attemptIndex` | Adapter-owned attempt/tool span, when exposed | Zero-based reducer state | Non-negative integer | Bounded control value; never raw protocol data |
-| `seqlane.acp.outcome` | ACP span being closed | Adapter terminal state | Fixed enum | `failed`, `incomplete`, or `cancelled`; never original error text |
+| Key                    | Owning span                                   | Source                   | Bound                 | Redaction and use                                                 |
+| ---------------------- | --------------------------------------------- | ------------------------ | --------------------- | ----------------------------------------------------------------- |
+| `seqlane.invocationId` | `AGENT_RUN`                                   | Request `invocationId`   | 128 UTF-16 code units | Opaque validated ID; omit when over bound; never a metric label   |
+| `seqlane.adapter`      | `AGENT_RUN`                                   | Adapter constant         | Fixed constant        | `opencode` or `acp-v1`; not executor payload                      |
+| `seqlane.attemptIndex` | Adapter-owned attempt/tool span, when exposed | Zero-based reducer state | Non-negative integer  | Bounded control value; never raw protocol data                    |
+| `seqlane.acp.outcome`  | ACP span being closed                         | Adapter terminal state   | Fixed enum            | `failed`, `incomplete`, or `cancelled`; never original error text |
 
 The table is an allowlist for untyped correlation metadata, not a prohibition
 on canonical observation payloads. Adapters MUST NOT put raw executor payloads
