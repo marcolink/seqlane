@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import {
   cpSync,
@@ -9,6 +10,59 @@ import {
 import { join } from "node:path";
 import type { RunnerClient } from "../runner-client.js";
 import { z } from "zod";
+
+export interface CompiledCliResult {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export interface CompiledCliInvocation {
+  readonly child: ChildProcess;
+  readonly completed: Promise<CompiledCliResult>;
+}
+
+/** Starts the compiled Oclif CLI and captures its bounded child-process result. */
+export function startCompiledCli(options: {
+  readonly cliRoot: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+  readonly env: NodeJS.ProcessEnv;
+}): CompiledCliInvocation {
+  const child = spawn(
+    process.execPath,
+    [join(options.cliRoot, "bin/run.js"), ...options.args],
+    {
+      cwd: options.cwd,
+      env: options.env,
+      timeout: 20_000,
+    },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const completed = new Promise<CompiledCliResult>((resolve, reject) => {
+    let failure: Error | undefined;
+    child.once("error", (cause: Error) => {
+      failure = cause;
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+    });
+    child.once("close", (code, signal) => {
+      if (failure !== undefined) {
+        reject(failure);
+        return;
+      }
+      resolve({ code, signal, stdout, stderr });
+    });
+  });
+  return { child, completed };
+}
 
 /** Copies the built CLI as an external package and substitutes its runner export. */
 export function prepareExternalCli(options: {

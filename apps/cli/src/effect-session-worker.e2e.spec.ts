@@ -12,7 +12,7 @@
 // @test-scope ../../../libs/runtime/src/runtime/invocation/joint-admission.ts
 // @test-scope ../../../libs/runtime/src/runtime/workspace/workspace-lock.ts
 
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -35,6 +35,7 @@ import { launchRunner } from "./runner-client.js";
 import {
   closeRunnerWorker,
   prepareExternalCli,
+  startCompiledCli,
 } from "./test-fixtures/effect-worker-test-support.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -102,10 +103,9 @@ function runCli(
 ): RunningCli {
   if (gateExecution) writeFileSync(join(traceDir, "gate"), "gate");
   const input = JSON.stringify({ traceDir });
-  const child = spawn(
-    process.execPath,
-    [
-      join(consumerRoot, "bin/run.js"),
+  const invocation = startCompiledCli({
+    cliRoot: consumerRoot,
+    args: [
       "run",
       `${workflowsUrl}#${exportName}`,
       "--input",
@@ -114,30 +114,19 @@ function runCli(
       "codex",
       "--json",
     ],
-    {
-      cwd: consumerRoot,
-      env: { ...process.env, FORCE_COLOR: "0" },
-    },
-  );
-  let stdout = "";
-  let stderr = "";
-  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-    stdout += chunk;
+    cwd: consumerRoot,
+    env: { ...process.env, FORCE_COLOR: "0" },
   });
-  child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
-    stderr += chunk;
-  });
-  const completed = new Promise<CliResult>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code, signal) => {
+  const completed: Promise<CliResult> = invocation.completed.then(
+    ({ code, signal, stdout, stderr }) => {
       const result =
         stdout.trim().length === 0
           ? undefined
           : runCommandResultSchema.parse(JSON.parse(stdout));
-      resolve({ code, signal, stdout, stderr, ...(result ? { result } : {}) });
-    });
-  });
-  return { child, completed };
+      return { code, signal, stdout, stderr, ...(result ? { result } : {}) };
+    },
+  );
+  return { child: invocation.child, completed };
 }
 
 function traceEvents(traceDir: string): TraceEvent[] {

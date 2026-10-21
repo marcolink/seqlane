@@ -45,6 +45,7 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
+    "@seqlane/acp-adapter": "workspace:*",
     "@seqlane/fixtures": "workspace:*"
   },
   "files": [

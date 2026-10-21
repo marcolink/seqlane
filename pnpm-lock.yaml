@@ -270,6 +270,9 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
     devDependencies:
+      '@seqlane/acp-adapter':
+        specifier: workspace:*
+        version: link:../../libs/acp
       '@seqlane/fixtures':
         specifier: workspace:*
         version: link:../../libs/fixtures
@@ -282,18 +285,18 @@ importers:
 
   libs/acp:
     dependencies:
-      '@mastra/acp':
-        specifier: 0.4.0
-        version: 0.4.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)
-      '@mastra/core':
-        specifier: 1.64.0
-        version: 1.64.0(express@5.2.1)(zod@4.5.4)
+      '@agentclientprotocol/sdk':
+        specifier: 2.0.0
+        version: 2.0.0(zod@4.5.4)
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../adapter
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
+      effect:
+        specifier: 4.0.5
+        version: 4.0.5
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -565,10 +568,10 @@ packages:
   '@actions/tool-cache@4.0.0':
     resolution: {integrity: sha512-L8P9HbXvpvqjZDveb/fdsa55IVC0trfPgQ4ZwGo6r5af6YDVdM9vMGPZ7rgY2fAT9gGj4PSYd6bYlg3p3jD78A==, tarball: https://registry.npmjs.org/@actions/tool-cache/-/tool-cache-4.0.0.tgz}
 
-  '@agentclientprotocol/sdk@0.21.1':
-    resolution: {integrity: sha512-ZTLH+o9QxcZDLX/9ww+W7C2iExnXFM+vD/uGFVSlR61Kzj9FaxUqBC6Rv/kwgA7qVWYUEI9c5ZNqCuO9PM4rKg==, tarball: https://registry.npmjs.org/@agentclientprotocol/sdk/-/sdk-0.21.1.tgz}
+  '@agentclientprotocol/sdk@2.0.0':
+    resolution: {integrity: sha512-Za5gWOPQ44aBOdegDJZ+OjCAPn7POc0cw8BlFJQ1mmUY1OoUWxRi3+QZT4gdZnyEWgKXyfeGRb0Oo1ag9YkQ1w==, tarball: https://registry.npmjs.org/@agentclientprotocol/sdk/-/sdk-2.0.0.tgz}
     peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
+      zod: ^3.25.76 || ^4.0.0
 
   '@ai-sdk/provider-utils@4.0.40':
     resolution: {integrity: sha512-OL5IrpUm9Y8Dwy+w/vvFwPotS6m52O9W0op2oXgXdCROMJIBalBI0oro6OIBYkPxvm5Xg02GSkoQN25RlR0bnw==, tarball: https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-4.0.40.tgz}
@@ -1866,12 +1869,6 @@ packages:
   '@lukeed/uuid@2.0.1':
     resolution: {integrity: sha512-qC72D4+CDdjGqJvkFMMEAtancHUQ7/d/tAiHf64z8MopFDmcrtbcJuerDtFceuAfQJ2pDSfCKCtbqoGBNnwg0w==, tarball: https://registry.npmjs.org/@lukeed/uuid/-/uuid-2.0.1.tgz}
     engines: {node: '>=8'}
-
-  '@mastra/acp@0.4.0':
-    resolution: {integrity: sha512-iSp+T65/wnDE1ryBFAJn4pCEsalJvx8dfKIcUCS0AWvF5qacdkU6griTlbloshc1PuZucP9S656hC4Zk7VvNQg==, tarball: https://registry.npmjs.org/@mastra/acp/-/acp-0.4.0.tgz}
-    engines: {node: '>=22.13.0'}
-    peerDependencies:
-      '@mastra/core': '>=1.34.0-0 <2.0.0-0'
 
   '@mastra/core@1.64.0':
     resolution: {integrity: sha512-+fuvDeORYWIb+SJrGQlXQi6r1JCxd05g3SNCDepnO910j4uqxMWf5s22Ta0sRSR5zbKRx2NUZoWPAfQt2xF4hQ==, tarball: https://registry.npmjs.org/@mastra/core/-/core-1.64.0.tgz}
@@ -6516,7 +6513,7 @@ snapshots:
       '@actions/io': 3.0.2
       semver: 7.8.5
 
-  '@agentclientprotocol/sdk@0.21.1(zod@4.5.4)':
+  '@agentclientprotocol/sdk@2.0.0(zod@4.5.4)':
     dependencies:
       zod: 4.5.4
 
@@ -8112,13 +8109,6 @@ snapshots:
   '@lukeed/uuid@2.0.1':
     dependencies:
       '@lukeed/csprng': 1.1.0
-
-  '@mastra/acp@0.4.0(@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4))(zod@4.5.4)':
-    dependencies:
-      '@agentclientprotocol/sdk': 0.21.1(zod@4.5.4)
-      '@mastra/core': 1.64.0(express@5.2.1)(zod@4.5.4)
-    transitivePeerDependencies:
-      - zod
 
   '@mastra/core@1.64.0(express@5.2.1)(zod@4.5.4)':
     dependencies:

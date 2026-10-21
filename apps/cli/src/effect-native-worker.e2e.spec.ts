@@ -1,5 +1,6 @@
 // @test-scope ./commands/run.ts
 // @test-scope ./runner-client.ts
+// @test-scope ./test-fixtures/effect-worker-test-support.ts
 // @test-scope ./test-fixtures/effect-native-runner.ts
 // @test-scope ./test-fixtures/effect-native-workflow.ts
 // @test-scope ./test-fixtures/effect-native-codex-server.ts
@@ -11,7 +12,6 @@
 // @test-scope ../../../libs/codex/src/adapter.ts
 // @test-scope ../../../libs/codex/src/runtime.ts
 
-import { spawn } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -34,6 +34,7 @@ import { runCommandResultSchema } from "./cli-contracts.js";
 import {
   closeRunnerWorker,
   prepareExternalCli,
+  startCompiledCli,
 } from "./test-fixtures/effect-worker-test-support.js";
 import {
   nativeFixtureResult,
@@ -132,10 +133,9 @@ async function runCli(
   environment: NodeJS.ProcessEnv,
   exportName = "effectNativeWorkflow",
 ) {
-  const child = spawn(
-    process.execPath,
-    [
-      join(consumerRoot, "bin/run.js"),
+  const invocation = startCompiledCli({
+    cliRoot: consumerRoot,
+    args: [
       "run",
       `${workflowUrl}#${exportName}`,
       "--input",
@@ -146,29 +146,15 @@ async function runCli(
       consumerRoot,
       "--json",
     ],
-    { cwd: consumerRoot, env: environment, timeout: 20_000 },
-  );
-  let stdout = "";
-  let stderr = "";
-  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-    stdout += chunk;
+    cwd: consumerRoot,
+    env: environment,
   });
-  child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
-    stderr += chunk;
-  });
-  try {
-    const code = await new Promise<number | null>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", resolve);
-    });
-    return {
-      code,
-      stderr,
-      result: runCommandResultSchema.parse(JSON.parse(stdout)),
-    };
-  } finally {
-    if (child.exitCode === null && child.signalCode === null) child.kill();
-  }
+  const result = await invocation.completed;
+  return {
+    code: result.code,
+    stderr: result.stderr,
+    result: runCommandResultSchema.parse(JSON.parse(result.stdout)),
+  };
 }
 
 describe.each(["opencode", "codex"] as const)(

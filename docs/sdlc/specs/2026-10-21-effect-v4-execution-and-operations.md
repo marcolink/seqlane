@@ -138,6 +138,13 @@ Retain OpenCode StructuredOutput access, repair attempts, permissions, native co
 Retain Codex request correlation and interaction-required errors.
 Replace the ACP transport with the official SDK while preserving supported ACP v1 behavior.
 Do not claim unsupported fork or checkpoint capabilities after this replacement.
+Select an explicitly configured ACP model from the agent's advertised model configuration options.
+If the selected SDK cannot represent an agent's model-selection extension, fail before prompting instead of choosing another model.
+Retain native ACP context-usage updates as `acp.session.usage` observations with complete `model.usage` values.
+Keep the complete session notification, including its `sessionId`, `update`, and optional `_meta`, inside `model.usage`.
+Context occupancy and window size are not billed input or output tokens.
+Cumulative session cost, including its currency, stays inside the native usage value and is not counted as per-call cost.
+Mark unavailable underlying model identity and per-call usage truthfully.
 
 Classifier calls use the private run connection and an Effect HTTP client.
 Preserve paired configuration, secret removal before workflow import, questions, result parsing, attempts, and total deadline.
@@ -276,7 +283,7 @@ No previous runtime fallback remains, and no observability capability lacks a do
 
 ## Delivery state
 
-Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. S6–S12, production Plan cutover, hosted replacement, and complete removal remain pending. No full migration or remote delivery is claimed.
+Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. S7–S12, production Plan cutover, hosted replacement, and complete removal remain pending. No full migration or remote delivery is claimed.
 
 ## Traceability
 

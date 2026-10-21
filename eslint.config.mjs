@@ -16,6 +16,7 @@ export const JsonDependencyCheckRuleOptions = {
     "{projectRoot}/vite.config.{js,ts,mjs,mts}",
     "{projectRoot}/vitest.config.{js,ts,mjs,mts}",
     "{projectRoot}/src/**/*.{spec,test}.{ts,tsx}",
+    "{projectRoot}/src/test-fixtures/**",
   ],
 };
 
