@@ -361,7 +361,7 @@ The proposed Studio removal and fresh hosted-history format are explicit behavio
 
 ## Delivery state
 
-Architecture accepted and target contract active. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) records branch-local process and CLI tracer evidence. The remaining task slices own full runtime, hosted, distribution, and removal delivery.
+Architecture accepted and target contract active. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) records branch-local process evidence. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) records dependency-graph parity through the private CLI and direct compositions. The remaining task slices own full runtime, hosted, distribution, and removal delivery.
 
 ## Traceability
 

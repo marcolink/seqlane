@@ -1,13 +1,29 @@
+import { Effect } from "effect";
+import { z } from "zod";
+import { runSequentialGraph } from "./run-sequential-graph.js";
+
 export interface SequentialProgramStep {
   readonly id: string;
   readonly dependsOn?: readonly string[];
   readonly execute: (options: {
     readonly abortSignal: AbortSignal;
   }) => Promise<unknown>;
+  readonly onSkip?: (failedDependencyIds: readonly string[]) => void;
+  readonly onCancel?: () => void;
 }
 
+export type SequentialProgramStepResult =
+  | { readonly status: "success"; readonly value: unknown }
+  | { readonly status: "failed"; readonly error: unknown };
+
 export interface SequentialProgram {
-  readonly steps: readonly SequentialProgramStep[];
+  readonly steps: readonly (SequentialProgramStep & {
+    readonly dependsOn: readonly string[];
+  })[];
+  /** Native graph effect. Promise facades evaluate this only at the boundary. */
+  readonly effect: (
+    abortSignal: AbortSignal,
+  ) => Effect.Effect<readonly SequentialProgramStepResult[]>;
 }
 
 export type SequentialProgramResult =
@@ -15,9 +31,16 @@ export type SequentialProgramResult =
   | { readonly status: "failed"; readonly error: unknown }
   | { readonly status: "success" };
 
+const programOptionsSchema = z
+  .object({ concurrency: z.number().int().positive().safe().optional() })
+  .strict();
+
 export function createSequentialProgram(options: {
   readonly steps: readonly SequentialProgramStep[];
+  /** Private body concurrency bound. Dependency waits do not hold permits. */
+  readonly concurrency?: number;
 }): SequentialProgram {
+  programOptionsSchema.parse({ concurrency: options.concurrency });
   const stepIds = new Set<string>();
   const steps = options.steps.map((step, index) => {
     if (stepIds.has(step.id)) {
@@ -48,45 +71,40 @@ export function createSequentialProgram(options: {
       }
     }
   }
-  return Object.freeze({
-    steps: Object.freeze(steps),
-  });
+  assertAcyclic(steps);
+  const concurrency = options.concurrency ?? Number.POSITIVE_INFINITY;
+
+  const effect = (abortSignal: AbortSignal) =>
+    runSequentialGraph(steps, concurrency, abortSignal);
+
+  return Object.freeze({ steps: Object.freeze(steps), effect });
 }
 
-async function executeDependencyProgram(
-  program: SequentialProgram,
-  abortSignal: AbortSignal,
-): Promise<void> {
-  const stepsById = new Map(program.steps.map((step) => [step.id, step]));
-  const executing = new Map<string, Promise<unknown>>();
-  const executeStep = (step: SequentialProgramStep): Promise<unknown> => {
-    const current = executing.get(step.id);
-    if (current !== undefined) return current;
-    const dependencies = (step.dependsOn ?? []).map((dependencyId) => {
-      const dependency = stepsById.get(dependencyId);
-      if (dependency === undefined) {
-        throw new Error(
-          `Sequential program step "${step.id}" depends on unknown step "${dependencyId}"`,
-        );
-      }
-      return executeStep(dependency);
-    });
-    const execution = Promise.all(dependencies).then(async () => {
-      if (abortSignal.aborted) throw new Error("Program execution cancelled");
-      return step.execute({ abortSignal });
-    });
-    executing.set(step.id, execution);
-    return execution;
+function assertAcyclic(
+  steps: readonly (SequentialProgramStep & {
+    readonly dependsOn: readonly string[];
+  })[],
+): void {
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const byId = new Map(steps.map((step) => [step.id, step]));
+  const visit = (id: string): void => {
+    if (visited.has(id)) return;
+    if (visiting.has(id)) {
+      throw new Error(
+        `Sequential program contains a dependency cycle at "${id}"`,
+      );
+    }
+    visiting.add(id);
+    const step = byId.get(id);
+    if (step === undefined) {
+      throw new Error(`Sequential program step "${id}" is not defined`);
+    }
+    for (const dependencyId of step.dependsOn) visit(dependencyId);
+    visiting.delete(id);
+    visited.add(id);
   };
-
-  const outcomes = await Promise.allSettled(
-    program.steps.map((step) => executeStep(step)),
-  );
-  const failed = outcomes.find(
-    (outcome): outcome is PromiseRejectedResult =>
-      outcome.status === "rejected",
-  );
-  if (failed !== undefined) throw failed.reason;
+  for (const step of steps) visit(step.id);
 }
 
 export function executeSequentialProgram(
@@ -94,17 +112,20 @@ export function executeSequentialProgram(
   signal?: AbortSignal,
 ): Promise<SequentialProgramResult> {
   if (signal?.aborted) return Promise.resolve({ status: "cancelled" });
-
-  // Keep waiting for active executor work to settle after cancellation. This
-  // preserves the subprocess/session cleanup guarantee without a second
-  // orchestration runtime.
   const abortSignal = signal ?? new AbortController().signal;
-  return executeDependencyProgram(program, abortSignal).then(
-    () =>
-      abortSignal.aborted ? { status: "cancelled" } : { status: "success" },
-    (error) =>
-      abortSignal.aborted
-        ? { status: "cancelled" }
-        : { status: "failed", error },
-  );
+  return Effect.runPromise(runProgram(program, abortSignal)).then((results) => {
+    if (abortSignal.aborted) return { status: "cancelled" } as const;
+    const failed = results.find((result) => result.status === "failed");
+    return failed === undefined
+      ? ({ status: "success" } as const)
+      : ({ status: "failed", error: failed.error } as const);
+  });
+}
+
+/** Evaluate the graph inside a larger Effect program without a nested runtime. */
+export function runProgram(
+  program: SequentialProgram,
+  abortSignal: AbortSignal,
+): Effect.Effect<readonly SequentialProgramStepResult[]> {
+  return program.effect(abortSignal);
 }

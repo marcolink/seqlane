@@ -2,6 +2,8 @@
 // @test-scope ./test-fixtures/effect-tracer-runner.ts
 // @test-scope ./test-fixtures/effect-tracer-workflow.ts
 // @test-scope ../../../libs/runtime/src/runner/effect-tracer.ts
+// @test-scope ../../../libs/runtime/src/runtime/execution/effect-plan.ts
+// @test-scope ../../../libs/runtime/src/runtime/execution/settle-run-program.ts
 // @test-scope ../../../libs/runtime/src/runner/main.ts
 // @test-scope ../../../libs/runtime/src/runner/run.ts
 
@@ -239,16 +241,29 @@ describe("Effect S1 runner worker", () => {
     expect(events.map((event) => event.metadata.sequence)).toEqual(
       events.map((_, index) => index + 1),
     );
+    const progressEvents = events.filter(
+      (event) => event.type === "invocation.progress",
+    );
+    expect(
+      progressEvents.map(({ state, phase }) => ({ state, phase })),
+    ).toEqual([
+      { state: "active", phase: "workspace_admitted" },
+      { state: "active", phase: "execute" },
+      { state: "active", phase: "workspace_released" },
+    ]);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
       "run.plan",
       "invocation.created",
+      "invocation.progress",
       "invocation.started",
+      "invocation.progress",
       "invocation.output",
       "invocation.input",
       "invocation.result",
       "invocation.succeeded",
       "invocation.output",
+      "invocation.progress",
       "run.succeeded",
     ]);
   });

@@ -1,4 +1,6 @@
 // @test-scope ./start-workflow-run.ts
+// @test-scope ./runtime/execution/effect-plan.ts
+// @test-scope ./runtime/execution/settle-run-program.ts
 import {
   buildWorkflow,
   createFlow,
@@ -15,6 +17,7 @@ import type { InvocationObservationEvent } from "@seqlane/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
+import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
 
 const inputSchema = z.object({ value: z.string() });
 const outputSchema = z.object({ value: z.string() });
@@ -57,6 +60,494 @@ afterEach(async () => {
 });
 
 describe("startWorkflowRun", () => {
+  it("cancels before the target graph starts any task", async () => {
+    let taskStarted = false;
+    const task = defineTask({
+      id: "direct.effect-early-cancel",
+      input: inputSchema,
+      output: outputSchema,
+      execute: async ({ input }) => {
+        taskStarted = true;
+        return input;
+      },
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "direct-effect-early-cancel",
+        input: inputSchema,
+        output: outputSchema,
+      })
+        .task("task", task, ({ input }) => input)
+        .output(({ tasks }) => tasks.task.output)
+        .define(),
+    );
+    const handle = startWorkflowRun(
+      {
+        workflow: built,
+        input: { value: "cancel" },
+        events: { emit: () => undefined },
+      },
+      { program: createEffectPlanProgram },
+    );
+
+    await handle.cancel();
+    await expect(handle.outcome).resolves.toEqual({ status: "cancelled" });
+    expect(taskStarted).toBe(false);
+  });
+
+  it("waits for target task callback settlement before cancel resolves", async () => {
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const task = defineTask({
+      id: "direct.effect-cancel-cleanup",
+      input: inputSchema,
+      output: outputSchema,
+      execute: async ({ input }) => {
+        markStarted();
+        await held;
+        return input;
+      },
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "direct-effect-cancel-cleanup",
+        input: inputSchema,
+        output: outputSchema,
+      })
+        .task("task", task, ({ input }) => input)
+        .output(({ tasks }) => tasks.task.output)
+        .define(),
+    );
+    const handle = startWorkflowRun(
+      {
+        workflow: built,
+        input: { value: "cancel" },
+        events: { emit: () => undefined },
+      },
+      { program: createEffectPlanProgram },
+    );
+    await started;
+    let cancelSettled = false;
+    const cancellation = handle.cancel().then(() => {
+      cancelSettled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(cancelSettled).toBe(false);
+
+    release();
+    await cancellation;
+    await expect(handle.outcome).resolves.toEqual({ status: "cancelled" });
+  });
+
+  it("closes a prebootstrapped runtime before settling an already-cancelled run", async () => {
+    let inputParses = 0;
+    const guardedInput = z.preprocess((value) => {
+      inputParses += 1;
+      return value;
+    }, z.string());
+    const taskStarted = { value: false };
+    const task = defineTask({
+      id: "direct.effect-aborted-input",
+      input: z.string(),
+      output: z.string(),
+      execute: async ({ input }) => {
+        taskStarted.value = true;
+        return input;
+      },
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "direct-effect-already-cancelled",
+        input: guardedInput,
+        output: z.string(),
+      })
+        .task("task", task, ({ input }) => input)
+        .output(({ tasks }) => tasks.task.output)
+        .define(),
+    );
+    let markCloseStarted!: () => void;
+    const closeStarted = new Promise<void>((resolve) => {
+      markCloseStarted = resolve;
+    });
+    let releaseClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const runtime: AgentRuntime = {
+      identity: "prebootstrapped-fixture",
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: false,
+        sessionReuse: false,
+        checkpoint: false,
+        fork: false,
+        activity: false,
+        sessionUi: false,
+      },
+      createAdapter: () => {
+        throw new Error("The target graph does not create an adapter");
+      },
+      redactAdapter: (adapter) => adapter,
+      close: async () => {
+        markCloseStarted();
+        await closeGate;
+      },
+    };
+    const controller = new AbortController();
+    controller.abort();
+    const handle = startWorkflowRun(
+      {
+        workflow: built,
+        input: 12,
+        agentRuntime: runtime,
+        events: { emit: () => undefined },
+        signal: controller.signal,
+      },
+      { program: createEffectPlanProgram },
+    );
+    let outcomeSettled = false;
+    const outcome = handle.outcome.then((result) => {
+      outcomeSettled = true;
+      return result;
+    });
+    const cancellation = handle.cancel();
+    await closeStarted;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(outcomeSettled).toBe(false);
+    expect(inputParses).toBe(0);
+    expect(taskStarted.value).toBe(false);
+
+    releaseClose();
+    await cancellation;
+    await expect(outcome).resolves.toEqual({ status: "cancelled" });
+    expect(inputParses).toBe(0);
+  });
+
+  it("applies the workflow input transform once in the target program", async () => {
+    let inputTransforms = 0;
+    const transformedInputSchema = z
+      .object({ value: z.string() })
+      .transform(({ value }) => {
+        inputTransforms += 1;
+        return { value: `${value}!` };
+      });
+    const task = defineTask({
+      id: "direct.effect-transform-once",
+      input: inputSchema,
+      output: outputSchema,
+      execute: async ({ input }) => input,
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "direct-effect-transform-once",
+        input: transformedInputSchema,
+        output: outputSchema,
+      })
+        .task("task", task, ({ input }) => input)
+        .output(({ tasks }) => tasks.task.output)
+        .define(),
+    );
+    const handle = startWorkflowRun(
+      {
+        workflow: built,
+        input: { value: "once" },
+        events: { emit: () => undefined },
+      },
+      { program: createEffectPlanProgram },
+    );
+
+    await expect(handle.outcome).resolves.toMatchObject({
+      status: "succeeded",
+      result: { value: "once!" },
+    });
+    expect(inputTransforms).toBe(1);
+  });
+
+  it("rejects invalid workflow input before creating or starting task invocations", async () => {
+    let taskStarted = false;
+    const task = defineTask({
+      id: "direct.effect-invalid-input",
+      input: z.string(),
+      output: z.string(),
+      execute: async ({ input }) => {
+        taskStarted = true;
+        return input;
+      },
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "direct-effect-invalid-input",
+        input: z.string(),
+        output: z.string(),
+      })
+        .task("task", task, ({ input }) => input)
+        .output(({ tasks }) => tasks.task.output)
+        .define(),
+    );
+    const { events, sink } = createSink();
+    const handle = startWorkflowRun(
+      { workflow: built, input: 12, events: sink },
+      { program: createEffectPlanProgram },
+    );
+
+    await expect(handle.outcome).resolves.toMatchObject({ status: "failed" });
+    expect(taskStarted).toBe(false);
+    expect(events.some((event) => event.type === "invocation.created")).toBe(
+      false,
+    );
+    expect(events.some((event) => event.type === "invocation.started")).toBe(
+      false,
+    );
+    expect(events.at(-1)?.type).toBe("run.failed");
+  });
+
+  it("starts a ready successor before a slow independent prerequisite and joins both", async () => {
+    let releaseSlow!: () => void;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    let markSlowStarted!: () => void;
+    const slowStarted = new Promise<void>((resolve) => {
+      markSlowStarted = resolve;
+    });
+    let slowFinished = false;
+    let markSuccessorStarted!: () => void;
+    const successorStarted = new Promise<void>((resolve) => {
+      markSuccessorStarted = resolve;
+    });
+    let markJoinStarted!: () => void;
+    const joinStarted = new Promise<void>((resolve) => {
+      markJoinStarted = resolve;
+    });
+    let outputTransforms = 0;
+    const slowTask = defineTask({
+      id: "direct.effect-dag-slow",
+      input: z.object({ value: z.string() }),
+      output: z.object({ ready: z.boolean() }),
+      execute: async () => {
+        markSlowStarted();
+        await slowGate;
+        slowFinished = true;
+        return { ready: true };
+      },
+    });
+    const fastTask = defineTask({
+      id: "direct.effect-dag-fast",
+      input: z.object({ flag: z.boolean().default(false) }),
+      output: z.object({ flag: z.boolean() }),
+      execute: async ({ input }) => input,
+    });
+    const successorTask = defineTask({
+      id: "direct.effect-dag-successor",
+      input: z.object({ flag: z.boolean() }),
+      output: z.object({ flag: z.boolean() }),
+      execute: async ({ input }) => {
+        markSuccessorStarted();
+        return input;
+      },
+    });
+    const joinTask = defineTask({
+      id: "direct.effect-dag-join",
+      input: z.object({ slowReady: z.boolean(), flag: z.boolean() }),
+      output: z.object({ flag: z.boolean() }),
+      execute: async ({ input }) => {
+        markJoinStarted();
+        return { flag: input.slowReady && input.flag };
+      },
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "direct-effect-dag-success",
+        input: z.object({ value: z.string().default("defaulted") }),
+        output: z.object({ flag: z.boolean() }).transform(({ flag }) => {
+          outputTransforms += 1;
+          return { flag, label: flag ? "enabled" : "disabled" };
+        }),
+      })
+        .task("slow", slowTask, ({ input }) => ({ value: input.value }), {
+          dependsOn: [],
+          workspace: "shared",
+        })
+        .task("fast", fastTask, () => ({ flag: false }), {
+          dependsOn: [],
+          workspace: "shared",
+        })
+        .task(
+          "successor",
+          successorTask,
+          ({ tasks }) => ({
+            flag: tasks.fast.output.flag,
+          }),
+          { workspace: "shared" },
+        )
+        .task(
+          "join",
+          joinTask,
+          ({ tasks }) => ({
+            slowReady: tasks.slow.output.ready,
+            flag: tasks.successor.output.flag,
+          }),
+          { workspace: "shared" },
+        )
+        .output(({ tasks }) => ({
+          flag: tasks.join.output.flag,
+          label: "raw value is replaced by transform",
+        }))
+        .define(),
+    );
+    const { events, sink } = createSink();
+    const handle = startWorkflowRun(
+      { workflow: built, input: {}, events: sink },
+      { program: createEffectPlanProgram },
+    );
+
+    await Promise.race([
+      Promise.all([slowStarted, successorStarted]),
+      handle.outcome.then((result) => {
+        throw new Error(
+          `DAG settled before callbacks: ${JSON.stringify({ result, events })}`,
+        );
+      }),
+    ]);
+    expect(slowFinished).toBe(false);
+    let outcomeSettled = false;
+    const outcome = handle.outcome.then((value) => {
+      outcomeSettled = true;
+      return value;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(outcomeSettled).toBe(false);
+    releaseSlow();
+    await joinStarted;
+    await expect(outcome).resolves.toMatchObject({
+      status: "succeeded",
+      result: { flag: false, label: "disabled" },
+    });
+    expect(outputTransforms).toBe(1);
+
+    const created = events.filter(
+      (event) => event.type === "invocation.created",
+    );
+    const terminalEvents = events.filter(
+      (event) =>
+        event.type === "invocation.succeeded" ||
+        event.type === "invocation.failed" ||
+        event.type === "invocation.cancelled" ||
+        event.type === "invocation.skipped",
+    );
+    expect(terminalEvents).toHaveLength(created.length);
+    expect(events.at(-1)?.type).toBe("run.succeeded");
+  });
+
+  it("skips failed dependents and waits for independent started work to settle", async () => {
+    let releaseIndependent!: () => void;
+    const independentGate = new Promise<void>((resolve) => {
+      releaseIndependent = resolve;
+    });
+    let markIndependentStarted!: () => void;
+    const independentStarted = new Promise<void>((resolve) => {
+      markIndependentStarted = resolve;
+    });
+    let dependentStarted = false;
+    const failingTask = defineTask({
+      id: "direct.effect-dag-failure",
+      input: z.object({ value: z.string() }),
+      output: z.object({ value: z.string() }),
+      execute: async () => {
+        throw new Error("expected prerequisite failure");
+      },
+    });
+    const dependentTask = defineTask({
+      id: "direct.effect-dag-dependent",
+      input: z.object({ value: z.string() }),
+      output: z.object({ value: z.string() }),
+      execute: async ({ input }) => {
+        dependentStarted = true;
+        return input;
+      },
+    });
+    const independentTask = defineTask({
+      id: "direct.effect-dag-independent",
+      input: z.object({ value: z.string() }),
+      output: z.object({ value: z.string() }),
+      execute: async ({ input }) => {
+        markIndependentStarted();
+        await independentGate;
+        return input;
+      },
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "direct-effect-dag-failure",
+        input: inputSchema,
+        output: outputSchema,
+      })
+        .task("failure", failingTask, ({ input }) => input, {
+          dependsOn: [],
+          workspace: "shared",
+        })
+        .task(
+          "dependent",
+          dependentTask,
+          ({ tasks }) => ({ value: tasks.failure.output.value }),
+          { workspace: "shared" },
+        )
+        .task("independent", independentTask, ({ input }) => input, {
+          dependsOn: [],
+          workspace: "shared",
+        })
+        .output(({ tasks }) => tasks.independent.output)
+        .define(),
+    );
+    const { events, sink } = createSink();
+    const handle = startWorkflowRun(
+      { workflow: built, input: { value: "failure" }, events: sink },
+      { program: createEffectPlanProgram },
+    );
+
+    await Promise.race([
+      independentStarted,
+      handle.outcome.then((result) => {
+        throw new Error(
+          `DAG settled before independent task: ${JSON.stringify({ result, events })}`,
+        );
+      }),
+    ]);
+    let outcomeSettled = false;
+    const outcome = handle.outcome.then((value) => {
+      outcomeSettled = true;
+      return value;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(outcomeSettled).toBe(false);
+    expect(dependentStarted).toBe(false);
+    releaseIndependent();
+    await expect(outcome).resolves.toMatchObject({ status: "failed" });
+
+    const created = events.filter(
+      (event) => event.type === "invocation.created",
+    );
+    const terminalEvents = events.filter(
+      (event) =>
+        event.type === "invocation.succeeded" ||
+        event.type === "invocation.failed" ||
+        event.type === "invocation.cancelled" ||
+        event.type === "invocation.skipped",
+    );
+    expect(terminalEvents).toHaveLength(created.length);
+    expect(
+      terminalEvents.some((event) => event.type === "invocation.skipped"),
+    ).toBe(true);
+    expect(events.at(-1)?.type).toBe("run.failed");
+  });
+
   it("runs mixed classifier questions from prior task output and reports one identified observation", async () => {
     const apiKey = "direct-classifier-private-key";
     const responseBody = {

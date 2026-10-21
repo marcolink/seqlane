@@ -1,5 +1,6 @@
 // @test-scope ./workflow-run.ts
 // @test-scope ../compile/compile-plan.ts
+// @test-scope ../compile/compile-node-step.ts
 // @test-scope ../invocation/invocation-execution.ts
 import type {
   Plan,
@@ -93,6 +94,24 @@ function compile(
       ],
     ]),
   });
+}
+
+function expectOneTerminalPerCreatedInvocation(
+  events: readonly SeqlaneEvent[],
+): void {
+  const created = events.filter((event) => event.type === "invocation.created");
+  const terminal = events.filter(
+    (event) =>
+      event.type === "invocation.succeeded" ||
+      event.type === "invocation.failed" ||
+      event.type === "invocation.cancelled" ||
+      event.type === "invocation.skipped",
+  );
+
+  expect(terminal).toHaveLength(created.length);
+  expect(terminal.map((event) => event.invocationId).sort()).toEqual(
+    created.map((event) => event.invocationId).sort(),
+  );
 }
 
 describe("Seqlane lifecycle events and outcomes", () => {
@@ -584,6 +603,9 @@ describe("Seqlane lifecycle events and outcomes", () => {
       const events: SeqlaneEvent[] = [];
       const source = plan([task("a")]);
       const taskSchemas = new Map<string, TaskSchema>();
+      let executorCalls = 0;
+      let taskBodyCalls = 0;
+      let taskDefinitions: ReadonlyMap<string, TaskDefinition> | undefined;
       let executor:
         ((request: ExecutorRequest) => Promise<unknown>) | undefined;
 
@@ -592,6 +614,20 @@ describe("Seqlane lifecycle events and outcomes", () => {
           input: throwingSchema("bad input"),
           output: z.unknown(),
         });
+        taskDefinitions = new Map([
+          [
+            "a",
+            {
+              id: "a",
+              input: z.unknown(),
+              output: z.unknown(),
+              execute: async () => {
+                taskBodyCalls += 1;
+                return { value: "unexpected" };
+              },
+            },
+          ],
+        ]);
       } else if (expectedError instanceof OutputValidationError) {
         taskSchemas.set("a", {
           input: z.unknown(),
@@ -599,7 +635,15 @@ describe("Seqlane lifecycle events and outcomes", () => {
         });
       } else {
         executor = async () => {
+          executorCalls += 1;
           throw new Error("executor failed");
+        };
+      }
+
+      if (expectedError instanceof InputValidationError) {
+        executor = async () => {
+          executorCalls += 1;
+          return { value: "unexpected" };
         };
       }
 
@@ -607,6 +651,7 @@ describe("Seqlane lifecycle events and outcomes", () => {
         events: { emit: (event) => events.push(event) },
         executor,
         taskSchemas,
+        taskDefinitions,
       });
       const outcome = await runCompiledWorkflow(compiled);
 
@@ -619,15 +664,29 @@ describe("Seqlane lifecycle events and outcomes", () => {
         workId: "test-work",
         runId: "run-1",
       });
-      expect(
-        events.find(({ type }) => type === "invocation.started"),
-      ).toMatchObject({
-        type: "invocation.started",
-        workId: "test-work",
-        runId: "run-1",
-        invocationId: "a",
-        taskId: "a",
-      });
+      if (expectedError instanceof InputValidationError) {
+        expect(executorCalls).toBe(0);
+        expect(taskBodyCalls).toBe(0);
+        expect(events).not.toContainEqual(
+          expect.objectContaining({ type: "invocation.started" }),
+        );
+        expect(events).not.toContainEqual(
+          expect.objectContaining({ type: "invocation.input" }),
+        );
+        expect(events).not.toContainEqual(
+          expect.objectContaining({ type: "invocation.output" }),
+        );
+      } else {
+        expect(
+          events.find(({ type }) => type === "invocation.started"),
+        ).toMatchObject({
+          type: "invocation.started",
+          workId: "test-work",
+          runId: "run-1",
+          invocationId: "a",
+          taskId: "a",
+        });
+      }
       expect(
         events.find(({ type }) => type === "invocation.failed"),
       ).toMatchObject({
@@ -643,6 +702,7 @@ describe("Seqlane lifecycle events and outcomes", () => {
         workId: "test-work",
         runId: "run-1",
       });
+      expectOneTerminalPerCreatedInvocation(events);
     },
   );
 
@@ -717,8 +777,18 @@ describe("Seqlane lifecycle events and outcomes", () => {
       "invocation.input",
       "invocation.failed",
       "invocation.progress",
+      "invocation.skipped",
       "run.failed",
     ]);
+    expect(events).toContainEqual({
+      type: "invocation.skipped",
+      workId: "test-work",
+      runId: "run-1",
+      invocationId: "downstream",
+      reason: "dependency failed",
+      dependencyIds: ["interaction"],
+    });
+    expectOneTerminalPerCreatedInvocation(events);
   });
 
   it("attempts a failed executor exactly once", async () => {
@@ -795,8 +865,17 @@ describe("Seqlane lifecycle events and outcomes", () => {
       "invocation.output",
       "invocation.input",
       "invocation.progress",
+      "invocation.cancelled",
       "run.cancelled",
     ]);
+    expect(events).toContainEqual({
+      type: "invocation.cancelled",
+      workId: "test-work",
+      runId: "run-1",
+      invocationId: "a",
+      reason: "Run cancelled during invocation execution",
+    });
+    expectOneTerminalPerCreatedInvocation(events);
   });
 
   it("latches cancellation before the in-process run starts", async () => {

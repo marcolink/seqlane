@@ -57,6 +57,14 @@ settles. The canonical process result is `{ exitCode, stdout, stderr }`;
 richer process metadata remains private runtime detail. `context.runAgent` uses
 the executor selected by the invocation's session policy.
 
+The private Effect Plan program runs each ready task as soon as its dependencies
+settle. Dependency waiters do not hold task-body permits; the target composition
+uses a bound of eight active task bodies. It waits for started work to settle
+before reporting failure or cancellation. Task input is validated before
+admission or `invocation.started`. Invalid input emits `invocation.failed`
+without starting the task body. This target composition is still a migration
+tracer; the production CLI switches to it in the later runner-cutover task.
+
 Every `context.exec` call has a 30-second default timeout and a five-minute
 maximum timeout. On cancellation, the runtime waits for a bounded cleanup
 period, escalates process-group termination when needed, and quarantines the

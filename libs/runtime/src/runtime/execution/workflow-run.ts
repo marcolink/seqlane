@@ -79,7 +79,7 @@ export function invocationKind(
   return "validation";
 }
 
-function emitInvocationTopology(
+export function emitInvocationTopology(
   context: ExecutionContext,
   orderedNodes: readonly PlanNode[],
 ): void {

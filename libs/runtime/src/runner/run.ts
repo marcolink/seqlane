@@ -1,11 +1,17 @@
 import { randomUUID } from "node:crypto";
+import type { Effect } from "effect";
 import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import { RuntimeError } from "@seqlane/core";
+import {
+  publishRunOutcome,
+  settleRunProgram,
+} from "../runtime/execution/settle-run-program.js";
+import type { EffectPlanRunResult } from "../runtime/execution/effect-plan.js";
 import type { RunRequest } from "@seqlane/protocol";
-import type { SeqlaneError, SeqlaneEventSink } from "@seqlane/core";
+import type { SeqlaneEventSink } from "@seqlane/core";
 import type { MastraActiveRun } from "../runtime/mastra/mastra-runtime.js";
 import {
   createMastraPlanExecution,
@@ -43,10 +49,7 @@ export interface RunnerRunControl {
   runProgram?: RunnerRunProgram;
 }
 
-export type RunnerRunProgramResult =
-  | { readonly status: "succeeded"; readonly output: unknown }
-  | { readonly status: "failed"; readonly error: SeqlaneError }
-  | { readonly status: "cancelled" };
+export type RunnerRunProgramResult = EffectPlanRunResult;
 
 /** Private composition seam for a worker-owned Plan program. */
 export interface RunnerRunProgramContext {
@@ -61,7 +64,7 @@ export interface RunnerRunProgramContext {
 
 export type RunnerRunProgram = (
   context: RunnerRunProgramContext,
-) => Promise<RunnerRunProgramResult>;
+) => Effect.Effect<RunnerRunProgramResult>;
 
 export type RuntimeExecutionResolver = (
   profile: RunRequest["runtime"],
@@ -277,38 +280,12 @@ async function executeInjectedRun(
     readonly events: ReturnType<typeof createExecutionEventBridge>;
   },
 ): Promise<void> {
-  const outcome = await control.runProgram?.(context);
-  if (outcome === undefined) return;
-  const settledOutcome =
-    control.cancellationRequested && outcome.status === "succeeded"
-      ? { status: "cancelled" as const }
-      : outcome;
-  publishRunOutcome(
-    context.events,
-    context.workId,
-    context.runId,
-    settledOutcome,
-  );
+  const program = control.runProgram?.(context);
+  if (program === undefined) return;
+  const outcome = await settleRunProgram(program, context.signal);
+  publishRunOutcome(context.events, context.workId, context.runId, outcome);
+  // Publication failures flow to startRun's single supervision fallback. It
+  // settles accepted IPC events before sending one direct failure terminal.
   await context.events.flush();
   host.exit(0);
-}
-
-function publishRunOutcome(
-  events: Pick<ReturnType<typeof createExecutionEventBridge>, "emit">,
-  workId: string,
-  runId: string,
-  outcome: RunnerRunProgramResult | Awaited<MastraActiveRun["outcome"]>,
-): void {
-  if (outcome.status === "succeeded") {
-    events.emit({
-      type: "run.succeeded",
-      workId,
-      runId,
-      output: "output" in outcome ? outcome.output : outcome.result,
-    });
-  } else if (outcome.status === "cancelled") {
-    events.emit({ type: "run.cancelled", workId, runId });
-  } else {
-    events.emit({ type: "run.failed", workId, runId, error: outcome.error });
-  }
 }

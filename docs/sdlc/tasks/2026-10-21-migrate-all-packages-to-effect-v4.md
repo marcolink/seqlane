@@ -45,7 +45,7 @@ Each slice task owns its implementation scope and evidence. Dependencies are exp
 
 - [x] [S0 — Authority and baseline](./2026-10-21-effect-v4-authority-and-baseline.md)
 - [x] [S1 — Execute the tracer](./2026-10-21-effect-v4-effect-tracer.md)
-- [ ] [S2 — Real dependency graphs and failures](./2026-10-21-effect-v4-dependency-graphs.md)
+- [x] [S2 — Real dependency graphs and failures](./2026-10-21-effect-v4-dependency-graphs.md)
 - [ ] [S3 — Sessions and workspace admission with real callers](./2026-10-21-effect-v4-sessions-and-workspace-admission.md)
 - [ ] [S4 — Nested workflows, choices, repeats, and validation](./2026-10-21-effect-v4-nested-workflows-and-validation.md)
 - [ ] [S5 — OpenCode and Codex with full observations](./2026-10-21-effect-v4-native-adapters-and-observations.md)
@@ -106,11 +106,11 @@ Every temporary bridge is removed, all required checks pass, and delivery is rec
 
 ## Outcome
 
-S0 and S1 completed with full verification: authority, baseline, Effect process ownership, and the deterministic CLI worker tracer. S2–S12 remain. Production Plan and hosted cutover are pending.
+S0–S2 completed with full verification: authority, baseline, Effect process ownership, and dependency graphs through the CLI worker and direct facade. S3–S12 remain. Production Plan and hosted cutover are pending.
 
 ## Delivery state
 
-In progress on one migration branch. S0 and S1 have branch-local evidence in their task commits. The accepted architecture and active target spec record authority, not migration delivery.
+In progress on one migration branch. S0–S2 have branch-local evidence in their task commits. The accepted architecture and active target spec record authority, not migration delivery.
 
 ## Traceability
 

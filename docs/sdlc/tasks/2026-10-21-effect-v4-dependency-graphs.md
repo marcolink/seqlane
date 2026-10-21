@@ -1,7 +1,7 @@
 ---
 id: task.effect-v4-dependency-graphs
 title: Real dependency graphs and failures
-status: planned
+status: completed
 owners:
   - core
 created: 2026-10-21
@@ -42,7 +42,13 @@ Changes to product behavior, public authoring contracts, or wire contracts beyon
 
 ## Verification
 
-meaningful DAG/concurrency/failure fixtures and identical protocol results at both entrypoints.
+The compiled Oclif command, supervised worker, and direct `startWorkflowRun` fixtures verify ready-node execution, independent slow work, joins, full nested values, defaults, transforms, malformed input, and failed dependencies. Each created invocation receives one terminal event. Invalid task input fails before admission or task start.
+
+Cancellation tests cover early cancellation, a blocked body permit, callbacks that ignore cancellation until their cleanup barrier settles, and pre-aborted requests with supplied adapter resources. A throwing skip handler cannot strand downstream completion. Unconfirmed termination remains a failure even when an earlier graph node was cancelled.
+
+All 66 CLI end-to-end tests pass. The frozen install, documentation validation, 382 test mappings, typecheck, full tests across 20 projects, lint, build, formatting, Nx sync, and diff checks pass. The runtime suite passes all 495 tests.
+
+An existing hosted queue-cancellation fixture exceeded its one-second deadline in isolation. Its test-only budget is now five seconds; the dedicated deadline test and production defaults are unchanged.
 
 ## Completion criteria
 
@@ -52,11 +58,15 @@ meaningful DAG/concurrency/failure fixtures and identical protocol results at bo
 
 ## Outcome
 
-Not started. This task owns the implementation and evidence described above.
+Completed the native Effect dependency graph and shared target run settlement. Scoped fibers wait for dependency completion before acquiring a body permit. The target composition permits eight active bodies and waits for started work and cleanup before terminal settlement.
+
+Removed the recursive Promise dependency scheduler and the separate one-task tracer implementation. CLI fixtures and the direct runtime facade now compose the same Plan program and terminal publisher. Authored callbacks and public/wire Zod contracts remain unchanged.
+
+The private test composition remains until S9 switches production callers. Session admission and the remaining Plan node kinds belong to S3 and S4. This task does not claim production cutover or full migration delivery.
 
 ## Delivery state
 
-Planned. Completion requires implementation evidence and a reachable delivery commit or merged pull request on the target branch.
+Completed on `feat/effect-v4-migration` in this task commit. Evidence is branch-local. No default-branch or remote-CI delivery claim is made.
 
 ## Traceability
 

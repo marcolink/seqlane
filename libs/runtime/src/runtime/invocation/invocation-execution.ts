@@ -140,6 +140,23 @@ export async function executeTaskNode(
   };
 
   try {
+    const taskSchema = getTaskSchema(
+      context.taskSchemas,
+      node.taskId,
+      context.taskDefinitions,
+    );
+    let preparedInput: PreparedInvocationInput;
+    try {
+      preparedInput =
+        options.preparedInput ??
+        PreparedInvocationInput.parse(
+          taskSchema.input,
+          resolveBinding(node.input, context.workflowInput, results),
+        );
+    } catch (cause) {
+      throwTaskPhaseError(cause, "input", node.taskId, abortSignal);
+    }
+
     const resource = context.workspaceResources.get(node.taskId) ?? {
       key: "seqlane:runtime-workspace",
     };
@@ -214,24 +231,8 @@ export async function executeTaskNode(
     });
 
     try {
-      const taskSchema = getTaskSchema(
-        context.taskSchemas,
-        node.taskId,
-        context.taskDefinitions,
-      );
-      let input: unknown;
-      try {
-        const preparedInput =
-          options.preparedInput ??
-          PreparedInvocationInput.parse(
-            taskSchema.input,
-            resolveBinding(node.input, context.workflowInput, results),
-          );
-        consumeBindingReferences(results, remainingConsumers, node.input);
-        input = preparedInput.value;
-      } catch (cause) {
-        throwTaskPhaseError(cause, "input", node.taskId, abortSignal);
-      }
+      consumeBindingReferences(results, remainingConsumers, node.input);
+      const input: unknown = preparedInput.value;
       context.events.emit({
         type: "invocation.input",
         workId: context.workId,

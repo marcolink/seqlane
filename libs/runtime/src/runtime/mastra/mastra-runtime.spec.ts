@@ -1868,7 +1868,7 @@ describe("private Mastra runtime spine", () => {
       .then(step)
       .commit();
     const runtime = createMastraRuntime([{ key: workflow.id, workflow }], {
-      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 1_000 },
+      mcpDispatcher: { maxConcurrent: 1, maxQueued: 1, deadlineMs: 5_000 },
     });
     const context = () => ({
       requestContext: new RequestContext([["user", { id: "fixture-user" }]]),

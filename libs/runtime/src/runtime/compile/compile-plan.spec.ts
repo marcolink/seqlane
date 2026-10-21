@@ -1,4 +1,5 @@
 // @test-scope ./compile-plan.ts
+// @test-scope ./compile-node-step.ts
 // @test-scope ../validation/plan-validation.ts
 // @test-scope ../invocation/invocation-execution.ts
 // @test-scope ../session/session-preflight.ts
@@ -165,12 +166,10 @@ describe("PlanCompiler plan preparation", () => {
       { executors: new Map() },
     );
 
-    expect(first.program.steps).toEqual(
-      second.program.steps.map(({ id, dependsOn }) => ({
-        id,
-        dependsOn,
-        execute: expect.any(Function),
-      })),
+    expect(
+      first.program.steps.map(({ id, dependsOn }) => ({ id, dependsOn })),
+    ).toEqual(
+      second.program.steps.map(({ id, dependsOn }) => ({ id, dependsOn })),
     );
     expect(
       first.program.steps
