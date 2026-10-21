@@ -8,6 +8,7 @@ import { captureClassifierConnectionEnvironment } from "./classifier-environment
 import {
   agentRuntimeConfigurationEnvironment,
   directRunAdapterConfigurationEnvironment,
+  directRunAdapterIdentity,
   loadDirectRunAgentRuntimeFactory,
   loadAgentRuntimeFactory,
 } from "./agent-runtime.js";
@@ -32,6 +33,39 @@ export function createRunnerProcessOptions(
   const classifierOptions =
     classifierConnection === undefined ? {} : { classifierConnection };
   if (environment[directRunAdapterConfigurationEnvironment] !== undefined) {
+    if (directRunAdapterIdentity(environment) === "opencode-v2") {
+      return {
+        ...traceCarrierOptions,
+        ...telemetryOptions,
+        ...classifierOptions,
+        standaloneAdapter: {
+          identity: "opencode-v2",
+          start: async ({ signal, workspace }, factoryOptions) => {
+            const runtime = await loadDirectRunAgentRuntimeFactory(environment)(
+              signal,
+              workspace,
+              factoryOptions,
+            );
+            return {
+              binding: {
+                capabilities: runtime.capabilities,
+                modelCapabilities: runtime.modelCapabilities,
+                createAdapter: (modelSelection) =>
+                  runtime.redactAdapter(
+                    runtime.createAdapter({
+                      signal,
+                      modelSelection,
+                    }),
+                  ),
+              },
+              close: async () => {
+                await runtime.close?.();
+              },
+            };
+          },
+        },
+      };
+    }
     return {
       ...traceCarrierOptions,
       ...telemetryOptions,

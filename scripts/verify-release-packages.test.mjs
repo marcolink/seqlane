@@ -37,6 +37,7 @@ test("accepts the exact release project set", () => {
       "runtime",
       "protocol",
       "opencode",
+      "opencode-v2",
       "core",
       "codex-adapter",
       "cli",

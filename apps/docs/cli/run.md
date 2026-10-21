@@ -151,7 +151,7 @@ that contain dots or equals signs.
 
 ### `--adapter`
 
-Select the adapter for agent tasks. Supported values are `opencode` and
+Select the adapter for agent tasks. Supported values are `opencode`, `opencode-v2`, and
 `codex`. Omit this flag for deterministic workflows.
 
 ```sh
@@ -348,3 +348,18 @@ seqlane run ./workflow.ts \
   --opencode-host 127.0.0.1 \
   --opencode-port 4096
 ```
+
+## OpenCode 2 flags
+
+Use `--adapter opencode-v2` with OpenCode 2.1.2. The V1 adapter keeps the
+`opencode` identity. Read [OpenCode 2](/adapters/opencode-v2) for setup.
+
+| Flag | Meaning |
+| --- | --- |
+| `--opencode-v2-mode` | `managed` by default, or `external` |
+| `--opencode-v2-host` | Loopback host; managed default `127.0.0.1` |
+| `--opencode-v2-port` | Managed default `0`; external requires `1`–`65535` |
+| `--opencode-v2-executable` | Absolute executable path; managed mode only |
+
+External mode requires an explicit host and port. V2 flags require the V2
+adapter. Existing `--opencode-*` flags require the V1 adapter.

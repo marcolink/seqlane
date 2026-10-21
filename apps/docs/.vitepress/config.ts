@@ -65,6 +65,7 @@ export default defineConfig({
         items: [
           { text: "Overview", link: "/adapters/overview" },
           { text: "OpenCode", link: "/adapters/opencode" },
+          { text: "OpenCode 2", link: "/adapters/opencode-v2" },
           { text: "Codex", link: "/adapters/codex" },
         ],
       },
