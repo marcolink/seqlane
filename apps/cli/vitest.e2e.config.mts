@@ -10,6 +10,7 @@ export default defineConfig({
       "src/runner-client.spec.ts",
       "src/effect-tracer-worker.e2e.spec.ts",
       "src/effect-dag-worker.e2e.spec.ts",
+      "src/effect-session-worker.e2e.spec.ts",
     ],
   },
   resolve: { alias: workspaceAliases },

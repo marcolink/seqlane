@@ -185,6 +185,7 @@ export function startWorkflowRun<Input, Output>(
 
   const outcome = (async (): Promise<SeqlaneRunOutcome> => {
     let execution: RuntimeExecution | undefined;
+    let requestRuntimeAdopted = false;
     let mastraExecution: MastraPlanExecution | undefined;
     let result: SeqlaneRunOutcome;
     try {
@@ -202,6 +203,18 @@ export function startWorkflowRun<Input, Output>(
           signal: abortController.signal,
           events: request.events,
           createInvocationId: () => randomUUID(),
+          resolveExecution: async (signal) => {
+            const resolved = await resolveDirectExecution(
+              request,
+              signal,
+              runId,
+              classifierOptions,
+            );
+            requestRuntimeAdopted = request.agentRuntime !== undefined;
+            return resolved;
+          },
+          onObservation: (event) => request.onObservation?.(event),
+          onDiagnostic: request.onDiagnostic,
         });
         const settled = await settleRunProgram(program, abortController.signal);
         result =
@@ -268,7 +281,9 @@ export function startWorkflowRun<Input, Output>(
       // A direct runtime is bootstrapped by application composition before
       // input validation. If validation fails, the resolver never takes
       // ownership, so release that run-scoped resource here.
-      () => execution?.close?.() ?? request.agentRuntime?.close?.(),
+      () =>
+        execution?.close?.() ??
+        (requestRuntimeAdopted ? undefined : request.agentRuntime?.close?.()),
       () => mastraExecution?.runtime.shutdown(),
     ]) {
       try {

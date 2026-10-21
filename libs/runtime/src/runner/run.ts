@@ -3,6 +3,7 @@ import type { Effect } from "effect";
 import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
+  type InvocationObservationEvent,
 } from "@seqlane/protocol";
 import { RuntimeError } from "@seqlane/core";
 import {
@@ -60,6 +61,10 @@ export interface RunnerRunProgramContext {
   readonly signal: AbortSignal;
   readonly events: SeqlaneEventSink;
   readonly createInvocationId: (nodeId?: string) => string;
+  readonly resolveExecution: (signal: AbortSignal) => Promise<RuntimeExecution>;
+  readonly onObservation: (
+    event: Omit<InvocationObservationEvent, "metadata">,
+  ) => void;
 }
 
 export type RunnerRunProgram = (
@@ -167,6 +172,18 @@ export async function startRun(
         signal: abortController.signal,
         events,
         createInvocationId,
+        resolveExecution: (signal) =>
+          Promise.resolve(
+            resolveExecution(
+              request.runtime,
+              loadedWorkflow.taskDefinitions,
+              signal,
+              request.input,
+              (notification) => sendRuntimeSessionUi(host, notification),
+              { runId },
+            ),
+          ),
+        onObservation: (event) => events.emitObservation(event),
       });
       return;
     }

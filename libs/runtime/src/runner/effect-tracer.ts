@@ -12,5 +12,8 @@ export function createEffectTracerRunProgram(): RunnerRunProgram {
       signal: context.signal,
       events: context.events,
       createInvocationId: context.createInvocationId,
+      resolveExecution: context.resolveExecution,
+      onObservation: context.onObservation,
+      onDiagnostic: (message) => process.stderr.write(`${message}\n`),
     });
 }

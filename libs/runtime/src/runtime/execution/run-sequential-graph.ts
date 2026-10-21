@@ -97,28 +97,45 @@ function executeStep(
       });
       return;
     }
-    const body = Effect.suspend(() =>
-      abortSignal.aborted
-        ? Effect.try({
-            try: () => step.onCancel?.(),
-            catch: (error) => error,
-          }).pipe(Effect.andThen(Effect.fail(cancellationReason(abortSignal))))
-        : Effect.tryPromise({
-            try: () => step.execute({ abortSignal }),
-            catch: (error) => error,
-          }).pipe(
-            Effect.map((value): SequentialProgramStepResult => ({
-              status: "success",
-              value,
-            })),
-            Effect.catch((error) =>
-              Effect.succeed({ status: "failed", error } as const),
-            ),
+    const body = Effect.suspend(() => {
+      if (abortSignal.aborted) {
+        return Effect.try({
+          try: () => step.onCancel?.(),
+          catch: (error) => error,
+        }).pipe(Effect.andThen(Effect.fail(cancellationReason(abortSignal))));
+      }
+      if (step.executeEffect !== undefined) {
+        const withBodyPermit = <A, E>(effect: Effect.Effect<A, E>) =>
+          semaphore === undefined ? effect : semaphore.withPermit(effect);
+        return step.executeEffect({ abortSignal, withBodyPermit }).pipe(
+          Effect.map((value): SequentialProgramStepResult => ({
+            status: "success",
+            value,
+          })),
+          Effect.catch((error) =>
+            Effect.succeed({ status: "failed", error } as const),
           ),
-    );
-    const result = yield* semaphore === undefined
-      ? body
-      : semaphore.withPermit(body);
+        );
+      }
+      return Effect.tryPromise({
+        try: () => step.execute({ abortSignal }),
+        catch: (error) => error,
+      }).pipe(
+        Effect.map((value): SequentialProgramStepResult => ({
+          status: "success",
+          value,
+        })),
+        Effect.catch((error) =>
+          Effect.succeed({ status: "failed", error } as const),
+        ),
+      );
+    });
+    const result =
+      step.executeEffect === undefined
+        ? semaphore === undefined
+          ? yield* body
+          : yield* semaphore.withPermit(body)
+        : yield* body;
     yield* Deferred.succeed(completion, result);
   });
 }

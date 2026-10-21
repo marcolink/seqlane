@@ -8,6 +8,13 @@ export interface SequentialProgramStep {
   readonly execute: (options: {
     readonly abortSignal: AbortSignal;
   }) => Promise<unknown>;
+  /** Target path that can wait for admission before taking a body permit. */
+  readonly executeEffect?: (options: {
+    readonly abortSignal: AbortSignal;
+    readonly withBodyPermit: <A, E>(
+      effect: Effect.Effect<A, E>,
+    ) => Effect.Effect<A, E>;
+  }) => Effect.Effect<unknown, unknown>;
   readonly onSkip?: (failedDependencyIds: readonly string[]) => void;
   readonly onCancel?: () => void;
 }

@@ -13,6 +13,7 @@ import {
 import type { ExecutionContext } from "../execution/context.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
 import type { RuntimeValidationResult } from "../validation/validation-results.js";
+import type { JointAdmission } from "./joint-admission.js";
 
 import type { PreparedInvocationInput } from "./prepared-input.js";
 
@@ -27,6 +28,10 @@ export interface TaskExecutionOptions {
   readonly subject: SeqlaneInvocationSubject;
   /** `graph` means static workspace conflicts are already dependency edges. */
   readonly workspaceAdmission?: "dynamic" | "graph";
+  /** Admission acquired by the native Effect Plan caller. */
+  readonly admission?: JointAdmission;
+  /** Mutable lease disposition shared with the Effect finalizer. */
+  readonly admissionOwnership?: { retain: boolean; uncertainty?: unknown };
   readonly iteration?: number;
   /** Awaited before result publication; may run an asynchronous evaluator. */
   readonly validateOutput?: (output: unknown) => unknown;

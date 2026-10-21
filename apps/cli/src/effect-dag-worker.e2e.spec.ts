@@ -1,5 +1,6 @@
 // @test-scope ./commands/run.ts
 // @test-scope ./runner-client.ts
+// @test-scope ./test-fixtures/effect-worker-test-support.ts
 // @test-scope ./test-fixtures/effect-dag-workflow.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/program.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/workflow-run.ts
@@ -12,27 +13,21 @@
 
 import { once } from "node:events";
 import { spawn } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   isRunRequest,
   type RunRequest,
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import { launchRunner } from "./runner-client.js";
+import {
+  closeRunnerWorker,
+  prepareExternalCli,
+} from "./test-fixtures/effect-worker-test-support.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const cliRoot = join(repositoryRoot, "apps/cli");
@@ -122,58 +117,6 @@ async function waitForEvent(
   throw new Error("Timed out waiting for runner event");
 }
 
-async function closeWorker(
-  client: ReturnType<typeof startWorker>,
-): Promise<void> {
-  if (client.child.exitCode !== null || client.child.signalCode !== null)
-    return;
-  const exited = once(client.child, "exit");
-  client.close();
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      exited,
-      new Promise((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new Error("Runner worker did not exit")),
-          5_000,
-        );
-      }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
-}
-
-function prepareExternalCli(): string {
-  const destination = join(temporaryRoot, "consumer");
-  mkdirSync(destination, { recursive: true });
-  cpSync(join(cliRoot, "bin"), join(destination, "bin"), { recursive: true });
-  cpSync(join(cliRoot, "dist"), join(destination, "dist"), {
-    recursive: true,
-  });
-  cpSync(
-    join(cliRoot, "oclif.config.mjs"),
-    join(destination, "oclif.config.mjs"),
-  );
-  symlinkSync(join(cliRoot, "node_modules"), join(destination, "node_modules"));
-
-  const packageJson = z
-    .record(z.string(), z.unknown())
-    .parse(JSON.parse(readFileSync(join(cliRoot, "package.json"), "utf8")));
-  const exports = z
-    .record(z.string(), z.record(z.string(), z.string()))
-    .parse(packageJson["exports"]);
-  exports["./runner"] = {
-    types: "./dist/runner.d.ts",
-    import: "./dist/test-fixtures/effect-tracer-runner.js",
-    default: "./dist/test-fixtures/effect-tracer-runner.js",
-  };
-  packageJson["exports"] = exports;
-  writeFileSync(join(destination, "package.json"), JSON.stringify(packageJson));
-  return destination;
-}
-
 function markerDirectory(prefix: string): string {
   const path = mkdtempSync(join(temporaryRoot, prefix));
   return path;
@@ -205,7 +148,11 @@ function createdInvocation(taskId: string): InvocationCreatedEvent | undefined {
 
 beforeAll(() => {
   temporaryRoot = mkdtempSync(join(tmpdir(), "seqlane-effect-dag-"));
-  consumerRoot = prepareExternalCli();
+  consumerRoot = prepareExternalCli({
+    cliRoot,
+    destination: join(temporaryRoot, "consumer"),
+    runnerEntrypoint: "./dist/test-fixtures/effect-tracer-runner.js",
+  });
   runnerPath = compiledRunner;
 });
 
@@ -386,7 +333,7 @@ describe("Effect S2 dependency graph through the compiled CLI", () => {
       );
     } finally {
       writeFileSync(join(traceDir, "slow.release"), "release");
-      await closeWorker(client);
+      await closeRunnerWorker(client);
     }
   }, 30_000);
 
@@ -428,7 +375,7 @@ describe("Effect S2 dependency graph through the compiled CLI", () => {
       expect(terminalEvents()).toHaveLength(1);
       expect(events.at(-1)?.type).toBe("run.failed");
     } finally {
-      await closeWorker(client);
+      await closeRunnerWorker(client);
     }
   }, 30_000);
 
@@ -497,7 +444,7 @@ describe("Effect S2 dependency graph through the compiled CLI", () => {
       ).toBeGreaterThan(lastInvocationSettlement);
     } finally {
       writeFileSync(join(traceDir, "independent.release"), "release");
-      await closeWorker(client);
+      await closeRunnerWorker(client);
     }
   }, 30_000);
 });

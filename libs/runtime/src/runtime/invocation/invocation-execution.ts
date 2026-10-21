@@ -7,6 +7,7 @@ import type {
   WorkflowNode,
   ValidationCheckNode,
   ValidationGateNode,
+  SeqlaneSchema,
 } from "@seqlane/core";
 import { resolveBinding } from "../plan/binding-resolution.js";
 import {
@@ -145,23 +146,22 @@ export async function executeTaskNode(
       node.taskId,
       context.taskDefinitions,
     );
-    let preparedInput: PreparedInvocationInput;
-    try {
-      preparedInput =
-        options.preparedInput ??
-        PreparedInvocationInput.parse(
-          taskSchema.input,
-          resolveBinding(node.input, context.workflowInput, results),
-        );
-    } catch (cause) {
-      throwTaskPhaseError(cause, "input", node.taskId, abortSignal);
-    }
+    const preparedInput = prepareTaskInput(
+      context,
+      node,
+      options,
+      abortSignal,
+      taskSchema.input,
+    );
 
     const resource = context.workspaceResources.get(node.taskId) ?? {
       key: "seqlane:runtime-workspace",
     };
     const session = context.resolvedSessions.get(invocationId);
-    if (options.workspaceAdmission === "graph") {
+    if (options.admission !== undefined) {
+      workspaceLease = options.admission.workspaceLease;
+      sessionLease = options.admission.sessionLease;
+    } else if (options.workspaceAdmission === "graph") {
       if (abortSignal.aborted) {
         throw abortSignal.reason ?? new Error("Task execution cancelled");
       }
@@ -253,9 +253,14 @@ export async function executeTaskNode(
           unconfirmedTermination ??= new UnconfirmedInvocationTerminationError(
             activity.reason,
           );
+          if (options.admissionOwnership !== undefined)
+            options.admissionOwnership.uncertainty ??= unconfirmedTermination;
           if (session !== undefined) {
             context.sessionLocks.quarantine(session, unconfirmedTermination);
           }
+          context.workspaceLocks.quarantine(resource, unconfirmedTermination);
+          if (options.admissionOwnership !== undefined)
+            options.admissionOwnership.retain = true;
           return;
         }
         effects.trackTermination(activity.termination);
@@ -407,7 +412,9 @@ export async function executeTaskNode(
         executorFailure ??= { cause };
       }
       if (unconfirmedActivity !== undefined) {
-        executorFailure ??= {
+        if (executorFailure !== undefined)
+          unconfirmedTermination?.attachCause(executorFailure.cause);
+        executorFailure = {
           cause:
             unconfirmedTermination ??
             new UnconfirmedInvocationTerminationError(
@@ -498,6 +505,26 @@ export async function executeTaskNode(
       sessionLease?.release();
       releaseWorkspace();
     }
+  }
+}
+
+export function prepareTaskInput(
+  context: ExecutionContext,
+  node: TaskNode,
+  options: TaskExecutionOptions,
+  abortSignal: AbortSignal,
+  inputSchema: SeqlaneSchema,
+): PreparedInvocationInput {
+  try {
+    return (
+      options.preparedInput ??
+      PreparedInvocationInput.parse(
+        inputSchema,
+        resolveBinding(node.input, context.workflowInput, options.results),
+      )
+    );
+  } catch (cause) {
+    return throwTaskPhaseError(cause, "input", node.taskId, abortSignal);
   }
 }
 

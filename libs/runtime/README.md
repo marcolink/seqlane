@@ -85,14 +85,14 @@ task waits while an exclusive task is active. Omitted policy resolves to
 `exclusive`. Workspace policy neither grants nor restricts filesystem, shell,
 network, MCP, skill, or custom-tool access.
 
-Top-level Plan tasks rely on graph dependencies for statically known workspace
-constraints and do not acquire a redundant runtime workspace lease. Dynamically
-created work, including repeat attempts and direct invocation calls, still
-uses atomic session and workspace admission. A waiting dynamic invocation
-retains neither resource. Seqlane holds its leases through executor requests,
-tracked children, processes, cancellation, and cleanup. Queue order uses
-invocation creation order. Events report workspace waiting, admission, and
-release.
+The native Effect Plan compiler uses atomic session and workspace admission
+for every task, including top-level Plan tasks. Waiting tasks retain neither
+resource, and workspace eligibility does not consume a task-body permit.
+Seqlane holds its leases through executor requests, tracked children, processes,
+cancellation, and cleanup. Eligible waiters follow invocation creation order.
+A workspace waiter does not reserve its session against eligible work in another
+workspace. Events report workspace waiting, admission, and release. The legacy `prepareWorkflow`
+path keeps static workspace ordering for remaining callers until S9 removes it.
 
 After a successful agent turn and all tracked activity, the runtime publishes
 its private checkpoint. `reuse()` keeps the source session; `fork()` creates a

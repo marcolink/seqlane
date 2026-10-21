@@ -178,7 +178,7 @@ describe("PlanCompiler plan preparation", () => {
     ).toEqual([[], []]);
   });
 
-  it("lowers conflicting workspace access into execution dependencies", () => {
+  it("leaves workspace conflicts to native joint admission", () => {
     const compiled = compileWorkflow(
       plan([
         task("writer", [], {}, "exclusive"),
@@ -194,12 +194,14 @@ describe("PlanCompiler plan preparation", () => {
       },
     );
 
-    expect(compiled.program.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "reader", dependsOn: [] }),
-        expect.objectContaining({ id: "writer", dependsOn: ["reader"] }),
-      ]),
-    );
+    expect(
+      compiled.program.steps
+        .filter((step) => step.id === "reader" || step.id === "writer")
+        .map((step) => ({ id: step.id, dependsOn: step.dependsOn })),
+    ).toEqual([
+      { id: "reader", dependsOn: [] },
+      { id: "writer", dependsOn: [] },
+    ]);
   });
 
   it.each([
@@ -756,8 +758,12 @@ describe("PlanCompiler workflow compilation", () => {
     ]);
   });
 
-  it("bypasses runtime workspace admission for graph-lowered top-level tasks", async () => {
+  it("uses runtime workspace admission for top-level tasks", async () => {
     let executed = false;
+    let markWaiting!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      markWaiting = resolve;
+    });
     const events: SeqlaneEvent[] = [];
     const workspace = { key: "/checkout" };
     const compiled = compileWorkflow(
@@ -776,7 +782,17 @@ describe("PlanCompiler workflow compilation", () => {
           ],
         ]),
         workspaceResources: new Map([["writer", workspace]]),
-        events: { emit: (event) => events.push(event) },
+        events: {
+          emit: (event) => {
+            events.push(event);
+            if (
+              event.type === "invocation.progress" &&
+              event.waitingReason === "workspace_unavailable"
+            ) {
+              markWaiting();
+            }
+          },
+        },
       },
     );
     const externalLease = await compiled.context.workspaceLocks.acquire(
@@ -785,12 +801,13 @@ describe("PlanCompiler workflow compilation", () => {
     );
 
     const execution = executeSequentialProgram(compiled.program);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waiting;
     const executedBeforeRelease = executed;
     externalLease.release();
     const result = await execution;
 
-    expect(executedBeforeRelease).toBe(true);
+    expect(executedBeforeRelease).toBe(false);
+    expect(executed).toBe(true);
     expect(result.status).toBe("success");
     expect(
       events
@@ -883,14 +900,22 @@ describe("PlanCompiler workflow compilation", () => {
     );
     await resolveCompiledWorkflowSessions(compiled);
     const execution = executeSequentialProgram(compiled.program);
-    const startState = await Promise.race([
-      bothIndependentNodesStarted.then(() => "started"),
-      new Promise((resolve) => setTimeout(() => resolve("waiting"), 0)),
-    ]);
-    releaseIndependentNodes();
+    let startTimeout: ReturnType<typeof setTimeout> | undefined;
+    let independentNodesStarted = false;
+    try {
+      independentNodesStarted = await Promise.race([
+        bothIndependentNodesStarted.then(() => true),
+        new Promise<boolean>((resolve) => {
+          startTimeout = setTimeout(() => resolve(false), 3_000);
+        }),
+      ]);
+    } finally {
+      if (startTimeout !== undefined) clearTimeout(startTimeout);
+      releaseIndependentNodes();
+    }
     await execution;
 
-    expect(startState).toBe("started");
+    expect(independentNodesStarted).toBe(true);
     expect(calls).toEqual(
       expect.arrayContaining(["a:start", "z:start", "a:end", "z:end"]),
     );

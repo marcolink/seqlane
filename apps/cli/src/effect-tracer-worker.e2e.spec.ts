@@ -1,4 +1,5 @@
 // @test-scope ./runner-client.ts
+// @test-scope ./test-fixtures/effect-worker-test-support.ts
 // @test-scope ./test-fixtures/effect-tracer-runner.ts
 // @test-scope ./test-fixtures/effect-tracer-workflow.ts
 // @test-scope ../../../libs/runtime/src/runner/effect-tracer.ts
@@ -10,20 +11,11 @@
 import { once } from "node:events";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import {
-  cpSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   isRunRequest,
   type RunRequest,
@@ -31,6 +23,10 @@ import {
 } from "@seqlane/protocol";
 import { launchRunner } from "./runner-client.js";
 import type { RunnerSignalSource } from "./runner-client.js";
+import {
+  closeRunnerWorker,
+  prepareExternalCli,
+} from "./test-fixtures/effect-worker-test-support.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const cliRoot = join(repositoryRoot, "apps/cli");
@@ -129,29 +125,6 @@ async function waitForProcessExit(pid: number): Promise<void> {
   throw new Error(`Owned process ${pid} is still alive`);
 }
 
-async function closeWorker(
-  client: ReturnType<typeof startWorker>,
-): Promise<void> {
-  if (client.child.exitCode !== null || client.child.signalCode !== null)
-    return;
-  const exited = once(client.child, "exit");
-  client.close();
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      exited,
-      new Promise((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new Error("Runner worker did not exit")),
-          3_000,
-        );
-      }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
-}
-
 beforeAll(() => {
   runnerPath = compiledRunner;
 });
@@ -165,36 +138,11 @@ afterAll(() => {
 describe("Effect S1 runner worker", () => {
   it("runs the compiled Oclif command through the injected Effect worker", async () => {
     temporaryRoot = mkdtempSync(join(tmpdir(), "seqlane-effect-cli-"));
-    cpSync(join(cliRoot, "bin"), join(temporaryRoot, "bin"), {
-      recursive: true,
+    prepareExternalCli({
+      cliRoot,
+      destination: temporaryRoot,
+      runnerEntrypoint: "./dist/test-fixtures/effect-tracer-runner.js",
     });
-    cpSync(join(cliRoot, "dist"), join(temporaryRoot, "dist"), {
-      recursive: true,
-    });
-    cpSync(
-      join(cliRoot, "oclif.config.mjs"),
-      join(temporaryRoot, "oclif.config.mjs"),
-    );
-    symlinkSync(
-      join(cliRoot, "node_modules"),
-      join(temporaryRoot, "node_modules"),
-    );
-    const packageJson = z
-      .record(z.string(), z.unknown())
-      .parse(JSON.parse(readFileSync(join(cliRoot, "package.json"), "utf8")));
-    const exports = z
-      .record(z.string(), z.record(z.string(), z.string()))
-      .parse(packageJson["exports"]);
-    exports["./runner"] = {
-      types: "./dist/runner.d.ts",
-      import: "./dist/test-fixtures/effect-tracer-runner.js",
-      default: "./dist/test-fixtures/effect-tracer-runner.js",
-    };
-    packageJson["exports"] = exports;
-    writeFileSync(
-      join(temporaryRoot, "package.json"),
-      JSON.stringify(packageJson),
-    );
 
     const child = spawn(
       process.execPath,
@@ -343,7 +291,7 @@ describe("Effect S1 runner worker", () => {
         expect(terminalEvents()).toHaveLength(1);
         await waitForProcessExit(pid);
       } finally {
-        await closeWorker(client);
+        await closeRunnerWorker(client, 3_000);
         if (pid !== undefined) await waitForProcessExit(pid);
       }
     } finally {
@@ -382,7 +330,7 @@ describe("Effect S1 runner worker", () => {
           expect(terminalEvents()).toHaveLength(1);
           await waitForProcessExit(pid);
         } finally {
-          await closeWorker(client);
+          await closeRunnerWorker(client, 3_000);
           if (pid !== undefined) await waitForProcessExit(pid);
         }
       } finally {
@@ -412,7 +360,7 @@ describe("Effect S1 runner worker", () => {
         expect(processIsAlive(pid)).toBe(false);
         await waitForProcessExit(pid);
       } finally {
-        await closeWorker(client);
+        await closeRunnerWorker(client, 3_000);
         if (pid !== undefined) await waitForProcessExit(pid);
       }
     } finally {

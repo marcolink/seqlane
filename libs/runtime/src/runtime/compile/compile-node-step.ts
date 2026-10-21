@@ -1,9 +1,10 @@
+import { Effect } from "effect";
 import type { PlanNode, ValidationCheckNode } from "@seqlane/core";
 import {
   invocationIdForNode,
   type ExecutionContext,
 } from "../execution/context.js";
-import { UnconfirmedInvocationTerminationError } from "../execution/executor.js";
+import { findUnconfirmedInvocationTermination } from "../execution/executor.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
 import type { SequentialProgramStep } from "../execution/program.js";
 import {
@@ -11,6 +12,8 @@ import {
   executeValidationCheckNode,
   executeValidationGateNode,
 } from "../invocation/invocation-execution.js";
+import { executeTaskNodeEffect } from "../invocation/task-admission.js";
+import { parseValidationResult } from "../validation/validation-results.js";
 
 /** Build one Plan node step with its execution and invocation terminal policy. */
 export function createCompiledNodeStep(
@@ -36,6 +39,68 @@ export function createCompiledNodeStep(
         );
         throw cause;
       }
+    },
+    executeEffect: ({ abortSignal, withBodyPermit }) => {
+      let effect: Effect.Effect<unknown, unknown>;
+      if (node.type === "task") {
+        effect = executeTaskNodeEffect(
+          context,
+          node,
+          abortSignal,
+          {
+            invocationId: invocationIdForNode(context, node),
+            observability: {},
+            results: context.results,
+            remainingConsumers: context.remainingConsumers,
+            subject: { type: "task", taskId: node.taskId },
+          },
+          withBodyPermit,
+        );
+      } else if (
+        node.type === "validation.check" &&
+        node.source.type === "task"
+      ) {
+        const taskNode = {
+          type: "task",
+          taskId: node.source.taskId,
+          nodeId: node.nodeId,
+          workspace: node.source.workspace,
+          input: node.input,
+          dependsOn: node.dependsOn,
+        } as const;
+        effect = executeTaskNodeEffect(
+          context,
+          taskNode,
+          abortSignal,
+          {
+            invocationId: invocationIdForNode(context, node),
+            observability: {},
+            results: context.results,
+            remainingConsumers: context.remainingConsumers,
+            subject: { type: "task", taskId: node.source.taskId },
+            validateOutput: parseValidationResult,
+          },
+          withBodyPermit,
+        );
+      } else {
+        effect = withBodyPermit(
+          Effect.tryPromise({
+            try: () => executeNode(context, node, checkNodes, abortSignal),
+            catch: (cause) => cause,
+          }),
+        );
+      }
+      return Effect.catch(effect, (cause) =>
+        Effect.sync(() => {
+          emitFailureTerminal(
+            context,
+            node,
+            cause,
+            abortSignal,
+            terminalInvocationIds,
+          );
+        }).pipe(Effect.andThen(Effect.fail(cause))),
+      );
     },
     onSkip: (failedDependencyIds) => {
       context.events.emit({
@@ -119,7 +184,7 @@ function emitFailureTerminal(
   if (terminalInvocationIds.has(invocationId)) return;
   if (
     abortSignal.aborted &&
-    !(cause instanceof UnconfirmedInvocationTerminationError)
+    findUnconfirmedInvocationTermination(cause) === undefined
   ) {
     context.events.emit({
       type: "invocation.cancelled",

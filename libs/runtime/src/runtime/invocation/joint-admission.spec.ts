@@ -2,8 +2,12 @@
 // @test-scope ../session/session-lock.ts
 // @test-scope ../workspace/workspace-lock.ts
 import { describe, expect, it } from "vitest";
+import { Effect, Fiber } from "effect";
 import { SessionLockRegistry } from "../session/session-lock.js";
-import { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
+import {
+  QuarantinedWorkspaceError,
+  WorkspaceLockRegistry,
+} from "../workspace/workspace-lock.js";
 import { JointAdmissionRegistry } from "./joint-admission.js";
 
 const workspace = { key: "/checkout" };
@@ -40,6 +44,70 @@ function request(
 }
 
 describe("joint admission", () => {
+  it("removes a fiber-interrupted waiter without retaining workspace eligibility", async () => {
+    const sessionLocks = new SessionLockRegistry();
+    const workspaceLocks = new WorkspaceLockRegistry();
+    const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
+    const active = await workspaceLocks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      0,
+      "active",
+    );
+    let notifyWaiting!: () => void;
+    const waitingSignal = new Promise<void>((resolve) => {
+      notifyWaiting = resolve;
+    });
+    const waiting = request("interrupted", 1);
+    const fiber = Effect.runFork(
+      admissions.acquireEffect({
+        ...waiting,
+        onWorkspaceWaiting: () => notifyWaiting(),
+      }),
+    );
+
+    await waitingSignal;
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    active.release();
+
+    const next = await admissions.acquire(request("next", 2));
+    next.sessionLease?.release();
+    next.workspaceLease.release();
+  });
+
+  it("removes an aborted waiter before the current owner releases", async () => {
+    const sessionLocks = new SessionLockRegistry();
+    const workspaceLocks = new WorkspaceLockRegistry();
+    const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
+    const active = await workspaceLocks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      0,
+      "active",
+    );
+    const controller = new AbortController();
+    const reason = new Error("cancelled before owner release");
+    let notifyWaiting!: () => void;
+    const waitingSignal = new Promise<void>((resolve) => {
+      notifyWaiting = resolve;
+    });
+    const cancelled = admissions.acquireEffect({
+      ...request("cancelled", 1, controller.signal),
+      onWorkspaceWaiting: () => notifyWaiting(),
+    });
+    const result = Effect.runPromise(cancelled);
+
+    await waitingSignal;
+    controller.abort(reason);
+    await expect(result).rejects.toBe(reason);
+    active.release();
+    const next = await admissions.acquire(request("next", 2));
+    next.sessionLease?.release();
+    next.workspaceLease.release();
+  });
+
   it("does not retain workspace admission while its session is unavailable", async () => {
     const sessionLocks = new SessionLockRegistry();
     const workspaceLocks = new WorkspaceLockRegistry();
@@ -82,6 +150,87 @@ describe("joint admission", () => {
     competingSession.release();
     activeWorkspace.release();
     const admission = await waiting;
+    admission.sessionLease?.release();
+    admission.workspaceLease.release();
+  });
+
+  it("lets an eligible same-session waiter proceed past an earlier blocked workspace", async () => {
+    const sessionLocks = new SessionLockRegistry();
+    const workspaceLocks = new WorkspaceLockRegistry();
+    const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
+    const blockedWorkspace = { key: "/blocked-checkout" };
+    const availableWorkspace = { key: "/available-checkout" };
+    const activeWorkspace = await workspaceLocks.acquire(
+      blockedWorkspace,
+      "exclusive",
+      undefined,
+      0,
+      "active",
+    );
+    let blockedWaiterObserved!: () => void;
+    const blockedWaiter = new Promise<void>((resolve) => {
+      blockedWaiterObserved = resolve;
+    });
+    const blocked = admissions.acquire({
+      ...request("blocked", 1),
+      workspace: blockedWorkspace,
+      onWorkspaceWaiting: () => blockedWaiterObserved(),
+    });
+    await blockedWaiter;
+
+    const independent = await admissions.acquire({
+      ...request("independent", 2),
+      workspace: availableWorkspace,
+    });
+    independent.sessionLease?.release();
+    independent.workspaceLease.release();
+    activeWorkspace.release();
+    const first = await blocked;
+    first.sessionLease?.release();
+    first.workspaceLease.release();
+  });
+
+  it("fails a quarantined earlier workspace waiter without poisoning another workspace", async () => {
+    const sessionLocks = new SessionLockRegistry();
+    const workspaceLocks = new WorkspaceLockRegistry();
+    const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
+    const blockedWorkspace = { key: "/quarantined-checkout" };
+    const availableWorkspace = { key: "/unrelated-checkout" };
+    const activeWorkspace = await workspaceLocks.acquire(
+      blockedWorkspace,
+      "exclusive",
+      undefined,
+      0,
+      "workspace-owner",
+    );
+    const activeSession = await sessionLocks.acquire(session);
+    let blockedWaiterObserved!: () => void;
+    const blockedWaiter = new Promise<void>((resolve) => {
+      blockedWaiterObserved = resolve;
+    });
+    const blocked = admissions.acquire({
+      ...request("blocked", 1),
+      workspace: blockedWorkspace,
+      onWorkspaceWaiting: () => blockedWaiterObserved(),
+    });
+    await blockedWaiter;
+    let independentWaiterObserved!: () => void;
+    const independentWaiter = new Promise<void>((resolve) => {
+      independentWaiterObserved = resolve;
+    });
+    const independent = admissions.acquire({
+      ...request("independent", 2),
+      workspace: availableWorkspace,
+      onSessionWaiting: () => independentWaiterObserved(),
+    });
+    await independentWaiter;
+
+    const quarantine = new QuarantinedWorkspaceError(new Error("uncertain"));
+    workspaceLocks.quarantine(blockedWorkspace, quarantine);
+    activeSession.release();
+    activeWorkspace.release();
+    await expect(blocked).rejects.toBeInstanceOf(QuarantinedWorkspaceError);
+    const admission = await independent;
     admission.sessionLease?.release();
     admission.workspaceLease.release();
   });

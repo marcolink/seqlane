@@ -174,6 +174,14 @@ export class PlanCompiler {
     plan: Plan,
     options: CompileWorkflowOptions,
   ): PreparedPlanExecution {
+    return this.prepareWorkflowWithAdmission(plan, options, true);
+  }
+
+  private prepareWorkflowWithAdmission(
+    plan: Plan,
+    options: CompileWorkflowOptions,
+    lowerStaticWorkspaceOrdering: boolean,
+  ): PreparedPlanExecution {
     assertDefinitionRegistries(
       options.taskDefinitions,
       options.validatorDefinitions,
@@ -184,10 +192,12 @@ export class PlanCompiler {
       options.workflowDefinitions,
     );
     const parsedPlan = prepared.plan;
-    const orderedNodes = lowerWorkspaceOrdering(
-      lowerReuseSessionOrdering(prepared.orderedNodes),
-      options.workspaceResources,
+    const sessionOrderedNodes = lowerReuseSessionOrdering(
+      prepared.orderedNodes,
     );
+    const orderedNodes = lowerStaticWorkspaceOrdering
+      ? lowerWorkspaceOrdering(sessionOrderedNodes, options.workspaceResources)
+      : sessionOrderedNodes;
     const loweredPlan = withLoweredPlanNodes(parsedPlan, orderedNodes);
     assertValidationRegistries(
       parsedPlan,
@@ -239,7 +249,7 @@ export class PlanCompiler {
       plan: loweredPlan,
       orderedNodes,
       context,
-    } = this.prepareWorkflow(plan, options);
+    } = this.prepareWorkflowWithAdmission(plan, options, false);
     const checkNodes = new Map(
       loweredPlan.nodes
         .filter(

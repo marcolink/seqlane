@@ -41,6 +41,21 @@ export class UnconfirmedInvocationTerminationError extends Error {
     super(`Executor ${reason} has no termination confirmation`);
     this.name = "UnconfirmedInvocationTerminationError";
   }
+
+  /** Preserve an executor failure learned after this error quarantines owners. */
+  attachCause(cause: unknown): void {
+    if (cause !== this && this.cause === undefined) this.cause = cause;
+  }
+}
+
+export function findUnconfirmedInvocationTermination(
+  cause: unknown,
+  seen = new Set<unknown>(),
+): UnconfirmedInvocationTerminationError | undefined {
+  if (cause instanceof UnconfirmedInvocationTerminationError) return cause;
+  if (!(cause instanceof Error) || seen.has(cause)) return undefined;
+  seen.add(cause);
+  return findUnconfirmedInvocationTermination(cause.cause, seen);
 }
 
 /** An executor-private child session owned by its parent invocation. */

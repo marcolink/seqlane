@@ -617,9 +617,19 @@ describe("workspace admission", () => {
           subject: { type: "task", taskId: "writer" },
         },
       ),
-    ).rejects.toMatchObject({ cause: executorFailure });
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({
+        name: "UnconfirmedInvocationTerminationError",
+        cause: executorFailure,
+      }),
+    });
 
-    await expectPending(context.workspaceLocks.acquire(workspace, "exclusive"));
+    await expect(
+      context.workspaceLocks.acquire(workspace, "exclusive"),
+    ).rejects.toMatchObject({
+      name: "QuarantinedWorkspaceError",
+      cause: expect.any(UnconfirmedInvocationTerminationError),
+    });
     await expect(context.sessionLocks.acquire(session)).rejects.toMatchObject({
       name: "QuarantinedSessionError",
       cause: expect.any(UnconfirmedInvocationTerminationError),
