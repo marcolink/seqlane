@@ -46,7 +46,7 @@ import {
   executeNestedMastraWorkflow,
 } from "./mastra-execution.js";
 import { instrumentOperationalWorkflow } from "./operational-run-lifecycle.js";
-import { workspaceResourcesForExecution } from "./workspace-resources.js";
+import { workspaceResourcesForExecution } from "../workspace/workspace-resources.js";
 import {
   createMastraComposition,
   type MastraWorkflowRegistration,

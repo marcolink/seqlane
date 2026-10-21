@@ -11,6 +11,7 @@ export default defineConfig({
       "src/effect-tracer-worker.e2e.spec.ts",
       "src/effect-dag-worker.e2e.spec.ts",
       "src/effect-session-worker.e2e.spec.ts",
+      "src/effect-nested-worker.e2e.spec.ts",
     ],
   },
   resolve: { alias: workspaceAliases },

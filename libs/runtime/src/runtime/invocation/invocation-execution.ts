@@ -9,7 +9,11 @@ import type {
   ValidationGateNode,
   SeqlaneSchema,
 } from "@seqlane/core";
-import { resolveBinding } from "../plan/binding-resolution.js";
+import {
+  planNodeResult,
+  resolveBinding,
+  unwrapPlanNodeResult,
+} from "../plan/binding-resolution.js";
 import {
   invocationCreationOrdinal,
   type ExecutionContext,
@@ -74,6 +78,58 @@ function metricsWithModelSelection(
     ...(metrics ?? {}),
     ...(selection === undefined ? {} : { modelSelection: selection }),
   };
+}
+
+async function publishTaskCompletion(
+  context: ExecutionContext,
+  node: TaskNode,
+  output: unknown,
+  options: Pick<
+    TaskExecutionOptions,
+    "invocationId" | "results" | "remainingConsumers" | "iteration"
+  >,
+  metrics: SeqlaneInvocationMetrics | undefined,
+  session: ReturnType<typeof sessionForInvocation> | undefined,
+): Promise<void> {
+  const { invocationId, results, remainingConsumers } = options;
+  context.events.emit({
+    type: "invocation.result",
+    workId: context.workId,
+    runId: context.runId,
+    invocationId,
+    result: toSeqlaneDisplayValue(output),
+    ...optionalIteration(options.iteration),
+  });
+  results.set(node.nodeId, planNodeResult(output));
+  if (session !== undefined) {
+    await publishSessionCheckpoint({
+      sourceNodeId: node.nodeId,
+      sourceSession: session,
+      consumers: context.sessionConsumers.get(node.nodeId),
+      resolvedSessions: context.resolvedSessions,
+      deferredSources: context.deferredSessionSources,
+    });
+  }
+  context.events.emit({
+    type: "invocation.succeeded",
+    workId: context.workId,
+    runId: context.runId,
+    invocationId,
+    ...optionalIteration(options.iteration),
+  });
+  context.events.emit({
+    type: "invocation.output",
+    workId: context.workId,
+    runId: context.runId,
+    invocationId,
+    policy: "persistent",
+    channel: "task",
+    content: "Task completed",
+    ...(metrics === undefined ? {} : { metrics }),
+    summary: summarizeSeqlaneOutput(output),
+    ...optionalIteration(options.iteration),
+  });
+  releaseIfUnused(results, remainingConsumers, node.nodeId);
 }
 
 export async function executeTaskNode(
@@ -448,47 +504,20 @@ export async function executeTaskNode(
         metrics,
         effectiveModelSelection(context, invocationId, session),
       );
-
-      context.events.emit({
-        type: "invocation.result",
-        workId: context.workId,
-        runId: context.runId,
-        invocationId,
-        result: toSeqlaneDisplayValue(output),
-        ...optionalIteration(options.iteration),
-      });
-      results.set(node.nodeId, output);
-      if (session !== undefined) {
-        await publishSessionCheckpoint({
-          sourceNodeId: node.nodeId,
-          sourceSession: session,
-          consumers: context.sessionConsumers.get(node.nodeId),
-          resolvedSessions: context.resolvedSessions,
-          deferredSources: context.deferredSessionSources,
-        });
+      if (options.deferCompletion) {
+        context.deferredTaskMetrics.set(invocationId, observableMetrics);
+        results.set(node.nodeId, planNodeResult(output));
+        return output;
       }
-      context.events.emit({
-        type: "invocation.succeeded",
-        workId: context.workId,
-        runId: context.runId,
-        invocationId,
-        ...optionalIteration(options.iteration),
-      });
-      context.events.emit({
-        type: "invocation.output",
-        workId: context.workId,
-        runId: context.runId,
-        invocationId,
-        policy: "persistent",
-        channel: "task",
-        content: "Task completed",
-        ...(observableMetrics === undefined
-          ? {}
-          : { metrics: observableMetrics }),
-        summary: summarizeSeqlaneOutput(output),
-        ...optionalIteration(options.iteration),
-      });
-      releaseIfUnused(results, remainingConsumers, node.nodeId);
+
+      await publishTaskCompletion(
+        context,
+        node,
+        output,
+        options,
+        observableMetrics,
+        session,
+      );
 
       return output;
     } catch (cause) {
@@ -502,10 +531,60 @@ export async function executeTaskNode(
     }
   } finally {
     if (unconfirmedActivity === undefined) {
-      sessionLease?.release();
+      if (!options.deferCompletion) sessionLease?.release();
       releaseWorkspace();
     }
   }
+}
+
+/** Publish a native choice/repeat task only after its output validation passes. */
+export async function completeDeferredTaskNode(
+  context: ExecutionContext,
+  node: TaskNode,
+  output: unknown,
+  options: Pick<
+    TaskExecutionOptions,
+    "invocationId" | "results" | "remainingConsumers" | "iteration"
+  >,
+): Promise<void> {
+  const { invocationId } = options;
+  const session = context.resolvedSessions.get(invocationId);
+  const metrics = context.deferredTaskMetrics.get(invocationId);
+  context.deferredTaskMetrics.delete(invocationId);
+  await publishTaskCompletion(context, node, output, options, metrics, session);
+}
+
+export function failDeferredTaskNode(
+  cause: unknown,
+  context: ExecutionContext,
+  node: TaskNode,
+  abortSignal: AbortSignal,
+  output: unknown,
+  options: Pick<TaskExecutionOptions, "invocationId" | "iteration">,
+): never {
+  const metrics = context.deferredTaskMetrics.get(options.invocationId);
+  context.deferredTaskMetrics.delete(options.invocationId);
+  if (metrics !== undefined) {
+    context.events.emit({
+      type: "invocation.output",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId: options.invocationId,
+      policy: "persistent",
+      channel: "task",
+      content: "Task completed",
+      metrics,
+      summary: summarizeSeqlaneOutput(output),
+      ...optionalIteration(options.iteration),
+    });
+  }
+  return throwInvocationFailure(cause, {
+    context,
+    abortSignal,
+    invocationId: options.invocationId,
+    taskId: node.taskId,
+    iteration: options.iteration,
+  });
 }
 
 export function prepareTaskInput(
@@ -830,7 +909,7 @@ export async function executeValidationGateNode(
 
   try {
     if (abortSignal.aborted) throw new Error("Validation gate cancelled");
-    const validation = results.get(node.checkNodeId);
+    const validation = unwrapPlanNodeResult(results.get(node.checkNodeId));
     const parsedValidation = parseValidationResult(validation);
     const value = resolveBinding(node.input, context.workflowInput, results);
     consumeBindingReferences(results, remainingConsumers, node.input);

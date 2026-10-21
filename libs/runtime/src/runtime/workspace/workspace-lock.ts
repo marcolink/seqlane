@@ -21,13 +21,19 @@ interface WaitingWorkspaceLock {
   readonly creationOrdinal: number;
   readonly invocationId: string;
   readonly ownerId: string;
+  readonly ownerAncestors: readonly string[];
   readonly changed: Deferred.Deferred<WorkspaceLockLease, unknown>;
 }
 
 interface WorkspaceLockState {
-  readonly readers: Map<string, number>;
-  writerInvocationId: string | undefined;
-  writerDepth: number;
+  readonly holders: Map<
+    string,
+    {
+      readonly policy: WorkspaceAdmission;
+      readonly ancestors: readonly string[];
+      depth: number;
+    }
+  >;
   quarantined: QuarantinedWorkspaceError | undefined;
   readonly waiting: WaitingWorkspaceLock[];
 }
@@ -51,6 +57,7 @@ export class WorkspaceLockRegistry {
     creationOrdinal = Number.MAX_SAFE_INTEGER,
     invocationId?: string,
     ownerId?: string,
+    ownerAncestors: readonly string[] = [],
   ): Promise<WorkspaceLockLease> {
     return Effect.runPromise(
       this.acquireEffect(
@@ -60,6 +67,7 @@ export class WorkspaceLockRegistry {
         creationOrdinal,
         invocationId,
         ownerId,
+        ownerAncestors,
       ),
     );
   }
@@ -71,6 +79,7 @@ export class WorkspaceLockRegistry {
     creationOrdinal = Number.MAX_SAFE_INTEGER,
     invocationId?: string,
     ownerId?: string,
+    ownerAncestors: readonly string[] = [],
     signal?: AbortSignal,
   ): Effect.Effect<WorkspaceLockLease, unknown> {
     return Effect.suspend(() => {
@@ -85,15 +94,14 @@ export class WorkspaceLockRegistry {
         return Effect.fail(
           signal.reason ?? new Error("Workspace admission cancelled"),
         );
-      if (state.writerInvocationId === owner) {
-        state.writerDepth += 1;
+      const ancestorAdmission = this.#hasAncestorHolder(state, ownerAncestors);
+      const queuedAhead = state.waiting.length > 0;
+      if (
+        this.#isAvailable(state, policy, owner, ownerAncestors) &&
+        (ancestorAdmission || !queuedAhead)
+      )
         return Effect.succeed(
-          this.#createLease(resource.key, state, "exclusive", owner),
-        );
-      }
-      if (this.#isAvailable(state, policy))
-        return Effect.succeed(
-          this.#createLease(resource.key, state, policy, owner),
+          this.#createLease(resource.key, state, policy, owner, ownerAncestors),
         );
 
       onWaiting?.(this.#blockingInvocationId(state));
@@ -102,6 +110,7 @@ export class WorkspaceLockRegistry {
         creationOrdinal,
         invocationId: holderId,
         ownerId: owner,
+        ownerAncestors,
         changed: Deferred.makeUnsafe<WorkspaceLockLease, unknown>(),
       };
       state.waiting.push(waiting);
@@ -147,54 +156,66 @@ export class WorkspaceLockRegistry {
     onWaiting?: (blockingInvocationId: string | undefined) => void,
     invocationId?: string,
     ownerId?: string,
+    ownerAncestors: readonly string[] = [],
   ): WorkspaceLockLease | undefined {
     const holderId =
       invocationId ?? `anonymous:${this.#nextAnonymousInvocation++}`;
     const owner = ownerId ?? holderId;
     const state = this.#locks.get(resource.key) ?? this.#createState(resource);
     if (state.quarantined !== undefined) throw state.quarantined;
-    if (state.writerInvocationId === owner) {
-      state.writerDepth += 1;
-      return this.#createLease(resource.key, state, "exclusive", owner);
-    }
-    if (!this.#isAvailable(state, policy)) {
+    if (!this.#isAvailable(state, policy, owner, ownerAncestors)) {
       onWaiting?.(this.#blockingInvocationId(state));
       return undefined;
     }
-    return this.#createLease(resource.key, state, policy, owner);
+    return this.#createLease(
+      resource.key,
+      state,
+      policy,
+      owner,
+      ownerAncestors,
+    );
   }
 
   isAvailable(
     resource: WorkspaceResource,
     policy: WorkspaceAdmission,
     ownerId?: string,
+    ownerAncestors: readonly string[] = [],
   ): boolean {
     const state = this.#locks.get(resource.key);
     if (state?.quarantined !== undefined) throw state.quarantined;
-    if (ownerId !== undefined && state?.writerInvocationId === ownerId)
-      return true;
-    return state === undefined || this.#isAvailable(state, policy);
+    return (
+      state === undefined ||
+      this.#isAvailable(state, policy, ownerId ?? "", ownerAncestors)
+    );
   }
 
   canEffectWaiterProceed(
     resource: WorkspaceResource,
     policy: WorkspaceAdmission,
     ordinal: number,
-    ownerId: string | undefined,
+    ownerAncestors: readonly string[],
     waiting: readonly {
       readonly policy: WorkspaceAdmission;
       readonly creationOrdinal: number;
+      readonly ownerAncestors?: readonly string[];
     }[],
   ): boolean {
     const state = this.#locks.get(resource.key);
     if (state?.quarantined !== undefined) throw state.quarantined;
-    if (ownerId !== undefined && state?.writerInvocationId === ownerId)
-      return true;
-    return !waiting.some(
+    const parentOwner = ownerAncestors.at(-1);
+    const hasAncestorReservation = this.#hasAncestorHolder(
+      state,
+      ownerAncestors,
+    );
+    const result = !waiting.some(
       (waiter) =>
         waiter.creationOrdinal < ordinal &&
-        (policy === "exclusive" || waiter.policy === "exclusive"),
+        (policy === "exclusive" || waiter.policy === "exclusive") &&
+        (!hasAncestorReservation ||
+          waiter.ownerAncestors?.at(-1) === parentOwner),
     );
+    return result;
   }
 
   blockingInvocationId(resource: WorkspaceResource): string | undefined {
@@ -215,9 +236,7 @@ export class WorkspaceLockRegistry {
 
   #createState(resource: WorkspaceResource): WorkspaceLockState {
     const state: WorkspaceLockState = {
-      readers: new Map(),
-      writerInvocationId: undefined,
-      writerDepth: 0,
+      holders: new Map(),
       quarantined: undefined,
       waiting: [],
     };
@@ -230,22 +249,22 @@ export class WorkspaceLockRegistry {
     state: WorkspaceLockState,
     policy: WorkspaceAdmission,
     invocationId: string,
+    ownerAncestors: readonly string[] = [],
   ): WorkspaceLockLease {
-    if (policy === "shared") {
-      state.readers.set(
-        invocationId,
-        (state.readers.get(invocationId) ?? 0) + 1,
-      );
-    } else if (state.writerInvocationId === undefined) {
-      state.writerInvocationId = invocationId;
-      state.writerDepth = 1;
-    }
+    const existing = state.holders.get(invocationId);
+    if (existing !== undefined) existing.depth += 1;
+    else
+      state.holders.set(invocationId, {
+        policy,
+        ancestors: ownerAncestors,
+        depth: 1,
+      });
     let released = false;
     return {
       release: () => {
         if (released) return;
         released = true;
-        this.#release(resourceKey, state, policy, invocationId);
+        this.#release(resourceKey, state, invocationId);
       },
     };
   }
@@ -253,27 +272,19 @@ export class WorkspaceLockRegistry {
   #release(
     resourceKey: string,
     state: WorkspaceLockState,
-    policy: WorkspaceAdmission,
     invocationId: string,
   ): void {
     if (state.quarantined !== undefined) {
       this.#notifyChange();
       return;
     }
-    if (policy === "shared") {
-      const depth = state.readers.get(invocationId) ?? 0;
-      if (depth <= 1) state.readers.delete(invocationId);
-      else state.readers.set(invocationId, depth - 1);
-    } else if (state.writerInvocationId === invocationId) {
-      state.writerDepth -= 1;
-      if (state.writerDepth === 0) state.writerInvocationId = undefined;
+    const holder = state.holders.get(invocationId);
+    if (holder !== undefined) {
+      holder.depth -= 1;
+      if (holder.depth <= 0) state.holders.delete(invocationId);
     }
     this.#grantWaiting(resourceKey, state);
-    if (
-      state.writerInvocationId === undefined &&
-      state.readers.size === 0 &&
-      state.waiting.length === 0
-    ) {
+    if (state.holders.size === 0 && state.waiting.length === 0) {
       this.#locks.delete(resourceKey);
     }
     this.#notifyChange();
@@ -292,48 +303,94 @@ export class WorkspaceLockRegistry {
   }
 
   #grantWaiting(resourceKey: string, state: WorkspaceLockState): void {
+    if (state.quarantined !== undefined) return;
+    const ancestorWaiter = state.waiting.find((waiting) =>
+      this.#hasAncestorHolder(state, waiting.ownerAncestors),
+    );
+    const first = ancestorWaiter ?? state.waiting[0];
+    if (first === undefined) return;
     if (
-      state.quarantined !== undefined ||
-      state.writerInvocationId !== undefined
+      !this.#isAvailable(
+        state,
+        first.policy,
+        first.ownerId,
+        first.ownerAncestors,
+      )
     )
       return;
-    const first = state.waiting[0];
-    if (first === undefined) return;
     if (first.policy === "exclusive") {
-      if (state.readers.size > 0) return;
-      state.waiting.shift();
+      state.waiting.splice(state.waiting.indexOf(first), 1);
       const lease = this.#createLease(
         resourceKey,
         state,
         "exclusive",
         first.ownerId,
+        first.ownerAncestors,
       );
       Deferred.doneUnsafe(first.changed, Effect.succeed(lease));
       return;
     }
-    while (state.waiting[0]?.policy === "shared") {
-      const reader = state.waiting.shift();
-      if (reader === undefined) return;
+    const firstWriterIndex = state.waiting.findIndex(
+      (waiting) => waiting.policy === "exclusive",
+    );
+    const sharedWaiters = state.waiting.filter(
+      (waiting, index) =>
+        waiting.policy === "shared" &&
+        (firstWriterIndex === -1 ||
+          index < firstWriterIndex ||
+          this.#hasAncestorHolder(state, waiting.ownerAncestors)) &&
+        this.#isAvailable(
+          state,
+          "shared",
+          waiting.ownerId,
+          waiting.ownerAncestors,
+        ),
+    );
+    for (const reader of sharedWaiters) {
+      state.waiting.splice(state.waiting.indexOf(reader), 1);
       const lease = this.#createLease(
         resourceKey,
         state,
         "shared",
         reader.ownerId,
+        reader.ownerAncestors,
       );
       Deferred.doneUnsafe(reader.changed, Effect.succeed(lease));
     }
   }
 
-  #isAvailable(state: WorkspaceLockState, policy: WorkspaceAdmission): boolean {
-    return (
-      state.waiting.length === 0 &&
-      state.writerInvocationId === undefined &&
-      (policy === "shared" || state.readers.size === 0)
-    );
+  #isAvailable(
+    state: WorkspaceLockState,
+    policy: WorkspaceAdmission,
+    ownerId: string,
+    ownerAncestors: readonly string[],
+  ): boolean {
+    return [...state.holders.entries()].every(([holderId, holder]) => {
+      if (
+        holderId === ownerId ||
+        ownerAncestors.includes(holderId) ||
+        holder.ancestors.includes(ownerId)
+      )
+        return true;
+      return policy === "shared" && holder.policy === "shared";
+    });
   }
 
   #blockingInvocationId(state: WorkspaceLockState): string | undefined {
-    return state.writerInvocationId ?? state.readers.keys().next().value;
+    const writer = [...state.holders].find(
+      ([, holder]) => holder.policy === "exclusive",
+    )?.[0];
+    return writer ?? state.holders.keys().next().value;
+  }
+
+  #hasAncestorHolder(
+    state: WorkspaceLockState | undefined,
+    ownerAncestors: readonly string[],
+  ): boolean {
+    if (state === undefined) return false;
+    return [...state.holders.keys()].some((holderId) =>
+      ownerAncestors.includes(holderId),
+    );
   }
 
   #notifyChange(): void {

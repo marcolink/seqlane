@@ -78,7 +78,7 @@ import {
   resolveTaskSession,
 } from "../session/session-resolution.js";
 import { validateRunnableOutput } from "./output-validation.js";
-import { workspaceResourcesForExecution } from "./workspace-resources.js";
+import { workspaceResourcesForExecution } from "../workspace/workspace-resources.js";
 import type { ClassifierTaskRunner } from "../../classifier/types.js";
 
 export interface MastraPlanExecutionOptions {

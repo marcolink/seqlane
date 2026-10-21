@@ -1,10 +1,9 @@
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Semaphore } from "effect";
 import {
   InputValidationError,
   OutputValidationError,
   RuntimeError,
   type BuiltWorkflow,
-  type JsonValue,
   type RunId,
   type SeqlaneError,
   type SeqlaneEventSink,
@@ -13,6 +12,9 @@ import {
 import type { InvocationObservationEvent } from "@seqlane/protocol";
 import type { RuntimeExecution } from "../../runner/profile/runtime-profile.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
+import type { ExecutionRunState } from "./context.js";
+import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
+import { workspaceResourcesForExecution } from "../workspace/workspace-resources.js";
 import { findUnconfirmedInvocationTermination } from "./executor.js";
 import { emitInvocationTopology } from "./workflow-run.js";
 import { toSeqlaneInvocationError } from "./errors.js";
@@ -22,6 +24,7 @@ import {
   preflightCompiledWorkflowSessionCapabilities,
   resolveCompiledWorkflowSessions,
 } from "../session/session-preflight.js";
+import { executeNestedWorkflow } from "./nested-workflow.js";
 
 export type EffectPlanRunResult =
   | { readonly status: "succeeded"; readonly output: unknown }
@@ -31,7 +34,7 @@ export type EffectPlanRunResult =
 /** Private, engine-neutral input for the target Plan composition. */
 export interface EffectPlanRunContext {
   readonly workflow: BuiltWorkflow;
-  readonly input: JsonValue;
+  readonly input: unknown;
   readonly workId: WorkId;
   readonly runId: RunId;
   readonly signal: AbortSignal;
@@ -42,6 +45,11 @@ export interface EffectPlanRunContext {
     event: Omit<InvocationObservationEvent, "metadata">,
   ) => void;
   readonly onDiagnostic?: (message: string) => void;
+  readonly runState?: ExecutionRunState;
+  readonly workspaceOwnerId?: string;
+  readonly workspaceOwnerAncestors?: readonly string[];
+  readonly parentInvocationId?: string;
+  readonly workspaceResources?: WorkspaceResourceRegistry;
 }
 
 const MAX_CONCURRENT_PLAN_BODIES = 8;
@@ -114,8 +122,12 @@ function runCompiledPlan(
   context: EffectPlanRunContext,
   workflowInput: unknown,
   execution: RuntimeExecution,
+  bodySemaphore?: Semaphore.Semaphore,
+  runState?: ExecutionRunState,
 ): Effect.Effect<EffectPlanRunResult, unknown> {
   return Effect.gen(function* () {
+    const sharedBodySemaphore =
+      bodySemaphore ?? (yield* Semaphore.make(MAX_CONCURRENT_PLAN_BODIES));
     // The resolver is an owned async edge and may settle after cancellation.
     // Close the acquired profile, but never preflight or start its work.
     if (context.signal.aborted) return { status: "cancelled" } as const;
@@ -129,7 +141,16 @@ function runCompiledPlan(
         createInvocationId: context.createInvocationId,
         executors: execution.executors,
         sessionResolver: execution.sessionResolver,
-        workspaceResources: execution.workspaceResources,
+        workspaceResources:
+          context.workspaceResources ??
+          workspaceResourcesForExecution(
+            execution.workspaceResources,
+            context.workflow.workflowDefinitions,
+          ),
+        workspaceOwnerId: context.workspaceOwnerId,
+        workspaceOwnerAncestors: context.workspaceOwnerAncestors,
+        parentInvocationId: context.parentInvocationId,
+        runState,
         taskDefinitions: execution.taskDefinitions,
         validatorDefinitions: context.workflow.validatorDefinitions,
         workflowDefinitions: context.workflow.workflowDefinitions,
@@ -145,22 +166,49 @@ function runCompiledPlan(
           }),
         classifier: execution.classifier,
         concurrency: MAX_CONCURRENT_PLAN_BODIES,
+        executeWorkflow: (
+          parentContext,
+          node,
+          abortSignal,
+          _permit,
+          deferCompletion,
+        ) =>
+          executeNestedWorkflow(
+            context,
+            parentContext,
+            node,
+            abortSignal,
+            execution,
+            (childContext, input) =>
+              runCompiledPlan(
+                childContext,
+                input,
+                execution,
+                sharedBodySemaphore,
+                parentContext.runState,
+              ),
+            deferCompletion,
+          ),
       });
     } catch (cause) {
       return failed(new RuntimeError(cause));
     }
 
-    try {
-      preflightCompiledWorkflowSessionCapabilities(compiled);
-      yield* Effect.tryPromise({
-        try: () => preflightCompiledWorkflowModels(compiled),
-        catch: (cause) => cause,
-      });
-      yield* Effect.tryPromise({
-        try: () => resolveCompiledWorkflowSessions(compiled),
-        catch: (cause) => cause,
-      });
-    } catch (cause) {
+    const preflightExit = yield* Effect.exit(
+      Effect.gen(function* () {
+        preflightCompiledWorkflowSessionCapabilities(compiled);
+        yield* Effect.tryPromise({
+          try: () => preflightCompiledWorkflowModels(compiled),
+          catch: (cause) => cause,
+        });
+        yield* Effect.tryPromise({
+          try: () => resolveCompiledWorkflowSessions(compiled),
+          catch: (cause) => cause,
+        });
+      }),
+    );
+    if (Exit.isFailure(preflightExit)) {
+      const cause = Cause.squash(preflightExit.cause);
       if (
         context.signal.aborted &&
         findUnconfirmedInvocationTermination(cause) === undefined
@@ -175,26 +223,9 @@ function runCompiledPlan(
       );
     }
 
-    if (
-      compiled.orderedNodes.some(
-        (node) =>
-          node.type === "repeat" ||
-          node.type === "choice" ||
-          node.type === "workflow",
-      )
-    ) {
-      return failed(
-        new RuntimeError(
-          new Error(
-            "The S2 Effect Plan runner supports task and validation nodes",
-          ),
-        ),
-      );
-    }
-
     emitInvocationTopology(compiled.context, compiled.orderedNodes);
     const graphExit = yield* Effect.exit(
-      runProgram(compiled.program, context.signal),
+      runProgram(compiled.program, context.signal, sharedBodySemaphore),
     );
     if (Exit.isFailure(graphExit)) {
       return failed(

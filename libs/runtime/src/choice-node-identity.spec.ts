@@ -1,11 +1,19 @@
 // @test-scope ./start-workflow-run.ts
 // @test-scope ./runtime/validation/plan-validation.ts
-// @test-scope ./runtime/compile/mastra-choice-compiler.ts
+// @test-scope ./runtime/execution/effect-plan.ts
+// @test-scope ./runtime/execution/effect-choice.ts
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildWorkflow, createFlow, defineTask } from "@seqlane/core";
 import { startWorkflowRun } from "./start-workflow-run.js";
+import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
+
+function startNativeWorkflowRun(
+  request: Parameters<typeof startWorkflowRun>[0],
+) {
+  return startWorkflowRun(request, { program: createEffectPlanProgram });
+}
 
 describe("choice node identity through the runtime", () => {
   it.each([true, false])(
@@ -52,7 +60,7 @@ describe("choice node identity through the runtime", () => {
             .define();
       const workflow = buildWorkflow(flow);
       for (const route of [true, false]) {
-        const run = startWorkflowRun({
+        const run = startNativeWorkflowRun({
           workflow,
           input: { route },
           workspace: process.cwd(),

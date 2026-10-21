@@ -1,10 +1,4 @@
-import type {
-  PlanNode,
-  PlanNodeId,
-  RepeatNode,
-  TaskNode,
-  WorkflowNode,
-} from "@seqlane/core";
+import type { PlanNode, PlanNodeId, RepeatNode, TaskNode } from "@seqlane/core";
 import type {
   WorkspaceResource,
   WorkspaceResourceRegistry,
@@ -72,14 +66,6 @@ export function workspaceResourcesForPlanNode(
   return [defaultWorkspaceResource];
 }
 
-function workflowWorkspace(
-  workflowId: string,
-  policy: WorkflowNode["workspace"],
-  workspaceResources: WorkspaceResourceRegistry | undefined,
-): WorkspaceAccess {
-  return taskWorkspace(workflowId, policy, workspaceResources);
-}
-
 function workspaceAccessesForNode(
   node: PlanNode,
   workspaceResources: WorkspaceResourceRegistry | undefined,
@@ -125,24 +111,29 @@ function workspaceAccessesForRepeat(
   workspaceResources: WorkspaceResourceRegistry | undefined,
 ): readonly ResolvedWorkspaceAccess[] {
   const accesses = new Map<string, WorkspaceAccess>();
-  for (const bodyNode of [node.attempt]) {
-    const access =
-      bodyNode.type === "task"
-        ? taskWorkspace(bodyNode.taskId, bodyNode.workspace, workspaceResources)
-        : workflowWorkspace(
-            bodyNode.workflowId,
-            bodyNode.workspace,
-            workspaceResources,
-          );
-    if (access === undefined) continue;
-    const previous = accesses.get(access.resourceKey);
-    accesses.set(access.resourceKey, {
-      resourceKey: access.resourceKey,
-      policy:
-        previous?.policy === "exclusive" || access.policy === "exclusive"
+  const add = (id: string, policy: "shared" | "exclusive"): void => {
+    for (const resource of workspaceResourcesForId(id, workspaceResources)) {
+      const requiredPolicy =
+        policy === "exclusive" || resource.requiredPolicy === "exclusive"
           ? "exclusive"
-          : "shared",
-    });
+          : "shared";
+      const previous = accesses.get(resource.key);
+      accesses.set(resource.key, {
+        resourceKey: resource.key,
+        policy:
+          previous?.policy === "exclusive" || requiredPolicy === "exclusive"
+            ? "exclusive"
+            : "shared",
+      });
+    }
+  };
+  const attemptId =
+    node.attempt.type === "task"
+      ? node.attempt.taskId
+      : node.attempt.workflowId;
+  add(attemptId, node.attempt.workspace);
+  if (node.validation?.source.type === "task") {
+    add(node.validation.source.taskId, node.validation.source.workspace);
   }
   return [...accesses.values()].map((access) => ({
     ...access,

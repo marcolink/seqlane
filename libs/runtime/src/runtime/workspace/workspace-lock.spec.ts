@@ -45,6 +45,152 @@ describe("workspace policy locks", () => {
     parent.release();
   });
 
+  it("serializes sibling exclusive children while allowing each under its ancestor", async () => {
+    const locks = new WorkspaceLockRegistry();
+    const parent = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      0,
+      "parent",
+    );
+    const first = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      1,
+      "parent:first",
+      undefined,
+      ["parent"],
+    );
+    const second = locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      2,
+      "parent:second",
+      undefined,
+      ["parent"],
+    );
+
+    await expectPending(second);
+    first.release();
+    (await second).release();
+    parent.release();
+  });
+
+  it("lets a child bypass a foreign writer queued behind its parent reservation", async () => {
+    const locks = new WorkspaceLockRegistry();
+    const parent = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      0,
+      "parent",
+    );
+    let foreignWaiting!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      foreignWaiting = resolve;
+    });
+    const foreign = locks.acquire(
+      workspace,
+      "exclusive",
+      () => foreignWaiting(),
+      1,
+      "foreign",
+    );
+    await waiting;
+    const child = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      2,
+      "parent:child",
+      undefined,
+      ["parent"],
+    );
+
+    child.release();
+    parent.release();
+    (await foreign).release();
+  });
+
+  it("makes an exclusive child exclude foreign shared readers under a shared parent", async () => {
+    const locks = new WorkspaceLockRegistry();
+    const parent = await locks.acquire(
+      workspace,
+      "shared",
+      undefined,
+      0,
+      "parent",
+    );
+    const child = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      1,
+      "parent:child",
+      undefined,
+      ["parent"],
+    );
+    const foreignReader = locks.acquire(
+      workspace,
+      "shared",
+      undefined,
+      2,
+      "foreign-reader",
+    );
+
+    await expectPending(foreignReader);
+    child.release();
+    parent.release();
+    (await foreignReader).release();
+  });
+
+  it("allows two levels of nested exclusive ownership without merging sibling owners", async () => {
+    const locks = new WorkspaceLockRegistry();
+    const root = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      0,
+      "root",
+    );
+    const child = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      1,
+      "root:child",
+      undefined,
+      ["root"],
+    );
+    const grandchild = await locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      2,
+      "root:child:grandchild",
+      undefined,
+      ["root", "root:child"],
+    );
+    const sibling = locks.acquire(
+      workspace,
+      "exclusive",
+      undefined,
+      3,
+      "root:sibling",
+      undefined,
+      ["root"],
+    );
+
+    await expectPending(sibling);
+    grandchild.release();
+    child.release();
+    (await sibling).release();
+    root.release();
+  });
+
   it("shares shared admission while an exclusive task waits", async () => {
     const locks = new WorkspaceLockRegistry();
     const firstReader = await locks.acquire(workspace, "shared");

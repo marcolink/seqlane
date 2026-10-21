@@ -12,6 +12,35 @@ import {
 } from "./invocation-support.js";
 import type { PreparedInvocationInput } from "./prepared-input.js";
 
+export function settleOwnedPromise<A>(
+  run: () => Promise<A>,
+): Effect.Effect<A, unknown> {
+  let pending: Promise<A> | undefined;
+  const operation = Effect.tryPromise({
+    try: () => (pending = run()),
+    catch: (cause) => cause,
+  });
+  return Effect.uninterruptibleMask((restore) =>
+    Effect.flatMap(Effect.exit(restore(operation)), (exit) =>
+      Effect.promise(
+        () =>
+          pending?.then(
+            () => undefined,
+            () => undefined,
+          ) ?? Promise.resolve(),
+      ).pipe(
+        Effect.andThen(
+          Effect.suspend(() =>
+            Exit.isSuccess(exit)
+              ? Effect.succeed(exit.value)
+              : Effect.failCause(exit.cause),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /** Acquire joint eligibility before taking a bounded task-body permit. */
 export function executeTaskNodeEffect(
   context: ExecutionContext,
@@ -19,6 +48,7 @@ export function executeTaskNodeEffect(
   abortSignal: AbortSignal,
   options: TaskExecutionOptions,
   withBodyPermit: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E>,
+  afterBody?: (output: unknown) => Effect.Effect<void, unknown>,
 ): Effect.Effect<unknown, unknown> {
   const invocationId = options.invocationId;
   const creationOrdinal = invocationCreationOrdinal(context, invocationId);
@@ -34,7 +64,8 @@ export function executeTaskNodeEffect(
     workspace: resource,
     workspacePolicy: node.workspace,
     invocationId,
-    ownerId: context.workspaceOwnerId ?? invocationId,
+    ownerId: invocationId,
+    ownerAncestors: context.workspaceOwnerAncestors,
     creationOrdinal,
     onWorkspaceWaiting: (blockingInvocationId: string | undefined) => {
       if (workspaceWaitingReported) return;
@@ -99,7 +130,7 @@ export function executeTaskNodeEffect(
           }),
         { interruptible: true },
       );
-      return yield* withBodyPermit(
+      const output = yield* withBodyPermit(
         Effect.suspend(() => {
           if (abortSignal.aborted)
             return Effect.fail(
@@ -146,6 +177,8 @@ export function executeTaskNodeEffect(
           );
         }),
       );
+      if (afterBody !== undefined) yield* afterBody(output);
+      return output;
     }),
   );
 }

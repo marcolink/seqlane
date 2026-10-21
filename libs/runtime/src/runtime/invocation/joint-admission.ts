@@ -14,20 +14,35 @@ import { awaitAbort } from "../execution/await-abort.js";
 export interface JointAdmission {
   readonly sessionLease: SessionLockLease | undefined;
   readonly workspaceLease: WorkspaceLockLease;
+  readonly workspaceLeases?: readonly WorkspaceLockLease[];
 }
 
 export interface JointAdmissionRequest {
   readonly signal: AbortSignal;
   readonly session: ResolvedExecutorSession | undefined;
   readonly workspace: WorkspaceResource;
+  readonly workspaceResources?: readonly WorkspaceResource[];
   readonly workspacePolicy: WorkspacePolicy;
+  readonly workspacePolicies?: ReadonlyMap<string, WorkspacePolicy>;
   readonly invocationId: string;
   readonly ownerId?: string;
+  readonly ownerAncestors?: readonly string[];
   readonly creationOrdinal: number;
   readonly onWorkspaceWaiting: (
     blockingInvocationId: string | undefined,
   ) => void;
   readonly onSessionWaiting: () => void;
+}
+
+function policyFor(
+  request: JointAdmissionRequest,
+  resource: WorkspaceResource,
+): WorkspacePolicy {
+  return (
+    request.workspacePolicies?.get(resource.key) ??
+    resource.requiredPolicy ??
+    request.workspacePolicy
+  );
 }
 
 interface EffectWaitingAdmission {
@@ -81,18 +96,23 @@ export class JointAdmissionRegistry {
   }
 
   #tryAcquire(request: JointAdmissionRequest): JointAdmission | undefined {
-    const { session, workspace, workspacePolicy } = request;
-    if (
-      !this.workspaceLocks.isAvailable(
-        workspace,
-        workspacePolicy,
-        request.ownerId,
-      )
-    ) {
-      request.onWorkspaceWaiting(
-        this.workspaceLocks.blockingInvocationId(workspace),
-      );
-      return undefined;
+    const { session } = request;
+    const workspaces = [...(request.workspaceResources ?? [request.workspace])];
+    for (const workspace of workspaces) {
+      const policy = policyFor(request, workspace);
+      if (
+        !this.workspaceLocks.isAvailable(
+          workspace,
+          policy,
+          request.ownerId,
+          request.ownerAncestors,
+        )
+      ) {
+        request.onWorkspaceWaiting(
+          this.workspaceLocks.blockingInvocationId(workspace),
+        );
+        return undefined;
+      }
     }
     if (session !== undefined && !this.sessionLocks.isAvailable(session)) {
       request.onSessionWaiting();
@@ -101,24 +121,36 @@ export class JointAdmissionRegistry {
 
     // JavaScript cannot interleave synchronous lock creation, so after both
     // availability checks these two leases are acquired as one admission.
-    const workspaceLease = this.workspaceLocks.tryAcquire(
-      workspace,
-      workspacePolicy,
-      request.onWorkspaceWaiting,
-      request.invocationId,
-      request.ownerId,
-    );
+    const workspaceLeases: WorkspaceLockLease[] = [];
+    for (const workspace of workspaces) {
+      const policy = policyFor(request, workspace);
+      const lease = this.workspaceLocks.tryAcquire(
+        workspace,
+        policy,
+        request.onWorkspaceWaiting,
+        request.invocationId,
+        request.ownerId,
+        request.ownerAncestors,
+      );
+      if (lease === undefined) {
+        for (const acquired of workspaceLeases) acquired.release();
+        return undefined;
+      }
+      workspaceLeases.push(lease);
+    }
     const sessionLease =
       session === undefined
         ? undefined
         : this.sessionLocks.tryAcquire(session, request.onSessionWaiting);
-    if (
-      workspaceLease === undefined ||
-      (session !== undefined && sessionLease === undefined)
-    ) {
+    if (session !== undefined && sessionLease === undefined) {
       throw new Error("Atomic admission became unavailable unexpectedly");
     }
-    return { workspaceLease, sessionLease };
+    const workspaceLease = workspaceLeases[0];
+    if (workspaceLease === undefined) {
+      for (const acquired of workspaceLeases) acquired.release();
+      throw new Error("Joint admission requires at least one workspace");
+    }
+    return { workspaceLease, workspaceLeases, sessionLease };
   }
 
   #acquireEffectLoop(
@@ -161,25 +193,34 @@ export class JointAdmissionRegistry {
     waiter: EffectWaitingAdmission,
   ): JointAdmission | undefined {
     const { request } = waiter;
-    const workspaceWaiters = this.#effectWaiting
-      .filter((entry) => entry.request.workspace.key === request.workspace.key)
-      .map((entry) => ({
-        policy: entry.request.workspacePolicy,
-        creationOrdinal: entry.request.creationOrdinal,
-      }));
-    if (
-      !this.workspaceLocks.canEffectWaiterProceed(
-        request.workspace,
-        request.workspacePolicy,
-        request.creationOrdinal,
-        request.ownerId,
-        workspaceWaiters,
-      )
-    ) {
-      request.onWorkspaceWaiting(
-        this.workspaceLocks.blockingInvocationId(request.workspace),
-      );
-      return undefined;
+    const workspaces = [...(request.workspaceResources ?? [request.workspace])];
+    for (const workspace of workspaces) {
+      const policy = policyFor(request, workspace);
+      const workspaceWaiters = this.#effectWaiting
+        .filter(
+          (entry) =>
+            entry !== waiter &&
+            this.#canWaiterReserveWorkspace(entry, workspace.key),
+        )
+        .map((entry) => ({
+          policy: policyFor(entry.request, workspace),
+          creationOrdinal: entry.request.creationOrdinal,
+          ownerAncestors: entry.request.ownerAncestors,
+        }));
+      if (
+        !this.workspaceLocks.canEffectWaiterProceed(
+          workspace,
+          policy,
+          request.creationOrdinal,
+          request.ownerAncestors ?? [],
+          workspaceWaiters,
+        )
+      ) {
+        request.onWorkspaceWaiting(
+          this.workspaceLocks.blockingInvocationId(workspace),
+        );
+        return undefined;
+      }
     }
     if (request.session !== undefined) {
       const earlierSessionWaiter = this.#effectWaiting.some(
@@ -205,27 +246,36 @@ export class JointAdmissionRegistry {
 
   #hasWorkspaceTurn(waiter: EffectWaitingAdmission): boolean {
     const { request } = waiter;
-    const workspaceWaiters = this.#effectWaiting
-      .filter((entry) => entry.request.workspace.key === request.workspace.key)
-      .map((entry) => ({
-        policy: entry.request.workspacePolicy,
-        creationOrdinal: entry.request.creationOrdinal,
-      }));
+    const workspaces = [...(request.workspaceResources ?? [request.workspace])];
     try {
-      return (
-        this.workspaceLocks.canEffectWaiterProceed(
-          request.workspace,
-          request.workspacePolicy,
-          request.creationOrdinal,
-          request.ownerId,
-          workspaceWaiters,
-        ) &&
-        this.workspaceLocks.isAvailable(
-          request.workspace,
-          request.workspacePolicy,
-          request.ownerId,
-        )
-      );
+      return workspaces.every((workspace) => {
+        const waiters = this.#effectWaiting
+          .filter(
+            (entry) =>
+              entry !== waiter &&
+              this.#canWaiterReserveWorkspace(entry, workspace.key),
+          )
+          .map((entry) => ({
+            policy: policyFor(entry.request, workspace),
+            creationOrdinal: entry.request.creationOrdinal,
+            ownerAncestors: entry.request.ownerAncestors,
+          }));
+        return (
+          this.workspaceLocks.canEffectWaiterProceed(
+            workspace,
+            policyFor(request, workspace),
+            request.creationOrdinal,
+            request.ownerAncestors ?? [],
+            waiters,
+          ) &&
+          this.workspaceLocks.isAvailable(
+            workspace,
+            policyFor(request, workspace),
+            request.ownerId,
+            request.ownerAncestors,
+          )
+        );
+      });
     } catch (cause) {
       // A quarantined workspace fails its own waiter when it next runs. It must
       // not reserve a shared session while an unrelated workspace can proceed.
@@ -239,6 +289,38 @@ export class JointAdmissionRegistry {
     if (index === -1) return;
     this.#effectWaiting.splice(index, 1);
     this.#notifyEffectWaiters();
+  }
+
+  /** A blocked group cannot reserve one of its otherwise-eligible resources. */
+  #canWaiterReserveWorkspace(
+    waiter: EffectWaitingAdmission,
+    targetKey: string,
+  ): boolean {
+    const { request } = waiter;
+    const workspaces = request.workspaceResources ?? [request.workspace];
+    if (!workspaces.some((workspace) => workspace.key === targetKey))
+      return false;
+    if (
+      request.session !== undefined &&
+      !this.sessionLocks.isAvailable(request.session)
+    )
+      return false;
+    try {
+      return workspaces.every(
+        (workspace) =>
+          workspace.key === targetKey ||
+          this.workspaceLocks.isAvailable(
+            workspace,
+            policyFor(request, workspace),
+            request.ownerId,
+            request.ownerAncestors,
+          ),
+      );
+    } catch {
+      // Do not let an unrelated quarantine make this waiter reserve another
+      // resource while the group itself cannot be admitted.
+      return false;
+    }
   }
 
   #notifyEffectWaiters(): void {

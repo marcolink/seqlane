@@ -65,6 +65,25 @@ admission or `invocation.started`. Invalid input emits `invocation.failed`
 without starting the task body. This target composition is still a migration
 tracer; the production CLI switches to it in the later runner-cutover task.
 
+The target composition supports nested workflows, selected choice arms, bounded
+repeats, next-input bindings, and output validation. Nested graphs share the
+task-body limit, repeat budget, admission registries, and invocation creation
+order. Containers do not hold a task-body permit while waiting for children.
+Each attempt has its own invocation identity. Unselected arms do not parse
+input, acquire sessions, or execute validators.
+
+Workflow containers reserve their resources atomically. Each resource uses the
+strongest policy required by the container and its possible descendants.
+Distinct child owners carry explicit ancestor identities, so containment does
+not allow exclusive siblings to overlap. Fully shared subtrees can overlap.
+Waiting containers hold no partial reservation.
+
+Native output validation runs after the execution workspace and body permit are
+released. The session remains held through validation and checkpoint capture.
+Validation must pass before invocation success. Result bindings preserve the
+whole domain value, including objects with an `output` field and false-like
+values. Private result markers never enter Plans, events, or wire payloads.
+
 Every `context.exec` call has a 30-second default timeout and a five-minute
 maximum timeout. On cancellation, the runtime waits for a bounded cleanup
 period, escalates process-group termination when needed, and quarantines the

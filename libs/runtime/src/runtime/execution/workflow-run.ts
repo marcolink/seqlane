@@ -85,11 +85,15 @@ export function emitInvocationTopology(
 ): void {
   for (const [siblingOrder, node] of orderedNodes.entries()) {
     const subject = invocationSubject(node);
+    const invocationId = invocationIdForNode(context, node);
     context.events.emit({
       type: "invocation.created",
       workId: context.workId,
       runId: context.runId,
-      invocationId: invocationIdForNode(context, node),
+      invocationId,
+      ...(context.parentInvocationId === undefined
+        ? {}
+        : { parentInvocationId: context.parentInvocationId }),
       planNodeId: node.nodeId,
       subject,
       ...taskIdCompatibility(subject),
@@ -98,6 +102,27 @@ export function emitInvocationTopology(
       siblingOrder,
       dependencyIds: availableDependencyIds(context, node),
     });
+    if (node.type === "choice") {
+      for (const [armOrder, arm] of [node.then, node.else].entries()) {
+        const armSubject = invocationSubject(arm);
+        const armInvocationId = context.invocationIds.get(arm.nodeId);
+        if (armInvocationId === undefined) continue;
+        context.events.emit({
+          type: "invocation.created",
+          workId: context.workId,
+          runId: context.runId,
+          invocationId: armInvocationId,
+          planNodeId: arm.nodeId,
+          subject: armSubject,
+          ...taskIdCompatibility(armSubject),
+          kind: invocationKind(arm),
+          label: invocationTaskId(arm),
+          parentInvocationId: invocationId,
+          siblingOrder: armOrder,
+          dependencyIds: availableDependencyIds(context, node),
+        });
+      }
+    }
   }
 
   for (const node of orderedNodes) {

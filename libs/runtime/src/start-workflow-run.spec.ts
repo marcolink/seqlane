@@ -95,6 +95,66 @@ describe("startWorkflowRun", () => {
     expect(taskStarted).toBe(false);
   });
 
+  it("runs a nested workflow through the native Plan program and parses child input once", async () => {
+    let childInputParses = 0;
+    const childInput = z
+      .object({ value: z.string().default("default") })
+      .transform(({ value }) => {
+        childInputParses += 1;
+        return { value: `${value}!` };
+      });
+    const childTask = defineTask({
+      id: "direct.effect-nested-child",
+      input: z.object({ value: z.string() }),
+      output: z.object({ value: z.string() }),
+      execute: async ({ input }) => input,
+    });
+    const child = createFlow({
+      id: "direct-effect-nested-child-flow",
+      input: childInput,
+      output: z.object({ value: z.string() }),
+    })
+      .task("echo", childTask, ({ input }) => input)
+      .output(({ tasks }) => tasks.echo.output)
+      .define();
+    const parent = buildWorkflow(
+      createFlow({
+        id: "direct-effect-nested-parent-flow",
+        input: z.object({ value: z.string() }),
+        output: z.object({ value: z.string() }),
+      })
+        .task("nested", child, ({ input }) => input)
+        .output(({ tasks }) => tasks.nested.output)
+        .define(),
+    );
+    const { events, sink } = createSink();
+    const handle = startWorkflowRun(
+      {
+        workflow: parent,
+        input: { value: "nested" },
+        events: sink,
+      },
+      { program: createEffectPlanProgram },
+    );
+
+    await expect(handle.outcome).resolves.toMatchObject({
+      status: "succeeded",
+      result: { value: "nested!" },
+    });
+    expect(childInputParses).toBe(1);
+    expect(
+      events.filter((event) => event.type === "invocation.started"),
+    ).toHaveLength(2);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "invocation.created" &&
+          event.subject?.type === "workflow" &&
+          event.subject.workflowId === child.id,
+      ),
+    ).toBe(true);
+  });
+
   it("waits for target task callback settlement before cancel resolves", async () => {
     let markStarted!: () => void;
     const started = new Promise<void>((resolve) => {

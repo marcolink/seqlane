@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Effect } from "effect";
 import type {
   InvocationId,
   Plan,
@@ -21,6 +22,7 @@ import {
   createExecutionContext,
   invocationCreationOrdinal,
   type ExecutionContext,
+  type ExecutionRunState,
 } from "../execution/context.js";
 import { type ExecutorRegistry } from "../execution/executor.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
@@ -47,6 +49,7 @@ import {
 } from "../session/session-ordering.js";
 import { lowerWorkspaceOrdering } from "../workspace/workspace-ordering.js";
 import { createCompiledNodeStep } from "./compile-node-step.js";
+import { preflightSelectedChoiceModel } from "../execution/model-preflight.js";
 
 export interface PreparedPlan {
   readonly plan: Plan;
@@ -73,6 +76,8 @@ export interface CompileWorkflowOptions {
   readonly workspaceResources?: WorkspaceResourceRegistry;
   readonly workspaceLocks?: WorkspaceLockRegistry;
   readonly workspaceOwnerId?: string;
+  readonly workspaceOwnerAncestors?: readonly string[];
+  readonly parentInvocationId?: string;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly workflowDefinitions?: WorkflowDefinitionRegistry;
@@ -86,6 +91,14 @@ export interface CompileWorkflowOptions {
   readonly classifier?: ClassifierTaskRunner;
   /** Private graph-body limit; dependency waits do not use a permit. */
   readonly concurrency?: number;
+  readonly executeWorkflow?: (
+    context: ExecutionContext,
+    node: Extract<PlanNode, { type: "workflow" }>,
+    abortSignal: AbortSignal,
+    withBodyPermit: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E>,
+    deferCompletion?: boolean,
+  ) => Effect.Effect<unknown, unknown>;
+  readonly runState?: ExecutionRunState;
 }
 
 /** Validate definition registries before any runtime lookup can use them. */
@@ -215,8 +228,12 @@ export class PlanCompiler {
       workspaceResources: options.workspaceResources,
       workspaceLocks: options.workspaceLocks,
       workspaceOwnerId: options.workspaceOwnerId,
+      workspaceOwnerAncestors: options.workspaceOwnerAncestors,
+      parentInvocationId: options.parentInvocationId,
       remainingConsumers: computeRemainingConsumers(parsedPlan),
       taskDefinitions: options.taskDefinitions,
+      workflowDefinitions: options.workflowDefinitions,
+      runState: options.runState,
       validatorDefinitions: options.validatorDefinitions,
       taskSchemas: options.taskSchemas,
       events: options.events,
@@ -259,13 +276,19 @@ export class PlanCompiler {
         .map((node) => [node.nodeId, node]),
     );
     const steps: SequentialProgramStep[] = [];
+    const preflightView: PreparedPlanExecution = {
+      plan: loweredPlan,
+      orderedNodes,
+      context,
+    };
     const terminalInvocationIds = new Set<string>();
     const emitEvent = context.events.emit.bind(context.events);
     context.events.emit = (event) => {
       emitEvent(event);
       if (
         event.type === "invocation.succeeded" ||
-        event.type === "invocation.failed" ||
+        (event.type === "invocation.failed" &&
+          event.disposition !== "retry_scheduled") ||
         event.type === "invocation.cancelled" ||
         event.type === "invocation.skipped"
       ) {
@@ -280,6 +303,8 @@ export class PlanCompiler {
           node,
           checkNodes,
           terminalInvocationIds,
+          options.executeWorkflow,
+          (node) => preflightSelectedChoiceModel(preflightView, node),
         ),
       );
     }

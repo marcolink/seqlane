@@ -4,11 +4,13 @@ import type {
   PlanNodeId,
   RunId,
   TaskDefinitionRegistry,
+  WorkflowDefinitionRegistry,
   SeqlaneError,
   SeqlaneEventSink,
   ValidatorDefinitionRegistry,
   WorkId,
   ModelSelection,
+  SeqlaneInvocationMetrics,
 } from "@seqlane/core";
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import type { ExecutorRegistry } from "./executor.js";
@@ -35,12 +37,27 @@ export type ExecutionObservationSink = (
   iteration?: number,
 ) => void;
 
+export interface ExecutionRunState {
+  readonly invocationCreationOrdinals: Map<InvocationId, number>;
+  readonly invocationOrdinalCounter: { next: number };
+  readonly sessionLocks: SessionLockRegistry;
+  readonly childSessions: ChildSessionRegistry;
+  readonly workspaceLocks: WorkspaceLockRegistry;
+  readonly jointAdmissions: JointAdmissionRegistry;
+  readonly repeatBudget: { executed: number };
+}
+
 export interface ExecutionContext {
   readonly workId: WorkId;
   readonly runId: RunId;
   readonly invocationIds: Map<PlanNodeId, InvocationId>;
+  readonly terminalInvocationIds: Set<InvocationId>;
+  readonly deferredTaskMetrics: Map<
+    InvocationId,
+    SeqlaneInvocationMetrics | undefined
+  >;
   readonly invocationCreationOrdinals: Map<InvocationId, number>;
-  nextInvocationCreationOrdinal: number;
+  readonly invocationOrdinalCounter: { next: number };
   readonly createInvocationId: (nodeId: PlanNodeId) => InvocationId;
   readonly workflowInput: unknown;
   /** Adapter-neutral default for new agent sessions in this compiled workflow. */
@@ -59,10 +76,14 @@ export interface ExecutionContext {
   readonly workspaceResources: WorkspaceResourceRegistry;
   readonly workspaceLocks: WorkspaceLockRegistry;
   readonly workspaceOwnerId?: string;
+  readonly workspaceOwnerAncestors: readonly string[];
+  readonly parentInvocationId?: string;
   readonly jointAdmissions: JointAdmissionRegistry;
   sharedSessionPairs: readonly SharedSessionTaskPair[];
   readonly sessionResolver?: SessionResolver;
   readonly taskDefinitions?: TaskDefinitionRegistry;
+  readonly workflowDefinitions?: WorkflowDefinitionRegistry;
+  readonly runState: ExecutionRunState;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
   readonly events: ExecutionEventSink;
@@ -83,8 +104,12 @@ export interface ExecutionContextOptions {
   readonly sessionResolver?: SessionResolver;
   readonly workspaceResources?: WorkspaceResourceRegistry;
   readonly workspaceLocks?: WorkspaceLockRegistry;
+  readonly runState?: ExecutionRunState;
   readonly workspaceOwnerId?: string;
+  readonly workspaceOwnerAncestors?: readonly string[];
+  readonly parentInvocationId?: string;
   readonly taskDefinitions?: TaskDefinitionRegistry;
+  readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
   readonly events?: SeqlaneEventSink;
@@ -95,15 +120,35 @@ export interface ExecutionContextOptions {
 export function createExecutionContext(
   options: ExecutionContextOptions,
 ): ExecutionContext {
-  const workspaceLocks = options.workspaceLocks ?? new WorkspaceLockRegistry();
-  const sessionLocks = new SessionLockRegistry();
+  const workspaceLocks =
+    options.runState?.workspaceLocks ??
+    options.workspaceLocks ??
+    new WorkspaceLockRegistry();
+  const sessionLocks =
+    options.runState?.sessionLocks ?? new SessionLockRegistry();
   const choiceSourceGate = new ChoiceSourceGate();
+  const runState: ExecutionRunState = options.runState ?? {
+    invocationCreationOrdinals: new Map(),
+    invocationOrdinalCounter: { next: 0 },
+    sessionLocks,
+    childSessions: new ChildSessionRegistry(),
+    workspaceLocks,
+    jointAdmissions: new JointAdmissionRegistry(workspaceLocks, sessionLocks),
+    repeatBudget: { executed: 0 },
+  };
+  const terminalInvocationIds = new Set<string>();
+  const deferredTaskMetrics = new Map<
+    string,
+    SeqlaneInvocationMetrics | undefined
+  >();
   return {
     workId: options.workId,
     runId: options.runId,
     invocationIds: new Map(),
-    invocationCreationOrdinals: new Map(),
-    nextInvocationCreationOrdinal: 0,
+    terminalInvocationIds,
+    deferredTaskMetrics,
+    invocationCreationOrdinals: runState.invocationCreationOrdinals,
+    invocationOrdinalCounter: runState.invocationOrdinalCounter,
     createInvocationId: options.createInvocationId,
     workflowInput: options.workflowInput,
     workflowModel: options.workflowModel,
@@ -117,19 +162,32 @@ export function createExecutionContext(
     deferredSessionSources: new Map(),
     choiceSourceGate,
     sessionLocks,
-    childSessions: new ChildSessionRegistry(),
+    childSessions: runState.childSessions,
     workspaceResources: options.workspaceResources ?? new Map(),
     workspaceLocks,
     workspaceOwnerId: options.workspaceOwnerId,
-    jointAdmissions: new JointAdmissionRegistry(workspaceLocks, sessionLocks),
+    workspaceOwnerAncestors: options.workspaceOwnerAncestors ?? [],
+    parentInvocationId: options.parentInvocationId,
+    jointAdmissions: runState.jointAdmissions,
+    runState,
     sharedSessionPairs: [],
     sessionResolver: options.sessionResolver,
     taskDefinitions: options.taskDefinitions,
+    workflowDefinitions: options.workflowDefinitions,
     validatorDefinitions: options.validatorDefinitions,
     taskSchemas: options.taskSchemas,
     events: {
       emit: (event) => {
         options.events?.emit(event);
+        if (
+          event.type === "invocation.succeeded" ||
+          (event.type === "invocation.failed" &&
+            event.disposition !== "retry_scheduled") ||
+          event.type === "invocation.cancelled" ||
+          event.type === "invocation.skipped"
+        ) {
+          terminalInvocationIds.add(event.invocationId);
+        }
         choiceSourceGate.observe(event);
       },
     },
@@ -146,8 +204,8 @@ export function invocationCreationOrdinal(
   const existing = context.invocationCreationOrdinals.get(invocationId);
   if (existing !== undefined) return existing;
 
-  const ordinal = context.nextInvocationCreationOrdinal;
-  context.nextInvocationCreationOrdinal += 1;
+  const ordinal = context.invocationOrdinalCounter.next;
+  context.invocationOrdinalCounter.next += 1;
   context.invocationCreationOrdinals.set(invocationId, ordinal);
   return ordinal;
 }

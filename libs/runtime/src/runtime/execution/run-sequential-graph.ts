@@ -11,6 +11,7 @@ export function runSequentialGraph(
   })[],
   concurrency: number,
   abortSignal: AbortSignal,
+  sharedSemaphore?: Semaphore.Semaphore,
 ): Effect.Effect<readonly SequentialProgramStepResult[]> {
   return Effect.scoped(
     Effect.gen(function* () {
@@ -28,9 +29,11 @@ export function runSequentialGraph(
           return [step.id, completion] as const;
         }),
       );
-      const semaphore = Number.isFinite(concurrency)
-        ? yield* Semaphore.make(concurrency)
-        : undefined;
+      const semaphore =
+        sharedSemaphore ??
+        (Number.isFinite(concurrency)
+          ? yield* Semaphore.make(concurrency)
+          : undefined);
       const fibers: Fiber.Fiber<void>[] = [];
 
       for (const step of steps) {

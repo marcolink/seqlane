@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 upstream:
   - rfc.effect-v4-migration
   - prd.seqlane-runtime
@@ -237,6 +237,12 @@ Private implementation modules separate Plan interpretation, invocation policy, 
 Do not create one runtime service that owns every concern.
 Composition roots supply concrete adapters. `libs/runtime` keeps the `boundary:generic-runtime` dependency rule.
 
+Nested graphs share one run body limit, repeat budget, admission registry, and invocation creation order. Container orchestration does not consume a task-body permit while it waits for children.
+
+Workflow containers reserve all affected resources atomically. Each resource uses the strongest policy required by the authored container and its possible descendants, including choices, repeat attempts, and output evaluators. Fully shared subtrees remain shareable. Waiting containers retain no partial reservation.
+
+Each invocation has a distinct workspace owner and an explicit ancestor chain. Ancestor reservations permit contained work without permitting conflicting siblings. A descendant can pass a foreign waiter that is blocked by its ancestor reservation. Child invocations retain their authored workspace policies. Unconfirmed descendant activity quarantines the affected ancestor reservations.
+
 Retain typed domain errors at package boundaries and preserve original causes.
 Map Effect typed failure, defect, and interruption to the existing domain result contract once at the run boundary.
 Do not serialize Effect `Cause`, fibers, scopes, or opaque third-party state over the protocol.
@@ -270,7 +276,7 @@ No previous runtime fallback remains, and no observability capability lacks a do
 
 ## Delivery state
 
-Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. S4–S12, production Plan cutover, hosted replacement, and complete removal remain pending. No full migration or remote delivery is claimed.
+Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. S5–S12, production Plan cutover, hosted replacement, and complete removal remain pending. No full migration or remote delivery is claimed.
 
 ## Traceability
 

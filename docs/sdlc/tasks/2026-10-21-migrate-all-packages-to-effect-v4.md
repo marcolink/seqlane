@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 upstream:
   - spec.effect-v4-execution-and-operations
 supersedes: []
@@ -47,7 +47,7 @@ Each slice task owns its implementation scope and evidence. Dependencies are exp
 - [x] [S1 — Execute the tracer](./2026-10-21-effect-v4-effect-tracer.md)
 - [x] [S2 — Real dependency graphs and failures](./2026-10-21-effect-v4-dependency-graphs.md)
 - [x] [S3 — Sessions and workspace admission with real callers](./2026-10-21-effect-v4-sessions-and-workspace-admission.md)
-- [ ] [S4 — Nested workflows, choices, repeats, and validation](./2026-10-21-effect-v4-nested-workflows-and-validation.md)
+- [x] [S4 — Nested workflows, choices, repeats, and validation](./2026-10-21-effect-v4-nested-workflows-and-validation.md)
 - [ ] [S5 — OpenCode and Codex with full observations](./2026-10-21-effect-v4-native-adapters-and-observations.md)
 - [ ] [S6 — ACP without the old transport](./2026-10-21-effect-v4-acp-transport.md)
 - [ ] [S7 — Classifier, mixed workflows, and deadlines](./2026-10-21-effect-v4-classifier-and-deadlines.md)
@@ -106,11 +106,11 @@ Every temporary bridge is removed, all required checks pass, and delivery is rec
 
 ## Outcome
 
-S0–S3 completed with full verification: authority, baseline, Effect process ownership, dependency graphs, sessions, and workspace admission through the CLI worker and direct facade. S4–S12 remain. Production Plan and hosted cutover are pending.
+S0–S4 completed with full verification: authority, baseline, Effect process ownership, dependency graphs, sessions, workspace admission, nested workflows, choices, repeats, and validation through the CLI worker and direct facade. S5–S12 remain. Production Plan and hosted cutover are pending.
 
 ## Delivery state
 
-In progress on one migration branch. S0–S3 have branch-local evidence in their task commits. The accepted architecture and active target spec record authority, not migration delivery.
+In progress on one migration branch. S0–S4 have branch-local evidence in their task commits. The accepted architecture and active target spec record authority, not migration delivery.
 
 ## Traceability
 

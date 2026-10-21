@@ -14,6 +14,10 @@ import {
 } from "../invocation/invocation-execution.js";
 import { executeTaskNodeEffect } from "../invocation/task-admission.js";
 import { parseValidationResult } from "../validation/validation-results.js";
+import type { CompileWorkflowOptions } from "./compile-plan.js";
+import { executeChoiceNodeEffect } from "../execution/effect-choice.js";
+import { executeRepeatNodeEffect } from "../execution/effect-repeat.js";
+import type { TaskNode } from "@seqlane/core";
 
 /** Build one Plan node step with its execution and invocation terminal policy. */
 export function createCompiledNodeStep(
@@ -21,6 +25,9 @@ export function createCompiledNodeStep(
   node: PlanNode,
   checkNodes: ReadonlyMap<string, ValidationCheckNode>,
   terminalInvocationIds: ReadonlySet<string>,
+  executeWorkflow?: CompileWorkflowOptions["executeWorkflow"],
+  preflightSelectedModel: (node: TaskNode) => Promise<void> = async () =>
+    undefined,
 ): SequentialProgramStep {
   return {
     id: node.nodeId,
@@ -81,6 +88,25 @@ export function createCompiledNodeStep(
             validateOutput: parseValidationResult,
           },
           withBodyPermit,
+        );
+      } else if (node.type === "workflow" && executeWorkflow !== undefined) {
+        effect = executeWorkflow(context, node, abortSignal, withBodyPermit);
+      } else if (node.type === "choice") {
+        effect = executeChoiceNodeEffect(
+          context,
+          node,
+          abortSignal,
+          withBodyPermit,
+          executeWorkflow,
+          preflightSelectedModel,
+        );
+      } else if (node.type === "repeat") {
+        effect = executeRepeatNodeEffect(
+          context,
+          node,
+          abortSignal,
+          withBodyPermit,
+          executeWorkflow,
         );
       } else {
         effect = withBodyPermit(

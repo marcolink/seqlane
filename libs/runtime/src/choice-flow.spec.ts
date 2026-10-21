@@ -1,6 +1,8 @@
 // @test-scope ./start-workflow-run.ts
-// @test-scope ./runtime/mastra/mastra-execution.ts
-// @test-scope ./runtime/compile/mastra-choice-compiler.ts
+// @test-scope ./runtime/execution/effect-plan.ts
+// @test-scope ./runtime/execution/effect-choice.ts
+// @test-scope ./runtime/execution/nested-workflow.ts
+// @test-scope ./runtime/validation/output-validation-effect.ts
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -13,6 +15,13 @@ import {
   type SeqlaneEvent,
 } from "@seqlane/core";
 import { startWorkflowRun } from "./start-workflow-run.js";
+import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
+
+function startNativeWorkflowRun(
+  request: Parameters<typeof startWorkflowRun>[0],
+) {
+  return startWorkflowRun(request, { program: createEffectPlanProgram });
+}
 
 const input = z.object({ review: z.boolean(), change: z.string() });
 const reviewed = z.object({ kind: z.literal("reviewed"), risk: z.number() });
@@ -56,7 +65,7 @@ describe("exclusive Flow choice through the runtime", () => {
         .output(({ tasks }) => tasks.decision.output)
         .define();
       const events: SeqlaneEvent[] = [];
-      const run = startWorkflowRun({
+      const run = startNativeWorkflowRun({
         workflow: buildWorkflow(flow),
         input: { review, change: "a" },
         workspace: process.cwd(),
@@ -130,7 +139,7 @@ describe("exclusive Flow choice through the runtime", () => {
       .output(({ tasks }) => tasks.decision.output)
       .define();
     const events: SeqlaneEvent[] = [];
-    const run = startWorkflowRun({
+    const run = startNativeWorkflowRun({
       workflow: buildWorkflow(parent),
       input: { review: true, change: "a" },
       workspace: process.cwd(),
@@ -181,7 +190,7 @@ describe("exclusive Flow choice through the runtime", () => {
       .output(({ tasks }) => tasks.decision.output)
       .define();
     const events: SeqlaneEvent[] = [];
-    const run = startWorkflowRun({
+    const run = startNativeWorkflowRun({
       workflow: buildWorkflow(flow),
       input: { review: true, change: "a" },
       workspace: process.cwd(),
@@ -236,7 +245,7 @@ describe("exclusive Flow choice through the runtime", () => {
       .task("publish", publish, ({ tasks }) => tasks.decision.output)
       .output(({ tasks }) => tasks.publish.output)
       .define();
-    const run = startWorkflowRun({
+    const run = startNativeWorkflowRun({
       workflow: buildWorkflow(flow),
       input: { change: "a" },
       workspace: process.cwd(),
@@ -301,7 +310,7 @@ describe("exclusive Flow choice through the runtime", () => {
     const built = buildWorkflow(flow);
     const events: SeqlaneEvent[] = [];
     const run = (reviewValue: boolean) =>
-      startWorkflowRun({
+      startNativeWorkflowRun({
         workflow: built,
         input: { review: reviewValue, change: "a" },
         workspace: process.cwd(),
@@ -382,7 +391,7 @@ describe("exclusive Flow choice through the runtime", () => {
         .output(({ tasks }) => tasks.decision.output)
         .define();
       const events: SeqlaneEvent[] = [];
-      const run = startWorkflowRun({
+      const run = startNativeWorkflowRun({
         workflow: buildWorkflow(flow),
         input: { review: true, change: "a" },
         workspace: process.cwd(),
@@ -456,7 +465,7 @@ describe("exclusive Flow choice through the runtime", () => {
       .output(({ tasks }) => tasks.decision.output)
       .define();
     const events: SeqlaneEvent[] = [];
-    const run = startWorkflowRun({
+    const run = startNativeWorkflowRun({
       workflow: buildWorkflow(flow),
       input: { review: true, change: "a" },
       workspace: process.cwd(),
@@ -467,11 +476,34 @@ describe("exclusive Flow choice through the runtime", () => {
     await run.cancel();
     await expect(run.outcome).resolves.toMatchObject({ status: "cancelled" });
     expect(otherCalls).toBe(0);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "invocation.cancelled",
-        reason: "Choice cancelled",
-      }),
+    const selectedInvocation = events.find(
+      (event) =>
+        event.type === "invocation.created" &&
+        event.planNodeId === "choice:1:then",
+    );
+    expect(selectedInvocation?.type).toBe("invocation.created");
+    if (selectedInvocation?.type !== "invocation.created")
+      throw new Error("Missing selected invocation");
+    const choiceInvocation = events.find(
+      (event) =>
+        event.type === "invocation.created" && event.planNodeId === "choice:1",
+    );
+    if (choiceInvocation?.type !== "invocation.created")
+      throw new Error("Missing choice invocation");
+    for (const invocationId of [
+      selectedInvocation.invocationId,
+      choiceInvocation.invocationId,
+    ]) {
+      expect(
+        events.filter(
+          (event) =>
+            event.type === "invocation.cancelled" &&
+            event.invocationId === invocationId,
+        ),
+      ).toHaveLength(1);
+    }
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "invocation.failed" }),
     );
   });
 
@@ -533,7 +565,7 @@ describe("exclusive Flow choice through the runtime", () => {
       })
       .output(({ tasks }) => tasks.decision.output)
       .define();
-    const run = startWorkflowRun({
+    const run = startNativeWorkflowRun({
       workflow: buildWorkflow(flow),
       input: { review: true, change: "a" },
       workspace: process.cwd(),

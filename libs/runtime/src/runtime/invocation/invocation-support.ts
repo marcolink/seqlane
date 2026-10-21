@@ -12,6 +12,7 @@ import {
 } from "../plan/binding-resolution.js";
 import type { ExecutionContext } from "../execution/context.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
+import { findUnconfirmedInvocationTermination } from "../execution/executor.js";
 import type { RuntimeValidationResult } from "../validation/validation-results.js";
 import type { JointAdmission } from "./joint-admission.js";
 
@@ -33,6 +34,8 @@ export interface TaskExecutionOptions {
   /** Mutable lease disposition shared with the Effect finalizer. */
   readonly admissionOwnership?: { retain: boolean; uncertainty?: unknown };
   readonly iteration?: number;
+  /** Native choice/repeat callers publish completion after output validation. */
+  readonly deferCompletion?: boolean;
   /** Awaited before result publication; may run an asynchronous evaluator. */
   readonly validateOutput?: (output: unknown) => unknown;
 }
@@ -45,6 +48,7 @@ export type ValidationExecutionOptions = Pick<
   | "results"
   | "remainingConsumers"
   | "workspaceAdmission"
+  | "admission"
   | "iteration"
 >;
 
@@ -143,4 +147,45 @@ export function throwInvocationFailure(
     ...optionalIteration(iteration),
   });
   throw error;
+}
+
+export function terminalizeDynamicInvocation(
+  cause: unknown,
+  options: {
+    readonly context: ExecutionContext;
+    readonly abortSignal: AbortSignal;
+    readonly invocationId: InvocationId;
+    readonly taskId: string;
+    readonly iteration?: number;
+  },
+): void {
+  const { context, abortSignal, invocationId, taskId, iteration } = options;
+  if (context.terminalInvocationIds.has(invocationId)) return;
+  const uncertainTermination = findUnconfirmedInvocationTermination(cause);
+  if (abortSignal.aborted && uncertainTermination === undefined) {
+    context.events.emit({
+      type: "invocation.cancelled",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+      reason: "Run cancelled during invocation execution",
+      ...optionalIteration(iteration),
+    });
+    return;
+  }
+  const error = toSeqlaneInvocationError(
+    uncertainTermination ?? cause,
+    "runtime",
+    taskId,
+  );
+  context.failure = error;
+  context.events.emit({
+    type: "invocation.failed",
+    workId: context.workId,
+    runId: context.runId,
+    invocationId,
+    error,
+    disposition: "fail_run",
+    ...optionalIteration(iteration),
+  });
 }

@@ -38,4 +38,13 @@ describe("choice session source gate", () => {
     controller.abort(new Error("run cancelled"));
     await expect(cancelledWait).rejects.toThrow("run cancelled");
   });
+
+  it("lets cancellation win while a selected source is still pending", async () => {
+    const gate = new ChoiceSourceGate();
+    gate.register("source", "source-invocation");
+    const controller = new AbortController();
+    const waiting = gate.wait("source", controller.signal);
+    controller.abort(new Error("run cancelled"));
+    await expect(waiting).rejects.toThrow("run cancelled");
+  });
 });

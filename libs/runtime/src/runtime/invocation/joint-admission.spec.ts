@@ -154,6 +154,84 @@ describe("joint admission", () => {
     admission.workspaceLease.release();
   });
 
+  it("does not virtually reserve an available resource while a group waits on another", async () => {
+    const sessionLocks = new SessionLockRegistry();
+    const workspaceLocks = new WorkspaceLockRegistry();
+    const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
+    const first = { key: "/first" };
+    const second = { key: "/second" };
+    const activeSecond = await workspaceLocks.acquire(second, "exclusive");
+    let groupWaiting!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      groupWaiting = resolve;
+    });
+    const grouped = admissions.acquireEffect({
+      ...request("group", 1),
+      session: undefined,
+      workspace: first,
+      workspaceResources: [first, second],
+      onWorkspaceWaiting: () => groupWaiting(),
+    });
+    const groupPromise = Effect.runPromise(grouped);
+
+    await waiting;
+    const independent = await admissions.acquire({
+      ...request("independent", 2),
+      workspace: first,
+    });
+    independent.sessionLease?.release();
+    for (const lease of independent.workspaceLeases ?? [
+      independent.workspaceLease,
+    ])
+      lease.release();
+
+    activeSecond.release();
+    const groupAdmission = await groupPromise;
+    groupAdmission.sessionLease?.release();
+    for (const lease of groupAdmission.workspaceLeases ?? [
+      groupAdmission.workspaceLease,
+    ])
+      lease.release();
+  });
+
+  it("cancels a waiting resource group without retaining any partial lease", async () => {
+    const sessionLocks = new SessionLockRegistry();
+    const workspaceLocks = new WorkspaceLockRegistry();
+    const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
+    const first = { key: "/first" };
+    const second = { key: "/second" };
+    const activeSecond = await workspaceLocks.acquire(second, "exclusive");
+    const controller = new AbortController();
+    let groupWaiting!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      groupWaiting = resolve;
+    });
+    const grouped = Effect.runPromise(
+      admissions.acquireEffect({
+        ...request("cancelled-group", 1, controller.signal),
+        session: undefined,
+        workspace: first,
+        workspaceResources: [first, second],
+        onWorkspaceWaiting: () => groupWaiting(),
+      }),
+    );
+    await waiting;
+    const reason = new Error("cancel grouped admission");
+    controller.abort(reason);
+    await expect(grouped).rejects.toBe(reason);
+
+    const independent = await admissions.acquire({
+      ...request("independent", 2),
+      workspace: first,
+    });
+    independent.sessionLease?.release();
+    for (const lease of independent.workspaceLeases ?? [
+      independent.workspaceLease,
+    ])
+      lease.release();
+    activeSecond.release();
+  });
+
   it("lets an eligible same-session waiter proceed past an earlier blocked workspace", async () => {
     const sessionLocks = new SessionLockRegistry();
     const workspaceLocks = new WorkspaceLockRegistry();

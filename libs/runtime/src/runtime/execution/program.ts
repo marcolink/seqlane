@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import type * as Semaphore from "effect/Semaphore";
 import { z } from "zod";
 import { runSequentialGraph } from "./run-sequential-graph.js";
 
@@ -30,6 +31,7 @@ export interface SequentialProgram {
   /** Native graph effect. Promise facades evaluate this only at the boundary. */
   readonly effect: (
     abortSignal: AbortSignal,
+    bodySemaphore?: Semaphore.Semaphore,
   ) => Effect.Effect<readonly SequentialProgramStepResult[]>;
 }
 
@@ -81,8 +83,10 @@ export function createSequentialProgram(options: {
   assertAcyclic(steps);
   const concurrency = options.concurrency ?? Number.POSITIVE_INFINITY;
 
-  const effect = (abortSignal: AbortSignal) =>
-    runSequentialGraph(steps, concurrency, abortSignal);
+  const effect = (
+    abortSignal: AbortSignal,
+    bodySemaphore?: Semaphore.Semaphore,
+  ) => runSequentialGraph(steps, concurrency, abortSignal, bodySemaphore);
 
   return Object.freeze({ steps: Object.freeze(steps), effect });
 }
@@ -133,6 +137,7 @@ export function executeSequentialProgram(
 export function runProgram(
   program: SequentialProgram,
   abortSignal: AbortSignal,
+  bodySemaphore?: Semaphore.Semaphore,
 ): Effect.Effect<readonly SequentialProgramStepResult[]> {
-  return program.effect(abortSignal);
+  return program.effect(abortSignal, bodySemaphore);
 }
