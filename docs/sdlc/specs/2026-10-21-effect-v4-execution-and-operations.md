@@ -270,7 +270,7 @@ No previous runtime fallback remains, and no observability capability lacks a do
 
 ## Delivery state
 
-Active target contract. No execution, migration, dependency, or platform verification is complete. The current source still uses the former runtime pending the linked task slices.
+Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary and a private deterministic CLI worker tracer on the migration branch. S2–S12, production Plan cutover, hosted replacement, and complete removal remain pending. No full migration or remote delivery is claimed.
 
 ## Traceability
 

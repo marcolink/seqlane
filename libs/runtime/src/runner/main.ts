@@ -7,11 +7,18 @@ import {
   startRun,
   type RunnerHost,
   type RunnerRunControl,
+  type RunnerRunProgram,
   type RuntimeExecutionResolver,
 } from "./run.js";
 import { resolveRuntimeProfile } from "./profile/runtime-profile.js";
 import type { LoadedWorkflow } from "./workflow/load-workflow.js";
 import type { PrivateClassifierConnection } from "../classifier/types.js";
+export { createEffectTracerRunProgram } from "./effect-tracer.js";
+export type {
+  RunnerRunProgram,
+  RunnerRunProgramContext,
+  RunnerRunProgramResult,
+} from "./run.js";
 
 export interface RunnerSignalSource {
   on(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
@@ -30,6 +37,8 @@ export interface RunnerProcessOptions {
   readonly workerEntrypoint?: boolean;
   readonly createAgentRuntimeFactory?: () => AgentRuntimeFactory;
   readonly classifierConnection?: PrivateClassifierConnection;
+  /** Private worker-composition seam; omitted by the production CLI. */
+  readonly createRunProgram?: () => RunnerRunProgram;
 }
 
 export type { PrivateClassifierConnection } from "../classifier/types.js";
@@ -110,6 +119,7 @@ export function startRunnerProcess(options: RunnerProcessOptions = {}): void {
   const runnerState: { loadedWorkflow?: LoadedWorkflow } = {};
   const control: RunnerRunControl = { cancellationRequested: false };
   const resolveExecution = createRunnerExecutionResolver(options);
+  control.runProgram = options.createRunProgram?.();
   bindRunnerCancellationSignals(process, control, () => host.exit(130));
   bindRunnerSupervisorDisconnect(process, control);
 
@@ -131,6 +141,7 @@ export function startRunnerProcess(options: RunnerProcessOptions = {}): void {
           },
           control,
           resolveExecution,
+          undefined,
         ).catch(() => host.exit(1));
       } catch {
         host.exit(1);

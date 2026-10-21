@@ -1,5 +1,5 @@
 // @test-scope ./task-execution.ts
-// @test-scope ./mastra-process.ts
+// @test-scope ./effect-process.ts
 // @test-scope ../invocation/invocation-execution.ts
 // @test-scope ../compile/compile-plan.ts
 // @test-scope ../execution/model-preflight.ts

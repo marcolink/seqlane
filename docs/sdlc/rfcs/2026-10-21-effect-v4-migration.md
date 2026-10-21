@@ -361,8 +361,7 @@ The proposed Studio removal and fresh hosted-history format are explicit behavio
 
 ## Delivery state
 
-Architecture accepted and target contract active. No runtime, CLI, dependency, or migration delivery is claimed by this document.
-The first tracer and all runtime evidence remain pending.
+Architecture accepted and target contract active. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) records branch-local process and CLI tracer evidence. The remaining task slices own full runtime, hosted, distribution, and removal delivery.
 
 ## Traceability
 

@@ -6,7 +6,11 @@ export default defineConfig({
     name: "cli",
     environment: "node",
     include: ["src/**/*.spec.ts"],
-    exclude: ["src/cli-entrypoints.spec.ts", "src/runner-client.spec.ts"],
+    exclude: [
+      "src/cli-entrypoints.spec.ts",
+      "src/runner-client.spec.ts",
+      "src/effect-tracer-worker.e2e.spec.ts",
+    ],
   },
   resolve: { alias: workspaceAliases },
 });

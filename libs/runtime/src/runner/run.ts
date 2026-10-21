@@ -5,6 +5,7 @@ import {
 } from "@seqlane/protocol";
 import { RuntimeError } from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
+import type { SeqlaneError, SeqlaneEventSink } from "@seqlane/core";
 import type { MastraActiveRun } from "../runtime/mastra/mastra-runtime.js";
 import {
   createMastraPlanExecution,
@@ -39,7 +40,28 @@ export interface RunnerRunControl {
   cancellationRequested: boolean;
   abortController?: AbortController;
   activeRun?: MastraActiveRun;
+  runProgram?: RunnerRunProgram;
 }
+
+export type RunnerRunProgramResult =
+  | { readonly status: "succeeded"; readonly output: unknown }
+  | { readonly status: "failed"; readonly error: SeqlaneError }
+  | { readonly status: "cancelled" };
+
+/** Private composition seam for a worker-owned Plan program. */
+export interface RunnerRunProgramContext {
+  readonly workflow: LoadedWorkflow;
+  readonly request: RunRequest;
+  readonly workId: string;
+  readonly runId: string;
+  readonly signal: AbortSignal;
+  readonly events: SeqlaneEventSink;
+  readonly createInvocationId: (nodeId?: string) => string;
+}
+
+export type RunnerRunProgram = (
+  context: RunnerRunProgramContext,
+) => Promise<RunnerRunProgramResult>;
 
 export type RuntimeExecutionResolver = (
   profile: RunRequest["runtime"],
@@ -111,16 +133,12 @@ export async function startRun(
   let execution: RuntimeExecution | undefined;
 
   try {
-    // The loaded workflow and Plan remain reachable only from this child.
-    const loadedWorkflow = await loadWorkflow(request.workflow);
-    retainWorkflow(loadedWorkflow);
-
-    // The authored Plan is available before an executor adapter can resolve.
-    // Publish it first so human output can show planned work during setup.
-    events.emitPlan(
-      createSeqlanePlanSnapshot(loadedWorkflow.plan),
+    const loadedWorkflow = await loadAndAnnounceWorkflow(
+      request,
       workId,
       runId,
+      retainWorkflow,
+      events,
     );
 
     if (control.cancellationRequested) {
@@ -134,6 +152,19 @@ export async function startRun(
       events.emit({ type: "run.succeeded", workId, runId, output: null });
       await events.flush();
       host.exit(0);
+      return;
+    }
+
+    if (control.runProgram !== undefined) {
+      await executeInjectedRun(host, control, {
+        workflow: loadedWorkflow,
+        request,
+        workId,
+        runId,
+        signal: abortController.signal,
+        events,
+        createInvocationId,
+      });
       return;
     }
 
@@ -196,18 +227,7 @@ export async function startRun(
     const outcome = await activeRun.outcome;
     await execution.close?.();
     execution = undefined;
-    if (outcome.status === "succeeded") {
-      events.emit({
-        type: "run.succeeded",
-        workId,
-        runId,
-        output: outcome.result,
-      });
-    } else if (outcome.status === "cancelled") {
-      events.emit({ type: "run.cancelled", workId, runId });
-    } else {
-      events.emit({ type: "run.failed", workId, runId, error: outcome.error });
-    }
+    publishRunOutcome(events, workId, runId, outcome);
     await events.flush();
     control.activeRun = undefined;
     host.exit(0);
@@ -234,5 +254,61 @@ export async function startRun(
       exitCode = 1;
     }
     host.exit(exitCode);
+  }
+}
+
+async function loadAndAnnounceWorkflow(
+  request: RunRequest,
+  workId: string,
+  runId: string,
+  retainWorkflow: (workflow: LoadedWorkflow) => void,
+  events: ReturnType<typeof createExecutionEventBridge>,
+): Promise<LoadedWorkflow> {
+  const workflow = await loadWorkflow(request.workflow);
+  retainWorkflow(workflow);
+  events.emitPlan(createSeqlanePlanSnapshot(workflow.plan), workId, runId);
+  return workflow;
+}
+
+async function executeInjectedRun(
+  host: RunnerHost,
+  control: RunnerRunControl,
+  context: Omit<RunnerRunProgramContext, "events"> & {
+    readonly events: ReturnType<typeof createExecutionEventBridge>;
+  },
+): Promise<void> {
+  const outcome = await control.runProgram?.(context);
+  if (outcome === undefined) return;
+  const settledOutcome =
+    control.cancellationRequested && outcome.status === "succeeded"
+      ? { status: "cancelled" as const }
+      : outcome;
+  publishRunOutcome(
+    context.events,
+    context.workId,
+    context.runId,
+    settledOutcome,
+  );
+  await context.events.flush();
+  host.exit(0);
+}
+
+function publishRunOutcome(
+  events: Pick<ReturnType<typeof createExecutionEventBridge>, "emit">,
+  workId: string,
+  runId: string,
+  outcome: RunnerRunProgramResult | Awaited<MastraActiveRun["outcome"]>,
+): void {
+  if (outcome.status === "succeeded") {
+    events.emit({
+      type: "run.succeeded",
+      workId,
+      runId,
+      output: "output" in outcome ? outcome.output : outcome.result,
+    });
+  } else if (outcome.status === "cancelled") {
+    events.emit({ type: "run.cancelled", workId, runId });
+  } else {
+    events.emit({ type: "run.failed", workId, runId, error: outcome.error });
   }
 }

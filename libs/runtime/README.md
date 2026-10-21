@@ -49,12 +49,13 @@ They acquire no session or workspace admission and never execute a fallback.
 
 The runtime parses its typed input, admits the invocation's workspace policy,
 and provides a scoped `TaskContext`. `context.exec` runs an executable with
-direct argv through a Mastra `LocalSandbox` (never through a shell), with
-bounded stdout and stderr. A nonzero process exit code is task output; spawn,
-timeout, cancellation, and output-limit failures reject the invocation. The
-canonical process result is `{ exitCode, stdout, stderr }`; richer process
-metadata remains private runtime detail. `context.runAgent` uses the executor
-selected by the invocation's session policy.
+direct argv through Effect's Node child-process service (never through a
+shell), with bounded stdout and stderr. A nonzero process exit code is task
+output; spawn, timeout, cancellation, and output-limit failures reject the
+invocation. On POSIX, process-group termination is confirmed before the task
+settles. The canonical process result is `{ exitCode, stdout, stderr }`;
+richer process metadata remains private runtime detail. `context.runAgent` uses
+the executor selected by the invocation's session policy.
 
 Every `context.exec` call has a 30-second default timeout and a five-minute
 maximum timeout. On cancellation, the runtime waits for a bounded cleanup

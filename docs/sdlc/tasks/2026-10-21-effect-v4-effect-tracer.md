@@ -1,7 +1,7 @@
 ---
 id: task.effect-v4-effect-tracer
 title: Execute the tracer
-status: planned
+status: completed
 owners:
   - core
 created: 2026-10-21
@@ -36,7 +36,7 @@ Changes to product behavior, public authoring contracts, or wire contracts beyon
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Oclif command          | Parse the existing command and launch the supervised worker.                                                                          | Compiled CLI invocation preserves help, input, and exit conventions.                                   |
 | Worker boundary        | Load the workflow and validate its Plan with the existing Zod contracts.                                                              | Valid workflow starts; malformed definition fails before execution.                                    |
-| Effect run scope       | Run one deterministic `shell()` task without constructing an agent or calling a model.                                                | Exact task output and zero model/agent calls.                                                          |
+| Effect run scope       | Run one authored deterministic task through `context.exec` without constructing an agent or calling a model.                          | Exact task output and zero model/agent calls.                                                          |
 | Process ownership      | Execute argv with explicit cwd/environment and bounded output; settle cancellation only after owned-process termination is confirmed. | Success, nonzero exit, timeout, SIGINT, SIGTERM, and supervisor disconnect leave no owned child alive. |
 | Canonical event bridge | Deliver ordered protocol events and exactly one terminal outcome through runner IPC.                                                  | Round-trip values and terminal result match the existing protocol contract.                            |
 | CLI output and cleanup | Render the existing human/CI/JSON result after scope cleanup.                                                                         | Output and exit code match baseline; no retained state or cleanup leak.                                |
@@ -54,7 +54,17 @@ Changes to product behavior, public authoring contracts, or wire contracts beyon
 
 ## Verification
 
-Verify every tracer-matrix row, package consumption outside the checkout, and observed resource/terminal cleanup.
+The process fixtures verify direct argv, explicit cwd, nonzero exits, bounded stdout/stderr, partial output after timeout, and confirmed cancellation. A POSIX fixture checks descendant termination and preserves an unrelated process.
+
+The compiled worker fixtures verify the Oclif command, external package-export consumption, full input/result events, ordered sequences, one terminal event, and Zod input/output failures. Timeout and signal tests check that the owned PID has exited when the terminal event arrives. Disconnect checks worker and process exit. The deterministic fixture rejects any agent-runtime construction or agent call. External standalone execution creates no `.seqlane` history.
+
+The exact `effect@4.0.5` and `@effect/platform-node@4.0.5` dependencies were checked against the registry, installed exports, and Snyk before installation. No direct vulnerability was reported for these versions.
+
+Live process evidence is from this macOS host. Windows tree cleanup remains unverified; no cross-platform proof is claimed.
+
+The frozen install, documentation validation, 363 test mappings, typecheck, full tests across 20 projects, lint, build, formatting, Nx sync, and diff checks pass. All 62 CLI end-to-end tests pass, including the 11 new worker cases. Scoped quality review reports zero existing-symbol regressions.
+
+The same deterministic fixture used at S0 completed three external CLI runs in 1227.64, 1179.92, and 1210.52 ms. Each returned the expected result with empty stderr. These local samples record startup evidence without setting a performance threshold.
 
 ## Completion criteria
 
@@ -64,11 +74,13 @@ Verify every tracer-matrix row, package consumption outside the checkout, and ob
 
 ## Outcome
 
-Not started. This task owns the implementation and evidence described above.
+Completed the Effect local-process boundary and private deterministic worker tracer. `context.exec` now uses Effect's scoped Node process service. The former local process implementation and its tests were replaced, and all local callers use the new boundary.
+
+The authored callback, Zod contracts, full protocol values, and cleanup-before-terminal behavior have passing evidence. The private test composition has no CLI or environment selector. S9 owns production Plan cutover and removal of this temporary one-task tracer.
 
 ## Delivery state
 
-Planned. Completion requires implementation evidence and a reachable delivery commit or merged pull request on the target branch.
+Completed on `feat/effect-v4-migration` in this task commit. Evidence is branch-local. No default-branch or remote-CI delivery claim is made.
 
 ## Traceability
 
