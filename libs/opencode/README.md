@@ -16,15 +16,11 @@ non-interactive failure path. It never approves an interaction. Workspace
 `shared` and `exclusive` policy is consumed by the Seqlane scheduler, not by
 OpenCode permission configuration.
 
-When the private adapter request contains a current Mastra workflow-step span,
-the adapter adds one agent span, one model span per assistant message, and one
-tool span per tool call. One validated event reducer, including legacy tool
-lifecycle events, feeds both the existing
-activity callbacks and native spans. The terminal response only reconciles
-missing model coverage. Missing tracing, conflicting parent aliases, and span
-failures do not change execution. Span metadata is bounded and excludes raw
-prompts, transcripts, tool inputs, and tool outputs. OpenCode 1.18.27 does not
-expose a verified cost unit, so native cost context is omitted.
+The adapter emits the complete available model request and response as a
+canonical protocol observation. A validated event reducer emits tool and skill
+activity with native input, output, metadata, and timing. The runtime forwards
+accepted values to the protocol event bridge. Native cost values are retained.
+OpenCode 1.18.27 does not expose a verified cost unit.
 
 OpenCode 1.18.27 leaks server listeners for each `/event` connection. The
 adapter does not use that SSE route. It polls finite session history and pending
@@ -38,10 +34,9 @@ reconciles newly persisted assistant message tool parts when the history stream
 does not expose the activity event. Closing a run cancels active local
 requests, interrupts the remote session, and waits for bounded cleanup.
 
-OpenCode `skill` calls remain `TOOL_CALL` spans with `toolType: "skill"`. When
-the event exposes a skill name, the adapter uses that bounded identity as the
-span name, so traces distinguish individual skills without persisting skill
-contents or metadata.
+OpenCode `skill` calls remain distinguishable from tools in activity events.
+When the native event exposes a skill name, the adapter preserves that name and
+the available skill input, output, metadata, and timing.
 
 Structured output uses `auto` selection by default. A verified compatible
 OpenCode version uses native JSON Schema output. Affected, unknown, malformed,
@@ -67,9 +62,10 @@ Authentication and transport failures retain their original error meaning.
 `startOpenCodeService` owns a private loopback service on an allocated port.
 It generates one HTTP Basic credential per owned process and uses it for all
 private SDK requests. It preserves native configuration, bounds startup and
-shutdown, and closes only the process group it creates. Its caller must close
-the returned service. This helper writes no Seqlane state; OpenCode can write
-its own native state.
+shutdown with Effect timeouts, and closes only the process group it creates.
+Its caller must close the returned service; the Effect scope then confirms
+process-group exit before removing listeners. This helper writes no Seqlane
+state; OpenCode can write its own native state.
 
 After a successful prompt, the adapter retains its terminal OpenCode message
 ID as a private checkpoint. A Seqlane fork calls OpenCode's native

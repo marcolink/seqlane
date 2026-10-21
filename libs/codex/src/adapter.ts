@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { InteractionRequiredError } from "@seqlane/core";
+import { Clock, Effect, Semaphore } from "effect";
+import { InteractionRequiredError, jsonValueSchema } from "@seqlane/core";
 import type {
   AgentAdapter,
   AgentAdapterRequest,
@@ -9,6 +10,7 @@ import type { ModelSelection, SeqlaneInvocationMetrics } from "@seqlane/core";
 import { z } from "zod";
 import { CodexAdapterError, CodexStructuredOutputError } from "./errors.js";
 import { CODEX_AGENT_CAPABILITIES } from "./capabilities.js";
+import { createCodexObservationLifecycle } from "./observation-lifecycle.js";
 import {
   parseCodexLaunchConfiguration,
   parseModelListResult,
@@ -41,6 +43,8 @@ const TURN_INTERRUPT_REQUEST_TIMEOUT_MS = 5_000;
 const PRE_TURN_REQUEST_TIMEOUT_MS = 5_000;
 const MAX_PROMPT_COMPONENT_BYTES = 1_000_000;
 const MAX_PROMPT_BYTES = 4_000_000;
+
+const currentTimeMillis = (): number => Effect.runSync(Clock.currentTimeMillis);
 
 export interface CodexAdapterOptions {
   readonly signal?: AbortSignal;
@@ -133,7 +137,12 @@ function taskJsonSchema(
   task: AgentAdapterRequest["task"],
 ): Record<string, unknown> {
   try {
-    return z.toJSONSchema(task.output) as Record<string, unknown>;
+    // Zod emits null-prototype schema objects. Normalize the generated schema
+    // at this trusted boundary so the canonical JSON value validator accepts
+    // the complete request payload.
+    return z
+      .record(z.string(), jsonValueSchema)
+      .parse(structuredClone(z.toJSONSchema(task.output)));
   } catch (cause) {
     throw new CodexStructuredOutputError(
       `task "${task.id}" output schema cannot produce JSON Schema`,
@@ -192,66 +201,47 @@ async function withTimeout<T>(
   promise: Promise<T>,
   milliseconds: number,
 ): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(
-          () =>
-            reject(
-              new CodexAdapterError(
-                "cancellation",
-                "Codex turn termination was not confirmed",
-              ),
-            ),
-          milliseconds,
-        );
+  return Effect.runPromise(
+    Effect.raceFirst(
+      Effect.tryPromise({
+        try: () => promise,
+        catch: (cause) => cause,
       }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
+      Effect.sleep(`${milliseconds} millis`).pipe(
+        Effect.andThen(
+          Effect.fail(
+            new CodexAdapterError(
+              "cancellation",
+              "Codex turn termination was not confirmed",
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 async function raceWithAbort<T>(
   promise: Promise<T>,
   signal: AbortSignal,
 ): Promise<T> {
-  if (signal.aborted) {
-    void promise.catch(() => undefined);
-    throw (
-      signal.reason ??
-      new CodexAdapterError("cancellation", "Codex task was cancelled")
-    );
-  }
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      signal.removeEventListener("abort", onAbort);
-      reject(
-        signal.reason ??
-          new CodexAdapterError("cancellation", "Codex task was cancelled"),
-      );
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        if (signal.aborted) {
-          reject(
-            signal.reason ??
-              new CodexAdapterError("cancellation", "Codex task was cancelled"),
-          );
-          return;
-        }
-        resolve(value);
-      },
-      (cause) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(cause);
-      },
-    );
-  });
+  const cancellation = () =>
+    signal.reason ??
+    new CodexAdapterError("cancellation", "Codex task was cancelled");
+  return Effect.runPromise(
+    Effect.raceFirst(
+      Effect.tryPromise({
+        try: () => promise,
+        catch: (cause) => cause,
+      }),
+      Effect.callback<T, unknown>((resume) => {
+        const abort = (): void => resume(Effect.fail(cancellation()));
+        if (signal.aborted) abort();
+        else signal.addEventListener("abort", abort, { once: true });
+        return Effect.sync(() => signal.removeEventListener("abort", abort));
+      }),
+    ),
+  );
 }
 
 function createAdapterForTransport(
@@ -266,7 +256,9 @@ function createAdapterForTransport(
   let lastTurnId: string | undefined;
   let invalidated = false;
   let threadPromise: Promise<string> | undefined;
-  let queue = Promise.resolve();
+  // The single Codex thread is a serialized resource. Effect owns both the
+  // wait queue and permit release when an invocation is interrupted.
+  const turns = Semaphore.makeUnsafe(1);
   let selectionResolved = false;
   let effectiveSelection: ModelSelection | undefined;
 
@@ -409,6 +401,15 @@ function createAdapterForTransport(
     tracker: TurnTracker,
     request: AgentAdapterRequest,
   ): Promise<void> => {
+    const cancellationTerminationError = () =>
+      new CodexAdapterError(
+        "cancellation",
+        "Codex app-server failed while confirming cancellation",
+        new AggregateError(
+          [request.signal.reason, tracker.stopCause()],
+          "Cancellation cause and transport failure",
+        ),
+      );
     void tracker.completion.catch(() => undefined);
     try {
       await withTimeout(
@@ -416,10 +417,20 @@ function createAdapterForTransport(
         TURN_INTERRUPT_REQUEST_TIMEOUT_MS,
       );
       await withTimeout(
-        tracker.completion,
+        Promise.race([
+          tracker.completion.then(() => undefined),
+          tracker.failure,
+          tracker.stopped,
+        ]),
         TURN_TERMINATION_CONFIRM_TIMEOUT_MS,
       );
     } catch (cause) {
+      if (tracker.isStopped()) {
+        if (tracker.stopCause() !== undefined) {
+          throw cancellationTerminationError();
+        }
+        return;
+      }
       await invalidateUnconfirmedTurn(request);
       throw new CodexAdapterError(
         "cancellation",
@@ -427,168 +438,279 @@ function createAdapterForTransport(
         cause,
       );
     }
+    if (tracker.stopCause() !== undefined) {
+      throw cancellationTerminationError();
+    }
+    tracker.terminateActivities(
+      currentTimeMillis(),
+      "Codex turn ended before tool activity completed",
+    );
   };
 
-  const execute = async (request: AgentAdapterRequest): Promise<unknown> => {
+  const observeTransportTermination = (
+    tracker: TurnTracker,
+    signal: AbortSignal,
+  ): void => {
+    const stopAfterCancellation = (cause?: unknown): void => {
+      tracker.confirmStopped(
+        currentTimeMillis(),
+        "Codex app-server stopped after cancellation",
+        cause,
+      );
+    };
+    void transport.termination
+      .then(
+        () => {
+          if (signal.aborted) {
+            stopAfterCancellation();
+            return;
+          }
+          tracker.fail(
+            new CodexAdapterError(
+              "execution",
+              "Codex app-server process terminated during an active turn",
+            ),
+            currentTimeMillis(),
+          );
+        },
+        (cause) => {
+          if (signal.aborted) {
+            stopAfterCancellation(cause);
+            return;
+          }
+          tracker.fail(cause, currentTimeMillis());
+        },
+      )
+      .catch(() => undefined);
+  };
+
+  const execute = (request: AgentAdapterRequest) => {
     assertUsable();
     for (const diagnostic of options.drainDiagnostics?.() ?? []) {
       reportDiagnostic(request, diagnostic);
     }
-    const operation = queue.then(async () => {
-      assertUsable();
-      const startedAt = Date.now();
-      const signal = composeSignals(options.signal, request.signal);
-      const requestedSelection = selectionFor(request);
-      const selection = await resolveSelection(requestedSelection, signal);
-      const model = modelParams(selection);
-      const id = await ensureThread(signal, selection);
-      const registration = dispatcher.begin(id);
-      request.onExecutionStarted();
-      const turnStartPromise = withDeadline(
-        transport.request("turn/start", {
-          threadId: id,
-          input: [{ type: "text", text: buildPrompt(request) }],
-          cwd: configuration.workspace,
-          approvalPolicy: "never",
-          sandboxPolicy: {
-            type: "workspaceWrite",
-            writableRoots: [configuration.workspace],
-            networkAccess: configuration.networkAccess,
-          },
-          outputSchema: taskJsonSchema(request.task),
-          ...(model.model === undefined ? {} : model),
-        }),
-        PRE_TURN_REQUEST_TIMEOUT_MS,
-        "turn/start",
-      ).catch(async (cause) => {
-        if (cause instanceof CodexRequestDeadlineError) {
-          await invalidateUnconfirmedTurn(request);
-        }
-        throw cause;
-      });
-      let turn: ReturnType<typeof parseTurnStartResult>;
-      let tracker!: TurnTracker;
-      try {
-        turn = parseTurnStartResult(
-          await raceWithAbort(turnStartPromise, signal),
-        );
-        tracker = createTurnTracker(
-          registration,
-          turn.id,
-          request.onActivity,
-          transport.respond,
-        );
-      } catch (cause) {
-        if (signal.aborted) {
+    const observation = createCodexObservationLifecycle(
+      request,
+      currentTimeMillis,
+    );
+    return Semaphore.withPermit(turns)(
+      Effect.tryPromise({
+        try: async () => {
+          assertUsable();
+          const startedAt = currentTimeMillis();
+          const signal = composeSignals(options.signal, request.signal);
+          const requestedSelection = selectionFor(request);
+          const selection = await resolveSelection(requestedSelection, signal);
+          observation.setSelection(selection);
+          const model = modelParams(selection);
+          const id = await ensureThread(signal, selection);
+          const registration = dispatcher.begin(id);
+          request.onExecutionStarted();
+          const prompt = buildPrompt(request);
+          const outputSchema = taskJsonSchema(request.task);
+          const turnParameters = {
+            threadId: id,
+            input: [{ type: "text", text: prompt }],
+            cwd: configuration.workspace,
+            approvalPolicy: "never",
+            sandboxPolicy: {
+              type: "workspaceWrite",
+              writableRoots: [configuration.workspace],
+              networkAccess: configuration.networkAccess,
+            },
+            outputSchema,
+            ...(model.model === undefined ? {} : model),
+          };
+          observation.started(turnParameters);
+          const turnStartPromise = withDeadline(
+            transport.request("turn/start", turnParameters),
+            PRE_TURN_REQUEST_TIMEOUT_MS,
+            "turn/start",
+          ).catch(async (cause) => {
+            if (cause instanceof CodexRequestDeadlineError) {
+              await invalidateUnconfirmedTurn(request);
+            }
+            throw cause;
+          });
+          let turn: ReturnType<typeof parseTurnStartResult>;
+          let tracker!: TurnTracker;
           try {
             turn = parseTurnStartResult(
-              await withTimeout(
-                turnStartPromise,
-                TURN_START_CONFIRM_TIMEOUT_MS,
-              ),
+              await raceWithAbort(turnStartPromise, signal),
             );
             tracker = createTurnTracker(
               registration,
               turn.id,
               request.onActivity,
               transport.respond,
+              {
+                startedTurn: turn,
+                onSnapshot: (snapshot) => observation.exchange(snapshot),
+              },
             );
-            await interruptAndConfirm(turn.id, tracker, request);
-          } catch (confirmationCause) {
-            registration.cancel();
-            await invalidateUnconfirmedTurn(request);
-            throw new CodexAdapterError(
-              "cancellation",
-              "Codex turn start could not be terminated safely",
-              confirmationCause,
+            observation.exchange(tracker.snapshot());
+            observeTransportTermination(tracker, signal);
+          } catch (cause) {
+            if (signal.aborted) {
+              try {
+                turn = parseTurnStartResult(
+                  await withTimeout(
+                    turnStartPromise,
+                    TURN_START_CONFIRM_TIMEOUT_MS,
+                  ),
+                );
+                tracker = createTurnTracker(
+                  registration,
+                  turn.id,
+                  request.onActivity,
+                  transport.respond,
+                  {
+                    startedTurn: turn,
+                    onSnapshot: (snapshot) => observation.exchange(snapshot),
+                  },
+                );
+                observation.exchange(tracker.snapshot());
+                observeTransportTermination(tracker, signal);
+                await interruptAndConfirm(turn.id, tracker, request);
+              } catch (confirmationCause) {
+                registration.cancel();
+                await invalidateUnconfirmedTurn(request);
+                throw new CodexAdapterError(
+                  "cancellation",
+                  "Codex turn start could not be terminated safely",
+                  confirmationCause,
+                );
+              } finally {
+                tracker?.dispose();
+              }
+            } else {
+              registration.cancel();
+            }
+            throw cause;
+          }
+          try {
+            let completed: CompletedTurn;
+            try {
+              completed = await raceWithAbort(
+                Effect.runPromise(
+                  Effect.raceFirst(
+                    Effect.tryPromise({
+                      try: () => tracker.completion,
+                      catch: (cause) => cause,
+                    }),
+                    Effect.raceFirst(
+                      Effect.tryPromise({
+                        try: () => tracker.interaction,
+                        catch: (cause) => cause,
+                      }),
+                      Effect.tryPromise({
+                        try: () => tracker.failure,
+                        catch: (cause) => cause,
+                      }),
+                    ),
+                  ),
+                ),
+                signal,
+              );
+            } catch (cause) {
+              const shouldInterrupt =
+                cause instanceof InteractionRequiredError ||
+                signal.aborted ||
+                (cause instanceof CodexAdapterError &&
+                  ["cancellation", "limit", "protocol"].includes(cause.code));
+              if (shouldInterrupt) {
+                await interruptAndConfirm(turn.id, tracker, request);
+              }
+              throw cause;
+            }
+            if (signal.aborted && tracker.stopCause() !== undefined) {
+              throw new CodexAdapterError(
+                "cancellation",
+                "Codex app-server failed while confirming cancellation",
+                new AggregateError(
+                  [request.signal.reason, tracker.stopCause()],
+                  "Cancellation cause and transport failure",
+                ),
+              );
+            }
+            tracker.terminateActivities(
+              currentTimeMillis(),
+              "Codex turn ended before tool activity completed",
             );
+            if (completed.turn.status !== "completed") {
+              const reason = completed.turn.error?.message;
+              throw new CodexAdapterError(
+                "execution",
+                reason === undefined
+                  ? `Codex turn ended with status ${completed.turn.status}`
+                  : `Codex turn failed: ${reason}`,
+              );
+            }
+            lastTurnId = completed.turn.id;
+            const text =
+              completed.agentMessageText ??
+              [...completed.items]
+                .reverse()
+                .map(itemText)
+                .find((value) => value !== undefined);
+            if (text === undefined)
+              throw new CodexStructuredOutputError(
+                "Codex turn did not return an agent message",
+              );
+            let value: unknown;
+            try {
+              value = JSON.parse(text);
+            } catch (cause) {
+              throw new CodexStructuredOutputError(
+                "Codex agent message was not valid JSON",
+                cause,
+              );
+            }
+            const parsed = request.task.output.safeParse(value);
+            if (!parsed.success)
+              throw new CodexStructuredOutputError(
+                "Codex output did not satisfy the task schema",
+                parsed.error,
+              );
+            const metrics = metricsFromUsage(
+              completed.usage,
+              selection,
+              currentTimeMillis() - startedAt,
+            );
+            if (metrics !== undefined) request.onMetrics?.(metrics);
+            const response = {
+              text,
+              output: parsed.data,
+              turn: completed.turn,
+              items: completed.items,
+            };
+            observation.succeeded({
+              responseId: completed.turn.id,
+              response,
+              ...(completed.usage === undefined
+                ? {}
+                : { usage: completed.usage }),
+              endedAt: currentTimeMillis(),
+            });
+            return parsed.data;
           } finally {
-            tracker?.dispose();
+            tracker.dispose();
           }
-        } else {
-          registration.cancel();
-        }
-        throw cause;
-      }
-      try {
-        let completed: CompletedTurn;
-        try {
-          completed = await raceWithAbort(
-            Promise.race([
-              tracker.completion,
-              tracker.interaction,
-              tracker.failure,
-            ]),
-            signal,
-          );
-        } catch (cause) {
-          const shouldInterrupt =
-            cause instanceof InteractionRequiredError ||
-            signal.aborted ||
-            (cause instanceof CodexAdapterError &&
-              ["cancellation", "limit", "protocol"].includes(cause.code));
-          if (shouldInterrupt) {
-            await interruptAndConfirm(turn.id, tracker, request);
-          }
-          throw cause;
-        }
-        if (completed.turn.status !== "completed") {
-          const reason = completed.turn.error?.message;
-          throw new CodexAdapterError(
-            "execution",
-            reason === undefined
-              ? `Codex turn ended with status ${completed.turn.status}`
-              : `Codex turn failed: ${reason}`,
-          );
-        }
-        lastTurnId = completed.turn.id;
-        const text =
-          completed.agentMessageText ??
-          [...completed.items]
-            .reverse()
-            .map(itemText)
-            .find((value) => value !== undefined);
-        if (text === undefined)
-          throw new CodexStructuredOutputError(
-            "Codex turn did not return an agent message",
-          );
-        let value: unknown;
-        try {
-          value = JSON.parse(text);
-        } catch (cause) {
-          throw new CodexStructuredOutputError(
-            "Codex agent message was not valid JSON",
-            cause,
-          );
-        }
-        const parsed = request.task.output.safeParse(value);
-        if (!parsed.success)
-          throw new CodexStructuredOutputError(
-            "Codex output did not satisfy the task schema",
-            parsed.error,
-          );
-        const metrics = metricsFromUsage(
-          completed.usage,
-          selection,
-          Date.now() - startedAt,
-        );
-        if (metrics !== undefined) request.onMetrics?.(metrics);
-        return parsed.data;
-      } finally {
-        tracker.dispose();
-      }
-    });
-    queue = operation.then(
-      () => undefined,
-      () => undefined,
+        },
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.catch((cause) => {
+          observation.failed(cause, request.signal.aborted);
+          return Effect.fail(cause);
+        }),
+      ),
     );
-    return operation;
   };
 
   const adapter: AgentAdapter = {
     capabilities: CODEX_AGENT_CAPABILITIES,
     close: closeTransport,
-    execute,
+    execute: (request) => Effect.runPromise(Effect.scoped(execute(request))),
     captureCheckpoint: async () => {
       assertUsable();
       if (threadId === undefined || lastTurnId === undefined) {
@@ -676,7 +798,6 @@ export function createCodexAdapter(
     ));
   const lifecycleRequest = (): AgentAdapterRequest => ({
     invocationId: "codex-lifecycle",
-    observability: {},
     task: {
       id: "codex-lifecycle",
       input: z.unknown(),

@@ -1,7 +1,8 @@
 // @test-scope ./agent-runtime.ts
 // @test-scope ../../../libs/runtime/src/runtime/mastra/operational-host.ts
 import type { AgentAdapter, AgentRuntimeFactory } from "@seqlane/agent-adapter";
-import type { Plan, PlanNode } from "@seqlane/core";
+import type { Plan, PlanNode, SeqlaneEvent } from "@seqlane/core";
+import type { SeqlaneObservation } from "@seqlane/protocol";
 import { startOpenCodeService } from "@seqlane/opencode-adapter";
 import { createOpenCodeAdapterForRun } from "@seqlane/opencode-adapter/testing";
 import {
@@ -38,7 +39,11 @@ function injectedRuntime(adapter: AgentAdapter): AgentRuntimeFactory {
   });
 }
 
-function agentWorkflow(key: string, agentRuntime: AgentRuntimeFactory) {
+function agentWorkflow(
+  key: string,
+  agentRuntime: AgentRuntimeFactory,
+  events: SeqlaneEvent[],
+) {
   const taskId = `${key}.task`;
   const node: PlanNode = {
     type: "task",
@@ -57,6 +62,10 @@ function agentWorkflow(key: string, agentRuntime: AgentRuntimeFactory) {
     key,
     plan,
     workflow: { input, output },
+    eventSink: () => ({
+      emit: (event) => events.push(event),
+      emitPlan: () => undefined,
+    }),
     taskDefinitions: new Map([
       [
         taskId,
@@ -73,13 +82,14 @@ function agentWorkflow(key: string, agentRuntime: AgentRuntimeFactory) {
   });
 }
 
-async function persistedTrace(
+async function operationalHostEvents(
   key: string,
   adapter: AgentAdapter,
   traceId: string,
-): Promise<unknown> {
+): Promise<SeqlaneEvent[]> {
+  const events: SeqlaneEvent[] = [];
   const host = await createOperationalHost({
-    workflows: [agentWorkflow(key, injectedRuntime(adapter))],
+    workflows: [agentWorkflow(key, injectedRuntime(adapter), events)],
     storageUrl: "file::memory:",
     port: 0,
   });
@@ -104,77 +114,10 @@ async function persistedTrace(
       status: "success",
       result: { value: "done" },
     });
-    return await host.inspectTrace(traceId);
+    return events;
   } finally {
     await host.close();
   }
-}
-
-function expectPersistedAdapterTrace(
-  trace: unknown,
-  adapter: "opencode",
-  tool: string,
-  callId: string,
-): void {
-  expect(trace).toMatchObject({
-    spans: expect.arrayContaining([
-      expect.objectContaining({
-        type: "agent_run",
-        metadata: expect.objectContaining({
-          "seqlane.adapter": adapter,
-        }),
-      }),
-      expect.objectContaining({
-        type: "tool_call",
-        name: tool,
-        attributes: expect.objectContaining({
-          toolType: "tool",
-          toolCallId: callId,
-          success: true,
-        }),
-      }),
-    ]),
-  });
-  if (
-    typeof trace !== "object" ||
-    trace === null ||
-    !("spans" in trace) ||
-    !Array.isArray(trace.spans)
-  ) {
-    throw new TypeError("Expected a persisted trace with spans");
-  }
-  const agentSpan = trace.spans.find(
-    (span) =>
-      typeof span === "object" && span !== null && span.type === "agent_run",
-  );
-  const toolSpan = trace.spans.find(
-    (span) =>
-      typeof span === "object" && span !== null && span.type === "tool_call",
-  );
-  expect(toolSpan?.parent).toBe(agentSpan);
-  expect(agentSpan?.parent).toMatchObject({ type: "workflow_step" });
-}
-
-function serializedSpanFields(trace: unknown): string {
-  if (
-    typeof trace !== "object" ||
-    trace === null ||
-    !("spans" in trace) ||
-    !Array.isArray(trace.spans)
-  ) {
-    throw new TypeError("Expected a persisted trace with spans");
-  }
-  return JSON.stringify(
-    trace.spans.map((span) => {
-      if (typeof span !== "object" || span === null) return span;
-      return {
-        type: span.type,
-        name: span.name,
-        attributes: span.attributes,
-        metadata: span.metadata,
-      };
-    }),
-  );
 }
 
 describe("CLI agent runtime composition", () => {
@@ -501,42 +444,203 @@ describe("CLI agent runtime composition", () => {
     }
   });
 
-  it("persists injected OpenCode adapter spans through the operational host", async () => {
-    const adapter = createOpenCodeAdapterForRun({
-      prompt: async ({ onObservation }) => {
-        onObservation?.({
+  it("retains OpenCode model records and forwards activities in hosted execution", async () => {
+    const canonicalObservations: {
+      invocationId: string;
+      observation: SeqlaneObservation;
+    }[] = [];
+    const nativeAdapter = createOpenCodeAdapterForRun({
+      prompt: async (prompt) => {
+        prompt.onNativeRequest?.({
+          model: { providerID: "fixture-provider", modelID: "fixture-model" },
+          messages: [{ role: "user", content: "complete request" }],
+        });
+        prompt.onNativeResponse?.({
+          id: "native-response-1",
+          content: [{ type: "text", text: "complete response" }],
+        });
+        prompt.onActivity?.({
+          activityId: "skill-activity-1",
+          kind: "skill",
+          name: "repository-guide",
+          state: "succeeded",
+          input: { path: "AGENTS.md" },
+          output: "Loaded repository guidance",
+          metadata: { source: "fixture" },
+          startedAt: 10,
+          endedAt: 12,
+        });
+        prompt.onActivity?.({
+          activityId: "opencode-call",
           kind: "tool",
-          sessionID: "opencode-session",
-          messageID: "opencode-message",
-          callID: "opencode-call",
-          tool: "ｅｃｈｏ",
-          status: "completed",
+          name: "echo",
+          state: "succeeded",
           input: { secret: "opencode-input" },
           output: "opencode-output",
           metadata: { transcript: "opencode-transcript" },
+          startedAt: 10,
+          endedAt: 12,
         });
-        return { structured: { value: "done" } };
+        return {
+          structured: { value: "done" },
+          text: "complete assistant response",
+          nativeResponse: {
+            id: "native-response-1",
+            content: [{ type: "text", text: "complete response" }],
+          },
+          metrics: {
+            provider: "fixture-provider",
+            model: "fixture-model",
+            cost: 0.25,
+            tokens: {
+              total: 7,
+              input: 4,
+              output: 3,
+              reasoning: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+          },
+          observation: {
+            kind: "assistant",
+            sessionID: "opencode-session",
+            messageID: "opencode-message",
+            created: 20,
+            completed: 30,
+            provider: "fixture-provider",
+            model: "fixture-model",
+            tokens: {
+              input: 4,
+              output: 3,
+              reasoning: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+            },
+            cost: 0.25,
+            finish: "stop",
+          },
+        };
       },
       checkpoint: async () => ({
         sessionId: "opencode-session",
         messageId: "opencode-message",
       }),
       fork: async () => {
-        throw new Error("fork is not used by storage verification");
+        throw new Error("fork is not used by hosted verification");
       },
       abort: async () => undefined,
       close: async () => undefined,
     });
-    const trace = await persistedTrace(
+    const adapter: AgentAdapter = {
+      ...nativeAdapter,
+      execute: (request) =>
+        nativeAdapter.execute({
+          ...request,
+          onObservation: (observation) => {
+            canonicalObservations.push({
+              invocationId: request.invocationId,
+              observation,
+            });
+            request.onObservation?.(observation);
+          },
+        }),
+    };
+    const events = await operationalHostEvents(
       "repository:opencode-observability",
       adapter,
       "11111111111111111111111111111111",
     );
-
-    expectPersistedAdapterTrace(trace, "opencode", "echo", "opencode-call");
-    const serialized = serializedSpanFields(trace);
-    expect(serialized).not.toContain("opencode-input");
-    expect(serialized).not.toContain("opencode-output");
-    expect(serialized).not.toContain("opencode-transcript");
+    expect(canonicalObservations).toHaveLength(2);
+    expect(canonicalObservations[0]).toMatchObject({
+      invocationId: expect.any(String),
+      observation: {
+        kind: "model",
+        state: "started",
+        observationId: expect.any(String),
+      },
+    });
+    expect(canonicalObservations[1]).toMatchObject({
+      invocationId: canonicalObservations[0]?.invocationId,
+      observation: {
+        kind: "model",
+        state: "succeeded",
+        observationId: canonicalObservations[0]?.observation.observationId,
+      },
+    });
+    expect(canonicalObservations[1]?.observation).toMatchObject({
+      model: {
+        operation: "chat",
+        provider: "fixture-provider",
+        model: "fixture-model",
+        responseId: "opencode-message",
+        finishReasons: ["stop"],
+        request: expect.objectContaining({
+          native: {
+            model: { providerID: "fixture-provider", modelID: "fixture-model" },
+            messages: [{ role: "user", content: "complete request" }],
+          },
+        }),
+        response: {
+          structured: { value: "done" },
+          text: "complete assistant response",
+          native: {
+            id: "native-response-1",
+            content: [{ type: "text", text: "complete response" }],
+          },
+        },
+        usage: {
+          inputTokens: 4,
+          outputTokens: 3,
+          reasoningTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        cost: 0.25,
+        startedAt: 20,
+        endedAt: 30,
+      },
+    });
+    const activities = events.filter(
+      (event) => event.type === "invocation.activity",
+    );
+    expect(activities).toHaveLength(2);
+    expect(activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workId: "work-11111111111111111111111111111111",
+          runId: "11111111111111111111111111111111",
+          invocationId: canonicalObservations[0]?.invocationId,
+          activityId: "opencode-call",
+          kind: "tool",
+          name: "echo",
+          state: "succeeded",
+          input: { state: "present", value: { secret: "opencode-input" } },
+          output: { state: "present", value: "opencode-output" },
+          activityMetadata: {
+            state: "present",
+            value: { transcript: "opencode-transcript" },
+          },
+          startedAt: 10,
+          endedAt: 12,
+        }),
+        expect.objectContaining({
+          workId: "work-11111111111111111111111111111111",
+          runId: "11111111111111111111111111111111",
+          invocationId: canonicalObservations[0]?.invocationId,
+          activityId: "skill-activity-1",
+          kind: "skill",
+          name: "repository-guide",
+          state: "succeeded",
+          input: { state: "present", value: { path: "AGENTS.md" } },
+          output: {
+            state: "present",
+            value: "Loaded repository guidance",
+          },
+          activityMetadata: { state: "present", value: { source: "fixture" } },
+          startedAt: 10,
+          endedAt: 12,
+        }),
+      ]),
+    );
   });
 });

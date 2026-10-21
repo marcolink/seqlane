@@ -6,7 +6,6 @@ import type {
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
 import type { AgentRuntimeModelCapabilities } from "@seqlane/agent-adapter";
-import type { ObservabilityContext } from "@mastra/core/observability";
 import type { SeqlaneObservation } from "@seqlane/protocol";
 
 type LegacyTaskNode = TaskNode & { readonly executor?: string };
@@ -83,7 +82,6 @@ export interface ExecutorRequest {
   readonly taskDefinition?: TaskDefinition;
   readonly modelSelection?: ModelSelection;
   readonly invocationId: string;
-  readonly observability: Partial<ObservabilityContext>;
   readonly taskId: string;
   readonly executor: string;
   readonly input: unknown;

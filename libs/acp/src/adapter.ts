@@ -271,7 +271,7 @@ export function createAcpAdapter(
           }
         };
         const observability = createAcpObservability(
-          request.observability,
+          {},
           request.invocationId,
           (message) => reportDiagnostic("acp-observability", message),
         );

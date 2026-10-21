@@ -74,7 +74,6 @@ describe("OpenCode agent runtime composition", () => {
       );
       const adapter = runtime.createAdapter({
         signal: new AbortController().signal,
-        requestContext: undefined,
       });
 
       expect(runtime).toMatchObject({

@@ -444,7 +444,6 @@ function createOperationalInvocationHandler(
             source.onSessionUiAvailable,
             {
               agentRuntime: source.agentRuntime,
-              requestContext: context.requestContext,
               runId: context.runId,
             },
           );

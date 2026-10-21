@@ -356,6 +356,9 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:../core
+      effect:
+        specifier: 4.0.5
+        version: 4.0.5
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -377,9 +380,6 @@ importers:
 
   libs/opencode:
     dependencies:
-      '@mastra/core':
-        specifier: 1.64.0
-        version: 1.64.0(express@5.2.1)(zod@4.5.4)
       '@opencode-ai/sdk':
         specifier: 1.18.27
         version: 1.18.27
@@ -392,6 +392,9 @@ importers:
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../protocol
+      effect:
+        specifier: 4.0.5
+        version: 4.0.5
       zod:
         specifier: 4.5.4
         version: 4.5.4

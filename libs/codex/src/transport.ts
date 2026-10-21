@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { Clock, Effect, Exit, Scope } from "effect";
 import { CodexAdapterError, CodexProtocolError } from "./errors.js";
 import {
   MAX_JSONL_OUTBOUND_MESSAGE_BYTES,
@@ -19,7 +20,9 @@ import { readCodexVersion, versionDiagnostic } from "./version.js";
 const MAX_IGNORED_RESPONSE_IDS = 1_024;
 const IGNORED_RESPONSE_TTL_MS = 60_000;
 const SHUTDOWN_GRACE_MS = 1_000;
-const SHUTDOWN_FORCE_SETTLEMENT_MS = 1_000;
+const SHUTDOWN_CONFIRM_TIMEOUT_MS = 5_000;
+
+const currentTimeMillis = (): number => Effect.runSync(Clock.currentTimeMillis);
 
 export interface CodexTransport {
   readonly termination: Promise<void>;
@@ -217,23 +220,26 @@ export async function createCodexTransportForProcess(
   const listeners = new Set<(message: CodexInboundMessage) => void>();
   let terminationSettled = false;
   let terminationRequested = false;
-  let shutdownGraceTimer: ReturnType<typeof setTimeout> | undefined;
-  let shutdownForceTimer: ReturnType<typeof setTimeout> | undefined;
+  let terminationFailed = false;
+  let terminationCause: unknown;
+  const processScope = Effect.runSync(Scope.make());
   let resolveTermination!: () => void;
-  const termination = new Promise<void>((resolve) => {
+  let rejectTermination!: (cause: unknown) => void;
+  const termination = new Promise<void>((resolve, reject) => {
     resolveTermination = resolve;
+    rejectTermination = reject;
   });
+  void termination.catch(() => undefined);
 
   const settleTermination = (): void => {
     if (terminationSettled) return;
     terminationSettled = true;
-    if (shutdownGraceTimer !== undefined) clearTimeout(shutdownGraceTimer);
-    if (shutdownForceTimer !== undefined) clearTimeout(shutdownForceTimer);
-    resolveTermination();
+    if (terminationFailed) rejectTermination(terminationCause);
+    else resolveTermination();
   };
 
   const pruneIgnoredResponses = (): void => {
-    const now = Date.now();
+    const now = currentTimeMillis();
     for (const [id, expiresAt] of ignoredResponses) {
       if (expiresAt <= now) ignoredResponses.delete(id);
     }
@@ -246,7 +252,7 @@ export async function createCodexTransportForProcess(
 
   const ignoreResponse = (id: CodexRequestId): void => {
     pruneIgnoredResponses();
-    ignoredResponses.set(id, Date.now() + IGNORED_RESPONSE_TTL_MS);
+    ignoredResponses.set(id, currentTimeMillis() + IGNORED_RESPONSE_TTL_MS);
   };
 
   const wasIgnoredResponse = (id: CodexRequestId): boolean => {
@@ -278,23 +284,29 @@ export async function createCodexTransportForProcess(
     } catch {
       // Best-effort process cleanup.
     }
-    shutdownGraceTimer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // Best-effort process cleanup.
-      }
-      shutdownForceTimer = setTimeout(
-        settleTermination,
-        SHUTDOWN_FORCE_SETTLEMENT_MS,
-      );
-      shutdownForceTimer.unref?.();
-    }, SHUTDOWN_GRACE_MS);
-    shutdownGraceTimer.unref?.();
+    void Effect.runPromise(
+      Effect.raceFirst(
+        Effect.sleep(`${SHUTDOWN_GRACE_MS} millis`),
+        Effect.tryPromise({ try: () => termination, catch: (cause) => cause }),
+      ).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            if (terminationSettled) return;
+            try {
+              child.kill("SIGKILL");
+            } catch {
+              // Best-effort process cleanup.
+            }
+          }),
+        ),
+      ),
+    ).catch(() => undefined);
   };
 
   const fail = (cause: unknown): void => {
     if (state !== "open") return;
+    terminationFailed = true;
+    terminationCause = cause;
     state = "closing";
     rejectPending(cause);
     ignoredResponses.clear();
@@ -410,12 +422,13 @@ export async function createCodexTransportForProcess(
   );
   child.on("close", (code, signal) => {
     if (state === "open") {
-      rejectPending(
-        new CodexAdapterError(
-          "execution",
-          `Codex app-server disconnected (${code ?? signal ?? "unknown"})`,
-        ),
+      const cause = new CodexAdapterError(
+        "execution",
+        `Codex app-server disconnected (${code ?? signal ?? "unknown"})`,
       );
+      terminationFailed = true;
+      terminationCause = cause;
+      rejectPending(cause);
     }
     state = "closed";
     ignoredResponses.clear();
@@ -427,6 +440,26 @@ export async function createCodexTransportForProcess(
   // the child cannot fill the pipe and stall stdout or process shutdown.
   child.stderr.resume();
 
+  const closeProcess = async (): Promise<void> => {
+    if (state === "closed") return;
+    if (state === "open") {
+      state = "closing";
+      rejectPending(
+        new CodexAdapterError("execution", "Codex app-server transport closed"),
+      );
+    }
+    try {
+      child.stdin.end();
+    } catch {
+      // Best-effort process cleanup.
+    }
+    requestChildTermination();
+    await withDeadline(
+      termination,
+      SHUTDOWN_CONFIRM_TIMEOUT_MS,
+      "process termination",
+    );
+  };
   const transport: CodexTransport = {
     termination,
     request(method, params, signal) {
@@ -483,26 +516,28 @@ export async function createCodexTransportForProcess(
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async close() {
-      if (state === "closed") return termination;
-      if (state === "open") {
-        state = "closing";
-        rejectPending(
-          new CodexAdapterError(
-            "execution",
-            "Codex app-server transport closed",
-          ),
+    close: async () => {
+      await Effect.runPromise(Scope.close(processScope, Exit.void));
+      if (!terminationSettled) {
+        throw new CodexAdapterError(
+          "cancellation",
+          "Codex app-server process termination was not confirmed",
         );
       }
-      try {
-        child.stdin.end();
-      } catch {
-        // Best-effort process cleanup.
-      }
-      requestChildTermination();
-      await termination;
     },
   };
+
+  // Register process shutdown at acquisition, before the initialize request.
+  // If initialization fails, closing this scope still owns partial startup.
+  Effect.runSync(
+    Scope.addFinalizer(
+      processScope,
+      Effect.tryPromise({
+        try: closeProcess,
+        catch: (cause) => cause,
+      }).pipe(Effect.catch(() => Effect.void)),
+    ),
+  );
 
   // The handshake is part of transport creation. Nothing else can use this
   // connection until the server has accepted the integration identity.
@@ -528,7 +563,7 @@ export async function createCodexTransportForProcess(
     writeMessage(child, { jsonrpc: "2.0", method: "initialized", params: {} });
     return transport;
   } catch (cause) {
-    await transport.close();
+    await transport.close().catch(() => undefined);
     throw cause;
   }
 }

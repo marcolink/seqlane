@@ -1,5 +1,6 @@
 import type { AgentAdapter, AgentDiagnostic } from "@seqlane/agent-adapter";
 import type { ModelSelection } from "@seqlane/core";
+import { Effect, Exit, Scope } from "effect";
 import { createCodexAdapter } from "./adapter.js";
 import { CodexAdapterError } from "./errors.js";
 import { createCodexModelCapabilities } from "./model-capabilities.js";
@@ -33,6 +34,10 @@ export function createCodexRun(
   let transportPromise: Promise<CodexTransport> | undefined;
   let closed = false;
   let closePromise: Promise<void> | undefined;
+  let closeFailure: { readonly cause: unknown } | undefined;
+  // This scope outlives individual adapter calls and owns the one shared
+  // app-server connection for the complete Seqlane run.
+  const runScope = Effect.runSync(Scope.make());
   const runController = new AbortController();
   const runSignal =
     options.signal === undefined
@@ -50,19 +55,42 @@ export function createCodexRun(
     } = {},
   ): Promise<CodexTransport> => {
     if (closed) throw new Error("Codex run is closed");
-    return (transportPromise ??= (
-      options.createTransport ?? createCodexStdioTransport
-    )(configuration, {
-      ...transportOptions,
-      signal: runSignal,
-      onDiagnostic: (diagnostic) => {
-        if (transportOptions.onDiagnostic !== undefined) {
-          transportOptions.onDiagnostic(diagnostic);
-        } else if (pendingDiagnostics.length < 32) {
-          pendingDiagnostics.push(diagnostic);
-        }
-      },
-    }));
+    return (transportPromise ??= Effect.runPromise(
+      Effect.tryPromise({
+        try: (signal) =>
+          (options.createTransport ?? createCodexStdioTransport)(
+            configuration,
+            {
+              ...transportOptions,
+              signal: AbortSignal.any([runSignal, signal]),
+              onDiagnostic: (diagnostic) => {
+                if (transportOptions.onDiagnostic !== undefined) {
+                  transportOptions.onDiagnostic(diagnostic);
+                } else if (pendingDiagnostics.length < 32) {
+                  pendingDiagnostics.push(diagnostic);
+                }
+              },
+            },
+          ),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.tap((created) =>
+          Scope.addFinalizer(
+            runScope,
+            Effect.tryPromise({
+              try: () => created.close(),
+              catch: (cause) => cause,
+            }).pipe(
+              Effect.catch((cause) =>
+                Effect.sync(() => {
+                  closeFailure = { cause };
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
   };
   const close = (): Promise<void> =>
     (closePromise ??= (async () => {
@@ -71,18 +99,50 @@ export function createCodexRun(
         new CodexAdapterError("cancellation", "Codex run is closed"),
       );
       const pending = transportPromise;
-      if (pending === undefined) return;
-
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const closeLateTransport = pending.then(
-        (created) => created.close().catch(() => undefined),
-        () => undefined,
-      );
-      const timeoutReached = new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, RUN_CLOSE_TIMEOUT_MS);
-      });
-      await Promise.race([closeLateTransport, timeoutReached]);
-      if (timeout !== undefined) clearTimeout(timeout);
+      const scopeClose = Effect.runPromise(Scope.close(runScope, Exit.void));
+      if (pending === undefined) {
+        await scopeClose;
+      } else {
+        await Effect.runPromise(
+          Effect.raceFirst(
+            Effect.tryPromise({
+              try: () =>
+                pending.then(
+                  () => scopeClose,
+                  async (cause) => {
+                    await scopeClose;
+                    throw cause;
+                  },
+                ),
+              catch: (cause) => cause,
+            }),
+            Effect.sleep(`${RUN_CLOSE_TIMEOUT_MS} millis`).pipe(
+              Effect.andThen(
+                Effect.fail(
+                  new CodexAdapterError(
+                    "cancellation",
+                    "Codex run cleanup was not confirmed before its deadline",
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ).catch((cause) => {
+          if (cause instanceof CodexAdapterError) throw cause;
+          throw new CodexAdapterError(
+            "cancellation",
+            "Codex run cleanup failed",
+            cause,
+          );
+        });
+      }
+      if (closeFailure !== undefined) {
+        throw new CodexAdapterError(
+          "cancellation",
+          "Codex transport close failed",
+          closeFailure.cause,
+        );
+      }
     })());
   const modelCapabilities = createCodexModelCapabilities(configuration, {
     createTransport: transport,

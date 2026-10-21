@@ -1,4 +1,5 @@
 import { InteractionRequiredError } from "@seqlane/core";
+import { Effect, Semaphore, Stream } from "effect";
 import type { ModelSelection } from "@seqlane/core";
 import { z } from "zod";
 import { OpenCodeExecutorError } from "./errors.js";
@@ -30,6 +31,11 @@ import {
   createAttemptTransitionDispatcher,
   type AttemptTransitionDispatcher,
 } from "./attempt-transitions.js";
+import { awaitOwnedCleanup } from "./owned-cleanup.js";
+import {
+  runMonitoredPrompt,
+  type MonitoredPromptResult,
+} from "./monitored-prompt.js";
 
 const checkpointSchema = z.object({
   sessionId: z.string().min(1),
@@ -43,28 +49,7 @@ const structuredOutputStates = new WeakMap<
   StructuredOutputState
 >();
 
-type InteractionMonitorResult =
-  | { readonly type: "interaction" }
-  | { readonly type: "monitor-error"; readonly cause: unknown };
-
-async function closeInteractionMonitor(
-  controller: AbortController,
-  removeAbortListener: () => void,
-  monitor: Promise<InteractionMonitorResult> | undefined,
-): Promise<void> {
-  controller.abort();
-  removeAbortListener();
-  if (monitor === undefined) return;
-  const result = await monitor;
-  if (result.type === "monitor-error") {
-    throw executorError(
-      "could not monitor external interaction requirements",
-      result.cause,
-    );
-  }
-}
-
-async function waitForInteraction(
+function waitForInteraction(
   events: AsyncIterable<unknown>,
   sessionID: string,
   signal: AbortSignal,
@@ -72,7 +57,8 @@ async function waitForInteraction(
   onUncertainActivity:
     ((activity: OpenCodeUncertainActivity) => void) | undefined,
   onDiagnostic: ((message: string) => void) | undefined,
-): Promise<void> {
+  onStarted: () => void,
+): Effect.Effect<boolean, unknown> {
   const reportDiagnostic = (message: string): void => {
     try {
       onDiagnostic?.(message);
@@ -80,37 +66,56 @@ async function waitForInteraction(
       // Diagnostics are best effort and must not affect execution.
     }
   };
-  for await (const event of events) {
-    const parsed = parseOpenCodeEvent(event, sessionID);
-    if (parsed === undefined) {
-      reportDiagnostic("ignored malformed OpenCode event");
-      continue;
-    }
-    if (parsed.interaction) return;
-    const observation = parsed.observation;
-    if (observation !== undefined) {
-      dispatcher.observation(observation);
-      continue;
-    }
-    if (parsed.legacyTool !== undefined) {
-      dispatcher.legacyTool(parsed.legacyTool);
-    }
-    if (parsed.backgroundProcess) {
-      // OpenCode's event does not expose a lifetime handle for this process.
-      // Quarantine the session instead of passing an untrackable mutation into
-      // the runtime.
-      onUncertainActivity?.({ reason: "disconnect" });
-    }
-    if (parsed.validity === "unsupported")
-      reportDiagnostic("ignored unsupported OpenCode event");
-    else if (parsed.validity === "malformed")
-      reportDiagnostic("ignored malformed OpenCode event");
-  }
-  if (!signal.aborted) {
-    throw new OpenCodeExecutorError(
-      "interaction monitor closed before task completion",
-    );
-  }
+  let interaction = false;
+  const startedEvents: AsyncIterable<unknown> = {
+    async *[Symbol.asyncIterator]() {
+      onStarted();
+      yield* events;
+    },
+  };
+  const eventStream = Stream.fromAsyncIterable(startedEvents, (cause) => cause);
+  return Stream.runForEachWhile(eventStream, (event) =>
+    Effect.sync(() => {
+      const parsed = parseOpenCodeEvent(event, sessionID);
+      if (parsed === undefined) {
+        reportDiagnostic("ignored malformed OpenCode event");
+        return true;
+      }
+      if (parsed.interaction) {
+        interaction = true;
+        return false;
+      }
+      const observation = parsed.observation;
+      if (observation !== undefined) {
+        dispatcher.observation(observation);
+        return true;
+      }
+      if (parsed.legacyTool !== undefined) {
+        dispatcher.legacyTool(parsed.legacyTool);
+      }
+      if (parsed.backgroundProcess) {
+        // OpenCode's event does not expose a lifetime handle for this process.
+        // Quarantine the session instead of passing an untrackable mutation into
+        // the runtime.
+        onUncertainActivity?.({ reason: "disconnect" });
+      }
+      if (parsed.validity === "unsupported")
+        reportDiagnostic("ignored unsupported OpenCode event");
+      else if (parsed.validity === "malformed")
+        reportDiagnostic("ignored malformed OpenCode event");
+      return true;
+    }),
+  ).pipe(
+    Effect.flatMap(() =>
+      !interaction && !signal.aborted
+        ? Effect.fail(
+            new OpenCodeExecutorError(
+              "interaction monitor closed before task completion",
+            ),
+          )
+        : Effect.succeed(interaction),
+    ),
+  );
 }
 
 function dispatchMessageObservations(
@@ -271,7 +276,7 @@ function createRunCloser(
     close(): Promise<void> {
       if (closePromise !== undefined) return closePromise;
       closed = true;
-      closePromise = (async () => {
+      const cleanup = (async () => {
         const [cancelled, drained] = await Promise.allSettled([
           cancel(),
           queue(),
@@ -279,18 +284,13 @@ function createRunCloser(
         if (cancelled.status === "rejected") throw cancelled.reason;
         if (drained.status === "rejected") throw drained.reason;
       })();
+      closePromise = awaitOwnedCleanup(
+        cleanup,
+        "session cleanup did not terminate before its deadline",
+      );
       return closePromise;
     },
   };
-}
-
-interface PromptCancellation {
-  readonly monitorController: AbortController;
-  readonly monitorSignal: AbortSignal;
-  readonly promptController: AbortController;
-  readonly promptSignal: AbortSignal;
-  readonly result?: Promise<void>;
-  readonly removeRequestListener: () => void;
 }
 
 interface PromptMessageHistoryState {
@@ -307,38 +307,6 @@ interface ReconcilePromptObservationsInput {
   readonly dispatcher: AttemptTransitionDispatcher;
   readonly history: PromptMessageHistoryState;
   readonly onDiagnostic: (message: string) => void;
-}
-
-function createPromptCancellation(
-  runSignal: AbortSignal,
-  requestSignal: AbortSignal | undefined,
-  abort: () => Promise<void>,
-): PromptCancellation {
-  const promptController = new AbortController();
-  const monitorController = new AbortController();
-  let removeRequestListener = (): void => undefined;
-  const result = requestSignal
-    ? new Promise<void>((resolve, reject) => {
-        const onAbort = (): void => {
-          requestSignal.removeEventListener("abort", onAbort);
-          promptController.abort();
-          monitorController.abort();
-          void abort().then(resolve, reject);
-        };
-        removeRequestListener = () =>
-          requestSignal.removeEventListener("abort", onAbort);
-        if (requestSignal.aborted) onAbort();
-        else requestSignal.addEventListener("abort", onAbort, { once: true });
-      })
-    : undefined;
-  return {
-    monitorController,
-    monitorSignal: AbortSignal.any([monitorController.signal, runSignal]),
-    promptController,
-    promptSignal: AbortSignal.any([promptController.signal, runSignal]),
-    result,
-    removeRequestListener,
-  };
 }
 
 function getStructuredOutputState(
@@ -412,14 +380,17 @@ async function createOpenCodeRunForSession(
     throw executorError("could not create an external session", cause);
   }
 
-  let queue = Promise.resolve();
+  const promptSemaphore = Effect.runSync(Semaphore.make(1));
   let aborted = false;
   const runController = new AbortController();
+  let activeDispatcher: AttemptTransitionDispatcher | undefined;
   const closer = createRunCloser(
-    () => queue,
+    () =>
+      Effect.runPromise(Semaphore.withPermits(promptSemaphore, 1)(Effect.void)),
     async () => {
       runController.abort();
       await abort();
+      activeDispatcher?.finish();
     },
   );
   let abortPromise: Promise<void> | undefined;
@@ -455,226 +426,249 @@ async function createOpenCodeRunForSession(
   };
 
   const prompt = (request: OpenCodePrompt): Promise<OpenCodePromptResult> => {
-    const operation = queue.then(async () => {
-      closer.assertOpen();
-      if (aborted || signal?.aborted || request.signal?.aborted) {
-        throw executorError("run was cancelled before task submission");
-      }
-
-      try {
-        const selected = await outputState.resolve();
-        const effectiveStrategy = request.strategy ?? selected.strategy;
-        const cancellation = createPromptCancellation(
-          runController.signal,
-          request.signal,
-          abort,
-        );
-        let interactionRequest: Promise<InteractionMonitorResult> | undefined;
-        try {
-          let events: AsyncIterable<unknown>;
-          try {
-            events = await transport.monitorSession(
-              sessionID,
-              cancellation.monitorSignal,
-            );
-          } catch (cause) {
-            throw executorError(
-              "could not monitor external interaction requirements",
-              cause,
-            );
-          }
-          const dispatcher = createAttemptTransitionDispatcher({
-            onActivity: request.onActivity,
-            onObservation: request.onObservation,
-          });
-          interactionRequest = waitForInteraction(
-            events,
-            sessionID,
-            cancellation.monitorSignal,
-            dispatcher,
-            request.onUncertainActivity,
-            (message) => reportEventDiagnostic(request.onDiagnostic, message),
-          )
-            .then(() => ({ type: "interaction" as const }))
-            .catch((cause) => ({ type: "monitor-error" as const, cause }));
-          const effectiveRequest: OpenCodePrompt = {
-            ...request,
-            strategy: effectiveStrategy,
-            retryCount: selected.retryCount,
-            ...(configuredSelection === undefined
-              ? {}
-              : {
-                  selection: configuredSelection,
-                  ...(configuredSelection.reasoning === undefined
-                    ? {}
-                    : { variant: configuredSelection.reasoning }),
-                }),
-          };
-          const reportMessageDiagnostic = (message: string): void => {
-            reportEventDiagnostic(request.onDiagnostic, message);
-          };
-          if (
-            effectiveStrategy === "prompt" &&
-            (request.onActivity !== undefined ||
-              request.onObservation !== undefined)
-          ) {
-            await snapshotPromptMessageHistory(
-              transport,
-              sessionID,
-              cancellation.promptSignal,
-              messageHistory,
-              reportMessageDiagnostic,
-            );
-          }
-          request.onExecutionStarted?.();
-          const promptResponse = transport
-            .prompt(sessionID, effectiveRequest, cancellation.promptSignal)
-            .then(
-              (response) => ({ type: "response" as const, response }),
-              (cause: unknown) => ({ type: "transport-error" as const, cause }),
-            );
-          const result = await Promise.race([
-            promptResponse,
-            interactionRequest,
-            ...(cancellation.result === undefined
-              ? []
-              : [
-                  cancellation.result.then(() => ({
-                    type: "cancelled" as const,
-                  })),
-                ]),
-          ]);
-          if (request.signal?.aborted && cancellation.result !== undefined) {
-            await cancellation.result;
-            throw executorError("run was cancelled during task submission");
-          }
-
-          if (result.type === "cancelled") {
-            throw executorError("run was cancelled during task submission");
-          }
-
-          if (result.type === "monitor-error") {
-            request.onRunInvalidated?.();
-            cancellation.promptController.abort();
-            await abort().catch(() => undefined);
-            throw executorError(
-              "could not monitor external interaction requirements",
-              result.cause,
-            );
-          }
-
-          if (result.type === "interaction") {
-            request.onRunInvalidated?.();
-            cancellation.promptController.abort();
-            await abort().catch(() => undefined);
-            await promptResponse.catch(() => undefined);
-            throw new InteractionRequiredError("user-input");
-          }
-
-          if (result.type === "transport-error") {
-            if (
-              effectiveStrategy === "native" &&
-              isNativeReadbackCompatibilityError(result.cause)
-            ) {
-              outputState.markNativeReadbackIncompatible(selected.version);
-              throw new StructuredOutputCompatibilityError(
-                selected.version,
-                sessionID,
-                result.cause,
-              );
+    const operation = Effect.runPromise(
+      Semaphore.withPermits(
+        promptSemaphore,
+        1,
+      )(
+        Effect.tryPromise({
+          try: async () => {
+            closer.assertOpen();
+            if (aborted || signal?.aborted || request.signal?.aborted) {
+              throw executorError("run was cancelled before task submission");
             }
-            request.onUncertainActivity?.({ reason: "disconnect" });
-            throw executorError("structured task request failed", result.cause);
-          }
 
-          const parsed = parseOpenCodePromptResponse(
-            result.response,
-            effectiveStrategy,
-          );
-          if (parsed.checkpoint.sessionId !== sessionID) {
-            throw executorError("prompt response belonged to another session");
-          }
-          if (effectiveStrategy === "prompt") {
-            await reconcilePromptObservations({
-              transport,
-              sessionID,
-              signal: cancellation.promptSignal,
-              response: result.response,
-              dispatcher,
-              history: messageHistory,
-              onDiagnostic: reportMessageDiagnostic,
-            });
-          } else {
-            dispatchMessageObservations(
-              [result.response],
-              sessionID,
-              dispatcher,
-              undefined,
-              reportMessageDiagnostic,
-            );
-          }
-          if (effectiveStrategy === "native" && transport.listMessages) {
             try {
-              await transport.listMessages(
-                sessionID,
-                cancellation.promptSignal,
-              );
-            } catch (cause) {
-              if (isNativeReadbackCompatibilityError(cause)) {
-                outputState.markNativeReadbackIncompatible(selected.version);
-                throw new StructuredOutputCompatibilityError(
-                  selected.version,
+              const selected = await outputState.resolve();
+              const effectiveStrategy = request.strategy ?? selected.strategy;
+              const abortPromptSession = async (
+                originalFailure?: unknown,
+              ): Promise<void> => {
+                try {
+                  await abort();
+                } catch (cause) {
+                  request.onUncertainActivity?.({
+                    reason: "timeout",
+                    termination: abortPromise,
+                  });
+                  throw executorError(
+                    "external session termination was not confirmed",
+                    originalFailure === undefined
+                      ? cause
+                      : new AggregateError([originalFailure, cause]),
+                  );
+                }
+                activeDispatcher?.finish();
+              };
+              const effectiveRequest: OpenCodePrompt = {
+                ...request,
+                strategy: effectiveStrategy,
+                retryCount: selected.retryCount,
+                ...(configuredSelection === undefined
+                  ? {}
+                  : {
+                      selection: configuredSelection,
+                      ...(configuredSelection.reasoning === undefined
+                        ? {}
+                        : { variant: configuredSelection.reasoning }),
+                    }),
+              };
+              const dispatcher = createAttemptTransitionDispatcher({
+                onActivity: request.onActivity,
+                onObservation: request.onObservation,
+              });
+              activeDispatcher = dispatcher;
+              let monitoredResult: MonitoredPromptResult<OpenCodePromptResult>;
+              try {
+                monitoredResult = await runMonitoredPrompt({
+                  transport,
                   sessionID,
-                  cause,
+                  runSignal: runController.signal,
+                  requestSignal: request.signal,
+                  onUncertainActivity: request.onUncertainActivity,
+                  abortSession: abortPromptSession,
+                  observeEvents: (events, monitorSignal, onStarted) =>
+                    waitForInteraction(
+                      events,
+                      sessionID,
+                      monitorSignal,
+                      dispatcher,
+                      request.onUncertainActivity,
+                      (message) =>
+                        reportEventDiagnostic(request.onDiagnostic, message),
+                      onStarted,
+                    ),
+                  beforePrompt: async () => {
+                    if (
+                      effectiveStrategy === "prompt" &&
+                      (request.onActivity !== undefined ||
+                        request.onObservation !== undefined)
+                    ) {
+                      await snapshotPromptMessageHistory(
+                        transport,
+                        sessionID,
+                        request.signal ?? runController.signal,
+                        messageHistory,
+                        (message) =>
+                          reportEventDiagnostic(request.onDiagnostic, message),
+                      );
+                    }
+                    request.onExecutionStarted?.();
+                  },
+                  prompt: async (promptSignal) => {
+                    const response = await transport.prompt(
+                      sessionID,
+                      effectiveRequest,
+                      promptSignal,
+                    );
+                    request.onNativeResponse?.(response);
+                    return response;
+                  },
+                  handleResponse: async (response) => {
+                    const parsed = parseOpenCodePromptResponse(
+                      response,
+                      effectiveStrategy,
+                    );
+                    if (parsed.checkpoint.sessionId !== sessionID) {
+                      throw executorError(
+                        "prompt response belonged to another session",
+                      );
+                    }
+                    if (effectiveStrategy === "prompt") {
+                      await reconcilePromptObservations({
+                        transport,
+                        sessionID,
+                        signal: request.signal ?? runController.signal,
+                        response,
+                        dispatcher,
+                        history: messageHistory,
+                        onDiagnostic: (message) =>
+                          reportEventDiagnostic(request.onDiagnostic, message),
+                      });
+                    } else {
+                      dispatchMessageObservations(
+                        [response],
+                        sessionID,
+                        dispatcher,
+                        undefined,
+                        (message) =>
+                          reportEventDiagnostic(request.onDiagnostic, message),
+                      );
+                    }
+                    if (
+                      effectiveStrategy === "native" &&
+                      transport.listMessages
+                    ) {
+                      try {
+                        await transport.listMessages(
+                          sessionID,
+                          request.signal ?? runController.signal,
+                        );
+                      } catch (cause) {
+                        if (isNativeReadbackCompatibilityError(cause)) {
+                          outputState.markNativeReadbackIncompatible(
+                            selected.version,
+                          );
+                          throw new StructuredOutputCompatibilityError(
+                            selected.version,
+                            sessionID,
+                            cause,
+                          );
+                        }
+                        throw executorError(
+                          "could not read the external session",
+                          cause,
+                        );
+                      }
+                    }
+                    terminalCheckpoint = parsed.checkpoint;
+                    return {
+                      structured: parsed.structured,
+                      ...(parsed.text === undefined
+                        ? {}
+                        : { text: parsed.text }),
+                      nativeResponse: response,
+                      ...(parsed.metrics === undefined
+                        ? {}
+                        : { metrics: parsed.metrics }),
+                      ...(parsed.observation === undefined
+                        ? {}
+                        : { observation: parsed.observation }),
+                    };
+                  },
+                });
+              } finally {
+                if (activeDispatcher === dispatcher)
+                  activeDispatcher = undefined;
+              }
+
+              if (monitoredResult.type === "cancelled") {
+                dispatcher.finish();
+                throw executorError("run was cancelled during task submission");
+              }
+              if (monitoredResult.type === "monitor-error") {
+                request.onRunInvalidated?.();
+                dispatcher.finish();
+                throw executorError(
+                  "could not monitor external interaction requirements",
+                  monitoredResult.cause,
                 );
               }
-              throw executorError("could not read the external session", cause);
+              if (monitoredResult.type === "interaction") {
+                request.onRunInvalidated?.();
+                dispatcher.finish();
+                throw new InteractionRequiredError("user-input");
+              }
+              if (monitoredResult.type === "transport-error") {
+                if (
+                  effectiveStrategy === "native" &&
+                  isNativeReadbackCompatibilityError(monitoredResult.cause)
+                ) {
+                  outputState.markNativeReadbackIncompatible(selected.version);
+                  throw new StructuredOutputCompatibilityError(
+                    selected.version,
+                    sessionID,
+                    monitoredResult.cause,
+                  );
+                }
+                request.onUncertainActivity?.({ reason: "disconnect" });
+                throw executorError(
+                  "structured task request failed",
+                  monitoredResult.cause,
+                );
+              }
+              return monitoredResult.response;
+            } catch (cause) {
+              if (cause instanceof InteractionRequiredError) throw cause;
+              if (
+                cause instanceof OpenCodeExecutorError ||
+                cause instanceof StructuredOutputCompatibilityError
+              )
+                throw cause;
+              throw executorError("structured task request failed", cause);
             }
-          }
-          terminalCheckpoint = parsed.checkpoint;
-          return {
-            structured: parsed.structured,
-            ...(parsed.text === undefined ? {} : { text: parsed.text }),
-            ...(parsed.metrics === undefined
-              ? {}
-              : { metrics: parsed.metrics }),
-            ...(parsed.observation === undefined
-              ? {}
-              : { observation: parsed.observation }),
-          };
-        } finally {
-          await closeInteractionMonitor(
-            cancellation.monitorController,
-            cancellation.removeRequestListener,
-            interactionRequest,
-          );
-        }
-      } catch (cause) {
-        if (cause instanceof InteractionRequiredError) throw cause;
-        if (
-          cause instanceof OpenCodeExecutorError ||
-          cause instanceof StructuredOutputCompatibilityError
-        )
-          throw cause;
-        throw executorError("structured task request failed", cause);
-      }
-    });
-    queue = operation.then(
-      () => undefined,
-      () => undefined,
+          },
+          catch: (cause) => cause,
+        }),
+      ),
     );
+    void operation.catch(() => undefined);
     return operation;
   };
 
   const abort = (): Promise<void> => {
     if (abortPromise) return abortPromise;
     aborted = true;
-    abortPromise = transport
+    const abortOperation = transport
       .abort(sessionID, AbortSignal.timeout(runAbortTimeoutMs))
       .then(() => undefined)
       .catch((cause) => {
         throw executorError("could not abort the external session", cause);
       });
+    abortPromise = awaitOwnedCleanup(
+      abortOperation,
+      "external session abort did not terminate before its deadline",
+    );
     return abortPromise;
   };
 

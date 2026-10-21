@@ -1,4 +1,4 @@
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import type { TaskNode } from "@seqlane/core";
 import {
   invocationCreationOrdinal,
@@ -11,9 +11,17 @@ import {
   type TaskExecutionOptions,
 } from "./invocation-support.js";
 import type { PreparedInvocationInput } from "./prepared-input.js";
+import {
+  findUnconfirmedInvocationTermination,
+  UnconfirmedInvocationTerminationError,
+} from "../execution/executor.js";
+
+const OWNED_CLEANUP_TIMEOUT_MS = 30_000;
 
 export function settleOwnedPromise<A>(
   run: () => Promise<A>,
+  timeoutMs = OWNED_CLEANUP_TIMEOUT_MS,
+  onUnconfirmed?: (error: UnconfirmedInvocationTerminationError) => void,
 ): Effect.Effect<A, unknown> {
   let pending: Promise<A> | undefined;
   const operation = Effect.tryPromise({
@@ -21,34 +29,49 @@ export function settleOwnedPromise<A>(
     catch: (cause) => cause,
   });
   return Effect.uninterruptibleMask((restore) =>
-    Effect.flatMap(Effect.exit(restore(operation)), (exit) =>
-      Effect.promise(
-        () =>
-          pending?.then(
-            () => undefined,
-            () => undefined,
-          ) ?? Promise.resolve(),
-      ).pipe(
-        Effect.andThen(
-          Effect.suspend(() =>
+    Effect.flatMap(Effect.exit(restore(operation)), (exit) => {
+      return Effect.flatMap(
+        Effect.promise(
+          () =>
+            pending?.then(
+              () => undefined,
+              () => undefined,
+            ) ?? Promise.resolve(),
+        ).pipe(Effect.timeoutOption(timeoutMs)),
+        (settled) => {
+          if (Option.isNone(settled)) {
+            const error = new UnconfirmedInvocationTerminationError("timeout");
+            onUnconfirmed?.(error);
+            observeLateFailure(pending, error);
+            return Effect.fail(error);
+          }
+          return Effect.suspend(() =>
             Exit.isSuccess(exit)
               ? Effect.succeed(exit.value)
               : Effect.failCause(exit.cause),
-          ),
-        ),
-      ),
-    ),
+          );
+        },
+      );
+    }),
   );
 }
 
-/** Acquire joint eligibility before taking a bounded task-body permit. */
+/**
+ * Acquire joint eligibility before taking a bounded task-body permit.
+ * Promise interpreter/checkpoint bridges remain until the S9 Plan cutover.
+ */
 export function executeTaskNodeEffect(
   context: ExecutionContext,
   node: TaskNode,
   abortSignal: AbortSignal,
   options: TaskExecutionOptions,
   withBodyPermit: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E>,
-  afterBody?: (output: unknown) => Effect.Effect<void, unknown>,
+  afterBody?: (
+    output: unknown,
+    onUnconfirmed: (error: UnconfirmedInvocationTerminationError) => void,
+    cleanupTimeoutMs: number,
+  ) => Effect.Effect<void, unknown>,
+  terminationTimeoutMs = OWNED_CLEANUP_TIMEOUT_MS,
 ): Effect.Effect<unknown, unknown> {
   const invocationId = options.invocationId;
   const creationOrdinal = invocationCreationOrdinal(context, invocationId);
@@ -115,7 +138,10 @@ export function executeTaskNodeEffect(
   } catch (cause) {
     return Effect.fail(cause);
   }
-  const ownership: { retain: boolean; uncertainty?: unknown } = {
+  const ownership: {
+    retain: boolean;
+    uncertainty?: UnconfirmedInvocationTerminationError;
+  } = {
     retain: false,
   };
   return Effect.scoped(
@@ -145,6 +171,7 @@ export function executeTaskNodeEffect(
                 AbortSignal.any([abortSignal, fiberSignal]),
                 {
                   ...options,
+                  terminationTimeoutMs,
                   preparedInput,
                   admission,
                   admissionOwnership: ownership,
@@ -155,30 +182,104 @@ export function executeTaskNodeEffect(
             catch: (cause) => cause,
           });
           return Effect.uninterruptibleMask((restore) =>
-            Effect.flatMap(Effect.exit(restore(execution)), (exit) =>
-              Effect.promise(
-                () =>
-                  pending?.then(
-                    () => undefined,
-                    () => undefined,
-                  ) ?? Promise.resolve(),
-              ).pipe(
-                Effect.andThen(
-                  Effect.suspend(() =>
+            Effect.flatMap(
+              Effect.exit(
+                restore(
+                  Effect.raceFirst(execution, awaitAbortSignal(abortSignal)),
+                ),
+              ),
+              (exit) => {
+                const settled = Effect.promise(
+                  () =>
+                    pending?.then(
+                      () => undefined,
+                      () => undefined,
+                    ) ?? Promise.resolve(),
+                ).pipe(Effect.timeoutOption(terminationTimeoutMs));
+                return Effect.flatMap(settled, (didSettle) => {
+                  if (Option.isNone(didSettle)) {
+                    const uncertainty = retainUnconfirmed(
+                      new UnconfirmedInvocationTerminationError("timeout"),
+                    );
+                    observeLateFailure(pending, uncertainty);
+                    return Effect.fail(uncertainty);
+                  }
+                  return Effect.suspend(() =>
                     ownership.uncertainty !== undefined
                       ? Effect.fail(ownership.uncertainty)
                       : Exit.isSuccess(exit)
                         ? Effect.succeed(exit.value)
                         : Effect.failCause(exit.cause),
-                  ),
-                ),
-              ),
+                  );
+                });
+              },
             ),
           );
         }),
       );
-      if (afterBody !== undefined) yield* afterBody(output);
+      if (afterBody !== undefined) {
+        yield* Effect.uninterruptibleMask((restore) =>
+          Effect.flatMap(
+            Effect.exit(
+              restore(
+                Effect.raceFirst(
+                  afterBody(output, retainUnconfirmed, terminationTimeoutMs),
+                  awaitAbortSignal(abortSignal),
+                ),
+              ),
+            ),
+            (exit) => {
+              const cause = Exit.isFailure(exit)
+                ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+                : undefined;
+              const uncertain =
+                findUnconfirmedInvocationTermination(cause) ??
+                findUnconfirmedInvocationTermination(ownership.uncertainty);
+              if (uncertain !== undefined) {
+                retainUnconfirmed(uncertain);
+                return Effect.fail(ownership.uncertainty);
+              }
+              return Exit.isSuccess(exit)
+                ? Effect.void
+                : Effect.failCause(exit.cause);
+            },
+          ),
+        );
+      }
       return output;
     }),
+  );
+
+  function retainUnconfirmed(
+    error: UnconfirmedInvocationTerminationError,
+  ): UnconfirmedInvocationTerminationError {
+    ownership.retain = true;
+    ownership.uncertainty ??= error;
+    const uncertainty = ownership.uncertainty;
+    if (session !== undefined)
+      context.sessionLocks.quarantine(session, uncertainty);
+    context.workspaceLocks.quarantine(resource, uncertainty);
+    return uncertainty;
+  }
+}
+
+function awaitAbortSignal(signal: AbortSignal): Effect.Effect<never, unknown> {
+  const failure = () => signal.reason ?? new Error("Task execution cancelled");
+  if (signal.aborted) return Effect.fail(failure());
+  return Effect.callback((resume) => {
+    const onAbort = (): void => resume(Effect.fail(failure()));
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    return Effect.sync(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+function observeLateFailure(
+  pending: Promise<unknown> | undefined,
+  uncertainty: UnconfirmedInvocationTerminationError,
+): void {
+  void pending?.then(
+    () => undefined,
+    (cause: unknown) => uncertainty.attachCause(cause),
   );
 }

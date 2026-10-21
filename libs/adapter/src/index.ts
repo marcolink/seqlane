@@ -7,6 +7,8 @@ import type {
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import { z } from "zod";
 
+export type { SeqlaneObservation } from "@seqlane/protocol";
+
 export {
   createBoundedNormalizedNameAllocator,
   type BoundedNormalizedNameAllocator,
@@ -69,11 +71,6 @@ export interface AgentAdapterCapabilities {
 
 export interface AgentAdapterRequest {
   readonly invocationId: string;
-  /**
-   * Opaque runtime-owned observability state. Concrete adapter integrations
-   * must validate it before use.
-   */
-  readonly observability: unknown;
   readonly task: TaskDefinition;
   readonly input: unknown;
   readonly agent?: AgentTaskRequest;
@@ -119,11 +116,6 @@ export interface AgentRuntimeModelCapabilities {
 export interface AgentRuntimeContext {
   readonly signal: AbortSignal;
   readonly modelSelection?: ModelSelection;
-  /**
-   * Opaque execution context supplied by the runtime integration. Concrete
-   * adapters must validate it before use; this contract exposes no engine type.
-   */
-  readonly requestContext: unknown;
 }
 
 /** A run-scoped, composition-owned runtime for one selected agent adapter. */

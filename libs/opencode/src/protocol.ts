@@ -36,6 +36,10 @@ export interface OpenCodePrompt {
   /** Cancels this prompt only after OpenCode acknowledges the session abort. */
   readonly signal?: AbortSignal;
   readonly onExecutionStarted?: () => void;
+  /** Captures the concrete SDK request for the private canonical observation. */
+  readonly onNativeRequest?: (request: unknown) => void;
+  /** Captures the unparsed SDK response before adapter validation. */
+  readonly onNativeResponse?: (response: unknown) => void;
   readonly onActivity?: (activity: OpenCodeActivity) => void;
   /** Receives one validated observation from the single event reducer. */
   readonly onObservation?: (observation: OpenCodeEventObservation) => void;
@@ -71,6 +75,8 @@ export interface OpenCodePromptResult {
   readonly structured: unknown;
   readonly text?: string;
   readonly metrics?: SeqlaneInvocationMetrics;
+  /** Complete SDK prompt response retained for canonical JSON observations. */
+  readonly nativeResponse?: unknown;
   /** Adapter-private validated terminal observation for reconciliation. */
   readonly observation?: OpenCodeTerminalObservation;
 }

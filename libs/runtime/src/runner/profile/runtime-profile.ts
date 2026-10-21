@@ -165,7 +165,6 @@ export async function executeAgentAdapterRequest(
     const result = await awaitWithAbortPrecedence(
       adapter.execute({
         invocationId: request.invocationId,
-        observability: request.observability,
         task,
         input: request.input,
         ...(request.agent === undefined ? {} : { agent: request.agent }),
@@ -294,7 +293,6 @@ function createLazyAgentSession(
   taskDefinitions: TaskDefinitionRegistry,
   agentRuntime: AgentRuntime,
   signal: AbortSignal,
-  requestContext: unknown,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
   checkpointBinding: SessionCheckpointBinding,
@@ -303,7 +301,6 @@ function createLazyAgentSession(
   const adapter = agentRuntime.redactAdapter(
     agentRuntime.createAdapter({
       signal,
-      requestContext,
       ...(effectiveSelection === undefined
         ? {}
         : { modelSelection: effectiveSelection }),
@@ -325,8 +322,6 @@ export interface RuntimeProfileResolutionOptions {
   /** Composition-owned runtime for one workflow run. */
   readonly agentRuntime?: AgentRuntimeFactory;
   readonly runId?: RunId;
-  /** Opaque execution context retained for concrete adapter integrations. */
-  readonly requestContext?: unknown;
   readonly classifierConnection?: PrivateClassifierConnection;
 }
 
@@ -430,7 +425,6 @@ export async function resolveRuntimeProfile(
         taskDefinitions,
         agentRuntime,
         signal,
-        options.requestContext,
         onSessionUiAvailable,
         effectiveSelection,
         checkpointBinding,
@@ -445,7 +439,6 @@ export async function resolveRuntimeProfile(
       const oneShotAdapter = agentRuntime.redactAdapter(
         agentRuntime.createAdapter({
           signal,
-          requestContext: options.requestContext,
         }),
       );
       ownedAdapters.add(oneShotAdapter);

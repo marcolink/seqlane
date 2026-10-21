@@ -37,10 +37,26 @@ export async function awaitWithAbortPrecedence<T>(
     if (aborted) throw signal.reason;
     return result;
   } catch (cause) {
-    if (aborted) throw signal.reason;
+    if (aborted) {
+      throw new AbortWithCauseError(signal.reason, cause);
+    }
     throw cause;
   } finally {
     signal.removeEventListener("abort", onAbort);
+  }
+}
+
+class AbortWithCauseError extends Error {
+  constructor(
+    readonly reason: unknown,
+    cause: unknown,
+  ) {
+    const source = reason instanceof Error ? reason : undefined;
+    super(
+      source?.message ?? "Adapter execution was aborted",
+      cause === reason ? undefined : { cause },
+    );
+    this.name = source?.name ?? "AbortError";
   }
 }
 

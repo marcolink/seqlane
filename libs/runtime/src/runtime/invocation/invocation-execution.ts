@@ -27,7 +27,10 @@ import {
   UnconfirmedInvocationTerminationError,
   UntrackedMutatingBackgroundProcessError,
 } from "../execution/executor.js";
-import { InvocationEffects } from "./invocation-effects.js";
+import {
+  InvocationEffects,
+  InvocationTerminationTimeoutError,
+} from "./invocation-effects.js";
 import {
   publishSessionCheckpoint,
   sessionForInvocation,
@@ -300,7 +303,7 @@ export async function executeTaskNode(
 
       let rawOutput: unknown;
       let metrics: SeqlaneInvocationMetrics | undefined;
-      const effects = new InvocationEffects();
+      const effects = new InvocationEffects(options.terminationTimeoutMs);
       const reportUncertainActivity = (
         activity: SeqlaneUncertainActivity,
       ): void => {
@@ -400,7 +403,6 @@ export async function executeTaskNode(
               effectiveModelSelection(context, invocationId, session) ??
               context.workflowModel,
             invocationId,
-            observability: options.observability,
             taskId: node.taskId,
             executor: (node as LegacyTaskNode).executor ?? node.taskId,
             input,
@@ -459,6 +461,9 @@ export async function executeTaskNode(
               }),
           onUncertainActivity: reportUncertainActivity,
         });
+        if (options.admissionOwnership?.retain === true) {
+          throw options.admissionOwnership.uncertainty;
+        }
       } catch (cause) {
         executorFailure = { cause };
       }
@@ -466,6 +471,9 @@ export async function executeTaskNode(
         await effects.waitForTermination();
       } catch (cause) {
         executorFailure ??= { cause };
+        if (cause instanceof InvocationTerminationTimeoutError) {
+          reportUncertainActivity({ reason: "timeout" });
+        }
       }
       if (unconfirmedActivity !== undefined) {
         if (executorFailure !== undefined)
@@ -521,6 +529,7 @@ export async function executeTaskNode(
 
       return output;
     } catch (cause) {
+      if (options.admissionOwnership?.retain === true) throw cause;
       return throwInvocationFailure(cause, {
         context,
         abortSignal,
@@ -530,7 +539,10 @@ export async function executeTaskNode(
       });
     }
   } finally {
-    if (unconfirmedActivity === undefined) {
+    if (
+      unconfirmedActivity === undefined &&
+      options.admissionOwnership?.retain !== true
+    ) {
       if (!options.deferCompletion) sessionLease?.release();
       releaseWorkspace();
     }

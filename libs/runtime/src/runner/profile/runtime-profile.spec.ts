@@ -36,7 +36,6 @@ function task(): TaskDefinition {
 function request(taskId: string): ExecutorRequest {
   return {
     invocationId: "fixture:1",
-    observability: {},
     taskId,
     executor: "agent",
     input: null,
@@ -258,6 +257,43 @@ describe("runtime profile agent runtime boundary", () => {
       }),
     ).rejects.toBeDefined();
     expect(completedAfterAbort).toBe(true);
+  });
+
+  it.each([
+    ["a frozen Error", Object.freeze(new Error("caller cancelled"))],
+    ["a primitive reason", "caller cancelled"],
+  ])("preserves a late adapter failure with %s", async (_label, reason) => {
+    const definition = task();
+    const definitions = new Map([[definition.id, definition]]);
+    const controller = new AbortController();
+    const sdkFailure = new Error("late adapter rejection");
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async (value) => {
+        value.onExecutionStarted();
+        return new Promise((_resolve, reject) =>
+          value.signal.addEventListener("abort", () => reject(sdkFailure), {
+            once: true,
+          }),
+        );
+      },
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => adapter,
+    };
+    const execution = executeAgentAdapterRequest(
+      adapter,
+      definitions,
+      undefined,
+      { ...request(definition.id), signal: controller.signal },
+    );
+
+    controller.abort(reason);
+    await expect(execution).rejects.toMatchObject({
+      name: reason instanceof Error ? reason.name : "AbortError",
+      cause: sdkFailure,
+      reason,
+    });
+    expect(reason instanceof Error ? reason.cause : undefined).toBeUndefined();
   });
 
   it("keeps a timed-out session unavailable until adapter termination confirms", async () => {

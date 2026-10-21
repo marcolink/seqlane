@@ -28,7 +28,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
 import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
-import { UnconfirmedInvocationTerminationError } from "./runtime/execution/executor.js";
+import { findUnconfirmedInvocationTermination } from "./runtime/execution/executor.js";
 
 const recordSchema = z.object({ value: z.string() });
 const fullCapabilities: AgentAdapterCapabilities = {
@@ -272,12 +272,12 @@ async function settleBeforeTimeout<A>(promise: Promise<A>): Promise<A> {
   }
 }
 
-function hasUnconfirmedTermination(cause: unknown): boolean {
-  const pending: unknown[] = [cause];
+function hasCause(value: unknown, expected: unknown): boolean {
+  const pending: unknown[] = [value];
   const seen = new Set<Error>();
   while (pending.length > 0) {
     const current = pending.pop();
-    if (current instanceof UnconfirmedInvocationTerminationError) return true;
+    if (current === expected) return true;
     if (!(current instanceof Error) || seen.has(current)) continue;
     seen.add(current);
     if (current.cause !== undefined) pending.push(current.cause);
@@ -287,6 +287,64 @@ function hasUnconfirmedTermination(cause: unknown): boolean {
 }
 
 describe("startWorkflowRun Effect session and workspace admission", () => {
+  it("keeps a native adapter rejection behind task cancellation in the target run", async () => {
+    const task = defineAgentTask({
+      id: "late-native-adapter-rejection",
+      input: recordSchema,
+      output: recordSchema,
+      timeoutMs: 1,
+      goal: () => "Wait for cancellation.",
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: "direct-effect-late-native-adapter-rejection",
+        input: z.object({}),
+        output: recordSchema,
+      })
+        .task("task", task, () => ({ value: "input" }))
+        .output(({ tasks }) => tasks.task.output)
+        .define(),
+    );
+    const sdkFailure = new Error("late native SDK failure");
+    let closeBeforeTerminal = false;
+    const { events, sink } = eventSink();
+    const agentRuntime = runtimeFor({
+      onClose: async () => {
+        closeBeforeTerminal = !events.some((event) =>
+          ["run.succeeded", "run.failed", "run.cancelled"].includes(event.type),
+        );
+      },
+      adapter: () => ({
+        capabilities: fullCapabilities,
+        execute: async (request) => {
+          request.onExecutionStarted();
+          return new Promise((_resolve, reject) =>
+            request.signal.addEventListener("abort", () => reject(sdkFailure), {
+              once: true,
+            }),
+          );
+        },
+      }),
+    });
+    const handle = startWorkflowRun(
+      { workflow: built, input: {}, agentRuntime, events: sink },
+      { program: createEffectPlanProgram },
+    );
+
+    const outcome = await settleBeforeTimeout(handle.outcome);
+
+    expect(outcome.status).toBe("failed");
+    if (outcome.status === "failed") {
+      expect(hasCause(outcome.error, sdkFailure)).toBe(true);
+    }
+    expect(closeBeforeTerminal).toBe(true);
+    expect(
+      events.filter((event) =>
+        ["run.succeeded", "run.failed", "run.cancelled"].includes(event.type),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("runs authored reuse and fork sessions with a stable checkpoint and closes before the terminal event", async () => {
     const built = buildWorkflow(modelSelectionWorkflow);
     const { events, sink } = eventSink();
@@ -795,7 +853,7 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
     const outcome = await settleBeforeTimeout(handle.outcome);
     expect(outcome.status).toBe("failed");
     if (outcome.status === "failed") {
-      expect(hasUnconfirmedTermination(outcome.error)).toBe(true);
+      expect(findUnconfirmedInvocationTermination(outcome.error)).toBeDefined();
     }
     const ownerStarted = events.find(
       (event) =>

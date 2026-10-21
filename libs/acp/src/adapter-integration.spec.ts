@@ -102,7 +102,6 @@ function request(
     signal,
     onExecutionStarted: () => undefined,
     ...overrides,
-    observability: overrides.observability ?? {},
   };
 }
 

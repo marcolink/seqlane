@@ -300,7 +300,10 @@ describe("Codex app-server transport", () => {
       code: "execution",
       message: expect.stringContaining("message delivery failed"),
     });
-    await expect(transport.termination).resolves.toBeUndefined();
+    await expect(transport.termination).rejects.toMatchObject({
+      code: "execution",
+      message: expect.stringContaining("message delivery failed"),
+    });
     expect(child.killed || child.signalCode !== null).toBe(true);
   });
 

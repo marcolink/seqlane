@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { CodexAdapterError } from "./errors.js";
 
 export const CODEX_PREFLIGHT_TIMEOUT_MS = 15_000;
@@ -21,47 +22,31 @@ export async function withDeadline<T>(
   operation: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
-  try {
-    if (signal?.aborted) {
-      throw (
-        signal.reason ??
-        new CodexAdapterError(
-          "cancellation",
-          `Codex ${operation} was cancelled`,
-        )
-      );
-    }
-    const races: Promise<T>[] = [
-      promise,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new CodexRequestDeadlineError(operation, milliseconds)),
-          milliseconds,
-        );
-      }),
-    ];
-    if (signal !== undefined) {
-      races.push(
-        new Promise<T>((_, reject) => {
-          onAbort = () =>
-            reject(
-              signal.reason ??
-                new CodexAdapterError(
-                  "cancellation",
-                  `Codex ${operation} was cancelled`,
-                ),
+  const timeout = new CodexRequestDeadlineError(operation, milliseconds);
+  const cancelled = () =>
+    signal?.reason ??
+    new CodexAdapterError("cancellation", `Codex ${operation} was cancelled`);
+  const source = Effect.tryPromise({
+    try: () => promise,
+    catch: (cause) => cause,
+  });
+  const deadline = Effect.sleep(`${milliseconds} millis`).pipe(
+    Effect.andThen(Effect.fail(timeout)),
+  );
+  const result = Effect.raceFirst(source, deadline);
+  const interruptFromSignal =
+    signal === undefined
+      ? result
+      : Effect.raceFirst(
+          result,
+          Effect.callback<never, unknown>((resume) => {
+            const abort = (): void => resume(Effect.fail(cancelled()));
+            if (signal.aborted) abort();
+            else signal.addEventListener("abort", abort, { once: true });
+            return Effect.sync(() =>
+              signal.removeEventListener("abort", abort),
             );
-          signal.addEventListener("abort", onAbort, { once: true });
-        }),
-      );
-    }
-    return await Promise.race(races);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-    if (signal !== undefined && onAbort !== undefined) {
-      signal.removeEventListener("abort", onAbort);
-    }
-  }
+          }),
+        );
+  return Effect.runPromise(interruptFromSignal);
 }

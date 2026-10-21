@@ -5,14 +5,16 @@ import type {
   TaskNode,
   ValueBinding,
 } from "@seqlane/core";
-import type { ObservabilityContext } from "@mastra/core/observability";
 import {
   referencedNodeIds,
   WORKFLOW_INPUT_NODE_ID,
 } from "../plan/binding-resolution.js";
 import type { ExecutionContext } from "../execution/context.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
-import { findUnconfirmedInvocationTermination } from "../execution/executor.js";
+import {
+  findUnconfirmedInvocationTermination,
+  type UnconfirmedInvocationTerminationError,
+} from "../execution/executor.js";
 import type { RuntimeValidationResult } from "../validation/validation-results.js";
 import type { JointAdmission } from "./joint-admission.js";
 
@@ -23,7 +25,8 @@ export type LegacyTaskNode = PlanNode & { readonly executor?: string };
 export interface TaskExecutionOptions {
   readonly preparedInput?: PreparedInvocationInput;
   readonly invocationId: InvocationId;
-  readonly observability: Partial<ObservabilityContext>;
+  /** Legacy compiler metadata; concrete adapters receive no engine context. */
+  readonly observability?: unknown;
   readonly results: Map<string, unknown>;
   readonly remainingConsumers: Map<string, number>;
   readonly subject: SeqlaneInvocationSubject;
@@ -32,7 +35,12 @@ export interface TaskExecutionOptions {
   /** Admission acquired by the native Effect Plan caller. */
   readonly admission?: JointAdmission;
   /** Mutable lease disposition shared with the Effect finalizer. */
-  readonly admissionOwnership?: { retain: boolean; uncertainty?: unknown };
+  readonly admissionOwnership?: {
+    retain: boolean;
+    uncertainty?: UnconfirmedInvocationTerminationError;
+  };
+  /** Private timeout seam for owned executor termination and tests. */
+  readonly terminationTimeoutMs?: number;
   readonly iteration?: number;
   /** Native choice/repeat callers publish completion after output validation. */
   readonly deferCompletion?: boolean;

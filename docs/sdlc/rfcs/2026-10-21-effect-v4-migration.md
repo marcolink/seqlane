@@ -361,7 +361,7 @@ The proposed Studio removal and fresh hosted-history format are explicit behavio
 
 ## Delivery state
 
-Architecture accepted and target contract active. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) records branch-local process evidence. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) records dependency-graph parity through the private CLI and direct compositions. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) records session lineage, atomic admission, observations, and cleanup through both compositions. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) records nested execution, choices, repeats, validation, shared limits, and cleanup. The remaining task slices own full runtime, hosted, distribution, and removal delivery.
+Architecture accepted and target contract active. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) records branch-local process evidence. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) records dependency-graph parity through the private CLI and direct compositions. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) records session lineage, atomic admission, observations, and cleanup through both compositions. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) records nested execution, choices, repeats, validation, shared limits, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) records native adapter ownership, full observations, and confirmed cancellation. The remaining task slices own full runtime, hosted, distribution, and removal delivery.
 
 ## Traceability
 

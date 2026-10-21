@@ -48,7 +48,7 @@ Each slice task owns its implementation scope and evidence. Dependencies are exp
 - [x] [S2 — Real dependency graphs and failures](./2026-10-21-effect-v4-dependency-graphs.md)
 - [x] [S3 — Sessions and workspace admission with real callers](./2026-10-21-effect-v4-sessions-and-workspace-admission.md)
 - [x] [S4 — Nested workflows, choices, repeats, and validation](./2026-10-21-effect-v4-nested-workflows-and-validation.md)
-- [ ] [S5 — OpenCode and Codex with full observations](./2026-10-21-effect-v4-native-adapters-and-observations.md)
+- [x] [S5 — OpenCode and Codex with full observations](./2026-10-21-effect-v4-native-adapters-and-observations.md)
 - [ ] [S6 — ACP without the old transport](./2026-10-21-effect-v4-acp-transport.md)
 - [ ] [S7 — Classifier, mixed workflows, and deadlines](./2026-10-21-effect-v4-classifier-and-deadlines.md)
 - [ ] [S8 — Telemetry sinks and event pressure](./2026-10-21-effect-v4-telemetry-and-event-pressure.md)
@@ -106,11 +106,11 @@ Every temporary bridge is removed, all required checks pass, and delivery is rec
 
 ## Outcome
 
-S0–S4 completed with full verification: authority, baseline, Effect process ownership, dependency graphs, sessions, workspace admission, nested workflows, choices, repeats, and validation through the CLI worker and direct facade. S5–S12 remain. Production Plan and hosted cutover are pending.
+S0–S5 completed with full verification: authority, baseline, Effect process ownership, dependency graphs, sessions, workspace admission, nested workflows, choices, repeats, validation, native adapters, and full observations through the CLI worker and direct facade. S6–S12 remain. Production Plan and hosted cutover are pending. Codex live verification passed. OpenCode live verification is unavailable after provider HTTP 401.
 
 ## Delivery state
 
-In progress on one migration branch. S0–S4 have branch-local evidence in their task commits. The accepted architecture and active target spec record authority, not migration delivery.
+In progress on one migration branch. S0–S5 have branch-local evidence in their task commits. The accepted architecture and active target spec record authority, not migration delivery.
 
 ## Traceability
 

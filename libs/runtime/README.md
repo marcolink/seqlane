@@ -65,6 +65,14 @@ admission or `invocation.started`. Invalid input emits `invocation.failed`
 without starting the task body. This target composition is still a migration
 tracer; the production CLI switches to it in the later runner-cutover task.
 
+After executor execution settles, interruption starts, or an executor reports
+uncertainty, the runtime allows up to 30 seconds for tracked work to settle.
+This is a cleanup bound, not a task deadline. If termination is unconfirmed,
+the runtime fails the invocation
+and quarantines its session and workspace. A late executor failure is retained
+as the uncertainty error's cause. The affected lease stays held while the run's
+admission registry remains alive.
+
 The target composition supports nested workflows, selected choice arms, bounded
 repeats, next-input bindings, and output validation. Nested graphs share the
 task-body limit, repeat budget, admission registries, and invocation creation

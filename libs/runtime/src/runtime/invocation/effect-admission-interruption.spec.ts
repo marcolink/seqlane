@@ -8,11 +8,14 @@
 // @test-scope ../workspace/workspace-resource.ts
 // @test-scope ../execution/await-abort.ts
 import { defineTask, type TaskNode } from "@seqlane/core";
-import { Effect, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createExecutionContext } from "../execution/context.js";
-import type { ExecutorRequest } from "../execution/executor.js";
+import {
+  findUnconfirmedInvocationTermination,
+  type ExecutorRequest,
+} from "../execution/executor.js";
 import type { ResolvedExecutorSession } from "../session/session-resolution.js";
 import { SessionLockRegistry } from "../session/session-lock.js";
 import { executeTaskNodeEffect } from "./task-admission.js";
@@ -229,5 +232,255 @@ describe("Effect admission interruption", () => {
     } finally {
       releaseSdkCleanup.resolve();
     }
+  });
+
+  it("quarantines an invocation after bounded interrupted cleanup and retains a late SDK failure", async () => {
+    const inputSchema = z.object({ payload: z.string() });
+    const outputSchema = z.object({ result: z.string() });
+    const taskDefinition = defineTask({
+      id: "effect-interruption-timeout-task",
+      input: inputSchema,
+      output: outputSchema,
+      execute: async ({ input, context }) =>
+        outputSchema.parse(
+          await context.runAgent({ goal: `process ${input.payload}` }),
+        ),
+    });
+    const executionStarted = barrier<ExecutorRequest>();
+    const sdkFailure = new Error("late SDK rejection");
+    let rejectSdk!: (cause: unknown) => void;
+    const workspace = { key: "/effect-interrupt-timeout-workspace" };
+    const executor = {
+      execute: (request: ExecutorRequest) => {
+        executionStarted.resolve(request);
+        return new Promise<unknown>((_resolve, reject) => {
+          rejectSdk = reject;
+        });
+      },
+    };
+    const context = createExecutionContext({
+      workId: "work",
+      runId: "run",
+      createInvocationId: (nodeId) => nodeId,
+      workflowInput: undefined,
+      executors: new Map([[taskDefinition.id, executor]]),
+      taskDefinitions: new Map([[taskDefinition.id, taskDefinition]]),
+      workspaceResources: new Map([[taskDefinition.id, workspace]]),
+      events: { emit: () => undefined },
+    });
+    const session: ResolvedExecutorSession = {
+      key: Symbol("timed-out-task-session"),
+      executor,
+    };
+    context.resolvedSessions.set(
+      "effect-interrupt-timeout-invocation",
+      session,
+    );
+    const node: TaskNode = {
+      type: "task",
+      taskId: taskDefinition.id,
+      nodeId: "effect-interrupt-timeout-node",
+      workspace: "exclusive",
+      input: { payload: "typed input" },
+      dependsOn: [],
+    };
+    const taskFiber = Effect.runFork(
+      executeTaskNodeEffect(
+        context,
+        node,
+        new AbortController().signal,
+        {
+          invocationId: "effect-interrupt-timeout-invocation",
+          results: context.results,
+          remainingConsumers: context.remainingConsumers,
+          subject: { type: "task", taskId: taskDefinition.id },
+        },
+        (effect) => effect,
+        undefined,
+        2,
+      ),
+    );
+    const request = await executionStarted.promise;
+    const exit = await Effect.runPromise(
+      Fiber.interrupt(taskFiber).pipe(Effect.andThen(Fiber.await(taskFiber))),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(request.signal.aborted).toBe(true);
+    expect(() =>
+      context.workspaceLocks.isAvailable(workspace, "exclusive"),
+    ).toThrow("Workspace is quarantined for this Run");
+    expect(() => context.sessionLocks.isAvailable(session)).toThrow(
+      "Executor session is quarantined for this Run",
+    );
+
+    const unrelatedWorkspace = { key: "/effect-interrupt-timeout-unrelated" };
+    const unrelated = await Effect.runPromise(
+      context.workspaceLocks.acquireEffect(unrelatedWorkspace, "exclusive"),
+    );
+    unrelated.release();
+
+    rejectSdk(sdkFailure);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const failure = Exit.isFailure(exit)
+      ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+      : undefined;
+    const uncertain = findUnconfirmedInvocationTermination(failure);
+    expect(uncertain).toBeDefined();
+    expect(uncertain?.cause).toBe(sdkFailure);
+  });
+
+  it("bounds an unresolved started activity and withholds success", async () => {
+    const inputSchema = z.object({ payload: z.string() });
+    const outputSchema = z.object({ result: z.string() });
+    const taskDefinition = defineTask({
+      id: "effect-unresolved-activity-task",
+      input: inputSchema,
+      output: outputSchema,
+      execute: async ({ input, context }) =>
+        outputSchema.parse(
+          await context.runAgent({ goal: `process ${input.payload}` }),
+        ),
+    });
+    const never = new Promise<void>(() => undefined);
+    const trackedFailure = new Error("tracked child failed late");
+    const workspace = { key: "/effect-unresolved-activity-workspace" };
+    const events: string[] = [];
+    const executor = {
+      execute: async (request: ExecutorRequest) => {
+        request.onEffect?.({ type: "child", termination: never });
+        request.onEffect?.({
+          type: "process",
+          termination: Promise.reject(trackedFailure),
+        });
+        return { result: "must not publish" };
+      },
+    };
+    const context = createExecutionContext({
+      workId: "work",
+      runId: "run",
+      createInvocationId: (nodeId) => nodeId,
+      workflowInput: undefined,
+      executors: new Map([[taskDefinition.id, executor]]),
+      taskDefinitions: new Map([[taskDefinition.id, taskDefinition]]),
+      workspaceResources: new Map([[taskDefinition.id, workspace]]),
+      events: {
+        emit: (event) => {
+          if (
+            event.type === "invocation.succeeded" ||
+            event.type === "invocation.failed"
+          )
+            events.push(event.type);
+        },
+      },
+    });
+    const session: ResolvedExecutorSession = {
+      key: Symbol("unresolved-activity-session"),
+      executor,
+    };
+    context.resolvedSessions.set(
+      "effect-unresolved-activity-invocation",
+      session,
+    );
+    const node: TaskNode = {
+      type: "task",
+      taskId: taskDefinition.id,
+      nodeId: "effect-unresolved-activity-node",
+      workspace: "exclusive",
+      input: { payload: "typed input" },
+      dependsOn: [],
+    };
+    const fiber = Effect.runFork(
+      executeTaskNodeEffect(
+        context,
+        node,
+        new AbortController().signal,
+        {
+          invocationId: "effect-unresolved-activity-invocation",
+          terminationTimeoutMs: 2,
+          results: context.results,
+          remainingConsumers: context.remainingConsumers,
+          subject: { type: "task", taskId: taskDefinition.id },
+        },
+        (effect) => effect,
+        undefined,
+        100,
+      ),
+    );
+
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+    expect(Exit.isFailure(exit)).toBe(true);
+    const failure = Exit.isFailure(exit)
+      ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+      : undefined;
+    const uncertainty = findUnconfirmedInvocationTermination(failure);
+    expect(uncertainty).toBeDefined();
+    expect(uncertainty?.cause).toBeInstanceOf(Error);
+    expect(uncertainty?.cause).toMatchObject({ cause: trackedFailure });
+    expect(events).not.toContain("invocation.succeeded");
+    expect(() =>
+      context.workspaceLocks.isAvailable(workspace, "exclusive"),
+    ).toThrow("Workspace is quarantined for this Run");
+    expect(() => context.sessionLocks.isAvailable(session)).toThrow(
+      "Executor session is quarantined for this Run",
+    );
+  });
+
+  it("does not apply the cleanup bound to healthy task execution", async () => {
+    const inputSchema = z.object({ payload: z.string() });
+    const outputSchema = z.object({ result: z.string() });
+    const taskDefinition = defineTask({
+      id: "effect-healthy-long-task",
+      input: inputSchema,
+      output: outputSchema,
+      execute: async ({ input, context }) =>
+        outputSchema.parse(
+          await context.runAgent({ goal: `process ${input.payload}` }),
+        ),
+    });
+    const executor = {
+      execute: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        return { result: "finished" };
+      },
+    };
+    const context = createExecutionContext({
+      workId: "work",
+      runId: "run",
+      createInvocationId: (nodeId) => nodeId,
+      workflowInput: undefined,
+      executors: new Map([[taskDefinition.id, executor]]),
+      taskDefinitions: new Map([[taskDefinition.id, taskDefinition]]),
+      events: { emit: () => undefined },
+    });
+    const node: TaskNode = {
+      type: "task",
+      taskId: taskDefinition.id,
+      nodeId: "effect-healthy-long-node",
+      workspace: "exclusive",
+      input: { payload: "typed input" },
+      dependsOn: [],
+    };
+    const exit = await Effect.runPromise(
+      Fiber.await(
+        Effect.runFork(
+          executeTaskNodeEffect(
+            context,
+            node,
+            new AbortController().signal,
+            {
+              invocationId: "effect-healthy-long-invocation",
+              terminationTimeoutMs: 2,
+              results: context.results,
+              remainingConsumers: context.remainingConsumers,
+              subject: { type: "task", taskId: taskDefinition.id },
+            },
+            (effect) => effect,
+            undefined,
+            2,
+          ),
+        ),
+      ),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
   });
 });

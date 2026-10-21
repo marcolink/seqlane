@@ -1,6 +1,7 @@
 // @test-scope ./adapter.ts
 // @test-scope ./session.ts
 // @test-scope ./transport.ts
+// @test-scope ./attempt-transitions.ts
 
 import {
   createServer,
@@ -136,7 +137,10 @@ function handleReadRequest(
 }
 
 async function startServer(
-  options: { readonly mode?: "success" | "hold" | "permission" } = {},
+  options: {
+    readonly mode?: "success" | "hold" | "permission" | "malformed";
+    readonly unfinishedToolOnHold?: boolean;
+  } = {},
 ): Promise<{
   readonly promptStarted: Promise<void>;
   readonly abortStarted: Promise<void>;
@@ -240,6 +244,22 @@ async function startServer(
         return;
       }
       if (options.mode === "hold") {
+        if (options.unfinishedToolOnHold) {
+          sendEvent(sessionId, {
+            type: "message.part.updated",
+            properties: {
+              part: {
+                type: "tool",
+                callID: "controlled-tool",
+                tool: "filesystem.read",
+                state: {
+                  status: "running",
+                  input: { path: "AGENTS.md" },
+                },
+              },
+            },
+          });
+        }
         pendingPrompts.set(sessionId, response);
         return;
       }
@@ -278,12 +298,18 @@ async function startServer(
           },
         },
       });
-      writeJson(response, {
-        info: responseInfo(sessionId, `message-${sessionId}-${nextMessage}`, {
-          result: "done",
-        }),
-        parts: [],
-      });
+      const info = responseInfo(
+        sessionId,
+        `message-${sessionId}-${nextMessage}`,
+        { result: "done" },
+      );
+      if (options.mode === "malformed") {
+        const malformedInfo: Record<string, unknown> = { ...info };
+        delete malformedInfo.structured;
+        writeJson(response, { info: malformedInfo, parts: [] });
+        return;
+      }
+      writeJson(response, { info, parts: [] });
       return;
     }
 
@@ -327,6 +353,136 @@ async function startServer(
 }
 
 describe("OpenCode SDK adapter boundary", () => {
+  it("records the concrete SDK request and raw response when response parsing fails", async () => {
+    const server = await startServer({ mode: "malformed" });
+    const observations: unknown[] = [];
+    try {
+      const adapter = createOpenCodeAdapter({
+        url: server.url,
+        structuredOutput: { strategy: "native" },
+      });
+      await expect(
+        adapter.execute({
+          invocationId: "malformed-response-invocation",
+          task: adapterTask("malformed-response-task"),
+          agent: adapterAgent,
+          input: "capture the native exchange",
+          modelSelection: {
+            model: {
+              provider: "controlled-provider",
+              model: "controlled-model",
+            },
+            reasoning: "high",
+          },
+          signal: new AbortController().signal,
+          onExecutionStarted: () => undefined,
+          onObservation: (observation) => observations.push(observation),
+        }),
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({
+          message: "OpenCode response did not contain structured output",
+        }),
+      });
+
+      expect(observations).toHaveLength(2);
+      expect(observations[1]).toMatchObject({
+        state: "failed",
+        model: {
+          request: {
+            native: {
+              sessionID: "session-1",
+              model: {
+                providerID: "controlled-provider",
+                modelID: "controlled-model",
+              },
+              format: { type: "json_schema" },
+            },
+          },
+          response: {
+            native: {
+              info: {
+                id: "message-session-1-1",
+                tokens: { input: 1, output: 1 },
+              },
+            },
+          },
+        },
+      });
+      expect(server.requests).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "/session/session-1/message",
+            body: expect.objectContaining({
+              format: expect.objectContaining({ type: "json_schema" }),
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("fails open tool activity only after the external session confirms cancellation", async () => {
+    const server = await startServer({
+      mode: "hold",
+      unfinishedToolOnHold: true,
+    });
+    try {
+      const controller = new AbortController();
+      const activities: unknown[] = [];
+      let resolveToolStarted!: () => void;
+      const toolStarted = new Promise<void>((resolve) => {
+        resolveToolStarted = resolve;
+      });
+      const adapter = createOpenCodeAdapter({
+        url: server.url,
+        structuredOutput: { strategy: "native" },
+      });
+      const execution = adapter.execute({
+        invocationId: "cancel-tool-invocation",
+        task: adapterTask("cancel-tool-task"),
+        agent: adapterAgent,
+        input: "cancel with an active tool",
+        signal: controller.signal,
+        onExecutionStarted: () => undefined,
+        onActivity: (activity) => {
+          activities.push(activity);
+          if (
+            activity.activityId === "controlled-tool" &&
+            activity.state === "started"
+          )
+            resolveToolStarted();
+        },
+      });
+
+      await server.promptStarted;
+      await toolStarted;
+      controller.abort(new Error("cancelled by test"));
+      await server.abortStarted;
+      await expect(execution).rejects.toThrow(/cancelled|abort/i);
+      expect(activities).toEqual([
+        {
+          activityId: "controlled-tool",
+          kind: "tool",
+          name: "filesystem.read",
+          state: "started",
+          input: { path: "AGENTS.md" },
+        },
+        {
+          activityId: "controlled-tool",
+          kind: "tool",
+          name: "filesystem.read",
+          state: "failed",
+          input: { path: "AGENTS.md" },
+          message: "Tool failed",
+        },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("uses the configured SDK server, workspace, model, output, and activity", async () => {
     const server = await startServer();
     try {
@@ -339,7 +495,6 @@ describe("OpenCode SDK adapter boundary", () => {
       });
       const result = await adapter.execute({
         invocationId: "controlled-opencode-invocation",
-        observability: {},
         task: adapterTask("controlled-opencode-task"),
         agent: adapterAgent,
         input: "Return the controlled result",
@@ -369,6 +524,7 @@ describe("OpenCode SDK adapter boundary", () => {
           kind: "tool",
           name: "filesystem.read",
           state: "succeeded",
+          input: { path: "AGENTS.md" },
           output: "ok",
         },
       ]);
@@ -416,7 +572,6 @@ describe("OpenCode SDK adapter boundary", () => {
       });
       const request = {
         invocationId: "reuse-invocation",
-        observability: {},
         task: adapterTask("reuse-task"),
         agent: adapterAgent,
         input: "reuse",
@@ -466,7 +621,6 @@ describe("OpenCode SDK adapter boundary", () => {
       });
       const execution = adapter.execute({
         invocationId: "cancel-invocation",
-        observability: {},
         task: adapterTask("cancel-task"),
         agent: adapterAgent,
         input: "cancel",
@@ -493,7 +647,6 @@ describe("OpenCode SDK adapter boundary", () => {
       await expect(
         adapter.execute({
           invocationId: "permission-invocation",
-          observability: {},
           task: adapterTask("permission-task"),
           agent: adapterAgent,
           input: "permission",

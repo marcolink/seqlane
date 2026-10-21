@@ -95,7 +95,6 @@ describe("Codex agent runtime composition", () => {
     );
     const adapter = runtime.createAdapter({
       signal: new AbortController().signal,
-      requestContext: undefined,
     });
 
     expect(runtime).toMatchObject({
@@ -143,7 +142,6 @@ describe("Codex agent runtime composition", () => {
     expect(() =>
       runtime.createAdapter({
         signal: new AbortController().signal,
-        requestContext: undefined,
       }),
     ).toThrow("adapter failed for [REDACTED]");
   });
@@ -177,7 +175,6 @@ describe("Codex agent runtime composition", () => {
     const protectedAdapter = runtime.redactAdapter(
       runtime.createAdapter({
         signal: new AbortController().signal,
-        requestContext: undefined,
       }),
     );
     const task = defineTask({
@@ -196,7 +193,6 @@ describe("Codex agent runtime composition", () => {
     await expect(
       protectedAdapter.execute({
         invocationId: "codex-redaction-test",
-        observability: {},
         task,
         input: null,
         signal: new AbortController().signal,

@@ -7,11 +7,14 @@
 // @test-scope ../execution/executor.ts
 // @test-scope ../session/session-resolution.ts
 import { defineTask, defineValidator, type SeqlaneEvent } from "@seqlane/core";
-import { Effect, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createExecutionContext } from "../execution/context.js";
-import type { ExecutorRequest } from "../execution/executor.js";
+import {
+  findUnconfirmedInvocationTermination,
+  type ExecutorRequest,
+} from "../execution/executor.js";
 import type { ResolvedExecutorSession } from "../session/session-resolution.js";
 import { completeValidatedTaskEffect } from "./deferred-task-completion.js";
 import { executeTaskNodeEffect } from "./task-admission.js";
@@ -138,6 +141,91 @@ describe("deferred task completion ownership", () => {
     } finally {
       releaseCheckpoint.resolve();
     }
+  });
+
+  it("quarantines admission when an interrupted checkpoint does not settle", async () => {
+    const task = createTask();
+    const executor = { execute: async () => ({ result: "done" }) };
+    const checkpointStarted = barrier<void>();
+    let rejectCheckpoint!: (cause: unknown) => void;
+    const lateFailure = new Error("late checkpoint rejection");
+    const workspace = { key: "/deferred-checkpoint-timeout-workspace" };
+    const context = createExecutionContext({
+      workId: "work",
+      runId: "run",
+      createInvocationId: (nodeId) => nodeId,
+      workflowInput: undefined,
+      executors: new Map([[task.id, executor]]),
+      taskDefinitions: new Map([[task.id, task]]),
+      workspaceResources: new Map([[task.id, workspace]]),
+    });
+    const session: ResolvedExecutorSession = {
+      key: Symbol("deferred-checkpoint-timeout-session"),
+      executor,
+      checkpoint: () => {
+        checkpointStarted.resolve();
+        return new Promise((_resolve, reject) => {
+          rejectCheckpoint = reject;
+        });
+      },
+      fork: async () => ({ key: Symbol("forked-session"), executor }),
+    };
+    context.resolvedSessions.set("invocation", session);
+    context.sessionConsumers.set("node", [
+      { invocationId: "fork-consumer", task, type: "fork" },
+    ]);
+    const node = {
+      type: "task" as const,
+      taskId: task.id,
+      nodeId: "node",
+      workspace: "exclusive" as const,
+      input: { value: "run" },
+      dependsOn: [],
+    };
+    const owner = Effect.runFork(
+      executeTaskNodeEffect(
+        context,
+        node,
+        new AbortController().signal,
+        {
+          invocationId: "invocation",
+          results: context.results,
+          remainingConsumers: context.remainingConsumers,
+          subject: { type: "task", taskId: task.id },
+          deferCompletion: true,
+        },
+        (effect) => effect,
+        completeValidatedTaskEffect({
+          context,
+          node,
+          invocationId: "invocation",
+          abortSignal: new AbortController().signal,
+          withBodyPermit: (effect) => effect,
+        }),
+        2,
+      ),
+    );
+    await checkpointStarted.promise;
+
+    const exit = await Effect.runPromise(
+      Fiber.interrupt(owner).pipe(Effect.andThen(Fiber.await(owner))),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    const failure = Exit.isFailure(exit)
+      ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+      : undefined;
+    const uncertainty = findUnconfirmedInvocationTermination(failure);
+    expect(uncertainty).toBeDefined();
+    expect(() => context.sessionLocks.isAvailable(session)).toThrow(
+      "Executor session is quarantined for this Run",
+    );
+    expect(() =>
+      context.workspaceLocks.isAvailable(workspace, "exclusive"),
+    ).toThrow("Workspace is quarantined for this Run");
+
+    rejectCheckpoint(lateFailure);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(uncertainty?.cause).toBe(lateFailure);
   });
 
   it("publishes paid task metrics when deferred output validation fails", async () => {

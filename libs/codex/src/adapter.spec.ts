@@ -5,6 +5,7 @@
 import type {
   AgentAdapterRequest,
   AgentActivity,
+  SeqlaneObservation,
 } from "@seqlane/agent-adapter";
 import type { ModelSelection, TaskDefinition } from "@seqlane/core";
 import { InteractionRequiredError } from "@seqlane/core";
@@ -44,7 +45,6 @@ function request(
 ): AgentAdapterRequest {
   return {
     invocationId: "invocation-1",
-    observability: {},
     task,
     input: { value: "demo" },
     agent: { goal: "Return the result" },
@@ -55,7 +55,7 @@ function request(
 }
 
 class FakeTransport implements CodexTransport {
-  readonly termination = Promise.resolve();
+  readonly termination: Promise<void>;
   readonly requests: Array<{
     readonly method: string;
     readonly params: unknown;
@@ -68,10 +68,30 @@ class FakeTransport implements CodexTransport {
   failedTurnMessage: string | undefined;
   emitBeforeTurnResponse = false;
   emitMultipleAgentMessages = false;
-  agentMessageDeltas = ['{"result":"done"}'];
+  agentMessageText = '{"result":"done"}';
+  nativeTurnFields: Record<string, unknown> = {};
+  nativeUsageFields: Record<string, unknown> = {};
+  nativeItemFields: Record<string, unknown> = {};
+  agentMessageDeltas: string[] | undefined;
   delayTurnStart = false;
   failInterrupt = false;
+  completeAfterInterrupt = true;
+  interruptAcknowledged = false;
   private pendingTurnStart?: () => void;
+  private resolveTermination!: () => void;
+  private rejectTermination!: (cause: unknown) => void;
+
+  constructor() {
+    this.termination = new Promise<void>((resolve, reject) => {
+      this.resolveTermination = resolve;
+      this.rejectTermination = reject;
+    });
+    void this.termination.catch(() => undefined);
+  }
+
+  fail(cause: unknown): void {
+    this.rejectTermination(cause);
+  }
 
   resolveTurnStart(): void {
     this.pendingTurnStart?.();
@@ -96,21 +116,24 @@ class FakeTransport implements CodexTransport {
     if (method === "thread/fork") return { thread: { id: "thread-child" } };
     if (method === "turn/interrupt") {
       if (this.failInterrupt) throw new Error("interrupt was refused");
+      this.interruptAcknowledged = true;
       const turnId = String((params as { readonly turnId: string }).turnId);
-      setTimeout(
-        () =>
-          this.emit({
-            kind: "notification",
-            notification: {
-              method: "turn/completed",
-              params: {
-                threadId: "thread-1",
-                turn: { id: turnId, status: "interrupted", items: [] },
+      if (this.completeAfterInterrupt) {
+        setTimeout(
+          () =>
+            this.emit({
+              kind: "notification",
+              notification: {
+                method: "turn/completed",
+                params: {
+                  threadId: "thread-1",
+                  turn: { id: turnId, status: "interrupted", items: [] },
+                },
               },
-            },
-          }),
-        0,
-      );
+            }),
+          0,
+        );
+      }
       return {};
     }
     if (method === "turn/start") {
@@ -157,7 +180,9 @@ class FakeTransport implements CodexTransport {
             },
           },
         });
-        for (const delta of this.agentMessageDeltas) {
+        for (const delta of this.agentMessageDeltas ?? [
+          this.agentMessageText,
+        ]) {
           this.emit({
             kind: "notification",
             notification: {
@@ -211,7 +236,8 @@ class FakeTransport implements CodexTransport {
               item: {
                 id: `item-${turnId}`,
                 type: "agentMessage",
-                text: '{"result":"done"}',
+                text: this.agentMessageText,
+                ...this.nativeItemFields,
               },
               completedAtMs: 3,
             },
@@ -225,6 +251,7 @@ class FakeTransport implements CodexTransport {
               threadId: threadId.threadId,
               turnId,
               tokenUsage: {
+                ...this.nativeUsageFields,
                 total: {
                   totalTokens: 3,
                   inputTokens: 1,
@@ -256,6 +283,7 @@ class FakeTransport implements CodexTransport {
                 status:
                   this.failedTurnMessage === undefined ? "completed" : "failed",
                 items: [],
+                ...this.nativeTurnFields,
                 ...(this.failedTurnMessage === undefined
                   ? {}
                   : { error: { message: this.failedTurnMessage } }),
@@ -283,6 +311,7 @@ class FakeTransport implements CodexTransport {
   }
 
   close(): Promise<void> {
+    this.resolveTermination();
     return Promise.resolve();
   }
 
@@ -340,6 +369,7 @@ describe("Codex AgentAdapter", () => {
     const transport = new FakeTransport();
     const activities: AgentActivity[] = [];
     const metrics: unknown[] = [];
+    const observations: SeqlaneObservation[] = [];
     const backgroundProcesses: unknown[] = [];
     let executionStarted = 0;
     const adapter = createCodexAdapterForTransport(transport, configuration, {
@@ -351,6 +381,7 @@ describe("Codex AgentAdapter", () => {
         request({
           onActivity: (value) => activities.push(value),
           onMetrics: (value) => metrics.push(value),
+          onObservation: (value) => observations.push(value),
           onBackgroundProcess: (value) => backgroundProcesses.push(value),
           onExecutionStarted: () => {
             executionStarted += 1;
@@ -392,6 +423,57 @@ describe("Codex AgentAdapter", () => {
       ]),
     );
     expect(metrics).toHaveLength(1);
+    expect(observations).toHaveLength(2);
+    expect(observations[0]).toMatchObject({
+      observationId: "invocation-1:model:0",
+      kind: "model",
+      state: "started",
+      attemptIndex: 0,
+      model: {
+        operation: "chat",
+        provider: "openai",
+        model: "gpt-5.1-codex",
+        request: {
+          threadId: "thread-1",
+          input: [
+            {
+              type: "text",
+              text: expect.stringContaining("Return the result"),
+            },
+          ],
+          cwd: "/workspace",
+          approvalPolicy: "never",
+          outputSchema: expect.any(Object),
+          sandboxPolicy: { networkAccess: false },
+        },
+      },
+    });
+    expect(observations[1]).toMatchObject({
+      observationId: "invocation-1:model:0",
+      kind: "model",
+      state: "succeeded",
+      model: {
+        responseId: "turn-1",
+        response: {
+          text: '{"result":"done"}',
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              type: "commandExecution",
+              output: "ok",
+            }),
+          ]),
+        },
+        usage: {
+          total: { inputTokens: 1, outputTokens: 2 },
+          last: { cachedInputTokens: 0, reasoningOutputTokens: 1 },
+        },
+        startedAt: expect.any(Number),
+        endedAt: expect.any(Number),
+      },
+      availability: [
+        { path: "model.response.cost", reason: "source-unavailable" },
+      ],
+    });
     expect(
       transport.requests.find((value) => value.method === "thread/start")
         ?.params,
@@ -510,6 +592,52 @@ describe("Codex AgentAdapter", () => {
     );
   });
 
+  it("retains native response and usage when structured output is invalid", async () => {
+    const transport = new FakeTransport();
+    transport.agentMessageText = '{"result":false}';
+    transport.nativeTurnFields = {
+      nativeTurn: { enabled: false, count: 0, label: "" },
+    };
+    transport.nativeUsageFields = {
+      nativeUsage: { enabled: false, count: 0, label: "" },
+    };
+    transport.nativeItemFields = {
+      nativeItem: { enabled: false, count: 0, label: "" },
+    };
+    const observations: SeqlaneObservation[] = [];
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+
+    await expect(
+      adapter.execute(
+        request({ onObservation: (value) => observations.push(value) }),
+      ),
+    ).rejects.toThrow("Codex output did not satisfy the task schema");
+
+    expect(observations).toHaveLength(2);
+    expect(observations[1]).toEqual(
+      expect.objectContaining({
+        observationId: "invocation-1:model:0",
+        state: "failed",
+        model: expect.objectContaining({
+          responseId: "turn-1",
+          response: expect.objectContaining({
+            nativeTurn: { enabled: false, count: 0, label: "" },
+            items: expect.arrayContaining([
+              expect.objectContaining({
+                nativeItem: { enabled: false, count: 0, label: "" },
+              }),
+            ]),
+          }),
+          usage: expect.objectContaining({
+            nativeUsage: { enabled: false, count: 0, label: "" },
+          }),
+        }),
+      }),
+    );
+  });
+
   it("selects the final completed agent message by item", async () => {
     const transport = new FakeTransport();
     transport.emitMultipleAgentMessages = true;
@@ -583,6 +711,348 @@ describe("Codex AgentAdapter", () => {
     });
 
     await expect(execution).rejects.toThrow("task deadline expired");
+  });
+
+  it("fails an active turn with the transport termination cause", async () => {
+    const transport = new FakeTransport();
+    transport.emitCompletion = false;
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+    const execution = adapter.execute(request());
+
+    for (
+      let index = 0;
+      index < 20 &&
+      !transport.requests.some((value) => value.method === "turn/start");
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    const cause = new Error("Codex app-server exited unexpectedly");
+    transport.fail(cause);
+
+    await expect(execution).rejects.toBe(cause);
+  });
+
+  it("observes partial native items and usage when transport fails", async () => {
+    const transport = new FakeTransport();
+    transport.emitCompletion = false;
+    const observations: SeqlaneObservation[] = [];
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+    const execution = adapter.execute(
+      request({ onObservation: (value) => observations.push(value) }),
+    );
+
+    for (
+      let index = 0;
+      index < 20 &&
+      !transport.requests.some((value) => value.method === "turn/start");
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    transport.emit({
+      kind: "notification",
+      notification: {
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            id: "tool-partial",
+            type: "commandExecution",
+            input: { command: "echo partial" },
+            nativeItem: { enabled: false, count: 0, label: "" },
+          },
+          startedAtMs: 10,
+        },
+      },
+    });
+    transport.emit({
+      kind: "notification",
+      notification: {
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "message-partial",
+          delta: '{"result":',
+          nativeDelta: { enabled: false, count: 0, label: "" },
+        },
+      },
+    });
+    transport.emit({
+      kind: "notification",
+      notification: {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          tokenUsage: {
+            total: {
+              totalTokens: 0,
+              inputTokens: 0,
+              cachedInputTokens: 0,
+              cacheWriteInputTokens: 0,
+              outputTokens: 0,
+              reasoningOutputTokens: 0,
+            },
+            last: {
+              totalTokens: 0,
+              inputTokens: 0,
+              cachedInputTokens: 0,
+              cacheWriteInputTokens: 0,
+              outputTokens: 0,
+              reasoningOutputTokens: 0,
+            },
+            nativeUsage: { enabled: false, count: 0, label: "" },
+          },
+        },
+      },
+    });
+    const cause = new Error("Codex app-server exited unexpectedly");
+    transport.fail(cause);
+
+    await expect(execution).rejects.toBe(cause);
+    expect(observations).toHaveLength(2);
+    expect(observations[1]).toMatchObject({
+      observationId: "invocation-1:model:0",
+      state: "failed",
+      model: {
+        responseId: "turn-1",
+        response: {
+          id: "turn-1",
+          status: "inProgress",
+          items: [
+            {
+              id: "tool-partial",
+              input: { command: "echo partial" },
+              nativeItem: { enabled: false, count: 0, label: "" },
+            },
+          ],
+          messageDeltas: [
+            {
+              itemId: "message-partial",
+              delta: '{"result":',
+              nativeDelta: { enabled: false, count: 0, label: "" },
+            },
+          ],
+        },
+        usage: {
+          nativeUsage: { enabled: false, count: 0, label: "" },
+        },
+      },
+    });
+  });
+
+  it("preserves termination failure when it wins after interrupt acknowledgement", async () => {
+    const transport = new FakeTransport();
+    transport.emitCompletion = false;
+    transport.completeAfterInterrupt = false;
+    const controller = new AbortController();
+    const activities: AgentActivity[] = [];
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+    const cancellationCause = new Error("task cancelled");
+    const terminationCause = new Error("Codex app-server failed to exit");
+    const execution = adapter.execute(
+      request({
+        signal: controller.signal,
+        onActivity: (activity) => activities.push(activity),
+      }),
+    );
+
+    for (
+      let index = 0;
+      index < 20 &&
+      !transport.requests.some((value) => value.method === "turn/start");
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    transport.emit({
+      kind: "notification",
+      notification: {
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            id: "tool-open",
+            type: "commandExecution",
+            input: { command: "sleep 60" },
+          },
+          startedAtMs: 10,
+        },
+      },
+    });
+    controller.abort(cancellationCause);
+    for (
+      let index = 0;
+      index < 20 && !transport.interruptAcknowledged;
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    await Promise.resolve();
+    expect(transport.interruptAcknowledged).toBe(true);
+    expect(activities.map((activity) => activity.state)).toEqual(["started"]);
+
+    transport.fail(terminationCause);
+    let rejection: unknown;
+    try {
+      await execution;
+    } catch (cause) {
+      rejection = cause;
+    }
+    expect(rejection).toMatchObject({ code: "cancellation" });
+    if (!(rejection instanceof Error)) {
+      throw new Error("Codex cancellation rejection was not an Error");
+    }
+    let cause: unknown = rejection.cause;
+    while (cause instanceof Error && !(cause instanceof AggregateError)) {
+      cause = cause.cause;
+    }
+    expect(cause).toBeInstanceOf(AggregateError);
+    if (!(cause instanceof AggregateError)) {
+      throw new Error("Codex cancellation did not retain its causes");
+    }
+    expect(cause.errors).toEqual([cancellationCause, terminationCause]);
+    expect(activities.map((activity) => activity.state)).toEqual([
+      "started",
+      "failed",
+    ]);
+  });
+
+  it("fails tool activity left open when a completed turn omits item completion", async () => {
+    const transport = new FakeTransport();
+    transport.emitCompletion = false;
+    const activities: AgentActivity[] = [];
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+    const execution = adapter.execute(
+      request({ onActivity: (activity) => activities.push(activity) }),
+    );
+
+    for (
+      let index = 0;
+      index < 20 &&
+      !transport.requests.some((value) => value.method === "turn/start");
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    transport.emit({
+      kind: "notification",
+      notification: {
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            id: "tool-open",
+            type: "commandExecution",
+            input: { command: "sleep 60" },
+          },
+          startedAtMs: 10,
+        },
+      },
+    });
+    transport.emit({
+      kind: "notification",
+      notification: {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            id: "turn-1",
+            status: "completed",
+            items: [
+              {
+                id: "message-1",
+                type: "agentMessage",
+                text: '{"result":"done"}',
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await expect(execution).resolves.toEqual({ result: "done" });
+    expect(activities.map((activity) => activity.state)).toEqual([
+      "started",
+      "failed",
+    ]);
+  });
+
+  it("fails open tool activity after confirmed turn interruption", async () => {
+    const transport = new FakeTransport();
+    transport.emitCompletion = false;
+    const controller = new AbortController();
+    const activities: AgentActivity[] = [];
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+    const cause = new Error("cancel after tool start");
+    const execution = adapter.execute(
+      request({
+        signal: controller.signal,
+        onActivity: (activity) => activities.push(activity),
+      }),
+    );
+
+    for (
+      let index = 0;
+      index < 20 &&
+      !transport.requests.some((value) => value.method === "turn/start");
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    transport.emit({
+      kind: "notification",
+      notification: {
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            id: "tool-open",
+            type: "commandExecution",
+            input: { command: "sleep 60" },
+          },
+          startedAtMs: 10,
+        },
+      },
+    });
+    for (let index = 0; index < 20 && activities.length === 0; index += 1) {
+      await Promise.resolve();
+    }
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      activityId: "tool-open",
+      state: "started",
+      input: { command: "sleep 60" },
+      startedAt: 10,
+    });
+
+    controller.abort(cause);
+    await expect(execution).rejects.toBe(cause);
+    expect(activities).toHaveLength(2);
+    expect(activities[1]).toMatchObject({
+      activityId: "tool-open",
+      state: "failed",
+      input: { command: "sleep 60" },
+      startedAt: 10,
+      endedAt: expect.any(Number),
+    });
+    expect(activities[1]).not.toHaveProperty("output");
   });
 
   it("rejects checkpoint and fork reuse after an unconfirmed interruption", async () => {

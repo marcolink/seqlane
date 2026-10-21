@@ -373,11 +373,7 @@ describe("Mastra operational host", () => {
     const agentRuntime: AgentRuntimeFactory = async () => ({
       identity: "acp",
       capabilities,
-      createAdapter: (context) => {
-        const requestContext = context.requestContext as
-          { get(key: string): unknown } | undefined;
-        receivedRuntimeId = requestContext?.get("seqlane.runtimeId") as
-          string | undefined;
+      createAdapter: () => {
         return adapter;
       },
       redactAdapter: (value) => value,
@@ -523,7 +519,7 @@ describe("Mastra operational host", () => {
           content: [
             {
               type: "text",
-              text: expect.stringContaining('"rootCause":"runtime=direct"'),
+              text: expect.stringContaining('"rootCause":"runtime=undefined"'),
             },
           ],
         },

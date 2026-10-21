@@ -17,6 +17,7 @@ import {
 } from "./session-events.js";
 import {
   parseTurnStartResult,
+  type CodexTurn,
   type CodexTokenUsage,
 } from "./index-internal.js";
 import { unsupportedCodexServerRequest } from "./protocol.js";
@@ -29,10 +30,28 @@ export interface CompletedTurn {
   readonly agentMessageText?: string;
 }
 
+export interface TurnObservationSnapshot {
+  readonly responseId: string;
+  readonly response: unknown;
+  readonly usage?: unknown;
+}
+
+export interface TurnTrackerOptions {
+  readonly startedTurn: CodexTurn;
+  readonly onSnapshot?: (snapshot: TurnObservationSnapshot) => void;
+}
+
 export interface TurnTracker {
   readonly completion: Promise<CompletedTurn>;
   readonly interaction: Promise<never>;
   readonly failure: Promise<never>;
+  readonly stopped: Promise<void>;
+  stopCause(): unknown;
+  isStopped(): boolean;
+  confirmStopped(endedAt: number, message: string, cause?: unknown): void;
+  fail(cause: unknown, endedAt: number): void;
+  terminateActivities(endedAt: number, message: string): void;
+  snapshot(): TurnObservationSnapshot;
   dispose(): void;
 }
 
@@ -89,8 +108,12 @@ export function createTurnTracker(
   turnId: string,
   onActivity: AgentAdapterRequest["onActivity"],
   respond: CodexTransport["respond"],
+  options: TurnTrackerOptions,
 ): TurnTracker {
   const items: Record<string, unknown>[] = [];
+  const observedItems = [...options.startedTurn.items];
+  const messageDeltas: Record<string, unknown>[] = [];
+  let currentTurn = options.startedTurn;
   let itemBytes = 0;
   let agentMessageBytes = 0;
   let usage: CodexTokenUsage | undefined;
@@ -98,7 +121,10 @@ export function createTurnTracker(
   let rejectCompletion!: (cause: unknown) => void;
   let rejectInteraction!: (cause: unknown) => void;
   let rejectFailure!: (cause: unknown) => void;
+  let resolveStopped!: () => void;
   let settled = false;
+  let stopped = false;
+  let terminationCause: unknown;
   const agentMessages = new Map<string, AgentMessageState>();
   const completedAgentMessageIds: string[] = [];
   const completion = new Promise<CompletedTurn>((resolve, reject) => {
@@ -111,12 +137,11 @@ export function createTurnTracker(
   const failure = new Promise<never>((_, reject) => {
     rejectFailure = reject;
   });
+  const stoppedPromise = new Promise<void>((resolve) => {
+    resolveStopped = resolve;
+  });
   const reducer = new CodexActivityReducer((activity: AgentActivity) => {
-    try {
-      onActivity?.(activity);
-    } catch {
-      // Activity callbacks are observational and must not stop the turn.
-    }
+    onActivity?.(activity);
   });
   const addItem = (item: Record<string, unknown>): void => {
     if (items.length >= MAX_TURN_ITEMS) {
@@ -183,6 +208,25 @@ export function createTurnTracker(
     }
     return undefined;
   };
+  const recordObservedItem = (item: Record<string, unknown>): void => {
+    const id = item.id;
+    const index =
+      typeof id === "string"
+        ? observedItems.findIndex((existing) => existing.id === id)
+        : -1;
+    if (index < 0) observedItems.push(item);
+    else observedItems[index] = item;
+  };
+  const snapshot = (): TurnObservationSnapshot => ({
+    responseId: currentTurn.id,
+    response: {
+      ...currentTurn,
+      items: observedItems,
+      ...(messageDeltas.length === 0 ? {} : { messageDeltas }),
+    },
+    ...(usage === undefined ? {} : { usage }),
+  });
+  const reportSnapshot = (): void => options.onSnapshot?.(snapshot());
   const onMessage = (message: SessionEvent): void => {
     if (settled) return;
     try {
@@ -206,17 +250,19 @@ export function createTurnTracker(
       const notification = message.notification;
       const params = notification.params as Record<string, unknown>;
       if (notification.method === "item/started") {
-        reducer.started(
-          params.item as Record<string, unknown>,
-          params.startedAtMs as number | undefined,
-        );
+        const item = params.item as Record<string, unknown>;
+        reducer.started(item, params.startedAtMs as number | undefined);
+        recordObservedItem(item);
+        reportSnapshot();
         return;
       }
       if (notification.method === "item/completed") {
         const item = params.item as Record<string, unknown>;
         addItem(item);
+        recordObservedItem(item);
         reducer.completed(item, params.completedAtMs as number | undefined);
         completeAgentMessage(item);
+        reportSnapshot();
         return;
       }
       if (notification.method === "item/agentMessage/delta") {
@@ -224,10 +270,13 @@ export function createTurnTracker(
         const delta = params.delta as string;
         addMessageDelta(itemId, delta);
         reducer.delta(itemId, delta);
+        messageDeltas.push(params);
+        reportSnapshot();
         return;
       }
       if (notification.method === "thread/tokenUsage/updated") {
         usage = params.tokenUsage as CodexTokenUsage;
+        reportSnapshot();
         return;
       }
       if (isInteraction(notification.method)) {
@@ -239,7 +288,9 @@ export function createTurnTracker(
         const completedTurn = params.turn as ReturnType<
           typeof parseTurnStartResult
         >;
+        currentTurn = completedTurn;
         for (const item of completedTurn.items) {
+          recordObservedItem(item);
           if (!items.some((existing) => existing.id === item.id)) addItem(item);
         }
         const completedAgentMessageText = selectAgentMessage(
@@ -253,6 +304,7 @@ export function createTurnTracker(
             ? {}
             : { agentMessageText: completedAgentMessageText }),
         });
+        reportSnapshot();
       }
     } catch (cause) {
       rejectFailure(cause);
@@ -266,6 +318,36 @@ export function createTurnTracker(
     completion,
     interaction,
     failure,
+    stopped: stoppedPromise,
+    stopCause: () => terminationCause,
+    isStopped: () => stopped,
+    confirmStopped(endedAt, message, cause) {
+      if (stopped) return;
+      reducer.terminateOpenActivities(endedAt, message);
+      terminationCause = cause;
+      stopped = true;
+      resolveStopped();
+    },
+    fail(cause, endedAt) {
+      if (settled) return;
+      let failureCause = cause;
+      try {
+        if (!stopped)
+          this.confirmStopped(
+            endedAt,
+            "Codex app-server stopped before the turn completed",
+            cause,
+          );
+      } catch (activityCause) {
+        failureCause = activityCause;
+      }
+      settled = true;
+      rejectFailure(failureCause);
+    },
+    terminateActivities(endedAt, message) {
+      reducer.terminateOpenActivities(endedAt, message);
+    },
+    snapshot,
     dispose() {
       subscription.dispose();
       if (!settled) {

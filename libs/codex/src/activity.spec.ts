@@ -101,4 +101,103 @@ describe("Codex activity reducer", () => {
       state: "succeeded",
     });
   });
+
+  it("projects native command execution fields and retains the full item", () => {
+    const activities: AgentActivity[] = [];
+    const reducer = new CodexActivityReducer((activity) =>
+      activities.push(activity),
+    );
+    const started = {
+      id: "command-1",
+      type: "commandExecution",
+      command: "printf hello",
+      cwd: "/workspace",
+      commandActions: [],
+      status: "inProgress",
+    };
+    const completed = {
+      ...started,
+      status: "completed",
+      aggregatedOutput: "hello",
+      durationMs: 0,
+      exitCode: 0,
+    };
+
+    reducer.started(started, 10);
+    reducer.completed(completed, 20);
+
+    expect(activities[0]).toMatchObject({
+      input: {
+        command: "printf hello",
+        cwd: "/workspace",
+        commandActions: started.commandActions,
+      },
+      metadata: started,
+    });
+    expect(activities[1]).toMatchObject({
+      input: {
+        command: "printf hello",
+        cwd: "/workspace",
+        commandActions: started.commandActions,
+      },
+      output: "hello",
+      metadata: completed,
+      endedAt: 20,
+    });
+  });
+
+  it("projects native MCP arguments and result without losing false-like values", () => {
+    const activities: AgentActivity[] = [];
+    const reducer = new CodexActivityReducer((activity) =>
+      activities.push(activity),
+    );
+    const argumentsValue = {
+      enabled: false,
+      count: 0,
+      text: "",
+      nested: { items: [""] },
+    };
+    const result = {
+      enabled: false,
+      count: 0,
+      text: "",
+      nested: { items: [""] },
+    };
+    const started = {
+      id: "mcp-1",
+      type: "mcpToolCall",
+      server: "fixture",
+      tool: "fixture.read",
+      status: "inProgress",
+      arguments: argumentsValue,
+      readOnlyHint: false,
+      pluginId: "",
+    };
+    const completed = {
+      ...started,
+      status: "completed",
+      result: {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        structuredContent: result,
+        _meta: argumentsValue,
+      },
+      error: null,
+      durationMs: 0,
+    };
+
+    reducer.started(started, 10);
+    reducer.completed(completed, 20);
+
+    expect(activities[0]).toMatchObject({
+      input: argumentsValue,
+      metadata: started,
+    });
+    expect(activities[1]).toMatchObject({
+      input: argumentsValue,
+      output: completed.result,
+      metadata: completed,
+      endedAt: 20,
+      state: "succeeded",
+    });
+  });
 });

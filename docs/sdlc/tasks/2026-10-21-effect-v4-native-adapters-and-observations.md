@@ -1,11 +1,11 @@
 ---
 id: task.effect-v4-native-adapters-and-observations
 title: OpenCode and Codex with full observations
-status: planned
+status: completed
 owners:
   - core
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 upstream:
   - spec.effect-v4-execution-and-operations
   - task.effect-v4-nested-workflows-and-validation
@@ -54,11 +54,43 @@ model/tool/skill values, usage, timing, attempts, correlation, capability errors
 
 ## Outcome
 
-Not started. This task owns the implementation and evidence described above.
+Completed after S4 commit `7def353`. Effect owns native adapter scopes, request serialization, stream monitoring, timeouts, and cleanup. Native span projectors and opaque runtime-context forwarding are removed from both adapter callers. Public and wire contracts remain Zod-owned.
+
+Canonical observations retain complete available SDK request and response values, usage, timing, and correlation. Failure and cancellation retain partial native values. Native Codex command and MCP fields follow the installed 0.147.0 protocol schema. Tool activity preserves full metadata, false, zero, empty strings, and null. Tool cancellation publishes terminal activity only after external termination is confirmed. Cleanup errors preserve the original abort reason and late SDK failure, including frozen or primitive reasons. Unconfirmed work retains its admission leases and quarantines its resources.
+
+The installed Codex agent completed an authenticated smoke test with false, zero, and empty-string output values. The OpenCode live call reached its provider but failed with HTTP 401. OpenCode live verification is unavailable; protocol-fixture success does not establish that live model path.
+
+The full repository gate passes frozen install, documentation validation, 493 test mappings, typecheck, tests across 20 projects, lint, build, formatting, Nx sync, and diff checks. All 554 runtime tests, 129 OpenCode tests, 73 Codex tests, and 87 compiled Oclif end-to-end tests pass. The CLI fixtures use public native factories, an actual HTTP SDK peer, and a real stdio subprocess with protocol-valid MCP items. They verify model preflight, structured-output repair, session reuse and fork, full observations, confirmed cancellation, process exit, and no default Seqlane state directory.
+
+The first concurrent gate exposed stale native-span assertions, one formatting error, and four old five-second runtime timeouts. The assertions now check canonical records and activities. All 75 tests in the timeout files passed alone at unchanged budgets. The complete gate then passed with `NX_PARALLEL=1`.
+
+Structural review extracted model-observation lifecycle and prompt-monitor ownership into cohesive private modules. Native field projection and missing-field reconciliation have separate helpers. Larger private orchestration functions and small test-helper duplication remain; no zero-debt claim is made. Telemetry projection remains S8 work. Production Plan cutover remains S9 work. The legacy hosted path does not forward model observation events before S10.
+
+## Documentation impact
+
+Classification: implementation-only
+
+- PRD: no change
+- RFC: no change
+- SPEC: no contract change
+- TASK: record native caller, observation, cleanup, and live-agent evidence.
+- ADR required: no
+
+### Rationale
+
+The active target spec already assigns native resource ownership to Effect and preserves canonical observations. This slice replaces private integration code within that contract.
+
+### Required work
+
+Reconcile adapter READMEs and this task after verification. Preserve public and wire Zod contracts. Record unavailable live evidence separately from protocol-fixture results.
+
+### Open questions
+
+None.
 
 ## Delivery state
 
-Planned. Completion requires implementation evidence and a reachable delivery commit or merged pull request on the target branch.
+Completed on `feat/effect-v4-migration` in this task commit, after S4 commit `7def353`. Evidence is branch-local. No default-branch, remote-CI, or full migration delivery claim is made. OpenCode live model verification remains unavailable because its provider rejected authentication.
 
 ## Traceability
 
