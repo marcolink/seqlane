@@ -9,6 +9,11 @@ import {
   type RuntimeSessionUiAvailable,
 } from "@seqlane/runtime";
 import { encodeRunnerCommand, type RunRequest } from "@seqlane/protocol";
+import {
+  decodeTelemetrySpanSnapshotFrame,
+  isTelemetrySpanSnapshotFrameCandidate,
+  type TelemetrySpanSnapshotFrame,
+} from "@seqlane/protocol/private/telemetry-span-snapshot";
 
 export type TerminalSeqlaneExecutionEvent = Extract<
   SeqlaneExecutionEvent,
@@ -16,7 +21,10 @@ export type TerminalSeqlaneExecutionEvent = Extract<
 >;
 
 type TerminalEvent = TerminalSeqlaneExecutionEvent;
-type RunnerMessage = SeqlaneExecutionEvent | RuntimeSessionUiAvailable;
+type RunnerMessage =
+  | SeqlaneExecutionEvent
+  | RuntimeSessionUiAvailable
+  | TelemetrySpanSnapshotFrame;
 
 export type RunnerExitStatus = 0 | 1 | 130;
 export type RunnerCancellationSignal = "SIGINT" | "SIGTERM";
@@ -88,6 +96,8 @@ export interface RunnerTimer {
 
 export interface RunnerSupervisionOptions {
   readonly onExecutionEvent?: (event: SeqlaneExecutionEvent) => void;
+  readonly onTelemetrySpans?: (frame: TelemetrySpanSnapshotFrame) => void;
+  readonly onTelemetryDiagnostic?: () => void;
   readonly onRuntimeSessionUiAvailable?: (
     notification: RuntimeSessionUiAvailable,
   ) => void;
@@ -191,6 +201,11 @@ function decodeRunnerMessage(message: unknown): RunnerMessage {
   }
 
   try {
+    try {
+      return decodeTelemetrySpanSnapshotFrame(message);
+    } catch {
+      // The private telemetry frame is a separate validated IPC contract.
+    }
     return decodeRuntimeSessionUiAvailable(message);
   } catch {
     return decodeSeqlaneExecutionEvent(message);
@@ -319,6 +334,14 @@ export function createRunnerSupervision(
       try {
         runnerMessage = decodeRunnerMessage(message);
       } catch (error) {
+        if (isTelemetrySpanSnapshotFrameCandidate(message)) {
+          try {
+            options.onTelemetryDiagnostic?.();
+          } catch {
+            // Telemetry diagnostics cannot affect canonical supervision.
+          }
+          return;
+        }
         reportProtocolError(error);
         finish(failure(errorMessage(error)));
         return;
@@ -327,6 +350,15 @@ export function createRunnerSupervision(
       if (runnerMessage.type === "runtime.session.ui-available") {
         try {
           options.onRuntimeSessionUiAvailable?.(runnerMessage);
+        } catch (error) {
+          reportProtocolError(error);
+        }
+        return;
+      }
+
+      if (runnerMessage.type === "runner.telemetry.spans") {
+        try {
+          options.onTelemetrySpans?.(runnerMessage);
         } catch (error) {
           reportProtocolError(error);
         }

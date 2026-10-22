@@ -9,11 +9,6 @@ import { z } from "zod";
 
 export type { SeqlaneObservation } from "@seqlane/protocol";
 
-export {
-  createBoundedNormalizedNameAllocator,
-  type BoundedNormalizedNameAllocator,
-} from "./observability.js";
-
 const agentActivityStateSchema = z.enum([
   "started",
   "progress",

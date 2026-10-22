@@ -441,9 +441,10 @@ async function createOpenCodeRunForSession(
             try {
               const selected = await outputState.resolve();
               const effectiveStrategy = request.strategy ?? selected.strategy;
-              const abortPromptSession = async (
+              async function abortPromptSession(
                 originalFailure?: unknown,
-              ): Promise<void> => {
+              ): Promise<void> {
+                const hasOriginalFailure = arguments.length > 0;
                 try {
                   await abort();
                 } catch (cause) {
@@ -453,13 +454,22 @@ async function createOpenCodeRunForSession(
                   });
                   throw executorError(
                     "external session termination was not confirmed",
-                    originalFailure === undefined
-                      ? cause
-                      : new AggregateError([originalFailure, cause]),
+                    hasOriginalFailure
+                      ? new AggregateError([originalFailure, cause])
+                      : cause,
                   );
                 }
-                activeDispatcher?.finish();
-              };
+                try {
+                  activeDispatcher?.finish();
+                } catch (cause) {
+                  throw executorError(
+                    "canonical event sink failed during prompt cleanup",
+                    new AggregateError(
+                      hasOriginalFailure ? [originalFailure, cause] : [cause],
+                    ),
+                  );
+                }
+              }
               const effectiveRequest: OpenCodePrompt = {
                 ...request,
                 strategy: effectiveStrategy,
@@ -608,7 +618,17 @@ async function createOpenCodeRunForSession(
               }
               if (monitoredResult.type === "monitor-error") {
                 request.onRunInvalidated?.();
-                dispatcher.finish();
+                try {
+                  dispatcher.finish();
+                } catch (terminalCause) {
+                  throw executorError(
+                    "canonical event sink failed during prompt cleanup",
+                    new AggregateError(
+                      [monitoredResult.cause, terminalCause],
+                      "OpenCode monitor and terminal event sinks failed",
+                    ),
+                  );
+                }
                 throw executorError(
                   "could not monitor external interaction requirements",
                   monitoredResult.cause,

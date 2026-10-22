@@ -1,5 +1,7 @@
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Metric, Tracer } from "effect";
 import { RuntimeError } from "@seqlane/core";
+import type { TraceCarrier } from "@seqlane/protocol/private/trace-carrier";
+import { withRuntimeExecutionSpan } from "../../private/telemetry/run-scope.js";
 import type { SeqlaneEventSink, SeqlaneRunOutcome } from "@seqlane/core";
 import type { EffectPlanRunResult } from "./effect-plan.js";
 
@@ -7,8 +9,28 @@ import type { EffectPlanRunResult } from "./effect-plan.js";
 export async function settleRunProgram(
   program: Effect.Effect<EffectPlanRunResult>,
   signal: AbortSignal,
+  traceCarrier?: TraceCarrier,
+  nativeServices?: {
+    readonly tracer?: Tracer.Tracer;
+    readonly metricRegistry?: Map<string, unknown>;
+  },
 ): Promise<EffectPlanRunResult> {
-  const exit = await Effect.runPromiseExit(Effect.scoped(program));
+  let tracedProgram = withRuntimeExecutionSpan(program, traceCarrier);
+  if (nativeServices?.tracer !== undefined) {
+    tracedProgram = tracedProgram.pipe(
+      Effect.provideService(Tracer.Tracer, nativeServices.tracer),
+    );
+  }
+  if (nativeServices?.metricRegistry !== undefined) {
+    tracedProgram = tracedProgram.pipe(
+      Effect.provideService(
+        Metric.MetricRegistry,
+        nativeServices.metricRegistry,
+      ),
+    );
+  }
+  const exit: Exit.Exit<EffectPlanRunResult, unknown> =
+    await Effect.runPromiseExit(Effect.scoped(tracedProgram));
   if (Exit.isSuccess(exit)) {
     return signal.aborted && exit.value.status === "succeeded"
       ? { status: "cancelled" }

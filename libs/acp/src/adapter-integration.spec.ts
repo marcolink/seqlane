@@ -151,7 +151,8 @@ function containsCause(value: unknown, expected: unknown): boolean {
   if (value === expected) return true;
   if (value instanceof AggregateError)
     return [...value.errors].some((item) => containsCause(item, expected));
-  if (value instanceof Error) return containsCause(value.cause, expected);
+  if (value instanceof Error && Object.hasOwn(value, "cause"))
+    return containsCause(value.cause, expected);
   return false;
 }
 
@@ -540,35 +541,42 @@ describe("official SDK ACP v1 subprocess boundary", () => {
     await closeAdapter(adapter);
   });
 
-  it("cancels native work before terminal callbacks and retains both callback failures", async () => {
-    const cwd = temporaryDirectory();
-    const eventFile = join(cwd, "events");
-    const exitFile = join(cwd, "exits");
-    const adapter = makeAdapter(
-      configuration(cwd, "cancel", false, exitFile, undefined, eventFile),
-    );
-    const primary = new Error("activity sink failed");
-    const terminal = new Error("terminal sink failed");
-    const execution = adapter.execute(
-      request(undefined, {
-        onActivity: (activity) => {
-          if (activity.state === "started") throw primary;
-          appendFileSync(eventFile, "terminal\n");
-          throw terminal;
-        },
-      }),
-    );
-    const outcome = execution.catch((cause: unknown) => cause);
-    await waitForMarker(eventFile, "cancel");
-    const failure = await outcome;
-    expect(containsCause(failure, primary)).toBe(true);
-    expect(containsCause(failure, terminal)).toBe(true);
-    expect(readFileSync(eventFile, "utf8").indexOf("cancel\n")).toBeLessThan(
-      readFileSync(eventFile, "utf8").indexOf("terminal\n"),
-    );
-    await closeAdapter(adapter);
-    await waitForFile(exitFile);
-  });
+  it.each([
+    ["frozen Error", Object.freeze(new Error("activity sink failed"))],
+    ["primitive", "activity sink failed"],
+    ["null", null],
+    ["undefined", undefined],
+  ])(
+    "stops native work before terminal callbacks when the %s activity sink fails",
+    async (_label, primary) => {
+      const cwd = temporaryDirectory();
+      const eventFile = join(cwd, "events");
+      const exitFile = join(cwd, "exits");
+      const adapter = makeAdapter(
+        configuration(cwd, "cancel", false, exitFile, undefined, eventFile),
+      );
+      const terminal = new Error("terminal sink failed");
+      const execution = adapter.execute(
+        request(undefined, {
+          onActivity: (activity) => {
+            if (activity.state === "started") throw primary;
+            appendFileSync(eventFile, "terminal\n");
+            throw terminal;
+          },
+        }),
+      );
+      const outcome = execution.catch((cause: unknown) => cause);
+      await waitForMarker(eventFile, "cancel");
+      const failure = await outcome;
+      expect(containsCause(failure, primary)).toBe(true);
+      expect(containsCause(failure, terminal)).toBe(true);
+      expect(readFileSync(eventFile, "utf8").indexOf("cancel\n")).toBeLessThan(
+        readFileSync(eventFile, "utf8").indexOf("terminal\n"),
+      );
+      await closeAdapter(adapter);
+      await waitForFile(exitFile);
+    },
+  );
 
   it("closes a directly closed adapter during pending initialization", async () => {
     const cwd = temporaryDirectory();

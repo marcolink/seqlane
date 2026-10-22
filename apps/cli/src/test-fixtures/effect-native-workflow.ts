@@ -1,6 +1,7 @@
 import {
   createFlow,
   defineAgentTask,
+  defineTask,
   fork,
   isolated,
   reuse,
@@ -23,6 +24,13 @@ const nativeTask = (id: string) =>
     output,
     goal: ({ value }) => `Return the fixture result for ${value}`,
   });
+
+const deterministicPreparation = defineTask({
+  id: "native-mixed-preparation",
+  input,
+  output: input,
+  execute: async ({ input: value }) => value,
+});
 
 export const effectNativeWorkflow = createFlow({
   id: "effect-native-cli-fixture",
@@ -48,6 +56,20 @@ export const effectNativeSingleWorkflow = createFlow({
 })
   .task("single", nativeTask("native-single"), ({ input }) => input)
   .output(({ tasks }) => tasks.single.output)
+  .define();
+
+export const effectNativeMixedWorkflow = createFlow({
+  id: "effect-native-mixed-cli-fixture",
+  input,
+  output,
+})
+  .task("preparation", deterministicPreparation, ({ input: value }) => value)
+  .task(
+    "agent",
+    nativeTask("native-mixed-agent"),
+    ({ tasks }) => tasks.preparation.output,
+  )
+  .output(({ tasks }) => tasks.agent.output)
   .define();
 
 export const effectNativeUnsupportedModelWorkflow = createFlow({

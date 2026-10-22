@@ -417,11 +417,15 @@ function createAdapterForTransport(
         TURN_INTERRUPT_REQUEST_TIMEOUT_MS,
       );
       await withTimeout(
-        Promise.race([
-          tracker.completion.then(() => undefined),
-          tracker.failure,
-          tracker.stopped,
-        ]),
+        Promise.race(
+          tracker.sinkFailure().failed
+            ? [tracker.completion.then(() => undefined), tracker.stopped]
+            : [
+                tracker.completion.then(() => undefined),
+                tracker.failure,
+                tracker.stopped,
+              ],
+        ),
         TURN_TERMINATION_CONFIRM_TIMEOUT_MS,
       );
     } catch (cause) {
@@ -505,23 +509,29 @@ function createAdapterForTransport(
           const model = modelParams(selection);
           const id = await ensureThread(signal, selection);
           const registration = dispatcher.begin(id);
-          request.onExecutionStarted();
-          const prompt = buildPrompt(request);
-          const outputSchema = taskJsonSchema(request.task);
-          const turnParameters = {
-            threadId: id,
-            input: [{ type: "text", text: prompt }],
-            cwd: configuration.workspace,
-            approvalPolicy: "never",
-            sandboxPolicy: {
-              type: "workspaceWrite",
-              writableRoots: [configuration.workspace],
-              networkAccess: configuration.networkAccess,
-            },
-            outputSchema,
-            ...(model.model === undefined ? {} : model),
-          };
-          observation.started(turnParameters);
+          let turnParameters: unknown;
+          try {
+            request.onExecutionStarted();
+            const prompt = buildPrompt(request);
+            const outputSchema = taskJsonSchema(request.task);
+            turnParameters = {
+              threadId: id,
+              input: [{ type: "text", text: prompt }],
+              cwd: configuration.workspace,
+              approvalPolicy: "never",
+              sandboxPolicy: {
+                type: "workspaceWrite",
+                writableRoots: [configuration.workspace],
+                networkAccess: configuration.networkAccess,
+              },
+              outputSchema,
+              ...(model.model === undefined ? {} : model),
+            };
+            observation.started(turnParameters);
+          } catch (cause) {
+            registration.cancel();
+            throw cause;
+          }
           const turnStartPromise = withDeadline(
             transport.request("turn/start", turnParameters),
             PRE_TURN_REQUEST_TIMEOUT_MS,
@@ -551,42 +561,66 @@ function createAdapterForTransport(
             observation.exchange(tracker.snapshot());
             observeTransportTermination(tracker, signal);
           } catch (cause) {
-            if (signal.aborted) {
-              try {
-                turn = parseTurnStartResult(
-                  await withTimeout(
-                    turnStartPromise,
-                    TURN_START_CONFIRM_TIMEOUT_MS,
-                  ),
-                );
-                tracker = createTurnTracker(
-                  registration,
-                  turn.id,
-                  request.onActivity,
-                  transport.respond,
-                  {
-                    startedTurn: turn,
-                    onSnapshot: (snapshot) => observation.exchange(snapshot),
-                  },
-                );
-                observation.exchange(tracker.snapshot());
-                observeTransportTermination(tracker, signal);
-                await interruptAndConfirm(turn.id, tracker, request);
-              } catch (confirmationCause) {
+            try {
+              if (signal.aborted) {
+                try {
+                  turn = parseTurnStartResult(
+                    await withTimeout(
+                      turnStartPromise,
+                      TURN_START_CONFIRM_TIMEOUT_MS,
+                    ),
+                  );
+                  tracker = createTurnTracker(
+                    registration,
+                    turn.id,
+                    request.onActivity,
+                    transport.respond,
+                    {
+                      startedTurn: turn,
+                      onSnapshot: (snapshot) => observation.exchange(snapshot),
+                    },
+                  );
+                  observation.exchange(tracker.snapshot());
+                  observeTransportTermination(tracker, signal);
+                  await interruptAndConfirm(turn.id, tracker, request);
+                } catch (confirmationCause) {
+                  registration.cancel();
+                  await invalidateUnconfirmedTurn(request);
+                  throw new CodexAdapterError(
+                    "cancellation",
+                    "Codex turn start could not be terminated safely",
+                    confirmationCause,
+                  );
+                }
+              } else if (
+                tracker?.sinkFailure().failed ||
+                observation.sinkFailure().failed
+              ) {
+                if (tracker !== undefined) {
+                  try {
+                    await interruptAndConfirm(
+                      tracker.snapshot().responseId,
+                      tracker,
+                      request,
+                    );
+                  } catch (cleanupCause) {
+                    throw new CodexAdapterError(
+                      "cancellation",
+                      "Codex sink failure cleanup could not be confirmed",
+                      new AggregateError([cause, cleanupCause]),
+                    );
+                  }
+                } else {
+                  registration.cancel();
+                }
+                throw cause;
+              } else {
                 registration.cancel();
-                await invalidateUnconfirmedTurn(request);
-                throw new CodexAdapterError(
-                  "cancellation",
-                  "Codex turn start could not be terminated safely",
-                  confirmationCause,
-                );
-              } finally {
-                tracker?.dispose();
               }
-            } else {
-              registration.cancel();
+              throw cause;
+            } finally {
+              tracker?.dispose();
             }
-            throw cause;
           }
           try {
             let completed: CompletedTurn;
@@ -614,12 +648,21 @@ function createAdapterForTransport(
               );
             } catch (cause) {
               const shouldInterrupt =
+                tracker.sinkFailure().failed ||
                 cause instanceof InteractionRequiredError ||
                 signal.aborted ||
                 (cause instanceof CodexAdapterError &&
                   ["cancellation", "limit", "protocol"].includes(cause.code));
               if (shouldInterrupt) {
-                await interruptAndConfirm(turn.id, tracker, request);
+                try {
+                  await interruptAndConfirm(turn.id, tracker, request);
+                } catch (cleanupCause) {
+                  throw new CodexAdapterError(
+                    "cancellation",
+                    "Codex turn failed and its termination could not be confirmed",
+                    new AggregateError([cause, cleanupCause]),
+                  );
+                }
               }
               throw cause;
             }
@@ -700,7 +743,16 @@ function createAdapterForTransport(
         catch: (cause) => cause,
       }).pipe(
         Effect.catch((cause) => {
-          observation.failed(cause, request.signal.aborted);
+          try {
+            observation.failed(cause, request.signal.aborted);
+          } catch (observationCause) {
+            return Effect.fail(
+              new AggregateError(
+                [cause, observationCause],
+                "Codex execution and terminal observation failed",
+              ),
+            );
+          }
           return Effect.fail(cause);
         }),
       ),

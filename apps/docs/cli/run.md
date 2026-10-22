@@ -62,6 +62,25 @@ not grant filesystem permissions.
 The run validates workflow inputs, task outputs, and the workflow result. It
 returns a failure when a boundary or task fails.
 
+## Optional OTLP export
+
+Runs deliver complete canonical events locally. Remote telemetry is disabled
+by default. To collect and export traces, logs, and low-cardinality metrics, set
+`SEQLANE_TELEMETRY` to a JSON object with an HTTP(S) `endpoint` and an explicit
+`payloadPolicy`:
+
+```sh
+SEQLANE_TELEMETRY='{"endpoint":"http://localhost:4318","payloadPolicy":"metadata"}' seqlane run ./workflow.ts
+```
+
+Use `metadata` to export operation names, timings, outcomes, and correlation
+IDs. Use `full` only when the destination may receive complete model, tool, and
+skill observations, including request, response, input, and output values. The
+optional `headers`, `maxPendingBytes`, and `shutdownTimeoutMs` fields set
+authentication and bounded exporter limits. Invalid configuration fails
+before the workflow is imported. An exporter outage does not change the run
+result.
+
 ## Execution convention
 
 Seqlane runs are non-interactive. A workflow must be self-contained: it cannot

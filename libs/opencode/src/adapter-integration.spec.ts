@@ -71,6 +71,15 @@ function writeJson(response: ServerResponse, value: unknown): void {
   response.end(JSON.stringify(value));
 }
 
+function containsCause(value: unknown, expected: unknown): boolean {
+  if (value === expected) return true;
+  if (value instanceof AggregateError)
+    return [...value.errors].some((cause) => containsCause(cause, expected));
+  if (value instanceof Error && Object.hasOwn(value, "cause"))
+    return containsCause(value.cause, expected);
+  return false;
+}
+
 async function readBody(
   request: IncomingMessage,
 ): Promise<Record<string, unknown> | undefined> {
@@ -482,6 +491,84 @@ describe("OpenCode SDK adapter boundary", () => {
       await server.close();
     }
   });
+
+  it.each([
+    ["frozen Error", Object.freeze(new Error("activity sink failed"))],
+    ["primitive", "activity sink failed"],
+    ["null", null],
+    ["undefined", undefined],
+  ])(
+    "aborts a live prompt and retains the %s activity sink cause",
+    async (_label, primary) => {
+      const server = await startServer({
+        mode: "hold",
+        unfinishedToolOnHold: true,
+      });
+      try {
+        const controller = new AbortController();
+        const terminal = new Error("terminal sink failed");
+        const adapter = createOpenCodeAdapter({
+          url: server.url,
+          structuredOutput: { strategy: "native" },
+        });
+        let resolveToolStarted!: () => void;
+        const toolStarted = new Promise<void>((resolve) => {
+          resolveToolStarted = resolve;
+        });
+        const execution = adapter.execute({
+          invocationId: "sink-failure-invocation",
+          task: adapterTask("sink-failure-task"),
+          agent: adapterAgent,
+          input: "fail the canonical sink during active work",
+          signal: controller.signal,
+          onExecutionStarted: () => undefined,
+          onActivity: (activity) => {
+            if (activity.state === "started") {
+              resolveToolStarted();
+              throw primary;
+            }
+            throw terminal;
+          },
+        });
+        await server.promptStarted;
+        await Promise.race([
+          toolStarted,
+          new Promise<void>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(new Error("OpenCode tool event did not reach the sink")),
+              1_000,
+            ),
+          ),
+        ]);
+        await Promise.race([
+          server.abortStarted,
+          new Promise<void>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("OpenCode abort was not requested")),
+              1_000,
+            ),
+          ),
+        ]);
+        const outcome = await execution.then(
+          (value) => ({ fulfilled: true as const, value }),
+          (cause: unknown) => ({ fulfilled: false as const, cause }),
+        );
+        expect(outcome.fulfilled).toBe(false);
+        if (outcome.fulfilled)
+          throw new Error("OpenCode unexpectedly succeeded");
+        const failure = outcome.cause;
+        expect(containsCause(failure, primary)).toBe(true);
+        expect(containsCause(failure, terminal)).toBe(true);
+        expect(server.requests.map(({ path }) => path)).toContain(
+          "/session/session-1/abort",
+        );
+        await adapter.close?.();
+      } finally {
+        await server.close();
+      }
+    },
+  );
 
   it("uses the configured SDK server, workspace, model, output, and activity", async () => {
     const server = await startServer();

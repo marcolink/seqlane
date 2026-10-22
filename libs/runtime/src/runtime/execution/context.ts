@@ -7,6 +7,7 @@ import type {
   WorkflowDefinitionRegistry,
   SeqlaneError,
   SeqlaneEventSink,
+  SeqlaneEvent,
   ValidatorDefinitionRegistry,
   WorkId,
   ModelSelection,
@@ -30,7 +31,10 @@ import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.
 import { JointAdmissionRegistry } from "../invocation/joint-admission.js";
 import type { ClassifierTaskRunner } from "../../classifier/types.js";
 
-export type ExecutionEventSink = SeqlaneEventSink;
+export interface ExecutionEventSink extends SeqlaneEventSink {
+  /** Async producers can wait for the private worker's byte-bounded ACK queue. */
+  readonly emitAsync?: (event: SeqlaneEvent) => Promise<void>;
+}
 export type ExecutionObservationSink = (
   invocationId: InvocationId,
   observation: SeqlaneObservation,
@@ -112,7 +116,7 @@ export interface ExecutionContextOptions {
   readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
-  readonly events?: SeqlaneEventSink;
+  readonly events?: ExecutionEventSink;
   readonly onObservation?: ExecutionObservationSink;
   readonly classifier?: ClassifierTaskRunner;
 }
@@ -179,21 +183,33 @@ export function createExecutionContext(
     events: {
       emit: (event) => {
         options.events?.emit(event);
-        if (
-          event.type === "invocation.succeeded" ||
-          (event.type === "invocation.failed" &&
-            event.disposition !== "retry_scheduled") ||
-          event.type === "invocation.cancelled" ||
-          event.type === "invocation.skipped"
-        ) {
-          terminalInvocationIds.add(event.invocationId);
-        }
-        choiceSourceGate.observe(event);
+        observeEvent(event);
       },
+      ...(options.events?.emitAsync === undefined
+        ? {}
+        : {
+            emitAsync: async (event: SeqlaneEvent) => {
+              await options.events!.emitAsync!(event);
+              observeEvent(event);
+            },
+          }),
     },
     onObservation: options.onObservation,
     classifier: options.classifier,
   };
+
+  function observeEvent(event: SeqlaneEvent): void {
+    if (
+      event.type === "invocation.succeeded" ||
+      (event.type === "invocation.failed" &&
+        event.disposition !== "retry_scheduled") ||
+      event.type === "invocation.cancelled" ||
+      event.type === "invocation.skipped"
+    ) {
+      terminalInvocationIds.add(event.invocationId);
+    }
+    choiceSourceGate.observe(event);
+  }
 }
 
 /** Returns the stable ordinal assigned when an invocation is created. */

@@ -13,6 +13,8 @@ import {
 import { resolveRuntimeProfile } from "./profile/runtime-profile.js";
 import type { LoadedWorkflow } from "./workflow/load-workflow.js";
 import type { PrivateClassifierConnection } from "../classifier/types.js";
+import type { TraceCarrier } from "@seqlane/protocol/private/trace-carrier";
+import type { TelemetryConfiguration } from "../private/telemetry/configuration.js";
 export { createEffectTracerRunProgram } from "./effect-tracer.js";
 export type {
   RunnerRunProgram,
@@ -37,6 +39,8 @@ export interface RunnerProcessOptions {
   readonly workerEntrypoint?: boolean;
   readonly createAgentRuntimeFactory?: () => AgentRuntimeFactory;
   readonly classifierConnection?: PrivateClassifierConnection;
+  readonly traceCarrier?: TraceCarrier;
+  readonly telemetryConfiguration?: TelemetryConfiguration;
   /** Private worker-composition seam; omitted by the production CLI. */
   readonly createRunProgram?: () => RunnerRunProgram;
 }
@@ -117,7 +121,11 @@ export function startRunnerProcess(options: RunnerProcessOptions = {}): void {
 
   let receivedInitialCommand = false;
   const runnerState: { loadedWorkflow?: LoadedWorkflow } = {};
-  const control: RunnerRunControl = { cancellationRequested: false };
+  const control: RunnerRunControl = {
+    cancellationRequested: false,
+    traceCarrier: options.traceCarrier,
+    telemetryConfiguration: options.telemetryConfiguration,
+  };
   const resolveExecution = createRunnerExecutionResolver(options);
   control.runProgram = options.createRunProgram?.();
   bindRunnerCancellationSignals(process, control, () => host.exit(130));

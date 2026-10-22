@@ -49,6 +49,13 @@ const tracestateSchema = z
     /^[a-z0-9][a-z0-9_-]{0,255}=[\x20-\x7e]{0,256}(?:,[a-z0-9][a-z0-9_-]{0,255}=[\x20-\x7e]{0,256})*$/,
   );
 
+/** Engine-neutral context passed only through private process startup state. */
+export const traceCarrierSchema = z.strictObject({
+  traceparent: traceparentSchema,
+  tracestate: tracestateSchema.optional(),
+});
+export type TraceCarrier = z.output<typeof traceCarrierSchema>;
+
 const metadataSchema = strictRecord({
   schemaVersion: z.literal(1),
   eventId: nonEmptyStringSchema,

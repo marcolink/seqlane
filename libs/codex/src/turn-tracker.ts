@@ -47,6 +47,7 @@ export interface TurnTracker {
   readonly failure: Promise<never>;
   readonly stopped: Promise<void>;
   stopCause(): unknown;
+  sinkFailure(): { readonly failed: boolean; readonly cause: unknown };
   isStopped(): boolean;
   confirmStopped(endedAt: number, message: string, cause?: unknown): void;
   fail(cause: unknown, endedAt: number): void;
@@ -125,6 +126,8 @@ export function createTurnTracker(
   let settled = false;
   let stopped = false;
   let terminationCause: unknown;
+  let activitySinkFailed = false;
+  let activitySinkCause: unknown;
   const agentMessages = new Map<string, AgentMessageState>();
   const completedAgentMessageIds: string[] = [];
   const completion = new Promise<CompletedTurn>((resolve, reject) => {
@@ -141,7 +144,13 @@ export function createTurnTracker(
     resolveStopped = resolve;
   });
   const reducer = new CodexActivityReducer((activity: AgentActivity) => {
-    onActivity?.(activity);
+    try {
+      onActivity?.(activity);
+    } catch (cause) {
+      activitySinkFailed = true;
+      activitySinkCause = cause;
+      throw cause;
+    }
   });
   const addItem = (item: Record<string, unknown>): void => {
     if (items.length >= MAX_TURN_ITEMS) {
@@ -226,7 +235,15 @@ export function createTurnTracker(
     },
     ...(usage === undefined ? {} : { usage }),
   });
-  const reportSnapshot = (): void => options.onSnapshot?.(snapshot());
+  const reportSnapshot = (): void => {
+    try {
+      options.onSnapshot?.(snapshot());
+    } catch (cause) {
+      activitySinkFailed = true;
+      activitySinkCause = cause;
+      throw cause;
+    }
+  };
   const onMessage = (message: SessionEvent): void => {
     if (settled) return;
     try {
@@ -320,6 +337,10 @@ export function createTurnTracker(
     failure,
     stopped: stoppedPromise,
     stopCause: () => terminationCause,
+    sinkFailure: () => ({
+      failed: activitySinkFailed,
+      cause: activitySinkCause,
+    }),
     isStopped: () => stopped,
     confirmStopped(endedAt, message, cause) {
       if (stopped) return;

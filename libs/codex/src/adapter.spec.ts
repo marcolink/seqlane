@@ -54,6 +54,15 @@ function request(
   };
 }
 
+function containsCause(value: unknown, expected: unknown): boolean {
+  if (value === expected) return true;
+  if (value instanceof AggregateError)
+    return [...value.errors].some((cause) => containsCause(cause, expected));
+  if (value instanceof Error && Object.hasOwn(value, "cause"))
+    return containsCause(value.cause, expected);
+  return false;
+}
+
 class FakeTransport implements CodexTransport {
   readonly termination: Promise<void>;
   readonly requests: Array<{
@@ -1054,6 +1063,63 @@ describe("Codex AgentAdapter", () => {
     });
     expect(activities[1]).not.toHaveProperty("output");
   });
+
+  it.each([
+    ["frozen Error", Object.freeze(new Error("activity sink failed"))],
+    ["primitive", "activity sink failed"],
+    ["null", null],
+    ["undefined", undefined],
+  ])(
+    "interrupts the live native turn after the %s activity sink fails",
+    async (_label, cause) => {
+      const transport = new FakeTransport();
+      transport.emitCompletion = false;
+      const adapter = createCodexAdapterForTransport(transport, configuration, {
+        modelSelection: selection,
+      });
+      const terminal = new Error("terminal activity sink failed");
+      const execution = adapter.execute(
+        request({
+          onActivity: (activity) => {
+            throw activity.state === "started" ? cause : terminal;
+          },
+        }),
+      );
+      for (
+        let index = 0;
+        index < 20 &&
+        !transport.requests.some((value) => value.method === "turn/start");
+        index += 1
+      )
+        await Promise.resolve();
+      transport.emit({
+        kind: "notification",
+        notification: {
+          method: "item/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "sink-tool",
+              type: "commandExecution",
+              input: { command: "sleep 60" },
+            },
+            startedAtMs: 10,
+          },
+        },
+      });
+      const outcome = await execution.then(
+        () => ({ fulfilled: true as const }),
+        (failure: unknown) => ({ fulfilled: false as const, failure }),
+      );
+      expect(transport.interruptAcknowledged).toBe(true);
+      expect(outcome.fulfilled).toBe(false);
+      if (outcome.fulfilled) throw new Error("Codex unexpectedly succeeded");
+      expect(containsCause(outcome.failure, cause)).toBe(true);
+      expect(containsCause(outcome.failure, terminal)).toBe(true);
+      await adapter.close?.();
+    },
+  );
 
   it("rejects checkpoint and fork reuse after an unconfirmed interruption", async () => {
     const transport = new FakeTransport();

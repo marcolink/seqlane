@@ -26,6 +26,8 @@ export function createCodexObservationLifecycle(
   let responseId: string | undefined;
   let response: unknown;
   let usage: unknown;
+  let sinkFailed = false;
+  let sinkCause: unknown;
 
   const emit = (
     state: Observation["state"],
@@ -37,29 +39,40 @@ export function createCodexObservationLifecycle(
     const observedResponse =
       details.response === undefined ? response : details.response;
     const observedUsage = details.usage === undefined ? usage : details.usage;
-    request.onObservation?.(
-      createCodexModelObservation({
-        invocationId: request.invocationId,
-        state,
-        selection,
-        request: requestValue,
-        ...(observedResponseId === undefined
-          ? {}
-          : { responseId: observedResponseId }),
-        ...(observedResponse === undefined
-          ? {}
-          : { response: observedResponse }),
-        ...(observedUsage === undefined ? {} : { usage: observedUsage }),
-        ...(startedAt === undefined ? {} : { startedAt }),
-        ...(details.endedAt === undefined ? {} : { endedAt: details.endedAt }),
-        ...(details.error === undefined ? {} : { error: details.error }),
-      }),
-    );
+    try {
+      request.onObservation?.(
+        createCodexModelObservation({
+          invocationId: request.invocationId,
+          state,
+          selection,
+          request: requestValue,
+          ...(observedResponseId === undefined
+            ? {}
+            : { responseId: observedResponseId }),
+          ...(observedResponse === undefined
+            ? {}
+            : { response: observedResponse }),
+          ...(observedUsage === undefined ? {} : { usage: observedUsage }),
+          ...(startedAt === undefined ? {} : { startedAt }),
+          ...(details.endedAt === undefined
+            ? {}
+            : { endedAt: details.endedAt }),
+          ...(details.error === undefined ? {} : { error: details.error }),
+        }),
+      );
+    } catch (cause) {
+      sinkFailed = true;
+      sinkCause = cause;
+      throw cause;
+    }
   };
 
   return {
     setSelection(value: ModelSelection | undefined): void {
       selection = value;
+    },
+    sinkFailure(): { readonly failed: boolean; readonly cause: unknown } {
+      return { failed: sinkFailed, cause: sinkCause };
     },
     exchange(details: {
       readonly responseId?: string;

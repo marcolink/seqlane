@@ -7,7 +7,6 @@ import type {
   PlanNode,
   RunId,
   TaskDefinitionRegistry,
-  SeqlaneEventSink,
   ValidationCheckNode,
   ValidatorDefinitionRegistry,
   WorkflowDefinitionRegistry,
@@ -22,6 +21,7 @@ import {
   createExecutionContext,
   invocationCreationOrdinal,
   type ExecutionContext,
+  type ExecutionEventSink,
   type ExecutionRunState,
 } from "../execution/context.js";
 import { type ExecutorRegistry } from "../execution/executor.js";
@@ -82,7 +82,7 @@ export interface CompileWorkflowOptions {
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
-  readonly events?: SeqlaneEventSink;
+  readonly events?: ExecutionEventSink;
   readonly onObservation?: (
     invocationId: InvocationId,
     observation: SeqlaneObservation,

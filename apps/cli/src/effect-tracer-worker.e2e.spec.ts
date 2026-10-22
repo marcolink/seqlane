@@ -7,6 +7,13 @@
 // @test-scope ../../../libs/runtime/src/runtime/execution/settle-run-program.ts
 // @test-scope ../../../libs/runtime/src/runner/main.ts
 // @test-scope ../../../libs/runtime/src/runner/run.ts
+// @test-scope ../../../libs/runtime/src/private/telemetry/run-scope.ts
+// @test-scope ../../../libs/runtime/src/private/telemetry/collector.ts
+// @test-scope ../../../libs/runtime/src/private/telemetry/canonical-metrics.ts
+// @test-scope ../../../libs/runtime/src/private/telemetry/otlp-exporter.ts
+// @test-scope ../../../libs/runtime/src/private/telemetry/otlp-projection.ts
+// @test-scope ../../../libs/protocol/src/telemetry-span-snapshot.ts
+// @test-scope ./run-execution.ts
 // @test-scope ../../../libs/runtime/src/classifier/system-one-client.ts
 
 import { EventEmitter } from "node:events";
@@ -25,6 +32,12 @@ import {
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import { launchRunner } from "./runner-client.js";
+import { runCliWithTelemetry } from "@seqlane/runtime/private/telemetry";
+import { encodeTraceCarrier } from "@seqlane/protocol/private/trace-carrier";
+import { telemetryConfigurationEnvironment } from "@seqlane/runtime/private/telemetry";
+import { z } from "zod";
+import { traceCarrierEnvironment } from "./trace-carrier-environment.js";
+import { runCommandResultSchema } from "./cli-contracts.js";
 import type { RunnerSignalSource } from "./runner-client.js";
 import {
   closeRunnerWorker,
@@ -43,6 +56,79 @@ const workflowModule = join(
 );
 const workflowUrl = pathToFileURL(workflowModule).href;
 const events: SeqlaneExecutionEvent[] = [];
+const otlpSpanPayloadSchema = z.object({
+  resourceSpans: z.array(
+    z.object({
+      scopeSpans: z.array(
+        z.object({
+          spans: z.array(
+            z.object({
+              name: z.string(),
+              traceId: z.string(),
+              spanId: z.string(),
+            }),
+          ),
+        }),
+      ),
+    }),
+  ),
+});
+const otlpLogPayloadSchema = z.object({
+  resourceLogs: z.array(
+    z.object({
+      scopeLogs: z.array(
+        z.object({
+          logRecords: z.array(
+            z.object({
+              body: z.object({ stringValue: z.string() }),
+              traceId: z.string(),
+              spanId: z.string(),
+            }),
+          ),
+        }),
+      ),
+    }),
+  ),
+});
+const otlpMetricPayloadSchema = z.object({
+  resourceMetrics: z.array(
+    z.object({
+      scopeMetrics: z.array(
+        z.object({
+          metrics: z.array(
+            z.object({
+              name: z.string(),
+              sum: z
+                .object({
+                  dataPoints: z.array(
+                    z.object({
+                      asInt: z.string().optional(),
+                      attributes: z
+                        .array(
+                          z.object({
+                            key: z.string(),
+                            value: z.object({ stringValue: z.string() }),
+                          }),
+                        )
+                        .optional(),
+                    }),
+                  ),
+                })
+                .optional(),
+              gauge: z
+                .object({
+                  dataPoints: z.array(
+                    z.object({ asInt: z.string().optional() }),
+                  ),
+                })
+                .optional(),
+            }),
+          ),
+        }),
+      ),
+    }),
+  ),
+});
 let runnerPath: string;
 let temporaryRoot: string;
 
@@ -468,4 +554,217 @@ describe("Effect S1 runner worker", () => {
       rmSync(markerDirectory, { recursive: true, force: true });
     }
   });
+
+  it("propagates the real CLI parent span into compiled worker events", async () => {
+    const { value, spans } = await runCliWithTelemetry(async (carrier) => {
+      events.length = 0;
+      const client = launchRunner(request({ value: "correlated" }), {
+        runnerPath,
+        cwd: repositoryRoot,
+        environment: {
+          ...process.env,
+          [traceCarrierEnvironment]: encodeTraceCarrier(carrier),
+        },
+        onExecutionEvent: (event) => events.push(event),
+      });
+      try {
+        return await client.result;
+      } finally {
+        client.close();
+      }
+    });
+
+    expect(value).toMatchObject({
+      status: 0,
+      terminalEvent: { type: "run.succeeded" },
+    });
+    expect(spans).toHaveLength(1);
+    expect(spans[0]?.name).toBe("seqlane.cli.run");
+    expect(events.length).toBeGreaterThan(1);
+    const carriers = new Set(events.map((event) => event.metadata.traceparent));
+    expect(carriers.size).toBe(1);
+    const carrier = [...carriers][0];
+    expect(carrier).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
+    const [, traceId, workerSpanId] = carrier!.split("-");
+    expect(traceId).toBe(spans[0]?.traceId);
+    expect(workerSpanId).not.toBe(spans[0]?.spanId);
+  }, 30_000);
+
+  it("exports correlated telemetry from the compiled Oclif run command", async () => {
+    const batches: Array<{ path: string; body: string }> = [];
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        batches.push({
+          path: request.url ?? "",
+          body: Buffer.concat(chunks).toString("utf8"),
+        });
+        response
+          .writeHead(200, { "content-type": "application/json" })
+          .end("{}");
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const address = server.address();
+      if (address === null || typeof address === "string")
+        throw new Error("Telemetry fixture server did not bind");
+      const cli = startCompiledCli({
+        cliRoot,
+        args: [
+          "run",
+          `${workflowModule}#effectTracerWorkflow`,
+          "--input",
+          JSON.stringify({ value: "compiled-telemetry" }),
+          "--json",
+        ],
+        cwd: repositoryRoot,
+        env: {
+          ...process.env,
+          [telemetryConfigurationEnvironment]: JSON.stringify({
+            endpoint: `http://127.0.0.1:${address.port}`,
+            payloadPolicy: "metadata",
+          }),
+        },
+      });
+      const result = await cli.completed;
+      expect(result.code).toBe(0);
+      const commandResult = runCommandResultSchema.parse(
+        JSON.parse(result.stdout),
+      );
+      expect(commandResult.status).toBe("succeeded");
+      if (commandResult.status === "succeeded")
+        expect(commandResult.output).toEqual({
+          value: "effect:compiled-telemetry",
+        });
+      const traces = batches.find((batch) => batch.path === "/v1/traces");
+      const logs = batches.find((batch) => batch.path === "/v1/logs");
+      const metrics = batches.find((batch) => batch.path === "/v1/metrics");
+      expect(traces).toBeDefined();
+      expect(logs).toBeDefined();
+      expect(metrics).toBeDefined();
+      const tracePayload = otlpSpanPayloadSchema.parse(
+        JSON.parse(traces!.body),
+      );
+      const logPayload = otlpLogPayloadSchema.parse(JSON.parse(logs!.body));
+      const metricPayload = otlpMetricPayloadSchema.parse(
+        JSON.parse(metrics!.body),
+      );
+      const exportedSpans = tracePayload.resourceSpans.flatMap((resource) =>
+        resource.scopeSpans.flatMap((scope) => scope.spans),
+      );
+      const exportedLogs = logPayload.resourceLogs.flatMap((resource) =>
+        resource.scopeLogs.flatMap((scope) => scope.logRecords),
+      );
+      const exportedMetrics = metricPayload.resourceMetrics.flatMap(
+        (resource) => resource.scopeMetrics.flatMap((scope) => scope.metrics),
+      );
+      const cliSpan = exportedSpans.find(
+        (span) => span.name === "seqlane.cli.run",
+      );
+      const runStarted = exportedLogs.find(
+        (log) => log.body.stringValue === "run.started",
+      );
+      expect(cliSpan).toBeDefined();
+      expect(runStarted?.traceId).toBe(cliSpan?.traceId);
+      expect(runStarted?.spanId).toMatch(/^[0-9a-f]{16}$/);
+      expect(runStarted?.spanId).not.toBe(cliSpan?.spanId);
+      const queuePeak = exportedMetrics.find(
+        (metric) => metric.name === "seqlane.event_queue.pending_bytes_peak",
+      );
+      const queueCapacity = exportedMetrics.find(
+        (metric) => metric.name === "seqlane.event_queue.capacity_bytes",
+      );
+      expect(Number(queuePeak?.gauge?.dataPoints[0]?.asInt)).toBeGreaterThan(0);
+      expect(queueCapacity?.gauge?.dataPoints[0]?.asInt).toBe("16777216");
+      expect(
+        exportedMetrics.find(
+          (metric) => metric.name === "seqlane.event_queue.capacity_waits",
+        )?.sum?.dataPoints[0]?.asInt,
+      ).toBe("0");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  }, 30_000);
+
+  it("exports a trace failure count without changing the successful CLI result", async () => {
+    const batches: Array<{ path: string; body: string }> = [];
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        const path = request.url ?? "";
+        batches.push({ path, body: Buffer.concat(chunks).toString("utf8") });
+        response
+          .writeHead(path === "/v1/traces" ? 503 : 200, {
+            "content-type": "application/json",
+          })
+          .end("{}");
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const address = server.address();
+      if (address === null || typeof address === "string")
+        throw new Error("Telemetry fixture server did not bind");
+      const cli = startCompiledCli({
+        cliRoot,
+        args: [
+          "run",
+          `${workflowModule}#effectTracerWorkflow`,
+          "--input",
+          JSON.stringify({ value: "export-failure" }),
+          "--json",
+        ],
+        cwd: repositoryRoot,
+        env: {
+          ...process.env,
+          [telemetryConfigurationEnvironment]: JSON.stringify({
+            endpoint: `http://127.0.0.1:${address.port}`,
+            payloadPolicy: "metadata",
+          }),
+        },
+      });
+      const result = await cli.completed;
+      expect(result.code).toBe(0);
+      const commandResult = runCommandResultSchema.parse(
+        JSON.parse(result.stdout),
+      );
+      expect(commandResult.status).toBe("succeeded");
+      if (commandResult.status === "succeeded")
+        expect(commandResult.output).toEqual({
+          value: "effect:export-failure",
+        });
+      expect(result.stderr).toContain("seqlane telemetry export incomplete");
+      expect(batches.map((batch) => batch.path)).toEqual([
+        "/v1/traces",
+        "/v1/logs",
+        "/v1/metrics",
+      ]);
+      const metrics = batches.find((batch) => batch.path === "/v1/metrics");
+      const metricPayload = otlpMetricPayloadSchema.parse(
+        JSON.parse(metrics!.body),
+      );
+      const exportFailure = metricPayload.resourceMetrics
+        .flatMap((resource) => resource.scopeMetrics)
+        .flatMap((scope) => scope.metrics)
+        .find((metric) => metric.name === "seqlane.telemetry.export_failures");
+      expect(exportFailure?.sum?.dataPoints[0]?.asInt).toBe("1");
+      expect(exportFailure?.sum?.dataPoints[0]?.attributes).toContainEqual({
+        key: "signal",
+        value: { stringValue: "traces" },
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  }, 30_000);
 });

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Metric } from "effect";
 import type { PlanNode, ValidationCheckNode } from "@seqlane/core";
 import {
   invocationIdForNode,
@@ -18,6 +18,11 @@ import type { CompileWorkflowOptions } from "./compile-plan.js";
 import { executeChoiceNodeEffect } from "../execution/effect-choice.js";
 import { executeRepeatNodeEffect } from "../execution/effect-repeat.js";
 import type { TaskNode } from "@seqlane/core";
+
+const invocationCounter = Metric.counter("seqlane.invocations", {
+  description: "Completed Seqlane Plan invocations",
+  incremental: true,
+});
 
 /** Build one Plan node step with its execution and invocation terminal policy. */
 export function createCompiledNodeStep(
@@ -116,7 +121,7 @@ export function createCompiledNodeStep(
           }),
         );
       }
-      return Effect.catch(effect, (cause) =>
+      const invocation = Effect.catch(effect, (cause) =>
         Effect.sync(() => {
           emitFailureTerminal(
             context,
@@ -127,6 +132,44 @@ export function createCompiledNodeStep(
           );
         }).pipe(Effect.andThen(Effect.fail(cause))),
       );
+      const measured = Effect.matchEffect(invocation, {
+        onFailure: (cause) =>
+          Effect.annotateCurrentSpan(
+            "seqlane.outcome",
+            abortSignal.aborted ? "cancelled" : "failed",
+          ).pipe(
+            Effect.andThen(
+              Metric.update(
+                Metric.withAttributes(invocationCounter, {
+                  outcome: "failed",
+                  kind: node.type,
+                }),
+                1,
+              ),
+            ),
+            Effect.andThen(Effect.fail(cause)),
+          ),
+        onSuccess: (value) =>
+          Metric.update(
+            Metric.withAttributes(invocationCounter, {
+              outcome: "succeeded",
+              kind: node.type,
+            }),
+            1,
+          ).pipe(
+            Effect.andThen(
+              Effect.annotateCurrentSpan("seqlane.outcome", "succeeded"),
+            ),
+            Effect.as(value),
+          ),
+      });
+      return Effect.withSpan(measured, "seqlane.invocation", {
+        kind: "internal",
+        attributes: {
+          "seqlane.invocation.id": invocationIdForNode(context, node),
+          "seqlane.node.type": node.type,
+        },
+      });
     },
     onSkip: (failedDependencyIds) => {
       context.events.emit({

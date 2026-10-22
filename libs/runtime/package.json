@@ -27,6 +27,11 @@
       "types": "./dist/operational-host.d.ts",
       "import": "./dist/operational-host.js",
       "default": "./dist/operational-host.js"
+    },
+    "./private/telemetry": {
+      "types": "./dist/private/telemetry/index.d.ts",
+      "import": "./dist/private/telemetry/index.js",
+      "default": "./dist/private/telemetry/index.js"
     }
   },
   "nx": {

@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Option } from "effect";
+import { Cause, Effect, Exit, Option, Tracer } from "effect";
 import type { TaskNode } from "@seqlane/core";
 import {
   invocationCreationOrdinal,
@@ -156,6 +156,8 @@ export function executeTaskNodeEffect(
           }),
         { interruptible: true },
       );
+      const parentSpan = yield* Effect.currentParentSpan.pipe(Effect.option);
+      const tracer = yield* Tracer.Tracer;
       const output = yield* withBodyPermit(
         Effect.suspend(() => {
           if (abortSignal.aborted)
@@ -171,6 +173,14 @@ export function executeTaskNodeEffect(
                 AbortSignal.any([abortSignal, fiberSignal]),
                 {
                   ...options,
+                  ...(Option.isSome(parentSpan)
+                    ? {
+                        nativeTelemetry: {
+                          tracer,
+                          parentSpan: parentSpan.value,
+                        },
+                      }
+                    : {}),
                   terminationTimeoutMs,
                   preparedInput,
                   admission,

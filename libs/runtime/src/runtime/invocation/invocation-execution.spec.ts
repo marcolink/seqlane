@@ -1,3 +1,4 @@
+// @test-scope ./invocation-execution.ts
 import type {
   Plan,
   PlanNode,
@@ -25,6 +26,7 @@ function compile(
   source: Plan,
   executor: (request: ExecutorRequest) => Promise<unknown>,
   events: SeqlaneEvent[],
+  emitAsync?: (event: SeqlaneEvent) => Promise<void>,
 ) {
   const taskDefinitions = new Map<string, TaskDefinition>();
   for (const node of source.nodes) {
@@ -43,7 +45,10 @@ function compile(
     createInvocationId: (nodeId) => nodeId,
     executors: new Map([["test-executor", { execute: executor }]]),
     taskDefinitions,
-    events: { emit: (event) => events.push(event) },
+    events: {
+      emit: (event) => events.push(event),
+      ...(emitAsync === undefined ? {} : { emitAsync }),
+    },
   });
 }
 
@@ -85,5 +90,44 @@ describe("task invocation events", () => {
 
     expect(result).not.toHaveProperty("metrics");
     expect(output).toMatchObject({ metrics: expectedMetrics });
+  });
+
+  it("waits for async invocation.started emission before starting executor work", async () => {
+    const events: SeqlaneEvent[] = [];
+    let startedRequest = false;
+    let executorStarted = false;
+    let acknowledge!: () => void;
+    const acknowledgement = new Promise<void>((resolve) => {
+      acknowledge = resolve;
+    });
+    const compiled = compile(
+      {
+        workflow: { id: "test-workflow" },
+        nodes: [task("task:1")],
+        output: { type: "ref", nodeId: "task:1", path: [] },
+      },
+      async () => {
+        executorStarted = true;
+        return { value: "output" };
+      },
+      events,
+      async (event) => {
+        if (event.type === "invocation.started") {
+          startedRequest = true;
+          await acknowledgement;
+        }
+        events.push(event);
+      },
+    );
+
+    const running = runCompiledWorkflow(compiled);
+    for (let attempt = 0; attempt < 100 && !startedRequest; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(startedRequest).toBe(true);
+    expect(executorStarted).toBe(false);
+    acknowledge();
+    await running;
+    expect(executorStarted).toBe(true);
   });
 });

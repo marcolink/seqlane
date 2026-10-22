@@ -21,6 +21,17 @@ export const workspaceAliases = [
     replacement: resolve(workspaceRoot, "libs/core/src/index.ts"),
   },
   {
+    find: "@seqlane/protocol/private/trace-carrier",
+    replacement: resolve(workspaceRoot, "libs/protocol/src/trace-carrier.ts"),
+  },
+  {
+    find: "@seqlane/protocol/private/telemetry-span-snapshot",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/protocol/src/telemetry-span-snapshot.ts",
+    ),
+  },
+  {
     find: "@seqlane/protocol",
     replacement: resolve(workspaceRoot, "libs/protocol/src/index.ts"),
   },
@@ -104,6 +115,13 @@ export const workspaceAliases = [
   {
     find: "@seqlane/runtime/operational-host",
     replacement: resolve(workspaceRoot, "libs/runtime/src/operational-host.ts"),
+  },
+  {
+    find: "@seqlane/runtime/private/telemetry",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/runtime/src/private/telemetry/index.ts",
+    ),
   },
   {
     find: "@seqlane/runtime",

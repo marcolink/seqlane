@@ -19,12 +19,18 @@ import type { RuntimeValidationResult } from "../validation/validation-results.j
 import type { JointAdmission } from "./joint-admission.js";
 
 import type { PreparedInvocationInput } from "./prepared-input.js";
+import type { Tracer } from "effect";
 
 export type LegacyTaskNode = PlanNode & { readonly executor?: string };
 
 export interface TaskExecutionOptions {
   readonly preparedInput?: PreparedInvocationInput;
   readonly invocationId: InvocationId;
+  /** Effect-native context captured by the admission fiber for owned SDK calls. */
+  readonly nativeTelemetry?: {
+    readonly tracer: Tracer.Tracer;
+    readonly parentSpan: Tracer.AnySpan;
+  };
   /** Legacy compiler metadata; concrete adapters receive no engine context. */
   readonly observability?: unknown;
   readonly results: Map<string, unknown>;

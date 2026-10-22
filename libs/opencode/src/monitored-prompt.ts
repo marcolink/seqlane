@@ -1,4 +1,4 @@
-import { Effect, Exit, Fiber, Scope } from "effect";
+import { Cause, Effect, Exit, Fiber, Scope } from "effect";
 import { InteractionRequiredError } from "@seqlane/core";
 import type { OpenCodeTransport } from "./transport.js";
 import { awaitOwnedCleanup } from "./owned-cleanup.js";
@@ -123,8 +123,11 @@ export async function runMonitoredPrompt<T, R>(
             ? ({ type: "interaction" } as const)
             : ({ type: "stopped" } as const),
         ),
-        Effect.catch((cause) =>
-          Effect.succeed({ type: "monitor-error" as const, cause }),
+        Effect.catchCause((cause) =>
+          Effect.succeed({
+            type: "monitor-error" as const,
+            cause: Cause.squash(cause),
+          }),
         ),
       );
     const monitorEffectFiber = await Effect.runPromise(

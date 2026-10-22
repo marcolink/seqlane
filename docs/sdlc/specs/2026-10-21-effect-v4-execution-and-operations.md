@@ -160,12 +160,35 @@ One sequencing sink owns accepted events.
 Use explicit byte bounds and sink acknowledgement; an event-count limit alone does not bound memory.
 Keep accepted event order and full JSON values across IPC, TUI, CI, replay, and hosted storage.
 Preserve complete-record eviction and visible eviction notices in bounded TUI retention.
+
+The private worker startup carrier is a validated JSON object with W3C
+`traceparent` and optional `tracestate` fields. The CLI captures and removes
+`SEQLANE_TRACE_CARRIER` before authored workflow imports. It carries trace
+context only; Work, Run, and Invocation identities remain canonical Seqlane
+fields.
+The worker creates a native run span beneath this parent and adds its carrier
+to accepted canonical event metadata. The CLI owns the real parent span.
+`SEQLANE_TELEMETRY` is optional strict-Zod configuration. It requires an
+HTTP(S) endpoint and an explicit `payloadPolicy` (`metadata` or `full`), with
+bounded headers, pending bytes, and shutdown time. The CLI captures and removes
+this variable before authored workflow imports. No exporter exists when the
+variable is absent. Export uses complete OTLP JSON records in acknowledged
+byte-bounded batches. An oversized record is omitted whole and counted in a
+bounded diagnostic. Export errors cannot change a task result.
+The private worker snapshot carries validated queue capacity, peak pending
+bytes, capacity-wait count, and overflow count. The CLI records these values
+in the run's native metric registry. Export failures use a bounded signal label.
+A healthy metrics endpoint can report failures of other signals. Failure of
+the metrics endpoint itself remains visible in the export result and diagnostic.
 Do not add field selection, payload truncation, or task-level observation suppression.
 
 Backpressure must propagate to producers that support it.
 For callback-only producers, preserve the existing overflow failure and diagnostic semantics.
 Never silently drop required events or report successful delivery after transport failure.
 When the terminal event cannot be delivered, the CLI must fail through its supervision path.
+Runner IPC sends wait for callback acknowledgement with a bounded five-second
+deadline. An unacknowledged event or terminal send is a transport failure and
+must settle through the same supervisor failure path.
 
 Canonical observations retain all available model, tool, skill, request, response, usage, cost, timing, availability, and correlation fields.
 Validate each observation once at its owning boundary and project the accepted value.
@@ -283,7 +306,7 @@ No previous runtime fallback remains, and no observability capability lacks a do
 
 ## Delivery state
 
-Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. S8–S12, production Plan cutover, hosted replacement, and complete removal remain pending. No full migration or remote delivery is claimed.
+Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) verifies real CLI-to-adapter trace correlation, canonical observations, native metrics and logs, bounded event delivery, acknowledgement deadlines, isolated OTLP export, and cleanup. S9–S12, production Plan cutover, hosted replacement, and complete removal remain pending. No full migration or remote delivery is claimed.
 
 ## Traceability
 

@@ -1,15 +1,20 @@
 // @test-scope ./run.ts
 // @test-scope ./main.ts
+// @test-scope ./ipc-ack.ts
 // @test-scope ../runtime/plan/agent-work.ts
 import { EventEmitter } from "node:events";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { decodeSeqlaneExecutionEvent } from "@seqlane/protocol";
+import { decodeTelemetrySpanSnapshotFrame } from "@seqlane/protocol/private/telemetry-span-snapshot";
+import { telemetryConfigurationSchema } from "../private/telemetry/configuration.js";
 import {
   requestRunnerCancellation,
   startRun,
   type RunnerHost,
   type RunnerRunControl,
+  type RunnerRunProgramResult,
 } from "./run.js";
 import {
   bindRunnerCancellationSignals,
@@ -17,7 +22,11 @@ import {
   createRunnerExecutionResolver,
   startRunnerProcess,
 } from "./main.js";
-import { createFlow, type TaskDefinitionRegistry } from "@seqlane/core";
+import {
+  createFlow,
+  RuntimeError,
+  type TaskDefinitionRegistry,
+} from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
 import type {
   ResolvedExecutorSession,
@@ -77,7 +86,11 @@ class FakeRunnerHost implements RunnerHost {
   }
 
   send(message: string, callback?: (error?: Error) => void): boolean {
-    this.events.push(decodeSeqlaneExecutionEvent(message));
+    try {
+      this.events.push(decodeTelemetrySpanSnapshotFrame(message));
+    } catch {
+      this.events.push(decodeSeqlaneExecutionEvent(message));
+    }
     callback?.();
     return true;
   }
@@ -99,6 +112,97 @@ class FakeRunnerSignalSource extends EventEmitter {
 }
 
 describe("seqlane runner entry point", () => {
+  it.each(["failed", "cancelled"] as const)(
+    "delivers a worker telemetry frame before the %s terminal",
+    async (terminal) => {
+      if (terminal === "failed") {
+        loadWorkflowMock.mockRejectedValue(new Error("workflow import failed"));
+      } else {
+        useLoadedWorkflow({
+          workflow: { id: "telemetry-cancel" },
+          nodes: [],
+          output: null,
+        });
+      }
+      const host = new FakeRunnerHost();
+      const control: RunnerRunControl = {
+        cancellationRequested: terminal === "cancelled",
+        telemetryConfiguration: telemetryConfigurationSchema.parse({
+          endpoint: "http://127.0.0.1:4318",
+          payloadPolicy: "metadata",
+        }),
+      };
+      await startRun(
+        host,
+        {
+          type: "run.start",
+          workflow: {
+            id: `telemetry-${terminal}`,
+            moduleSpecifier: `test:telemetry-${terminal}`,
+            exportName: "workflow",
+          },
+          input: null,
+          runtime: { id: "local" },
+        },
+        () => "work-1",
+        () => "run-1",
+        () => undefined,
+        control,
+      );
+      const eventTypes = host.events.map(
+        (event) => (event as { type: string }).type,
+      );
+      const frameIndex = eventTypes.indexOf("runner.telemetry.spans");
+      const terminalIndex = eventTypes.indexOf(
+        terminal === "failed" ? "run.failed" : "run.cancelled",
+      );
+      expect(frameIndex).toBeGreaterThanOrEqual(0);
+      expect(terminalIndex).toBeGreaterThan(frameIndex);
+    },
+  );
+
+  it("fails supervision when terminal IPC never acknowledges delivery", async () => {
+    useLoadedWorkflow({
+      workflow: { id: "blocked-ack" },
+      nodes: [],
+      output: null,
+    });
+    const host = new FakeRunnerHost();
+    host.send = function (message: string): boolean {
+      this.events.push(decodeSeqlaneExecutionEvent(message));
+      return true;
+    };
+    const request: RunRequest = {
+      type: "run.start",
+      workflow: {
+        id: "blocked-ack",
+        moduleSpecifier: "test:blocked-ack",
+        exportName: "workflow",
+      },
+      input: null,
+      runtime: { id: "local" },
+      dryRun: true,
+    };
+    const control: RunnerRunControl = {
+      cancellationRequested: false,
+      ipcAckTimeoutMs: 5,
+    };
+
+    await startRun(
+      host,
+      request,
+      () => "work-1",
+      () => "run-1",
+      () => undefined,
+      control,
+    );
+
+    expect(host.exitCode).toBe(1);
+    expect(
+      host.events.map((event) => (event as { type: string }).type),
+    ).toContain("run.failed");
+  });
+
   it("is safe to call outside a child process with IPC", () => {
     expect(() => startRunnerProcess()).not.toThrow();
   });
@@ -845,7 +949,7 @@ describe("seqlane runner entry point", () => {
       { cancellationRequested: false },
     );
 
-    expect(host.exitCode).toBe(0);
+    expect(host.exitCode).toBe(1);
     expect(host.events.at(-1)).toMatchObject({
       type: "run.failed",
       metadata: { sequence: 1 },
@@ -854,6 +958,142 @@ describe("seqlane runner entry point", () => {
       },
     });
   });
+
+  it.each([
+    "send failure",
+    "acknowledgement timeout",
+    "cancellation never settles",
+  ] as const)(
+    "aborts active work on required event %s and reports infrastructure failure",
+    async (failureMode) => {
+      useLoadedWorkflow({
+        workflow: { id: `required-delivery-${failureMode}` },
+        nodes: [],
+        output: null,
+      });
+      const sinkFailure = Object.freeze(
+        new Error("required event sink failed"),
+      );
+      const cleanupFailure = Object.freeze(
+        new Error("run cleanup could not confirm termination"),
+      );
+      const cancellationFailure = Object.freeze(
+        new Error("active run cancellation failed"),
+      );
+      let cleanupObserved = false;
+      let failedEventSent = false;
+      let cancelledTerminalSent = false;
+      class FailingRequiredEventHost extends FakeRunnerHost {
+        override send(
+          message: string,
+          callback?: (error?: Error) => void,
+        ): boolean {
+          const event = decodeSeqlaneExecutionEvent(message);
+          if (event.type === "run.cancelled") cancelledTerminalSent = true;
+          if (event.type === "run.heartbeat" && !failedEventSent) {
+            failedEventSent = true;
+            this.events.push(event);
+            if (failureMode === "send failure") callback?.(sinkFailure);
+            return true;
+          }
+          return super.send(message, callback);
+        }
+      }
+      const host = new FailingRequiredEventHost();
+      const control: RunnerRunControl = {
+        cancellationRequested: false,
+        ipcAckTimeoutMs: 10,
+        activeRun: {
+          outcome: Promise.resolve({ status: "cancelled" }),
+          cancel: () =>
+            failureMode === "cancellation never settles"
+              ? new Promise<void>(() => undefined)
+              : Promise.reject(cancellationFailure),
+        },
+        cancellationSettlementTimeoutMs:
+          failureMode === "cancellation never settles" ? 10 : undefined,
+        runProgram: ({ events, signal, workId, runId }) =>
+          Effect.promise<RunnerRunProgramResult>(
+            () =>
+              new Promise<RunnerRunProgramResult>((resolve) => {
+                const finishCleanup = () => {
+                  cleanupObserved = true;
+                  resolve({
+                    status: "failed",
+                    error: new RuntimeError(cleanupFailure),
+                  });
+                };
+                signal.addEventListener("abort", finishCleanup, {
+                  once: true,
+                });
+                if (signal.aborted) finishCleanup();
+                events.emit({
+                  type: "run.heartbeat",
+                  workId,
+                  runId,
+                  activeInvocationIds: [],
+                  elapsedMs: 1,
+                });
+              }),
+          ),
+      };
+
+      await startRun(
+        host,
+        {
+          type: "run.start",
+          workflow: {
+            id: `required-delivery-${failureMode}`,
+            moduleSpecifier: "test:required-delivery",
+            exportName: "workflow",
+          },
+          input: null,
+          runtime: { id: "test" },
+        },
+        () => "work-1",
+        () => "run-1",
+        () => undefined,
+        control,
+      );
+
+      expect(cleanupObserved).toBe(true);
+      expect(control.cancellationRequested).toBe(true);
+      expect(host.exitCode).toBe(1);
+      expect(host.events.at(-1)).toMatchObject({
+        type: "run.failed",
+        error: {
+          message: expect.stringContaining(
+            failureMode === "send failure"
+              ? "required event sink failed"
+              : "10ms",
+          ),
+        },
+      });
+      expect(host.events.at(-1)).toMatchObject({
+        error: {
+          message: expect.stringContaining(
+            "run cleanup could not confirm termination",
+          ),
+        },
+      });
+      if (failureMode === "cancellation never settles") {
+        expect(host.events.at(-1)).toMatchObject({
+          error: {
+            message: expect.stringContaining(
+              "Adapter cancellation did not settle within 10ms; termination remains uncertain",
+            ),
+          },
+        });
+      } else {
+        expect(host.events.at(-1)).toMatchObject({
+          error: {
+            message: expect.stringContaining("active run cancellation failed"),
+          },
+        });
+      }
+      expect(cancelledTerminalSent).toBe(false);
+    },
+  );
 
   it("exits nonzero when even the direct terminal failure cannot be delivered", async () => {
     useLoadedWorkflow({

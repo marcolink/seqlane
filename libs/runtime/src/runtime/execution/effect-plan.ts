@@ -6,13 +6,13 @@ import {
   type BuiltWorkflow,
   type RunId,
   type SeqlaneError,
-  type SeqlaneEventSink,
   type WorkId,
 } from "@seqlane/core";
 import type { InvocationObservationEvent } from "@seqlane/protocol";
 import type { RuntimeExecution } from "../../runner/profile/runtime-profile.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutionRunState } from "./context.js";
+import type { ExecutionEventSink } from "./context.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import { workspaceResourcesForExecution } from "../workspace/workspace-resources.js";
 import { findUnconfirmedInvocationTermination } from "./executor.js";
@@ -38,7 +38,7 @@ export interface EffectPlanRunContext {
   readonly workId: WorkId;
   readonly runId: RunId;
   readonly signal: AbortSignal;
-  readonly events: SeqlaneEventSink;
+  readonly events: ExecutionEventSink;
   readonly createInvocationId: (nodeId?: string) => string;
   readonly resolveExecution: (signal: AbortSignal) => Promise<RuntimeExecution>;
   readonly onObservation?: (

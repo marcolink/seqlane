@@ -140,6 +140,29 @@ describe("runner client", () => {
     });
   });
 
+  it("diagnoses malformed telemetry frames without failing canonical supervision", async () => {
+    const child = new FakeChild();
+    const diagnostics: number[] = [];
+    const result = superviseRunner(child, request, {
+      signalSource: null,
+      onTelemetryDiagnostic: () => diagnostics.push(1),
+    });
+
+    child.emit(
+      "message",
+      JSON.stringify({ type: "runner.telemetry.spans", spans: "bad" }),
+    );
+    child.emitEvent({
+      type: "run.succeeded",
+      workId: "work-1",
+      runId: "run-1",
+      output: null,
+    });
+
+    await expect(result).resolves.toMatchObject({ status: 0 });
+    expect(diagnostics).toHaveLength(1);
+  });
+
   it("forwards canonical plan and execution events to one callback", async () => {
     const child = new FakeChild();
     const received: SeqlaneExecutionEvent[] = [];

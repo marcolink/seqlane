@@ -8,11 +8,16 @@ import type {
   SeqlanePlanSnapshot,
 } from "@seqlane/protocol";
 import { encodeSeqlaneExecutionEvent } from "@seqlane/protocol";
+import { Deferred, Effect, Fiber, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   createExecutionEventBridge,
   NonSerializableRunOutputError,
 } from "./event-bridge.js";
+import {
+  createByteBoundedEventQueue,
+  EventQueueDeliveryError,
+} from "./byte-bounded-event-queue.js";
 
 const metadata = {
   schemaVersion: 1 as const,
@@ -159,6 +164,255 @@ describe("execution event bridge", () => {
     });
   });
 
+  it("captures immutable canonical payload bytes before callback delivery", async () => {
+    const delivered: SeqlaneExecutionEvent[] = [];
+    const encodedEvents = new WeakMap<SeqlaneExecutionEvent, string>();
+    const bridge = createExecutionEventBridge(
+      async (event) => {
+        delivered.push(event);
+      },
+      { encodedEvents },
+    );
+    const output = { text: "é", enabled: false, count: 0 };
+
+    bridge.emit({
+      type: "run.succeeded",
+      workId: "work-1",
+      runId: "run-1",
+      output,
+    });
+    output.text = "changed";
+    output.enabled = true;
+    await bridge.flush();
+
+    const accepted = delivered[0];
+    expect(accepted).toMatchObject({
+      output: { text: "é", enabled: false, count: 0 },
+    });
+    expect(encodedEvents.get(accepted!)).toBe(
+      encodeSeqlaneExecutionEvent(accepted!),
+    );
+    expect(
+      Buffer.byteLength(encodedEvents.get(accepted!)!, "utf8"),
+    ).toBeGreaterThan(
+      Buffer.byteLength(
+        JSON.stringify({ text: "e", enabled: false, count: 0 }),
+        "utf8",
+      ),
+    );
+  });
+
+  it("assigns unique ordered sequences across native and reentrant producers", async () => {
+    const delivered: SeqlaneExecutionEvent[] = [];
+    let reentered = false;
+    let bridge!: ReturnType<typeof createExecutionEventBridge>;
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const queue = yield* createByteBoundedEventQueue({
+            maxPendingBytes: 10_000,
+            send: (event) =>
+              Effect.sync(() => {
+                delivered.push(event);
+                if (!reentered) {
+                  reentered = true;
+                  bridge.emit({
+                    type: "run.heartbeat",
+                    workId: "work-1",
+                    runId: "run-1",
+                    activeInvocationIds: [],
+                    elapsedMs: 0,
+                  });
+                }
+              }),
+          });
+          bridge = createExecutionEventBridge(async () => undefined, { queue });
+          yield* Effect.all(
+            [
+              bridge.emitEffect({
+                type: "run.started",
+                workId: "work-1",
+                runId: "run-1",
+              }),
+              bridge.emitEffect({
+                type: "run.heartbeat",
+                workId: "work-1",
+                runId: "run-1",
+                activeInvocationIds: [],
+                elapsedMs: 0,
+              }),
+            ],
+            { concurrency: "unbounded" },
+          );
+          yield* queue.flush();
+        }),
+      ),
+    );
+    expect(delivered.map((event) => event.metadata.sequence)).toEqual([
+      1, 2, 3,
+    ]);
+  });
+
+  it("does not consume a sequence when a capacity-blocked native offer is interrupted", async () => {
+    const delivered: SeqlaneExecutionEvent[] = [];
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const releaseSend = yield* Deferred.make<void>();
+          const firstStarted = yield* Deferred.make<void>();
+          const later = {
+            type: "run.heartbeat" as const,
+            workId: "work-1",
+            runId: "run-1",
+            activeInvocationIds: [],
+            elapsedMs: 0,
+            metadata: { ...metadata, eventId: "event-123", sequence: 2 },
+          };
+          const capacity = Buffer.byteLength(
+            encodeSeqlaneExecutionEvent(later),
+            "utf8",
+          );
+          const queue = yield* createByteBoundedEventQueue({
+            maxPendingBytes: capacity,
+            send: (event) =>
+              Effect.gen(function* () {
+                delivered.push(event);
+                if (event.metadata.sequence === 1) {
+                  yield* Deferred.succeed(firstStarted, undefined);
+                  yield* Deferred.await(releaseSend);
+                }
+              }),
+          });
+          const bridge = createExecutionEventBridge(async () => undefined, {
+            queue,
+            createEventId: () => "event-123",
+            clock: () => new Date(metadata.occurredAt),
+          });
+          yield* bridge.emitEffect({
+            type: "run.started",
+            workId: "work-1",
+            runId: "run-1",
+          });
+          yield* Deferred.await(firstStarted);
+          const blocked = Effect.runFork(
+            bridge.emitEffect({
+              type: "run.heartbeat",
+              workId: "work-1",
+              runId: "run-1",
+              activeInvocationIds: [],
+              elapsedMs: 0,
+            }),
+          );
+          yield* Effect.sleep("5 millis");
+          yield* Fiber.interrupt(blocked);
+          yield* Deferred.succeed(releaseSend, undefined);
+          yield* queue.flush();
+          yield* bridge.emitEffect({
+            type: "run.heartbeat",
+            workId: "work-1",
+            runId: "run-1",
+            activeInvocationIds: [],
+            elapsedMs: 0,
+          });
+          yield* queue.flush();
+        }),
+      ),
+    );
+    expect(delivered.map((event) => event.metadata.sequence)).toEqual([1, 2]);
+  }, 15_000);
+
+  it("reports a callback rejected while native admission is pending", async () => {
+    const delivered: SeqlaneExecutionEvent[] = [];
+    const reported: unknown[] = [];
+    let failure: unknown;
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const releaseSend = yield* Deferred.make<void>();
+          const firstStarted = yield* Deferred.make<void>();
+          const later = {
+            type: "run.heartbeat" as const,
+            workId: "work-1",
+            runId: "run-1",
+            activeInvocationIds: [],
+            elapsedMs: 0,
+            metadata: { ...metadata, eventId: "event-123", sequence: 2 },
+          };
+          const capacity = Buffer.byteLength(
+            encodeSeqlaneExecutionEvent(later),
+            "utf8",
+          );
+          const queue = yield* createByteBoundedEventQueue({
+            maxPendingBytes: capacity,
+            send: (event) =>
+              Effect.gen(function* () {
+                delivered.push(event);
+                if (event.metadata.sequence === 1) {
+                  yield* Deferred.succeed(firstStarted, undefined);
+                  yield* Deferred.await(releaseSend);
+                }
+              }),
+            onDeliveryFailure: (cause) => reported.push(cause),
+          });
+          const bridge = createExecutionEventBridge(async () => undefined, {
+            queue,
+            createEventId: () => "event-123",
+            clock: () => new Date(metadata.occurredAt),
+          });
+          yield* bridge.emitEffect({
+            type: "run.started",
+            workId: "work-1",
+            runId: "run-1",
+          });
+          yield* Deferred.await(firstStarted);
+          const blocked = Effect.runFork(
+            bridge.emitEffect({
+              type: "run.heartbeat",
+              workId: "work-1",
+              runId: "run-1",
+              activeInvocationIds: [],
+              elapsedMs: 0,
+            }),
+          );
+          yield* Effect.sleep("5 millis");
+          try {
+            bridge.emit({
+              type: "run.heartbeat",
+              workId: "work-1",
+              runId: "run-1",
+              activeInvocationIds: [],
+              elapsedMs: 0,
+            });
+          } catch (cause) {
+            failure = cause;
+          }
+          yield* Deferred.succeed(releaseSend, undefined);
+          expect(failure).toBeInstanceOf(Error);
+          expect(reported).toEqual([failure]);
+          const blockedResult = yield* Effect.result(
+            Fiber.join(blocked).pipe(Effect.timeoutOption("100 millis")),
+          );
+          expect(blockedResult._tag).toBe("Failure");
+          if (blockedResult._tag === "Failure") {
+            expect(blockedResult.failure).toBeInstanceOf(
+              EventQueueDeliveryError,
+            );
+            expect(blockedResult.failure.cause).toBe(failure);
+          }
+          const settled = yield* queue.settle();
+          expect(Option.isSome(settled)).toBe(true);
+          if (Option.isSome(settled)) expect(settled.value.cause).toBe(failure);
+          expect(delivered.map((event) => event.metadata.sequence)).toEqual([
+            1,
+          ]);
+          expect(reported).toEqual([failure]);
+          yield* queue.close().pipe(Effect.ignore);
+        }),
+      ),
+    );
+  });
+
   it("emits a canonical plan event in the same sequence", async () => {
     const events: SeqlaneExecutionEvent[] = [];
     const bridge = createExecutionEventBridge(
@@ -187,6 +441,30 @@ describe("execution event bridge", () => {
       type: "run.plan",
       metadata: { eventId: "event-2", sequence: 2 },
       plan,
+    });
+  });
+
+  it("adds validated parent context to canonical event metadata", async () => {
+    const events: SeqlaneExecutionEvent[] = [];
+    const bridge = createExecutionEventBridge(
+      async (event) => {
+        events.push(event);
+      },
+      {
+        traceCarrier: {
+          traceparent:
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+          tracestate: "vendor=value",
+        },
+      },
+    );
+
+    bridge.emit({ type: "run.started", workId: "work-1", runId: "run-1" });
+    await bridge.flush();
+
+    expect(events[0]?.metadata).toMatchObject({
+      traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+      tracestate: "vendor=value",
     });
   });
 

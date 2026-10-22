@@ -1,4 +1,5 @@
 import { PreparedInvocationInput } from "./prepared-input.js";
+import { Effect, Tracer } from "effect";
 import type {
   AgentTaskRequest,
   SeqlaneInvocationMetrics,
@@ -60,6 +61,28 @@ import {
   type ValidationExecutionOptions,
 } from "./invocation-support.js";
 import { executeTask } from "../local/task-execution.js";
+
+function runNativeClientCall<A>(
+  options: TaskExecutionOptions,
+  name: string,
+  attributes: Readonly<Record<string, string | number | boolean>>,
+  call: () => Promise<A>,
+): Promise<A> {
+  const native = options.nativeTelemetry;
+  if (native === undefined) return call();
+  const effect = Effect.tryPromise({
+    try: call,
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.withSpan(name, {
+      parent: native.parentSpan,
+      kind: "client",
+      attributes,
+    }),
+    Effect.provideService(Tracer.Tracer, native.tracer),
+  );
+  return Effect.runPromise(effect);
+}
 
 function effectiveModelSelection(
   context: ExecutionContext,
@@ -259,7 +282,7 @@ export async function executeTaskNode(
       workspace: node.workspace,
       ...optionalIteration(options.iteration),
     });
-    context.events.emit({
+    const startedEvent = {
       type: "invocation.started",
       workId: context.workId,
       runId: context.runId,
@@ -267,7 +290,10 @@ export async function executeTaskNode(
       subject: options.subject,
       ...taskIdCompatibility(options.subject),
       ...optionalIteration(options.iteration),
-    });
+    } as const;
+    if (context.events.emitAsync === undefined)
+      context.events.emit(startedEvent);
+    else await context.events.emitAsync(startedEvent);
     context.events.emit({
       type: "invocation.progress",
       workId: context.workId,
@@ -397,44 +423,53 @@ export async function executeTaskNode(
           const executor =
             session?.executor ??
             getExecutor(context.executors, node, definition);
-          return executor.execute({
-            taskDefinition: definition,
-            modelSelection:
-              effectiveModelSelection(context, invocationId, session) ??
-              context.workflowModel,
-            invocationId,
-            taskId: node.taskId,
-            executor: (node as LegacyTaskNode).executor ?? node.taskId,
-            input,
-            agent: agentRequest,
-            signal: abortSignal,
-            onMetrics: (value) => {
-              metrics = value;
+          return runNativeClientCall(
+            options,
+            "seqlane.adapter.execute",
+            {
+              "seqlane.invocation.id": invocationId,
+              "seqlane.adapter.kind": "agent",
             },
-            onDiagnostic: (message) => {
-              context.events.emit({
-                type: "invocation.output",
-                workId: context.workId,
-                runId: context.runId,
+            () =>
+              executor.execute({
+                taskDefinition: definition,
+                modelSelection:
+                  effectiveModelSelection(context, invocationId, session) ??
+                  context.workflowModel,
                 invocationId,
-                policy: "persistent",
-                channel: "task",
-                content: message,
-                ...optionalIteration(options.iteration),
-              });
-            },
-            onActivity: emitActivity,
-            onObservation: (observation) =>
-              context.onObservation?.(
-                invocationId,
-                observation,
-                options.iteration,
-              ),
-            onEffect: (termination) => effects.track(termination),
-            onUncertainActivity: reportUncertainActivity,
-            onChildSession: reportChildSession,
-            onBackgroundProcess: reportBackgroundProcess,
-          });
+                taskId: node.taskId,
+                executor: (node as LegacyTaskNode).executor ?? node.taskId,
+                input,
+                agent: agentRequest,
+                signal: abortSignal,
+                onMetrics: (value) => {
+                  metrics = value;
+                },
+                onDiagnostic: (message) => {
+                  context.events.emit({
+                    type: "invocation.output",
+                    workId: context.workId,
+                    runId: context.runId,
+                    invocationId,
+                    policy: "persistent",
+                    channel: "task",
+                    content: message,
+                    ...optionalIteration(options.iteration),
+                  });
+                },
+                onActivity: emitActivity,
+                onObservation: (observation) =>
+                  context.onObservation?.(
+                    invocationId,
+                    observation,
+                    options.iteration,
+                  ),
+                onEffect: (termination) => effects.track(termination),
+                onUncertainActivity: reportUncertainActivity,
+                onChildSession: reportChildSession,
+                onBackgroundProcess: reportBackgroundProcess,
+              }),
+          );
         };
         rawOutput = await executeTask({
           definition,
@@ -451,12 +486,20 @@ export async function executeTaskNode(
             ? {}
             : {
                 classify: (request) =>
-                  classifier(request, abortSignal, (observation) =>
-                    context.onObservation?.(
-                      invocationId,
-                      observation,
-                      options.iteration,
-                    ),
+                  runNativeClientCall(
+                    options,
+                    "seqlane.classifier.execute",
+                    {
+                      "seqlane.invocation.id": invocationId,
+                    },
+                    () =>
+                      classifier(request, abortSignal, (observation) =>
+                        context.onObservation?.(
+                          invocationId,
+                          observation,
+                          options.iteration,
+                        ),
+                      ),
                   ),
               }),
           onUncertainActivity: reportUncertainActivity,
