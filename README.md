@@ -46,18 +46,16 @@ workflow layer:  workflow.ts + runtime profile: direct
 
 This separation keeps the same workflow portable across runtime environments.
 
-## Current Mastra dependency
+## Runtime
 
-Mastra is the runtime engine used by Seqlane today. Seqlane owns the workflow
-authoring API, typed Plan, task contracts, session policies, workspace policies,
-and stable CLI and event contracts. The private runtime layer compiles each
-Seqlane Plan into Mastra workflows and steps, then uses Mastra to execute the
-workflow.
+Effect v4 owns execution, concurrency, resource lifetime, HTTP, SQL, and telemetry.
+Seqlane owns workflow authoring, typed Plans, task behavior, session and workspace
+policies, and stable outcomes. Zod owns public and wire validation. Oclif owns
+the CLI commands.
 
-Users write workflows against `@seqlane/core`; they do not need to use Mastra
-workflow APIs directly. Mastra remains behind the Seqlane runtime boundary and
-currently supplies workflow execution, operational API and MCP transport,
-storage, tracing, and the Community Studio integration.
+CLI, direct, HTTP, and MCP callers use one private Effect Plan program.
+Standalone runs use memory only. An explicit operational host retains run
+history and correlated inspection data in its own SQLite database.
 
 ## Install Seqlane
 

@@ -12,7 +12,6 @@
 // @test-scope ./event-dispatcher.ts
 // @test-scope ./output.ts
 // @test-scope ./recording.ts
-// @test-scope ./commands/unstable_studio.ts
 // @test-scope ./commands/unstable_plan.ts
 // @test-scope ./commands/unstable_serve.ts
 // @test-scope ./cli-contracts.ts

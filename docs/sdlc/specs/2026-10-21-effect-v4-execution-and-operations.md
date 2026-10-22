@@ -250,11 +250,35 @@ Transfer every consumed client operation to the new DTO before removing old resp
 Retain loopback defaults, origin validation, deadlines, concurrency limits, and secret handling.
 MCP protocol negotiation and transport behavior require explicit compatibility tests against the selected v4 API.
 
+The hosted DTOs use `version: 1`. Start accepts `input`, optional `workId` and
+`runId`, and an optional private runtime profile reference. It returns the
+allocated run reference immediately. Run lifecycle states are `queued`,
+`running`, `succeeded`, `failed`, `cancelled`, and `interrupted`.
+The outcome and inspection completeness are separate fields.
+
+Keep `/healthz`, `/readyz`, `/api/workflows`, and workflow-scoped run paths.
+Global `/api/runs` inspection routes use the same records and DTOs.
+Event cursors are exclusive sequence numbers. Pages retain whole canonical
+events in ascending order. `nextSequence` identifies the last returned event,
+or keeps the requested cursor when the page is empty. Missing history has an
+explicit inclusive gap range. Pagination must bound serialized bytes as well
+as row count. Active or failed inspection cannot claim completeness.
+
+MCP workflow tools use `/api/mcp/seqlane-workflows/mcp` and the same start
+envelope. Support the pinned native session protocols and the native sessionless
+protocol with their required negotiation, routing headers, and request metadata.
+Cancellation and deadlines must drain the admitted run before releasing capacity.
+
 Persist hosted run metadata, terminal results, canonical events/observations, and correlated inspection data with a versioned schema.
 Use transactions for related state and sequence updates.
 Flush accepted hosted data before reporting terminal inspection complete.
 Report storage failure or incomplete inspection explicitly without silently inventing history or changing a completed task result.
 On restart, mark interrupted runs without rerunning their external actions.
+
+Each history database has one host owner. Use SQLite connection locking to
+reject another owner before startup recovery can change live run state.
+Concurrent clients use the owning host's HTTP or MCP endpoint. Connection
+closure or process death releases ownership without a separate stale lock file.
 
 Use a fresh database for the new schema. Do not overwrite, open as the new format, or automatically remove old history.
 Document the history discontinuity and keep new history inspectable after restart.
@@ -315,7 +339,7 @@ No previous runtime fallback remains, and no observability capability lacks a do
 
 ## Delivery state
 
-Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) verifies real CLI-to-adapter trace correlation, canonical observations, native metrics and logs, bounded event delivery, acknowledgement deadlines, isolated OTLP export, and cleanup. [S9](../tasks/2026-10-21-effect-v4-cli-and-action-cutover.md) verifies the sole CLI/direct Action run program, native ownership control, bounded supervision, original failure causes, plan/replay orchestration, and compiled caller parity. S10–S12, hosted replacement, remaining Actions, distribution, and complete removal remain pending. No full migration or remote delivery is claimed.
+Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) verifies real CLI-to-adapter trace correlation, canonical observations, native metrics and logs, bounded event delivery, acknowledgement deadlines, isolated OTLP export, and cleanup. [S9](../tasks/2026-10-21-effect-v4-cli-and-action-cutover.md) verifies the sole CLI/direct Action run program, native ownership control, bounded supervision, original failure causes, plan/replay orchestration, and compiled caller parity. [S10](../tasks/2026-10-21-effect-v4-hosted-history-and-inspection.md) verifies native HTTP/MCP, versioned operational contracts, transactional SQL inspection, cancellation and admission ownership, persisted canonical observations, restart inspection, and crash recovery without replay. S11–S12, remaining Actions, distribution, and complete removal remain pending. No full migration or remote delivery is claimed.
 
 ## Traceability
 

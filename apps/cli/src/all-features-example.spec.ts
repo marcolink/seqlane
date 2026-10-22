@@ -1,5 +1,5 @@
 // @test-scope ../../../workflows/all-features-example/workflow.ts
-// @test-scope ../../../libs/runtime/src/runtime/mastra/operational-host.ts
+// @test-scope ../../../libs/runtime/src/runtime/operations/registration.ts
 
 import type { AgentTaskRequest } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";

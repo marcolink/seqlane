@@ -1,8 +1,12 @@
 // @test-scope ./agent-runtime.ts
-// @test-scope ../../../libs/runtime/src/runtime/mastra/operational-host.ts
+// @test-scope ../../../libs/runtime/src/runtime/operations/host.ts
 import type { AgentAdapter, AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import type { Plan, PlanNode, SeqlaneEvent } from "@seqlane/core";
-import type { SeqlaneObservation } from "@seqlane/protocol";
+import {
+  operationalRunReferenceSchema,
+  operationalRunStatusSchema,
+  type SeqlaneObservation,
+} from "@seqlane/protocol";
 import { startOpenCodeService } from "@seqlane/opencode-adapter";
 import { createOpenCodeAdapterForRun } from "@seqlane/opencode-adapter/testing";
 import {
@@ -94,26 +98,35 @@ async function operationalHostEvents(
     port: 0,
   });
   try {
+    await host.listen();
     const response = await host.fetch(
       new Request(
-        `http://host/api/workflows/${encodeURIComponent(key)}/start-async?runId=${traceId}`,
+        `${host.address}/api/workflows/${encodeURIComponent(key)}/start-async`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            resourceId: `work-${traceId}`,
-            inputData: { value: "demo" },
-            requestContext: { "seqlane.runtimeId": "direct" },
-            tracingOptions: { traceId },
+            version: 1,
+            workId: `work-${traceId}`,
+            runId: traceId,
+            input: { value: "demo" },
+            runtime: { id: "direct" },
           }),
         },
       ),
     );
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      status: "success",
-      result: { value: "done" },
-    });
+    const reference = operationalRunReferenceSchema.parse(
+      await response.json(),
+    );
+    await expect
+      .poll(async () => {
+        const statusResponse = await host.fetch(
+          new Request(`${host.address}/api/runs/${reference.runId}/status`),
+        );
+        return operationalRunStatusSchema.parse(await statusResponse.json());
+      })
+      .toMatchObject({ status: "succeeded", output: { value: "done" } });
     return events;
   } finally {
     await host.close();

@@ -4,41 +4,30 @@ Internal runtime boundary for compiling and executing Seqlane Plans. This
 package is public on npm so `seqlane` can install it. Its exports are not a
 supported API.
 
-Standalone CLI runs and direct workflow Action callers use the same private
-Effect Plan program. Public authoring and wire contracts remain Zod-owned.
-Hosted HTTP and MCP callers retain their existing integration until the hosted
-replacement task completes.
+CLI, direct, HTTP, and MCP callers use the same private Effect Plan program.
+Public authoring and wire contracts remain Zod-owned. Concrete adapters are
+created by application composition and stay outside this package.
 
-### Hosted integration boundary
+### Hosted execution and inspection
 
-The hosted integration pins `@mastra/core@1.64.0`. The installed Community package exposes
-the workflow API from `@mastra/core/workflows`, including `createStep` and
-`createWorkflow`, which the private integration uses to register and run
-workflows. The package declares Apache-2.0 licensing. Mastra paths under `ee/`
-are enterprise-only and are rejected by the runtime boundary tests.
+The optional operational host uses Effect HTTP, MCP, and SQL services. It keeps
+versioned run metadata, outcomes, canonical events, observations, and correlated
+native spans in a fresh `.seqlane/operations.db`. Standalone runs create no
+listener or history database. Existing databases are not imported or removed. Each history database has one
+host owner. SQLite holds its connection lock until that host closes or exits;
+concurrent callers use the host API.
 
-The Enterprise boundary guard scans production source and package manifests in
-`apps/` and `libs/`. It rejects static and side-effect imports, export-from
-declarations, `require` calls, and dynamic imports of `ee/` paths. The runtime
-validates task inputs and outputs, resolves bindings, emits bounded consumer
-events, and retains results until their final consumer completes.
+HTTP start returns a run reference immediately. Status, result, ordered event
+pages, bounded run lists, cancellation, and trace inspection share the same run
+identity. Accepted history must flush before terminal inspection is complete.
+Storage failures and omitted inspection records are explicit. A completed task
+outcome stays separate from inspection completeness.
 
-The Mastra compiler lowers `.task().until()` to a native post-condition loop.
-It checks the condition after each attempt and enforces both the declared
-iteration limit and the shared run repeat budget. Repeat attempts can invoke
-tasks or child workflows. The budget, invocation identities, and emitted events
-belong to each run, including runs of a reusable operational workflow.
-
-Each private Mastra runtime accepts one workflow run. Reusable workflow
-registrations expose MCP through fresh per-invocation runtimes. A compiled
-one-shot Plan runtime does not expose its run-bound workflow through MCP. Its
-dispatcher applies bounded concurrency and a per-invocation deadline. Its
-in-memory storage remains available for inspection while the execution owns
-that runtime. Cancelled queued MCP invocations are removed immediately so
-they do not consume queue capacity. A deadline settles the caller and
-releases dispatcher capacity even if workflow code ignores cancellation.
-Server and discovery helpers receive the caller's `RequestContext` and
-`AbortSignal`; they do not synthesize a separate request context.
+After restart, unfinished runs become interrupted. The host never repeats their
+external actions. MCP uses the same admitted run program and cancellation path.
+A cancelled or timed-out request must drain its run before its capacity is
+released. The native MCP integration is isolated because the pinned API is
+unstable.
 
 ### Task execution and invocation policy
 
@@ -67,8 +56,7 @@ settle. Dependency waiters do not hold task-body permits; the target composition
 uses a bound of eight active task bodies. It waits for started work to settle
 before reporting failure or cancellation. Task input is validated before
 admission or `invocation.started`. Invalid input emits `invocation.failed`
-without starting the task body. This target composition is still a migration
-tracer; the production CLI switches to it in the later runner-cutover task.
+without starting the task body. CLI, direct, and hosted callers all use this program.
 
 After executor execution settles, interruption starts, or an executor reports
 uncertainty, the runtime allows up to 30 seconds for tracked work to settle.
@@ -123,8 +111,7 @@ resource, and workspace eligibility does not consume a task-body permit.
 Seqlane holds its leases through executor requests, tracked children, processes,
 cancellation, and cleanup. Eligible waiters follow invocation creation order.
 A workspace waiter does not reserve its session against eligible work in another
-workspace. Events report workspace waiting, admission, and release. The legacy `prepareWorkflow`
-path keeps static workspace ordering for remaining callers until S9 removes it.
+workspace. Events report workspace waiting, admission, and release.
 
 After a successful agent turn and all tracked activity, the runtime publishes
 its private checkpoint. `reuse()` keeps the source session; `fork()` creates a
@@ -146,8 +133,7 @@ Standalone preparation provides a lazy, run-owned adapter lease. The caller
 supplies the selected agent runtime; concrete adapter packages own service
 startup, configuration validation, and shutdown. Standalone model checks
 require a workflow or session selection and never use an adapter default.
-These preparation APIs do not change the CLI command until the standalone
-cutover.
+The CLI composes these resources before executing the common run program.
 
 Agent invocation metrics cover every completed model response in that
 invocation, including structured-output repair responses. Duration, cost, and

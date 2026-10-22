@@ -1,56 +1,53 @@
-import { z } from "zod";
+import {
+  operationalHealthSchema,
+  operationalReadinessSchema,
+  operationalRunCancelRequestSchema,
+  operationalRunCancelSchema,
+  operationalRunEventsRequestSchema,
+  operationalRunEventsSchema,
+  operationalRunListRequestSchema,
+  operationalRunListSchema,
+  operationalRunReferenceSchema,
+  operationalRunStartRequestSchema,
+  operationalRunStatusSchema,
+  operationalTraceInspectionSchema,
+  operationalWorkflowDetailSchema,
+  operationalWorkflowListSchema,
+  serializedSeqlaneErrorSchema,
+  type OperationalHealth,
+  type OperationalReadiness,
+  type OperationalRunCancel,
+  type OperationalRunEvents,
+  type OperationalRunList,
+  type OperationalRunStatus,
+  type OperationalTraceInspection,
+  type OperationalWorkflow,
+} from "@seqlane/protocol";
+import { Cause, Duration, Effect, Exit, Result, Schedule } from "effect";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpBody from "effect/http/HttpBody";
+import * as Stream from "effect/Stream";
+import type { z } from "zod";
 
-const registeredWorkflowsSchema = z.record(
-  z.string(),
-  z.object({ id: z.string().optional() }).passthrough(),
-);
-
-const controlResponseSchema = z.object({ message: z.string() }).passthrough();
-
-const runResponseSchema = z
-  .object({
-    runId: z.string().min(1),
-    workflowName: z.string().min(1).optional(),
-    status: z.string().min(1),
-    resourceId: z.string().min(1).optional(),
-    result: z.unknown().optional(),
-    error: z.unknown().optional(),
-  })
-  .passthrough();
-
-const startAcknowledgementSchema = z
-  .object({ message: z.string() })
-  .passthrough();
-const startResultSchema = z
-  .object({
-    status: z.string().min(1),
-    result: z.unknown().optional(),
-    error: z.unknown().optional(),
-  })
-  .passthrough();
-const startResponseSchema = z.union([
-  startAcknowledgementSchema,
-  startResultSchema,
-]);
-
-const terminalRunStatuses = new Set([
-  "success",
-  "failed",
-  "canceled",
-  "cancelled",
-  "bailed",
-  "tripwire",
-  "skipped",
-]);
 const runObservationRequestTimeoutMs = 10_000;
 const initialRunObservationDelayMs = 25;
 const maxRunObservationDelayMs = 1_000;
 const maxConsecutiveObservationFailures = 12;
+const maxResponseBytes = 32 * 1024 * 1024;
+const defaultRequestTimeoutMs = 10_000;
 
-export type OperationalRun = z.output<typeof runResponseSchema>;
+export type OperationalRun = OperationalRunStatus;
 export type OperationalStartResult = Pick<
-  OperationalRun,
-  "status" | "result" | "error"
+  OperationalRunStatus,
+  "status" | "output" | "error" | "completeness"
+>;
+
+type OperationalClientEffect<A> = Effect.Effect<
+  A,
+  unknown,
+  HttpClient.HttpClient
 >;
 
 export class OperationalClientError extends Error {
@@ -94,60 +91,281 @@ function baseUrl(value: string): string {
   return parseOperationalServerUrl(value).toString().replace(/\/$/, "");
 }
 
-function responseError(status: number, body: unknown): OperationalClientError {
-  const message =
-    typeof body === "object" &&
-    body !== null &&
-    "message" in body &&
-    typeof body.message === "string"
-      ? body.message
-      : `Operational server request failed with HTTP ${status}`;
-  return new OperationalClientError(message, { status });
+function urlPath(path: string): string {
+  return path.startsWith("/") ? path : `/${path}`;
 }
 
-function waitForObservation(
-  delayMs: number,
-  signal: AbortSignal | undefined,
-): Promise<void> {
-  if (signal?.aborted) {
-    return Promise.reject(
-      new OperationalClientError("Operational run observation was aborted", {
-        cause: signal.reason,
-      }),
-    );
-  }
+function responseError(status: number, body: unknown): OperationalClientError {
+  const serializedError = serializedSeqlaneErrorSchema.safeParse(body);
+  return new OperationalClientError(
+    serializedError.success
+      ? serializedError.data.message
+      : `Operational server request failed with HTTP ${status}`,
+    { status, cause: body },
+  );
+}
 
-  return new Promise((resolve, reject) => {
-    const onAbort = (): void => {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", onAbort);
-      reject(
-        new OperationalClientError("Operational run observation was aborted", {
-          cause: signal?.reason,
-        }),
-      );
-    };
-    const timeout = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, delayMs);
-    signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) onAbort();
+function responseJson(
+  response: import("effect/http/HttpClientResponse").HttpClientResponse,
+): OperationalClientEffect<unknown> {
+  return Stream.runFoldEffect(
+    response.stream,
+    (): { readonly chunks: Uint8Array[]; readonly bytes: number } => ({
+      chunks: [],
+      bytes: 0,
+    }),
+    (state, chunk) => {
+      const bytes = state.bytes + chunk.byteLength;
+      if (bytes > maxResponseBytes) {
+        return Effect.fail(
+          new OperationalClientError(
+            "Operational server response is too large",
+            {
+              status: response.status,
+            },
+          ),
+        );
+      }
+      state.chunks.push(chunk);
+      return Effect.succeed({ chunks: state.chunks, bytes });
+    },
+  ).pipe(
+    Effect.flatMap(({ chunks, bytes }) =>
+      Effect.try({
+        try: () => {
+          const body = new Uint8Array(bytes);
+          let offset = 0;
+          for (const chunk of chunks) {
+            body.set(chunk, offset);
+            offset += chunk.byteLength;
+          }
+          const text = new TextDecoder("utf-8", { fatal: true }).decode(body);
+          const parsed: unknown = JSON.parse(text);
+          return parsed;
+        },
+        catch: (cause) =>
+          new OperationalClientError(
+            "Operational server returned invalid JSON",
+            { status: response.status, cause },
+          ),
+      }),
+    ),
+    Effect.mapError((cause) =>
+      cause instanceof OperationalClientError
+        ? cause
+        : new OperationalClientError(
+            "Operational server response could not be read",
+            { status: response.status, cause },
+          ),
+    ),
+  );
+}
+
+function transportRequest<T>(
+  origin: string,
+  path: string,
+  init: RequestInit,
+  schema: z.ZodType<T>,
+  timeoutMs?: number,
+): OperationalClientEffect<T> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const rawRequest = HttpClientRequest.make(
+        init.method === "POST" ? "POST" : "GET",
+      )(`${origin}${urlPath(path)}`);
+      const request =
+        init.body === undefined
+          ? rawRequest
+          : rawRequest.pipe(
+              HttpClientRequest.setBody(
+                HttpBody.text(String(init.body), "application/json"),
+              ),
+            );
+      const response = yield* HttpClient.withScope(
+        yield* HttpClient.HttpClient,
+      ).execute(request);
+      if (response.status < 200 || response.status >= 300) {
+        const errorBody = yield* Effect.result(responseJson(response));
+        if (Result.isSuccess(errorBody)) {
+          return yield* Effect.fail(
+            responseError(response.status, errorBody.success),
+          );
+        }
+        return yield* Effect.fail(
+          new OperationalClientError(
+            `Operational server request failed with HTTP ${response.status}`,
+            { status: response.status, cause: errorBody.failure },
+          ),
+        );
+      }
+      const body = yield* responseJson(response);
+      const parsed = schema.safeParse(body);
+      if (!parsed.success) {
+        return yield* Effect.fail(
+          new OperationalClientError(
+            "Operational server returned an invalid response",
+            { status: response.status, cause: parsed.error },
+          ),
+        );
+      }
+      return parsed.data;
+    }),
+  ).pipe(
+    Effect.timeoutOrElse({
+      duration: Duration.millis(timeoutMs ?? defaultRequestTimeoutMs),
+      orElse: () =>
+        Effect.fail(
+          new OperationalClientError("Operational server request timed out", {
+            timedOut: true,
+          }),
+        ),
+    }),
+  );
+}
+
+function workflowKeyEffect(
+  origin: string,
+  workflowId: string,
+): OperationalClientEffect<string> {
+  return Effect.gen(function* () {
+    const response = yield* transportRequest(
+      origin,
+      "/api/workflows",
+      { method: "GET" },
+      operationalWorkflowListSchema,
+    );
+    const match = response.workflows.find(
+      (workflow) => workflow.key === workflowId || workflow.id === workflowId,
+    );
+    if (match !== undefined) return match.key;
+    return yield* Effect.fail(
+      new OperationalClientError(
+        `Workflow "${workflowId}" is not registered with the operational server`,
+        { status: 404 },
+      ),
+    );
   });
 }
 
-async function readBody(response: Response): Promise<unknown> {
-  try {
-    return (await response.json()) as unknown;
-  } catch (cause) {
-    throw new OperationalClientError(
-      "Operational server returned invalid JSON",
-      {
-        status: response.status,
-        cause,
-      },
+function terminalResult(run: OperationalRunStatus): OperationalStartResult {
+  return {
+    status: run.status,
+    ...(run.output === undefined ? {} : { output: run.output }),
+    ...(run.error === undefined ? {} : { error: run.error }),
+    completeness: run.completeness,
+  };
+}
+
+function startRunEffect(
+  origin: string,
+  options: {
+    readonly workflowId: string;
+    readonly runId: string;
+    readonly workId: string;
+    readonly input: unknown;
+    readonly runtimeId?: string;
+    readonly workspace?: string;
+  },
+): OperationalClientEffect<OperationalStartResult> {
+  return Effect.gen(function* () {
+    const workflowKey = yield* workflowKeyEffect(origin, options.workflowId);
+    const request = operationalRunStartRequestSchema.safeParse({
+      version: 1,
+      workId: options.workId,
+      runId: options.runId,
+      input: options.input,
+      ...(options.runtimeId === undefined
+        ? {}
+        : {
+            runtime: {
+              id: options.runtimeId,
+              ...(options.workspace === undefined
+                ? {}
+                : { workspace: options.workspace }),
+            },
+          }),
+    });
+    if (!request.success) {
+      return yield* Effect.fail(
+        new OperationalClientError("Operational run request is invalid", {
+          cause: request.error,
+        }),
+      );
+    }
+    const reference = yield* transportRequest(
+      origin,
+      `/api/workflows/${encodeURIComponent(workflowKey)}/start-async`,
+      jsonRequest("POST", request.data),
+      operationalRunReferenceSchema,
     );
-  }
+
+    let consecutiveFailures = 0;
+    const delaySchedule = Schedule.exponential(
+      Duration.millis(initialRunObservationDelayMs),
+      2,
+    ).pipe(
+      Schedule.modifyDelay(({ duration }) =>
+        Effect.succeed(
+          Duration.min(duration, Duration.millis(maxRunObservationDelayMs)),
+        ),
+      ),
+    );
+    const waitForNextObservation =
+      yield* Schedule.toStepWithSleep(delaySchedule);
+    while (true) {
+      const observation = yield* Effect.result(
+        transportRequest(
+          origin,
+          `/api/workflows/${encodeURIComponent(workflowKey)}/runs/${encodeURIComponent(reference.runId)}`,
+          { method: "GET" },
+          operationalRunStatusSchema,
+          runObservationRequestTimeoutMs,
+        ),
+      );
+      if (Result.isSuccess(observation)) {
+        const run = observation.success;
+        if (
+          ["succeeded", "failed", "cancelled", "interrupted"].includes(
+            run.status,
+          )
+        ) {
+          return terminalResult(run);
+        }
+        consecutiveFailures = 0;
+      } else {
+        const error = observation.failure;
+        if (
+          error instanceof OperationalClientError &&
+          (error.status === 404 || error.timedOut)
+        ) {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= maxConsecutiveObservationFailures) {
+            return yield* Effect.fail(
+              new OperationalClientError(
+                `Operational run "${reference.runId}" remained unavailable after ${maxConsecutiveObservationFailures} observations`,
+                {
+                  status: error.status,
+                  timedOut: error.timedOut,
+                  cause: error,
+                },
+              ),
+            );
+          }
+        } else {
+          return yield* Effect.fail(error);
+        }
+      }
+      yield* waitForNextObservation("poll");
+    }
+  });
+}
+
+function jsonRequest(method: string, body: unknown): RequestInit {
+  return {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  };
 }
 
 export class OperationalClient {
@@ -157,83 +375,100 @@ export class OperationalClient {
     this.origin = baseUrl(origin);
   }
 
-  private async request<T>(
+  private evaluate<T>(
+    effect: Effect.Effect<T, unknown, HttpClient.HttpClient>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    return Effect.runPromiseExit(
+      effect.pipe(
+        Effect.provide(FetchHttpClient.layer),
+        Effect.provideService(FetchHttpClient.Fetch, globalThis.fetch),
+        Effect.provideService(FetchHttpClient.RequestInit, {
+          redirect: "error",
+        }),
+      ),
+      signal === undefined ? undefined : { signal },
+    ).then((exit) => {
+      if (Exit.isSuccess(exit)) return exit.value;
+      const cause = Cause.squash(exit.cause);
+      if (cause instanceof OperationalClientError) throw cause;
+      if (signal?.aborted) {
+        throw new OperationalClientError(
+          "Operational run observation was aborted",
+          { cause: signal.reason ?? cause },
+        );
+      }
+      throw new OperationalClientError("Could not reach operational server", {
+        cause,
+      });
+    });
+  }
+
+  private request<T>(
     path: string,
     init: RequestInit,
     schema: z.ZodType<T>,
     timeoutMs?: number,
     signal?: AbortSignal,
   ): Promise<T> {
-    let response: Response;
-    let timedOut = false;
-    const controller =
-      timeoutMs === undefined ? undefined : new AbortController();
-    const timeout =
-      controller === undefined
-        ? undefined
-        : setTimeout(() => {
-            timedOut = true;
-            controller.abort();
-          }, timeoutMs);
-    const requestSignal =
-      controller === undefined
-        ? signal
-        : signal === undefined
-          ? controller.signal
-          : AbortSignal.any([controller.signal, signal]);
-    try {
-      response = await fetch(`${this.origin}${path}`, {
-        ...init,
-        ...(requestSignal === undefined ? {} : { signal: requestSignal }),
-      });
-    } catch (cause) {
-      if (signal?.aborted && !timedOut) {
-        throw new OperationalClientError(
-          "Operational run observation was aborted",
-          { cause: signal.reason },
-        );
-      }
-      throw new OperationalClientError(
-        timedOut
-          ? "Operational server request timed out"
-          : "Could not reach operational server",
-        { cause, timedOut },
-      );
-    } finally {
-      if (timeout !== undefined) clearTimeout(timeout);
-    }
-    const body = await readBody(response);
-    if (!response.ok) throw responseError(response.status, body);
-    const parsed = schema.safeParse(body);
-    if (!parsed.success) {
-      throw new OperationalClientError(
-        "Operational server returned an invalid response",
-        { status: response.status, cause: parsed.error },
-      );
-    }
-    return parsed.data;
+    return this.evaluate(
+      transportRequest(this.origin, path, init, schema, timeoutMs),
+      signal,
+    );
+  }
+
+  async health(signal?: AbortSignal): Promise<OperationalHealth> {
+    return this.request(
+      "/healthz",
+      { method: "GET" },
+      operationalHealthSchema,
+      undefined,
+      signal,
+    );
+  }
+
+  async readiness(signal?: AbortSignal): Promise<OperationalReadiness> {
+    return this.request(
+      "/readyz",
+      { method: "GET" },
+      operationalReadinessSchema,
+      undefined,
+      signal,
+    );
+  }
+
+  async listWorkflows(
+    signal?: AbortSignal,
+  ): Promise<readonly OperationalWorkflow[]> {
+    const response = await this.request(
+      "/api/workflows",
+      { method: "GET" },
+      operationalWorkflowListSchema,
+      undefined,
+      signal,
+    );
+    return response.workflows;
+  }
+
+  async getWorkflow(
+    workflowId: string,
+    signal?: AbortSignal,
+  ): Promise<OperationalWorkflow> {
+    const response = await this.request(
+      `/api/workflows/${encodeURIComponent(workflowId)}`,
+      { method: "GET" },
+      operationalWorkflowDetailSchema,
+      undefined,
+      signal,
+    );
+    return response.workflow;
   }
 
   async resolveWorkflow(
     workflowId: string,
     signal?: AbortSignal,
   ): Promise<string> {
-    const workflows = await this.request(
-      "/api/workflows",
-      { method: "GET" },
-      registeredWorkflowsSchema,
-      undefined,
-      signal,
-    );
-    if (workflows[workflowId] !== undefined) return workflowId;
-    const match = Object.entries(workflows).find(
-      ([, workflow]) => workflow.id === workflowId,
-    );
-    if (match !== undefined) return match[0];
-    throw new OperationalClientError(
-      `Workflow "${workflowId}" is not registered with the operational server`,
-      { status: 404 },
-    );
+    return this.evaluate(workflowKeyEffect(this.origin, workflowId), signal);
   }
 
   async startRun(options: {
@@ -245,143 +480,103 @@ export class OperationalClient {
     readonly workspace?: string;
     readonly signal?: AbortSignal;
   }): Promise<OperationalStartResult> {
-    const resolvedWorkflow = await this.resolveWorkflow(
-      options.workflowId,
-      options.signal,
-    );
-    const workflowId = encodeURIComponent(resolvedWorkflow);
-    const query = new URLSearchParams({ runId: options.runId });
-    const body = {
-      resourceId: options.workId,
-      inputData: options.input,
-      requestContext: {
-        "seqlane.workId": options.workId,
-        "seqlane.runId": options.runId,
-        ...(options.runtimeId === undefined
-          ? {}
-          : { "seqlane.runtimeId": options.runtimeId }),
-        ...(options.workspace === undefined
-          ? {}
-          : { "seqlane.workspace": options.workspace }),
-      },
-      tracingOptions: {
-        metadata: {
-          "seqlane.workId": options.workId,
-          "seqlane.runId": options.runId,
-        },
-        traceId: options.runId.replaceAll("-", "").padEnd(32, "0").slice(0, 32),
-      },
-    };
-    const startResponse = await this.request(
-      `/api/workflows/${workflowId}/start-async?${query.toString()}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      },
-      startResponseSchema,
-      undefined,
-      options.signal,
-    );
-
-    if (
-      "status" in startResponse &&
-      typeof startResponse.status === "string" &&
-      terminalRunStatuses.has(startResponse.status)
-    ) {
-      return {
-        status: startResponse.status,
-        ...(startResponse.result === undefined
-          ? {}
-          : { result: startResponse.result }),
-        ...(startResponse.error === undefined
-          ? {}
-          : { error: startResponse.error }),
-      };
-    }
-
-    let observationDelayMs = initialRunObservationDelayMs;
-    let consecutiveObservationFailures = 0;
-    while (true) {
-      try {
-        const run = await this.getRunForWorkflow(
-          options.runId,
-          resolvedWorkflow,
-          options.signal,
-        );
-        if (terminalRunStatuses.has(run.status)) return startResultFromRun(run);
-        // A visible non-terminal run is healthy evidence that observation is
-        // working, so a legitimately long-running execution is unbounded.
-        consecutiveObservationFailures = 0;
-      } catch (error) {
-        if (error instanceof OperationalClientError && error.status === 404) {
-          // The run record can become visible after the async start response.
-          consecutiveObservationFailures += 1;
-        } else if (!(
-          error instanceof OperationalClientError && error.timedOut
-        )) {
-          throw error;
-        } else {
-          consecutiveObservationFailures += 1;
-        }
-        if (
-          consecutiveObservationFailures >= maxConsecutiveObservationFailures
-        ) {
-          const timedOut =
-            error instanceof OperationalClientError && error.timedOut;
-          throw new OperationalClientError(
-            timedOut
-              ? `Operational run "${options.runId}" could not be observed after ${maxConsecutiveObservationFailures} timed-out requests`
-              : `Operational run "${options.runId}" remained unavailable after ${maxConsecutiveObservationFailures} observations`,
-            {
-              status: timedOut ? undefined : 404,
-              timedOut,
-              cause: error,
-            },
-          );
-        }
-      }
-      await waitForObservation(observationDelayMs, options.signal);
-      observationDelayMs = Math.min(
-        observationDelayMs * 2,
-        maxRunObservationDelayMs,
-      );
-    }
+    return this.evaluate(startRunEffect(this.origin, options), options.signal);
   }
 
-  private async getRunForWorkflow(
+  async getRun(
     runId: string,
-    workflow: string,
     signal?: AbortSignal,
-  ): Promise<OperationalRun> {
+  ): Promise<OperationalRunStatus> {
     return this.request(
-      `/api/workflows/${encodeURIComponent(workflow)}/runs/${encodeURIComponent(runId)}`,
+      `/api/runs/${encodeURIComponent(runId)}`,
       { method: "GET" },
-      runResponseSchema,
-      runObservationRequestTimeoutMs,
+      operationalRunStatusSchema,
+      undefined,
       signal,
     );
   }
 
-  async cancelRun(runId: string, workflowId: string): Promise<string> {
-    const workflow = encodeURIComponent(await this.resolveWorkflow(workflowId));
-    const response = await this.request(
-      `/api/workflows/${workflow}/runs/${encodeURIComponent(runId)}/cancel`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      },
-      controlResponseSchema,
+  async listRuns(
+    options: { readonly limit?: number; readonly cursor?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<OperationalRunList> {
+    const query = new URLSearchParams({
+      version: "1",
+      limit: String(options.limit ?? 50),
+    });
+    if (options.cursor !== undefined)
+      query.set("cursor", String(options.cursor));
+    const validated = operationalRunListRequestSchema.parse({
+      version: 1,
+      ...options,
+    });
+    query.set("limit", String(validated.limit));
+    if (validated.cursor !== undefined)
+      query.set("cursor", String(validated.cursor));
+    return this.request(
+      `/api/runs?${query}`,
+      { method: "GET" },
+      operationalRunListSchema,
+      undefined,
+      signal,
     );
-    return response.message;
   }
-}
 
-function startResultFromRun(run: OperationalRun): OperationalStartResult {
-  return {
-    status: run.status,
-    ...(run.result === undefined ? {} : { result: run.result }),
-    ...(run.error === undefined ? {} : { error: run.error }),
-  };
+  async getRunEvents(
+    runId: string,
+    options: { readonly afterSequence?: number; readonly limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<OperationalRunEvents> {
+    const validated = operationalRunEventsRequestSchema.parse({
+      version: 1,
+      ...options,
+    });
+    const query = new URLSearchParams({
+      version: "1",
+      afterSequence: String(validated.afterSequence),
+      limit: String(validated.limit),
+    });
+    return this.request(
+      `/api/runs/${encodeURIComponent(runId)}/events?${query}`,
+      { method: "GET" },
+      operationalRunEventsSchema,
+      undefined,
+      signal,
+    );
+  }
+
+  async cancelRun(
+    runId: string,
+    workflowId?: string,
+    signal?: AbortSignal,
+  ): Promise<OperationalRunCancel> {
+    const resolvedRunId = operationalRunCancelRequestSchema.parse({
+      version: 1,
+      runId,
+    });
+    const path =
+      workflowId === undefined
+        ? `/api/runs/${encodeURIComponent(runId)}/cancel`
+        : `/api/workflows/${encodeURIComponent(await this.resolveWorkflow(workflowId, signal))}/runs/${encodeURIComponent(runId)}/cancel`;
+    return this.request(
+      path,
+      jsonRequest("POST", resolvedRunId),
+      operationalRunCancelSchema,
+      undefined,
+      signal,
+    );
+  }
+
+  async getTrace(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<OperationalTraceInspection> {
+    return this.request(
+      `/api/runs/${encodeURIComponent(runId)}/trace`,
+      { method: "GET" },
+      operationalTraceInspectionSchema,
+      undefined,
+      signal,
+    );
+  }
 }

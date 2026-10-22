@@ -31,7 +31,6 @@
     ]
   },
   "dependencies": {
-    "mastra": "1.27.3",
     "@seqlane/core": "workspace:*",
     "@seqlane/agent-adapter": "workspace:*",
     "@seqlane/codex-adapter": "workspace:*",

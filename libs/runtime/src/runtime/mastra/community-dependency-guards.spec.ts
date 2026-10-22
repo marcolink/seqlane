@@ -116,8 +116,6 @@ describe("Community Mastra dependency boundary", () => {
     expect(mcpManifest).toContain('"version": "1.15.0"');
     expect(runtimeManifest.match(/"@mastra\/[^"]+"/g)).toEqual([
       '"@mastra/core"',
-      '"@mastra/hono"',
-      '"@mastra/libsql"',
       '"@mastra/mcp"',
       '"@mastra/observability"',
       '"@mastra/server"',
