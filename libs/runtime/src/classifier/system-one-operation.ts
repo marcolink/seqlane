@@ -19,6 +19,16 @@ export function runSystemOneOperation<A, R>(options: {
   return Effect.gen(function* () {
     const startedAt = yield* Clock.monotonicTimeNanos;
     const lastFailure: { value?: RetryableSystemOneAttempt } = {};
+    const deadline = () =>
+      Effect.fail(
+        new ClassifierFailure(
+          "deadline",
+          "Classifier request exceeded the 20-second transport budget",
+          lastFailure.value === undefined
+            ? undefined
+            : { cause: lastFailure.value.failure },
+        ),
+      );
     let attemptIndex = 0;
     const attempt = Effect.suspend(() => {
       const currentAttempt = attemptIndex++;
@@ -28,30 +38,14 @@ export function runSystemOneOperation<A, R>(options: {
             options.budgetMs -
             Number((yield* Clock.monotonicTimeNanos) - startedAt) / 1_000_000;
           if (remaining <= 0) {
-            return yield* Effect.fail(
-              new ClassifierFailure(
-                "deadline",
-                "Classifier request exceeded the 20-second transport budget",
-                lastFailure.value === undefined
-                  ? undefined
-                  : { cause: lastFailure.value.failure },
-              ),
-            );
+            return yield* deadline();
           }
         }
         const result = yield* options.attempt(currentAttempt);
         const elapsed =
           Number((yield* Clock.monotonicTimeNanos) - startedAt) / 1_000_000;
         if (elapsed >= options.budgetMs) {
-          return yield* Effect.fail(
-            new ClassifierFailure(
-              "deadline",
-              "Classifier request exceeded the 20-second transport budget",
-              lastFailure.value === undefined
-                ? undefined
-                : { cause: lastFailure.value.failure },
-            ),
-          );
+          return yield* deadline();
         }
         return result;
       });
@@ -87,7 +81,7 @@ export function runSystemOneOperation<A, R>(options: {
       schedule: retrySchedule,
       while: (cause) => cause instanceof RetryableSystemOneAttempt,
     });
-    const timed = yield* Effect.raceFirst(
+    return yield* Effect.timeoutOrElse(
       retrying.pipe(
         Effect.mapError((cause) =>
           cause instanceof RetryableSystemOneAttempt
@@ -96,23 +90,8 @@ export function runSystemOneOperation<A, R>(options: {
               ? cause.failure
               : cause,
         ),
-        Effect.map((value) => ({ _tag: "Success" as const, value })),
       ),
-      Effect.sleep(Duration.millis(options.budgetMs)).pipe(
-        Effect.as({ _tag: "Deadline" as const }),
-      ),
+      { duration: options.budgetMs, orElse: deadline },
     );
-    if (timed._tag === "Deadline") {
-      return yield* Effect.fail(
-        new ClassifierFailure(
-          "deadline",
-          "Classifier request exceeded the 20-second transport budget",
-          lastFailure.value === undefined
-            ? undefined
-            : { cause: lastFailure.value.failure },
-        ),
-      );
-    }
-    return timed.value;
   });
 }

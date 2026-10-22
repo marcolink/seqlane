@@ -23,7 +23,7 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Classifier client reuse](./tasks/2026-10-22-effect-v4-optimize-classifier-client.md)
+[Deterministic policy timing](./tasks/2026-10-22-effect-v4-optimize-policy-clocks.md)
 is next in the sequential optimization follow-up. Each task links its prerequisite.
 The completed migration remains recorded in its original task outcomes.
 

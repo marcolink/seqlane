@@ -19,15 +19,6 @@ import {
   RetryableSystemOneAttempt,
 } from "./system-one-retry.js";
 
-const responseTextSchema = z.string().superRefine((text, context) => {
-  if (Buffer.byteLength(text, "utf8") > CLASSIFIER_MAX_BODY_BYTES) {
-    context.addIssue({
-      code: "custom",
-      message: "Classifier response is too large",
-    });
-  }
-});
-
 const responseJsonSchema = z.string().transform((text, context): unknown => {
   try {
     const parsed: unknown = JSON.parse(text);
@@ -98,14 +89,6 @@ export function safeTransportCause(
   return new Error("Classifier transport cause redacted");
 }
 
-function validateResponseText(text: string): string {
-  const parsed = responseTextSchema.safeParse(text);
-  if (!parsed.success) {
-    throw new ClassifierFailure("response", "Classifier response is too large");
-  }
-  return parsed.data;
-}
-
 function parseResponseJson(text: string): unknown {
   const parsed = responseJsonSchema.safeParse(text);
   if (parsed.success) return parsed.data;
@@ -160,14 +143,8 @@ function readResponseBytes(
     Effect.flatMap(({ chunks, bytes }) =>
       Effect.try({
         try: () => {
-          const body = new Uint8Array(bytes);
-          let offset = 0;
-          for (const chunk of chunks) {
-            body.set(chunk, offset);
-            offset += chunk.byteLength;
-          }
-          return validateResponseText(
-            new TextDecoder("utf-8", { fatal: true }).decode(body),
+          return new TextDecoder("utf-8", { fatal: true }).decode(
+            Buffer.concat(chunks, bytes),
           );
         },
         catch: (cause) =>

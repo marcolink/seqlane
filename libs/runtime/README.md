@@ -58,6 +58,20 @@ The pinned Effect 4.0.5 `OtlpExporter` uses item-count batches, reads complete
 response buffers, retries transport errors, and hides export failures. Its flusher
 waits only for exports it starts. These gaps require the bounded export boundary.
 
+### Classifier transport
+
+Classifier calls use scoped Effect HTTP streams and one native timeout across
+all attempts and retry waits. Raw response bytes have a 1 MiB limit. Strict
+UTF-8 decoding rejects incomplete characters at EOF. The monotonic budget check
+also rejects success after synchronous observation delivery exhausts the budget.
+
+The Effect 4.0.5 TypeSafe client parses only declared response fields and does
+not return the complete raw provider response. Its decision model rescales
+rounded probabilities and derives rating labels. The existing Zod boundary
+retains provider extensions, exact scores, choices, legends, and probabilities.
+These compatibility gaps prevent replacing it with that client. Native
+`Stream.decodeText` also lacks fatal UTF-8 decoding and final decoder flushing.
+
 ### Task execution and invocation policy
 
 Every task definition exposes one `execute({ input, signal, context })` contract.

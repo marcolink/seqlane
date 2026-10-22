@@ -369,40 +369,66 @@ describe("System One retry policy", () => {
     expect(observations[0]).toMatchObject({ state: "failed", attemptIndex: 0 });
   });
 
-  it("aborts a pending request when the shared 20-second budget expires", async () => {
-    vi.useFakeTimers();
-    let requests = 0;
-    const observations: SeqlaneObservation[] = [];
-    const client = new SystemOneClient(
-      { url: "https://localhost/v1/systemone", model: "jev-latest" },
-      async (_url, init) =>
-        new Promise<Response>((_resolve, reject) => {
-          requests += 1;
-          const requestSignal = init?.signal;
-          if (requestSignal === null || requestSignal === undefined) {
-            reject(new Error("request signal missing"));
-            return;
-          }
-          requestSignal.addEventListener(
-            "abort",
-            () => reject(requestSignal.reason),
-            { once: true },
-          );
-        }),
-    );
-    const classification = client.classify(
-      request,
-      new AbortController().signal,
-      (observation) => observations.push(observation),
-    );
-    const assertion = expect(classification).rejects.toMatchObject({
-      code: "deadline",
-    });
+  it.each([0, 1])(
+    "aborts a pending request within the shared budget after %s retries",
+    async (retries) => {
+      vi.useFakeTimers();
+      let requests = 0;
+      let aborted = false;
+      const observations: SeqlaneObservation[] = [];
+      const client = new SystemOneClient(
+        { url: "https://localhost/v1/systemone", model: "jev-latest" },
+        async (_url, init) =>
+          new Promise<Response>((resolve, reject) => {
+            requests += 1;
+            if (requests <= retries) {
+              setTimeout(
+                () => resolve(new Response("busy", { status: 503 })),
+                10_000,
+              );
+              return;
+            }
+            const requestSignal = init?.signal;
+            if (requestSignal === null || requestSignal === undefined) {
+              reject(new Error("request signal missing"));
+              return;
+            }
+            requestSignal.addEventListener(
+              "abort",
+              () => {
+                aborted = true;
+                reject(requestSignal.reason);
+              },
+              { once: true },
+            );
+          }),
+      );
+      const classification = client.classify(
+        request,
+        new AbortController().signal,
+        (observation) => observations.push(observation),
+      );
+      const assertion = expect(classification).rejects.toMatchObject({
+        code: "deadline",
+        ...(retries === 0
+          ? {}
+          : {
+              cause: expect.objectContaining({
+                code: "transport",
+                message: "Classifier endpoint returned HTTP 503",
+              }),
+            }),
+      });
 
-    await vi.advanceTimersByTimeAsync(CLASSIFIER_TRANSPORT_BUDGET_MS);
-    await assertion;
-    expect(requests).toBe(1);
-    expect(observations).toHaveLength(1);
-    expect(observations[0]).toMatchObject({ state: "failed", attemptIndex: 0 });
-  });
+      await vi.advanceTimersByTimeAsync(CLASSIFIER_TRANSPORT_BUDGET_MS);
+      await assertion;
+      expect(aborted).toBe(true);
+      expect(requests).toBe(retries + 1);
+      expect(observations).toHaveLength(retries + 1);
+      expect(observations[retries]).toMatchObject({
+        state: "failed",
+        attemptIndex: retries,
+      });
+    },
+  );
 });
