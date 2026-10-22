@@ -153,6 +153,7 @@ type ReviewWorkflowStartRequest = {
   readonly reviewTarget: string;
   readonly identity: NonNullable<StartWorkflowRunRequest["identity"]>;
   readonly events: StartWorkflowRunRequest["events"];
+  readonly onObservation: StartWorkflowRunRequest["onObservation"];
   readonly adapter: GitHubReviewPort;
   readonly markerId: string | undefined;
   readonly markerCreated: boolean;
@@ -178,6 +179,7 @@ async function startReviewWorkflow(
         workspace: start.reviewTarget,
         identity: start.identity,
         events: start.events,
+        onObservation: start.onObservation,
       }),
     start.identity,
     [
@@ -288,6 +290,8 @@ export interface CodeReviewRunPorts {
   readonly bootstrapAgentRuntime?: (workspace: string) => Promise<AgentRuntime>;
   readonly onRunStarted?: (run: ReviewRunStarted) => void | Promise<void>;
   readonly progress?: ReviewProgressPort;
+  /** Receives the complete canonical observations produced by the run. */
+  readonly onObservation?: StartWorkflowRunRequest["onObservation"];
   /** Test seam for deterministic Action-local progress elapsed time. */
   readonly now?: () => number;
   /** Test seam for lifecycle orchestration; production defaults to runtime. */
@@ -461,6 +465,7 @@ export async function runCodeReview(
         reviewProgress.emit(event);
       },
     },
+    onObservation: ports.onObservation,
   });
 
   const outcome = await handle.outcome;

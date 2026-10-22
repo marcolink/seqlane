@@ -3,7 +3,6 @@
 // @test-scope ./run-execution.ts
 // @test-scope ./run-outcome.ts
 // @test-scope ./index.ts
-// @test-scope ./run-operational-host.ts
 // @test-scope ./run-result.ts
 // @test-scope ./run-lifecycle.ts
 // @test-scope ./run-cleanup.ts

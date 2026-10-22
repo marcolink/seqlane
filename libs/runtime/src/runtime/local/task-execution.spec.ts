@@ -18,11 +18,11 @@ import type {
   TaskNode,
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
+import { OutputValidationError } from "../../index.js";
 import {
-  OutputValidationError,
   runCompiledWorkflow,
   startCompiledWorkflow,
-} from "../../index.js";
+} from "../execution/workflow-run.test-support.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorResolvers } from "../execution/executor.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";

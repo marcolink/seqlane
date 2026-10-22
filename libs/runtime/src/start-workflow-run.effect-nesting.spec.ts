@@ -29,7 +29,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
-import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
+import { startEffectPlanTestRun } from "./start-workflow-run.effect-test-support.js";
 
 const valueSchema = z.object({ value: z.string() });
 const doneSchema = z.object({ done: z.string() });
@@ -119,24 +119,18 @@ function runWithResourceKeys(
   events: ReturnType<typeof eventSink>["sink"],
   resourceKeyForId: (id: string) => string,
 ) {
-  return startWorkflowRun(
+  return startEffectPlanTestRun(
     { workflow, input, events },
-    {
-      program: (context) =>
-        createEffectPlanProgram({
-          ...context,
-          resolveExecution: async (signal) => {
-            const execution = await context.resolveExecution(signal);
-            const workspaceResources = new Map(execution.workspaceResources);
-            for (const id of [
-              ...workflow.taskDefinitions.keys(),
-              ...workflow.workflowDefinitions.keys(),
-            ]) {
-              workspaceResources.set(id, { key: resourceKeyForId(id) });
-            }
-            return { ...execution, workspaceResources };
-          },
-        }),
+    async (signal, resolveDefault) => {
+      const execution = await resolveDefault(signal);
+      const workspaceResources = new Map(execution.workspaceResources);
+      for (const id of [
+        ...workflow.taskDefinitions.keys(),
+        ...workflow.workflowDefinitions.keys(),
+      ]) {
+        workspaceResources.set(id, { key: resourceKeyForId(id) });
+      }
+      return { ...execution, workspaceResources };
     },
   );
 }
@@ -174,14 +168,11 @@ describe("startWorkflowRun Effect nested execution", () => {
         .define(),
     );
     const { events, sink } = eventSink();
-    const handle = startWorkflowRun(
-      {
-        workflow,
-        input: { value: "start", choose: true },
-        events: sink,
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow,
+      input: { value: "start", choose: true },
+      events: sink,
+    });
 
     await expect(settleBeforeTimeout(handle.outcome)).resolves.toMatchObject({
       status: "succeeded",
@@ -234,10 +225,11 @@ describe("startWorkflowRun Effect nested execution", () => {
         .define(),
     );
     const { events, sink } = eventSink();
-    const handle = startWorkflowRun(
-      { workflow, input: { value: "v" }, events: sink },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow,
+      input: { value: "v" },
+      events: sink,
+    });
 
     await expect(settleBeforeTimeout(handle.outcome)).resolves.toMatchObject({
       status: "succeeded",
@@ -276,10 +268,11 @@ describe("startWorkflowRun Effect nested execution", () => {
         .define(),
     );
     const { events, sink } = eventSink();
-    const handle = startWorkflowRun(
-      { workflow: root, input: { value: "start" }, events: sink },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: root,
+      input: { value: "start" },
+      events: sink,
+    });
 
     await expect(settleBeforeTimeout(handle.outcome)).resolves.toMatchObject({
       status: "succeeded",
@@ -344,10 +337,7 @@ describe("startWorkflowRun Effect nested execution", () => {
     });
     const workflow = { ...authored, plan };
     const { sink } = eventSink();
-    const handle = startWorkflowRun(
-      { workflow, input: {}, events: sink },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({ workflow, input: {}, events: sink });
 
     await expect(settleBeforeTimeout(handle.outcome)).resolves.toMatchObject({
       status: "succeeded",
@@ -393,10 +383,7 @@ describe("startWorkflowRun Effect nested execution", () => {
         .define(),
     );
     const { sink } = eventSink();
-    const handle = startWorkflowRun(
-      { workflow, input: {}, events: sink },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({ workflow, input: {}, events: sink });
 
     const outcome = await settleBeforeTimeout(handle.outcome);
     await expect(Promise.resolve(outcome)).resolves.toMatchObject({
@@ -898,10 +885,11 @@ describe("startWorkflowRun Effect nested execution", () => {
         .define(),
     );
     const { events, sink } = eventSink();
-    const handle = startWorkflowRun(
-      { workflow: root, input: { value: "cancel" }, events: sink },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: root,
+      input: { value: "cancel" },
+      events: sink,
+    });
 
     try {
       await settleBeforeTimeout(childEntered.promise);

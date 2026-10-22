@@ -3,7 +3,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  seqlaneAgentExecutionResultSchema,
   validateSeqlaneAgentWorkflowOutput,
   validateAgentResolutionRequest,
 } from "./agent-runner-port.js";
@@ -21,18 +20,6 @@ describe("agent runner port", () => {
       baseRevision: "a".repeat(40),
       headRevision: "b".repeat(40),
     });
-  });
-
-  it("validates structured runner results", () => {
-    expect(
-      seqlaneAgentExecutionResultSchema.safeParse({
-        status: "succeeded",
-        output: { resolvedFiles: ["src/file.ts"] },
-      }).success,
-    ).toBe(true);
-    expect(
-      seqlaneAgentExecutionResultSchema.safeParse({ status: "failed" }).success,
-    ).toBe(false);
   });
 
   it("propagates only validated workflow output", () => {

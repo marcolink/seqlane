@@ -9,6 +9,7 @@ export default defineConfig({
     exclude: [
       "src/cli-entrypoints.spec.ts",
       "src/runner-client.spec.ts",
+      "src/runner-supervision.e2e.spec.ts",
       "src/effect-tracer-worker.e2e.spec.ts",
       "src/effect-dag-worker.e2e.spec.ts",
       "src/effect-session-worker.e2e.spec.ts",

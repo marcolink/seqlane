@@ -28,6 +28,7 @@ export interface TaskExecutionRequest {
   readonly runAgent: TaskContext["runAgent"];
   readonly classify?: NonNullable<TaskContext["classify"]>;
   readonly onUncertainActivity?: (activity: SeqlaneUncertainActivity) => void;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 function taskContext(
@@ -39,6 +40,7 @@ function taskContext(
   runAgent: TaskContext["runAgent"],
   classify: NonNullable<TaskContext["classify"]> | undefined,
   onUncertainActivity: TaskExecutionRequest["onUncertainActivity"],
+  onOwnedProcessAcquired: TaskExecutionRequest["onOwnedProcessAcquired"],
 ): TaskContext {
   const baseContext: TaskContext = {
     exec: async (request) => {
@@ -52,6 +54,7 @@ function taskContext(
           outputLimitBytes,
           signal,
           timeoutMs: request.timeoutMs,
+          onOwnedProcessAcquired,
         });
       } catch (cause) {
         if (cause instanceof LocalProcessTerminationError) {
@@ -77,6 +80,7 @@ export async function executeTask(
     request.runAgent,
     request.classify,
     request.onUncertainActivity,
+    request.onOwnedProcessAcquired,
   );
   const output = await request.definition.execute({
     input: request.input,

@@ -93,6 +93,7 @@ export interface ExecutionContext {
   readonly events: ExecutionEventSink;
   readonly onObservation?: ExecutionObservationSink;
   readonly classifier?: ClassifierTaskRunner;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
   workflowResult?: unknown;
   failure?: SeqlaneError;
 }
@@ -119,6 +120,7 @@ export interface ExecutionContextOptions {
   readonly events?: ExecutionEventSink;
   readonly onObservation?: ExecutionObservationSink;
   readonly classifier?: ClassifierTaskRunner;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 export function createExecutionContext(
@@ -196,6 +198,7 @@ export function createExecutionContext(
     },
     onObservation: options.onObservation,
     classifier: options.classifier,
+    onOwnedProcessAcquired: options.onOwnedProcessAcquired,
   };
 
   function observeEvent(event: SeqlaneEvent): void {

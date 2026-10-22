@@ -5,6 +5,20 @@ const workspaceRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export const workspaceAliases = [
   {
+    find: "@seqlane/agent-adapter/private/owned-process",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/adapter/src/private/owned-process/index.ts",
+    ),
+  },
+  {
+    find: "@seqlane/runtime/private/owned-process",
+    replacement: resolve(
+      workspaceRoot,
+      "libs/runtime/src/private/owned-process/index.ts",
+    ),
+  },
+  {
     find: "@seqlane/agent-adapter",
     replacement: resolve(workspaceRoot, "libs/adapter/src/index.ts"),
   },
@@ -19,6 +33,10 @@ export const workspaceAliases = [
   {
     find: "@seqlane/core",
     replacement: resolve(workspaceRoot, "libs/core/src/index.ts"),
+  },
+  {
+    find: "@seqlane/protocol/private/owned-process",
+    replacement: resolve(workspaceRoot, "libs/protocol/src/owned-process.ts"),
   },
   {
     find: "@seqlane/protocol/private/trace-carrier",

@@ -230,9 +230,11 @@ describe("CLI agent runtime composition", () => {
             port: address.port,
           }),
       });
+      const onOwnedProcessAcquired = vi.fn(async (_pid: number) => undefined);
       const runtime = await factory(
         new AbortController().signal,
         process.cwd(),
+        { onOwnedProcessAcquired },
       );
       await runtime.close?.();
 
@@ -403,9 +405,11 @@ describe("CLI agent runtime composition", () => {
             mode: "managed",
           }),
       });
+      const onOwnedProcessAcquired = vi.fn(async (_pid: number) => undefined);
       const runtime = await factory(
         new AbortController().signal,
         process.cwd(),
+        { onOwnedProcessAcquired },
       );
       await runtime.modelCapabilities?.listModels();
       await runtime.close?.();
@@ -417,7 +421,11 @@ describe("CLI agent runtime composition", () => {
       ).toBe(true);
 
       expect(startOpenCodeService).toHaveBeenCalledWith(
-        expect.objectContaining({ host: "127.0.0.1", port: 0 }),
+        expect.objectContaining({
+          host: "127.0.0.1",
+          port: 0,
+          onOwnedProcessAcquired,
+        }),
       );
       expect(close).toHaveBeenCalledOnce();
     } finally {

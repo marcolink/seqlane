@@ -144,7 +144,9 @@ function executeStep(
 }
 
 function cancellationReason(signal: AbortSignal): unknown {
-  return signal.reason ?? new Error("Program execution cancelled");
+  return signal.aborted
+    ? signal.reason
+    : new Error("Program execution cancelled");
 }
 
 function requiredCompletion(

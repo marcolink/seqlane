@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Clock, Effect, Layer } from "effect";
+import { Clock, Effect, Layer, Tracer } from "effect";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 import type {
@@ -19,6 +19,7 @@ import {
 } from "./payload-limits.js";
 import {
   ClassifierFailure,
+  type ClassifierExecutionTelemetry,
   type ClassifierObservationSink,
   type ClassifierTaskRunner,
   type PrivateClassifierConnection,
@@ -184,6 +185,7 @@ export class SystemOneClient {
     input: ClassifierRequestInput,
     signal: AbortSignal,
     onObservation: ClassifierObservationSink,
+    telemetry?: ClassifierExecutionTelemetry,
   ): Promise<ClassifierResult> {
     signal.throwIfAborted();
     const preparedRequest = prepareRequest(
@@ -228,10 +230,18 @@ export class SystemOneClient {
 
     try {
       const httpProvided = Effect.provide(program, this.httpLayer);
+      const tracedProvided =
+        telemetry === undefined
+          ? httpProvided
+          : Effect.provideService(
+              Effect.withParentSpan(httpProvided, telemetry.parentSpan),
+              Tracer.Tracer,
+              telemetry.tracer,
+            );
       const provided =
         this.testClock === undefined
-          ? httpProvided
-          : Effect.provideService(httpProvided, Clock.Clock, this.testClock);
+          ? tracedProvided
+          : Effect.provideService(tracedProvided, Clock.Clock, this.testClock);
       return await Effect.runPromise(provided, { signal });
     } catch (cause) {
       if (sinkFailed) throw sinkFailure;
@@ -258,8 +268,8 @@ export function createClassifierTaskRunner(
   connection: PrivateClassifierConnection,
 ): ClassifierTaskRunner {
   const client = new SystemOneClient(connection);
-  return (request, signal, onObservation) =>
-    client.classify(request, signal, onObservation);
+  return (request, signal, onObservation, telemetry) =>
+    client.classify(request, signal, onObservation, telemetry);
 }
 
 export function createClassifierTaskRunnerOption(

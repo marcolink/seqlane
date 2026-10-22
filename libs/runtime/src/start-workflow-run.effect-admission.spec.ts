@@ -27,8 +27,8 @@ import { modelSelectionWorkflow } from "@seqlane/fixtures/model-selection-workfl
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
-import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
 import { findUnconfirmedInvocationTermination } from "./runtime/execution/executor.js";
+import { startEffectPlanTestRun } from "./start-workflow-run.effect-test-support.js";
 
 const recordSchema = z.object({ value: z.string() });
 const fullCapabilities: AgentAdapterCapabilities = {
@@ -326,10 +326,12 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
         },
       }),
     });
-    const handle = startWorkflowRun(
-      { workflow: built, input: {}, agentRuntime, events: sink },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: {},
+      agentRuntime,
+      events: sink,
+    });
 
     const outcome = await settleBeforeTimeout(handle.outcome);
 
@@ -403,15 +405,12 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
         );
       },
     });
-    const handle = startWorkflowRun(
-      {
-        workflow: built,
-        input: { label: "direct" },
-        agentRuntime,
-        events: sink,
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: { label: "direct" },
+      agentRuntime,
+      events: sink,
+    });
 
     const outcome = await handle.outcome;
     if (outcome.status === "failed") throw outcome.error;
@@ -451,15 +450,12 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
         },
       }),
     });
-    const handle = startWorkflowRun(
-      {
-        workflow: buildWorkflow(modelSelectionWorkflow),
-        input: { label: "missing-capability" },
-        agentRuntime,
-        events: { emit: () => undefined },
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: buildWorkflow(modelSelectionWorkflow),
+      input: { label: "missing-capability" },
+      agentRuntime,
+      events: { emit: () => undefined },
+    });
 
     await expect(handle.outcome).resolves.toMatchObject({ status: "failed" });
     expect(creates).toBe(0);
@@ -493,7 +489,7 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
     if (modelCapabilities === undefined)
       throw new Error("Fixture runtime has no model capabilities");
     const workflow = buildWorkflow(modelSelectionWorkflow);
-    const handle = startWorkflowRun(
+    const handle = startEffectPlanTestRun(
       {
         workflow,
         input: { label: "late-acquisition" },
@@ -509,16 +505,10 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
         },
         events: { emit: () => undefined },
       },
-      {
-        program: (context) =>
-          createEffectPlanProgram({
-            ...context,
-            resolveExecution: async (signal) => {
-              resolverStarted.resolve();
-              await releaseResolver.promise;
-              return context.resolveExecution(signal);
-            },
-          }),
+      async (signal, resolveDefault) => {
+        resolverStarted.resolve();
+        await releaseResolver.promise;
+        return resolveDefault(signal);
       },
     );
 
@@ -572,14 +562,11 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
       ),
     ).toEqual(["shared", "shared", "exclusive"]);
     const { events, sink } = eventSink();
-    const handle = startWorkflowRun(
-      {
-        workflow: built,
-        input: {},
-        events: sink,
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: {},
+      events: sink,
+    });
 
     try {
       await settleBeforeTimeout(bothSharedStarted.promise);
@@ -627,18 +614,15 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
       "exclusive",
     );
     const { sink, waitFor } = eventSink();
-    const handle = startWorkflowRun(
-      {
-        workflow: buildTwoTaskFlow(
-          "direct-effect-admission-cancel",
-          owner,
-          waiter,
-        ),
-        input: {},
-        events: sink,
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: buildTwoTaskFlow(
+        "direct-effect-admission-cancel",
+        owner,
+        waiter,
+      ),
+      input: {},
+      events: sink,
+    });
     try {
       await settleBeforeTimeout(ownerStarted.promise);
       await settleBeforeTimeout(
@@ -695,25 +679,19 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
     );
     const built = buildTenTaskFlow(owner, waiters, compatible);
     const { events, sink, waitFor } = eventSink();
-    const handle = startWorkflowRun(
+    const handle = startEffectPlanTestRun(
       { workflow: built, input: {}, events: sink },
-      {
-        program: (context) =>
-          createEffectPlanProgram({
-            ...context,
-            resolveExecution: async (signal) => {
-              const execution = await context.resolveExecution(signal);
-              const workspaceResources = new Map(execution.workspaceResources);
-              workspaceResources.set("a-permit-owner", { key: "blocked" });
-              for (let index = 0; index < 8; index += 1) {
-                workspaceResources.set(`b-permit-waiter-${index}`, {
-                  key: "blocked",
-                });
-              }
-              workspaceResources.set("z-permit-compatible", { key: "free" });
-              return { ...execution, workspaceResources };
-            },
-          }),
+      async (signal, resolveDefault) => {
+        const execution = await resolveDefault(signal);
+        const workspaceResources = new Map(execution.workspaceResources);
+        workspaceResources.set("a-permit-owner", { key: "blocked" });
+        for (let index = 0; index < 8; index += 1) {
+          workspaceResources.set(`b-permit-waiter-${index}`, {
+            key: "blocked",
+          });
+        }
+        workspaceResources.set("z-permit-compatible", { key: "free" });
+        return { ...execution, workspaceResources };
       },
     );
 
@@ -816,23 +794,17 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
       }),
     });
     const { events, sink } = eventSink();
-    const handle = startWorkflowRun(
+    const handle = startEffectPlanTestRun(
       { workflow: built, input: {}, agentRuntime, events: sink },
-      {
-        program: (context) =>
-          createEffectPlanProgram({
-            ...context,
-            resolveExecution: async (signal) => {
-              const execution = await context.resolveExecution(signal);
-              const workspaceResources = new Map(execution.workspaceResources);
-              workspaceResources.set(uncertainTask.id, { key: "quarantined" });
-              workspaceResources.set(conflictingTask.id, {
-                key: "quarantined",
-              });
-              workspaceResources.set(unrelatedTask.id, { key: "unrelated" });
-              return { ...execution, workspaceResources };
-            },
-          }),
+      async (signal, resolveDefault) => {
+        const execution = await resolveDefault(signal);
+        const workspaceResources = new Map(execution.workspaceResources);
+        workspaceResources.set(uncertainTask.id, { key: "quarantined" });
+        workspaceResources.set(conflictingTask.id, {
+          key: "quarantined",
+        });
+        workspaceResources.set(unrelatedTask.id, { key: "unrelated" });
+        return { ...execution, workspaceResources };
       },
     );
 
@@ -936,16 +908,13 @@ describe("startWorkflowRun Effect session and workspace admission", () => {
       });
       const { events, sink } = eventSink();
       const diagnostics: string[] = [];
-      const handle = startWorkflowRun(
-        {
-          workflow: built,
-          input: {},
-          agentRuntime,
-          events: sink,
-          onDiagnostic: (message) => diagnostics.push(message),
-        },
-        { program: createEffectPlanProgram },
-      );
+      const handle = startWorkflowRun({
+        workflow: built,
+        input: {},
+        agentRuntime,
+        events: sink,
+        onDiagnostic: (message) => diagnostics.push(message),
+      });
 
       let outcome;
       if (mode === "cancelled") {

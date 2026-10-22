@@ -54,14 +54,18 @@ export function executeNestedWorkflow(
     }
     if (abortSignal.aborted) {
       return yield* Effect.fail(
-        abortSignal.reason ?? new Error("Nested workflow cancelled"),
+        abortSignal.aborted
+          ? abortSignal.reason
+          : new Error("Nested workflow cancelled"),
       );
     }
 
     const runChild = Effect.gen(function* () {
       if (abortSignal.aborted) {
         return yield* Effect.fail(
-          abortSignal.reason ?? new Error("Nested workflow cancelled"),
+          abortSignal.aborted
+            ? abortSignal.reason
+            : new Error("Nested workflow cancelled"),
         );
       }
       parent.events.emit({
@@ -174,7 +178,9 @@ export function executeNestedWorkflow(
     if (result.status === "failed") return yield* Effect.fail(result.error);
     if (result.status === "cancelled") {
       return yield* Effect.fail(
-        abortSignal.reason ?? new Error("Nested workflow cancelled"),
+        abortSignal.aborted
+          ? abortSignal.reason
+          : new Error("Nested workflow cancelled"),
       );
     }
     parent.results.set(node.nodeId, planNodeResult(result.output));

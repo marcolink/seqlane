@@ -1,3 +1,5 @@
+import { Effect, Fiber } from "effect";
+
 export async function raceWithAbort<T>(
   promise: Promise<T>,
   signal: AbortSignal,
@@ -64,7 +66,7 @@ export interface ExecutionDeadline {
   readonly signal: AbortSignal;
   readonly started: boolean;
   start(): void;
-  dispose(): void;
+  dispose(): Promise<void>;
 }
 
 export function createExecutionDeadline(
@@ -73,7 +75,7 @@ export function createExecutionDeadline(
 ): ExecutionDeadline {
   const controller = new AbortController();
   let started = false;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timeoutFiber: Fiber.Fiber<void, never> | undefined;
   const abort = (): void => controller.abort(signal.reason);
   if (signal.aborted) abort();
   else signal.addEventListener("abort", abort, { once: true });
@@ -86,21 +88,25 @@ export function createExecutionDeadline(
     start: () => {
       if (started || controller.signal.aborted) return;
       started = true;
-      timeout = setTimeout(
-        () =>
-          controller.abort(
-            new DOMException(
-              "Agent task execution exceeded its deadline",
-              "TimeoutError",
+      timeoutFiber = Effect.runFork(
+        Effect.sleep(`${timeoutMs} millis`).pipe(
+          Effect.flatMap(() =>
+            Effect.sync(() =>
+              controller.abort(
+                new DOMException(
+                  "Agent task execution exceeded its deadline",
+                  "TimeoutError",
+                ),
+              ),
             ),
           ),
-        timeoutMs,
+        ),
       );
-      timeout.unref?.();
     },
-    dispose: () => {
+    dispose: async () => {
       signal.removeEventListener("abort", abort);
-      if (timeout !== undefined) clearTimeout(timeout);
+      if (timeoutFiber !== undefined)
+        await Effect.runPromise(Fiber.interrupt(timeoutFiber));
     },
   };
 }

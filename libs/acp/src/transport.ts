@@ -367,6 +367,7 @@ function validateInboundStream(
 export async function createAcpTransport(
   configuration: AcpLaunchConfiguration,
   shutdownSignal?: AbortSignal,
+  onOwnedProcessAcquired?: (pid: number) => Promise<void>,
 ): Promise<AcpTransport> {
   const scope = Effect.runSync(Scope.make());
   const child = await Effect.runPromise(
@@ -387,6 +388,47 @@ export async function createAcpTransport(
       scope,
     ),
   );
+
+  if (onOwnedProcessAcquired !== undefined) {
+    let processFailureCause: AcpAdapterError | undefined;
+    const onProcessError = (cause: Error): void => {
+      processFailureCause = new AcpAdapterError(
+        "execution",
+        "ACP process failed during ownership registration",
+        cause,
+      );
+    };
+    const onProcessClose = (
+      code: number | null,
+      signal: NodeJS.Signals | null,
+    ): void => {
+      processFailureCause = new AcpAdapterError(
+        "execution",
+        `ACP process exited during ownership registration (${code ?? signal ?? "unknown"})`,
+      );
+    };
+    child.once("error", onProcessError);
+    child.once("close", onProcessClose);
+    try {
+      const pid = child.pid;
+      if (pid === undefined) throw new Error("ACP process has no PID");
+      await onOwnedProcessAcquired(pid);
+      if (processFailureCause !== undefined) throw processFailureCause;
+    } catch (cause) {
+      try {
+        await Effect.runPromise(Scope.close(scope, Exit.void));
+      } catch (cleanupCause) {
+        throw new AggregateError(
+          [cause, cleanupCause],
+          "ACP registration and process cleanup failed",
+        );
+      }
+      throw cause;
+    } finally {
+      child.off("error", onProcessError);
+      child.off("close", onProcessClose);
+    }
+  }
 
   child.stderr.resume();
   let permissionRequested = false;

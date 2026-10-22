@@ -223,6 +223,67 @@ describe("runCodeReview", () => {
     expect(receivedRuntimes).toEqual([runtime, undefined]);
   });
 
+  it("forwards canonical observations from the review run to the Action hook", async () => {
+    const observations: unknown[] = [];
+    const result = await runCodeReview(request, {
+      github: createGithubPort(true),
+      onObservation: (event) => observations.push(event),
+      runWorkflow: createRunner(
+        [
+          { status: "succeeded", result: {} },
+          {
+            status: "succeeded",
+            result: {
+              status: "published",
+              publication: {
+                verdict: "approve",
+                reviewedRevision: headRevision,
+                body: "published report",
+              },
+            },
+          },
+        ],
+        (workflow) =>
+          workflow.onObservation?.({
+            type: "invocation.observation",
+            workId: "work-id",
+            runId: "run-id",
+            invocationId: "invocation-id",
+            observationId: "observation-id",
+            kind: "model",
+            state: "succeeded",
+            model: {
+              request: {
+                values: { falseValue: false, zero: 0, empty: "", nil: null },
+              },
+              response: {
+                values: { falseValue: false, zero: 0, empty: "", nil: null },
+              },
+              usage: { inputTokens: 0 },
+              cost: 0,
+            },
+          }),
+      ),
+    });
+
+    expect(result.status).toBe("published");
+    expect(observations).toMatchObject([
+      {
+        observationId: "observation-id",
+        model: {
+          request: {
+            values: { falseValue: false, zero: 0, empty: "", nil: null },
+          },
+          response: {
+            values: { falseValue: false, zero: 0, empty: "", nil: null },
+          },
+          usage: { inputTokens: 0 },
+          cost: 0,
+        },
+      },
+    ]);
+  });
+
   it("rejects an invalid review target before runtime bootstrap", async () => {
     let bootstrapped = false;
     const result = await runCodeReview(

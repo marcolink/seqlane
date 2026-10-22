@@ -76,7 +76,9 @@ export class JointAdmissionRegistry {
     return Effect.suspend(() => {
       if (request.signal.aborted)
         return Effect.fail(
-          request.signal.reason ?? new Error("Joint admission cancelled"),
+          request.signal.aborted
+            ? request.signal.reason
+            : new Error("Joint admission cancelled"),
         );
       const waiter: EffectWaitingAdmission = { request };
       this.#effectWaiting.push(waiter);
@@ -159,8 +161,9 @@ export class JointAdmissionRegistry {
     return Effect.suspend(() => {
       if (waiter.request.signal.aborted)
         return Effect.fail(
-          waiter.request.signal.reason ??
-            new Error("Joint admission cancelled"),
+          waiter.request.signal.aborted
+            ? waiter.request.signal.reason
+            : new Error("Joint admission cancelled"),
         );
       // Register before the checks. A release between the checks and wait is
       // then retained by the Deferred and cannot become a lost wakeup.

@@ -1,4 +1,5 @@
 // @test-scope ./workflow-run.ts
+// @test-scope ./effect-plan.ts
 // @test-scope ../compile/compile-plan.ts
 // @test-scope ../compile/compile-node-step.ts
 // @test-scope ../invocation/invocation-execution.ts
@@ -16,14 +17,17 @@ import {
   InputValidationError,
   OutputValidationError,
   RuntimeError,
-  startCompiledWorkflow,
-  runCompiledWorkflow,
   type SeqlaneEvent,
   type SeqlaneRunOutcome,
 } from "../../index.js";
+import {
+  startCompiledWorkflow,
+  runCompiledWorkflow,
+} from "./workflow-run.test-support.js";
 import { createSequentialProgram } from "./program.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "./executor.js";
+import type { SessionResolver } from "../session/session-resolution.js";
 import type { TaskSchema } from "../plan/task-schema.js";
 import { z } from "zod";
 
@@ -66,6 +70,7 @@ function compile(
     executor?: (request: ExecutorRequest) => Promise<unknown>;
     taskSchemas?: ReadonlyMap<string, TaskSchema>;
     taskDefinitions?: ReadonlyMap<string, TaskDefinition>;
+    sessionResolver?: SessionResolver;
   } = {},
 ) {
   const taskDefinitions = new Map(options.taskDefinitions);
@@ -87,6 +92,7 @@ function compile(
     events: options.events,
     taskSchemas: options.taskSchemas,
     taskDefinitions,
+    sessionResolver: options.sessionResolver,
     executors: new Map([
       [
         "test-executor",
@@ -819,6 +825,112 @@ describe("Seqlane lifecycle events and outcomes", () => {
     await startCompiledWorkflow(compiled, { heartbeatIntervalMs: 1 }).outcome;
 
     expect(events.some(({ type }) => type === "run.heartbeat")).toBe(true);
+  });
+
+  it("fails on heartbeat delivery errors after the active executor cleans up", async () => {
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let cleanedUp = false;
+    const heartbeatFailure = new Error("heartbeat sink failed");
+    const compiled = compile(plan([task("active")]), {
+      events: {
+        emit: (event) => {
+          if (event.type === "run.heartbeat") throw heartbeatFailure;
+        },
+      },
+      executor: async ({ signal }) => {
+        markStarted();
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) resolve();
+          else
+            signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        cleanedUp = true;
+        return { value: "cancelled" };
+      },
+    });
+
+    const outcomePromise = startCompiledWorkflow(compiled, {
+      heartbeatIntervalMs: 1,
+    }).outcome;
+    await started;
+    const outcome = await outcomePromise;
+
+    expect(outcome.status).toBe("failed");
+    if (outcome.status !== "failed") return;
+    expect(cleanedUp).toBe(true);
+    expect(outcome.error.cause).toBe(heartbeatFailure);
+  });
+
+  it("publishes invocation topology while model preflight is still pending", async () => {
+    let markPreflightStarted!: () => void;
+    let releasePreflight!: () => void;
+    const preflightStarted = new Promise<void>((resolve) => {
+      markPreflightStarted = resolve;
+    });
+    const preflightGate = new Promise<void>((resolve) => {
+      releasePreflight = resolve;
+    });
+    const events: SeqlaneEvent[] = [];
+    let taskStarted = false;
+    const selectedModel = {
+      model: { provider: "test", model: "held-preflight" },
+      reasoning: "medium" as const,
+    };
+    const taskNode = task("held-preflight") as Extract<
+      PlanNode,
+      { type: "task" }
+    >;
+    const compiled = compile(
+      plan([{ ...taskNode, session: { type: "isolated" } }]),
+      {
+        events: { emit: (event) => events.push(event) },
+        executor: async () => {
+          taskStarted = true;
+          return { value: "unexpected" };
+        },
+        sessionResolver: {
+          adapterCapabilities: {
+            execute: true,
+            modelSelection: true,
+            structuredOutput: true,
+            sessionReuse: true,
+            checkpoint: true,
+            fork: true,
+            activity: true,
+            sessionUi: true,
+          },
+          modelCapabilities: {
+            executor: "test-executor",
+            resolveDefaultModel: async () => selectedModel,
+            listModels: async () => {
+              markPreflightStarted();
+              await preflightGate;
+              return [];
+            },
+          },
+          resolve: async () => {
+            throw new Error("Session resolution must follow model preflight");
+          },
+        },
+      },
+    );
+
+    const outcomePromise = startCompiledWorkflow(compiled).outcome;
+    try {
+      await preflightStarted;
+      expect(events.some((event) => event.type === "invocation.created")).toBe(
+        true,
+      );
+      expect(taskStarted).toBe(false);
+    } finally {
+      releasePreflight();
+    }
+    const outcome = await outcomePromise;
+    expect(outcome.status).toBe("failed");
+    expect(taskStarted).toBe(false);
   });
 
   it("cancels an active run and aborts the executor", async () => {

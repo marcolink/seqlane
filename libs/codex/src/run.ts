@@ -13,6 +13,7 @@ export interface CodexRunOptions {
   readonly signal?: AbortSignal;
   /** Diagnostics produced while the executable was resolved before the run. */
   readonly initialDiagnostics?: readonly AgentDiagnostic[];
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
   readonly createTransport?: (
     configuration: CodexLaunchConfiguration,
     options: {
@@ -52,6 +53,7 @@ export function createCodexRun(
       readonly signal?: AbortSignal;
       readonly initializeTimeoutMs?: number;
       readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
+      readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
     } = {},
   ): Promise<CodexTransport> => {
     if (closed) throw new Error("Codex run is closed");
@@ -70,6 +72,9 @@ export function createCodexRun(
                   pendingDiagnostics.push(diagnostic);
                 }
               },
+              onOwnedProcessAcquired:
+                transportOptions.onOwnedProcessAcquired ??
+                options.onOwnedProcessAcquired,
             },
           ),
         catch: (cause) => cause,

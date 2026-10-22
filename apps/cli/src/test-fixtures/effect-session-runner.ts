@@ -1,7 +1,4 @@
-import {
-  createEffectTracerRunProgram,
-  startRunnerProcess,
-} from "@seqlane/runtime/runner";
+import { startRunnerProcess } from "@seqlane/runtime/runner";
 import type {
   AgentAdapter,
   AgentRuntime,
@@ -188,5 +185,4 @@ const createAgentRuntimeFactory: AgentRuntimeFactory = async () => {
 startRunnerProcess({
   workerEntrypoint: true,
   createAgentRuntimeFactory: () => createAgentRuntimeFactory,
-  createRunProgram: createEffectTracerRunProgram,
 });

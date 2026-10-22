@@ -66,7 +66,9 @@ export function executeRepeatNodeEffect(
     ) {
       if (abortSignal.aborted) {
         return yield* Effect.fail(
-          abortSignal.reason ?? new Error("Repeat cancelled"),
+          abortSignal.aborted
+            ? abortSignal.reason
+            : new Error("Repeat cancelled"),
         );
       }
       context.runState.repeatBudget.executed += 1;

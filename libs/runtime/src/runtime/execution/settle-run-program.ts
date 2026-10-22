@@ -1,5 +1,5 @@
 import { Cause, Effect, Exit, Metric, Tracer } from "effect";
-import { RuntimeError } from "@seqlane/core";
+import { RuntimeError, SeqlaneError } from "@seqlane/core";
 import type { TraceCarrier } from "@seqlane/protocol/private/trace-carrier";
 import { withRuntimeExecutionSpan } from "../../private/telemetry/run-scope.js";
 import type { SeqlaneEventSink, SeqlaneRunOutcome } from "@seqlane/core";
@@ -41,7 +41,10 @@ export async function settleRunProgram(
   if (signal.aborted && Cause.hasInterruptsOnly(exit.cause)) {
     return { status: "cancelled" };
   }
-  return { status: "failed", error: new RuntimeError(cause) };
+  return {
+    status: "failed",
+    error: cause instanceof SeqlaneError ? cause : new RuntimeError(cause),
+  };
 }
 
 /** Publish the canonical run terminal for either target or legacy outcomes. */

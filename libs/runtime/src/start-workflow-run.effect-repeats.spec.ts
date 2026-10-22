@@ -26,8 +26,8 @@ import {
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
-import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
 import type { ResolvedExecutorSession } from "./runtime/session/session-resolution.js";
+import { startEffectPlanTestRun } from "./start-workflow-run.effect-test-support.js";
 
 function eventsForRun(events: readonly SeqlaneEvent[], runId: string) {
   return events.filter((event) => event.runId === runId);
@@ -65,18 +65,15 @@ describe("startWorkflowRun Effect repeat contracts", () => {
         .define(),
     );
     const events: SeqlaneEvent[] = [];
-    const handle = startWorkflowRun(
-      {
-        workflow,
-        input: { value: 3 },
-        identity: {
-          workId: "repeat-default-work",
-          runId: "repeat-default-run",
-        },
-        events: { emit: (event) => events.push(event) },
+    const handle = startWorkflowRun({
+      workflow,
+      input: { value: 3 },
+      identity: {
+        workId: "repeat-default-work",
+        runId: "repeat-default-run",
       },
-      { program: createEffectPlanProgram },
-    );
+      events: { emit: (event) => events.push(event) },
+    });
 
     await expect(handle.outcome).resolves.toMatchObject({
       status: "succeeded",
@@ -128,15 +125,12 @@ describe("startWorkflowRun Effect repeat contracts", () => {
         .define(),
     );
     const events: SeqlaneEvent[] = [];
-    const handle = startWorkflowRun(
-      {
-        workflow,
-        input: { value: 0 },
-        identity: { workId: "repeat-child-work", runId: "repeat-child-run" },
-        events: { emit: (event) => events.push(event) },
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow,
+      input: { value: 0 },
+      identity: { workId: "repeat-child-work", runId: "repeat-child-run" },
+      events: { emit: (event) => events.push(event) },
+    });
 
     await expect(handle.outcome).resolves.toMatchObject({
       status: "succeeded",
@@ -200,15 +194,12 @@ describe("startWorkflowRun Effect repeat contracts", () => {
         .define(),
     );
     const events: SeqlaneEvent[] = [];
-    const handle = startWorkflowRun(
-      {
-        workflow,
-        input: {},
-        identity: { workId: "repeat-limit-work", runId: "repeat-limit-run" },
-        events: { emit: (event) => events.push(event) },
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow,
+      input: {},
+      identity: { workId: "repeat-limit-work", runId: "repeat-limit-run" },
+      events: { emit: (event) => events.push(event) },
+    });
 
     const outcome = await handle.outcome;
     expect(outcome.status).toBe("failed");
@@ -245,18 +236,15 @@ describe("startWorkflowRun Effect repeat contracts", () => {
         .define(),
     );
     const events: SeqlaneEvent[] = [];
-    const handle = startWorkflowRun(
-      {
-        workflow,
-        input: {},
-        identity: {
-          workId: "repeat-failure-work",
-          runId: "repeat-failure-run",
-        },
-        events: { emit: (event) => events.push(event) },
+    const handle = startWorkflowRun({
+      workflow,
+      input: {},
+      identity: {
+        workId: "repeat-failure-work",
+        runId: "repeat-failure-run",
       },
-      { program: createEffectPlanProgram },
-    );
+      events: { emit: (event) => events.push(event) },
+    });
 
     expect(await handle.outcome).toMatchObject({ status: "failed" });
     expect(executions).toBe(1);
@@ -303,18 +291,15 @@ describe("startWorkflowRun Effect repeat contracts", () => {
         .define(),
     );
     const events: SeqlaneEvent[] = [];
-    const handle = startWorkflowRun(
-      {
-        workflow,
-        input: {},
-        identity: {
-          workId: "repeat-validation-work",
-          runId: "repeat-validation-run",
-        },
-        events: { emit: (event) => events.push(event) },
+    const handle = startWorkflowRun({
+      workflow,
+      input: {},
+      identity: {
+        workId: "repeat-validation-work",
+        runId: "repeat-validation-run",
       },
-      { program: createEffectPlanProgram },
-    );
+      events: { emit: (event) => events.push(event) },
+    });
 
     expect(await handle.outcome).toMatchObject({ status: "failed" });
     expect(executions).toBe(1);
@@ -378,18 +363,15 @@ describe("startWorkflowRun Effect repeat contracts", () => {
         .define(),
     );
     const events: SeqlaneEvent[] = [];
-    const handle = startWorkflowRun(
-      {
-        workflow,
-        input: {},
-        identity: {
-          workId: "repeat-child-validation-work",
-          runId: "repeat-child-validation-run",
-        },
-        events: { emit: (event) => events.push(event) },
+    const handle = startWorkflowRun({
+      workflow,
+      input: {},
+      identity: {
+        workId: "repeat-child-validation-work",
+        runId: "repeat-child-validation-run",
       },
-      { program: createEffectPlanProgram },
-    );
+      events: { emit: (event) => events.push(event) },
+    });
 
     expect(await handle.outcome).toMatchObject({ status: "failed" });
     expect(executions).toBe(1);
@@ -438,7 +420,7 @@ describe("startWorkflowRun Effect repeat contracts", () => {
         .define(),
     );
     const events: SeqlaneEvent[] = [];
-    const handle = startWorkflowRun(
+    const handle = startEffectPlanTestRun(
       {
         workflow,
         input: {},
@@ -448,26 +430,20 @@ describe("startWorkflowRun Effect repeat contracts", () => {
         },
         events: { emit: (event) => events.push(event) },
       },
-      {
-        program: (context) =>
-          createEffectPlanProgram({
-            ...context,
-            resolveExecution: async (signal) => {
-              const execution = await context.resolveExecution(signal);
+      async (signal, resolveDefault) => {
+        const execution = await resolveDefault(signal);
+        return {
+          ...execution,
+          sessionResolver: {
+            resolve: async ({ invocationId }) => {
+              resolved.push(invocationId);
               return {
-                ...execution,
-                sessionResolver: {
-                  resolve: async ({ invocationId }) => {
-                    resolved.push(invocationId);
-                    return {
-                      key: Symbol(invocationId),
-                      executor: { execute: async () => ({}) },
-                    };
-                  },
-                },
+                key: Symbol(invocationId),
+                executor: { execute: async () => ({}) },
               };
             },
-          }),
+          },
+        };
       },
     );
 
@@ -570,7 +546,7 @@ describe("startWorkflowRun Effect repeat contracts", () => {
           };
         },
       };
-      const handle = startWorkflowRun(
+      const handle = startEffectPlanTestRun(
         {
           workflow,
           input: {},
@@ -580,23 +556,17 @@ describe("startWorkflowRun Effect repeat contracts", () => {
           },
           events: { emit: (event) => events.push(event) },
         },
-        {
-          program: (context) =>
-            createEffectPlanProgram({
-              ...context,
-              resolveExecution: async (signal) => {
-                const execution = await context.resolveExecution(signal);
-                return {
-                  ...execution,
-                  sessionResolver: {
-                    resolve: async ({ invocationId }) => {
-                      sessionResolutions.push(invocationId);
-                      return sourceSession;
-                    },
-                  },
-                };
+        async (signal, resolveDefault) => {
+          const execution = await resolveDefault(signal);
+          return {
+            ...execution,
+            sessionResolver: {
+              resolve: async ({ invocationId }) => {
+                sessionResolutions.push(invocationId);
+                return sourceSession;
               },
-            }),
+            },
+          };
         },
       );
 
@@ -726,18 +696,15 @@ describe("startWorkflowRun Effect repeat contracts", () => {
         .define(),
     );
     const events: SeqlaneEvent[] = [];
-    const handle = startWorkflowRun(
-      {
-        workflow,
-        input: {},
-        identity: {
-          workId: "repeat-malformed-work",
-          runId: "repeat-malformed-run",
-        },
-        events: { emit: (event) => events.push(event) },
+    const handle = startWorkflowRun({
+      workflow,
+      input: {},
+      identity: {
+        workId: "repeat-malformed-work",
+        runId: "repeat-malformed-run",
       },
-      { program: createEffectPlanProgram },
-    );
+      events: { emit: (event) => events.push(event) },
+    });
 
     expect(await handle.outcome).toMatchObject({ status: "failed" });
     const runEvents = eventsForRun(events, handle.runId);

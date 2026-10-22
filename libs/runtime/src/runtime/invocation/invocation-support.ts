@@ -47,6 +47,7 @@ export interface TaskExecutionOptions {
   };
   /** Private timeout seam for owned executor termination and tests. */
   readonly terminationTimeoutMs?: number;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
   readonly iteration?: number;
   /** Native choice/repeat callers publish completion after output validation. */
   readonly deferCompletion?: boolean;

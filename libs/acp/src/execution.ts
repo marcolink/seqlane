@@ -46,6 +46,7 @@ export async function executeAcpRequest(
       state.transport,
       configuration,
       request.signal,
+      request.onOwnedProcessAcquired,
     );
   } catch (cause) {
     if (request.signal.aborted) {

@@ -19,7 +19,6 @@ import {
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
 import { startWorkflowRun } from "./start-workflow-run.js";
 
 const capabilities: AgentAdapterCapabilities = {
@@ -185,15 +184,12 @@ describe("choice cancellation during session admission", () => {
         (taskId) => calledTaskIds.push(taskId),
         forkCalls,
       );
-      const run = startWorkflowRun(
-        {
-          workflow,
-          input: { select: true },
-          agentRuntime: runtime,
-          events: sink,
-        },
-        { program: createEffectPlanProgram },
-      );
+      const run = startWorkflowRun({
+        workflow,
+        input: { select: true },
+        agentRuntime: runtime,
+        events: sink,
+      });
       try {
         await settleBeforeTimeout(
           sourceStarted.promise,

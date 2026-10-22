@@ -32,6 +32,11 @@
       "types": "./dist/private/telemetry/index.d.ts",
       "import": "./dist/private/telemetry/index.js",
       "default": "./dist/private/telemetry/index.js"
+    },
+    "./private/owned-process": {
+      "types": "./dist/private/owned-process/index.d.ts",
+      "import": "./dist/private/owned-process/index.js",
+      "default": "./dist/private/owned-process/index.js"
     }
   },
   "nx": {

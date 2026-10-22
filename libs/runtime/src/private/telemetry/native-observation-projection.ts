@@ -123,6 +123,7 @@ export function projectNativeObservationSpans(
   }
   const invocationParents = new Map<string, TelemetrySpanSnapshot>();
   const adapterParents = new Map<string, TelemetrySpanSnapshot>();
+  const classifierParents = new Map<string, TelemetrySpanSnapshot>();
   for (const span of capturedSpans) {
     const invocationId = span.attributes["seqlane.invocation.id"];
     if (typeof invocationId !== "string") continue;
@@ -130,6 +131,8 @@ export function projectNativeObservationSpans(
       invocationParents.set(invocationId, span);
     if (span.name === "seqlane.adapter.execute")
       adapterParents.set(invocationId, span);
+    if (span.name === "seqlane.classifier.execute")
+      classifierParents.set(invocationId, span);
   }
   const externalSpan = (
     span: TelemetrySpanSnapshot | undefined,
@@ -160,8 +163,14 @@ export function projectNativeObservationSpans(
         : undefined;
     const parent =
       parentKey === undefined ? undefined : projected.get(parentKey)?.span;
+    const isClassifierObservation =
+      event.type === "invocation.observation" &&
+      event.model.operation === "classifier";
     const actualParent = externalSpan(
-      adapterParents.get(event.invocationId) ??
+      (isClassifierObservation
+        ? classifierParents.get(event.invocationId)
+        : undefined) ??
+        adapterParents.get(event.invocationId) ??
         invocationParents.get(event.invocationId),
     );
     const [, traceId, parentSpanId] =

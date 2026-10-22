@@ -4,7 +4,6 @@
 // @test-scope ./test-fixtures/effect-tracer-runner.ts
 // @test-scope ./test-fixtures/effect-nested-workflow.ts
 // @test-scope ./test-fixtures/effect-nested-cases.ts
-// @test-scope ../../../libs/runtime/src/runner/effect-tracer.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/nested-workflow.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/effect-choice.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/effect-plan.ts

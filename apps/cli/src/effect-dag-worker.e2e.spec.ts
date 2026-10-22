@@ -5,7 +5,6 @@
 // @test-scope ../../../libs/runtime/src/runtime/execution/program.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/workflow-run.ts
 // @test-scope ../../../libs/runtime/src/runtime/invocation/invocation-execution.ts
-// @test-scope ../../../libs/runtime/src/runner/effect-tracer.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/effect-plan.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/settle-run-program.ts
 // @test-scope ../../../libs/runtime/src/runner/main.ts

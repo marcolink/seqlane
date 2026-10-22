@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { startOpenCodeService } from "./service.js";
+import { OpenCodeServiceStartupError } from "./errors.js";
 
 function fakeChild(): ChildProcess & EventEmitter {
   const child = new EventEmitter() as ChildProcess & EventEmitter;
@@ -44,6 +45,95 @@ function mockOwnedProcessGroup(child: ChildProcess & EventEmitter) {
 }
 
 describe("owned OpenCode startup", () => {
+  it("registers the service process before polling its HTTP endpoint", async () => {
+    const child = fakeChild();
+    let registered = false;
+    const started = startOpenCodeService({
+      workspace: "/workspace",
+      signal: new AbortController().signal,
+      spawn: (() =>
+        child) as unknown as typeof import("node:child_process").spawn,
+      onOwnedProcessAcquired: async (pid) => {
+        expect(pid).toBe(ownedChildPid(child));
+        registered = true;
+      },
+      fetch: vi.fn(async () => {
+        expect(registered).toBe(true);
+        return new Response(null, { status: 200 });
+      }),
+    });
+    await Promise.resolve();
+    child.stdout?.emit(
+      "data",
+      Buffer.from("opencode server listening on http://127.0.0.1:4173\n"),
+    );
+
+    const service = await started;
+    expect(registered).toBe(true);
+    await service.close();
+  });
+
+  it("closes the service if ownership registration fails", async () => {
+    const child = fakeChild();
+    const kill = mockOwnedProcessGroup(child);
+    const failure = startOpenCodeService({
+      workspace: "/workspace",
+      signal: new AbortController().signal,
+      spawn: (() =>
+        child) as unknown as typeof import("node:child_process").spawn,
+      onOwnedProcessAcquired: async () => {
+        throw new Error("ownership acknowledgement failed");
+      },
+      fetch: vi.fn(),
+    });
+    await expect(failure).rejects.toMatchObject({
+      name: "OpenCodeServiceStartupError",
+      cause: expect.objectContaining({
+        message: "ownership acknowledgement failed",
+      }),
+    });
+    expect(kill).toHaveBeenCalledWith(-ownedChildPid(child), "SIGTERM");
+  });
+
+  it("keeps frozen startup failure and cleanup failure as separate causes", async () => {
+    const child = fakeChild();
+    const original = Object.freeze(
+      new OpenCodeServiceStartupError("ownership registration failed"),
+    );
+    const kill = vi.spyOn(process, "kill").mockImplementation(((
+      pid,
+      signal,
+    ) => {
+      if (pid !== -ownedChildPid(child))
+        throw new Error("unexpected process group");
+      if (signal === 0) return true;
+      throw new Error("process group signal denied");
+    }) as typeof process.kill);
+    try {
+      const failure = startOpenCodeService({
+        workspace: "/workspace",
+        signal: new AbortController().signal,
+        spawn: (() =>
+          child) as unknown as typeof import("node:child_process").spawn,
+        onOwnedProcessAcquired: async () => {
+          throw original;
+        },
+        fetch: vi.fn(),
+      });
+      const cause = await failure.catch((error: unknown) => error);
+      expect(cause).toBeInstanceOf(OpenCodeServiceStartupError);
+      if (!(cause instanceof OpenCodeServiceStartupError))
+        throw new Error("Expected startup cleanup error");
+      expect(cause).not.toBe(original);
+      expect(cause.cause).toBe(original);
+      expect(cause.cleanupFailure?.cause).toBeInstanceOf(Error);
+      expect(original.cause).toBeUndefined();
+      expect(kill).toHaveBeenCalledWith(-ownedChildPid(child), "SIGTERM");
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
   it("uses an ephemeral loopback endpoint and waits for health", async () => {
     const child = fakeChild();
     const spawn = vi.fn(
@@ -284,7 +374,9 @@ describe("owned OpenCode startup", () => {
         name: "OpenCodeServiceStartupError",
         message: expect.stringContaining("did not become ready"),
         cleanupFailure: expect.objectContaining({
-          name: "OpenCodeServiceCleanupError",
+          cause: expect.objectContaining({
+            name: "OpenCodeServiceCleanupError",
+          }),
         }),
       });
       expect(child.listenerCount("error")).toBeGreaterThan(0);

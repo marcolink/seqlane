@@ -22,6 +22,11 @@
       "types": "./dist/telemetry-span-snapshot.d.ts",
       "import": "./dist/telemetry-span-snapshot.js",
       "default": "./dist/telemetry-span-snapshot.js"
+    },
+    "./private/owned-process": {
+      "types": "./dist/owned-process.d.ts",
+      "import": "./dist/owned-process.js",
+      "default": "./dist/owned-process.js"
     }
   },
   "nx": {

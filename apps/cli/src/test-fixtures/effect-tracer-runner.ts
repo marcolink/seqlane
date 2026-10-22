@@ -1,7 +1,4 @@
-import {
-  createEffectTracerRunProgram,
-  startRunnerProcess,
-} from "@seqlane/runtime/runner";
+import { startRunnerProcess } from "@seqlane/runtime/runner";
 import { createRunnerProcessOptions } from "../runner.js";
 
 const captured = createRunnerProcessOptions(process.env);
@@ -13,5 +10,4 @@ startRunnerProcess({
       "Effect tracer fixture must not construct an agent runtime",
     );
   },
-  createRunProgram: createEffectTracerRunProgram,
 });

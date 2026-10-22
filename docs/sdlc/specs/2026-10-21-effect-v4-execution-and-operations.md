@@ -213,6 +213,15 @@ Preserve explicit file/package entrypoints, normal trusted imports, bounded inpu
 Preserve human, CI, event, and final JSON contracts and exit codes `0`, `1`, and `130`, with existing Oclif precedence.
 Imported logs and SDK logs cannot corrupt final JSON stdout.
 SIGINT, SIGTERM, supervisor disconnect, startup failure, and second interruption retain bounded owned-resource cleanup.
+Private validated ownership records identify processes acquired by the worker,
+including native adapter startup and preflight. Register ownership before
+external work and acknowledge the control record. Release ownership only after
+native process or group termination is confirmed. A control delivery failure
+must clean the acquired resource and fail through supervision.
+The CLI verifies process identity before forced cleanup and waits for actual
+exit. A reused PID or unconfirmed identity must never authorize a signal to a
+foreign process. External services remain outside worker ownership.
+These private records do not change public Plans or the execution-event version.
 Plan and replay commands retain their current behavior and Zod validation.
 Remove `unstable_studio` after hosted inspection parity; update help and documentation with its replacement inspection paths.
 
@@ -306,7 +315,7 @@ No previous runtime fallback remains, and no observability capability lacks a do
 
 ## Delivery state
 
-Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) verifies real CLI-to-adapter trace correlation, canonical observations, native metrics and logs, bounded event delivery, acknowledgement deadlines, isolated OTLP export, and cleanup. S9–S12, production Plan cutover, hosted replacement, and complete removal remain pending. No full migration or remote delivery is claimed.
+Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) verifies real CLI-to-adapter trace correlation, canonical observations, native metrics and logs, bounded event delivery, acknowledgement deadlines, isolated OTLP export, and cleanup. [S9](../tasks/2026-10-21-effect-v4-cli-and-action-cutover.md) verifies the sole CLI/direct Action run program, native ownership control, bounded supervision, original failure causes, plan/replay orchestration, and compiled caller parity. S10–S12, hosted replacement, remaining Actions, distribution, and complete removal remain pending. No full migration or remote delivery is claimed.
 
 ## Traceability
 

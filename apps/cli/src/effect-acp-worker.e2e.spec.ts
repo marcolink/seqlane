@@ -5,6 +5,7 @@
 // @test-scope ./test-fixtures/effect-worker-test-support.ts
 // @test-scope ./test-fixtures/effect-acp-runner.ts
 // @test-scope ./test-fixtures/effect-acp-server.ts
+// @test-scope ./test-fixtures/effect-acp-resistant-server.ts
 // @test-scope ./test-fixtures/effect-acp-workflow.ts
 // @test-scope ../../../libs/acp/src/adapter.ts
 // @test-scope ../../../libs/acp/src/runtime.ts
@@ -14,6 +15,7 @@
 // @test-scope ../../../libs/runtime/src/runner/profile/runtime-profile.ts
 // @test-scope ../../../libs/runtime/src/runtime/session/session-preflight.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/effect-plan.ts
+// @test-scope ../../../libs/adapter/src/private/owned-process/identity.ts
 
 import {
   existsSync,
@@ -22,6 +24,7 @@ import {
   realpathSync,
   rmSync,
 } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -39,10 +42,21 @@ import {
   prepareExternalCli,
   startCompiledCli,
 } from "./test-fixtures/effect-worker-test-support.js";
+import {
+  captureOwnedProcessIdentity,
+  confirmOwnedProcessStopped,
+  isOwnedProcessIdentityCurrent,
+  terminateOwnedProcess,
+} from "@seqlane/runtime/private/owned-process";
+import type { OwnedProcessIdentity } from "@seqlane/protocol/private/owned-process";
 
 const cliRoot = fileURLToPath(new URL("../", import.meta.url));
 const runnerPath = join(cliRoot, "dist/test-fixtures/effect-acp-runner.js");
 const serverPath = join(cliRoot, "dist/test-fixtures/effect-acp-server.js");
+const resistantServerPath = join(
+  cliRoot,
+  "dist/test-fixtures/effect-acp-resistant-server.js",
+);
 const workflowUrl = pathToFileURL(
   join(cliRoot, "dist/test-fixtures/effect-acp-workflow.js"),
 ).href;
@@ -61,6 +75,10 @@ const correlationSchema = z.object({
   value: z.string().optional(),
 });
 const processSchema = z.object({ pid: z.number().int().positive() });
+const resistantProcessSchema = z.strictObject({
+  sdkPid: z.number().int().positive(),
+  grandchildPid: z.number().int().positive(),
+});
 const output = { done: false, count: 0, text: "", items: [""] };
 const toolInput = {
   enabled: false,
@@ -107,7 +125,8 @@ function traceEvents(tracePath: string) {
 
 function fixtureEnvironment(
   tracePath: string,
-  mode: "success" | "hold" | "permission" | "missing-model",
+  mode:
+    "success" | "hold" | "permission" | "missing-model" | "resistant-cleanup",
   persist = false,
 ): NodeJS.ProcessEnv {
   return {
@@ -118,6 +137,31 @@ function fixtureEnvironment(
     SEQLANE_ACP_FIXTURE_SERVER: serverPath,
     SEQLANE_ACP_FIXTURE_PERSIST: String(persist),
   };
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    if (process.platform !== "win32") {
+      const state = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], {
+        encoding: "utf8",
+      }).trim();
+      return (
+        state.length > 0 && !state.startsWith("Z") && !state.startsWith("X")
+      );
+    }
+    return true;
+  } catch (cause) {
+    if (
+      typeof cause === "object" &&
+      cause !== null &&
+      "code" in cause &&
+      cause.code === "ESRCH"
+    ) {
+      return false;
+    }
+    throw cause;
+  }
 }
 
 function request(exportName: string): RunRequest {
@@ -232,6 +276,121 @@ async function waitFor(
 }
 
 describe("Effect ACP compiled CLI and worker IPC", () => {
+  it("forces cleanup of a registered native ACP process tree after the worker hangs", async () => {
+    const tracePath = join(temporaryRoot, "ipc-resistant-cleanup.jsonl");
+    const pidFile = join(temporaryRoot, "ipc-resistant-pids.json");
+    const externalService = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => undefined, 1_000)"],
+      { stdio: "ignore" },
+    );
+    if (externalService.pid === undefined)
+      throw new Error("External sentinel has no PID");
+    const protocolErrors: string[] = [];
+    const environment = fixtureEnvironment(tracePath, "resistant-cleanup");
+    environment.SEQLANE_ACP_FIXTURE_SERVER = resistantServerPath;
+    environment.SEQLANE_ACP_FIXTURE_PID_FILE = pidFile;
+    const client = launchRunner(request("effectAcpSingleWorkflow"), {
+      runnerPath,
+      cwd: consumerRoot,
+      environment,
+      signalSource: null,
+      gracePeriodMs: 100,
+      closeGracePeriodMs: 1_000,
+      onProtocolError: (error) =>
+        protocolErrors.push(
+          error instanceof Error ? error.message : String(error),
+        ),
+    });
+    let ownedIdentity: OwnedProcessIdentity | undefined;
+    let testFailed = false;
+    let testFailure: unknown;
+    let cleanupFailure: { readonly cause: unknown } | undefined;
+
+    try {
+      await waitFor(
+        () => existsSync(pidFile),
+        () => ({
+          trace: traceEvents(tracePath),
+          pidFileExists: existsSync(pidFile),
+        }),
+      );
+      const owned = resistantProcessSchema.parse(
+        JSON.parse(readFileSync(pidFile, "utf8")),
+      );
+      ownedIdentity = await captureOwnedProcessIdentity(owned.sdkPid);
+      expect(await isOwnedProcessIdentityCurrent(ownedIdentity)).toBe(true);
+      expect(owned.sdkPid).not.toBe(process.pid);
+      expect(owned.grandchildPid).not.toBe(process.pid);
+      expect(processIsAlive(owned.sdkPid)).toBe(true);
+      expect(processIsAlive(owned.grandchildPid)).toBe(true);
+
+      await waitFor(
+        () => readJsonRpcMethods(tracePath).includes("session/prompt"),
+        () => ({ trace: traceEvents(tracePath), owned }),
+      );
+      expect(traceEvents(tracePath)).toContainEqual(
+        expect.objectContaining({ event: "initialize" }),
+      );
+      expect(traceEvents(tracePath)).toContainEqual(
+        expect.objectContaining({
+          event: "session/set_config_option",
+          params: expect.objectContaining({
+            configId: "model",
+            value: "fixture-model",
+          }),
+        }),
+      );
+
+      client.cancel();
+      await expect(client.result).resolves.toMatchObject({ status: 130 });
+      expect(readJsonRpcMethods(tracePath)).toContain("session/cancel");
+      expect(client.child.signalCode).toBe("SIGKILL");
+      expect(protocolErrors).toContain(
+        "Runner cleanup timed out after 100ms; forcing the owned worker to stop",
+      );
+      await waitFor(
+        () =>
+          !processIsAlive(owned.sdkPid) && !processIsAlive(owned.grandchildPid),
+        () => ({ owned, protocolErrors }),
+      );
+      expect(processIsAlive(externalService.pid)).toBe(true);
+    } catch (cause) {
+      testFailed = true;
+      testFailure = cause;
+    } finally {
+      try {
+        process.kill(externalService.pid, "SIGKILL");
+      } catch {
+        // The sentinel may already have exited if an assertion failed.
+      }
+      try {
+        client.cancel();
+        await client.result;
+      } catch (cause) {
+        cleanupFailure = { cause };
+      }
+      try {
+        if (
+          ownedIdentity !== undefined &&
+          !(await confirmOwnedProcessStopped(ownedIdentity)) &&
+          (await isOwnedProcessIdentityCurrent(ownedIdentity))
+        ) {
+          await terminateOwnedProcess(ownedIdentity, "SIGKILL");
+        }
+      } catch (cause) {
+        cleanupFailure ??= { cause };
+      }
+      try {
+        await closeRunnerWorker(client);
+      } catch (cause) {
+        cleanupFailure ??= { cause };
+      }
+    }
+    if (testFailed) throw testFailure;
+    if (cleanupFailure !== undefined) throw cleanupFailure.cause;
+  }, 30_000);
+
   it("runs persistent source and reuse tasks through compiled Oclif", async () => {
     const tracePath = join(temporaryRoot, "cli-success.jsonl");
     const result = await runCli(tracePath, "success", "effectAcpReuseWorkflow");

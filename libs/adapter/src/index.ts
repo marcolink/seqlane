@@ -82,6 +82,8 @@ export interface AgentAdapterRequest {
   readonly onUncertainActivity?: (activity: AgentUncertainActivity) => void;
   /** Reports a background process started by the adapter. */
   readonly onBackgroundProcess?: (process: AgentBackgroundProcess) => void;
+  /** Registers an owned SDK/service process before its protocol I/O starts. */
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 export interface AgentAdapter {
@@ -111,6 +113,7 @@ export interface AgentRuntimeModelCapabilities {
 export interface AgentRuntimeContext {
   readonly signal: AbortSignal;
   readonly modelSelection?: ModelSelection;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 /** A run-scoped, composition-owned runtime for one selected agent adapter. */
@@ -127,6 +130,9 @@ export interface AgentRuntime {
 export type AgentRuntimeFactory = (
   signal: AbortSignal,
   workspace: string | undefined,
+  options?: {
+    readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  },
 ) => Promise<AgentRuntime>;
 
 /** Validates declared capabilities against an instantiated adapter. */

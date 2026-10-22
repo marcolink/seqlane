@@ -102,6 +102,7 @@ export interface ExecutorRequest {
   readonly onBackgroundProcess?: (
     process: SeqlaneBackgroundProcessRequest,
   ) => void;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 export interface SeqlaneExecutor {

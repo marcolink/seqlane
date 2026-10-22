@@ -7,7 +7,7 @@ export function awaitAbort(
 ): Effect.Effect<never, unknown> {
   return Effect.callback((resume) => {
     const onAbort = (): void => {
-      resume(Effect.fail(signal.reason ?? new Error(message)));
+      resume(Effect.fail(signal.aborted ? signal.reason : new Error(message)));
     };
     if (signal.aborted) onAbort();
     else signal.addEventListener("abort", onAbort, { once: true });

@@ -1,19 +1,30 @@
+import { EventEmitter } from "node:events";
+import { Buffer } from "node:buffer";
 import { fork, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
+import { Clock, Duration, Effect } from "effect";
 import {
   decodeSeqlaneExecutionEvent,
+  encodeRunnerCommand,
+  type RunRequest,
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import {
   decodeRuntimeSessionUiAvailable,
   type RuntimeSessionUiAvailable,
 } from "@seqlane/runtime";
-import { encodeRunnerCommand, type RunRequest } from "@seqlane/protocol";
 import {
   decodeTelemetrySpanSnapshotFrame,
   isTelemetrySpanSnapshotFrameCandidate,
   type TelemetrySpanSnapshotFrame,
 } from "@seqlane/protocol/private/telemetry-span-snapshot";
+import {
+  decodeOwnedProcessFrame,
+  isOwnedProcessFrameCandidate,
+  type OwnedProcessFrame,
+} from "@seqlane/protocol/private/owned-process";
+import { createOwnedProcessSupervision } from "./owned-process-supervision.js";
+import { createRunnerInbox } from "./runner-inbox.js";
 
 export type TerminalSeqlaneExecutionEvent = Extract<
   SeqlaneExecutionEvent,
@@ -32,6 +43,8 @@ export type RunnerCancellationSignal = "SIGINT" | "SIGTERM";
 export interface RunnerFailure {
   readonly type: "runner.failure";
   readonly message: string;
+  /** Original internal cause; omitted from serialized CLI output. */
+  readonly cause?: unknown;
 }
 
 export type RunnerSupervisionResult =
@@ -70,28 +83,36 @@ export type RunnerSupervisionResult =
 export interface RunnerChild {
   on(event: "message", listener: (message: unknown) => void): this;
   on(
+    event: "close",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): this;
+  on(
     event: "exit",
     listener: (code: number | null, signal: NodeJS.Signals | null) => void,
   ): this;
+  on(event: "disconnect", listener: () => void): this;
   on(event: "error", listener: (error: Error) => void): this;
   removeListener(event: "message", listener: (message: unknown) => void): this;
+  removeListener(
+    event: "close",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): this;
   removeListener(
     event: "exit",
     listener: (code: number | null, signal: NodeJS.Signals | null) => void,
   ): this;
+  removeListener(event: "disconnect", listener: () => void): this;
   removeListener(event: "error", listener: (error: Error) => void): this;
   send(message: string, callback?: (error: Error | null) => void): boolean;
   kill?(signal?: NodeJS.Signals): boolean;
+  readonly pid?: number;
+  readonly exitCode?: number | null;
+  readonly signalCode?: NodeJS.Signals | null;
 }
 
 export interface RunnerSignalSource {
-  on(signal: "SIGINT" | "SIGTERM", listener: () => void): this;
-  removeListener(signal: "SIGINT" | "SIGTERM", listener: () => void): this;
-}
-
-export interface RunnerTimer {
-  setTimeout(handler: () => void, delayMs: number): unknown;
-  clearTimeout(handle: unknown): void;
+  on(signal: RunnerCancellationSignal, listener: () => void): this;
+  removeListener(signal: RunnerCancellationSignal, listener: () => void): this;
 }
 
 export interface RunnerSupervisionOptions {
@@ -104,7 +125,7 @@ export interface RunnerSupervisionOptions {
   readonly onProtocolError?: (error: unknown) => void;
   readonly signalSource?: RunnerSignalSource | null;
   readonly gracePeriodMs?: number;
-  readonly timer?: RunnerTimer;
+  readonly closeGracePeriodMs?: number;
 }
 
 export interface RunnerClientOptions extends RunnerSupervisionOptions {
@@ -158,17 +179,29 @@ function terminalResult(
   }
 }
 
-function failure(message: string): RunnerSupervisionResult {
-  return { status: 1, failure: { type: "runner.failure", message } };
+function failure(message: string, cause?: unknown): RunnerSupervisionResult {
+  const runnerFailure: RunnerFailure = { type: "runner.failure", message };
+  if (arguments.length > 1) {
+    Object.defineProperty(runnerFailure, "cause", { value: cause });
+  }
+  return {
+    status: 1,
+    failure: runnerFailure,
+  };
 }
 
 function cancellationFailure(
   message: string,
   cancellationSignal?: RunnerCancellationSignal,
+  cause?: unknown,
 ): RunnerSupervisionResult {
+  const runnerFailure: RunnerFailure = { type: "runner.failure", message };
+  if (arguments.length > 2) {
+    Object.defineProperty(runnerFailure, "cause", { value: cause });
+  }
   return {
     status: 130,
-    failure: { type: "runner.failure", message },
+    failure: runnerFailure,
     ...(cancellationSignal === undefined ? {} : { cancellationSignal }),
   };
 }
@@ -187,29 +220,664 @@ function childExitFailure(
   );
 }
 
-const defaultGracePeriodMs = 5_000;
+const defaultGracePeriodMs = 35_000;
+const defaultCloseGracePeriodMs = 5_000;
 const runnerModuleSpecifier = "seqlane/runner";
-
-const defaultTimer: RunnerTimer = {
-  setTimeout: (handler, delayMs) => setTimeout(handler, delayMs),
-  clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
-};
-
 function decodeRunnerMessage(message: unknown): RunnerMessage {
-  if (typeof message !== "string") {
+  if (typeof message !== "string")
     throw new TypeError("Invalid runner message");
-  }
-
+  let parsed: unknown;
   try {
-    try {
-      return decodeTelemetrySpanSnapshotFrame(message);
-    } catch {
-      // The private telemetry frame is a separate validated IPC contract.
-    }
+    parsed = JSON.parse(message);
+  } catch {
+    // The protocol decoders provide the malformed-frame error.
+  }
+  if (isOwnedProcessFrameCandidate(parsed)) {
+    throw new TypeError("Invalid owned process frame");
+  }
+  try {
+    return decodeTelemetrySpanSnapshotFrame(message);
+  } catch {
+    // The private telemetry frame is a separate validated IPC contract.
+  }
+  try {
     return decodeRuntimeSessionUiAvailable(message);
   } catch {
     return decodeSeqlaneExecutionEvent(message);
   }
+}
+
+type SupervisionMessage =
+  | {
+      readonly type: "runner-message";
+      readonly value: string;
+      readonly utf8Bytes: number;
+    }
+  | { readonly type: "invalid-runner-message" }
+  | {
+      readonly type: "close";
+      readonly code: number | null;
+      readonly signal: NodeJS.Signals | null;
+    }
+  | {
+      readonly type: "exit";
+      readonly code: number | null;
+      readonly signal: NodeJS.Signals | null;
+    }
+  | { readonly type: "disconnect" }
+  | { readonly type: "error"; readonly error: Error }
+  | { readonly type: "signal"; readonly signal: RunnerCancellationSignal }
+  | { readonly type: "request-send-error"; readonly error: Error }
+  | { readonly type: "cancel-send-error"; readonly error: Error }
+  | {
+      readonly type: "owned-process";
+      readonly frame: OwnedProcessFrame;
+      readonly utf8Bytes: number;
+    }
+  | { readonly type: "fallback-timeout" }
+  | { readonly type: "close-timeout" };
+
+/** Effect owns worker supervision, bounded waiting, cancellation, and listeners. */
+export function superviseRunnerEffect(
+  child: RunnerChild,
+  request: RunRequest,
+  options: RunnerSupervisionOptions = {},
+): Effect.Effect<RunnerSupervisionResult, unknown> {
+  const encodedRequest = encodeRunnerCommand(request);
+  const encodedCancel = encodeRunnerCommand({ type: "run.cancel" });
+  const signalSource =
+    options.signalSource === null
+      ? undefined
+      : (options.signalSource ?? processSignalSource);
+  const gracePeriodMs = Math.max(
+    0,
+    options.gracePeriodMs ?? defaultGracePeriodMs,
+  );
+  const closeGracePeriodMs = Math.max(
+    0,
+    options.closeGracePeriodMs ?? defaultCloseGracePeriodMs,
+  );
+
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const inbox = yield* createRunnerInbox<SupervisionMessage>();
+      let pendingSignal: RunnerCancellationSignal | undefined;
+      let closeNotification:
+        Extract<SupervisionMessage, { readonly type: "close" }> | undefined;
+      const offer = (message: SupervisionMessage): void => {
+        inbox.offer(message);
+      };
+      const offerRunnerMessage = (
+        message: Extract<SupervisionMessage, { readonly utf8Bytes: number }>,
+      ): void => {
+        inbox.offerRunnerMessage(message);
+      };
+      let terminalEvent: TerminalEvent | undefined;
+      let cancellationSignal: RunnerCancellationSignal | undefined;
+      let cancellationRequested = false;
+      let failureResult: RunnerSupervisionResult | undefined;
+      let closed = false;
+      let disconnectObserved = false;
+      let workerExitObserved = false;
+      let workerExitCode: number | null = null;
+      let workerExitSignal: NodeJS.Signals | null = null;
+      let closeCode: number | null = null;
+      let closeSignal: NodeJS.Signals | null = null;
+      let fallbackStarted = false;
+      let signalCount = 0;
+      let fallbackDeadlineNanos: bigint | undefined;
+      let terminalCloseDeadlineNanos: bigint | undefined;
+      let workerCloseDeadlineNanos: bigint | undefined;
+      let workerKillSent = false;
+
+      const onMessage = (message: unknown): void => {
+        if (typeof message !== "string") {
+          offer({ type: "invalid-runner-message" });
+          return;
+        }
+        const utf8Bytes = Buffer.byteLength(message, "utf8");
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(message);
+        } catch {
+          parsed = undefined;
+        }
+        if (isOwnedProcessFrameCandidate(parsed)) {
+          try {
+            offerRunnerMessage({
+              type: "owned-process",
+              frame: decodeOwnedProcessFrame(message),
+              utf8Bytes,
+            });
+          } catch {
+            offerRunnerMessage({
+              type: "runner-message",
+              value: message,
+              utf8Bytes,
+            });
+          }
+          return;
+        }
+        offerRunnerMessage({
+          type: "runner-message",
+          value: message,
+          utf8Bytes,
+        });
+      };
+      const onClose = (
+        code: number | null,
+        signal: NodeJS.Signals | null,
+      ): void => {
+        closeNotification = { type: "close", code, signal };
+        offer(closeNotification);
+      };
+      const onExit = (
+        code: number | null,
+        signal: NodeJS.Signals | null,
+      ): void => offer({ type: "exit", code, signal });
+      const onDisconnect = (): void => offer({ type: "disconnect" });
+      const onError = (error: Error): void => offer({ type: "error", error });
+      const onSigint = (): void => {
+        signalCount += 1;
+        pendingSignal ??= "SIGINT";
+        offer({ type: "signal", signal: "SIGINT" });
+      };
+      const onSigterm = (): void => {
+        signalCount += 1;
+        pendingSignal ??= "SIGTERM";
+        offer({ type: "signal", signal: "SIGTERM" });
+      };
+
+      child.on("message", onMessage);
+      child.on("close", onClose);
+      child.on("exit", onExit);
+      child.on("disconnect", onDisconnect);
+      child.on("error", onError);
+      signalSource?.on("SIGINT", onSigint);
+      signalSource?.on("SIGTERM", onSigterm);
+
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          child.removeListener("message", onMessage);
+          child.removeListener("close", onClose);
+          child.removeListener("exit", onExit);
+          child.removeListener("disconnect", onDisconnect);
+          child.removeListener("error", onError);
+          signalSource?.removeListener("SIGINT", onSigint);
+          signalSource?.removeListener("SIGTERM", onSigterm);
+        }),
+      );
+
+      const reportProtocolError = (error: unknown): void => {
+        try {
+          options.onProtocolError?.(error);
+        } catch {
+          // Diagnostics cannot prevent process cleanup.
+        }
+      };
+      const ownedProcessSupervision = createOwnedProcessSupervision(
+        child,
+        reportProtocolError,
+      );
+
+      const sendCancel = (): void => {
+        if (cancellationRequested) return;
+        cancellationRequested = true;
+        try {
+          child.send(encodedCancel, (error) => {
+            if (error !== null) offer({ type: "cancel-send-error", error });
+          });
+        } catch (error) {
+          offer({
+            type: "cancel-send-error",
+            error:
+              error instanceof Error ? error : new Error(errorMessage(error)),
+          });
+        }
+      };
+
+      const startFallback = (): void => {
+        if (fallbackStarted) return;
+        fallbackStarted = true;
+        sendCancel();
+      };
+
+      const workerClosed = (
+        code: number | null,
+        signal: NodeJS.Signals | null,
+      ) =>
+        Effect.gen(function* () {
+          closeNotification = undefined;
+          closed = true;
+          closeCode = code;
+          closeSignal = signal;
+          if (ownedProcessSupervision.size > 0) {
+            yield* ownedProcessSupervision.cleanup();
+            const error = new Error(
+              "Runner closed before releasing all owned processes",
+            );
+            reportProtocolError(error);
+            failureResult ??=
+              cancellationSignal !== undefined
+                ? cancellationFailure(error.message, cancellationSignal, error)
+                : failure(error.message, error);
+          }
+        });
+
+      try {
+        child.send(encodedRequest, (error) => {
+          if (error !== null) offer({ type: "request-send-error", error });
+        });
+      } catch (error) {
+        offer({
+          type: "request-send-error",
+          error:
+            error instanceof Error ? error : new Error(errorMessage(error)),
+        });
+      }
+
+      while (true) {
+        let message: SupervisionMessage;
+        if (pendingSignal !== undefined && !fallbackStarted) {
+          cancellationSignal ??= pendingSignal;
+          startFallback();
+        }
+        if (inbox.overflowed) {
+          inbox.clearOverflow();
+          const error = new Error("Runner supervisor message queue overflowed");
+          reportProtocolError(error);
+          failureResult ??= cancellationSignal
+            ? cancellationFailure(error.message, cancellationSignal, error)
+            : failure(error.message, error);
+          startFallback();
+        }
+        if (fallbackStarted && fallbackDeadlineNanos === undefined) {
+          fallbackDeadlineNanos =
+            (yield* Clock.monotonicTimeNanos) +
+            BigInt(gracePeriodMs) * 1_000_000n;
+        }
+        if (
+          terminalEvent !== undefined &&
+          terminalCloseDeadlineNanos === undefined
+        ) {
+          terminalCloseDeadlineNanos =
+            (yield* Clock.monotonicTimeNanos) +
+            BigInt(closeGracePeriodMs) * 1_000_000n;
+        }
+        if (closed && failureResult !== undefined) {
+          return failureResult;
+        } else if (closed && terminalEvent !== undefined) {
+          return terminalResult(terminalEvent, cancellationSignal);
+        } else if (closed) {
+          return cancellationSignal !== undefined
+            ? cancellationFailure(
+                "Runner closed during cancellation before reporting run.cancelled",
+                cancellationSignal,
+              )
+            : childExitFailure(closeCode, closeSignal);
+        }
+
+        const now = yield* Clock.monotonicTimeNanos;
+        if (workerKillSent && now >= (workerCloseDeadlineNanos ?? now)) {
+          message = { type: "close-timeout" };
+        } else if (
+          !workerKillSent &&
+          fallbackStarted &&
+          now >= (fallbackDeadlineNanos ?? now)
+        ) {
+          message = { type: "fallback-timeout" };
+        } else if (
+          !workerKillSent &&
+          !fallbackStarted &&
+          terminalEvent !== undefined &&
+          now >= (terminalCloseDeadlineNanos ?? now)
+        ) {
+          message = { type: "close-timeout" };
+        } else if (workerKillSent) {
+          const deadline = workerCloseDeadlineNanos ?? now;
+          message = yield* Effect.raceFirst(
+            inbox.take,
+            Effect.sleep(Duration.nanos(deadline - now)).pipe(
+              Effect.as({ type: "close-timeout" } as const),
+            ),
+          );
+        } else if (fallbackStarted) {
+          const deadline = fallbackDeadlineNanos ?? now;
+          message = yield* Effect.raceFirst(
+            inbox.take,
+            Effect.sleep(Duration.nanos(deadline - now)).pipe(
+              Effect.as({ type: "fallback-timeout" } as const),
+            ),
+          );
+        } else if (terminalEvent !== undefined) {
+          const deadline = terminalCloseDeadlineNanos ?? now;
+          message = yield* Effect.raceFirst(
+            inbox.take,
+            Effect.sleep(Duration.nanos(deadline - now)).pipe(
+              Effect.as({ type: "close-timeout" } as const),
+            ),
+          );
+        } else {
+          message = yield* inbox.take;
+        }
+
+        try {
+          switch (message.type) {
+            case "invalid-runner-message": {
+              const error = new TypeError("Invalid runner message");
+              reportProtocolError(error);
+              failureResult ??=
+                cancellationSignal !== undefined
+                  ? cancellationFailure(
+                      error.message,
+                      cancellationSignal,
+                      error,
+                    )
+                  : failure(error.message, error);
+              startFallback();
+              continue;
+            }
+            case "runner-message": {
+              let runnerMessage: RunnerMessage;
+              try {
+                runnerMessage = decodeRunnerMessage(message.value);
+              } catch (error) {
+                if (isTelemetrySpanSnapshotFrameCandidate(message.value)) {
+                  try {
+                    options.onTelemetryDiagnostic?.();
+                  } catch {
+                    // Optional telemetry remains diagnostic only.
+                  }
+                  continue;
+                }
+                reportProtocolError(error);
+                failureResult ??=
+                  cancellationSignal !== undefined
+                    ? cancellationFailure(
+                        errorMessage(error),
+                        cancellationSignal,
+                        error,
+                      )
+                    : failure(errorMessage(error), error);
+                startFallback();
+                continue;
+              }
+              if (runnerMessage.type === "runtime.session.ui-available") {
+                try {
+                  options.onRuntimeSessionUiAvailable?.(runnerMessage);
+                } catch (error) {
+                  reportProtocolError(error);
+                }
+                continue;
+              }
+              if (runnerMessage.type === "runner.telemetry.spans") {
+                try {
+                  options.onTelemetrySpans?.(runnerMessage);
+                } catch (error) {
+                  reportProtocolError(error);
+                }
+                continue;
+              }
+              const event = runnerMessage;
+              if (terminalEvent !== undefined) {
+                const error = new Error(
+                  "Received duplicate terminal runner event",
+                );
+                reportProtocolError(error);
+                terminalEvent = undefined;
+                failureResult ??=
+                  cancellationSignal !== undefined
+                    ? cancellationFailure(
+                        error.message,
+                        cancellationSignal,
+                        error,
+                      )
+                    : failure(error.message, error);
+                startFallback();
+                continue;
+              }
+              try {
+                options.onExecutionEvent?.(event);
+              } catch (error) {
+                reportProtocolError(error);
+                failureResult ??=
+                  cancellationSignal !== undefined
+                    ? cancellationFailure(
+                        `Runner output failed: ${errorMessage(error)}`,
+                        cancellationSignal,
+                        error,
+                      )
+                    : failure(
+                        `Runner output failed: ${errorMessage(error)}`,
+                        error,
+                      );
+                startFallback();
+                continue;
+              }
+              if (
+                event.type === "run.succeeded" ||
+                event.type === "run.failed" ||
+                event.type === "run.cancelled"
+              ) {
+                terminalEvent = event;
+              }
+              continue;
+            }
+            case "owned-process": {
+              const result = yield* ownedProcessSupervision
+                .handle(message.frame)
+                .pipe(
+                  Effect.match({
+                    onFailure: (error) => ({ error }),
+                    onSuccess: () => ({ success: true as const }),
+                  }),
+                );
+              if ("error" in result) {
+                const error = result.error;
+                reportProtocolError(error);
+                failureResult ??=
+                  cancellationSignal !== undefined
+                    ? cancellationFailure(
+                        errorMessage(error),
+                        cancellationSignal,
+                        error,
+                      )
+                    : failure(errorMessage(error), error);
+                startFallback();
+              }
+              continue;
+            }
+            case "signal":
+              cancellationSignal ??= pendingSignal ?? message.signal;
+              startFallback();
+              if (signalCount > 1) offer({ type: "fallback-timeout" });
+              continue;
+            case "request-send-error":
+              reportProtocolError(message.error);
+              failureResult ??=
+                cancellationSignal !== undefined
+                  ? cancellationFailure(
+                      `Runner process error during cancellation: ${errorMessage(message.error)}`,
+                      cancellationSignal,
+                      message.error,
+                    )
+                  : failure(
+                      `Runner process error: ${errorMessage(message.error)}`,
+                      message.error,
+                    );
+              startFallback();
+              continue;
+            case "cancel-send-error":
+              reportProtocolError(message.error);
+              continue;
+            case "error":
+              reportProtocolError(message.error);
+              failureResult ??=
+                cancellationSignal !== undefined
+                  ? cancellationFailure(
+                      `Runner process error during cancellation: ${errorMessage(message.error)}`,
+                      cancellationSignal,
+                      message.error,
+                    )
+                  : failure(
+                      `Runner process error: ${errorMessage(message.error)}`,
+                      message.error,
+                    );
+              startFallback();
+              continue;
+            case "disconnect":
+              disconnectObserved = true;
+              if (terminalEvent === undefined) {
+                const message =
+                  cancellationSignal !== undefined
+                    ? "Runner disconnected during cancellation before reporting run.cancelled"
+                    : "Runner disconnected before reporting a terminal event";
+                const error = new Error(message);
+                failureResult ??=
+                  cancellationSignal !== undefined
+                    ? cancellationFailure(message, cancellationSignal, error)
+                    : failure(message, error);
+                reportProtocolError(error);
+                startFallback();
+              }
+              if (
+                workerExitObserved &&
+                terminalEvent === undefined &&
+                failureResult !== undefined
+              ) {
+                yield* workerClosed(workerExitCode, workerExitSignal);
+              }
+              continue;
+            case "exit":
+              workerExitObserved = true;
+              workerExitCode = message.code;
+              workerExitSignal = message.signal;
+              // An accepted terminal event still waits for `close` so buffered
+              // IPC is drained. Without a terminal event, a disconnected IPC
+              // channel plus confirmed process exit bounds supervision safely.
+              if (
+                disconnectObserved &&
+                terminalEvent === undefined &&
+                failureResult !== undefined
+              ) {
+                yield* workerClosed(message.code, message.signal);
+              }
+              continue;
+            case "close":
+              yield* workerClosed(message.code, message.signal);
+              continue;
+            case "fallback-timeout": {
+              if (workerKillSent) continue;
+              reportProtocolError(
+                new Error(
+                  `Runner cleanup timed out after ${gracePeriodMs}ms; forcing the owned worker to stop`,
+                ),
+              );
+              const ownedCleanupConfirmed =
+                yield* ownedProcessSupervision.cleanup();
+              if (!ownedCleanupConfirmed && failureResult === undefined) {
+                failureResult ??=
+                  cancellationSignal !== undefined
+                    ? cancellationFailure(
+                        "Could not confirm all owned processes stopped during cancellation",
+                        cancellationSignal,
+                      )
+                    : failure("Could not confirm all owned processes stopped");
+              }
+              workerKillSent = true;
+              workerCloseDeadlineNanos =
+                (yield* Clock.monotonicTimeNanos) +
+                BigInt(closeGracePeriodMs) * 1_000_000n;
+              try {
+                child.kill?.("SIGKILL");
+              } catch (error) {
+                reportProtocolError(error);
+              }
+              continue;
+            }
+            case "close-timeout":
+              if (workerKillSent) {
+                reportProtocolError(
+                  new Error("Runner did not close after forced cleanup"),
+                );
+                return cancellationSignal !== undefined
+                  ? cancellationFailure(
+                      "Runner did not close after forced cleanup",
+                      cancellationSignal,
+                    )
+                  : failure("Runner did not close after forced cleanup");
+              }
+              reportProtocolError(
+                new Error(
+                  `Runner reported its terminal event but did not close within ${closeGracePeriodMs}ms`,
+                ),
+              );
+              failureResult ??=
+                cancellationSignal !== undefined
+                  ? cancellationFailure(
+                      "Runner did not close after reporting a terminal event",
+                      cancellationSignal,
+                    )
+                  : failure(
+                      "Runner did not close after reporting a terminal event",
+                    );
+              try {
+                child.kill?.("SIGTERM");
+              } catch (error) {
+                reportProtocolError(error);
+              }
+              startFallback();
+              continue;
+          }
+        } finally {
+          inbox.consume(message);
+        }
+      }
+    }),
+  );
+}
+
+const processSignalSource: RunnerSignalSource = {
+  on(signal, listener) {
+    process.on(signal, listener);
+    return this;
+  },
+  removeListener(signal, listener) {
+    process.removeListener(signal, listener);
+    return this;
+  },
+};
+
+export function superviseRunner(
+  child: RunnerChild,
+  request: RunRequest,
+  options: RunnerSupervisionOptions = {},
+): Promise<RunnerSupervisionResult> {
+  return Effect.runPromise(superviseRunnerEffect(child, request, options));
+}
+
+function createLocalCancellationSource(options: RunnerSupervisionOptions): {
+  readonly source: RunnerSignalSource;
+  cancel(): void;
+} {
+  const localSignals = new EventEmitter();
+  const externalSignals =
+    options.signalSource === null
+      ? undefined
+      : (options.signalSource ?? processSignalSource);
+  const source: RunnerSignalSource = {
+    on(signal, listener) {
+      localSignals.on(signal, listener);
+      externalSignals?.on(signal, listener);
+      return this;
+    },
+    removeListener(signal, listener) {
+      localSignals.removeListener(signal, listener);
+      externalSignals?.removeListener(signal, listener);
+      return this;
+    },
+  };
+  return { source, cancel: () => localSignals.emit("SIGINT") };
 }
 
 export function createRunnerSupervision(
@@ -217,239 +885,45 @@ export function createRunnerSupervision(
   request: RunRequest,
   options: RunnerSupervisionOptions = {},
 ): RunnerSupervision {
-  const encodedRequest = encodeRunnerCommand(request);
-  const encodedCancel = encodeRunnerCommand({ type: "run.cancel" });
-  const signalSource =
-    options.signalSource === null
-      ? undefined
-      : (options.signalSource ?? (process as unknown as RunnerSignalSource));
-  const timer = options.timer ?? defaultTimer;
-  const gracePeriodMs = Math.max(
-    0,
-    options.gracePeriodMs ?? defaultGracePeriodMs,
-  );
-
-  let cancelRun: (signal?: RunnerCancellationSignal) => void = () => undefined;
-  const result = new Promise<RunnerSupervisionResult>((resolve) => {
-    let terminalEvent: TerminalEvent | undefined;
-    let settled = false;
-    let cancellationRequested = false;
-    let cancellationSignal: RunnerCancellationSignal | undefined;
-    let graceTimer: unknown;
-
-    const cleanup = () => {
-      child.removeListener("message", onMessage);
-      child.removeListener("exit", onExit);
-      child.removeListener("error", onError);
-      if (signalSource !== undefined) {
-        signalSource.removeListener("SIGINT", onSigint);
-        signalSource.removeListener("SIGTERM", onSigterm);
-      }
-      if (graceTimer !== undefined) timer.clearTimeout(graceTimer);
-    };
-
-    const finish = (result: RunnerSupervisionResult) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(result);
-    };
-
-    const reportProtocolError = (error: unknown) => {
-      try {
-        options.onProtocolError?.(error);
-      } catch {
-        // Callback failures must not prevent the supervisor from reporting status.
-      }
-    };
-
-    const onError = (error: Error) => {
-      if (terminalEvent !== undefined) return;
-      reportProtocolError(error);
-      if (cancellationRequested) {
-        finish(
-          cancellationFailure(
-            `Runner process error during cancellation: ${errorMessage(error)}`,
-            cancellationSignal,
-          ),
-        );
-      } else {
-        finish(failure(`Runner process error: ${errorMessage(error)}`));
-      }
-    };
-
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-      if (terminalEvent !== undefined) return;
-      if (cancellationRequested) {
-        finish(
-          cancellationFailure(
-            `Runner exited during cancellation before reporting run.cancelled`,
-            cancellationSignal,
-          ),
-        );
-      } else {
-        finish(childExitFailure(code, signal));
-      }
-    };
-
-    const onSigint = (): void => cancelRun("SIGINT");
-    const onSigterm = (): void => cancelRun("SIGTERM");
-
-    cancelRun = (signal?: RunnerCancellationSignal) => {
-      if (settled || terminalEvent !== undefined || cancellationRequested) {
-        return;
-      }
-      cancellationRequested = true;
-      cancellationSignal = signal;
-
-      const onCancelSendError = (error: Error | null) => {
-        if (error !== null) reportProtocolError(error);
-      };
-
-      try {
-        child.send(encodedCancel, onCancelSendError);
-      } catch (error) {
-        reportProtocolError(error);
-      }
-
-      graceTimer = timer.setTimeout(() => {
-        if (settled || terminalEvent !== undefined) return;
-        try {
-          child.kill?.("SIGTERM");
-        } catch (error) {
-          reportProtocolError(error);
-        } finally {
-          finish(
-            cancellationFailure(
-              `Graceful cancellation timed out after ${gracePeriodMs}ms`,
-              cancellationSignal,
-            ),
-          );
-        }
-      }, gracePeriodMs);
-    };
-
-    const onMessage = (message: unknown) => {
-      let runnerMessage: RunnerMessage;
-      try {
-        runnerMessage = decodeRunnerMessage(message);
-      } catch (error) {
-        if (isTelemetrySpanSnapshotFrameCandidate(message)) {
-          try {
-            options.onTelemetryDiagnostic?.();
-          } catch {
-            // Telemetry diagnostics cannot affect canonical supervision.
-          }
-          return;
-        }
-        reportProtocolError(error);
-        finish(failure(errorMessage(error)));
-        return;
-      }
-
-      if (runnerMessage.type === "runtime.session.ui-available") {
-        try {
-          options.onRuntimeSessionUiAvailable?.(runnerMessage);
-        } catch (error) {
-          reportProtocolError(error);
-        }
-        return;
-      }
-
-      if (runnerMessage.type === "runner.telemetry.spans") {
-        try {
-          options.onTelemetrySpans?.(runnerMessage);
-        } catch (error) {
-          reportProtocolError(error);
-        }
-        return;
-      }
-
-      const event = runnerMessage;
-
-      if (terminalEvent !== undefined) {
-        const protocolError = new Error(
-          "Received duplicate terminal runner event",
-        );
-        reportProtocolError(protocolError);
-        finish(failure(protocolError.message));
-        return;
-      }
-
-      options.onExecutionEvent?.(event);
-
-      if (
-        event.type !== "run.succeeded" &&
-        event.type !== "run.failed" &&
-        event.type !== "run.cancelled"
-      ) {
-        return;
-      }
-
-      terminalEvent = event as TerminalEvent;
-      // Give already-queued IPC messages (including a duplicate terminal event)
-      // one turn to be validated, without waiting for child exit.
-      setImmediate(() => {
-        if (terminalEvent !== undefined) {
-          finish(terminalResult(terminalEvent, cancellationSignal));
-        }
-      });
-    };
-
-    child.on("message", onMessage);
-    child.on("exit", onExit);
-    child.on("error", onError);
-    signalSource?.on("SIGINT", onSigint);
-    signalSource?.on("SIGTERM", onSigterm);
-
-    try {
-      child.send(encodedRequest, (error) => {
-        if (error !== null) onError(error);
-      });
-    } catch (error) {
-      onError(error instanceof Error ? error : new Error(errorMessage(error)));
-    }
-  });
-
-  return { result, cancel: () => cancelRun() };
-}
-
-export function superviseRunner(
-  child: RunnerChild,
-  request: RunRequest,
-  options: RunnerSupervisionOptions = {},
-): Promise<RunnerSupervisionResult> {
-  return createRunnerSupervision(child, request, options).result;
+  const localCancellation = createLocalCancellationSource(options);
+  return {
+    result: superviseRunner(child, request, {
+      ...options,
+      signalSource: localCancellation.source,
+    }),
+    cancel: localCancellation.cancel,
+  };
 }
 
 function defaultRunnerPath(): string {
   return createRequire(import.meta.url).resolve(runnerModuleSpecifier);
 }
 
+export function spawnRunnerProcess(
+  options: Pick<RunnerClientOptions, "runnerPath" | "cwd" | "environment"> = {},
+): ChildProcess {
+  return fork(options.runnerPath ?? defaultRunnerPath(), [], {
+    cwd: options.cwd,
+    env: options.environment,
+    detached: false,
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+}
+
 export function launchRunner(
   request: RunRequest,
   options: RunnerClientOptions = {},
 ): RunnerClient {
-  const child = fork(options.runnerPath ?? defaultRunnerPath(), [], {
-    cwd: options.cwd,
-    env: options.environment,
-    // The child exits with the CLI if the parent cannot forward cancellation.
-    detached: false,
-    stdio: ["ignore", "ignore", "ignore", "ipc"],
-  });
-  const supervision = createRunnerSupervision(
-    child as unknown as RunnerChild,
-    request,
-    options,
-  );
-
+  const child = spawnRunnerProcess(options);
+  const supervision = createRunnerSupervision(child, request, options);
   return {
     child,
     request,
     result: supervision.result,
     cancel: supervision.cancel,
     close: () => {
-      if (!child.killed) child.kill();
+      if (child.exitCode === null && child.signalCode === null)
+        supervision.cancel();
     },
   };
 }

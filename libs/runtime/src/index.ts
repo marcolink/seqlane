@@ -26,11 +26,6 @@ export type {
   SendExecutionEvent,
 } from "./runner/event-bridge.js";
 export {
-  startCompiledWorkflow,
-  runCompiledWorkflow,
-} from "./runtime/execution/workflow-run.js";
-export type { ActiveWorkflowRun } from "./runtime/execution/workflow-run.js";
-export {
   MissingWorkflowModelSelectionError,
   requireStandaloneModelSelection,
   validateStandaloneModelAvailability,

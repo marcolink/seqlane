@@ -62,6 +62,7 @@ export interface CodexAdapterOptions {
       readonly signal?: AbortSignal;
       readonly initializeTimeoutMs?: number;
       readonly onDiagnostic?: (diagnostic: AgentDiagnostic) => void;
+      readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
     },
   ) => Promise<CodexTransport>;
 }
@@ -840,6 +841,7 @@ export function createCodexAdapter(
           signal: composeSignals(options.signal, request.signal),
           initializeTimeoutMs: CODEX_PREFLIGHT_TIMEOUT_MS,
           onDiagnostic: (diagnostic) => reportDiagnostic(request, diagnostic),
+          onOwnedProcessAcquired: request.onOwnedProcessAcquired,
         }),
       ),
       CODEX_PREFLIGHT_TIMEOUT_MS,

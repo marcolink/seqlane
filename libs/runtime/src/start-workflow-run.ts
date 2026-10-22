@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import {
   createStandaloneExecution,
   type StandaloneRunOptions,
 } from "./runner/profile/standalone-profile.js";
-import type { MastraPlanExecution } from "./runtime/mastra/mastra-execution.js";
 import type {
   BuiltWorkflow,
   JsonValue,
@@ -15,16 +13,7 @@ import type {
 } from "@seqlane/core";
 import { RuntimeError } from "@seqlane/core";
 import type { AgentRuntime } from "@seqlane/agent-adapter";
-import type { MastraActiveRun } from "./runtime/mastra/mastra-runtime.js";
-import {
-  createMastraPlanExecution,
-  emitMastraInvocationTopology,
-} from "./runtime/mastra/mastra-execution.js";
-import { preflightCompiledWorkflowModels } from "./runtime/execution/model-preflight.js";
-import {
-  preflightCompiledWorkflowSessionCapabilities,
-  resolveCompiledWorkflowSessions,
-} from "./runtime/session/session-preflight.js";
+import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
 import { resolveRuntimeProfile } from "./runner/profile/runtime-profile.js";
 import type { RuntimeSessionUiNotifier } from "./runner/profile/runtime-profile.js";
 import type { RuntimeSessionUiAvailable } from "./runner/runtime-session-ui.js";
@@ -35,11 +24,7 @@ import {
   publishRunOutcome,
   settleRunProgram,
 } from "./runtime/execution/settle-run-program.js";
-import type {
-  EffectPlanRunContext,
-  EffectPlanRunResult,
-} from "./runtime/execution/effect-plan.js";
-import type { Effect } from "effect";
+import { isWorkflowInputValidationError } from "./runtime/execution/workflow-input-validation-error.js";
 
 export interface StartWorkflowRunRequest<Input = unknown, Output = unknown> {
   readonly workflow: BuiltWorkflow<Input, Output>;
@@ -120,9 +105,9 @@ async function resolveDirectExecution<Input, Output>(
   return resolveRuntimeProfile(
     {
       id: agentRuntime === undefined ? "local" : "direct",
-      ...(request.workspace === undefined
+      ...(request.workspace === undefined && agentRuntime === undefined
         ? {}
-        : { workspace: request.workspace }),
+        : { workspace: request.workspace ?? process.cwd() }),
     },
     request.workflow.taskDefinitions,
     signal,
@@ -138,21 +123,12 @@ async function resolveDirectExecution<Input, Output>(
   );
 }
 
-interface PrivateStartWorkflowComposition {
-  readonly program: (
-    context: EffectPlanRunContext,
-  ) => Effect.Effect<EffectPlanRunResult>;
-}
-
-/** Runs a trusted built workflow through the private runtime composition. */
+/** Runs a trusted built workflow through the common Effect Plan program. */
 export function startWorkflowRun<Input, Output>(
   request: StartWorkflowRunRequest<Input, Output>,
-  composition?: PrivateStartWorkflowComposition,
 ): WorkflowRunHandle {
-  const effectProgram = composition?.program;
   const { workId, runId } = identityFor(request);
   const abortController = new AbortController();
-  let activeRun: MastraActiveRun | undefined;
   let cancellationRequested = request.signal?.aborted ?? false;
   let cancellation: Promise<void> | undefined;
   let resolveOutcomeSettlement!: (outcome: SeqlaneRunOutcome) => void;
@@ -161,19 +137,12 @@ export function startWorkflowRun<Input, Output>(
   });
   const cancel = (): Promise<void> => {
     if (cancellationRequested)
-      return (
-        cancellation ??
-        (effectProgram === undefined
-          ? Promise.resolve()
-          : outcomeSettlement.then(() => undefined))
-      );
+      return cancellation ?? outcomeSettlement.then(() => undefined);
     cancellationRequested = true;
-    abortController.abort();
-    cancellation =
-      activeRun?.cancel() ??
-      (effectProgram === undefined
-        ? Promise.resolve()
-        : outcomeSettlement.then(() => undefined));
+    abortController.abort(
+      request.signal?.aborted ? request.signal.reason : undefined,
+    );
+    cancellation = outcomeSettlement.then(() => undefined);
     return cancellation;
   };
   const onAbort = (): void => void cancel().catch(() => undefined);
@@ -184,108 +153,60 @@ export function startWorkflowRun<Input, Output>(
   );
 
   const outcome = (async (): Promise<SeqlaneRunOutcome> => {
-    let execution: RuntimeExecution | undefined;
     let requestRuntimeAdopted = false;
-    let mastraExecution: MastraPlanExecution | undefined;
     let result: SeqlaneRunOutcome;
     try {
       request.events.emit({ type: "run.started", workId, runId });
       abortController.signal.throwIfAborted();
-      if (effectProgram !== undefined) {
-        // Let the caller receive the handle before any task callback can start.
-        await Promise.resolve();
-        abortController.signal.throwIfAborted();
-        const program = effectProgram({
-          workflow: request.workflow,
-          input: request.input,
-          workId,
-          runId,
-          signal: abortController.signal,
-          events: request.events,
-          createInvocationId: () => randomUUID(),
-          resolveExecution: async (signal) => {
-            const resolved = await resolveDirectExecution(
-              request,
-              signal,
-              runId,
-              classifierOptions,
-            );
-            requestRuntimeAdopted = request.agentRuntime !== undefined;
-            return resolved;
-          },
-          onObservation: (event) => request.onObservation?.(event),
-          onDiagnostic: request.onDiagnostic,
-        });
-        const settled = await settleRunProgram(program, abortController.signal);
-        result =
-          settled.status === "succeeded"
-            ? { status: "succeeded", result: settled.output }
+      // Let the caller receive the handle before any task callback can start.
+      await Promise.resolve();
+      abortController.signal.throwIfAborted();
+      const program = createEffectPlanProgram({
+        workflow: request.workflow,
+        input: request.input,
+        workId,
+        runId,
+        signal: abortController.signal,
+        events: request.events,
+        createInvocationId: () => randomUUID(),
+        resolveExecution: async (signal) => {
+          const resolved = await resolveDirectExecution(
+            request,
+            signal,
+            runId,
+            classifierOptions,
+          );
+          requestRuntimeAdopted = request.agentRuntime !== undefined;
+          return resolved;
+        },
+        onObservation: (event) => request.onObservation?.(event),
+        onDiagnostic: request.onDiagnostic,
+      });
+      const settled = await settleRunProgram(program, abortController.signal);
+      result =
+        settled.status === "succeeded"
+          ? { status: "succeeded", result: settled.output }
+          : settled.status === "failed"
+            ? {
+                status: "failed",
+                error: isWorkflowInputValidationError(settled.error)
+                  ? new RuntimeError(settled.error.cause)
+                  : settled.error,
+              }
             : settled;
-      } else {
-        const workflowInput = request.workflow.workflow.input.parse(
-          request.input,
-        );
-        execution = await resolveDirectExecution(
-          request,
-          abortController.signal,
-          runId,
-          classifierOptions,
-        );
-        abortController.signal.throwIfAborted();
-        mastraExecution = createMastraPlanExecution({
-          plan: request.workflow.plan,
-          workId,
-          runId,
-          workflowInput,
-          executors: execution.executors,
-          sessionResolver: execution.sessionResolver,
-          workspaceResources: execution.workspaceResources,
-          taskDefinitions: execution.taskDefinitions,
-          validatorDefinitions: request.workflow.validatorDefinitions,
-          workflowDefinitions: request.workflow.workflowDefinitions,
-          // Input has been validated and transformed once above.
-          workflow: {
-            input: z.unknown(),
-            output: request.workflow.workflow.output,
-          },
-          events: request.events,
-          onObservation: request.onObservation,
-          classifier: execution.classifier,
-          createInvocationId: () => randomUUID(),
-        });
-        preflightCompiledWorkflowSessionCapabilities(mastraExecution.prepared);
-        await preflightCompiledWorkflowModels(mastraExecution.prepared);
-        await resolveCompiledWorkflowSessions(mastraExecution.prepared);
-        emitMastraInvocationTopology(
-          mastraExecution.compiled,
-          mastraExecution.prepared,
-          request.events,
-        );
-        abortController.signal.throwIfAborted();
-        activeRun = mastraExecution.runtime.start({
-          workflowKey: mastraExecution.compiled.key,
-          input: workflowInput,
-          workId,
-          runId,
-        });
-        if (cancellationRequested) await activeRun.cancel();
-        result = await activeRun.outcome;
-      }
     } catch (cause) {
       result = cancellationRequested
         ? { status: "cancelled" }
         : { status: "failed", error: new RuntimeError(cause) };
     }
     const cleanupFailures: unknown[] = [];
-    for (const close of [
-      // A direct runtime is bootstrapped by application composition before
-      // input validation. If validation fails, the resolver never takes
-      // ownership, so release that run-scoped resource here.
-      () =>
-        execution?.close?.() ??
-        (requestRuntimeAdopted ? undefined : request.agentRuntime?.close?.()),
-      () => mastraExecution?.runtime.shutdown(),
-    ]) {
+    // A direct runtime is bootstrapped by application composition before
+    // input validation. If validation fails, the resolver never takes
+    // ownership, so release that run-scoped resource here.
+    const close = requestRuntimeAdopted
+      ? undefined
+      : request.agentRuntime?.close?.bind(request.agentRuntime);
+    if (close !== undefined) {
       try {
         await close();
       } catch (cause) {

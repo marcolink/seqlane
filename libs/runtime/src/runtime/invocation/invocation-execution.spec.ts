@@ -7,7 +7,7 @@ import type {
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { runCompiledWorkflow } from "../../index.js";
+import { runCompiledWorkflow } from "../execution/workflow-run.test-support.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 

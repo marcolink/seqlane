@@ -114,6 +114,7 @@ export async function acquireAcpTransport(
   state: AcpTransportState,
   configuration: AcpLaunchConfiguration,
   signal: AbortSignal,
+  onOwnedProcessAcquired?: (pid: number) => Promise<void>,
 ): Promise<AcpTransport> {
   signal.throwIfAborted();
   if (state.promise !== undefined) {
@@ -132,15 +133,17 @@ export async function acquireAcpTransport(
   signal.throwIfAborted();
   const controller = new AbortController();
   state.controller = controller;
-  const created = createAcpTransport(configuration, controller.signal).catch(
-    (cause: unknown) => {
-      if (state.controller === controller) {
-        state.promise = undefined;
-        state.controller = undefined;
-      }
-      throw cause;
-    },
-  );
+  const created = createAcpTransport(
+    configuration,
+    controller.signal,
+    onOwnedProcessAcquired,
+  ).catch((cause: unknown) => {
+    if (state.controller === controller) {
+      state.promise = undefined;
+      state.controller = undefined;
+    }
+    throw cause;
+  });
   state.promise = created;
   const abortCreation = (): void => controller.abort(signal.reason);
   signal.addEventListener("abort", abortCreation, { once: true });

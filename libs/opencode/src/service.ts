@@ -31,6 +31,8 @@ export interface StartOpenCodeServiceOptions {
   readonly shutdownTimeoutMs?: number;
   readonly spawn?: typeof spawn;
   readonly fetch?: typeof fetch;
+  /** Registers the spawned service before startup polling or HTTP begins. */
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 function appendBounded(current: string, chunk: Buffer): string {
@@ -170,7 +172,7 @@ function waitForOpenCodeReady(options: {
   readonly signal: AbortSignal;
   readonly timeoutMs: number;
   readonly url: () => string | undefined;
-  readonly startupFailure: () => unknown;
+  readonly startupFailure: () => { readonly cause: unknown } | undefined;
   readonly fetch: typeof fetch;
   readonly authorization: string;
 }): Promise<string> {
@@ -182,7 +184,8 @@ function waitForOpenCodeReady(options: {
       );
     }
     const startupFailure = options.startupFailure();
-    if (startupFailure !== undefined) return yield* Effect.fail(startupFailure);
+    if (startupFailure !== undefined)
+      return yield* Effect.fail(startupFailure.cause);
     if (options.child.exitCode !== null || options.child.signalCode !== null) {
       return yield* Effect.fail(
         new OpenCodeServiceStartupError(
@@ -254,14 +257,14 @@ export async function startOpenCodeService(
   const serviceScope = Effect.runSync(Scope.make("sequential"));
   let output = "";
   let endpoint: string | undefined;
-  let startupFailure: unknown;
-  let cleanupFailure: unknown;
+  let startupFailure: { readonly cause: unknown } | undefined;
+  let cleanupFailure: { readonly cause: unknown } | undefined;
   const onOutput = (chunk: Buffer): void => {
     output = appendBounded(output, chunk);
     endpoint ??= parseOpenCodeUrl(output, host, port);
   };
   const onError = (cause: unknown): void => {
-    startupFailure = cause;
+    startupFailure = { cause };
   };
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? SHUTDOWN_TIMEOUT_MS;
   const child = Effect.runSync(
@@ -297,7 +300,7 @@ export async function startOpenCodeService(
         }).pipe(
           Effect.catch((cause) =>
             Effect.sync(() => {
-              cleanupFailure = cause;
+              cleanupFailure = { cause };
             }),
           ),
         ),
@@ -310,12 +313,20 @@ export async function startOpenCodeService(
   const close = (): Promise<void> => {
     closePromise ??= (async () => {
       await Effect.runPromise(Scope.close(serviceScope, Exit.void));
-      if (cleanupFailure !== undefined) throw cleanupFailure;
+      if (cleanupFailure !== undefined) throw cleanupFailure.cause;
     })();
     return closePromise;
   };
 
   try {
+    if (options.onOwnedProcessAcquired !== undefined) {
+      if (child.pid === undefined) {
+        throw new OpenCodeServiceStartupError(
+          "OpenCode process ownership could not be identified",
+        );
+      }
+      await options.onOwnedProcessAcquired(child.pid);
+    }
     const url = await waitForOpenCodeReady({
       child,
       signal: options.signal,
@@ -327,28 +338,31 @@ export async function startOpenCodeService(
     });
     return { url, authorization, diagnostics: () => output, close };
   } catch (cause) {
-    let startupCleanupFailure: unknown;
+    let startupCleanupFailure: { readonly cause: unknown } | undefined;
     try {
       await close();
     } catch (cleanupCause) {
-      startupCleanupFailure = cleanupCause;
+      startupCleanupFailure = { cause: cleanupCause };
     }
+    const primaryCause =
+      startupFailure === undefined ? cause : startupFailure.cause;
     const primary =
-      cause instanceof OpenCodeServiceStartupError
-        ? cause
+      primaryCause instanceof OpenCodeServiceStartupError
+        ? primaryCause
         : new OpenCodeServiceStartupError(
-            typeof cause === "object" &&
-              cause !== null &&
-              Reflect.get(cause, "code") === "ENOENT"
+            typeof primaryCause === "object" &&
+              primaryCause !== null &&
+              Reflect.get(primaryCause, "code") === "ENOENT"
               ? "OpenCode executable is unavailable; install OpenCode and authenticate with its native setup"
               : "OpenCode could not be started",
-            cause,
+            primaryCause,
           );
     if (startupCleanupFailure !== undefined) {
-      Object.defineProperty(primary, "cleanupFailure", {
-        value: startupCleanupFailure,
-        enumerable: false,
-      });
+      throw new OpenCodeServiceStartupError(
+        primary.message,
+        primary,
+        startupCleanupFailure,
+      );
     }
     throw primary;
   }

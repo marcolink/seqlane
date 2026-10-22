@@ -7,6 +7,7 @@ import {
   defineClassifierTask,
   defineAgentTask,
   defineTask,
+  InputValidationError,
   type SeqlaneEvent,
 } from "@seqlane/core";
 import type { AgentRuntime } from "@seqlane/agent-adapter";
@@ -17,7 +18,6 @@ import type { InvocationObservationEvent } from "@seqlane/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { startWorkflowRun } from "./start-workflow-run.js";
-import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
 
 const inputSchema = z.object({ value: z.string() });
 const outputSchema = z.object({ value: z.string() });
@@ -81,14 +81,11 @@ describe("startWorkflowRun", () => {
         .output(({ tasks }) => tasks.task.output)
         .define(),
     );
-    const handle = startWorkflowRun(
-      {
-        workflow: built,
-        input: { value: "cancel" },
-        events: { emit: () => undefined },
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: { value: "cancel" },
+      events: { emit: () => undefined },
+    });
 
     await handle.cancel();
     await expect(handle.outcome).resolves.toEqual({ status: "cancelled" });
@@ -128,14 +125,11 @@ describe("startWorkflowRun", () => {
         .define(),
     );
     const { events, sink } = createSink();
-    const handle = startWorkflowRun(
-      {
-        workflow: parent,
-        input: { value: "nested" },
-        events: sink,
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: parent,
+      input: { value: "nested" },
+      events: sink,
+    });
 
     await expect(handle.outcome).resolves.toMatchObject({
       status: "succeeded",
@@ -184,14 +178,11 @@ describe("startWorkflowRun", () => {
         .output(({ tasks }) => tasks.task.output)
         .define(),
     );
-    const handle = startWorkflowRun(
-      {
-        workflow: built,
-        input: { value: "cancel" },
-        events: { emit: () => undefined },
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: { value: "cancel" },
+      events: { emit: () => undefined },
+    });
     await started;
     let cancelSettled = false;
     const cancellation = handle.cancel().then(() => {
@@ -262,16 +253,13 @@ describe("startWorkflowRun", () => {
     };
     const controller = new AbortController();
     controller.abort();
-    const handle = startWorkflowRun(
-      {
-        workflow: built,
-        input: 12,
-        agentRuntime: runtime,
-        events: { emit: () => undefined },
-        signal: controller.signal,
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: 12,
+      agentRuntime: runtime,
+      events: { emit: () => undefined },
+      signal: controller.signal,
+    });
     let outcomeSettled = false;
     const outcome = handle.outcome.then((result) => {
       outcomeSettled = true;
@@ -314,14 +302,11 @@ describe("startWorkflowRun", () => {
         .output(({ tasks }) => tasks.task.output)
         .define(),
     );
-    const handle = startWorkflowRun(
-      {
-        workflow: built,
-        input: { value: "once" },
-        events: { emit: () => undefined },
-      },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: { value: "once" },
+      events: { emit: () => undefined },
+    });
 
     await expect(handle.outcome).resolves.toMatchObject({
       status: "succeeded",
@@ -352,12 +337,17 @@ describe("startWorkflowRun", () => {
         .define(),
     );
     const { events, sink } = createSink();
-    const handle = startWorkflowRun(
-      { workflow: built, input: 12, events: sink },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: 12,
+      events: sink,
+    });
 
-    await expect(handle.outcome).resolves.toMatchObject({ status: "failed" });
+    const outcome = await handle.outcome;
+    expect(outcome.status).toBe("failed");
+    if (outcome.status !== "failed") return;
+    expect(outcome.error.category).toBe("RuntimeError");
+    expect(outcome.error.cause).toBeInstanceOf(z.ZodError);
     expect(taskStarted).toBe(false);
     expect(events.some((event) => event.type === "invocation.created")).toBe(
       false,
@@ -366,6 +356,46 @@ describe("startWorkflowRun", () => {
       false,
     );
     expect(events.at(-1)?.type).toBe("run.failed");
+  });
+
+  it("preserves task input errors when task and workflow ids match", async () => {
+    const sharedId = "direct-effect-shared-input-id";
+    let taskStarted = false;
+    const task = defineTask({
+      id: sharedId,
+      input: z.object({ n: z.number().min(1) }),
+      output: z.object({ n: z.number() }),
+      execute: async ({ input }) => {
+        taskStarted = true;
+        return input;
+      },
+    });
+    const built = buildWorkflow(
+      createFlow({
+        id: sharedId,
+        input: z.object({ n: z.number() }),
+        output: z.object({ n: z.number() }),
+      })
+        .task("task", task, ({ input }) => input)
+        .output(({ tasks }) => tasks.task.output)
+        .define(),
+    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: { n: 0 },
+      events: { emit: () => undefined },
+    });
+
+    const outcome = await handle.outcome;
+    expect(outcome.status).toBe("failed");
+    if (outcome.status !== "failed") return;
+    if (!(outcome.error instanceof InputValidationError)) {
+      throw new Error("Expected task input validation to fail.");
+    }
+    expect(outcome.error.category).toBe("InputValidationError");
+    expect(outcome.error.taskId).toBe(sharedId);
+    expect(outcome.error.cause).toBeInstanceOf(z.ZodError);
+    expect(taskStarted).toBe(false);
   });
 
   it("starts a ready successor before a slow independent prerequisite and joins both", async () => {
@@ -463,10 +493,11 @@ describe("startWorkflowRun", () => {
         .define(),
     );
     const { events, sink } = createSink();
-    const handle = startWorkflowRun(
-      { workflow: built, input: {}, events: sink },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: {},
+      events: sink,
+    });
 
     await Promise.race([
       Promise.all([slowStarted, successorStarted]),
@@ -567,10 +598,11 @@ describe("startWorkflowRun", () => {
         .define(),
     );
     const { events, sink } = createSink();
-    const handle = startWorkflowRun(
-      { workflow: built, input: { value: "failure" }, events: sink },
-      { program: createEffectPlanProgram },
-    );
+    const handle = startWorkflowRun({
+      workflow: built,
+      input: { value: "failure" },
+      events: sink,
+    });
 
     await Promise.race([
       independentStarted,
@@ -740,22 +772,19 @@ describe("startWorkflowRun", () => {
       .output(({ tasks }) => tasks.consume.output)
       .define();
     const observations: Omit<InvocationObservationEvent, "metadata">[] = [];
-    const handle = startWorkflowRun(
-      {
-        workflow: buildWorkflow(classifierWorkflow),
-        input: { diff: "example diff" },
-        workspace: process.cwd(),
-        classifierConnection: {
-          url: `http://127.0.0.1:${address.port}/v1/systemone`,
-          model: "jev-latest",
-          apiKey,
-        },
-        identity: { workId: "work-classifier", runId: "run-classifier" },
-        events: { emit: () => undefined },
-        onObservation: (event) => observations.push(event),
+    const handle = startWorkflowRun({
+      workflow: buildWorkflow(classifierWorkflow),
+      input: { diff: "example diff" },
+      workspace: process.cwd(),
+      classifierConnection: {
+        url: `http://127.0.0.1:${address.port}/v1/systemone`,
+        model: "jev-latest",
+        apiKey,
       },
-      { program: createEffectPlanProgram },
-    );
+      identity: { workId: "work-classifier", runId: "run-classifier" },
+      events: { emit: () => undefined },
+      onObservation: (event) => observations.push(event),
+    });
 
     await expect(handle.outcome).resolves.toMatchObject({
       status: "succeeded",

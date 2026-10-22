@@ -1,7 +1,4 @@
-import {
-  createEffectTracerRunProgram,
-  startRunnerProcess,
-} from "@seqlane/runtime/runner";
+import { startRunnerProcess } from "@seqlane/runtime/runner";
 import { createOpenCodeAgentRuntimeFactory } from "@seqlane/opencode-adapter";
 import { createCodexAgentRuntimeFactory } from "@seqlane/codex-adapter";
 import { z } from "zod";
@@ -16,7 +13,6 @@ const captured = createRunnerProcessOptions(process.env);
 startRunnerProcess({
   ...captured,
   workerEntrypoint: true,
-  createRunProgram: createEffectTracerRunProgram,
   createAgentRuntimeFactory: () => {
     const configuration = environmentSchema.parse({
       adapter: process.env.SEQLANE_NATIVE_FIXTURE_ADAPTER,

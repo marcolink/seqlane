@@ -1,14 +1,26 @@
 // @test-scope ./transport.ts
 // @test-scope ./protocol.ts
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+// @test-scope ../../adapter/src/private/owned-process/identity.ts
+import {
+  execFileSync,
+  spawn,
+  type ChildProcess,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { CodexRequestDeadlineError } from "./deadline.js";
 import { CodexAdapterError, CodexProtocolError } from "./errors.js";
+import { confirmOwnedProcessGroupStopped } from "@seqlane/agent-adapter/private/owned-process";
 import {
   MAX_JSONL_OUTBOUND_PARAMS_BYTES,
   unsupportedCodexServerRequest,
 } from "./protocol.js";
 import {
+  createCodexStdioTransport,
   createCodexTransportForProcess,
   type CodexTransport,
 } from "./transport.js";
@@ -19,8 +31,12 @@ const initializeResult = {
   platformFamily: "unix",
   platformOs: "macos",
 };
+const processIdsSchema = z.object({
+  leaderPid: z.number().int().positive(),
+  descendantPid: z.number().int().positive(),
+});
 
-const children: ChildProcessWithoutNullStreams[] = [];
+const children: ChildProcess[] = [];
 
 afterEach(async () => {
   for (const child of children.splice(0)) {
@@ -42,6 +58,16 @@ function spawnServer(body: string): ChildProcessWithoutNullStreams {
   }) as ChildProcessWithoutNullStreams;
   children.push(child);
   return child;
+}
+
+function recordWrites(child: ChildProcessWithoutNullStreams): string[] {
+  const writes: string[] = [];
+  const write = child.stdin.write.bind(child.stdin);
+  child.stdin.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
+    writes.push(String(chunk));
+    return (write as (...writeArgs: unknown[]) => boolean)(chunk, ...args);
+  }) as typeof child.stdin.write;
+  return writes;
 }
 
 function writeResponse(result: unknown, id: string): string {
@@ -144,6 +170,252 @@ describe("Codex app-server transport", () => {
       CodexProtocolError,
     );
     expect(closed).toBe(true);
+  });
+
+  it("closes a rejected registration without sending protocol messages", async () => {
+    const child = spawnServer(`
+    `);
+    const writes = recordWrites(child);
+    let closed = false;
+    child.once("close", () => {
+      closed = true;
+    });
+    const registrationError = new Error("process registration failed");
+
+    await expect(
+      createCodexStdioTransport(
+        {
+          executable: process.execPath,
+          workspace: process.cwd(),
+          networkAccess: false,
+        },
+        {
+          spawnProcess: () => child,
+          onOwnedProcessAcquired: async () => {
+            throw registrationError;
+          },
+        },
+      ),
+    ).rejects.toBe(registrationError);
+    expect(closed).toBe(true);
+    expect(writes).toEqual([]);
+  });
+
+  it("waits for registration acknowledgement before protocol writes", async () => {
+    const child = spawnServer(`
+      if (message.method === "initialize") {
+        ${writeResponse(initializeResult, "message.id")}
+      } else if (message.method === "initialized") {
+        // Continue serving requests.
+      }
+    `);
+    const writes = recordWrites(child);
+    let acknowledge!: () => void;
+    const acknowledgement = new Promise<void>((resolve) => {
+      acknowledge = resolve;
+    });
+    const creation = createCodexStdioTransport(
+      {
+        executable: process.execPath,
+        workspace: process.cwd(),
+        networkAccess: false,
+      },
+      {
+        spawnProcess: () => child,
+        onOwnedProcessAcquired: () => acknowledgement,
+      },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(writes).toEqual([]);
+    acknowledge();
+    const transport = await creation;
+    expect(writes.map((line) => JSON.parse(line).method)).toEqual([
+      "initialize",
+      "initialized",
+    ]);
+    await transport.close();
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "terminates the owned app-server group and preserves a foreign group",
+    async () => {
+      const directory = mkdtempSync(join(tmpdir(), "seqlane-codex-group-"));
+      const executable = join(directory, "codex-fixture");
+      const pidFile = join(directory, "processes.json");
+      writeFileSync(
+        executable,
+        `#!/usr/bin/env node
+if (process.argv.includes("--version")) {
+  process.stdout.write("codex-cli 0.147.0\\n");
+} else {
+  const { appendFileSync } = require("node:fs");
+  const { spawn } = require("node:child_process");
+  const descendant = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  process.on("SIGTERM", () => {});
+  appendFileSync(${JSON.stringify(pidFile)}, JSON.stringify({ leaderPid: process.pid, descendantPid: descendant.pid }));
+  const readline = require("node:readline");
+  readline.createInterface({ input: process.stdin }).on("line", (line) => {
+    const message = JSON.parse(line);
+    if (message.method === "initialize") process.stdout.write(JSON.stringify({
+      jsonrpc: "2.0", id: message.id, result: ${JSON.stringify(initializeResult)}
+    }) + "\\n");
+  });
+}
+`,
+        { mode: 0o755 },
+      );
+
+      const foreign = spawn(
+        process.execPath,
+        ["-e", "setInterval(() => {}, 1000)"],
+        { detached: true, stdio: "ignore" },
+      );
+      children.push(foreign);
+      let registeredPid: number | undefined;
+      let transport: CodexTransport | undefined;
+      try {
+        transport = await createCodexStdioTransport(
+          { executable, workspace: directory, networkAccess: false },
+          {
+            onOwnedProcessAcquired: async (pid) => {
+              registeredPid = pid;
+              const group = execFileSync(
+                "ps",
+                ["-o", "pgid=", "-p", `${pid}`],
+                { encoding: "utf8" },
+              ).trim();
+              expect(Number(group)).toBe(pid);
+            },
+          },
+        );
+        expect(registeredPid).toBeGreaterThan(0);
+        const processIds = processIdsSchema.parse(
+          JSON.parse(readFileSync(pidFile, "utf8")),
+        );
+        expect(processIds.leaderPid).toBe(registeredPid);
+        expect(processIds.descendantPid).not.toBe(processIds.leaderPid);
+        await transport.close();
+        expect(await confirmOwnedProcessGroupStopped(registeredPid!)).toBe(
+          true,
+        );
+        expect(() => process.kill(foreign.pid!, 0)).not.toThrow();
+      } finally {
+        await transport?.close().catch(() => undefined);
+        try {
+          foreign.kill("SIGKILL");
+        } catch {
+          // The foreign process may already have exited.
+        }
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "retains cleanup uncertainty when the leader exits before its descendant",
+    async () => {
+      const directory = mkdtempSync(join(tmpdir(), "seqlane-codex-orphan-"));
+      const executable = join(directory, "codex-fixture");
+      const pidFile = join(directory, "processes.json");
+      writeFileSync(
+        executable,
+        `#!/usr/bin/env node
+if (process.argv.includes("--version")) {
+  process.stdout.write("codex-cli 0.147.0\\n");
+} else {
+  const { appendFileSync } = require("node:fs");
+  const { spawn } = require("node:child_process");
+  const descendant = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  process.on("SIGTERM", () => {});
+  appendFileSync(${JSON.stringify(pidFile)}, JSON.stringify({ leaderPid: process.pid, descendantPid: descendant.pid }));
+  const readline = require("node:readline");
+  readline.createInterface({ input: process.stdin }).on("line", (line) => {
+    const message = JSON.parse(line);
+    if (message.method === "initialize") process.stdout.write(JSON.stringify({
+      jsonrpc: "2.0", id: message.id, result: ${JSON.stringify(initializeResult)}
+    }) + "\\n");
+  });
+}
+`,
+        { mode: 0o755 },
+      );
+
+      let registeredPid: number | undefined;
+      let transport: CodexTransport | undefined;
+      let descendantPid: number | undefined;
+      try {
+        transport = await createCodexStdioTransport(
+          { executable, workspace: directory, networkAccess: false },
+          {
+            onOwnedProcessAcquired: async (pid) => {
+              registeredPid = pid;
+            },
+          },
+        );
+        const processIds = processIdsSchema.parse(
+          JSON.parse(readFileSync(pidFile, "utf8")),
+        );
+        descendantPid = processIds.descendantPid;
+        expect(processIds.leaderPid).toBe(registeredPid);
+        process.kill(processIds.leaderPid, "SIGKILL");
+        await transport.termination.catch(() => undefined);
+
+        await expect(transport.close()).rejects.toMatchObject({
+          cause: {
+            message: "Could not confirm Codex app-server process group stopped",
+          },
+        });
+        expect(await confirmOwnedProcessGroupStopped(registeredPid!)).toBe(
+          false,
+        );
+        expect(() => process.kill(processIds.descendantPid, 0)).not.toThrow();
+      } finally {
+        if (registeredPid !== undefined) {
+          try {
+            process.kill(-registeredPid, "SIGKILL");
+          } catch {
+            // The verified owned group may already have stopped.
+          }
+        }
+        await transport?.close().catch(() => undefined);
+        if (descendantPid !== undefined) {
+          try {
+            process.kill(descendantPid, "SIGKILL");
+          } catch {
+            // The owned descendant may already have exited.
+          }
+        }
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("preserves null, undefined, and frozen registration failures", async () => {
+    for (const registrationError of [
+      null,
+      undefined,
+      Object.freeze(new Error("frozen registration failure")),
+    ]) {
+      const child = spawnServer(``);
+      const writes = recordWrites(child);
+      await expect(
+        createCodexStdioTransport(
+          {
+            executable: process.execPath,
+            workspace: process.cwd(),
+            networkAccess: false,
+          },
+          {
+            spawnProcess: () => child,
+            onOwnedProcessAcquired: async () => {
+              throw registrationError;
+            },
+          },
+        ),
+      ).rejects.toBe(registrationError);
+      expect(writes).toEqual([]);
+    }
   });
 
   it("bounds an unresponsive initialize handshake and terminates the child", async () => {

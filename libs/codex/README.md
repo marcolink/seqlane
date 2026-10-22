@@ -24,9 +24,11 @@ adapter.
 
 The transport validates protocol envelopes and the initialize result,
 drains child stderr, handles split UTF-8 output, and bounds outbound and inbound
-JSONL. Shutdown escalates from SIGTERM to SIGKILL. Termination is confirmed
-only when the operating system reports the child close event; a missed
-confirmation remains an error after the bounded cleanup deadline.
+JSONL. On POSIX, the default app-server runs in its own process group.
+Shutdown rechecks its birth identity before sending signals to the group.
+Shutdown escalates from SIGTERM to SIGKILL. Termination requires the child
+close event and confirmed group shutdown. If the leader identity is lost while
+descendants remain, shutdown reports uncertainty after the bounded deadline.
 Turn events are correlated by thread and turn, buffered across the `turn/start`
 response, reduced into activity lifecycle events, and bounded by item and
 payload limits. Turn cancellation and deadlines attempt interruption and

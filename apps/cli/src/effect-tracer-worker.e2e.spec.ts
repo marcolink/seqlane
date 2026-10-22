@@ -2,11 +2,11 @@
 // @test-scope ./test-fixtures/effect-worker-test-support.ts
 // @test-scope ./test-fixtures/effect-tracer-runner.ts
 // @test-scope ./test-fixtures/effect-tracer-workflow.ts
-// @test-scope ../../../libs/runtime/src/runner/effect-tracer.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/effect-plan.ts
 // @test-scope ../../../libs/runtime/src/runtime/execution/settle-run-program.ts
 // @test-scope ../../../libs/runtime/src/runner/main.ts
 // @test-scope ../../../libs/runtime/src/runner/run.ts
+// @test-scope ../../../libs/runtime/src/runner/owned-process-registry.ts
 // @test-scope ../../../libs/runtime/src/private/telemetry/run-scope.ts
 // @test-scope ../../../libs/runtime/src/private/telemetry/collector.ts
 // @test-scope ../../../libs/runtime/src/private/telemetry/canonical-metrics.ts
@@ -66,6 +66,7 @@ const otlpSpanPayloadSchema = z.object({
               name: z.string(),
               traceId: z.string(),
               spanId: z.string(),
+              parentSpanId: z.string().optional(),
             }),
           ),
         }),
@@ -235,17 +236,27 @@ describe("Effect S1 runner worker", () => {
       runnerEntrypoint: "./dist/test-fixtures/effect-tracer-runner.js",
     });
     let requests = 0;
+    const tracePayloads: string[] = [];
     const server = createServer((incoming, outgoing) => {
       const chunks: Buffer[] = [];
       incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
       incoming.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf8");
+        if (
+          incoming.url === "/v1/traces" ||
+          incoming.url === "/v1/metrics" ||
+          incoming.url === "/v1/logs"
+        ) {
+          if (incoming.url === "/v1/traces") tracePayloads.push(body);
+          outgoing.writeHead(200, { "content-type": "application/json" });
+          outgoing.end("{}");
+          return;
+        }
         requests += 1;
         expect(incoming.headers.authorization).toBe(
           "Bearer effect-classifier-secret",
         );
-        expect(
-          JSON.parse(Buffer.concat(chunks).toString("utf8")),
-        ).toMatchObject({
+        expect(JSON.parse(body)).toMatchObject({
           state: { diff: "prepared:compiled effect diff" },
           questions: {
             area: { type: "choice" },
@@ -302,6 +313,10 @@ describe("Effect S1 runner worker", () => {
           ...process.env,
           FORCE_COLOR: "0",
           SEQLANE_CLASSIFIER_API_KEY: "effect-classifier-secret",
+          [telemetryConfigurationEnvironment]: JSON.stringify({
+            endpoint: `http://127.0.0.1:${address.port}`,
+            payloadPolicy: "metadata",
+          }),
         },
       });
       const { code, stdout, stderr } = await invocation.completed;
@@ -312,6 +327,47 @@ describe("Effect S1 runner worker", () => {
         output: { area: "runtime", priority: 0.8, reviewRequired: true },
       });
       expect(requests).toBe(1);
+      expect(tracePayloads).toHaveLength(1);
+      const exportedSpans = otlpSpanPayloadSchema
+        .parse(JSON.parse(tracePayloads[0]!))
+        .resourceSpans.flatMap((resource) =>
+          resource.scopeSpans.flatMap((scope) => scope.spans),
+        );
+      const cliRun = exportedSpans.find(
+        (span) => span.name === "seqlane.cli.run",
+      );
+      const workerRun = exportedSpans.find(
+        (span) => span.name === "seqlane.worker.run",
+      );
+      const runtimeRun = exportedSpans.find(
+        (span) => span.name === "seqlane.runtime.execution",
+      );
+      const classifierRun = exportedSpans.find(
+        (span) => span.name === "seqlane.classifier.execute",
+      );
+      const invocationSpans = exportedSpans.filter(
+        (span) => span.name === "seqlane.invocation",
+      );
+      expect(cliRun).toBeDefined();
+      expect(workerRun).toBeDefined();
+      expect(runtimeRun).toBeDefined();
+      expect(classifierRun).toBeDefined();
+      expect(invocationSpans).toHaveLength(3);
+      expect(new Set(exportedSpans.map((span) => span.traceId))).toEqual(
+        new Set([cliRun!.traceId]),
+      );
+      expect(workerRun?.parentSpanId).toBe(cliRun?.spanId);
+      expect(runtimeRun?.parentSpanId).toBe(workerRun?.spanId);
+      expect(
+        invocationSpans.every(
+          (span) => span.parentSpanId === runtimeRun?.spanId,
+        ),
+      ).toBe(true);
+      expect(
+        invocationSpans.some(
+          (span) => span.spanId === classifierRun?.parentSpanId,
+        ),
+      ).toBe(true);
       expect(stdout + stderr).not.toContain("effect-classifier-secret");
       expect(existsSync(join(temporaryRoot, ".seqlane"))).toBe(false);
     } finally {

@@ -1,6 +1,5 @@
-import { Cause, Effect, Exit, Semaphore } from "effect";
+import { Cause, Duration, Effect, Exit, Semaphore } from "effect";
 import {
-  InputValidationError,
   OutputValidationError,
   RuntimeError,
   type BuiltWorkflow,
@@ -8,6 +7,7 @@ import {
   type SeqlaneError,
   type WorkId,
 } from "@seqlane/core";
+import { WorkflowInputValidationError } from "./workflow-input-validation-error.js";
 import type { InvocationObservationEvent } from "@seqlane/protocol";
 import type { RuntimeExecution } from "../../runner/profile/runtime-profile.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
@@ -53,6 +53,133 @@ export interface EffectPlanRunContext {
 }
 
 const MAX_CONCURRENT_PLAN_BODIES = 8;
+const DEFAULT_RUN_HEARTBEAT_INTERVAL_MS = 20_000;
+
+/** Runs one lowered graph with the native interpreter used by Plan runs. */
+export function runCompiledGraphProgram(
+  compiled: ReturnType<PlanCompiler["compileWorkflow"]>,
+  workflowId: string,
+  signal: AbortSignal,
+  bodySemaphore?: Semaphore.Semaphore,
+  heartbeatIntervalMs = DEFAULT_RUN_HEARTBEAT_INTERVAL_MS,
+): Effect.Effect<EffectPlanRunResult> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const startedAt = Date.now();
+      const heartbeatAbortController = new AbortController();
+      const graphSignal = AbortSignal.any([
+        signal,
+        heartbeatAbortController.signal,
+      ]);
+      if (heartbeatIntervalMs > 0) {
+        const heartbeat = Effect.forever(
+          Effect.sleep(Duration.millis(heartbeatIntervalMs)).pipe(
+            Effect.andThen(
+              Effect.sync(() =>
+                compiled.context.events.emit({
+                  type: "run.heartbeat",
+                  workId: compiled.context.workId,
+                  runId: compiled.context.runId,
+                  activeInvocationIds: compiled.orderedNodes
+                    .filter(
+                      (node) =>
+                        node.type === "task" ||
+                        node.type === "workflow" ||
+                        node.type === "repeat",
+                    )
+                    .map(
+                      (node) =>
+                        compiled.context.invocationIds.get(node.nodeId) ??
+                        node.nodeId,
+                    ),
+                  elapsedMs: Date.now() - startedAt,
+                }),
+              ),
+            ),
+          ),
+        ).pipe(
+          Effect.catchCause((cause) =>
+            Effect.sync(() =>
+              heartbeatAbortController.abort(Cause.squash(cause)),
+            ).pipe(Effect.andThen(Effect.failCause(cause))),
+          ),
+        );
+        return yield* Effect.raceFirst(
+          runCompiledGraphProgramBody(
+            compiled,
+            workflowId,
+            graphSignal,
+            bodySemaphore,
+          ),
+          heartbeat,
+        );
+      }
+      return yield* runCompiledGraphProgramBody(
+        compiled,
+        workflowId,
+        graphSignal,
+        bodySemaphore,
+      );
+    }),
+  );
+}
+
+function runCompiledGraphProgramBody(
+  compiled: ReturnType<PlanCompiler["compileWorkflow"]>,
+  workflowId: string,
+  signal: AbortSignal,
+  bodySemaphore?: Semaphore.Semaphore,
+): Effect.Effect<EffectPlanRunResult> {
+  return Effect.gen(function* () {
+    // Emit deterministic graph topology before any slow SDK/model preflight.
+    emitInvocationTopology(compiled.context, compiled.orderedNodes);
+    const preflightExit = yield* Effect.exit(
+      Effect.gen(function* () {
+        preflightCompiledWorkflowSessionCapabilities(compiled);
+        yield* Effect.tryPromise({
+          try: () => preflightCompiledWorkflowModels(compiled),
+          catch: (cause) => cause,
+        });
+        yield* Effect.tryPromise({
+          try: () => resolveCompiledWorkflowSessions(compiled),
+          catch: (cause) => cause,
+        });
+      }),
+    );
+    if (Exit.isFailure(preflightExit)) {
+      const cause = Cause.squash(preflightExit.cause);
+      if (
+        signal.aborted &&
+        findUnconfirmedInvocationTermination(cause) === undefined
+      )
+        return { status: "cancelled" } as const;
+      return failed(toSeqlaneInvocationError(cause, "runtime", workflowId));
+    }
+
+    const graphExit = yield* Effect.exit(
+      runProgram(compiled.program, signal, bodySemaphore),
+    );
+    if (Exit.isFailure(graphExit)) {
+      return failed(
+        toSeqlaneInvocationError(
+          Cause.squash(graphExit.cause),
+          "runtime",
+          workflowId,
+        ),
+      );
+    }
+    const graphFailure = resolveGraphFailure(
+      workflowId,
+      signal,
+      graphExit.value,
+    );
+    if (graphFailure !== undefined) return graphFailure;
+    return {
+      status: "succeeded",
+      output: compiled.context.workflowResult,
+    } as const;
+  });
+}
 
 /** Native Effect program shared by the CLI tracer and direct runtime facade. */
 export function createEffectPlanProgram(
@@ -67,7 +194,7 @@ export function createEffectPlanProgram(
     );
     if (parsedWorkflowInput._tag === "Failure") {
       return failed(
-        new InputValidationError(
+        new WorkflowInputValidationError(
           context.workflow.workflow.id,
           parsedWorkflowInput.failure,
         ),
@@ -165,6 +292,7 @@ function runCompiledPlan(
             ...(iteration === undefined ? {} : { iteration }),
           }),
         classifier: execution.classifier,
+        onOwnedProcessAcquired: execution.onOwnedProcessAcquired,
         concurrency: MAX_CONCURRENT_PLAN_BODIES,
         executeWorkflow: (
           parentContext,
@@ -194,61 +322,18 @@ function runCompiledPlan(
       return failed(new RuntimeError(cause));
     }
 
-    const preflightExit = yield* Effect.exit(
-      Effect.gen(function* () {
-        preflightCompiledWorkflowSessionCapabilities(compiled);
-        yield* Effect.tryPromise({
-          try: () => preflightCompiledWorkflowModels(compiled),
-          catch: (cause) => cause,
-        });
-        yield* Effect.tryPromise({
-          try: () => resolveCompiledWorkflowSessions(compiled),
-          catch: (cause) => cause,
-        });
-      }),
-    );
-    if (Exit.isFailure(preflightExit)) {
-      const cause = Cause.squash(preflightExit.cause);
-      if (
-        context.signal.aborted &&
-        findUnconfirmedInvocationTermination(cause) === undefined
-      )
-        return { status: "cancelled" } as const;
-      return failed(
-        toSeqlaneInvocationError(
-          cause,
-          "runtime",
-          context.workflow.workflow.id,
-        ),
-      );
-    }
-
-    emitInvocationTopology(compiled.context, compiled.orderedNodes);
-    const graphExit = yield* Effect.exit(
-      runProgram(compiled.program, context.signal, sharedBodySemaphore),
-    );
-    if (Exit.isFailure(graphExit)) {
-      return failed(
-        toSeqlaneInvocationError(
-          Cause.squash(graphExit.cause),
-          "runtime",
-          context.workflow.workflow.id,
-        ),
-      );
-    }
-    const graphFailure = resolveGraphFailure(
+    const graphResult = yield* runCompiledGraphProgram(
+      compiled,
       context.workflow.workflow.id,
       context.signal,
-      graphExit.value,
+      sharedBodySemaphore,
+      context.parentInvocationId === undefined ? undefined : 0,
     );
-    if (graphFailure !== undefined) return graphFailure;
+    if (graphResult.status !== "succeeded") return graphResult;
 
     const parsedOutput = yield* Effect.result(
       Effect.try({
-        try: () =>
-          context.workflow.workflow.output.parse(
-            compiled.context.workflowResult,
-          ),
+        try: () => context.workflow.workflow.output.parse(graphResult.output),
         catch: (cause) => cause,
       }),
     );

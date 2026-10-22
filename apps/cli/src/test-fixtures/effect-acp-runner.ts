@@ -1,7 +1,4 @@
-import {
-  createEffectTracerRunProgram,
-  startRunnerProcess,
-} from "@seqlane/runtime/runner";
+import { startRunnerProcess } from "@seqlane/runtime/runner";
 import { createAcpAgentRuntimeFactory } from "@seqlane/acp-adapter";
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import { z } from "zod";
@@ -13,6 +10,7 @@ const environmentSchema = z.strictObject({
     "permission",
     "missing-model",
     "invalid-first",
+    "resistant-cleanup",
   ]),
   trace: z.string().min(1),
   server: z.string().min(1),
@@ -51,6 +49,5 @@ const createAgentRuntimeFactory = (): AgentRuntimeFactory => {
 
 startRunnerProcess({
   workerEntrypoint: true,
-  createRunProgram: createEffectTracerRunProgram,
   createAgentRuntimeFactory,
 });

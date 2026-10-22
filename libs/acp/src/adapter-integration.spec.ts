@@ -18,6 +18,7 @@ import { InteractionRequiredError } from "@seqlane/core";
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
 import type { AgentTaskRequest, TaskDefinition } from "@seqlane/core";
 import { createAcpAdapter } from "./adapter.js";
+import { createAcpTransport } from "./transport.js";
 
 const fixture = fileURLToPath(
   new URL("./controlled-acp-agent.mjs", import.meta.url),
@@ -196,6 +197,26 @@ function isProcessRunning(processId: number): boolean {
 }
 
 describe("official SDK ACP v1 subprocess boundary", () => {
+  it("closes the acquired process scope when ownership registration fails", async () => {
+    const cwd = temporaryDirectory();
+    const registrationError = new Error("process registration failed");
+    let acquiredProcessId: number | undefined;
+
+    await expect(
+      createAcpTransport(
+        configuration(cwd, "success"),
+        undefined,
+        async (pid) => {
+          acquiredProcessId = pid;
+          throw registrationError;
+        },
+      ),
+    ).rejects.toBe(registrationError);
+    if (acquiredProcessId === undefined)
+      throw new Error("ACP process ownership callback was not called");
+    expect(isProcessRunning(acquiredProcessId)).toBe(false);
+  });
+
   it("launches configured stdio, selects the advertised model, and preserves native events", async () => {
     const cwd = temporaryDirectory();
     const exitFile = join(cwd, "exit");

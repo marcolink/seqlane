@@ -4,9 +4,14 @@ Internal runtime boundary for compiling and executing Seqlane Plans. This
 package is public on npm so `seqlane` can install it. Its exports are not a
 supported API.
 
-### Community Mastra dependency boundary
+Standalone CLI runs and direct workflow Action callers use the same private
+Effect Plan program. Public authoring and wire contracts remain Zod-owned.
+Hosted HTTP and MCP callers retain their existing integration until the hosted
+replacement task completes.
 
-The runtime pins `@mastra/core@1.64.0`. The installed Community package exposes
+### Hosted integration boundary
+
+The hosted integration pins `@mastra/core@1.64.0`. The installed Community package exposes
 the workflow API from `@mastra/core/workflows`, including `createStep` and
 `createWorkflow`, which the private integration uses to register and run
 workflows. The package declares Apache-2.0 licensing. Mastra paths under `ee/`

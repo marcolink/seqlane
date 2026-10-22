@@ -162,7 +162,9 @@ export function executeTaskNodeEffect(
         Effect.suspend(() => {
           if (abortSignal.aborted)
             return Effect.fail(
-              abortSignal.reason ?? new Error("Task execution cancelled"),
+              abortSignal.aborted
+                ? abortSignal.reason
+                : new Error("Task execution cancelled"),
             );
           let pending: Promise<unknown> | undefined;
           const execution = Effect.tryPromise({
@@ -274,7 +276,8 @@ export function executeTaskNodeEffect(
 }
 
 function awaitAbortSignal(signal: AbortSignal): Effect.Effect<never, unknown> {
-  const failure = () => signal.reason ?? new Error("Task execution cancelled");
+  const failure = () =>
+    signal.aborted ? signal.reason : new Error("Task execution cancelled");
   if (signal.aborted) return Effect.fail(failure());
   return Effect.callback((resume) => {
     const onAbort = (): void => resume(Effect.fail(failure()));

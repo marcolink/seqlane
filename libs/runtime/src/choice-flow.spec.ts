@@ -15,13 +15,6 @@ import {
   type SeqlaneEvent,
 } from "@seqlane/core";
 import { startWorkflowRun } from "./start-workflow-run.js";
-import { createEffectPlanProgram } from "./runtime/execution/effect-plan.js";
-
-function startNativeWorkflowRun(
-  request: Parameters<typeof startWorkflowRun>[0],
-) {
-  return startWorkflowRun(request, { program: createEffectPlanProgram });
-}
 
 const input = z.object({ review: z.boolean(), change: z.string() });
 const reviewed = z.object({ kind: z.literal("reviewed"), risk: z.number() });
@@ -65,7 +58,7 @@ describe("exclusive Flow choice through the runtime", () => {
         .output(({ tasks }) => tasks.decision.output)
         .define();
       const events: SeqlaneEvent[] = [];
-      const run = startNativeWorkflowRun({
+      const run = startWorkflowRun({
         workflow: buildWorkflow(flow),
         input: { review, change: "a" },
         workspace: process.cwd(),
@@ -139,7 +132,7 @@ describe("exclusive Flow choice through the runtime", () => {
       .output(({ tasks }) => tasks.decision.output)
       .define();
     const events: SeqlaneEvent[] = [];
-    const run = startNativeWorkflowRun({
+    const run = startWorkflowRun({
       workflow: buildWorkflow(parent),
       input: { review: true, change: "a" },
       workspace: process.cwd(),
@@ -190,7 +183,7 @@ describe("exclusive Flow choice through the runtime", () => {
       .output(({ tasks }) => tasks.decision.output)
       .define();
     const events: SeqlaneEvent[] = [];
-    const run = startNativeWorkflowRun({
+    const run = startWorkflowRun({
       workflow: buildWorkflow(flow),
       input: { review: true, change: "a" },
       workspace: process.cwd(),
@@ -245,7 +238,7 @@ describe("exclusive Flow choice through the runtime", () => {
       .task("publish", publish, ({ tasks }) => tasks.decision.output)
       .output(({ tasks }) => tasks.publish.output)
       .define();
-    const run = startNativeWorkflowRun({
+    const run = startWorkflowRun({
       workflow: buildWorkflow(flow),
       input: { change: "a" },
       workspace: process.cwd(),
@@ -310,7 +303,7 @@ describe("exclusive Flow choice through the runtime", () => {
     const built = buildWorkflow(flow);
     const events: SeqlaneEvent[] = [];
     const run = (reviewValue: boolean) =>
-      startNativeWorkflowRun({
+      startWorkflowRun({
         workflow: built,
         input: { review: reviewValue, change: "a" },
         workspace: process.cwd(),
@@ -391,7 +384,7 @@ describe("exclusive Flow choice through the runtime", () => {
         .output(({ tasks }) => tasks.decision.output)
         .define();
       const events: SeqlaneEvent[] = [];
-      const run = startNativeWorkflowRun({
+      const run = startWorkflowRun({
         workflow: buildWorkflow(flow),
         input: { review: true, change: "a" },
         workspace: process.cwd(),
@@ -465,7 +458,7 @@ describe("exclusive Flow choice through the runtime", () => {
       .output(({ tasks }) => tasks.decision.output)
       .define();
     const events: SeqlaneEvent[] = [];
-    const run = startNativeWorkflowRun({
+    const run = startWorkflowRun({
       workflow: buildWorkflow(flow),
       input: { review: true, change: "a" },
       workspace: process.cwd(),
@@ -565,7 +558,7 @@ describe("exclusive Flow choice through the runtime", () => {
       })
       .output(({ tasks }) => tasks.decision.output)
       .define();
-    const run = startNativeWorkflowRun({
+    const run = startWorkflowRun({
       workflow: buildWorkflow(flow),
       input: { review: true, change: "a" },
       workspace: process.cwd(),

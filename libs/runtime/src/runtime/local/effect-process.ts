@@ -6,6 +6,13 @@ import * as NodePath from "@effect/platform-node/NodePath";
 import type { InvocationId, TaskExecResult, TaskId } from "@seqlane/core";
 import { z } from "zod";
 import { UnconfirmedInvocationTerminationError } from "../execution/executor.js";
+import {
+  captureOwnedProcessIdentity,
+  confirmOwnedProcessGroupStopped,
+  confirmOwnedProcessStopped,
+  terminateOwnedProcess,
+} from "../../private/owned-process/index.js";
+import type { OwnedProcessIdentity } from "@seqlane/protocol/private/owned-process";
 
 interface LocalProcessResult extends TaskExecResult {
   readonly taskId: TaskId;
@@ -23,7 +30,6 @@ interface LocalProcessResult extends TaskExecResult {
 export const DEFAULT_LOCAL_PROCESS_TIMEOUT_MS = 30_000;
 export const MAX_LOCAL_PROCESS_TIMEOUT_MS = 300_000;
 const PROCESS_TERMINATION_GRACE_MS = 1_000;
-const PROCESS_TERMINATION_POLL_INTERVAL_MS = 25;
 const outputLimitBytesSchema = z.number().int().nonnegative();
 const timeoutMsSchema = z.number().int().positive();
 
@@ -37,6 +43,7 @@ export interface LocalProcessRequest {
   readonly invocationId: InvocationId;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 interface ProcessOutput {
@@ -120,54 +127,18 @@ function capture<E>(stream: Stream.Stream<Uint8Array, E>, limit: number) {
   return { output, read };
 }
 
-function activeProcessGroup(processId: number): boolean {
-  if (process.platform === "win32") return false;
-  try {
-    process.kill(-processId, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function waitForProcessGroup(
-  processId: number,
-  timeoutMs: number,
-): Promise<void> {
-  return new Promise((resolve) => {
-    const deadline = Date.now() + timeoutMs;
-    const poll = () => {
-      if (!activeProcessGroup(processId) || Date.now() >= deadline) {
-        resolve();
-        return;
-      }
-      setTimeout(
-        poll,
-        Math.min(PROCESS_TERMINATION_POLL_INTERVAL_MS, deadline - Date.now()),
-      );
-    };
-    poll();
-  });
-}
-
 async function confirmProcessGroupTermination(
-  processId: number | undefined,
+  identity: OwnedProcessIdentity | undefined,
 ): Promise<void> {
-  if (process.platform === "win32" || processId === undefined) return;
-  if (!activeProcessGroup(processId)) return;
-  try {
-    process.kill(-processId, "SIGKILL");
-  } catch {
-    // The process group may have exited between the liveness check and signal.
-  }
-  await waitForProcessGroup(processId, PROCESS_TERMINATION_GRACE_MS);
-  if (activeProcessGroup(processId)) {
-    throw new LocalProcessTerminationError([processId]);
-  }
+  if (identity === undefined || (await confirmOwnedProcessStopped(identity)))
+    return;
+  const stopped = await terminateOwnedProcess(identity, "SIGKILL");
+  if (!stopped.confirmed)
+    throw new LocalProcessTerminationError([identity.pid]);
 }
 
 function createProcessEffect(request: LocalProcessRequest, timeoutMs: number) {
-  let processId: number | undefined;
+  let processIdentity: OwnedProcessIdentity | undefined;
   let stdoutCapture: CapturedOutput | undefined;
   let stderrCapture: CapturedOutput | undefined;
   const program = Effect.scoped(
@@ -183,7 +154,30 @@ function createProcessEffect(request: LocalProcessRequest, timeoutMs: number) {
         forceKillAfter: Duration.millis(PROCESS_TERMINATION_GRACE_MS),
       });
       const child = yield* command;
-      processId = child.pid;
+      const registerProcess = request.onOwnedProcessAcquired;
+      const acquiredIdentity = yield* Effect.tryPromise({
+        try: async () => {
+          try {
+            return await captureOwnedProcessIdentity(child.pid);
+          } catch (cause) {
+            if (await confirmOwnedProcessGroupStopped(child.pid)) {
+              return undefined;
+            }
+            throw new AggregateError(
+              [cause],
+              "Could not identify a local process group that may still be active",
+            );
+          }
+        },
+        catch: (cause) => cause,
+      });
+      processIdentity = acquiredIdentity;
+      if (registerProcess !== undefined && acquiredIdentity !== undefined) {
+        yield* Effect.tryPromise({
+          try: () => registerProcess(acquiredIdentity.pid),
+          catch: (cause) => cause,
+        });
+      }
       const stdout = capture(child.stdout, request.outputLimitBytes);
       const stderr = capture(child.stderr, request.outputLimitBytes);
       stdoutCapture = stdout.output;
@@ -207,7 +201,7 @@ function createProcessEffect(request: LocalProcessRequest, timeoutMs: number) {
   );
   const bounded = Effect.timeoutOption(program, Duration.millis(timeoutMs));
   return {
-    processId: () => processId,
+    processIdentity: () => processIdentity,
     capturedOutput: () => ({
       stdout: stdoutCapture?.bytes.toString("utf8") ?? "",
       stderr: stderrCapture?.bytes.toString("utf8") ?? "",
@@ -274,12 +268,12 @@ export async function runLocalProcess(
   }
 
   try {
-    await confirmProcessGroupTermination(processEffect.processId());
+    await confirmProcessGroupTermination(processEffect.processIdentity());
   } catch (cleanupCause) {
     if (cleanupCause instanceof LocalProcessTerminationError) {
       throw new LocalProcessTerminationError(
         cleanupCause.processIds,
-        runCause ?? cleanupCause.cause,
+        failed ? runCause : cleanupCause.cause,
       );
     }
     throw cleanupCause;

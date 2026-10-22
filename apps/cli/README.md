@@ -90,6 +90,10 @@ When the configured OpenCode runtime also serves its browser UI, the terminal
 renderers do not show its session URL. Final JSON results contain no progress.
 Signal cancellation results preserve the received signal, for example
 `Run cancelled after SIGINT` or `Run cancelled after SIGTERM`.
+The CLI sends one cancellation request and waits up to 35 seconds for the
+runner to clean up its owned processes. If cleanup does not complete, the CLI
+stops only process groups whose identity the runner registered and the CLI
+revalidated. Cancellation exits with status `130`.
 
 ## Development
 

@@ -1,4 +1,5 @@
 import { Args, Command, Flags } from "@oclif/core";
+import { Effect } from "effect";
 import {
   planCommandResultSchema,
   type PlanCommandResult,
@@ -42,21 +43,38 @@ function planWorkflowRecord(
   };
 }
 
-export async function createPlanCommandResult(
+export function createPlanCommandResultEffect(
+  workflowValue: string,
+  roots: Parameters<typeof discoverWorkflowDescriptors>[0],
+): Effect.Effect<PlanCommandResult, unknown> {
+  return Effect.gen(function* () {
+    const selection = yield* Effect.sync(() =>
+      resolveWorkflowSelection(
+        workflowValue,
+        isExplicitWorkflowReference(workflowValue)
+          ? []
+          : discoverWorkflowDescriptors(roots),
+      ),
+    );
+    // Workflow loading is the one Promise based package boundary in this command.
+    const loaded = yield* Effect.tryPromise({
+      try: () => loadWorkflow(selection.reference),
+      catch: (cause) => cause,
+    });
+    return yield* Effect.sync(() =>
+      planCommandResultSchema.parse({
+        workflow: planWorkflowRecord(selection.descriptor, selection.reference),
+        plan: createSeqlanePlanSnapshot(loaded.plan),
+      }),
+    );
+  });
+}
+
+export function createPlanCommandResult(
   workflowValue: string,
   roots: Parameters<typeof discoverWorkflowDescriptors>[0],
 ): Promise<PlanCommandResult> {
-  const selection = resolveWorkflowSelection(
-    workflowValue,
-    isExplicitWorkflowReference(workflowValue)
-      ? []
-      : discoverWorkflowDescriptors(roots),
-  );
-  const loaded = await loadWorkflow(selection.reference);
-  return planCommandResultSchema.parse({
-    workflow: planWorkflowRecord(selection.descriptor, selection.reference),
-    plan: createSeqlanePlanSnapshot(loaded.plan),
-  });
+  return Effect.runPromise(createPlanCommandResultEffect(workflowValue, roots));
 }
 
 export function renderPlanHuman(result: PlanCommandResult): string {
@@ -115,9 +133,11 @@ export default class PlanCommand extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(PlanCommand);
     try {
-      const result = await createPlanCommandResult(
-        args.workflow,
-        workflowRootsFromFlags(flags),
+      const result = await Effect.runPromise(
+        createPlanCommandResultEffect(
+          args.workflow,
+          workflowRootsFromFlags(flags),
+        ),
       );
       this.log(
         flags.output === "json"

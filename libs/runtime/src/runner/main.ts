@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { decodeRunnerCommand } from "@seqlane/protocol";
+import {
+  decodeOwnedProcessAcknowledgement,
+  isOwnedProcessAcknowledgementCandidate,
+} from "@seqlane/protocol/private/owned-process";
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import {
   requestRunnerCancellation,
   startRun,
   type RunnerHost,
   type RunnerRunControl,
-  type RunnerRunProgram,
   type RuntimeExecutionResolver,
 } from "./run.js";
 import { resolveRuntimeProfile } from "./profile/runtime-profile.js";
@@ -15,13 +18,6 @@ import type { LoadedWorkflow } from "./workflow/load-workflow.js";
 import type { PrivateClassifierConnection } from "../classifier/types.js";
 import type { TraceCarrier } from "@seqlane/protocol/private/trace-carrier";
 import type { TelemetryConfiguration } from "../private/telemetry/configuration.js";
-export { createEffectTracerRunProgram } from "./effect-tracer.js";
-export type {
-  RunnerRunProgram,
-  RunnerRunProgramContext,
-  RunnerRunProgramResult,
-} from "./run.js";
-
 export interface RunnerSignalSource {
   on(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
 }
@@ -41,8 +37,6 @@ export interface RunnerProcessOptions {
   readonly classifierConnection?: PrivateClassifierConnection;
   readonly traceCarrier?: TraceCarrier;
   readonly telemetryConfiguration?: TelemetryConfiguration;
-  /** Private worker-composition seam; omitted by the production CLI. */
-  readonly createRunProgram?: () => RunnerRunProgram;
 }
 
 export type { PrivateClassifierConnection } from "../classifier/types.js";
@@ -73,7 +67,22 @@ export function createRunnerExecutionResolver(
         ...resolutionOptions,
         ...(requiresAgentRuntime(profile.id) &&
         options.createAgentRuntimeFactory !== undefined
-          ? { agentRuntime: options.createAgentRuntimeFactory() }
+          ? {
+              agentRuntime: (
+                factorySignal: AbortSignal,
+                workspace: string | undefined,
+                factoryOptions?: {
+                  readonly onOwnedProcessAcquired?: (
+                    pid: number,
+                  ) => Promise<void>;
+                },
+              ) =>
+                options.createAgentRuntimeFactory!()(
+                  factorySignal,
+                  workspace,
+                  factoryOptions,
+                ),
+            }
           : {}),
         ...(options.classifierConnection === undefined
           ? {}
@@ -104,7 +113,15 @@ export function bindRunnerSupervisorDisconnect(
   source: RunnerDisconnectSource,
   control: RunnerRunControl,
 ): void {
-  source.once("disconnect", () => requestRunnerCancellation(control));
+  control.supervisorDisconnectController ??= new AbortController();
+  source.once("disconnect", () => {
+    control.supervisorDisconnected = true;
+    control.supervisorDisconnectController?.abort(
+      new Error("Runner supervisor disconnected"),
+    );
+    control.ownedProcessRegistry?.supervisorDisconnected();
+    requestRunnerCancellation(control);
+  });
 }
 
 /** Starts the runtime-owned IPC listener. A non-IPC host is a no-op for library use. */
@@ -127,8 +144,7 @@ export function startRunnerProcess(options: RunnerProcessOptions = {}): void {
     telemetryConfiguration: options.telemetryConfiguration,
   };
   const resolveExecution = createRunnerExecutionResolver(options);
-  control.runProgram = options.createRunProgram?.();
-  bindRunnerCancellationSignals(process, control, () => host.exit(130));
+  bindRunnerCancellationSignals(process, control);
   bindRunnerSupervisorDisconnect(process, control);
 
   host.on("message", (message) => {
@@ -155,6 +171,31 @@ export function startRunnerProcess(options: RunnerProcessOptions = {}): void {
         host.exit(1);
       }
       return;
+    }
+
+    const objectAcknowledgement =
+      typeof message === "object" &&
+      message !== null &&
+      isOwnedProcessAcknowledgementCandidate(message);
+    if (typeof message === "string" || objectAcknowledgement) {
+      try {
+        const encoded =
+          typeof message === "string" ? message : JSON.stringify(message);
+        if (encoded === undefined) throw new TypeError();
+        const acknowledgement = decodeOwnedProcessAcknowledgement(encoded);
+        if (
+          !control.ownedProcessRegistry?.acceptAcknowledgement(acknowledgement)
+        ) {
+          throw new TypeError("Unexpected owned process acknowledgement");
+        }
+        return;
+      } catch {
+        if (objectAcknowledgement) {
+          host.exit(1);
+          return;
+        }
+        // A string may still be a normal run.cancel command.
+      }
     }
 
     try {

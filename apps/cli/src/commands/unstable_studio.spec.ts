@@ -17,9 +17,10 @@ import {
   waitForCommunityStudio,
 } from "./unstable_studio.js";
 
-vi.mock("node:child_process", () => ({
-  spawn: vi.fn(),
-}));
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: vi.fn() };
+});
 vi.mock("../operational-command-host.js", () => ({
   startOwnedOperationalHost: vi.fn(),
 }));

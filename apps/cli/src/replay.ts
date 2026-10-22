@@ -1,3 +1,4 @@
+import { Effect, Stream } from "effect";
 import {
   encodeSeqlaneExecutionEvent,
   seqlaneExecutionEventSchema,
@@ -152,41 +153,66 @@ function redactReplayEvent(
 }
 
 /** Stream validated recording events as canonical newline-delimited JSON. */
+export function writeReplayEventsEffect(
+  path: string,
+  stdout: { readonly write: (value: string) => void },
+  redactions: readonly string[] = [],
+): Effect.Effect<void> {
+  return Stream.fromIterable(iterateSeqlaneRecording(path), {
+    chunkSize: 1,
+  }).pipe(
+    Stream.runForEach((event) =>
+      Effect.sync(() =>
+        stdout.write(
+          encodeSeqlaneExecutionEvent(redactReplayEvent(event, redactions)) +
+            "\n",
+        ),
+      ),
+    ),
+  );
+}
+
 export function writeReplayEvents(
   path: string,
   stdout: { readonly write: (value: string) => void },
   redactions: readonly string[] = [],
 ): void {
-  for (const event of iterateSeqlaneRecording(path)) {
-    stdout.write(
-      encodeSeqlaneExecutionEvent(redactReplayEvent(event, redactions)) + "\n",
-    );
-  }
+  Effect.runSync(writeReplayEventsEffect(path, stdout, redactions));
 }
 
 /** Render a decoded recording and finalize Ink-owned terminal resources. */
-export async function renderReplayRecording(options: {
+export function renderReplayRecordingEffect(options: {
   readonly recording: SeqlaneRecording;
   readonly renderer: ExecutionRenderer;
   readonly capabilities: OutputCapabilities;
-}): Promise<void> {
+}): Effect.Effect<void> {
   const { recording, renderer, capabilities } = options;
-  for (const event of recording.events) {
-    try {
-      renderer.handle(event);
-    } catch (error) {
-      writeDiagnostic(
-        capabilities.stderr,
-        "seqlane output error: " + errorMessage(error),
-      );
-    }
-  }
-  try {
-    await renderer.finish();
-  } catch (error) {
-    writeDiagnostic(
-      capabilities.stderr,
-      "seqlane output error: " + errorMessage(error),
-    );
-  }
+  const render = Stream.fromIterable(recording.events).pipe(
+    Stream.runForEach((event) =>
+      Effect.sync(() => {
+        try {
+          renderer.handle(event);
+        } catch (error) {
+          writeDiagnostic(
+            capabilities.stderr,
+            "seqlane output error: " + errorMessage(error),
+          );
+        }
+      }),
+    ),
+  );
+  return render.pipe(
+    Effect.ensuring(
+      Effect.tryPromise({
+        try: () => Promise.resolve(renderer.finish()),
+        catch: (error) => {
+          writeDiagnostic(
+            capabilities.stderr,
+            "seqlane output error: " + errorMessage(error),
+          );
+          return undefined;
+        },
+      }).pipe(Effect.catch(() => Effect.void)),
+    ),
+  );
 }

@@ -66,13 +66,16 @@ function runNativeClientCall<A>(
   options: TaskExecutionOptions,
   name: string,
   attributes: Readonly<Record<string, string | number | boolean>>,
-  call: () => Promise<A>,
+  call: (parentSpan?: Tracer.AnySpan) => Promise<A>,
 ): Promise<A> {
   const native = options.nativeTelemetry;
   if (native === undefined) return call();
-  const effect = Effect.tryPromise({
-    try: call,
-    catch: (cause) => cause,
+  const effect = Effect.gen(function* () {
+    const parentSpan = yield* Effect.currentSpan;
+    return yield* Effect.tryPromise({
+      try: () => call(parentSpan),
+      catch: (cause) => cause,
+    });
   }).pipe(
     Effect.withSpan(name, {
       parent: native.parentSpan,
@@ -245,7 +248,9 @@ export async function executeTaskNode(
       sessionLease = options.admission.sessionLease;
     } else if (options.workspaceAdmission === "graph") {
       if (abortSignal.aborted) {
-        throw abortSignal.reason ?? new Error("Task execution cancelled");
+        throw abortSignal.aborted
+          ? abortSignal.reason
+          : new Error("Task execution cancelled");
       }
       sessionLease =
         session === undefined
@@ -482,6 +487,7 @@ export async function executeTaskNode(
               : resource.key,
           signal: abortSignal,
           runAgent,
+          onOwnedProcessAcquired: context.onOwnedProcessAcquired,
           ...(classifier === undefined
             ? {}
             : {
@@ -492,13 +498,23 @@ export async function executeTaskNode(
                     {
                       "seqlane.invocation.id": invocationId,
                     },
-                    () =>
-                      classifier(request, abortSignal, (observation) =>
-                        context.onObservation?.(
-                          invocationId,
-                          observation,
-                          options.iteration,
-                        ),
+                    (parentSpan) =>
+                      classifier(
+                        request,
+                        abortSignal,
+                        (observation) =>
+                          context.onObservation?.(
+                            invocationId,
+                            observation,
+                            options.iteration,
+                          ),
+                        parentSpan === undefined ||
+                          options.nativeTelemetry === undefined
+                          ? undefined
+                          : {
+                              tracer: options.nativeTelemetry.tracer,
+                              parentSpan,
+                            },
                       ),
                   ),
               }),

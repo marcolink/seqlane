@@ -1,4 +1,3 @@
-import { RuntimeError } from "@seqlane/core";
 import {
   copyCommandErrorMetadata,
   runIdentitySchema,
@@ -104,8 +103,4 @@ export function createRunFailureResult(
           ...runTiming(canonicalIdentity.startedAt, finishedAt),
         }),
   });
-}
-
-export function executionEventError(error: unknown): RuntimeError {
-  return new RuntimeError(remoteError(error));
 }
