@@ -3,6 +3,7 @@ import { Effect, Scope } from "effect";
 
 import {
   captureOwnedProcessIdentity,
+  observeChildLifecycle,
   confirmOwnedProcessGroupStopped,
   terminateOwnedProcess,
   type OwnedProcessIdentity,
@@ -40,24 +41,6 @@ function runtimeError(message: string, cause?: unknown): ActionResolutionError {
 const promise = <A>(run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: (cause) => cause });
 
-function defaultStart(
-  executable: string,
-  args: readonly string[],
-  options: {
-    readonly cwd: string;
-    readonly env: Readonly<Record<string, string>>;
-    readonly detached: boolean;
-  },
-): ChildProcess {
-  return spawn(executable, [...args], {
-    cwd: options.cwd,
-    env: options.env,
-    detached: options.detached,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-}
-
 function defaultHealthcheck(url: string) {
   return Effect.gen(function* () {
     const response = yield* promise((signal) => fetch(url, { signal }));
@@ -69,37 +52,8 @@ function defaultHealthcheck(url: string) {
   );
 }
 
-function waitForSpawn(child: ChildProcess) {
-  return promise(
-    (signal) =>
-      new Promise<void>((resolveSpawn, rejectSpawn) => {
-        const cleanup = () => {
-          child.off("spawn", onSpawn);
-          child.off("error", onError);
-          signal.removeEventListener("abort", onAbort);
-        };
-        const onSpawn = () => {
-          cleanup();
-          resolveSpawn();
-        };
-        const onError = (cause: unknown) => {
-          cleanup();
-          rejectSpawn(cause);
-        };
-        const onAbort = () => {
-          cleanup();
-          rejectSpawn(signal.reason);
-        };
-        child.once("spawn", onSpawn);
-        child.once("error", onError);
-        signal.addEventListener("abort", onAbort, { once: true });
-        if (signal.aborted) onAbort();
-      }),
-  );
-}
-
 function waitForOpenCodeReady(
-  child: Pick<ChildProcess, "exitCode" | "signalCode">,
+  child: ChildProcess,
   healthcheck: Effect.Effect<boolean, unknown>,
   timeoutMs: number,
   pollIntervalMs: number,
@@ -109,8 +63,7 @@ function waitForOpenCodeReady(
       if (child.exitCode !== null || child.signalCode !== null) {
         return yield* Effect.fail(
           runtimeError("OpenCode exited before becoming ready.", {
-            exitCode: child.exitCode,
-            signalCode: child.signalCode,
+            processId: child.pid,
           }),
         );
       }
@@ -132,7 +85,7 @@ function waitForOpenCodeReady(
 
 export interface OwnedOpenCodeChild {
   readonly child: ChildProcess;
-  closed: boolean;
+  readonly lifecycle: ReturnType<typeof observeChildLifecycle>;
   identity?: OwnedProcessIdentity;
 }
 
@@ -145,25 +98,18 @@ interface OpenCodeChildCommand {
 }
 
 export function waitForOpenCodeChildClose(owned: OwnedOpenCodeChild) {
-  return Effect.callback<void>((resume, signal) => {
-    if (owned.closed) return resume(Effect.void);
-    const cleanup = () => {
-      owned.child.off("close", onClose);
-      signal.removeEventListener("abort", cleanup);
-    };
-    const onClose = () => {
-      cleanup();
-      resume(Effect.void);
-    };
-    owned.child.once("close", onClose);
-    signal.addEventListener("abort", cleanup, { once: true });
-  });
+  return owned.lifecycle.exit.pipe(
+    Effect.asVoid,
+    Effect.catch(() => Effect.void),
+  );
 }
 
 function stopOwnedRuntimeProcess(owned: OwnedOpenCodeChild) {
   return Effect.gen(function* () {
     if (owned.identity === undefined) {
-      if (!owned.closed) {
+      // A live native handle still owns its leader. Never signal an unknown
+      // surviving group after that leader has gone.
+      if (yield* owned.lifecycle.isRunning) {
         owned.child.kill("SIGTERM");
         const graceful = yield* waitForOpenCodeChildClose(owned).pipe(
           Effect.timeoutOption("500 millis"),
@@ -175,63 +121,59 @@ function stopOwnedRuntimeProcess(owned: OwnedOpenCodeChild) {
           );
         }
       }
-      const processId = owned.child.pid;
       if (
-        processId !== undefined &&
-        !(yield* promise(() => confirmOwnedProcessGroupStopped(processId)))
-      ) {
+        !(yield* promise(() =>
+          confirmOwnedProcessGroupStopped(owned.child.pid ?? 0),
+        ))
+      )
         return yield* Effect.fail(
           new Error(
             "OpenCode process identity was not confirmed; its process tree may still be running.",
           ),
         );
-      }
       return;
     }
     const identity = owned.identity;
     const graceful = yield* promise(() =>
       terminateOwnedProcess(identity, "SIGTERM"),
     );
-    if (!graceful.confirmed) {
-      const forced = yield* promise(() =>
-        terminateOwnedProcess(identity, "SIGKILL"),
+    if (
+      !graceful.confirmed &&
+      !(yield* promise(() => terminateOwnedProcess(identity, "SIGKILL")))
+        .confirmed
+    )
+      return yield* Effect.fail(
+        new Error("Could not confirm that the OpenCode process tree stopped."),
       );
-      if (!forced.confirmed) {
-        return yield* Effect.fail(
-          new Error(
-            "Could not confirm that the OpenCode process tree stopped.",
-          ),
-        );
-      }
-    }
     yield* waitForOpenCodeChildClose(owned).pipe(Effect.timeout("1 second"));
-  });
+  }).pipe(Effect.timeout("5 seconds"));
 }
 
 export function acquireOpenCodeChild(
   command: OpenCodeChildCommand,
   state: OpenCodeProcessState,
 ): Effect.Effect<OwnedOpenCodeChild, unknown, Scope.Scope> {
-  return Effect.gen(function* () {
+  const acquire = Effect.gen(function* () {
     const owned = yield* Effect.acquireRelease(
       Effect.sync((): OwnedOpenCodeChild => {
-        const child = (command.start ?? defaultStart)(
-          command.executable,
-          command.args,
-          {
-            cwd: command.cwd,
-            env: command.env,
-            detached: true,
-          },
-        );
-        const owned: OwnedOpenCodeChild = { child, closed: false };
-        child.once("close", () => {
-          owned.closed = true;
-        });
-        return owned;
+        const child =
+          command.start === undefined
+            ? spawn(command.executable, command.args, {
+                cwd: command.cwd,
+                env: command.env,
+                detached: process.platform !== "win32",
+                stdio: "ignore",
+                windowsHide: true,
+              })
+            : command.start(command.executable, command.args, {
+                cwd: command.cwd,
+                env: command.env,
+                detached: process.platform !== "win32",
+              });
+        return { child, lifecycle: observeChildLifecycle(child) };
       }),
-      (runtime) =>
-        stopOwnedRuntimeProcess(runtime).pipe(
+      (owned) =>
+        stopOwnedRuntimeProcess(owned).pipe(
           Effect.catch((cause) =>
             Effect.sync(() => {
               state.safeToDelete = false;
@@ -242,23 +184,23 @@ export function acquireOpenCodeChild(
         ),
     );
     yield* Effect.uninterruptible(
-      waitForSpawn(owned.child).pipe(Effect.timeout("5 seconds")),
+      owned.lifecycle.spawned.pipe(Effect.timeout("5 seconds")),
     );
-    if (owned.child.pid === undefined) {
-      return yield* Effect.fail(
-        new Error("OpenCode did not report a process ID."),
-      );
-    }
-    const processId = owned.child.pid;
+    const child = owned.child;
     owned.identity = yield* Effect.uninterruptible(
-      promise(() => captureOwnedProcessIdentity(processId)).pipe(
-        Effect.catch((cause) =>
-          owned.closed ? Effect.succeed(undefined) : Effect.fail(cause),
-        ),
-      ),
+      promise(async () => {
+        try {
+          return await captureOwnedProcessIdentity(child.pid ?? 0);
+        } catch (cause) {
+          if (await confirmOwnedProcessGroupStopped(child.pid ?? 0))
+            return undefined;
+          throw cause;
+        }
+      }),
     );
     return owned;
   });
+  return acquire;
 }
 
 export function startOpenCodeProcess(

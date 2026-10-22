@@ -7,3 +7,4 @@ export {
   isOwnedProcessIdentityCurrent,
   terminateOwnedProcess,
 } from "./identity.js";
+export { observeChildLifecycle } from "./child-lifecycle.js";

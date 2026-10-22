@@ -1,3 +1,4 @@
+// @test-scope ./process.ts
 // @test-scope ./adapter.ts
 // @test-scope ./stream.ts
 // @test-scope ./transport.ts

@@ -215,6 +215,9 @@ importers:
       '@actions/core':
         specifier: 3.0.1
         version: 3.0.1
+      '@effect/platform-node':
+        specifier: 4.0.5
+        version: 4.0.5(effect@4.0.5)
       '@seqlane/action-service-lifecycle':
         specifier: workspace:*
         version: link:../../libs/action-service-lifecycle
@@ -315,6 +318,9 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 2.0.0
         version: 2.0.0(zod@4.6.6)
+      '@effect/platform-node':
+        specifier: 4.0.5
+        version: 4.0.5(effect@4.0.5)
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../adapter
@@ -351,6 +357,9 @@ importers:
 
   libs/action-merge-conflict-resolution:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.5
+        version: 4.0.5(effect@4.0.5)
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../adapter
@@ -375,6 +384,9 @@ importers:
 
   libs/action-service-lifecycle:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.5
+        version: 4.0.5(effect@4.0.5)
       effect:
         specifier: 4.0.5
         version: 4.0.5
@@ -429,6 +441,9 @@ importers:
 
   libs/opencode:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.5
+        version: 4.0.5(effect@4.0.5)
       '@opencode-ai/sdk':
         specifier: 1.18.27
         version: 1.18.27

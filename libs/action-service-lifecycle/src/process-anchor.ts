@@ -1,5 +1,6 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { Effect, Exit, Fiber } from "effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ChildProcess } from "effect/process";
+import { Effect, Exit } from "effect";
 import { z } from "zod";
 
 import { anchorAdoptRequestSchema } from "./schemas.js";
@@ -9,7 +10,7 @@ const serviceArgumentsSchema = z.array(z.string());
 const spawnOptions = {
   cwd: process.cwd(),
   env: process.env,
-  windowsHide: true,
+  detached: false,
 };
 
 function send(message: unknown) {
@@ -33,27 +34,6 @@ function send(message: unknown) {
       if (error) resume(Effect.fail(error));
       else resume(Effect.void);
     });
-  });
-}
-
-function waitForSpawn(child: ChildProcess) {
-  return Effect.callback<void, Error>((resume, signal) => {
-    const onSpawn = () => finish(Effect.void);
-    const onError = (error: Error) => finish(Effect.fail(error));
-    const finish = (effect: Effect.Effect<void, Error>) => {
-      child.off("spawn", onSpawn);
-      child.off("error", onError);
-      signal.removeEventListener("abort", onAbort);
-      resume(effect);
-    };
-    const onAbort = () => {
-      child.off("spawn", onSpawn);
-      child.off("error", onError);
-      child.kill("SIGKILL");
-    };
-    child.once("spawn", onSpawn);
-    child.once("error", onError);
-    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -100,52 +80,40 @@ function waitForParentDisconnect() {
   });
 }
 
-function waitForServiceExit(child: ChildProcess) {
-  return Effect.callback<
-    { code: number | null; signal: NodeJS.Signals | null },
-    never
-  >((resume, abort) => {
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-      child.off("exit", onExit);
-      abort.removeEventListener("abort", onAbort);
-      resume(Effect.succeed({ code, signal }));
-    };
-    const onAbort = () => child.off("exit", onExit);
-    child.once("exit", onExit);
-    abort.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-function keepAliveSentinel(): ChildProcess {
-  const code =
-    'for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => {}); setInterval(() => {}, 60000);';
-  return spawn(process.execPath, ["-e", code], {
-    ...spawnOptions,
-    stdio: "ignore",
-  });
-}
-
 function runAnchor(command: string, args: string[]) {
   return Effect.scoped(
     Effect.gen(function* () {
-      const sentinel = keepAliveSentinel();
-      yield* Effect.acquireRelease(
-        waitForSpawn(sentinel).pipe(Effect.as(sentinel)),
-        () =>
-          Effect.sync(() => {
-            try {
-              process.kill(-process.pid, "SIGKILL");
-            } catch {
-              /* group already exited */
-            }
-          }),
+      // The anchor owns the detached group. Its scoped children inherit it.
+      const sentinel = yield* ChildProcess.make(
+        process.execPath,
+        [
+          "-e",
+          'for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => {}); setInterval(() => {}, 60000);',
+        ],
+        {
+          ...spawnOptions,
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "ignore",
+          forceKillAfter: "500 millis",
+        },
       );
-
-      const service = spawn(command, args, {
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          try {
+            process.kill(-process.pid, "SIGKILL");
+          } catch {
+            /* group already exited */
+          }
+        }),
+      );
+      const service = yield* ChildProcess.make(command, args, {
         ...spawnOptions,
-        stdio: "inherit",
-      });
-      const serviceStart = waitForSpawn(service).pipe(
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+        forceKillAfter: "500 millis",
+      }).pipe(
         Effect.catch((error) =>
           send({
             type: "error",
@@ -157,15 +125,6 @@ function runAnchor(command: string, args: string[]) {
           ),
         ),
       );
-      yield* Effect.acquireRelease(
-        serviceStart.pipe(Effect.as(service)),
-        (child) =>
-          Effect.sync(() => {
-            if (child.exitCode === null && child.signalCode === null)
-              child.kill("SIGKILL");
-          }),
-      );
-      const serviceExit = yield* Effect.forkChild(waitForServiceExit(service));
 
       yield* send({ type: "ready", sentinelPid: sentinel.pid });
       const adoption = yield* waitForAdoption();
@@ -175,10 +134,12 @@ function runAnchor(command: string, args: string[]) {
         );
       yield* send({ type: "adopted" });
 
-      const exit = yield* Fiber.join(serviceExit);
-      return exit.code === 0 ? 0 : 1;
+      return yield* service.exitCode.pipe(
+        Effect.catch(() => Effect.succeed(1)),
+      );
     }),
   ).pipe(
+    Effect.provide(NodeServices.layer),
     Effect.catch((error) =>
       send({ type: "error", message: error.message }).pipe(Effect.as(1)),
     ),

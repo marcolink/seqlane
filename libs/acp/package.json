@@ -26,7 +26,8 @@
     "effect": "4.0.5",
     "@seqlane/agent-adapter": "workspace:*",
     "@seqlane/core": "workspace:*",
-    "zod": "4.6.6"
+    "zod": "4.6.6",
+    "@effect/platform-node": "4.0.5"
   },
   "files": [
     "dist"

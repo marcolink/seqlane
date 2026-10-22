@@ -66,8 +66,9 @@ Authentication and transport failures retain their original error meaning.
 It generates one HTTP Basic credential per owned process and uses it for all
 private SDK requests. It preserves native configuration, bounds startup and
 shutdown with Effect timeouts, and closes only the process group it creates.
-Its caller must close the returned service; the Effect scope then confirms
-process-group exit before removing listeners. This helper writes no Seqlane
+Its caller must close the returned service. The Effect scope drains native log
+streams and verifies process birth identity before cleanup. Unconfirmed shutdown
+remains an error. This helper writes no Seqlane
 state; OpenCode can write its own native state.
 
 After a successful prompt, the adapter retains its terminal OpenCode message

@@ -334,15 +334,12 @@ async function runtimeFixture() {
         temporaryParent: directory,
         skillDirectory: directory,
         download: () => filesystem.readFile(archivePath),
-        start: (executable, _args, startOptions) => {
+        start: (executable, _args, options) => {
           installation = dirname(executable);
           child = spawn(
             process.execPath,
             ["-e", "setInterval(() => {}, 1000)"],
-            {
-              ...startOptions,
-              stdio: "ignore",
-            },
+            { ...options, stdio: "ignore" },
           );
           return child;
         },

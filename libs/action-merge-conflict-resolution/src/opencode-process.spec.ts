@@ -1,6 +1,7 @@
 // @test-scope ./opencode-process.ts
 
 import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
 import { Effect, Exit, Scope } from "effect";
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +12,22 @@ import {
   startOpenCodeProcess,
   type OpenCodeProcessState,
 } from "./opencode-process.js";
+
+function observeSpawn(observe: (child: ChildProcess) => void) {
+  return (
+    executable: string,
+    args: readonly string[],
+    options: {
+      readonly cwd: string;
+      readonly env: Readonly<Record<string, string>>;
+      readonly detached: boolean;
+    },
+  ) => {
+    const child = spawn(executable, args, { ...options, stdio: "ignore" });
+    observe(child);
+    return child;
+  };
+}
 
 describe("OpenCode process lifecycle", () => {
   it("cancels a successful health response body before declaring readiness", async () => {
@@ -104,7 +121,7 @@ describe("OpenCode process lifecycle", () => {
       .spyOn(processOwnership, "captureOwnedProcessIdentity")
       .mockRejectedValueOnce(new Error("identity inspection failed"));
     const state: OpenCodeProcessState = { safeToDelete: true };
-    let child: ReturnType<typeof spawn> | undefined;
+    let child: ChildProcess | undefined;
     try {
       await expect(
         Effect.runPromise(
@@ -116,10 +133,9 @@ describe("OpenCode process lifecycle", () => {
               { PATH: process.env.PATH ?? "" },
               "http://127.0.0.1:4096/global/health",
               {
-                start: (command, args, options) => {
-                  child = spawn(command, args, { ...options, stdio: "ignore" });
-                  return child;
-                },
+                start: observeSpawn((acquired) => {
+                  child = acquired;
+                }),
               },
               state,
             ),
@@ -154,16 +170,9 @@ describe("OpenCode process lifecycle", () => {
           { PATH: process.env.PATH ?? "" },
           "http://127.0.0.1:4096/global/health",
           {
-            start: (executable, args, options) => {
-              const child = spawn(executable, args, {
-                cwd: options.cwd,
-                env: options.env,
-                detached: options.detached,
-                stdio: "ignore",
-              });
+            start: observeSpawn((child) => {
               pid = child.pid;
-              return child;
-            },
+            }),
             healthcheck: async (_url, signal) => {
               reachedHealthcheck.resolve();
               await new Promise<void>((_resolve, reject) => {
@@ -220,16 +229,9 @@ describe("OpenCode process lifecycle", () => {
           { PATH: process.env.PATH ?? "" },
           `http://127.0.0.1:${address.port}/global/health`,
           {
-            start: (executable, args, options) => {
-              const processHandle = spawn(executable, args, {
-                cwd: options.cwd,
-                env: options.env,
-                detached: options.detached,
-                stdio: "ignore",
-              });
-              ownedPid = processHandle.pid;
-              return processHandle;
-            },
+            start: observeSpawn((child) => {
+              ownedPid = child.pid;
+            }),
           },
           state,
         ),

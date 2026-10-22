@@ -1,388 +1,287 @@
 // @test-scope ./service.ts
-
-import { EventEmitter } from "node:events";
-import type { ChildProcess } from "node:child_process";
-import { describe, expect, it, vi } from "vitest";
+// @test-scope ./service-process.ts
+import { spawn, type ChildProcess } from "node:child_process";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as ownership from "@seqlane/agent-adapter/private/owned-process";
 import { startOpenCodeService } from "./service.js";
 import { OpenCodeServiceStartupError } from "./errors.js";
 
-function fakeChild(): ChildProcess & EventEmitter {
-  const child = new EventEmitter() as ChildProcess & EventEmitter;
-  Object.assign(child, {
-    exitCode: null,
-    signalCode: null,
-    pid: 424_242,
-    stdout: new EventEmitter(),
-    stderr: new EventEmitter(),
-    kill: vi.fn(() => {
-      Object.assign(child, { exitCode: 0 });
-      child.emit("exit", 0, null);
-      return true;
-    }),
-  });
-  return child;
-}
-
-function ownedChildPid(child: ChildProcess): number {
-  if (child.pid === undefined) throw new Error("fake child has no PID");
-  return child.pid;
-}
-
-function mockOwnedProcessGroup(child: ChildProcess & EventEmitter) {
-  return vi.spyOn(process, "kill").mockImplementation(((pid, signal) => {
-    if (pid !== -ownedChildPid(child))
-      throw new Error("unexpected process group");
-    if (signal === 0) {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        throw Object.assign(new Error("gone"), { code: "ESRCH" });
-      }
-      return true;
+const controllers: AbortController[] = [];
+const children: ChildProcess[] = [];
+afterEach(async () => {
+  for (const controller of controllers.splice(0)) controller.abort();
+  vi.restoreAllMocks();
+  for (const child of children.splice(0)) {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exit = new Promise<void>((resolve) =>
+        child.once("exit", () => resolve()),
+      );
+      child.kill("SIGKILL");
+      await exit;
     }
-    Object.assign(child, { exitCode: 0 });
-    child.emit("exit", 0, null);
-    return true;
-  }) as typeof process.kill);
+  }
+});
+
+function fixture(
+  output = "opencode server listening on http://127.0.0.1:4173\n",
+  code?: string,
+) {
+  let command:
+    | {
+        readonly command: string;
+        readonly args: readonly string[];
+        readonly options: unknown;
+      }
+    | undefined;
+  let pid: number | undefined;
+  const start = vi.fn(
+    (
+      executable: string,
+      args: readonly string[],
+      options: import("node:child_process").SpawnOptions,
+    ) => {
+      command = { command: executable, args, options };
+      const child = spawn(
+        process.execPath,
+        [
+          "-e",
+          code ??
+            `process.stdout.write(${JSON.stringify(output)}); setInterval(() => {}, 1000);`,
+        ],
+        options,
+      );
+      children.push(child);
+      pid = child.pid;
+      return child;
+    },
+  );
+  const controller = new AbortController();
+  controllers.push(controller);
+  return {
+    controller,
+    pid: () => pid,
+    command: () => command,
+    options: {
+      workspace: process.cwd(),
+      signal: controller.signal,
+      spawn: start,
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+      startupTimeoutMs: 2_000,
+    },
+  };
+}
+
+async function assertStopped(pid: number | undefined) {
+  if (pid === undefined) throw new Error("Missing fixture PID");
+  expect(await ownership.confirmOwnedProcessGroupStopped(pid)).toBe(true);
 }
 
 describe("owned OpenCode startup", () => {
-  it("registers the service process before polling its HTTP endpoint", async () => {
-    const child = fakeChild();
+  it("registers before health, drains bounded diagnostics, authenticates, and confirms shutdown", async () => {
+    const child = fixture();
     let registered = false;
-    const started = startOpenCodeService({
-      workspace: "/workspace",
-      signal: new AbortController().signal,
-      spawn: (() =>
-        child) as unknown as typeof import("node:child_process").spawn,
+    const service = await startOpenCodeService({
+      ...child.options,
       onOwnedProcessAcquired: async (pid) => {
-        expect(pid).toBe(ownedChildPid(child));
+        expect(pid).toBe(child.pid());
         registered = true;
       },
-      fetch: vi.fn(async () => {
-        expect(registered).toBe(true);
-        return new Response(null, { status: 200 });
-      }),
-    });
-    await Promise.resolve();
-    child.stdout?.emit(
-      "data",
-      Buffer.from("opencode server listening on http://127.0.0.1:4173\n"),
-    );
-
-    const service = await started;
-    expect(registered).toBe(true);
-    await service.close();
-  });
-
-  it("closes the service if ownership registration fails", async () => {
-    const child = fakeChild();
-    const kill = mockOwnedProcessGroup(child);
-    const failure = startOpenCodeService({
-      workspace: "/workspace",
-      signal: new AbortController().signal,
-      spawn: (() =>
-        child) as unknown as typeof import("node:child_process").spawn,
-      onOwnedProcessAcquired: async () => {
-        throw new Error("ownership acknowledgement failed");
-      },
-      fetch: vi.fn(),
-    });
-    await expect(failure).rejects.toMatchObject({
-      name: "OpenCodeServiceStartupError",
-      cause: expect.objectContaining({
-        message: "ownership acknowledgement failed",
-      }),
-    });
-    expect(kill).toHaveBeenCalledWith(-ownedChildPid(child), "SIGTERM");
-  });
-
-  it("keeps frozen startup failure and cleanup failure as separate causes", async () => {
-    const child = fakeChild();
-    const original = Object.freeze(
-      new OpenCodeServiceStartupError("ownership registration failed"),
-    );
-    const kill = vi.spyOn(process, "kill").mockImplementation(((
-      pid,
-      signal,
-    ) => {
-      if (pid !== -ownedChildPid(child))
-        throw new Error("unexpected process group");
-      if (signal === 0) return true;
-      throw new Error("process group signal denied");
-    }) as typeof process.kill);
-    try {
-      const failure = startOpenCodeService({
-        workspace: "/workspace",
-        signal: new AbortController().signal,
-        spawn: (() =>
-          child) as unknown as typeof import("node:child_process").spawn,
-        onOwnedProcessAcquired: async () => {
-          throw original;
-        },
-        fetch: vi.fn(),
-      });
-      const cause = await failure.catch((error: unknown) => error);
-      expect(cause).toBeInstanceOf(OpenCodeServiceStartupError);
-      if (!(cause instanceof OpenCodeServiceStartupError))
-        throw new Error("Expected startup cleanup error");
-      expect(cause).not.toBe(original);
-      expect(cause.cause).toBe(original);
-      expect(cause.cleanupFailure?.cause).toBeInstanceOf(Error);
-      expect(original.cause).toBeUndefined();
-      expect(kill).toHaveBeenCalledWith(-ownedChildPid(child), "SIGTERM");
-    } finally {
-      kill.mockRestore();
-    }
-  });
-
-  it("uses an ephemeral loopback endpoint and waits for health", async () => {
-    const child = fakeChild();
-    const spawn = vi.fn(
-      (
-        _command: string,
-        _args: readonly string[],
-        _options: { env?: NodeJS.ProcessEnv },
-      ) => {
-        void _command;
-        void _args;
-        void _options;
-        return child;
-      },
-    );
-    const started = startOpenCodeService({
-      workspace: "/workspace",
-      signal: new AbortController().signal,
-      spawn: spawn as unknown as typeof import("node:child_process").spawn,
       fetch: vi.fn(async (_url, init) => {
+        expect(registered).toBe(true);
         expect(new Headers(init?.headers).get("authorization")).toMatch(
           /^Basic /,
         );
         return new Response(null, { status: 200 });
       }),
     });
-    child.stdout?.emit(
-      "data",
-      Buffer.from("opencode server listening on http://127.0.0.1:4173\n"),
-    );
-
-    const service = await started;
-    expect(service).toMatchObject({
-      url: "http://127.0.0.1:4173",
-    });
-    expect(spawn).toHaveBeenCalledWith(
-      "opencode",
-      expect.arrayContaining(["--hostname=127.0.0.1", "--port=0"]),
-      expect.objectContaining({ cwd: "/workspace" }),
-    );
-    const spawnOptions = spawn.mock.calls[0]?.[2];
-    expect(spawnOptions?.env?.OPENCODE_SERVER_USERNAME).toBe("seqlane");
-    expect(spawnOptions?.env?.OPENCODE_SERVER_PASSWORD).toMatch(
-      /^[A-Za-z0-9_-]{43}$/,
-    );
-    expect(service.authorization).toMatch(/^Basic /);
-    child.stderr?.emit("data", Buffer.from("still draining native logs\n"));
-    expect(service.diagnostics()).toContain("still draining native logs");
-    await service.close();
-  });
-
-  it("uses a requested loopback port and rejects a different endpoint", async () => {
-    const child = fakeChild();
-    const spawn = vi.fn(() => child);
-    const started = startOpenCodeService({
-      workspace: "/workspace",
-      signal: new AbortController().signal,
-      host: "127.0.0.1",
-      port: 4123,
-      spawn: spawn as unknown as typeof import("node:child_process").spawn,
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
-      startupTimeoutMs: 1,
-    });
-    child.stdout?.emit(
-      "data",
-      Buffer.from("opencode server listening on http://127.0.0.1:4173\\n"),
-    );
-
-    await expect(started).rejects.toThrow("did not become ready");
-    expect(spawn).toHaveBeenCalledWith(
-      "opencode",
-      expect.arrayContaining(["--hostname=127.0.0.1", "--port=4123"]),
-      expect.anything(),
-    );
-  });
-
-  it("accepts HTTP default port 80 after URL normalization", async () => {
-    const child = fakeChild();
-    const started = startOpenCodeService({
-      workspace: "/workspace",
-      signal: new AbortController().signal,
-      host: "127.0.0.1",
-      port: 80,
-      spawn: (() => child) as typeof import("node:child_process").spawn,
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
-    });
-    child.stdout?.emit(
-      "data",
-      Buffer.from("opencode server listening on http://127.0.0.1:80\\n"),
-    );
-
-    await expect(started).resolves.toMatchObject({ url: "http://127.0.0.1" });
-  });
-
-  it("accepts an IPv6 loopback endpoint", async () => {
-    const child = fakeChild();
-    const started = startOpenCodeService({
-      workspace: "/workspace",
-      signal: new AbortController().signal,
-      host: "::1",
-      spawn: (() => child) as typeof import("node:child_process").spawn,
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
-    });
-    child.stdout?.emit(
-      "data",
-      Buffer.from("opencode server listening on http://[::1]:4173\\n"),
-    );
-
-    await expect(started).resolves.toMatchObject({ url: "http://[::1]:4173" });
-  });
-
-  it("stops the owned child before reporting an aborted startup", async () => {
-    const controller = new AbortController();
-    const child = fakeChild();
-    const kill = mockOwnedProcessGroup(child);
-    const started = startOpenCodeService({
-      workspace: process.cwd(),
-      signal: controller.signal,
-      spawn: (() => child) as typeof import("node:child_process").spawn,
-      startupTimeoutMs: 1_000,
-    });
-    controller.abort();
-
     try {
-      await expect(started).rejects.toMatchObject({
-        name: "OpenCodeServiceStartupError",
+      expect(service.url).toBe("http://127.0.0.1:4173");
+      expect(service.authorization).toMatch(/^Basic /);
+      expect(service.diagnostics()).toContain("opencode server listening");
+      expect(child.command()).toMatchObject({
+        command: "opencode",
+        args: ["serve", "--hostname=127.0.0.1", "--port=0", "--print-logs"],
+        options: {
+          cwd: process.cwd(),
+          env: {
+            OPENCODE_SERVER_USERNAME: "seqlane",
+            OPENCODE_SERVER_PASSWORD:
+              expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+          },
+        },
       });
-      expect(kill).toHaveBeenCalledWith(-ownedChildPid(child), "SIGTERM");
     } finally {
-      kill.mockRestore();
+      await service.close();
     }
+    await service.close();
+    await assertStopped(child.pid());
   });
 
-  it("reports a missing OpenCode executable without waiting for a child exit", async () => {
-    const child = fakeChild();
-    Object.assign(child, { pid: undefined });
-    const started = startOpenCodeService({
-      workspace: process.cwd(),
-      signal: new AbortController().signal,
-      spawn: (() => child) as typeof import("node:child_process").spawn,
-      startupTimeoutMs: 1_000,
-    });
-    child.emit(
-      "error",
-      Object.assign(new Error("not found"), { code: "ENOENT" }),
+  it.each([
+    ["127.0.0.1", 80, "http://127.0.0.1:80", "http://127.0.0.1"],
+    ["::1", 0, "http://[::1]:4173", "http://[::1]:4173"],
+  ])(
+    "accepts normalized endpoint %s:%s",
+    async (host, port, endpoint, expected) => {
+      const child = fixture(`opencode server listening on ${endpoint}\n`);
+      const service = await startOpenCodeService({
+        ...child.options,
+        host,
+        port,
+      });
+      try {
+        expect(service.url).toBe(expected);
+      } finally {
+        await service.close();
+      }
+      await assertStopped(child.pid());
+    },
+  );
+
+  it("rejects a different requested endpoint and kills the owned group", async () => {
+    const child = fixture();
+    await expect(
+      startOpenCodeService({
+        ...child.options,
+        port: 4123,
+        startupTimeoutMs: 200,
+      }),
+    ).rejects.toThrow("did not become ready");
+    await assertStopped(child.pid());
+  });
+
+  it("stops the acquired service when registration fails", async () => {
+    const child = fixture();
+    const original = Object.freeze(
+      new OpenCodeServiceStartupError("registration failed"),
     );
-
-    await expect(started).rejects.toThrow("OpenCode executable is unavailable");
+    await expect(
+      startOpenCodeService({
+        ...child.options,
+        onOwnedProcessAcquired: async () => {
+          throw original;
+        },
+      }),
+    ).rejects.toBe(original);
+    await assertStopped(child.pid());
   });
 
-  it("kills an owned service after readiness times out", async () => {
-    const child = fakeChild();
-    const kill = mockOwnedProcessGroup(child);
-    try {
+  it("stops and joins the real tree after cancellation during ownership handoff", async () => {
+    const child = fixture();
+    const capture = ownership.captureOwnedProcessIdentity;
+    vi.spyOn(ownership, "captureOwnedProcessIdentity").mockImplementation(
+      async (pid) => {
+        child.controller.abort();
+        return capture(pid);
+      },
+    );
+    await expect(startOpenCodeService(child.options)).rejects.toThrow(
+      "startup was cancelled",
+    );
+    await assertStopped(child.pid());
+  });
+
+  it.each(["registration", "readiness"])(
+    "keeps %s failure and uncertain cleanup as separate causes",
+    async (origin) => {
+      const child = fixture();
+      const original = Object.freeze(
+        new OpenCodeServiceStartupError("registration failed"),
+      );
+      vi.spyOn(ownership, "terminateOwnedProcess").mockRejectedValue(
+        new Error("inspection unavailable"),
+      );
       await expect(
         startOpenCodeService({
-          workspace: process.cwd(),
-          signal: new AbortController().signal,
-          spawn: (() => child) as typeof import("node:child_process").spawn,
-          startupTimeoutMs: 1,
-        }),
-      ).rejects.toThrow("did not become ready");
-      expect(kill).toHaveBeenCalledWith(-ownedChildPid(child), "SIGTERM");
-    } finally {
-      kill.mockRestore();
-    }
-  });
-
-  it("keeps targeting the owned group until descendants exit after the leader", async () => {
-    const child = fakeChild();
-    let groupAlive = true;
-    const kill = vi.spyOn(process, "kill").mockImplementation(((
-      pid,
-      signal,
-    ) => {
-      if (pid !== -ownedChildPid(child)) {
-        throw new Error("unexpected process group");
-      }
-      if (signal === 0) {
-        if (groupAlive) return true;
-        throw Object.assign(new Error("gone"), { code: "ESRCH" });
-      }
-      if (signal === "SIGTERM") {
-        Object.assign(child, { exitCode: 0 });
-        child.emit("exit", 0, null);
-        return true;
-      }
-      if (signal === "SIGKILL") {
-        groupAlive = false;
-        return true;
-      }
-      throw new Error("unexpected signal");
-    }) as typeof process.kill);
-    const started = startOpenCodeService({
-      workspace: process.cwd(),
-      signal: new AbortController().signal,
-      spawn: (() => child) as typeof import("node:child_process").spawn,
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
-      shutdownTimeoutMs: 1,
-    });
-    child.stdout?.emit(
-      "data",
-      Buffer.from("opencode server listening on http://127.0.0.1:4173\n"),
-    );
-
-    try {
-      await (await started).close();
-
-      expect(kill).toHaveBeenCalledWith(-ownedChildPid(child), "SIGTERM");
-      expect(kill).toHaveBeenCalledWith(-ownedChildPid(child), "SIGKILL");
-      expect(
-        kill.mock.calls.every(([pid]) => pid === -ownedChildPid(child)),
-      ).toBe(true);
-    } finally {
-      kill.mockRestore();
-    }
-  });
-
-  it("preserves a startup failure when owned-process cleanup also fails", async () => {
-    const child = fakeChild();
-    const kill = vi.spyOn(process, "kill").mockImplementation(((
-      pid,
-      signal,
-    ) => {
-      if (pid !== -ownedChildPid(child))
-        throw new Error("unexpected process group");
-      if (signal === 0) return true;
-      throw Object.assign(new Error("permission denied"), { code: "EPERM" });
-    }) as typeof process.kill);
-    try {
-      await expect(
-        startOpenCodeService({
-          workspace: process.cwd(),
-          signal: new AbortController().signal,
-          spawn: (() => child) as typeof import("node:child_process").spawn,
-          startupTimeoutMs: 1,
+          ...child.options,
+          startupTimeoutMs: 200,
+          ...(origin === "registration"
+            ? {
+                onOwnedProcessAcquired: async () => {
+                  throw original;
+                },
+              }
+            : {
+                fetch: vi.fn(async () => new Response(null, { status: 503 })),
+              }),
         }),
       ).rejects.toMatchObject({
-        name: "OpenCodeServiceStartupError",
-        message: expect.stringContaining("did not become ready"),
-        cleanupFailure: expect.objectContaining({
-          cause: expect.objectContaining({
-            name: "OpenCodeServiceCleanupError",
-          }),
-        }),
+        cause:
+          origin === "registration"
+            ? original
+            : expect.objectContaining({
+                message: expect.stringContaining("did not become ready"),
+              }),
+        cleanupFailure: { cause: expect.any(Error) },
       });
-      expect(child.listenerCount("error")).toBeGreaterThan(0);
-      expect(child.stdout?.listenerCount("data")).toBeGreaterThan(0);
+      // Retain uncertainty until the fixture's known child handle cleans it up.
+      expect(() => process.kill(child.pid()!, 0)).not.toThrow();
+    },
+  );
+
+  it("kills a resistant leader and descendant, preserving foreign work", async () => {
+    const child = fixture(
+      undefined,
+      `const {spawn}=require('node:child_process');
+      process.on('SIGTERM',()=>{});
+      spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)"], {stdio:'ignore'});
+      process.stdout.write('opencode server listening on http://127.0.0.1:4173\\n');
+      setInterval(()=>{},1000);`,
+    );
+    // Keep the leader alive until readiness so its birth identity is captured.
+    const service = await startOpenCodeService(child.options);
+    const foreign = spawn(
+      process.execPath,
+      ["-e", "setInterval(()=>{},1000)"],
+      { stdio: "ignore" },
+    );
+    try {
+      await service.close();
+      await assertStopped(child.pid());
+      expect(foreign.pid).toBeDefined();
+      expect(() => process.kill(foreign.pid!, 0)).not.toThrow();
     } finally {
-      kill.mockRestore();
+      if (foreign.exitCode === null) {
+        const exited = new Promise<void>((resolve) =>
+          foreign.once("exit", () => resolve()),
+        );
+        foreign.kill("SIGKILL");
+        await exited;
+      }
+      await service.close();
+    }
+  });
+
+  it("fails a missing executable promptly", async () => {
+    const start = () => spawn("/seqlane-missing-opencode-fixture", []);
+    await expect(
+      startOpenCodeService({
+        workspace: process.cwd(),
+        signal: new AbortController().signal,
+        spawn: start,
+      }),
+    ).rejects.toMatchObject({
+      name: "OpenCodeServiceStartupError",
+      message: expect.stringContaining("executable is unavailable"),
+      cause: expect.any(Error),
+    });
+  });
+
+  it("keeps only the last 16 KiB of native output", async () => {
+    const child = fixture(
+      undefined,
+      "process.stdout.write('opencode server listening on http://127.0.0.1:4173\\n'); setTimeout(() => process.stderr.write('€'.repeat(11000)), 100); setInterval(() => {}, 1000);",
+    );
+    const service = await startOpenCodeService(child.options);
+    try {
+      await expect
+        .poll(() => service.diagnostics().includes("€"), { timeout: 2_000 })
+        .toBe(true);
+      expect(Buffer.byteLength(service.diagnostics())).toBeLessThanOrEqual(
+        16 * 1024,
+      );
+    } finally {
+      await service.close();
     }
   });
 });

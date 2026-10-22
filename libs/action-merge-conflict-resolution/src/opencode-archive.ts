@@ -2,7 +2,6 @@ import { Effect } from "effect";
 
 import {
   acquireOpenCodeChild,
-  waitForOpenCodeChildClose,
   type OpenCodeProcessState,
 } from "./opencode-process.js";
 
@@ -28,19 +27,15 @@ export function extractOpenCodeArchive(
         { ...command, cwd: directory, env: { PATH: process.env.PATH ?? "" } },
         state,
       );
-      yield* waitForOpenCodeChildClose(owned).pipe(
+      const exit = yield* owned.lifecycle.exit.pipe(
         Effect.timeout("60 seconds"),
       );
-      if (owned.child.exitCode !== 0) {
+      if (exit.code !== 0)
         return yield* Effect.fail(
           new Error("The OpenCode archive could not be extracted.", {
-            cause: {
-              exitCode: owned.child.exitCode,
-              signalCode: owned.child.signalCode,
-            },
+            cause: { exitCode: exit.code, signalCode: exit.signal },
           }),
         );
-      }
     }),
   ).pipe(
     Effect.andThen(

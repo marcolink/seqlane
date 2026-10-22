@@ -23,7 +23,7 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Native process services](./tasks/2026-10-22-effect-v4-optimize-process-services.md)
+[Native telemetry export](./tasks/2026-10-22-effect-v4-optimize-native-telemetry.md)
 is next in the sequential optimization follow-up. Each task links its prerequisite.
 The completed migration remains recorded in its original task outcomes.
 

@@ -80,26 +80,18 @@ describe.skipIf(process.platform === "win32")("Git process ownership", () => {
     ).rejects.toBe(cause);
   });
 
-  it("observes cancellation failure when identity capture rejects without a cause", async () => {
-    vi.spyOn(processOwnership, "captureOwnedProcessIdentity").mockRejectedValue(
-      undefined,
-    );
-    const terminate = vi.spyOn(processOwnership, "terminateOwnedProcess");
+  it("starts no child for a pre-cancelled command", async () => {
+    const capture = vi.spyOn(processOwnership, "captureOwnedProcessIdentity");
     const controller = new AbortController();
-    const onUncertain = vi.fn();
     controller.abort();
-
     await expect(
       runGitCommand({
         executable: process.execPath,
         args: ["-e", ""],
         cwd: process.cwd(),
         signal: controller.signal,
-        onUncertain,
       }),
-    ).rejects.toHaveProperty("cause", undefined);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(onUncertain).toHaveBeenCalledWith(undefined);
-    expect(terminate).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ exitCode: 1 });
+    expect(capture).not.toHaveBeenCalled();
   });
 });

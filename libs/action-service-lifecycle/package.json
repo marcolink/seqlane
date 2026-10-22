@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "effect": "4.0.5",
-    "zod": "4.6.6"
+    "zod": "4.6.6",
+    "@effect/platform-node": "4.0.5"
   }
 }

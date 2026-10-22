@@ -1,4 +1,6 @@
-import { spawn } from "node:child_process";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Effect, Stream } from "effect";
+import { ChildProcess } from "effect/process";
 import type { ProcessIdentity } from "@seqlane/action-service-lifecycle";
 import { z } from "zod";
 
@@ -40,82 +42,63 @@ class SocketCommandError extends Error {
   }
 }
 
-function stopCommand(child: ReturnType<typeof spawn>): void {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGTERM");
-}
-
-export function runSocketCommand(
+export async function runSocketCommand(
   command: string,
   args: string[],
   options: SocketCommandOptions,
 ): Promise<{ readonly stdout: string }> {
-  return new Promise((resolve, reject) => {
-    if (options.signal?.aborted) {
-      reject(new Error("Socket ownership command was interrupted"));
-      return;
-    }
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"] });
-    const chunks: Buffer[] = [];
-    let outputBytes = 0;
-    let interruption: Error | undefined;
-    let spawnError: Error | undefined;
-    let killTimer: NodeJS.Timeout | undefined;
-    let settled = false;
-
-    const stop = (error: Error) => {
-      if (interruption) return;
-      interruption = error;
-      stopCommand(child);
-      killTimer = setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) {
-          child.kill("SIGKILL");
-        }
-      }, 100);
-      killTimer.unref();
-    };
-    const onAbort = () =>
-      stop(new Error("Socket ownership command was interrupted"));
-    const timeout = setTimeout(
-      () => stop(new Error("Socket ownership command timed out")),
-      options.timeout,
-    );
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-    if (options.signal?.aborted) onAbort();
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      outputBytes += chunk.byteLength;
-      if (outputBytes > options.maxBuffer) {
-        stop(new Error("Socket ownership command output exceeded its limit"));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    child.on("error", (error: Error) => {
-      spawnError = error;
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      if (killTimer) clearTimeout(killTimer);
-      options.signal?.removeEventListener("abort", onAbort);
-      if (interruption) {
-        reject(interruption);
-      } else if (spawnError) {
-        reject(spawnError);
-      } else if (code !== 0) {
-        reject(
+  if (options.signal?.aborted)
+    throw new Error("Socket ownership command was interrupted");
+  const program = Effect.scoped(
+    Effect.gen(function* () {
+      const child = yield* ChildProcess.make(command, args, {
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "ignore",
+        forceKillAfter: "100 millis",
+      });
+      const chunks: Uint8Array[] = [];
+      let outputBytes = 0;
+      const output = Stream.runForEach(child.stdout, (chunk) =>
+        Effect.suspend(() => {
+          outputBytes += chunk.byteLength;
+          if (outputBytes > options.maxBuffer)
+            return Effect.fail(
+              new Error("Socket ownership command output exceeded its limit"),
+            );
+          chunks.push(chunk);
+          return Effect.void;
+        }),
+      );
+      const [code] = yield* Effect.all([child.exitCode, output], {
+        concurrency: "unbounded",
+      });
+      if (code !== 0)
+        return yield* Effect.fail(
           new SocketCommandError(
             `Socket ownership command exited with ${code}`,
-            code ?? undefined,
+            code,
           ),
         );
-      } else {
-        resolve({ stdout: Buffer.concat(chunks).toString("utf8") });
-      }
-    });
-  });
+      return { stdout: Buffer.concat(chunks).toString("utf8") };
+    }),
+  ).pipe(
+    Effect.timeout(options.timeout),
+    Effect.catchTag("TimeoutError", () =>
+      Effect.fail(new Error("Socket ownership command timed out")),
+    ),
+    Effect.provide(NodeServices.layer),
+  );
+  try {
+    return await Effect.runPromise(
+      program,
+      options.signal === undefined ? {} : { signal: options.signal },
+    );
+  } catch (cause) {
+    if (options.signal?.aborted)
+      throw new Error("Socket ownership command was interrupted", { cause });
+    throw cause;
+  }
 }
 
 export class ListenOwnershipError extends Error {

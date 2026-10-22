@@ -16,7 +16,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as ownership from "@seqlane/agent-adapter/private/owned-process";
 import { confirmOwnedProcessGroupStopped } from "@seqlane/agent-adapter/private/owned-process";
 
 import { NodeGitCli } from "./git-cli.js";
@@ -85,6 +86,32 @@ function createRebasePlanRepository(): {
 }
 
 describe("NodeGitCli", () => {
+  it.skipIf(process.platform === "win32")(
+    "keeps fast Git output when identity lookup finishes after exit",
+    async () => {
+      const root = createRepository();
+      const capture = ownership.captureOwnedProcessIdentity;
+      try {
+        writeFileSync(join(root, "tracked.txt"), "tracked\n");
+        commit(root, "tracked file");
+        vi.spyOn(ownership, "captureOwnedProcessIdentity").mockImplementation(
+          async (pid) => {
+            await expect
+              .poll(() => confirmOwnedProcessGroupStopped(pid))
+              .toBe(true);
+            return capture(pid);
+          },
+        );
+        assert.deepEqual(await new NodeGitCli(root).readTrackedPaths(), [
+          "tracked.txt",
+        ]);
+      } finally {
+        vi.restoreAllMocks();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it.skipIf(process.platform === "win32")(
     "drains a resistant Git process group before resolving cancellation",
     async () => {

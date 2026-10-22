@@ -14,6 +14,10 @@ the explicit handoff completes.
 each signal. It returns `false` when it cannot prove safe ownership or cleanup.
 It ignores process groups with only zombie or exited members.
 
+The resident uses native Effect child processes for its service and sentinel.
+They inherit the anchor's process group. The parent retains Node IPC for the
+validated adoption handshake and main-to-post ownership transfer.
+
 The package exports `./process-anchor.js` as a self-contained Node 24 resident
 asset. Each Action imports that declared export from its resident entrypoint.
 The atomic Action build bundles main, post, and resident together. Each Action's
