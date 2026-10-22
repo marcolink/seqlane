@@ -23,7 +23,7 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Transactional admission](./tasks/2026-10-22-effect-v4-optimize-transactional-admission.md)
+[Native process services](./tasks/2026-10-22-effect-v4-optimize-process-services.md)
 is next in the sequential optimization follow-up. Each task links its prerequisite.
 The completed migration remains recorded in its original task outcomes.
 

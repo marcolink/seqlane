@@ -1,9 +1,14 @@
 // @test-scope ./joint-admission.ts
+// @test-scope ./joint-admission-policy.ts
+// @test-scope ./transactional-admission.ts
 // @test-scope ../session/session-lock.ts
 // @test-scope ../workspace/workspace-lock.ts
 import { describe, expect, it } from "vitest";
 import { Effect, Fiber } from "effect";
-import { SessionLockRegistry } from "../session/session-lock.js";
+import {
+  QuarantinedSessionError,
+  SessionLockRegistry,
+} from "../session/session-lock.js";
 import {
   QuarantinedWorkspaceError,
   WorkspaceLockRegistry,
@@ -328,6 +333,49 @@ describe("joint admission", () => {
     admission.sessionLease?.release();
     admission.workspaceLease.release();
   });
+
+  it.each(["session", "workspace"])(
+    "a group with quarantined %s cannot reserve another workspace",
+    async (quarantined) => {
+      const sessionLocks = new SessionLockRegistry();
+      const workspaceLocks = new WorkspaceLockRegistry();
+      const admissions = new JointAdmissionRegistry(
+        workspaceLocks,
+        sessionLocks,
+      );
+      const second = { key: "/group-second" };
+      const active = await Effect.runPromise(
+        workspaceLocks.acquireEffect(second, "exclusive"),
+      );
+      let notifyWaiting!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        notifyWaiting = resolve;
+      });
+      const group = admissions
+        .acquire({
+          ...request("group", 1),
+          workspaceResources: [workspace, second],
+          onWorkspaceWaiting: notifyWaiting,
+        })
+        .catch((cause: unknown) => cause);
+      await waiting;
+      const cause = new Error("unconfirmed termination");
+      if (quarantined === "session") sessionLocks.quarantine(session, cause);
+      else workspaceLocks.quarantine(second, cause);
+      const independent = await admissions.acquire({
+        ...request("independent", 2),
+        session: undefined,
+      });
+      independent.workspaceLease.release();
+      active.release();
+      expect(await group).toBeInstanceOf(
+        quarantined === "session"
+          ? QuarantinedSessionError
+          : QuarantinedWorkspaceError,
+      );
+      expect(workspaceLocks.isAvailable(workspace, "exclusive")).toBe(true);
+    },
+  );
 
   it("gives an earlier exclusive request priority over a later shared request", async () => {
     const sessionLocks = new SessionLockRegistry();

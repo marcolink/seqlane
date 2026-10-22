@@ -1,4 +1,13 @@
-import { Cause, Deferred, Effect, Exit, Option, Queue, Scope } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Latch,
+  Option,
+  Queue,
+  Scope,
+} from "effect";
 import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
 import { z } from "zod";
 
@@ -107,7 +116,7 @@ interface State {
   capacityWaitsTotal: number;
   overflowsTotal: number;
   outstanding: number;
-  idle: Deferred.Deferred<void>;
+  readonly idle: Latch.Latch;
   readonly capacityWaiters: CapacityWaiter[];
   failure: { readonly cause: unknown } | undefined;
   transportFailed: boolean;
@@ -190,7 +199,7 @@ function createAdmission(
       state.pendingBytes,
     );
     state.outstanding += 1;
-    if (state.outstanding === 1) state.idle = Deferred.makeUnsafe<void>();
+    if (state.outstanding === 1) state.idle.closeUnsafe();
     enqueueReserved(entry, onAdmitted);
     return undefined;
   };
@@ -204,7 +213,7 @@ function createAdmission(
     if (state.storageReleased) return;
     state.pendingBytes -= bytes;
     state.outstanding -= 1;
-    if (state.outstanding === 0) succeedDeferred(state.idle);
+    if (state.outstanding === 0) state.idle.openUnsafe();
     wakeWaiters();
   };
 
@@ -225,7 +234,7 @@ function createAdmission(
         state.pendingBytes,
       );
       state.outstanding += 1;
-      if (state.outstanding === 1) state.idle = Deferred.makeUnsafe<void>();
+      if (state.outstanding === 1) state.idle.closeUnsafe();
       succeedDeferred(waiter.ready);
     }
   };
@@ -368,7 +377,7 @@ function createAdmission(
       state.storageReleased = true;
       state.pendingBytes = 0;
       state.outstanding = 0;
-      succeedDeferred(state.idle);
+      state.idle.openUnsafe();
       Queue.shutdownUnsafe(messages);
     },
   };
@@ -414,15 +423,13 @@ export function createByteBoundedEventQueue(
 
   return Effect.gen(function* () {
     const messages = yield* Queue.unbounded<Message>();
-    const initialIdle = yield* Deferred.make<void>();
-    succeedDeferred(initialIdle);
     const state: State = {
       pendingBytes: 0,
       pendingBytesPeak: 0,
       capacityWaitsTotal: 0,
       overflowsTotal: 0,
       outstanding: 0,
-      idle: initialIdle,
+      idle: Latch.makeUnsafe(true),
       capacityWaiters: [],
       failure: undefined,
       transportFailed: false,
@@ -460,15 +467,14 @@ export function createByteBoundedEventQueue(
       },
       flush() {
         return Effect.gen(function* () {
-          const idle = state.idle;
-          yield* Deferred.await(idle);
+          yield* state.idle.await;
           const failure = errorFromFailure(state.failure);
           if (failure !== undefined) return yield* Effect.fail(failure);
         });
       },
       settle() {
         return Effect.gen(function* () {
-          yield* Deferred.await(state.idle);
+          yield* state.idle.await;
           return state.failure === undefined
             ? Option.none()
             : Option.some(new EventQueueDeliveryError(state.failure.cause));
@@ -508,12 +514,9 @@ export function createByteBoundedEventQueue(
       },
       close() {
         return Effect.gen(function* () {
-          const idle = yield* Effect.sync(() => {
-            admission.seal();
-            return state.idle;
-          });
+          yield* Effect.sync(admission.seal);
           const outcome = yield* Effect.result(
-            Deferred.await(idle).pipe(
+            state.idle.await.pipe(
               Effect.timeoutOption(`${sendTimeoutMs} millis`),
             ),
           );

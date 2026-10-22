@@ -129,6 +129,12 @@ network, MCP, skill, or custom-tool access.
 The native Effect Plan compiler uses atomic session and workspace admission
 for every task, including top-level Plan tasks. Waiting tasks retain neither
 resource, and workspace eligibility does not consume a task-body permit.
+Immutable `TxRef` values hold private admission state. One transaction checks
+and acquires every workspace and session. Native transactional retry wakes
+blocked fibers. Scope cleanup removes cancelled demand and undelivered leases.
+Waiting observations run outside transactions. Existing synchronous lease
+callbacks evaluate only pure admission transactions.
+
 Seqlane holds its leases through executor requests, tracked children, processes,
 cancellation, and cleanup. Eligible waiters follow invocation creation order.
 A workspace waiter does not reserve its session against eligible work in another

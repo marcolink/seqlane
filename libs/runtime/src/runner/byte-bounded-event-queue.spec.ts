@@ -108,6 +108,51 @@ describe("byte-bounded execution event queue", () => {
     );
   });
 
+  it("waits for acknowledgements again after each idle cycle", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const acknowledgements = [
+            Deferred.makeUnsafe<void>(),
+            Deferred.makeUnsafe<void>(),
+          ];
+          const started = [
+            Deferred.makeUnsafe<void>(),
+            Deferred.makeUnsafe<void>(),
+          ];
+          const queue = yield* createByteBoundedEventQueue({
+            maxPendingBytes: 4,
+            send: (value) =>
+              Effect.gen(function* () {
+                const index = value.metadata.sequence - 1;
+                yield* Deferred.succeed(started[index]!, undefined);
+                yield* Deferred.await(acknowledgements[index]!);
+              }),
+          });
+          for (const index of [0, 1]) {
+            queue.offerCallback(event(index + 1), 4);
+            yield* Deferred.await(started[index]!);
+            let flushed = false;
+            const flush = yield* Effect.forkChild(
+              queue.flush().pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => {
+                    flushed = true;
+                  }),
+                ),
+              ),
+            );
+            yield* Effect.yieldNow;
+            expect(flushed).toBe(false);
+            yield* Deferred.succeed(acknowledgements[index]!, undefined);
+            yield* Fiber.join(flush);
+            expect(flushed).toBe(true);
+          }
+        }),
+      ),
+    );
+  });
+
   it("notifies once on callback overflow and keeps the first failure", async () => {
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => {

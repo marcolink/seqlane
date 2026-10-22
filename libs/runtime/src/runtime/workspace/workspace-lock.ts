@@ -1,10 +1,13 @@
-import { Deferred, Effect, Exit, Option } from "effect";
+import { Effect, TxRef } from "effect";
 import type { WorkspacePolicy } from "@seqlane/core";
 import type { WorkspaceResource } from "./workspace-resource.js";
-import { awaitAbort } from "../execution/await-abort.js";
+import {
+  acquireTransactional,
+  admissionSync,
+  type AdmissionDecision,
+} from "../invocation/transactional-admission.js";
 
 export type WorkspaceAdmission = WorkspacePolicy;
-
 export interface WorkspaceLockLease {
   release(): void;
 }
@@ -16,38 +19,72 @@ export class QuarantinedWorkspaceError extends Error {
   }
 }
 
-interface WaitingWorkspaceLock {
+export interface WorkspaceClaim {
+  readonly token: symbol;
   readonly policy: WorkspaceAdmission;
   readonly creationOrdinal: number;
-  readonly invocationId: string;
   readonly ownerId: string;
   readonly ownerAncestors: readonly string[];
-  readonly changed: Deferred.Deferred<WorkspaceLockLease, unknown>;
 }
 
-interface WorkspaceLockState {
-  readonly holders: Map<
-    string,
-    {
-      readonly policy: WorkspaceAdmission;
-      readonly ancestors: readonly string[];
-      depth: number;
-    }
-  >;
-  quarantined: QuarantinedWorkspaceError | undefined;
-  readonly waiting: WaitingWorkspaceLock[];
+export interface WorkspaceLockState {
+  readonly holders: ReadonlyMap<symbol, WorkspaceClaim>;
+  readonly quarantined?: QuarantinedWorkspaceError;
+  readonly waiting: readonly WorkspaceClaim[];
 }
 
-/** Private workspace admission primitive with a creation-ordered Effect queue. */
+export function workspaceAvailable(
+  state: WorkspaceLockState | undefined,
+  policy: WorkspaceAdmission,
+  ownerId = "",
+  ownerAncestors: readonly string[] = [],
+): boolean {
+  if (state?.quarantined !== undefined) throw state.quarantined;
+  return [...(state?.holders.values() ?? [])].every(
+    (holder) =>
+      holder.ownerId === ownerId ||
+      ownerAncestors.includes(holder.ownerId) ||
+      holder.ownerAncestors.includes(ownerId) ||
+      (policy === "shared" && holder.policy === "shared"),
+  );
+}
+
+export function workspaceTurn(
+  state: WorkspaceLockState | undefined,
+  claim: WorkspaceClaim,
+  waiting: readonly WorkspaceClaim[],
+): boolean {
+  const ancestorReservation = [...(state?.holders.values() ?? [])].some(
+    (holder) => claim.ownerAncestors.includes(holder.ownerId),
+  );
+  const ownIndex = waiting.findIndex((waiter) => waiter.token === claim.token);
+  return !waiting.some(
+    (waiter, index) =>
+      waiter.token !== claim.token &&
+      (waiter.creationOrdinal < claim.creationOrdinal ||
+        (waiter.creationOrdinal === claim.creationOrdinal &&
+          ownIndex >= 0 &&
+          index < ownIndex)) &&
+      (claim.policy === "exclusive" || waiter.policy === "exclusive") &&
+      (!ancestorReservation ||
+        waiter.ownerAncestors.at(-1) === claim.ownerAncestors.at(-1)),
+  );
+}
+
+export function blockingInvocationId(
+  state: WorkspaceLockState | undefined,
+): string | undefined {
+  const holders = [...(state?.holders.values() ?? [])];
+  return (holders.find((holder) => holder.policy === "exclusive") ?? holders[0])
+    ?.ownerId;
+}
+
+/** Immutable ownership and demand; native transactions provide waiting and wakeup. */
 export class WorkspaceLockRegistry {
-  readonly #locks = new Map<string, WorkspaceLockState>();
-  readonly #changeListeners = new Set<() => void>();
+  readonly state = TxRef.makeUnsafe<ReadonlyMap<string, WorkspaceLockState>>(
+    new Map(),
+  );
   #nextAnonymousInvocation = 0;
-
-  onChange(listener: () => void): () => void {
-    this.#changeListeners.add(listener);
-    return () => this.#changeListeners.delete(listener);
-  }
 
   acquireEffect(
     resource: WorkspaceResource,
@@ -60,97 +97,54 @@ export class WorkspaceLockRegistry {
     signal?: AbortSignal,
   ): Effect.Effect<WorkspaceLockLease, unknown> {
     return Effect.suspend(() => {
-      const holderId =
-        invocationId ?? `anonymous:${this.#nextAnonymousInvocation++}`;
-      const owner = ownerId ?? holderId;
-      const state =
-        this.#locks.get(resource.key) ?? this.#createState(resource);
-      if (state.quarantined !== undefined)
-        return Effect.fail(state.quarantined);
-      if (signal?.aborted)
-        return Effect.fail(
-          signal.reason ?? new Error("Workspace admission cancelled"),
-        );
-      const ancestorAdmission = this.#hasAncestorHolder(state, ownerAncestors);
-      const queuedAhead = state.waiting.length > 0;
-      if (
-        this.#isAvailable(state, policy, owner, ownerAncestors) &&
-        (ancestorAdmission || !queuedAhead)
-      )
-        return Effect.succeed(
-          this.#createLease(resource.key, state, policy, owner, ownerAncestors),
-        );
-
-      onWaiting?.(this.#blockingInvocationId(state));
-      const waiting: WaitingWorkspaceLock = {
+      const token = Symbol();
+      const claim: WorkspaceClaim = {
+        token,
         policy,
         creationOrdinal,
-        invocationId: holderId,
-        ownerId: owner,
+        ownerId:
+          ownerId ??
+          invocationId ??
+          `anonymous:${this.#nextAnonymousInvocation++}`,
         ownerAncestors,
-        changed: Deferred.makeUnsafe<WorkspaceLockLease, unknown>(),
       };
-      state.waiting.push(waiting);
-      state.waiting.sort(
-        (first, second) => first.creationOrdinal - second.creationOrdinal,
-      );
-      return Effect.onExit(
-        signal === undefined
-          ? Deferred.await(waiting.changed)
-          : Effect.raceFirst(
-              Deferred.await(waiting.changed),
-              awaitAbort(signal, "Workspace admission cancelled"),
+      return acquireTransactional({
+        signal,
+        register: TxRef.update(this.state, (states) => {
+          const state: WorkspaceLockState = states.get(resource.key) ?? {
+            holders: new Map(),
+            waiting: [],
+          };
+          return new Map(states).set(resource.key, {
+            ...state,
+            waiting: [...state.waiting, claim].sort(
+              (a, b) => a.creationOrdinal - b.creationOrdinal,
             ),
-        (exit) =>
-          Effect.sync(() =>
-            this.#removeWaiting(resource.key, state, waiting),
-          ).pipe(
-            Effect.andThen(
-              Exit.isFailure(exit)
-                ? Effect.flatMap(Deferred.poll(waiting.changed), (completed) =>
-                    Option.match(completed, {
-                      onNone: () => Effect.void,
-                      onSome: (handoffEffect) =>
-                        Effect.result(handoffEffect).pipe(
-                          Effect.flatMap((handoff) =>
-                            handoff._tag === "Success"
-                              ? Effect.sync(() => handoff.success.release())
-                              : Effect.void,
-                          ),
-                        ),
-                    }),
-                  )
-                : Effect.void,
-            ),
-          ),
-      );
+          });
+        }),
+        attempt: Effect.gen({ self: this }, function* () {
+          const state = (yield* TxRef.get(this.state)).get(resource.key);
+          if (state?.quarantined !== undefined)
+            return yield* Effect.fail(state.quarantined);
+          if (
+            !workspaceAvailable(state, policy, claim.ownerId, ownerAncestors) ||
+            !workspaceTurn(state, claim, state?.waiting ?? [])
+          ) {
+            const blocking = blockingInvocationId(state);
+            return {
+              _tag: "Waiting",
+              reason: `workspace:${blocking ?? ""}`,
+              notify: () => onWaiting?.(blocking),
+            } satisfies AdmissionDecision<WorkspaceLockLease>;
+          }
+          return {
+            _tag: "Acquired",
+            lease: yield* this.take(resource, claim),
+          } satisfies AdmissionDecision<WorkspaceLockLease>;
+        }),
+        cleanup: (failed) => this.remove(resource.key, token, failed),
+      });
     });
-  }
-
-  tryAcquire(
-    resource: WorkspaceResource,
-    policy: WorkspaceAdmission,
-    onWaiting?: (blockingInvocationId: string | undefined) => void,
-    invocationId?: string,
-    ownerId?: string,
-    ownerAncestors: readonly string[] = [],
-  ): WorkspaceLockLease | undefined {
-    const holderId =
-      invocationId ?? `anonymous:${this.#nextAnonymousInvocation++}`;
-    const owner = ownerId ?? holderId;
-    const state = this.#locks.get(resource.key) ?? this.#createState(resource);
-    if (state.quarantined !== undefined) throw state.quarantined;
-    if (!this.#isAvailable(state, policy, owner, ownerAncestors)) {
-      onWaiting?.(this.#blockingInvocationId(state));
-      return undefined;
-    }
-    return this.#createLease(
-      resource.key,
-      state,
-      policy,
-      owner,
-      ownerAncestors,
-    );
   }
 
   isAvailable(
@@ -159,218 +153,79 @@ export class WorkspaceLockRegistry {
     ownerId?: string,
     ownerAncestors: readonly string[] = [],
   ): boolean {
-    const state = this.#locks.get(resource.key);
-    if (state?.quarantined !== undefined) throw state.quarantined;
-    return (
-      state === undefined ||
-      this.#isAvailable(state, policy, ownerId ?? "", ownerAncestors)
+    return admissionSync(
+      TxRef.get(this.state).pipe(
+        Effect.map((states) =>
+          workspaceAvailable(
+            states.get(resource.key),
+            policy,
+            ownerId,
+            ownerAncestors,
+          ),
+        ),
+      ),
     );
   }
 
-  canEffectWaiterProceed(
+  /** Compose with all resource checks inside one joint transaction. */
+  take(
     resource: WorkspaceResource,
-    policy: WorkspaceAdmission,
-    ordinal: number,
-    ownerAncestors: readonly string[],
-    waiting: readonly {
-      readonly policy: WorkspaceAdmission;
-      readonly creationOrdinal: number;
-      readonly ownerAncestors?: readonly string[];
-    }[],
-  ): boolean {
-    const state = this.#locks.get(resource.key);
-    if (state?.quarantined !== undefined) throw state.quarantined;
-    const parentOwner = ownerAncestors.at(-1);
-    const hasAncestorReservation = this.#hasAncestorHolder(
-      state,
-      ownerAncestors,
+    claim: WorkspaceClaim,
+  ): Effect.Effect<WorkspaceLockLease> {
+    return TxRef.update(this.state, (states) => {
+      const state: WorkspaceLockState = states.get(resource.key) ?? {
+        holders: new Map(),
+        waiting: [],
+      };
+      return new Map(states).set(resource.key, {
+        ...state,
+        holders: new Map(state.holders).set(claim.token, claim),
+      });
+    }).pipe(
+      Effect.as({
+        release: () =>
+          admissionSync(this.remove(resource.key, claim.token, true)),
+      }),
     );
-    const result = !waiting.some(
-      (waiter) =>
-        waiter.creationOrdinal < ordinal &&
-        (policy === "exclusive" || waiter.policy === "exclusive") &&
-        (!hasAncestorReservation ||
-          waiter.ownerAncestors?.at(-1) === parentOwner),
-    );
-    return result;
-  }
-
-  blockingInvocationId(resource: WorkspaceResource): string | undefined {
-    const state = this.#locks.get(resource.key);
-    return state === undefined ? undefined : this.#blockingInvocationId(state);
   }
 
   quarantine(resource: WorkspaceResource, cause: unknown): void {
-    const state = this.#locks.get(resource.key) ?? this.#createState(resource);
-    if (state.quarantined !== undefined) return;
-    const error = new QuarantinedWorkspaceError(cause);
-    state.quarantined = error;
-    for (const waiting of state.waiting.splice(0)) {
-      Deferred.doneUnsafe(waiting.changed, Effect.fail(error));
-    }
-    this.#notifyChange();
-  }
-
-  #createState(resource: WorkspaceResource): WorkspaceLockState {
-    const state: WorkspaceLockState = {
-      holders: new Map(),
-      quarantined: undefined,
-      waiting: [],
-    };
-    this.#locks.set(resource.key, state);
-    return state;
-  }
-
-  #createLease(
-    resourceKey: string,
-    state: WorkspaceLockState,
-    policy: WorkspaceAdmission,
-    invocationId: string,
-    ownerAncestors: readonly string[] = [],
-  ): WorkspaceLockLease {
-    const existing = state.holders.get(invocationId);
-    if (existing !== undefined) existing.depth += 1;
-    else
-      state.holders.set(invocationId, {
-        policy,
-        ancestors: ownerAncestors,
-        depth: 1,
-      });
-    let released = false;
-    return {
-      release: () => {
-        if (released) return;
-        released = true;
-        this.#release(resourceKey, state, invocationId);
-      },
-    };
-  }
-
-  #release(
-    resourceKey: string,
-    state: WorkspaceLockState,
-    invocationId: string,
-  ): void {
-    if (state.quarantined !== undefined) {
-      this.#notifyChange();
-      return;
-    }
-    const holder = state.holders.get(invocationId);
-    if (holder !== undefined) {
-      holder.depth -= 1;
-      if (holder.depth <= 0) state.holders.delete(invocationId);
-    }
-    this.#grantWaiting(resourceKey, state);
-    if (state.holders.size === 0 && state.waiting.length === 0) {
-      this.#locks.delete(resourceKey);
-    }
-    this.#notifyChange();
-  }
-
-  #removeWaiting(
-    resourceKey: string,
-    state: WorkspaceLockState,
-    waiting: WaitingWorkspaceLock,
-  ): void {
-    const index = state.waiting.indexOf(waiting);
-    if (index === -1) return;
-    state.waiting.splice(index, 1);
-    this.#grantWaiting(resourceKey, state);
-    this.#notifyChange();
-  }
-
-  #grantWaiting(resourceKey: string, state: WorkspaceLockState): void {
-    if (state.quarantined !== undefined) return;
-    const ancestorWaiter = state.waiting.find((waiting) =>
-      this.#hasAncestorHolder(state, waiting.ownerAncestors),
+    admissionSync(
+      TxRef.update(this.state, (states) => {
+        const state: WorkspaceLockState = states.get(resource.key) ?? {
+          holders: new Map(),
+          waiting: [],
+        };
+        return state.quarantined === undefined
+          ? new Map(states).set(resource.key, {
+              ...state,
+              quarantined: new QuarantinedWorkspaceError(cause),
+            })
+          : states;
+      }),
     );
-    const first = ancestorWaiter ?? state.waiting[0];
-    if (first === undefined) return;
-    if (
-      !this.#isAvailable(
-        state,
-        first.policy,
-        first.ownerId,
-        first.ownerAncestors,
-      )
-    )
-      return;
-    if (first.policy === "exclusive") {
-      state.waiting.splice(state.waiting.indexOf(first), 1);
-      const lease = this.#createLease(
-        resourceKey,
-        state,
-        "exclusive",
-        first.ownerId,
-        first.ownerAncestors,
-      );
-      Deferred.doneUnsafe(first.changed, Effect.succeed(lease));
-      return;
-    }
-    const firstWriterIndex = state.waiting.findIndex(
-      (waiting) => waiting.policy === "exclusive",
-    );
-    const sharedWaiters = state.waiting.filter(
-      (waiting, index) =>
-        waiting.policy === "shared" &&
-        (firstWriterIndex === -1 ||
-          index < firstWriterIndex ||
-          this.#hasAncestorHolder(state, waiting.ownerAncestors)) &&
-        this.#isAvailable(
-          state,
-          "shared",
-          waiting.ownerId,
-          waiting.ownerAncestors,
-        ),
-    );
-    for (const reader of sharedWaiters) {
-      state.waiting.splice(state.waiting.indexOf(reader), 1);
-      const lease = this.#createLease(
-        resourceKey,
-        state,
-        "shared",
-        reader.ownerId,
-        reader.ownerAncestors,
-      );
-      Deferred.doneUnsafe(reader.changed, Effect.succeed(lease));
-    }
   }
 
-  #isAvailable(
-    state: WorkspaceLockState,
-    policy: WorkspaceAdmission,
-    ownerId: string,
-    ownerAncestors: readonly string[],
-  ): boolean {
-    return [...state.holders.entries()].every(([holderId, holder]) => {
+  remove(key: string, token: symbol, release: boolean): Effect.Effect<void> {
+    return TxRef.update(this.state, (states) => {
+      const state = states.get(key);
+      if (state === undefined) return states;
+      const holders = new Map(state.holders);
+      if (release && state.quarantined === undefined) holders.delete(token);
+      const next = {
+        ...state,
+        holders,
+        waiting: state.waiting.filter((waiter) => waiter.token !== token),
+      };
+      const updated = new Map(states);
       if (
-        holderId === ownerId ||
-        ownerAncestors.includes(holderId) ||
-        holder.ancestors.includes(ownerId)
+        next.holders.size === 0 &&
+        next.waiting.length === 0 &&
+        next.quarantined === undefined
       )
-        return true;
-      return policy === "shared" && holder.policy === "shared";
+        updated.delete(key);
+      else updated.set(key, next);
+      return updated;
     });
-  }
-
-  #blockingInvocationId(state: WorkspaceLockState): string | undefined {
-    const writer = [...state.holders].find(
-      ([, holder]) => holder.policy === "exclusive",
-    )?.[0];
-    return writer ?? state.holders.keys().next().value;
-  }
-
-  #hasAncestorHolder(
-    state: WorkspaceLockState | undefined,
-    ownerAncestors: readonly string[],
-  ): boolean {
-    if (state === undefined) return false;
-    return [...state.holders.keys()].some((holderId) =>
-      ownerAncestors.includes(holderId),
-    );
-  }
-
-  #notifyChange(): void {
-    for (const listener of this.#changeListeners) listener();
   }
 }

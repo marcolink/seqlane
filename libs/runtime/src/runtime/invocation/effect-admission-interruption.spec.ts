@@ -50,6 +50,97 @@ const resolvedSession: ResolvedExecutorSession = {
 };
 
 describe("Effect admission interruption", () => {
+  it.each(["blocked", "release handoff"])(
+    "removes a cancelled task at %s before the next joint admission",
+    async (phase) => {
+      const firstStarted = barrier();
+      const releaseFirst = barrier();
+      const cancelledWaiting = barrier();
+      const executed: string[] = [];
+      let modelCalls = 0;
+      const definition = defineTask({
+        id: "transactional-local-task",
+        input: z.string(),
+        output: z.string(),
+        execute: async ({ input }) => {
+          executed.push(input);
+          if (input === "first") {
+            firstStarted.resolve();
+            await releaseFirst.promise;
+          }
+          return input;
+        },
+      });
+      const workspace = { key: "/transactional-task" };
+      const context = createExecutionContext({
+        workId: "work",
+        runId: "run",
+        createInvocationId: (nodeId) => nodeId,
+        workflowInput: undefined,
+        executors: new Map(),
+        taskDefinitions: new Map([[definition.id, definition]]),
+        workspaceResources: new Map([[definition.id, workspace]]),
+        events: {
+          emit: (event) => {
+            if (
+              event.type === "invocation.progress" &&
+              event.invocationId === "cancelled" &&
+              event.state === "waiting"
+            )
+              cancelledWaiting.resolve();
+          },
+        },
+      });
+      const session: ResolvedExecutorSession = {
+        key: Symbol(),
+        executor: {
+          execute: async () => {
+            modelCalls++;
+            return {};
+          },
+        },
+      };
+      for (const id of ["first", "cancelled", "next"])
+        context.resolvedSessions.set(id, session);
+      const run = (id: string) =>
+        executeTaskNodeEffect(
+          context,
+          {
+            type: "task",
+            taskId: definition.id,
+            nodeId: id,
+            workspace: "exclusive",
+            input: id,
+            dependsOn: [],
+          },
+          new AbortController().signal,
+          {
+            invocationId: id,
+            results: context.results,
+            remainingConsumers: context.remainingConsumers,
+            subject: { type: "task", taskId: definition.id },
+          },
+          (effect) => effect,
+        );
+      const first = Effect.runPromise(run("first"));
+      await firstStarted.promise;
+      const cancelled = Effect.runFork(run("cancelled"));
+      await cancelledWaiting.promise;
+      if (phase === "release handoff") releaseFirst.resolve();
+      await Effect.runPromise(Fiber.interrupt(cancelled));
+      const next = Effect.runPromise(run("next"));
+      releaseFirst.resolve();
+      await expect(first).resolves.toBe("first");
+      await expect(next).resolves.toBe("next");
+      expect(executed).toEqual(["first", "next"]);
+      expect(modelCalls).toBe(0);
+      expect(context.sessionLocks.isAvailable(session)).toBe(true);
+      expect(context.workspaceLocks.isAvailable(workspace, "exclusive")).toBe(
+        true,
+      );
+    },
+  );
+
   it("settles a fiber-interrupted session waiter before the held lease releases", async () => {
     const locks = new SessionLockRegistry();
     const active = await Effect.runPromise(
