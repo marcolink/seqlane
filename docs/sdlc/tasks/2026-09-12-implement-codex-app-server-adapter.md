@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-12
-updated: 2026-09-14
+updated: 2026-10-22
 upstream:
   - spec.codex-app-server-adapter
 supersedes: []
@@ -38,6 +38,7 @@ Implement one private `AgentAdapter` that maps run-scoped Codex threads and turn
 - Map model selection, task schema, terminal output, activity, metrics, and errors.
 - Interrupt active turns on cancellation or interaction requests.
 - Report uncertain activity when termination cannot be confirmed.
+- Separate activity retention limits from turn failure, with an explicit truncation notice.
 
 ## Out of scope
 
@@ -86,7 +87,19 @@ payloads and prompts, request deadlines, cancellation, bounded shutdown, and
 typed non-interactive server-request failure. Runtime registration is delivered
 by the dependent integration task.
 
+The 2026-10-22 correction raises the activity budget from 1,024 to 65,536
+events, separate from completed-item limits. At the event or byte limit, the
+adapter clears activity records and emits one explicit truncation notice.
+The turn continues to its final result. Local verification passed all 69 Codex
+tests, package build, source and test typechecks, lint, formatting, SDLC checks,
+and the public documentation build. Tests cover mixed activity, both truncation
+limits, and message limits, deadline cancellation, and approval requests after
+truncation.
+
 ## Delivery state
+
+The 2026-10-22 activity-limit correction is locally verified on this branch.
+Target-branch delivery and release remain pending.
 
 The adapter and runtime registration are present on the target branch through
 [pull request #110](https://github.com/marcolink/seqlane/pull/110). Live protocol

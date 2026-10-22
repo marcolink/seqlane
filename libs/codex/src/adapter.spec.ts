@@ -1,5 +1,7 @@
 // @test-scope ./adapter.ts
 // @test-scope ./protocol.ts
+// @test-scope ./turn-tracker.ts
+// @test-scope ./activity.ts
 import type {
   AgentAdapterRequest,
   AgentActivity,
@@ -8,6 +10,7 @@ import type { ModelSelection, TaskDefinition } from "@seqlane/core";
 import { InteractionRequiredError } from "@seqlane/core";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { MAX_TURN_ACTIVITY_EVENTS, MAX_TURN_ITEM_BYTES } from "./activity.js";
 import {
   createCodexAdapter,
   createCodexAdapterForTransport,
@@ -65,6 +68,7 @@ class FakeTransport implements CodexTransport {
   failedTurnMessage: string | undefined;
   emitBeforeTurnResponse = false;
   emitMultipleAgentMessages = false;
+  agentMessageDeltas = ['{"result":"done"}'];
   delayTurnStart = false;
   failInterrupt = false;
   private pendingTurnStart?: () => void;
@@ -153,18 +157,20 @@ class FakeTransport implements CodexTransport {
             },
           },
         });
-        this.emit({
-          kind: "notification",
-          notification: {
-            method: "item/agentMessage/delta",
-            params: {
-              threadId: threadId.threadId,
-              turnId,
-              itemId: `item-${turnId}`,
-              delta: '{"result":"done"}',
+        for (const delta of this.agentMessageDeltas) {
+          this.emit({
+            kind: "notification",
+            notification: {
+              method: "item/agentMessage/delta",
+              params: {
+                threadId: threadId.threadId,
+                turnId,
+                itemId: `item-${turnId}`,
+                delta,
+              },
             },
-          },
-        });
+          });
+        }
         if (this.emitMultipleAgentMessages) {
           this.emit({
             kind: "notification",
@@ -414,6 +420,84 @@ describe("Codex AgentAdapter", () => {
     });
   });
 
+  it.each([2_048, MAX_TURN_ACTIVITY_EVENTS + 100])(
+    "returns the final result after %i fragments mixed with tool activity",
+    async (fragmentCount) => {
+      const transport = new FakeTransport();
+      transport.agentMessageDeltas = [
+        ..." ".repeat(fragmentCount),
+        '{"result":"done"}',
+      ];
+      const activities: AgentActivity[] = [];
+      const adapter = createCodexAdapterForTransport(transport, configuration, {
+        modelSelection: selection,
+      });
+
+      await expect(
+        adapter.execute(
+          request({ onActivity: (activity) => activities.push(activity) }),
+        ),
+      ).resolves.toEqual({ result: "done" });
+      const eventCount = fragmentCount + 3;
+      expect(activities).toHaveLength(
+        Math.min(eventCount, MAX_TURN_ACTIVITY_EVENTS + 1),
+      );
+      expect(activities.at(-1)?.metadata).toEqual(
+        eventCount > MAX_TURN_ACTIVITY_EVENTS ? { truncated: true } : undefined,
+      );
+      expect(
+        transport.requests.some(({ method }) => method === "turn/interrupt"),
+      ).toBe(false);
+    },
+  );
+
+  it.each([0, MAX_TURN_ACTIVITY_EVENTS + 100])(
+    "rejects oversized message text after %i small fragments",
+    async (fragmentCount) => {
+      const transport = new FakeTransport();
+      transport.agentMessageDeltas = [
+        ..." ".repeat(fragmentCount),
+        "a".repeat(MAX_TURN_ITEM_BYTES + 1),
+      ];
+      const adapter = createCodexAdapterForTransport(transport, configuration, {
+        modelSelection: selection,
+      });
+
+      await expect(adapter.execute(request())).rejects.toMatchObject({
+        code: "limit",
+      });
+      expect(
+        transport.requests.some(({ method }) => method === "turn/interrupt"),
+      ).toBe(true);
+    },
+  );
+
+  it("preserves deadline cancellation after activity truncation", async () => {
+    const transport = new FakeTransport();
+    transport.agentMessageDeltas = [
+      ..." ".repeat(MAX_TURN_ACTIVITY_EVENTS + 1),
+    ];
+    const controller = new AbortController();
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+
+    await expect(
+      adapter.execute(
+        request({
+          signal: controller.signal,
+          onActivity: ({ metadata }) => {
+            if (metadata !== undefined)
+              controller.abort(new Error("task deadline expired"));
+          },
+        }),
+      ),
+    ).rejects.toThrow("task deadline expired");
+    expect(
+      transport.requests.some(({ method }) => method === "turn/interrupt"),
+    ).toBe(true);
+  });
+
   it("reports the Codex error message for a failed turn", async () => {
     const transport = new FakeTransport();
     transport.failedTurnMessage = "Model request was rejected";
@@ -574,18 +658,33 @@ describe("Codex AgentAdapter", () => {
     expect(transport.requests).toEqual([]);
   });
 
-  it("turns an interaction request into a non-interactive failure", async () => {
-    const transport = new FakeTransport();
-    const adapter = createCodexAdapterForTransport(transport, configuration, {
-      modelSelection: selection,
-    });
-    transport.emitCompletion = false;
-    const originalRequest = transport.request.bind(transport);
-    transport.request = async (method, params) => {
-      if (method === "turn/start") {
-        const result = await originalRequest(method, params);
-        setTimeout(
-          () =>
+  it.each([0, MAX_TURN_ACTIVITY_EVENTS + 1])(
+    "rejects an approval request after %i activity fragments",
+    async (fragmentCount) => {
+      const transport = new FakeTransport();
+      const adapter = createCodexAdapterForTransport(transport, configuration, {
+        modelSelection: selection,
+      });
+      transport.emitCompletion = false;
+      const originalRequest = transport.request.bind(transport);
+      transport.request = async (method, params) => {
+        if (method === "turn/start") {
+          const result = await originalRequest(method, params);
+          setTimeout(() => {
+            for (let index = 0; index < fragmentCount; index += 1) {
+              transport.emit({
+                kind: "notification",
+                notification: {
+                  method: "item/agentMessage/delta",
+                  params: {
+                    threadId: "thread-1",
+                    turnId: "turn-1",
+                    itemId: "message",
+                    delta: " ",
+                  },
+                },
+              });
+            }
             transport.emit({
               kind: "server-request",
               request: {
@@ -593,15 +692,15 @@ describe("Codex AgentAdapter", () => {
                 method: "item/commandExecution/requestApproval",
                 params: { threadId: "thread-1", turnId: "turn-1" },
               },
-            }),
-          0,
-        );
-        return result;
-      }
-      return originalRequest(method, params);
-    };
-    await expect(adapter.execute(request())).rejects.toBeInstanceOf(
-      InteractionRequiredError,
-    );
-  });
+            });
+          }, 0);
+          return result;
+        }
+        return originalRequest(method, params);
+      };
+      await expect(adapter.execute(request())).rejects.toBeInstanceOf(
+        InteractionRequiredError,
+      );
+    },
+  );
 });

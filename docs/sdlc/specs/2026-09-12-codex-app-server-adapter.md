@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-12
-updated: 2026-10-05
+updated: 2026-10-22
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
   - spec.autonomous-non-interactive-execution
@@ -148,6 +148,15 @@ It must omit unsupported cost values rather than estimate them.
 Raw event payloads, private IDs, prompt text, and credentials must not enter public events or errors.
 Diagnostic and Mastra projection failures must not change a successful Codex result.
 
+The adapter must bound activity retention separately from turn execution.
+It must allow more than 1,024 small text fragments in a valid turn.
+The activity budget is 65,536 events or 8,000,000 payload bytes per turn.
+At either limit, it must clear retained activity records and emit one progress
+notice with `metadata: { truncated: true }`. It must omit further activity
+without rejecting or interrupting the turn. Individual message limits,
+completed-item limits, task deadlines, cancellation, and approval handling must
+remain effective.
+
 ## Detailed design or contracts
 
 The package boundary is:
@@ -202,6 +211,7 @@ Do not add Codex fields to public authoring, Plan, runner IPC, or CLI result sch
 - Probe the selected Codex CLI with a controlled app-server and record its version and observed protocol shapes.
 - Test JSONL framing, malformed input, request correlation, event ordering, duplicate events, and disconnects.
 - Test typed output, model preflight, isolated and reused sessions, exact forks, cancellation, and interaction failure.
+- Test fragmented text, mixed tool activity, activity truncation, and safeguards after truncation.
 - Test direct-run and persistent-host lifecycle with run isolation.
 - Check public declarations and serialized boundaries for Codex and Mastra type leaks.
 - Run `pnpm test:mapping`, focused tests, typecheck, lint, build, format, and `pnpm docs:validate`.
